@@ -1,0 +1,3203 @@
+{
+ "audit_source_sha256": "45250ec78087e2fdf20348b392e2a1c547aa1af3491c252a93eec0206c9f7315",
+ "banks": {
+  "s0": {
+   "count": 192,
+   "key": "round76-seed0",
+   "seed_digest": "d9583e643766af4add7ab50b94b91530db088b293346a0dd89a999fff8e0d0e4",
+   "seeds": [
+    2662478856,
+    823856603,
+    3773566382,
+    58861260,
+    640374293,
+    4226348029,
+    507781570,
+    1152755472,
+    2996875594,
+    340095484,
+    1303091454,
+    573917606,
+    2026261160,
+    1473340625,
+    1455842557,
+    2615108110,
+    3461879814,
+    3766773835,
+    78044898,
+    722809885,
+    3020234046,
+    845627289,
+    1835133174,
+    2377911503,
+    3396667539,
+    187884593,
+    1099355697,
+    3210881927,
+    856805668,
+    1471937281,
+    3756604459,
+    220580887,
+    518660772,
+    3064271321,
+    2001761397,
+    3342028953,
+    1287586676,
+    3426119767,
+    1683738022,
+    3108954561,
+    2591708669,
+    2830374389,
+    3056886333,
+    3463729985,
+    14047874,
+    173518467,
+    1928640470,
+    1981357452,
+    204671461,
+    217562738,
+    3368111854,
+    1954683345,
+    1600804597,
+    3156184026,
+    1793710510,
+    627994118,
+    1933812546,
+    4288747746,
+    2303556464,
+    2852676834,
+    1902504243,
+    3800208120,
+    3342907865,
+    2978575617,
+    2314243516,
+    1458849402,
+    4193734924,
+    67926197,
+    3664181851,
+    999646070,
+    4172025623,
+    2266032596,
+    1394360604,
+    2798853844,
+    1181555283,
+    676983255,
+    684844723,
+    4083434027,
+    1884683443,
+    2679898118,
+    2110048804,
+    1079240915,
+    3936515777,
+    976519542,
+    3523793827,
+    1009615850,
+    1974222646,
+    3961335977,
+    1380138654,
+    961474801,
+    1652143555,
+    1634737368,
+    1917379477,
+    292827505,
+    2485289431,
+    3493430180,
+    530881904,
+    3174527687,
+    1393332069,
+    176479619,
+    2279963268,
+    4239044451,
+    204461559,
+    3315525696,
+    248345189,
+    487509838,
+    3508538270,
+    906067503,
+    1928982536,
+    3696376395,
+    12929926,
+    3692149060,
+    3330211943,
+    1319584691,
+    339977804,
+    4023501320,
+    1017582954,
+    4117030950,
+    2225790774,
+    1772496518,
+    3814095660,
+    2739643862,
+    1353218616,
+    1730080032,
+    488965163,
+    3424122539,
+    1310708094,
+    2389526523,
+    3234304046,
+    1305195591,
+    2841606088,
+    754493407,
+    4278275095,
+    247877725,
+    1424104667,
+    2819183629,
+    2699194896,
+    1704642058,
+    1860868820,
+    1544096968,
+    321046713,
+    2858863112,
+    2321467452,
+    712052133,
+    2466942740,
+    821864441,
+    284821128,
+    4101339213,
+    3690028689,
+    209299926,
+    3431688239,
+    2164284524,
+    1603395542,
+    504052892,
+    2219723661,
+    3502571856,
+    2794840142,
+    3355620935,
+    2505610014,
+    2149275180,
+    2388701381,
+    3347336627,
+    3769251561,
+    1277253900,
+    257353482,
+    1059949303,
+    3351246480,
+    1131071082,
+    1452334551,
+    4188685286,
+    450252155,
+    3655665807,
+    279774659,
+    2647870771,
+    2767575089,
+    443143681,
+    693193141,
+    2523511364,
+    3485945208,
+    261504877,
+    3220937304,
+    1030609781,
+    371853853,
+    1432470307,
+    2960615549,
+    1138518360,
+    2625434582,
+    2839716009,
+    741397510,
+    25436514,
+    2530800581,
+    3167521813
+   ]
+  },
+  "s1": {
+   "count": 192,
+   "key": "round76-seed1",
+   "seed_digest": "9455a0e8476a3d790db42fb71d104aa95a29072323bc0da61c25eed807ea7162",
+   "seeds": [
+    1970149477,
+    2061677747,
+    1309432721,
+    2490832295,
+    2009244758,
+    1486843726,
+    4294178273,
+    2064465787,
+    3040883407,
+    225365982,
+    1691491101,
+    1806832303,
+    2953100347,
+    4203389434,
+    1529423131,
+    669734528,
+    2896479467,
+    1537143512,
+    540768370,
+    3880220467,
+    1501954298,
+    3216896072,
+    179658840,
+    2926566366,
+    1346836288,
+    3749590793,
+    2654600473,
+    521190459,
+    3770610842,
+    455961078,
+    3456853893,
+    15174855,
+    1509835029,
+    1583071596,
+    1512091725,
+    1751776909,
+    2204074895,
+    210384818,
+    3728657605,
+    1371836400,
+    4056969044,
+    502458700,
+    3510102456,
+    4138864722,
+    1290558151,
+    3185480567,
+    2997329893,
+    1690704827,
+    3603567925,
+    2490475857,
+    3533467810,
+    2047468993,
+    1442154897,
+    1567976310,
+    2475130958,
+    58013823,
+    2490118818,
+    1966409373,
+    1135311634,
+    772748659,
+    2147390066,
+    81853378,
+    1656191958,
+    882743404,
+    596057327,
+    631935403,
+    529842910,
+    1897961608,
+    9610145,
+    2590892904,
+    1989213172,
+    3008823719,
+    32358631,
+    771316084,
+    101185169,
+    4122048451,
+    1060058391,
+    2560453868,
+    4735893,
+    2724203509,
+    1857603206,
+    2256917049,
+    61246179,
+    180316668,
+    75175467,
+    1710758111,
+    485118937,
+    717087152,
+    1446348262,
+    374731088,
+    4263798055,
+    467551620,
+    1952549612,
+    535619487,
+    3426889094,
+    2294402081,
+    3991979734,
+    2745895441,
+    912870640,
+    3468378070,
+    3637109569,
+    1424799075,
+    349309174,
+    3851742707,
+    2805676949,
+    3316146963,
+    79149997,
+    2926236810,
+    3739216219,
+    3796252801,
+    2584588042,
+    3500812252,
+    2287904399,
+    808234982,
+    1461313154,
+    1027520471,
+    3409473969,
+    2331753971,
+    4288037604,
+    1930424402,
+    2043772062,
+    3636593540,
+    1415272485,
+    1936234692,
+    3649846858,
+    2651637750,
+    1049512215,
+    2059115887,
+    3459629602,
+    97206556,
+    2696644484,
+    1143947254,
+    3158116368,
+    55002986,
+    3755642147,
+    1159263153,
+    1271733552,
+    3054160912,
+    2197041527,
+    43252665,
+    1423600765,
+    2266432759,
+    2069230751,
+    2051892129,
+    2741315527,
+    2896780541,
+    1943427977,
+    264357158,
+    2291365869,
+    2793788773,
+    381475884,
+    1738384960,
+    2005263590,
+    590763235,
+    1533374063,
+    3190192055,
+    2717329424,
+    2994558218,
+    4202798471,
+    3819692396,
+    3464287382,
+    3614365606,
+    1584363030,
+    2743582836,
+    3068515763,
+    2214160079,
+    2440276565,
+    1251648811,
+    600004304,
+    3798577259,
+    892956919,
+    3746751955,
+    1962568282,
+    879630145,
+    3214232056,
+    1561772351,
+    1327848491,
+    33534110,
+    504795848,
+    3312828067,
+    3988976812,
+    833848410,
+    1968013897,
+    893970763,
+    2421100114,
+    3415019520,
+    3799085283,
+    1767068952,
+    2993990437,
+    4239786701,
+    2116130075,
+    2166794506
+   ]
+  },
+  "s2": {
+   "count": 192,
+   "key": "round76-seed2",
+   "seed_digest": "0a8c5e55378b62254426971ec5bb225bd3ce7843a209b3e57f59e49345510cd6",
+   "seeds": [
+    662886701,
+    776808398,
+    2467126609,
+    529733121,
+    2539296089,
+    3153323036,
+    1896171923,
+    608562210,
+    2302491612,
+    4094424800,
+    1154824485,
+    2158167252,
+    453260887,
+    3213062944,
+    3384464162,
+    4147404627,
+    3347964682,
+    3016837454,
+    4137086568,
+    2933714575,
+    136481121,
+    2409313897,
+    3732430856,
+    1775177779,
+    1064664951,
+    550360968,
+    2968154614,
+    2210904702,
+    1045880029,
+    1760324670,
+    3369434414,
+    4085786667,
+    883346039,
+    978822791,
+    1230258965,
+    2875378331,
+    2418253465,
+    2532715196,
+    3094675935,
+    1467986414,
+    1609053097,
+    899723936,
+    4215910157,
+    1431713319,
+    1379842806,
+    4182306075,
+    2052342821,
+    3545436405,
+    2547920946,
+    3274397036,
+    2020937616,
+    3192074275,
+    3897322887,
+    3628603354,
+    2475112127,
+    2733170207,
+    1331011813,
+    793998843,
+    1306290148,
+    3267803305,
+    3751116761,
+    1421359649,
+    1320407194,
+    3540600383,
+    1148264631,
+    1840622284,
+    4224856680,
+    5019404,
+    351775433,
+    4061472124,
+    3273724215,
+    3576514467,
+    3209810715,
+    4273459304,
+    3042978213,
+    505056109,
+    1387499273,
+    954706232,
+    4082875910,
+    1835459687,
+    659982522,
+    1593524,
+    293690289,
+    2386270625,
+    2772177358,
+    1954031439,
+    433773652,
+    2704404879,
+    664489561,
+    1938944001,
+    4180282678,
+    2781514353,
+    2859161167,
+    4174713784,
+    4241261533,
+    1565867868,
+    267610423,
+    225276659,
+    101050309,
+    3688370518,
+    2464149816,
+    2426622452,
+    506333637,
+    4030069008,
+    2703867655,
+    3296261968,
+    4208971349,
+    855297231,
+    966686906,
+    1401805886,
+    1027527107,
+    55945968,
+    3809457670,
+    3918724416,
+    307881419,
+    447418954,
+    164859847,
+    2370479079,
+    3773271091,
+    2638301240,
+    3123851065,
+    3977467480,
+    3908710338,
+    981080417,
+    474791500,
+    4115855970,
+    2148817774,
+    1615286404,
+    2700934217,
+    2811312052,
+    2665857011,
+    10080688,
+    2034360104,
+    1022646168,
+    4214372917,
+    106098918,
+    1762692199,
+    3437323433,
+    8730349,
+    1303040750,
+    231885856,
+    3569796416,
+    1654398188,
+    830836501,
+    2262888174,
+    394051639,
+    1714777473,
+    3716335635,
+    3089173459,
+    369653288,
+    3264212932,
+    60886925,
+    1765784075,
+    2150591209,
+    2119739407,
+    3649881069,
+    614669968,
+    4035452410,
+    4250396747,
+    3020285750,
+    1696365952,
+    3041756431,
+    1367054643,
+    829232706,
+    1923527203,
+    4118464596,
+    1552575697,
+    3617705004,
+    1627442718,
+    706073823,
+    2056263090,
+    1438176375,
+    2042513215,
+    451712326,
+    1884262009,
+    1384592658,
+    3659958285,
+    1949172159,
+    10164365,
+    3295644133,
+    3581451697,
+    991864615,
+    3196825841,
+    1444640833,
+    1291208428,
+    529627466,
+    10131916,
+    1299738946,
+    4174436364,
+    3612002834,
+    843769207,
+    2070975132
+   ]
+  },
+  "s3": {
+   "count": 192,
+   "key": "round76-seed3",
+   "seed_digest": "05448e97f3f73e638be646bbc071685a264a91075b51a1bf0c3c661760addbdb",
+   "seeds": [
+    1619957673,
+    3006323243,
+    2282573186,
+    3874868824,
+    1881641088,
+    2240792248,
+    2021976651,
+    2722126981,
+    999968078,
+    734067885,
+    4204362207,
+    2437283461,
+    963057725,
+    3894033284,
+    2506426068,
+    1152089606,
+    1607255042,
+    810320199,
+    1477078138,
+    3828283629,
+    3405858740,
+    4255603892,
+    1558861553,
+    708804253,
+    2829317732,
+    1672285896,
+    3219527350,
+    323851799,
+    3838394491,
+    1238615744,
+    1545416586,
+    3036906771,
+    2586390757,
+    129220761,
+    2578169797,
+    148040080,
+    1662162944,
+    2256089383,
+    792903548,
+    3134494354,
+    86798413,
+    2718488273,
+    4028243420,
+    2405672752,
+    2813149817,
+    301288741,
+    4034215559,
+    3154386086,
+    2948244216,
+    1799900254,
+    3597924944,
+    1259076372,
+    788249947,
+    3467579534,
+    2090114744,
+    3399276332,
+    2298395337,
+    3662522081,
+    3039895043,
+    1610279931,
+    1996585951,
+    72474239,
+    4064898941,
+    2216468545,
+    2416825684,
+    738170119,
+    2573221310,
+    103466071,
+    3399971147,
+    3497642648,
+    1086279856,
+    1873359783,
+    262396497,
+    315979798,
+    324939302,
+    1816575341,
+    3174390217,
+    3879657001,
+    2623219039,
+    1572499962,
+    916474491,
+    2329699547,
+    1763543250,
+    2703468896,
+    2372143891,
+    3273993016,
+    858164251,
+    2487837511,
+    1026038653,
+    2141481994,
+    3538380193,
+    3404529243,
+    2329842997,
+    2175621758,
+    2375136330,
+    3488794881,
+    1746483322,
+    2002236020,
+    3672236339,
+    793125800,
+    3271738807,
+    874592907,
+    951006617,
+    3192257726,
+    2905432088,
+    1486230599,
+    288362243,
+    1130797118,
+    1184252860,
+    2668624009,
+    212642280,
+    1120307972,
+    4191475373,
+    3277599861,
+    2868611930,
+    4227944404,
+    3671676172,
+    1176934634,
+    6740435,
+    1885707073,
+    1935145181,
+    3490357699,
+    3604721625,
+    2755209191,
+    1004004841,
+    2545680437,
+    3392572595,
+    1669195093,
+    4070006632,
+    2135471818,
+    3744023388,
+    3538725784,
+    1100577332,
+    2320630476,
+    3055209819,
+    2101736136,
+    687146091,
+    4054520588,
+    320977552,
+    924697932,
+    743712752,
+    434572518,
+    959389076,
+    1559416680,
+    893107790,
+    1264002938,
+    3022979007,
+    349642447,
+    3472172346,
+    2550128844,
+    673919831,
+    2043139005,
+    121503819,
+    1048628630,
+    1935516546,
+    390098396,
+    767099775,
+    1982517615,
+    1827534078,
+    1251685399,
+    2636569537,
+    240828124,
+    1994721447,
+    3707456447,
+    2266944809,
+    3475971049,
+    1004168671,
+    889646768,
+    1019119707,
+    2640415547,
+    4272866310,
+    883165237,
+    4022449285,
+    2271809106,
+    3483079456,
+    1129701668,
+    2182751897,
+    3219017413,
+    1025035570,
+    2781911793,
+    501253264,
+    3696872013,
+    2251179910,
+    3267784772,
+    956215975,
+    3169932755,
+    4046705204,
+    1250407328,
+    1239468365,
+    2489311627,
+    2805600247,
+    3232612379
+   ]
+  },
+  "s4": {
+   "count": 192,
+   "key": "round76-seed4",
+   "seed_digest": "8e00c962dcde36f3227e243469bbb3b0dc72178a820b6e024af5488c59fe8079",
+   "seeds": [
+    952100533,
+    1041748068,
+    86189432,
+    4173566678,
+    1516358147,
+    2699491007,
+    2349105189,
+    684756226,
+    814049628,
+    3300506816,
+    3348062336,
+    901881361,
+    3988231489,
+    1830706623,
+    4002713202,
+    263332801,
+    1509231303,
+    542234729,
+    647606353,
+    1442826056,
+    3401754485,
+    3641239836,
+    260652295,
+    3573128830,
+    3853555613,
+    2188320016,
+    3651839694,
+    2355177599,
+    1336050904,
+    2925093095,
+    1128731668,
+    155162902,
+    2706873565,
+    3574193893,
+    2120630739,
+    4120284434,
+    1684973931,
+    1906986582,
+    3855010608,
+    1450100975,
+    3532782216,
+    114571439,
+    3208902492,
+    743817955,
+    1375388330,
+    1354310569,
+    749711663,
+    4225751283,
+    1234658130,
+    825058938,
+    72907829,
+    1233811369,
+    2131345274,
+    3575771125,
+    3344183505,
+    1770031613,
+    4141380508,
+    3077857020,
+    1291401931,
+    3186858012,
+    674829911,
+    3925726033,
+    2174633046,
+    2600837449,
+    1989758193,
+    1550502100,
+    1313709373,
+    1898590312,
+    3720070845,
+    674525664,
+    3944247038,
+    960242664,
+    4274921693,
+    2303021284,
+    14882667,
+    3157769871,
+    2933680818,
+    1389385760,
+    2781768649,
+    72025049,
+    1851206156,
+    3020215819,
+    2392983617,
+    3604195729,
+    4167908692,
+    1534750581,
+    120903372,
+    657892627,
+    2674963376,
+    3099059814,
+    3501851170,
+    3088871834,
+    3469343293,
+    2936649533,
+    3677247581,
+    797613533,
+    187669577,
+    903331167,
+    558467239,
+    4291434127,
+    3813694492,
+    2801026409,
+    2622798572,
+    1282290922,
+    2359651486,
+    3490581582,
+    602312642,
+    4030379596,
+    2319071519,
+    514583571,
+    1035036687,
+    2377072815,
+    2622017701,
+    2183276921,
+    795842655,
+    221734542,
+    1146788763,
+    1060743062,
+    3327138585,
+    3576882369,
+    1170039503,
+    4284338011,
+    1807230022,
+    1001241140,
+    3017995235,
+    2798305457,
+    2398865382,
+    453332466,
+    1280296656,
+    2394415199,
+    3738030644,
+    2783775260,
+    484220810,
+    3177153366,
+    944248897,
+    642599635,
+    1500033208,
+    1814981890,
+    1929194442,
+    1773568871,
+    3011298718,
+    1197818584,
+    3555763673,
+    316819566,
+    2572081320,
+    1399315299,
+    1914246815,
+    1983997407,
+    3656362787,
+    1929655862,
+    3748985034,
+    2812005188,
+    523079960,
+    444929938,
+    2293340368,
+    2147230446,
+    1423074788,
+    3052518844,
+    581161039,
+    3839642557,
+    975010603,
+    2773691219,
+    3853630316,
+    1070773937,
+    2658376951,
+    4108707099,
+    4008413077,
+    1153772232,
+    1671957002,
+    966355012,
+    3784730174,
+    653571631,
+    3593196329,
+    1781871250,
+    824559661,
+    2289786510,
+    3254611861,
+    3371240768,
+    3468299160,
+    46436805,
+    3905266602,
+    3627343334,
+    3240340676,
+    842852414,
+    284514288,
+    1256999092,
+    3826585633,
+    3839011110,
+    1965192626,
+    348466975,
+    223686944,
+    760544475
+   ]
+  }
+ },
+ "candidate_count": 960,
+ "evidence_hits": [],
+ "generated_utc": "2026-10-17T00:04:31.400771+00:00",
+ "limitations": [
+  "No claim about unrecorded experiments or opaque binary files.",
+  "NPZ/NPY are covered through visible JSON/JSONL manifests and receipts."
+ ],
+ "mandatory_evidence": {
+  "census_root": {
+   "count": 55,
+   "kind": "directory",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014",
+   "sha256": null
+  },
+  "m3_phase_r": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/plan.json",
+   "sha256": "64ee770b377a8fe545e4736812eb4f0026c8122be5bbaeaedbefd365bb64e1cf"
+  },
+  "m3c_root": {
+   "count": 166,
+   "kind": "directory",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008",
+   "sha256": null
+  },
+  "m4_phase_r": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4-phase-r-nv-20261013/plan.json",
+   "sha256": "5e92bcdefd0a2fd6aa3d8e8b44d091d63b2a45b5a7c3898d60bacfac6747dbed"
+  },
+  "m4b_root": {
+   "count": 76,
+   "kind": "directory",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013",
+   "sha256": null
+  },
+  "prior_exclusions_0": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v2-20261004/namespaces/training_exclusions.json",
+   "sha256": "09e4cb22e569ceea6b8af7d3fb335f2e59e791a749b07d0151108c28548d3b72"
+  },
+  "prior_exclusions_1": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005/namespaces/training_exclusions.json",
+   "sha256": "4b0f33775544e36e2ccbe6a5d8ab35b81de40565c4328dc8abddd3cea4bc1edf"
+  },
+  "prior_exclusions_2": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v4-20261007/namespaces/training_exclusions.json",
+   "sha256": "d6223bf5c0bd03cb30bdbc2c455208800e30e880ba395bf0cb5d2f6c433f6d2a"
+  },
+  "prior_exclusions_3": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/namespaces/training_exclusions.json",
+   "sha256": "8a06d278ae51a71c3f71eff8afa120b1b9fc57f22ff2cac138302be29cf68cd4"
+  },
+  "prior_exclusions_4": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/namespaces-r2/training_exclusions.json",
+   "sha256": "04dc76fc95458e212a595772de86c8a8addfa0499ec480b83a0f8ac80e5ecf96"
+  },
+  "prior_exclusions_5": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5s-20261009/namespaces/training_exclusions.json",
+   "sha256": "76b3b1fbb601115056d42e7198048b650ed7350ff8042a266cc830d97b9ddd88"
+  },
+  "prior_exclusions_6": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5s2-20261009/namespaces/training_exclusions.json",
+   "sha256": "30726df2c26da9eb26a37659c3f525ec63bf3618495de5b380bc8e426edbd885"
+  },
+  "t3_manifest": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/manifest.json",
+   "sha256": "0b216da882b634e79ac640a9970a58157828da96e93ec4dbe68e6924c8141391"
+  },
+  "t3_namespace": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/namespace.json",
+   "sha256": "402e2ad8755ae3786d1c7906e44039fd6498ef00bc7190d624ea1d1525955a1b"
+  },
+  "t4_snapshot": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4b-snapshot-restart-20261016/full/manifest.json",
+   "sha256": "33a8abdbc540046a5f805fe107d1d4082fa729b4ef065fac6afee7d8f0e71eaa"
+  },
+  "t4c_bank": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-data-20261016/bank-v3/manifest.json",
+   "sha256": "4b1ea37d8c24b550e3038a16da1c025bc00198cba83fa7c7c157953e927d406c"
+  },
+  "t4c_outside": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-data-20261016/outside-bank/manifest.json",
+   "sha256": "bb8be65c31a61242dbb30d7462ac3e85e7a83a325a8d4860d536ac812ee9dd44"
+  },
+  "t4e_holdout": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/manifest.json",
+   "sha256": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c"
+  },
+  "t4e_train": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/manifest.json",
+   "sha256": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d"
+  },
+  "t4f_manifest_holdout": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-v3-20261016/banks/holdout/manifest.json",
+   "sha256": "3dce986a91e87418224eed32a46e206b9f2bcc70b4064ad1fe8719976ab7081f"
+  },
+  "t4f_manifest_train": {
+   "count": 1,
+   "kind": "file",
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-v3-20261016/banks/train/manifest.json",
+   "sha256": "11f6f97be098f220f63342a7cea43dfd6c5f278179933549bc21c8829ff396bf"
+  }
+ },
+ "namespace": "redesign-t7-phase-r-b8/v1",
+ "pass": true,
+ "registered_collision_seeds": [],
+ "registered_count": 1183588,
+ "registered_rounds": [
+  50,
+  51,
+  52,
+  53,
+  54,
+  55,
+  56,
+  57,
+  58,
+  59,
+  60,
+  61,
+  62,
+  63,
+  64,
+  65,
+  66,
+  67,
+  68,
+  69,
+  70,
+  71,
+  72,
+  73
+ ],
+ "scan_progress": [
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_safety_20260926"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_serving_20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_strict_20260927"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v3_screen_20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v4_screen_20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v5_screen_20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v5_serving_20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v5_strict_20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v6_screen_20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v7_lambda_sweep_20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v7_screen_20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v7_serving_20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v7_strict_20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v8_lambda_sweep_20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v8_screen_20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v8_serving_20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/apex_veto_v8_strict_20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/b8_death_census_20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/compute"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/death_census_v8_20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/ensemble_20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/fixed_search.py"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/frp3_checkpoint_serving_20261005"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/frp3_strict_20261005"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/gate_calibration_20260926"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/m7_feature_auc_20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/m7_governor_20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/paired_band_validation_20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/perf_actor_20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/perf_compile_20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/perf_eval_20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/perf_learner_20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/perf_multiseed_20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/perf_opp_20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/perf_podbench_20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/perf_profile_20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/perf_quiet_20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/perf_ram_20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/perf_sim_20261007"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/planner_feasibility_20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_m2_20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_m3_20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_m3c_20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_m4_20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_m4a_20261012"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_m4b_20261012"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_m6_20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_scope_20261007"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t4_20261015"
+  },
+  {
+   "status": "split-exclusion-ancestor",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/PREREGISTRATION_T7.md"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/SEED_ALLOCATION_ERRATUM_76_T7.md"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/SEED_ALLOCATION_ERRATUM_T7.md"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/SEED_ALLOCATION_REJECTED_75_T7.json"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/SEED_ALLOCATION_REJECTED_T7.json"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/__init__.py"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/__pycache__"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/phase_r_t7.py"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/rule_spec_t7.py"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/seed_audit.py"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/runpod_fanout"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/sequential_gate_validation_20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/sequential_phase_r"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/sequential_strict_template"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/serving_time_search_20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/simd_parity_h5000_20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/simd_parity_v7v8_h5000_20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/survival_band_v2_20261006"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t1_commitment_20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t1_fuse_probe_20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t2_screen_20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t3_diagnostics_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t3_rollout_labels_20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t3_screen_20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t4_curve_20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t4_expert_iteration_20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t4_screen_probe_20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t4_snapshot_restart_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t4a_posthoc_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t4a_screen_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t4a_two_sided_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t4c_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t4d_return_regression_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t4e_return_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t4f_return_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t5_separability_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t5b_risk_and_fuse_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/t6_restart_20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/task_aligned_20260924"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/task_aligned_continuation_20260924"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/task_aligned_preview_20260924"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-t7/research/trap_horizon_20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/CODEX_DOCS_ORGANIZE_PROMPT.md"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/CODEX_PROMPT.md"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/FRP_V3_PHASER_RUNPOD_COMMANDS.md"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/HANDOFF_2026-10-05.md"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-safety-screen-20260926"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-serving-20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v3-screen-20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v4-screen-20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v5-screen-20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v5-serving-20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v5-strict-20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v6-screen-20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v7-lambda-sweep-20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v7-screen-20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v7-serving-20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v7-strict-20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v8-lambda-sweep-20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v8-screen-20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v8-serving-20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v8-strict-20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v9-dev-sweep-20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v9-dev-sweep-queue.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v9-screen-20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v9-softk-sweep-20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-docs-organize.final.md"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-docs-organize.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-rgfix.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-rgfix.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t1a.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t1a.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t1c.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t1c.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t2b.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t2b.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t2p.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t2p.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3b.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3b.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3c.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3c.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3d.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3d.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3diag.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3diag.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3p.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t3p.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4a.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4a.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ap.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ap.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4b.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4b.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4c.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4c.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4cp.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4cp.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4d.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4d.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4e.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4e.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ebug.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ebug.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ecal.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ecal.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ep.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ep.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4f.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4f.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4f2.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4f2.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4f3.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4f3.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ph.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ph.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4pod.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4pod.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4prep.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4prep.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ue.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4ue.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t5.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t5.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t5b.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t5b.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t6.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t6.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t7.err"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t7.out"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/death-census-frp3-20261006"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/death-census-v8-20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/decision-phase-20260912"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/decision_memo_training_bet_and_LH1_2026-10-04.json"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/four-hour-20260913"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v2-20261004"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v4-20261007"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5s-20261009"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5s2-20261009"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp3-m3s12-strict-20261005"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp3-s12-serving-20261006"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp_chain.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp_chain.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp_chain.sh.saved"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp_v3_chain.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp_v3_chain.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp_v3_chain.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/git-sync"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/governance"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/growth-ceiling-20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/growth-ceiling-shard1.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/growth-ceiling-shard2.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/growth-ceiling-shard3.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/lh1-calibration-20261004"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/lh1-calibration-shard1.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/lh1-calibration-shard2.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/lh1-calibration-shard3.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/lh1-frp3-shard1.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/lh1-frp3-shard2.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/lh1-frp3-shard3.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/lh1-screen-frp3-s12"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m4-p2-b8.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m4-p2.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m4a-mac-c34.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m4a2-pod-retry.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m4a2-pod-retry.status"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m4b-mac-b8-seeds.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m4b-mac-b8.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m5-screen.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m6-dev-20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m6-mac-lane0.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m6-mac-lane1.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/m7-diagnostics-20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/mass-objective-20260913"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/observation-value-20260912"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/oracle-rescue-20261004"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-ab-k2-20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-ab-k2.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-ab-probes-20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-cuda-bench-20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-cuda-bench-20261013-try2"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-cuda-bench-20261013-try2.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-cuda-bench-20261013.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-cuda-compile-20261014-try1"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-cuda-compile-20261014-try1.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-cuda-compile-cmds.json"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-cuda-compile.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-cuda-compile.status"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-cuda-retry.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-cuda-retry.status"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-quiet-mac-20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-quiet-mac.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-autonomous-20261010"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-p2-candidates-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008-plan"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008-r2"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008-r3"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008-r4"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-probes-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-design-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008-a1"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008-a1-plan"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008-a1.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008-plan"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008-recovery"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008-recovery-plan"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-phase-r-smoke-nv-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-probes-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-probes-20261008-recovery"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-stage0-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-takeover-20261008"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4-mac-probes-20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4-p2-candidates"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4-phase-r-nv-20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4-selection"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a-gpu-20261012"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a-gpu-20261012-ledger-refused"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a-gpu-20261012-ledger-refused.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a-gpu-20261012-plan"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a-gpu-20261012.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a-mac-c34-20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a-probes-20261012"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-g2fail1"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-g2fail1.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-g2fail4"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-g2fail4.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-ledger5"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-ledger5.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-nostock2"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-nostock2.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-refused1"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-refused1.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-small3"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-small3.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-small5"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-small5.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-try7"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-try7.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-try8"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-try8.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-try9"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-try9.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-probes-20261012"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-live-dev"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m5-mac-20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m5-probes-20261013"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-a4"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-a4.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-dup4"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-dup4.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-oom3"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-oom3.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-plan"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-preflight1"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-preflight1.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-rc1"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-rc1.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-small1"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-gpu-20261014-small1.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-probes-20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-probes-20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t2-mac-20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t2-probes-20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t2b-mac-20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-curve-probes-20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-diagnostics-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4a-mac-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4a-probes-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-probes-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4e-mac-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4f-mac-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t6-mac-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/research-portfolio-20260912"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/research-tracks-20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/rl-repair-20260908"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/runpod-fanout"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/runpod-stock-monitor-20261014"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/runpod-xcheck-20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/simd-h5000-parity-20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/simd-v5-parity-20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/simd-v7v8-parity-20261003"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/simd-v7v8-parity-20261003.console.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t1-commitment-20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t1-fuse-probe-20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4-pod-validation-20261015-plan"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4-prep-20261015"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4b-snapshot-restart-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-data-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-bugcheck-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016-attempt1-preflight-failed"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-addendum2-validation-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-collect-20261016.sh"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-heldout-outside-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-heldout-outside-v2-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-prep-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-20261016.collect.exit"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-20261016.collect.log"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-v3-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-validation-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/train-smarter-20261007"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/trap-horizon-20261001"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/trap-horizon-v5-20261002"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/vision-check-20261004"
+  },
+  {
+   "match_count": "0",
+   "status": "complete",
+   "target": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/worktree-archive-20261012"
+  }
+ ],
+ "schema": "t7-phase-r-seed-audit/v1",
+ "t3_manifest_binding": {
+  "file_count": 83,
+  "manifest_sha256": "0b216da882b634e79ac640a9970a58157828da96e93ec4dbe68e6924c8141391",
+  "mismatches": [],
+  "namespace_manifest_sha256": "402e2ad8755ae3786d1c7906e44039fd6498ef00bc7190d624ea1d1525955a1b",
+  "ok": true
+ },
+ "t4e_source_audit": {
+  "banks": {
+   "holdout": {
+    "exists": true,
+    "malformed_receipts": [],
+    "manifest": {
+     "collection_schema": "t4e-return-bank/v1",
+     "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/manifest.json",
+     "schema_version": 1,
+     "sha256": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c"
+    },
+    "pass": true,
+    "receipt_count": 30,
+    "seed_plan_matches": true,
+    "seeds_in_all_plans": true,
+    "worlds_in_plans": true
+   },
+   "train": {
+    "exists": true,
+    "malformed_receipts": [],
+    "manifest": {
+     "collection_schema": "t4e-return-bank/v1",
+     "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/manifest.json",
+     "schema_version": 1,
+     "sha256": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d"
+    },
+    "pass": true,
+    "receipt_count": 330,
+    "seed_plan_matches": true,
+    "seeds_in_all_plans": true,
+    "worlds_in_plans": true
+   }
+  },
+  "exists": true,
+  "pass": true,
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016",
+  "plans": {
+   "duplicate_plan_indices": [],
+   "file_count": 6,
+   "job_count": 1200,
+   "plan_files": [
+    {
+     "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0000.json",
+     "sha256": "42e17147006a3f5bebb16b1e60d5d53fd98a6e8debeecd154bd07c1949c9d75b"
+    },
+    {
+     "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0001.json",
+     "sha256": "8e05fd627c81ef950d96ce3c2b91c76e255a690bec1911a43afb2f5ef3046ebc"
+    },
+    {
+     "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0002.json",
+     "sha256": "95c0bf269ff11367b1e9f8287e156491f1d793f7266c8689282801bfe44c0682"
+    },
+    {
+     "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0003.json",
+     "sha256": "6a081c2f9d0e4e1129752eca7ca1ba6e64177c188b5e00221f6fbeaac50409e8"
+    },
+    {
+     "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0004.json",
+     "sha256": "19e83c939811d4fe250510219cc0bc456f2d020f2b9fbbc6dd4baccbb447b9b8"
+    },
+    {
+     "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0005.json",
+     "sha256": "7a71c9dc873d519c1f327c06d7dedf23938b723679037b87bf8d45d0e16a6575"
+    }
+   ],
+   "plan_indices_complete": true,
+   "seed_digest": "74f022cc1346915db981349de3d7329013e40859c7997e2b7cc3af0aa06dd2c0",
+   "unique_plan_indices": 1200,
+   "unique_seeds": 1200
+  },
+  "train_holdout_seed_overlap": [],
+  "train_holdout_world_overlap": []
+ }
+}

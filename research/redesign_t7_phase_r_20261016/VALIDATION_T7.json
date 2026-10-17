@@ -1,0 +1,41 @@
+{
+ "allocation_round": 76,
+ "checkpoint_hashes_validated": 11,
+ "created_utc": "2026-10-17T00:06:33.559462+00:00",
+ "existing_p2_receipts_validated": 10,
+ "expected_controls": 45,
+ "expected_nested_records": 5760,
+ "format_checks": {
+  "black": true,
+  "git_diff_check": true,
+  "isort_profile_black": true
+ },
+ "gameplay_started": false,
+ "guard_problems": [],
+ "max_cpu_workers": 6,
+ "preregistration_commit": "8fe1ad39",
+ "reviews": [
+  "independent contract/statistic review",
+  "runner ownership/resume/record integrity review"
+ ],
+ "rule_sha256": "9bb8944b12d8dc87bbea3afd8259a25a99bd2c0509e3ce30db9851a124a815cc",
+ "schema": "t7-pregame-validation/v1",
+ "seed_audit_sha256": "0d1cee86786fe9f8b6cc3134722c95e09c73aa416ff90398717371163f41f3c5",
+ "serving_defaults_diff_from_baseline": "empty",
+ "source_sha256": {
+  "research/redesign_t7_phase_r_20261016/__init__.py": "5ea4a8b031d84217fd8c70c0f3bfd8d7b399e13b5a6e9baafd263dd25aa11b64",
+  "research/redesign_t7_phase_r_20261016/phase_r_t7.py": "a69ac7d096f20ee19118c8a2b6daaf644835b32a5f7cc3d6796fab8851c27fcc",
+  "research/redesign_t7_phase_r_20261016/rule_spec_t7.py": "0fc640fd126fa9132c245d706bba98142a9f1069c1bcb69bae21f6a32d5f33d7",
+  "research/redesign_t7_phase_r_20261016/seed_audit.py": "45250ec78087e2fdf20348b392e2a1c547aa1af3491c252a93eec0206c9f7315",
+  "tests/test_t7_rule_spec.py": "8199bef288aff0975d0324efe5183c84ca7998d1efb358ef3005a6ecaadf0f9e",
+  "tests/test_t7_runner.py": "0cc3f581a38402a8661d2ee7ec494b1f97cf83236c26820f03a57698ec651fe5",
+  "tests/test_t7_seed_audit.py": "2b37497b9a36c165106e82456be6e55e5ae55ae741538ea4e7edfe18a9f913cf"
+ },
+ "tests": {
+  "command": "./venv/bin/python -m pytest -q tests/test_t7_runner.py tests/test_t7_rule_spec.py tests/test_t7_seed_audit.py tests/test_m4_rule_spec.py",
+  "failed": 0,
+  "passed": 34,
+  "wall_seconds": 2.43
+ },
+ "threads_per_worker": 1
+}
