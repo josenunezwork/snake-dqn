@@ -1413,7 +1413,7 @@ def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False)
     v61 = getattr(args, "v61_backend", None) or os.environ.get(V61_BACKEND_ENV) or "python"
     runtime = Vector61Runtime(backend=v61)
     controlled = np.zeros((E, 6), dtype=bool)
-    all_snakes = getattr(args, "all_snakes_learner", False)
+    all_snakes = learner_seats(args) == 6
     if hero_v61:  # M4-A shield / labels: the v8 veto reads the hero's vector61 rows
         controlled[:, 0] = True
     policies: Dict[Any, Any] = {}
@@ -1431,6 +1431,11 @@ def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False)
                 policies[spec] = Vector61SimdPolicy(spec[1], runtime, forward="batched")
                 for e, s in cells:
                     controlled[e, s] = True
+    # The N=3 pool can place a vector61 policy in any non-learner seat, including
+    # slot zero.  Bind precisely those rows before its dispatcher is constructed;
+    # its static seat map is recomputed from the same isolated segment seed below.
+    if learner_seats(args) == 3:
+        controlled[~learner_seat_mask(args.seed, segment, E, 3)] = True
     runtime.bind(sim, controlled)
     groups_arr = {k: np.array(v, dtype=np.int64) for k, v in groups.items()}
     # T4 is deliberately entirely default-off: do not allocate, import, or draw a
@@ -1686,6 +1691,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="T19 opt-in static league: live learner seats per six-snake world; 1 and 6 "
         "preserve the historical hero-only and --all-snakes-learner collectors respectively",
+    )
+    ap.add_argument(
+        "--league-checkpoint-dir",
+        default=None,
+        help="directory containing SHA-pinned static-pool checkpoints (default: SNAKE_CKPT_DIR)",
     )
     ap.add_argument(
         "--max-wall-seconds",
@@ -2761,7 +2771,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
 
                 pool = build_default_static_pool(args, ctx, sim, runtime, device)
                 frozen = np.empty((sim.E, sim.S), dtype=object)
-                policy_ids = tuple(pool.policy_ids())
+                policy_ids = tuple(pool.policy_ids)
                 if not policy_ids:
                     raise RuntimeError("static pool has no eligible frozen policies")
                 for e in range(sim.E):
@@ -2839,6 +2849,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 eps, gamma_now = sched.eps(t_glob), sched.gamma(t_glob)
                 chosen: Dict[str, Any] = {}
                 timing = {"featurizer_s": 0.0, "forward_s": 0.0, "opponents_s": 0.0, "v8_s": 0.0}
+                frozen_live_rows: Dict[str, int] = {}
                 p_shield = (
                     shield_prob(t_glob, args.shield_full_until, args.shield_off_at)
                     if args.shield != "none"
@@ -2961,7 +2972,9 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     if mixed_seats:
                         if pool is None or pool_seats is None:
                             raise RuntimeError("mixed seats require a static frozen pool")
-                        timing.update(pool.dispatch(prepared, masks, alive, actions, pool_seats))
+                        pool_timing = pool.dispatch(prepared, masks, alive, actions, pool_seats)
+                        frozen_live_rows = dict(pool_timing.pop("frozen_live_rows", {}))
+                        timing.update(pool_timing)
                     elif not overlap and not all_snakes:
                         opponents(prepared, masks, alive, actions)
                     return actions
@@ -3064,7 +3077,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 elif last_frame:
                     nsb.end_segment(sched.gamma(int(progress[0])))
                 s, a, R, d, nx = nsb.take()
-                live_rows_by_policy = {"learner": int(len(acts))}
+                live_rows_by_policy = {"learner": int(len(acts)), **frozen_live_rows}
                 msg = {
                     "j": j,
                     "s": s,
@@ -3533,6 +3546,7 @@ def main_multi(args) -> int:
                     "replay_rows": st["replay_rows"],
                     "replay_rows_per_update": st["replay_rows"] / max(1, st["updates"]),
                     "live_rows_by_policy": dict(st["live_rows_by_policy"]),
+                    "per_policy_live_rows": dict(st["live_rows_by_policy"]),
                     "wall": wall,
                     "rate": t / wall,
                     "env_s": st["env_s"],
@@ -3732,6 +3746,11 @@ def main_multi(args) -> int:
                     learner_wait_s=round(st["wait_s"], 3),
                     policy_lag_mean=float(np.mean(lag)) if lag else None,
                     policy_lag_p95=float(np.quantile(lag, 0.95)) if lag else None,
+                    policy_lag_histogram=(
+                        {str(int(v)): int(c) for v, c in zip(*np.unique(lag, return_counts=True))}
+                        if lag
+                        else {}
+                    ),
                     frozen_forward_gpu_s=st["frozen_forward_gpu_s"],
                     ring_overrun_rows=st["ring_overrun_rows"],
                     queue_depth=[q_.qsize() if sys.platform != "darwin" else None for q_ in txs],
