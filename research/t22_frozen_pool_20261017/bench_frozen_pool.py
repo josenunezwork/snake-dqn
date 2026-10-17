@@ -23,6 +23,7 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Dict, Iterable
@@ -232,6 +233,27 @@ def main(argv: Iterable[str] | None = None) -> int:
             runtime.prepare(prepared)
             prep_s += time.perf_counter() - t0 if measure else 0.0
             actions = np.ones((sim.E, sim.S), dtype=np.int64)
+            # Model the learner's existing b-format gather.  The optimized pool
+            # consumes its B8 slice from the same call; the reference deliberately
+            # performs the identical learner gather separately.  No learner forward
+            # is needed to test feature reuse, and its actions stay constant here.
+            from src.simd_env.ego_raster import build_ego_raster
+
+            learner_rows = np.argwhere(alive & learner)
+            b8_rows = pool.groups_for(seats, alive).get("b8-s3")
+            b8_raw = timed["b8-s3"].policy
+            t_shared = time.perf_counter()
+            if hasattr(b8_raw, "prime_with_learner_rows") and b8_rows is not None:
+                b8_raw.prime_with_learner_rows(prepared, learner_rows, b8_rows)
+                phases["learner_b8:shared_b_raster"] += time.perf_counter() - t_shared
+            else:
+                build_ego_raster(
+                    prepared,
+                    replace(b8_raw.ego_config, version="b"),
+                    backend="numba",
+                    rows=learner_rows,
+                )
+                phases["learner_b8:separate_b_raster"] += time.perf_counter() - t_shared
             t1 = time.perf_counter()
             pool.dispatch(prepared, masks, alive, actions, seats)
             dispatch_s += time.perf_counter() - t1 if measure else 0.0
