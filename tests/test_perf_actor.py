@@ -266,3 +266,89 @@ def test_actor_messages_identical_across_impls(tmp_path, monkeypatch, extra):
                     assert x == y, (key, f, k)
         for k in ref_ring:
             assert np.array_equal(ref_ring[k], ring[k]), (key, k)
+
+
+def test_all_snakes_learner_collects_each_live_slot(tmp_path):
+    """The opt-in self-play actor writes and trains rows beyond the hero slot."""
+    import torch
+
+    from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
+
+    torch.manual_seed(0)
+    init = tmp_path / "init.pth"
+    save_ego2s_checkpoint(init, Ego2sNet(7, 30))
+    msgs, ring = _run_actor(
+        tmp_path,
+        init,
+        "vectorized",
+        "numba",
+        frames=7,
+        extra=(
+            "--all-snakes-learner",
+            "--obs-version",
+            "bv8",
+            "--onpolicy-labels",
+            "--label-frac",
+            "1.0",
+            "--anchor-mode",
+            "v8margin",
+        ),
+    )
+    # Six live learner slots per world are selected by the initial frame; unlike the
+    # ordinary trainer, the actor reports decisions and labels for every selected row.
+    assert msgs[0]["decisions"] == 6 * 6
+    assert len(msgs[0]["lab_ids"]) == msgs[0]["decisions"]
+    assert np.count_nonzero(ring["mask"]) > msgs[0]["decisions"]
+    assert sum(len(msg["s"]) for msg in msgs) > 6 * 6
+
+
+def test_all_snakes_compile_actor_stages_all_slots(tmp_path, monkeypatch):
+    """The optional static actor forward reserves every learner-driven slot."""
+    import torch
+
+    from research.redesign_m3c_20261008 import compile_m3c
+    from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
+
+    seen = []
+
+    class FakeHeroForward:
+        def __init__(self, torch_, net, device, mode, rows, nscal, local, glob):
+            self.net, self.device = net, device
+            seen.append((rows, nscal, local, glob))
+
+        def status(self):
+            return {"fake": True}
+
+        def __call__(self, obs):
+            return self.net(
+                *[
+                    torch.from_numpy(np.ascontiguousarray(obs[key])).to(self.device)
+                    for key in ("local", "global", "scalars")
+                ]
+            )
+
+    monkeypatch.setattr(compile_m3c, "HeroForward", FakeHeroForward)
+    monkeypatch.setattr(compile_m3c, "limit_compile_workers", lambda role: {"role": role})
+    torch.manual_seed(0)
+    init = tmp_path / "init.pth"
+    save_ego2s_checkpoint(init, Ego2sNet(7, 30))
+    _run_actor(
+        tmp_path,
+        init,
+        "vectorized",
+        "numba",
+        frames=1,
+        extra=(
+            "--all-snakes-learner",
+            "--compile-actor",
+            "reduce-overhead",
+            "--obs-version",
+            "bv8",
+            "--onpolicy-labels",
+            "--label-frac",
+            "1.0",
+            "--anchor-mode",
+            "v8margin",
+        ),
+    )
+    assert seen and seen[0][0] == 6 * 6

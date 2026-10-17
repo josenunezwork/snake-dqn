@@ -30,6 +30,14 @@ Everything new is behind a flag:
   (or ``--update-every M`` x ``--batch-scale K`` x 128) and back-pressures the actors through
   bounded queues. Target synchronization remains counted in learner updates. Not
   bit-reproducible (policy lag, scheduling); ``--actors 0`` (default) is the M3 trainer.
+* ``--all-snakes-learner`` (multi-actor only): default-off self-play throughput mode.  The
+  actor's learner-network copy drives every live slot and contributes one transition per
+  driven slot, using one batched raster forward per frame.  The ordinary hero-only roster,
+  serving, and all defaults are unchanged.
+* ``--max-wall-seconds`` (multi-actor only): default-off graceful smoke bound.  It stops the
+  learner loop at the requested elapsed wall time, then writes the normal final checkpoint
+  and summary with ``stopped_for_time: true``.  It is a weights-only restart boundary, not an
+  exact optimizer/replay/actor-state resume.
 * ``--obs-version bv8`` (M4-B; multi-actor only): the ``ego2s-bv8`` observation (``ego2s-b``
   plus the v8 veto's 30 per-action features as scalars 30..59; ``--init`` must be an
   ``ego2s-bv8`` checkpoint, e.g. from ``research/redesign_m4b_20261012/widen_bv8.py``). The
@@ -1402,25 +1410,27 @@ def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False)
     if n_frozen + n_mixed > E:
         raise ValueError("frozen + mixed fractions exceed 1")
     mix_of = ["scripted"] * (E - n_frozen - n_mixed) + ["frozen"] * n_frozen + ["mixed"] * n_mixed
-    rows = {(int(r["world_seed"]), r["mix"]): r for r in dev_screen._design_rows(seeds)}
-    lookup = ctx["lookup"]
-    groups: Dict[Any, List[tuple]] = {}
-    for e, seed in enumerate(seeds):
-        for slot, member in enumerate(rows[(int(seed), mix_of[e])]["slots"], start=1):
-            groups.setdefault(lookup[member["member_sha256"]], []).append((e, slot))
     v61 = getattr(args, "v61_backend", None) or os.environ.get(V61_BACKEND_ENV) or "python"
     runtime = Vector61Runtime(backend=v61)
     controlled = np.zeros((E, 6), dtype=bool)
+    all_snakes = getattr(args, "all_snakes_learner", False)
     if hero_v61:  # M4-A shield / labels: the v8 veto reads the hero's vector61 rows
         controlled[:, 0] = True
     policies: Dict[Any, Any] = {}
-    for spec, cells in groups.items():
-        if spec[0] == "scripted":
-            policies[spec] = FastProfileAnchorSimdPolicy(spec[1], seeds)
-        else:
-            policies[spec] = Vector61SimdPolicy(spec[1], runtime, forward="batched")
-            for e, s in cells:
-                controlled[e, s] = True
+    groups: Dict[Any, List[tuple]] = {}
+    if not all_snakes:
+        rows = {(int(r["world_seed"]), r["mix"]): r for r in dev_screen._design_rows(seeds)}
+        lookup = ctx["lookup"]
+        for e, seed in enumerate(seeds):
+            for slot, member in enumerate(rows[(int(seed), mix_of[e])]["slots"], start=1):
+                groups.setdefault(lookup[member["member_sha256"]], []).append((e, slot))
+        for spec, cells in groups.items():
+            if spec[0] == "scripted":
+                policies[spec] = FastProfileAnchorSimdPolicy(spec[1], seeds)
+            else:
+                policies[spec] = Vector61SimdPolicy(spec[1], runtime, forward="batched")
+                for e, s in cells:
+                    controlled[e, s] = True
     runtime.bind(sim, controlled)
     groups_arr = {k: np.array(v, dtype=np.int64) for k, v in groups.items()}
     # T4 is deliberately entirely default-off: do not allocate, import, or draw a
@@ -1528,6 +1538,8 @@ def m3c_flags(args) -> Dict[str, Any]:
         "namespace",
         "mixed_frac",
         "actors",
+        "all_snakes_learner",
+        "max_wall_seconds",
         "kill_scale",
         "death_value",
         "gamma_start",
@@ -1630,6 +1642,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--mixed-frac", type=float, default=0.0, help="share of worlds with the strict mixed roster"
     )
     ap.add_argument("--actors", type=int, default=0, help="0 = the synchronous M3 trainer")
+    ap.add_argument(
+        "--all-snakes-learner",
+        action="store_true",
+        help="default-off: learner network drives every live snake and collects every transition",
+    )
+    ap.add_argument(
+        "--max-wall-seconds",
+        type=float,
+        default=0.0,
+        help="default 0: no limit; multi-actor smoke stops gracefully after this wall time",
+    )
     ap.add_argument(
         "--restart-bank",
         type=Path,
@@ -1875,6 +1898,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     if args.actors < 0:
         raise SystemExit("--actors must be >= 0")
+    if args.max_wall_seconds < 0.0 or not math.isfinite(args.max_wall_seconds):
+        raise SystemExit("--max-wall-seconds must be finite and >= 0")
+    if (args.all_snakes_learner or args.max_wall_seconds > 0.0) and not args.actors:
+        raise SystemExit("--all-snakes-learner / --max-wall-seconds need the multi-actor trainer")
+    if args.all_snakes_learner and args.obs_version != "bv8":
+        raise SystemExit("--all-snakes-learner needs --obs-version bv8 (the B8 self-play path)")
+    if args.all_snakes_learner and args.restart_frac > 0.0:
+        raise SystemExit("--all-snakes-learner does not support --restart-frac")
     if not math.isfinite(args.restart_frac) or not 0.0 <= args.restart_frac <= 1.0:
         raise SystemExit("--restart-frac must be finite and in [0, 1]")
     if args.restart_frac > 0.0:
@@ -2523,6 +2554,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         spec = _weights_spec(net)
         last = _read_weights(net, spec, wbuf, wver, -1)
         net = net.to(device)
+        all_snakes = bool(getattr(args, "all_snakes_learner", False))
         hero_fwd = None  # perf-compile (--compile-actor): the compiled, padded hero forward
         if getattr(args, "compile_actor", "off") != "off":
             from research.redesign_m3c_20261008.compile_m3c import (
@@ -2532,7 +2564,14 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
 
             inductor = limit_compile_workers("actor")
             hero_fwd = HeroForward(
-                torch, net, device, args.compile_actor, args.worlds, nscal_for(args), LOCAL, GLOBAL
+                torch,
+                net,
+                device,
+                args.compile_actor,
+                args.worlds * (6 if all_snakes else 1),
+                nscal_for(args),
+                LOCAL,
+                GLOBAL,
             )
             msg = {"actor": j, "compile_actor": hero_fwd.status(), "inductor": inductor}
             print(json.dumps(msg), flush=True)
@@ -2551,8 +2590,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         if m6 is not None and m6.tight and not bv8:
             raise ValueError("the M6 tight predicate needs --obs-version bv8")
         use_v8 = args.shield != "none" or args.onpolicy_labels
+        # bv8 obtains its advisory mask and features directly from GridBatchSim; the all-slot
+        # learner path has no vector61 opponents, so it need not featurize unused runtime rows.
+        uses_runtime = not all_snakes or (use_v8 and not bv8)
         carrier = None
-        if use_v8:
+        if use_v8 and not bv8:
             from research.redesign_m2_20261008 import ni_spec
 
             carrier = ctx["lookup"][ni_spec.FRP3_S12[1]][1]
@@ -2612,7 +2654,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 )
                 opp_groups = {k: v for k, v in groups.items() if k not in merged.specs}
             E = sim.E
-            nsb = NStepBuilder(E) if fast else NStepBuilderRef(E)
+            # Default hero-only rows preserve the previous E-world builder exactly.  The
+            # opt-in self-play mode keys the same builder by flattened (env, slot) rows so
+            # each driven snake owns an independent n-step window.
+            n_driven = E * sim.S if all_snakes else E
+            nsb = NStepBuilder(n_driven) if fast else NStepBuilderRef(n_driven)
             for _frame in range(args.segment_frames):
                 if stop_evt.is_set():
                     break
@@ -2670,16 +2716,17 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         alive = alive.copy()
                         alive[~active] = False
                     actions = np.ones((E, prepared.S), dtype=np.int64)
-                    runtime.prepare(prepared)
-                    hero = np.argwhere(alive[:, :1])
+                    if uses_runtime:
+                        runtime.prepare(prepared)
+                    hero = np.argwhere(alive) if all_snakes else np.argwhere(alive[:, :1])
                     # vectorized: the opponents (no actor RNG, read-only runtime state, disjoint
                     # action cells) run while an asynchronous (MPS / CUDA) hero forward is in
                     # flight; the hero's decisions and RNG draws are unchanged.
-                    overlap = fast and len(hero) > 0
+                    overlap = fast and len(hero) > 0 and not all_snakes
                     if len(hero):
                         t_f = time.perf_counter()
                         obs = build_ego_raster(prepared, B, backend="numba", rows=hero)
-                        m = masks[hero[:, 0], 0]
+                        m = masks[hero[:, 0], hero[:, 1]]
                         mm = m.copy()
                         mm[~mm.any(axis=1), :3] = True  # the normal-only fallback
                         dt_v8 = 0.0
@@ -2725,7 +2772,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         if shield is not None or bv8:
                             t_v = time.perf_counter()
                             qn = q.float().cpu().numpy()
-                            if bv8:  # the hero is slot 0, a veto slot: the v8 action
+                            if bv8:  # on-policy v8 labels for every learner-driven row
                                 a_v8 = v8_redecide(v8res, qn, sel_mask).action
                             else:
                                 a_v8 = shield.act(qn, m, prepared, hero)
@@ -2735,21 +2782,25 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                                 shielded = rng.random(len(hero)) < p_shield
                                 policy_act = np.where(shielded, a_v8, greedy)
                         act = np.where(explore, rand, policy_act)
-                        actions[hero[:, 0], 0] = act
+                        actions[hero[:, 0], hero[:, 1]] = act
                         chosen.update(
                             hero=hero,
                             obs=obs,
                             mask=m,
                             act=act,
                             greedy=greedy,
-                            length=np.asarray(prepared.length[hero[:, 0], 0], dtype=np.int64),
+                            length=np.asarray(
+                                prepared.length[hero[:, 0], hero[:, 1]], dtype=np.int64
+                            ),
                         )
                         if m6 is not None:  # M6: decision-time length (and tightness)
-                            L_dec = np.asarray(prepared.length[hero[:, 0], 0], dtype=np.int64)
+                            L_dec = np.asarray(
+                                prepared.length[hero[:, 0], hero[:, 1]], dtype=np.int64
+                            )
                             chosen["L"] = L_dec
                             if m6.tight:
                                 chosen["tight"] = tight_predicate(v8res.area, sel_mask, L_dec)
-                    if not overlap:
+                    if not overlap and not all_snakes:
                         opponents(prepared, masks, alive, actions)
                     return actions
 
@@ -2757,24 +2808,26 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     sim.step_with_policy(choose, active_env_mask=active)
                 else:
                     sim.step_with_policy(choose)
-                runtime.observe_step(sim)
-                reward = sim.get_reward()[:, 0]
-                done = sim.get_done()[:, 0]
+                if uses_runtime:
+                    runtime.observe_step(sim)
+                reward = sim.get_reward()
+                done = sim.get_done()
                 if mass:
-                    alive_after = sim.get_alive()[:, 0] & ~done
+                    alive_after = sim.get_alive() & ~done
                     reward = reward + mass_term(
-                        sim.get_lengths()[:, 0], alive_after, gamma_seg, args.mass_kappa
+                        sim.get_lengths(), alive_after, gamma_seg, args.mass_kappa
                     )
                 m6_stats: Dict[str, int] = {}
                 if m6 is not None:
                     if chosen:
                         hw = chosen["hero"][:, 0]
+                        hs = chosen["hero"][:, 1]
                         delta, m6_stats = m6.frame(
-                            chosen["L"], chosen.get("tight"), done[hw], gamma_seg
+                            chosen["L"], chosen.get("tight"), done[hw, hs], gamma_seg
                         )
                         if delta is not None:
                             reward = np.array(reward, dtype=np.float64)
-                            reward[hw] = reward[hw] + delta
+                            reward[hw, hs] = reward[hw, hs] + delta
                     else:
                         m6_stats = m6.empty_stats()
                 deaths = 0
@@ -2793,14 +2846,16 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     ids = ring.add(chosen["obs"], chosen["mask"])
                     if "a_v8" in chosen and args.onpolicy_labels:
                         lab_ids, lab_a = ids, chosen["a_v8"].astype(np.int8)
-                    deaths = nsb.step(
-                        chosen["hero"][:, 0], ids, chosen["act"], reward, done, gamma_now
-                    )
+                    rows = chosen["hero"]
+                    driven = rows[:, 0] * sim.S + rows[:, 1] if all_snakes else rows[:, 0]
+                    flat_reward = reward.reshape(-1) if all_snakes else reward[:, 0]
+                    flat_done = done.reshape(-1) if all_snakes else done[:, 0]
+                    deaths = nsb.step(driven, ids, chosen["act"], flat_reward, flat_done, gamma_now)
                     if restart_telemetry is not None:
                         restart_telemetry.record(
                             chosen["hero"][:, 0],
                             chosen["length"],
-                            done[chosen["hero"][:, 0]],
+                            done[chosen["hero"][:, 0], chosen["hero"][:, 1]],
                             restarted_worlds,
                         )
                     acts = chosen["act"]
@@ -2824,7 +2879,12 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 if restart_enabled:
                     expired = active & (sim.frame >= args.segment_frames)
                     if expired.any():
-                        nsb.end_worlds(np.flatnonzero(expired), sched.gamma(int(progress[0])))
+                        expired_rows = np.flatnonzero(expired)
+                        if all_snakes:
+                            expired_rows = (
+                                expired_rows[:, None] * sim.S + np.arange(sim.S)
+                            ).reshape(-1)
+                        nsb.end_worlds(expired_rows, sched.gamma(int(progress[0])))
                 elif last_frame:
                     nsb.end_segment(sched.gamma(int(progress[0])))
                 s, a, R, d, nx = nsb.take()
@@ -2994,7 +3054,8 @@ def main_multi(args) -> int:
     tel = Telemetry(args.out, args)
     # Rings (ring_capacity): with the defaults (replay 500k, K = 2, 64 worlds) 2 x 377k rows x
     # 12.3 KB = 9.3 GB per run (--obs-pack: 3.2 KB per row, 2.4 GB). research/perf_ram_20261013
-    ring_cap, margin_rows = ring_capacity(args.replay, K, args.worlds, args.actor_queue_frames)
+    driven_worlds = args.worlds * (6 if getattr(args, "all_snakes_learner", False) else 1)
+    ring_cap, margin_rows = ring_capacity(args.replay, K, driven_worlds, args.actor_queue_frames)
     spec = _weights_spec(online)
     n_weights = int(sum(n for _, _, n in spec))
     shms: List[Any] = []
@@ -3161,8 +3222,15 @@ def main_multi(args) -> int:
     code = 0
     rr = 0
     attached: set = set()
+    stopped_for_time = False
     try:
         while st["transitions"] < args.transitions and st["halt"] is None:
+            if (
+                getattr(args, "max_wall_seconds", 0.0)
+                and time.perf_counter() - started >= args.max_wall_seconds
+            ):
+                stopped_for_time = True
+                break
             if prof is not None and prof.tick():
                 prof.meta["start"] = _learner_counters(st)
             if st["transitions"] >= next_guard:
@@ -3547,6 +3615,7 @@ def main_multi(args) -> int:
         "obs_version": args.obs_version,
         "actors": K,
         "actor_exitcodes": [p.exitcode for p in procs],
+        "stopped_for_time": stopped_for_time,
         "ring_overrun_rows": st["ring_overrun_rows"],
         "anchor_updates": st["anchor_updates"],
         "label_buffer": labels.size if labels is not None else 0,

@@ -58,6 +58,120 @@ def test_defaults_equal_m3():
     assert flags == {"reward": "mass", "mass_kappa": 0.5, "actors": 3, "mixed_frac": 0.33}
 
 
+@pytest.mark.parametrize("value", ["nan", "inf", "-1"])
+def test_max_wall_seconds_rejects_invalid_values(value):
+    with pytest.raises(SystemExit, match="max-wall-seconds"):
+        m3c.main(
+            [
+                "--seed",
+                "0",
+                "--init",
+                "x",
+                "--demo-data",
+                ".",
+                "--out",
+                "unused",
+                "--actors",
+                "1",
+                "--max-wall-seconds",
+                value,
+            ]
+        )
+
+
+def test_max_wall_seconds_and_all_snakes_need_actors():
+    base = ["--seed", "0", "--init", "x", "--demo-data", ".", "--out", "unused"]
+    for flag in ("--max-wall-seconds", "1"), ("--all-snakes-learner",):
+        with pytest.raises(SystemExit, match="multi-actor"):
+            m3c.main([*base, *flag])
+
+
+def test_all_snakes_requires_bv8_b8_path():
+    with pytest.raises(SystemExit, match="obs-version bv8"):
+        m3c.main(
+            [
+                "--seed",
+                "0",
+                "--init",
+                "x",
+                "--demo-data",
+                ".",
+                "--out",
+                "unused",
+                "--actors",
+                "1",
+                "--all-snakes-learner",
+            ]
+        )
+
+
+def test_all_snakes_rejects_snapshot_restart():
+    with pytest.raises(SystemExit, match="does not support --restart-frac"):
+        m3c.main(
+            [
+                "--seed",
+                "0",
+                "--init",
+                "x",
+                "--demo-data",
+                ".",
+                "--out",
+                "unused",
+                "--actors",
+                "1",
+                "--all-snakes-learner",
+                "--obs-version",
+                "bv8",
+                "--restart-frac",
+                "0.1",
+            ]
+        )
+
+
+@pytest.mark.skipif(not HAVE_DATA, reason="needs local M2B test artifacts")
+def test_max_wall_seconds_stops_cleanly_and_writes_final(tmp_path):
+    """The smoke timeout is a successful bounded run, not a halt or partial checkpoint."""
+    out = tmp_path / "timed"
+    assert (
+        m3c.main(
+            [
+                "--seed",
+                "3",
+                "--init",
+                str(STUDENT),
+                "--demo-data",
+                str(DEMO),
+                "--out",
+                str(out),
+                "--actors",
+                "1",
+                "--worlds",
+                "2",
+                "--segment-frames",
+                "5",
+                "--warmup",
+                "1000000",
+                "--device",
+                "cpu",
+                "--obs-version",
+                "bv8",
+                "--onpolicy-labels",
+                "--label-frac",
+                "1",
+                "--anchor-mode",
+                "v8margin",
+                "--max-wall-seconds",
+                "0.01",
+                "--no-guard",
+            ]
+        )
+        == 0
+    )
+    summary = json.loads((out / "summary.json").read_text())
+    assert summary["stopped_for_time"] is True and summary["halt"] is None
+    assert (out / "final.pth").is_file() and not (out / "aborted.pth").exists()
+
+
 def test_kappa_needs_mass_reward():
     with pytest.raises(SystemExit):
         m3c.main(
