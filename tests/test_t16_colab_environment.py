@@ -60,10 +60,18 @@ def test_uv_failure_does_not_fall_back_to_kernel(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "p0_timeout,prior_omission", [(False, None), (True, None), (False, False), (False, True)]
+    "p0_failure,prior_omission",
+    [
+        (None, None),
+        ("timeout_all", None),
+        ("called_all", None),
+        ("called_once", None),
+        (None, False),
+        (None, True),
+    ],
 )
 def test_notebook_routes_workload_to_selected_interpreter(
-    tmp_path, monkeypatch, p0_timeout, prior_omission
+    tmp_path, monkeypatch, p0_failure, prior_omission
 ):
     """Execute the actual orchestration cell with mocked Colab and all external commands."""
     import sys
@@ -107,14 +115,20 @@ def test_notebook_routes_workload_to_selected_interpreter(
         output.mkdir()
         (output / "identity.json").write_text(json.dumps({"omitted_smoke03_row5": prior_omission}))
 
+    p0_attempts = 0
+
     def fake_run(command, **kwargs):
+        nonlocal p0_attempts
         calls.append(command)
         if any(str(part).endswith("bench_learner.py") for part in command):
+            p0_attempts += 1
             owned_ring = Path(command[command.index("--ring-dir") + 1])
             (owned_ring / "m3c-bench-test.bin").write_bytes(b"owned mmap stand-in")
             assert kwargs["deadline_at"] <= namespace["deadline"]
-            if p0_timeout:
+            if p0_failure == "timeout_all":
                 raise TimeoutError("P0 test timeout after owned group cleanup")
+            if p0_failure == "called_all" or (p0_failure == "called_once" and p0_attempts == 1):
+                raise subprocess.CalledProcessError(1, command)
         if "research/t16_colab/run_smoke.py" in command:
             (local_path("/content/results") / "invocation_result.json").write_text("{}")
         if command[:2] == [selected, "-c"] and "get_device_name(0)" in command[2]:
@@ -146,16 +160,35 @@ def test_notebook_routes_workload_to_selected_interpreter(
     exec(compile(tree, str(notebook), "exec"), namespace)
     select.assert_called_once()
     workloads = [command for command in calls if command[0] == selected]
-    if p0_timeout:
-        assert not any("research/t16_colab/run_smoke.py" in command for command in calls)
+    if p0_failure:
+        assert any("research/t16_colab/run_smoke.py" in command for command in calls)
         assert not list(local_path("/dev/shm").glob("t17b-p0-*"))
         assert not list(local_path("/content/scratch/p0-rings").glob("t17b-p0-*"))
-        failure = json.loads(
-            local_path("/content/t16-colab-failure/colab_throughput_results.json").read_text()
+        receipt = json.loads(
+            (
+                local_path("/content/results") / "p0_learner_bench" / commit / "p0_receipt.json"
+            ).read_text()
         )
-        assert failure["status"] == "failed" and "P0 test timeout" in failure["error"]
-        colab.files.download.assert_called_once()
-        return
+        assert receipt["status"] == "completed_with_failures"
+        assert len(receipt["benchmarks"]) == 8
+        expected_failures = 1 if p0_failure == "called_once" else 8
+        failures = [row for row in receipt["benchmarks"] if row["status"] == "failed"]
+        successes = [row for row in receipt["benchmarks"] if row["status"] == "completed"]
+        assert len(failures) == expected_failures
+        assert len(successes) == 8 - expected_failures
+        if p0_failure == "timeout_all":
+            assert all("P0 test timeout" in row["error"] for row in failures)
+        else:
+            assert all("CalledProcessError" in row["error"] for row in failures)
+    else:
+        receipt = json.loads(
+            (
+                local_path("/content/results") / "p0_learner_bench" / commit / "p0_receipt.json"
+            ).read_text()
+        )
+        assert receipt["status"] == "completed"
+        assert len(receipt["benchmarks"]) == 8
+        assert all(row["status"] == "completed" for row in receipt["benchmarks"])
     assert len(workloads) == 14  # setup, P0 runtime probe, 8 P0 receipts, smoke runner
     assert all(command[0] == selected for command in workloads)
     assert all(
@@ -182,6 +215,9 @@ def test_notebook_routes_workload_to_selected_interpreter(
     assert ("--omit-smoke03-row5" in runner) == (prior_omission is not False)
     assert (
         local_path("/content/results") / "p0_learner_bench" / commit / "identity.json"
+    ).is_file()
+    assert (
+        local_path("/content/results") / "p0_learner_bench" / commit / "p0_receipt.json"
     ).is_file()
     assert not list(local_path("/dev/shm").glob("t17b-p0-*"))
     assert not list(local_path("/content/scratch/p0-rings").glob("t17b-p0-*"))

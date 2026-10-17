@@ -32,7 +32,10 @@ def test_bench_builds_and_cleans_actual_file_backed_rings(tmp_path, packed):
     assert not any((tmp_path / p.split("/")[-1]).exists() for p in paths)
 
 
-def test_raw_and_packed_bench_rings_gather_byte_identically():
+def test_raw_and_packed_bench_rings_gather_byte_identically(tmp_path, monkeypatch):
+    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+
+    monkeypatch.setattr(gid, "CHECKPOINT_DIR", tmp_path / "absent-pool")
     raw = bench.build_rings(60, 128, 17)
     packed = bench.build_rings(60, 128, 17, packed=True)
     ids = np.array([0, 1, 7, 8], dtype=np.int64)

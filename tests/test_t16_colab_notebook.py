@@ -49,6 +49,10 @@ def test_notebook_has_pinned_isolated_and_resumable_contract() -> None:
     assert "p0_learner_bench" in source
     assert "p0_dir = results_dir / 'p0_learner_bench' / PINNED_COMMIT" in source
     assert "p0_identity_path" in source
+    assert "p0_receipt_path = p0_dir / 'p0_receipt.json'" in source
+    assert "t17b-p0-learner-bench-receipt/v1" in source
+    assert "completed_with_failures" in source
+    assert "continuing to smoke matrix" in source
     assert "p0_runtime" in source and "get_device_name(0)" in source
     assert "df', '-h', '/dev/shm'" in source
     assert "t1_k2_c_ro,t1_bf16_k2_c_ro,t1_k4_c_ro,t1_bf16_k4_c_ro" in source

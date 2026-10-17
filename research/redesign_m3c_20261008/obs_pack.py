@@ -40,6 +40,7 @@ unpacks to the original bytes. Two implementations: NumPy (:func:`pack_ref`,
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -549,9 +550,15 @@ def unpack(src: np.ndarray, rows: np.ndarray, layout: PackLayout) -> Tuple[np.nd
 
 
 def train_layout() -> PackLayout:
-    """The layout of the training arena (the pinned evaluation profile's world)."""
-    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+    """Derive the training layout from the deployment world's geometry alone.
 
-    world = gid._context(1)["profile"].world
+    The evaluation profile uses this YAML's world unchanged. Loading its config
+    directly avoids checkpoint-pool verification (and global config/thread changes)
+    when allocating storage on hosts that do not have the evaluation checkpoints.
+    """
+    from src.core.config_loader import load_config
+
+    deployment = Path(__file__).resolve().parents[1] / "apex_safety_20260926" / "deployment.yaml"
+    world = load_config(str(deployment)).game
     seg = int(world.segment_size)
     return layout_for_arena(world.width // seg, world.height // seg, world.num_snakes)
