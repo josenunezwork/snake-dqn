@@ -322,7 +322,11 @@ def default_pool_identities(
         "src/simd_env/vector61_nb.py",
         "src/simd_env/v8_nb.py",
     )
-    script_sources = _source_pins("src/simd_env/fast_anchors.py", "src/evaluation/anchors.py")
+    script_sources = _source_pins(
+        "research/redesign_m3c_20261008/league_random_safe.py",
+        "src/simd_env/fast_anchors.py",
+        "src/evaluation/anchors.py",
+    )
     return (
         PoolIdentity(
             "b8-s3",
@@ -546,14 +550,18 @@ def build_static_pool(
     """Validate and load the permanent pool.  Models are eval-only and immutable."""
     for identity in identities:
         identity.validate()
+    from research.redesign_m3c_20261008.league_random_safe import BatchedRandomSafePolicy
     from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
     from src.simd_env.vector61_policy import Vector61SimdPolicy
 
     policies: Dict[str, Any] = {}
     for identity in identities:
         if identity.kind == "scripted":
-            policies[identity.policy_id] = FastProfileAnchorSimdPolicy(
-                identity.policy_id.split(":", 1)[1], world_seeds
+            kind = identity.policy_id.split(":", 1)[1]
+            policies[identity.policy_id] = (
+                BatchedRandomSafePolicy(world_seeds, slots_per_world=6)
+                if kind == "random_safe"
+                else FastProfileAnchorSimdPolicy(kind, world_seeds)
             )
         elif identity.kind == "bv8":
             if identity.mask_config != "resolved":
