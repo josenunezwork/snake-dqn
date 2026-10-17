@@ -3,11 +3,8 @@
 import numpy as np
 
 from research.t1_commitment_20261015.topology import component_geometry
-from research.t9_divergence_20261017.metrics import (_arrival_reference,
-                                                     _race_counts)
-from research.t10_certificate_horizon_20261017.certificate import (measure,
-                                                                   occupancy,
-                                                                   summarize)
+from research.t9_divergence_20261017.metrics import _arrival_reference, _race_counts
+from research.t10_certificate_horizon_20261017.certificate import measure, occupancy, summarize
 from tests.test_t9_metrics import _sim
 
 
@@ -40,6 +37,27 @@ def test_actual_tail_target_and_inclusive_deadline() -> None:
     got = measure(sim)
     assert got["tail_arrival"] == 130
     assert got["tail_L"] is True and got["tail_128"] is False
+
+
+def test_length_deadline_is_not_tautologically_reachable() -> None:
+    # A second row permits a real detour, but neither it nor waiting at the
+    # neck (TTL3) reaches the tail by L4: both require five cell steps.
+    sim = _sim(4, 2, [[(0, 0), (1, 0), (2, 0), (3, 0)]])
+    got = measure(sim)
+    assert got["tail_arrival"] == 5
+    assert got["tail_L"] is False and got["tail_128"] is True
+
+
+def test_optimistic_positive_does_not_certify_a_feasible_next_move() -> None:
+    # Full board: every neighbor of the central head remains occupied next
+    # step. The permissive flood nevertheless waits at the head for two units.
+    body = [(1, 1), (1, 0), (0, 0), (0, 1), (0, 2), (1, 2), (2, 2), (2, 1), (2, 0)]
+    sim = _sim(3, 3, [body])
+    got = measure(sim)
+    assert got["tail_arrival"] == 3
+    assert got["tail_L"] is True and got["tail_128"] is True
+    geometry = component_geometry(sim)
+    assert all(geometry["ttl"][y, x] > 1 for x, y in ((1, 0), (0, 1), (1, 2), (2, 1)))
 
 
 def _episode(policy, env, decisions, flags, survived=False):
