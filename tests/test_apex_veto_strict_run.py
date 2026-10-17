@@ -766,22 +766,44 @@ class TestIntent:
             sr.validate_intent(intent)
 
     def test_construction_failures(self, tmp_path, monkeypatch):
+        # These branches fail before a pilot is admitted.  Supply only the pinned checkpoint
+        # identity boundary so CI does not need the operator's private checkpoint directory.
+        checkpoint_dir = tmp_path / "checkpoints"
+        checkpoint_dir.mkdir()
+        for name, _sha in dev_screen.POOL:
+            (checkpoint_dir / name).write_bytes(name.encode())
+        original_sha = dev_screen.sha256_file
+
+        def test_sha(path):
+            path = Path(path)
+            for name, digest in dev_screen.POOL:
+                if path == checkpoint_dir / name:
+                    return digest
+            return original_sha(path)
+
+        monkeypatch.setattr(dev_screen, "sha256_file", test_sha)
         with pytest.raises(sr.StrictRunError, match="deadline"):
             real_intent(tmp_path, deadline=datetime.now(timezone.utc) + timedelta(hours=2))
         with pytest.raises(sr.StrictRunError, match="forbidden"):
-            real_intent(tmp_path, out_root=tmp_path / "ongoing-research-20260913" / "x")
+            real_intent(
+                tmp_path,
+                out_root=tmp_path / "ongoing-research-20260913" / "x",
+                checkpoint_dir=checkpoint_dir,
+            )
         with pytest.raises(sr.StrictRunError, match="authorization"):
-            real_intent(tmp_path, authorization_quote="  ")
+            real_intent(tmp_path, authorization_quote="  ", checkpoint_dir=checkpoint_dir)
         with pytest.raises(sr.StrictRunError, match="pre-registered root"):
-            real_intent(tmp_path, out_root=tmp_path / "elsewhere")
+            real_intent(tmp_path, out_root=tmp_path / "elsewhere", checkpoint_dir=checkpoint_dir)
         for smoke_root in (tmp_path / "run-v1", tmp_path / "other" / "run-v2"):
             with pytest.raises(sr.StrictRunError, match="smoke dry-run may not use"):
-                real_intent(tmp_path, out_root=smoke_root, smoke_frames=40)
+                real_intent(
+                    tmp_path, out_root=smoke_root, smoke_frames=40, checkpoint_dir=checkpoint_dir
+                )
         monkeypatch.setattr(
             sr, "source_closure", lambda extra=(): {"dirty": [" M src/x.py"], "files": {}}
         )
         with pytest.raises(sr.StrictRunError, match="dirty source"):
-            real_intent(tmp_path, allow_dirty_source=False)
+            real_intent(tmp_path, allow_dirty_source=False, checkpoint_dir=checkpoint_dir)
 
 
 def test_output_root_policy_and_cli_defaults(monkeypatch):

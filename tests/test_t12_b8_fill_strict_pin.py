@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -11,13 +13,133 @@ import pytest
 from research.t12_b8_serving_20261017 import fill_strict_pin as pin
 
 RESULTS = Path(__file__).resolve().parents[1] / "research/redesign_t7_phase_r_20261016/results"
-FILES = ("decision.json", "audit.json", "independent_result_review.json", "plan.json", "start.json")
+
+
+def test_committed_t7_envelopes_retain_the_frozen_rule_and_immutable_pins():
+    """The synthetic tree supplements, rather than replaces, the governed pins."""
+    from research.redesign_t7_phase_r_20261016 import phase_r_t7, rule_spec_t7
+
+    plan = json.loads((RESULTS / "plan.json").read_text())
+    rule = rule_spec_t7.rule()
+    assert plan["rule"] == rule
+    assert plan["rule_sha256"] == phase_r_t7.canonical_sha(rule)
+    names = {
+        "decision": "decision.json",
+        "audit_report": "audit.json",
+        "independent_review": "independent_result_review.json",
+        "plan": "plan.json",
+        "start": "start.json",
+    }
+    assert {
+        key: hashlib.sha256((RESULTS / name).read_bytes()).hexdigest()
+        for key, name in names.items()
+    } == pin.IMMUTABLE_SHA256
 
 
 @pytest.fixture
-def evidence_root(tmp_path):
-    for name in FILES:
-        shutil.copy2(RESULTS / name, tmp_path / name)
+def evidence_root(tmp_path, monkeypatch):
+    """Build a complete, small-payload T7 tree for the real frozen recomputation."""
+    from research.redesign_t7_phase_r_20261016 import phase_r_t7, rule_spec_t7
+    from tests.test_t7_rule_spec import _banks, _entries
+
+    banks, rows = _banks(), _entries()
+    for row in rows:
+        if row["hero"] == rule_spec_t7.HERO and row["seed"] == 3:
+            row["prefix_h5000"]["mass_integral"] += 20.0
+            row["record"]["mass_integral"] += 20.0
+    records = tmp_path / "records"
+    records.mkdir()
+    inventory = []
+
+    def write_record(index, row):
+        path = records / f"{index:04d}.json"
+        path.write_text(json.dumps(row, sort_keys=True))
+        inventory.append(
+            {
+                "path": str(path.relative_to(tmp_path)),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+        )
+
+    for index, row in enumerate(rows):
+        write_record(index, row)
+    by_identity = {(r["hero"], r["seed"], r["mix"], r["world_seed"]): r for r in rows}
+    index = len(rows)
+    for hero in (rule_spec_t7.HERO, rule_spec_t7.INCUMBENT, rule_spec_t7.CHAMPION):
+        for seed, worlds in banks.items():
+            for mix in rule_spec_t7.MIXES:
+                source = by_identity[(hero, seed, mix, worlds[0])]
+                control = deepcopy(source)
+                control["control"] = True
+                control["record"] = deepcopy(source["prefix_h5000"])
+                write_record(index, control)
+                index += 1
+    assert len(inventory) == 5805
+    rule = rule_spec_t7.rule()
+    plan = {
+        "schema": "t7-phase-r-plan/v1",
+        "rule": rule,
+        "rule_sha256": phase_r_t7.canonical_sha(rule),
+        "banks": {str(seed): worlds for seed, worlds in banks.items()},
+        "checkpoints": {"B8-noveto|s3": {"sha256": pin.CHECKPOINT_SHA256}},
+    }
+    (tmp_path / "plan.json").write_text(json.dumps(plan, sort_keys=True))
+    plan_sha = hashlib.sha256((tmp_path / "plan.json").read_bytes()).hexdigest()
+    (tmp_path / "start.json").write_text(json.dumps({"plan_sha256": plan_sha}, sort_keys=True))
+    start_sha = hashlib.sha256((tmp_path / "start.json").read_bytes()).hexdigest()
+    decision = {
+        "plan_sha256": plan_sha,
+        "start_sha256": start_sha,
+        "records": inventory,
+        "decision": rule_spec_t7.decide(rows, banks, True),
+    }
+    (tmp_path / "decision.json").write_text(json.dumps(decision, sort_keys=True))
+    audit = {
+        "schema": "t7-phase-r-audit/v1",
+        "coverage": {"expected": 5805, "found": 5805, "exact": True},
+        "errors": [],
+        "plan_valid": True,
+        "records_valid": True,
+        "decision_valid": True,
+    }
+    (tmp_path / "audit.json").write_text(json.dumps(audit, sort_keys=True))
+    review = {
+        "verdict": "PASS",
+        "errors": [],
+        "candidate_seed": 3,
+        "decision": pin.PASS_WORD,
+        "evidence": {
+            name: hashlib.sha256((tmp_path / name).read_bytes()).hexdigest()
+            for name in ("decision.json", "audit.json", "plan.json", "start.json")
+        },
+    }
+    (tmp_path / "independent_result_review.json").write_text(json.dumps(review, sort_keys=True))
+    artifact_root = tmp_path / "immutable-artifact"
+    shutil.copytree(records, artifact_root / "records")
+    for name in (
+        "decision.json",
+        "audit.json",
+        "independent_result_review.json",
+        "plan.json",
+        "start.json",
+    ):
+        shutil.copy2(tmp_path / name, artifact_root / name)
+    immutable = {
+        "decision": "decision.json",
+        "audit_report": "audit.json",
+        "independent_review": "independent_result_review.json",
+        "plan": "plan.json",
+        "start": "start.json",
+    }
+    monkeypatch.setattr(pin, "ARTIFACT_ROOT", artifact_root)
+    monkeypatch.setattr(
+        pin,
+        "IMMUTABLE_SHA256",
+        {
+            key: hashlib.sha256((artifact_root / name).read_bytes()).hexdigest()
+            for key, name in immutable.items()
+        },
+    )
     return tmp_path
 
 

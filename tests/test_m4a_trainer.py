@@ -5,6 +5,7 @@ import pytest
 import torch
 
 from research.redesign_m3c_20261008 import train_m3c as T
+from tests.t14_fixtures import evaluator_context
 
 
 def test_shield_prob_schedule():
@@ -85,12 +86,13 @@ def test_m4a_flags_recorded_only_when_set():
     assert flags["anchor_mode"] == "v8margin"
 
 
-def test_hero_selection_mask_equals_vector61_runtime_selection():
+def test_hero_selection_mask_equals_vector61_runtime_selection(monkeypatch, tmp_path):
     from types import SimpleNamespace
 
-    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+    from research.apex_safety_20260926 import dev_screen
 
-    ctx = gid._context(1)
+    ctx, _ = evaluator_context(tmp_path)
+    monkeypatch.setattr(dev_screen, "_design_rows", ctx["ds"]._design_rows)
     args = SimpleNamespace(
         worlds=8,
         seed=0,

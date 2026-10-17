@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,7 +41,11 @@ class Clock:
         self.t, self.t0, self.sleeps = t0, t0, []
         self.poll_s, self.interrupt_at, self.poll_sleeps = poll_s, interrupt_at, 0
         monkeypatch.setattr(gr, "now", lambda: self.t)
-        monkeypatch.setattr(gr.time, "sleep", self.sleep)
+        # Do not advance this clock when unrelated background threads sleep.
+        for module in (gr, pb):
+            monkeypatch.setattr(
+                module, "time", SimpleNamespace(**{**vars(time), "sleep": self.sleep})
+            )
 
     def sleep(self, s):
         self.sleeps.append(s)
@@ -49,6 +54,16 @@ class Clock:
             if self.poll_sleeps == self.interrupt_at:
                 raise KeyboardInterrupt("signal 15")
         self.t += s
+
+
+def test_clock_does_not_replace_process_wide_sleep(monkeypatch):
+    real_sleep = time.sleep
+    clock = Clock(monkeypatch)
+    assert time.sleep is real_sleep
+    gr.time.sleep(60)
+    pb.time.sleep(15)
+    assert clock.t - clock.t0 == 75
+    assert clock.sleeps == [60, 15]
 
 
 class CapacityRp:

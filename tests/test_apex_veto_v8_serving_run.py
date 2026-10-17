@@ -21,6 +21,7 @@ from research.apex_veto_v8_serving_20261003 import serving_audit as audit_mod  #
 from research.apex_veto_v8_serving_20261003 import serving_run as run_mod  # noqa: E402
 from src.evaluation.safety_veto_v7 import SpacePreferenceCounters  # noqa: E402
 from src.evaluation.safety_veto_v8 import SpaceAndHeadCounters, SpaceAndHeadVeto  # noqa: E402
+from tests.seed_artifact_fixtures import install_v8_seed_history  # noqa: E402
 from web.backend import safety_veto_serving as serving  # noqa: E402
 
 HERE = Path(run_mod.__file__).resolve().parent
@@ -37,11 +38,12 @@ FATAL_RUNNERS = (
 
 
 @pytest.fixture(autouse=True)
-def _isolate(monkeypatch):
+def _isolate(monkeypatch, tmp_path):
     from src.core import game_config
 
     for key in run_mod.schema.ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
+    install_v8_seed_history(monkeypatch, tmp_path / "seed-history")
     prev = game_config._current_config
     yield
     game_config._current_config = prev
