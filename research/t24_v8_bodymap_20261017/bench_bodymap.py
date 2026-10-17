@@ -105,12 +105,16 @@ def _build(worlds: int, length: int, seed: int, checkpoint_dir: Path) -> tuple[A
     ).build_default_static_pool(args, ctx, sim, runtime, "cpu")
     learner = train_m3c.learner_seat_mask(seed, 0, sim.E, 3)
     seats = _uniform_seats(pool, learner)
-    vector_ids = tuple(identity.policy_id for identity in pool.identities if identity.kind == "vector61")
+    vector_ids = tuple(
+        identity.policy_id for identity in pool.identities if identity.kind == "vector61"
+    )
     runtime.controlled[...] = np.isin(seats, vector_ids)
     return sim, runtime, pool, learner, seats, train_m3c.hero_selection_mask
 
 
-def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Path) -> dict[str, Any]:
+def _case(
+    worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Path
+) -> dict[str, Any]:
     from src.simd_env.ego_raster_bv8 import v8_scalars
 
     sim, runtime, pool, learner, seats, selection_mask = _build(
@@ -302,7 +306,9 @@ def _whole_actor_samples(
     values = [float(sample["ms_per_frame"]) for sample in samples]
     env_values = [float(sample["env_ms_per_frame"]) for sample in samples]
     return {
-        "scope": "real actor_main: step, runtime carry, replay/n-step ring writes; no learner updates",
+        "scope": (
+            "real actor_main: step, runtime carry, replay/n-step ring writes; " "no learner updates"
+        ),
         "frames_per_sample": frames,
         "warm_frames_excluded": warm,
         "fixture_before_first_decision": fixture_before,
@@ -340,11 +346,19 @@ def main() -> int:
         "authority": "CPU fixed-state microbenchmark; not a training, GPU, or throughput result",
         "argv": vars(args),
         "host": {"platform": platform.platform(), "python": sys.version},
-        "versions": {"torch": torch.__version__, "numpy": np.__version__, "numba": numba.__version__},
-        "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
+        "versions": {
+            "torch": torch.__version__,
+            "numpy": np.__version__,
+            "numba": numba.__version__,
+        },
+        "git_head": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
+        ).strip(),
         "source_sha256": {
             **_bodymap_sources(),
-            str(Path(__file__).relative_to(REPO)): hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            str(Path(__file__).relative_to(REPO)): hashlib.sha256(
+                Path(__file__).read_bytes()
+            ).hexdigest(),
         },
         "method": {
             "thread_count": 1,
@@ -352,7 +366,10 @@ def main() -> int:
             "state": "same injected prepared state for every timed repetition",
             "short_length": 5,
             "long_length": 1200,
-            "whole_frame_scope": "runtime prepare plus learner/B8 features and frozen dispatch; no sim.step mutation",
+            "whole_frame_scope": (
+                "runtime prepare plus learner/B8 features and frozen dispatch; "
+                "no sim.step mutation"
+            ),
         },
         "cases": [],
     }
