@@ -38,7 +38,7 @@ T16_CONFIGS = (
 CONFIGS = T16_CONFIGS
 SMOKE03_CONFIGS = (
     {
-        "name": "selfplay_w128_a2_g0",
+        "name": "sp_w128_a2_packed_g0_bs2_fp32",
         "worlds": 128,
         "actors": 2,
         "self_play": True,
@@ -46,31 +46,65 @@ SMOKE03_CONFIGS = (
         "actor_queue_frames": 4,
     },
     {
-        "name": "selfplay_w128_a2_g3",
+        "name": "sp_w128_a2_raw_g0_bs2_fp32",
         "worlds": 128,
         "actors": 2,
         "self_play": True,
-        "gather_threads": 3,
+        "gather_threads": 0,
         "actor_queue_frames": 4,
+        "obs_pack": False,
     },
     {
-        "name": "selfplay_w128_a3_g3",
+        "name": "sp_w128_a3_raw_g3_bs2_fp32",
         "worlds": 128,
         "actors": 3,
         "self_play": True,
         "gather_threads": 3,
         "actor_queue_frames": 4,
+        "obs_pack": False,
     },
     {
-        "name": "selfplay_w128_a3_g4",
+        "name": "sp_w128_a4_raw_g3_bs2_fp32",
         "worlds": 128,
-        "actors": 3,
+        "actors": 4,
         "self_play": True,
-        "gather_threads": 4,
+        "gather_threads": 3,
         "actor_queue_frames": 4,
+        "obs_pack": False,
+    },
+    {
+        "name": "sp_w128_a6_raw_g3_bs2_fp32",
+        "worlds": 128,
+        "actors": 6,
+        "self_play": True,
+        "gather_threads": 3,
+        "actor_queue_frames": 4,
+        "obs_pack": False,
+    },
+    {
+        "name": "sp_w128_a4_raw_g3_bs4_fp32",
+        "worlds": 128,
+        "actors": 4,
+        "self_play": True,
+        "gather_threads": 3,
+        "actor_queue_frames": 4,
+        "obs_pack": False,
+        "batch_scale": 4,
+        "throughput_only": True,
+    },
+    {
+        "name": "sp_w128_a4_raw_g3_bs2_bf16",
+        "worlds": 128,
+        "actors": 4,
+        "self_play": True,
+        "gather_threads": 3,
+        "actor_queue_frames": 4,
+        "obs_pack": False,
+        "precision": "bf16",
+        "throughput_only": True,
     },
 )
-SMOKE03_PROFILE_CONFIG = "selfplay_w128_a3_g3"
+SMOKE03_PROFILE_CONFIG = "sp_w128_a4_raw_g3_bs2_fp32"
 SMOKE03_PROFILE_WARM_SECONDS = 60
 SMOKE03_PROFILE_SECONDS = 60
 SMOKE03_PROFILE_STOP_GRACE_SECONDS = 5
@@ -78,12 +112,13 @@ SMOKE03_PROFILE_STOP_GRACE_SECONDS = 5
 # inductor FX-graph cache, so no scored row pays first-process compilation.
 WARMUP = {"name": "warmup_w128_a2", "worlds": 128, "actors": 2, "self_play": False}
 SMOKE03_WARMUP = {
-    "name": "warmup_selfplay_w128_a2_g3",
+    "name": "warmup_selfplay_w128_a4_raw_g3",
     "worlds": 128,
-    "actors": 2,
+    "actors": 4,
     "self_play": True,
     "gather_threads": 3,
     "actor_queue_frames": 4,
+    "obs_pack": False,
 }
 WARMUP_SECONDS = 60
 # Trainer startup (CUDA contexts, numba imports, ring allocation, K actor spawns) and the
@@ -218,13 +253,16 @@ def trainer_command(
         "numba",
         "--learner-fast",
         "--batch-scale",
-        "2",
-        "--obs-pack",
+        str(int(config.get("batch_scale", 2))),
         "--namespace",
         "t16-colab-throughput/v1",
         "--ring-dir",
         str(ring_dir),
     ]
+    if config.get("obs_pack", True):
+        command.append("--obs-pack")
+    if config.get("precision", "fp32") != "fp32":
+        command += ["--learner-precision", str(config["precision"])]
     if compile_mode != "off":
         command += ["--compile-learner", compile_mode]
     if config["self_play"]:
@@ -503,13 +541,20 @@ def stop_sampler(process: subprocess.Popen, out: Path) -> dict:
     return summarize(rows)
 
 
-def configs_for_suite(suite: str) -> tuple[dict, ...]:
+def configs_for_suite(suite: str, omit_smoke03_row5: bool = False) -> tuple[dict, ...]:
     """Return the fixed config matrix for a named smoke suite."""
     if suite == "t16":
         return CONFIGS
     if suite == "smoke03":
+        if omit_smoke03_row5:
+            return tuple(config for index, config in enumerate(SMOKE03_CONFIGS, start=1) if index != 5)
         return SMOKE03_CONFIGS
     raise ValueError(f"unknown suite {suite!r}")
+
+
+def matrix_configs(matrix: str) -> list[dict]:
+    """Compatibility spelling for ``--suite``; both select the same fixed matrices."""
+    return list(configs_for_suite("t16" if matrix == "smoke02" else matrix))
 
 
 def warmup_for_suite(suite: str) -> dict:
@@ -525,6 +570,7 @@ def run(
     budget: float,
     scratch: Path | None = None,
     suite: str = "t16",
+    omit_smoke03_row5: bool = False,
 ) -> int:
     """Run preflight and each timed configuration, retaining resumable Drive artifacts.
 
@@ -534,7 +580,7 @@ def run(
     """
     started = time.monotonic()
     # JSON round-trips result identity on Drive; do not retain tuple containers here.
-    configs = [dict(config) for config in configs_for_suite(suite)]
+    configs = [dict(config) for config in configs_for_suite(suite, omit_smoke03_row5)]
     warmup = warmup_for_suite(suite)
     output.mkdir(parents=True, exist_ok=True)
     scratch = (scratch or default_scratch()).resolve()
@@ -547,6 +593,7 @@ def run(
         "schema": SCHEMA,
         "commit": commit,
         "suite": suite,
+        "omitted_smoke03_row5": omit_smoke03_row5,
         "configs": [],
         "status": "preflight",
         "authority": "throughput smoke only; not gate, quality, or serving evidence",
@@ -588,6 +635,7 @@ def run(
             "compile_mode": mode,
             "seconds": seconds,
             "suite": suite,
+            "omitted_smoke03_row5": omit_smoke03_row5,
             "configs": configs,
         }
         identity_path = output / "identity.json"
@@ -826,7 +874,14 @@ def main() -> int:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--seconds", type=float, default=None)
     parser.add_argument("--budget-seconds", type=float, default=2700)
-    parser.add_argument("--suite", choices=("t16", "smoke03"), default="t16")
+    parser.add_argument(
+        "--suite", "--matrix", dest="suite", choices=("t16", "smoke02", "smoke03"), default="t16",
+        help="pre-registered smoke suite; --matrix is a compatibility alias",
+    )
+    parser.add_argument(
+        "--omit-smoke03-row5", action="store_true",
+        help="explicitly omit only smoke-03 row 5 (a6 raw g3) when the notebook budget requires it",
+    )
     parser.add_argument(
         "--scratch-dir",
         type=Path,
@@ -834,8 +889,10 @@ def main() -> int:
         help="local-disk directory for trainer outputs during timing (default: /content)",
     )
     args = parser.parse_args()
+    if args.suite == "smoke02":
+        args.suite = "t16"
     if args.seconds is None:
-        args.seconds = 600 if args.suite == "smoke03" else 150
+        args.seconds = 300 if args.suite == "smoke03" else 150
     if not 120 <= args.seconds <= 600 or not 0 < args.budget_seconds <= 4500:
         parser.error("seconds must be 120..600 and budget must be >0 and <=4500")
     # The notebook owns this runner, while bounded_command owns separate trainer
@@ -849,6 +906,7 @@ def main() -> int:
         args.budget_seconds,
         args.scratch_dir,
         args.suite,
+        args.omit_smoke03_row5,
     )
 
 

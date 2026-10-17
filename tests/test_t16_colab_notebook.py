@@ -40,11 +40,22 @@ def test_notebook_has_pinned_isolated_and_resumable_contract() -> None:
     assert "verify_and_extract" in source
     assert "--budget-seconds" in source
     assert "--scratch-dir" in source  # trainer outputs stay off Drive during timing
+    assert re.search(r"MATRIX = '(smoke02|smoke03)'", source) and "'--matrix', MATRIX" in source
     assert "files.download" in source
     assert "RUN_NAME = 'smoke-03'" in source
     assert "TOTAL_BUDGET_SECONDS = 4500" in source
-    assert "TIMING_SECONDS = 600" in source
-    assert "'--suite', 'smoke03'" in source
+    assert "TIMING_SECONDS = 300" in source
+    assert "bench_learner.py" in source
+    assert "p0_learner_bench" in source
+    assert "df', '-h', '/dev/shm'" in source
+    assert "t1_k2_c_ro,t1_bf16_k2_c_ro,t1_k4_c_ro,t1_bf16_k4_c_ro" in source
+    assert "('--obs-pack', 'packed'), ('--raw-rings', 'raw')" in source
+    assert "for gather_threads in (0, 3)" in source
+    assert "local_ring_dir.mkdir(parents=True, exist_ok=True)" in source
+    assert "p0_deadline = time.monotonic() + 300" in source
+    assert "deadline_at=p0_deadline" in source
+    assert "remaining_budget = min(3600" in source
+    assert "--omit-smoke03-row5" in source
     assert "startswith('2.9.')" in source  # preserve the CUDA torch 2.9.x contract
 
 

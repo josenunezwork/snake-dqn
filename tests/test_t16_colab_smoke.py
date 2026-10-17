@@ -47,17 +47,59 @@ def test_recipe_matrix_and_default_off_selfplay(tmp_path):
         assert command[command.index("--checkpoint-every") + 1] == str(smoke.SMOKE_CHECKPOINT_EVERY)
         assert command[command.index("--compile-learner") + 1] == "reduce-overhead"
         assert command[command.index("--batch-scale") + 1] == "2"
+        assert "--obs-pack" in command and "--learner-precision" not in command
 
 
-def test_smoke03_matrix_is_selfplay_gather_only_with_small_actor_queues(tmp_path):
+def test_smoke03_matrix_varies_only_the_learner_host_work_and_actor_count(tmp_path):
+    """smoke-03: 128-world self-play rows; raw rings, batch scale, bf16 and six actors."""
+    assert smoke.matrix_configs("smoke02") == list(smoke.CONFIGS)
+    assert smoke.matrix_configs("smoke03") == list(smoke.SMOKE03_CONFIGS)
+    with pytest.raises(ValueError):
+        smoke.matrix_configs("smoke99")
+    names = [c["name"] for c in smoke.SMOKE03_CONFIGS]
+    assert names == [
+        "sp_w128_a2_packed_g0_bs2_fp32",
+        "sp_w128_a2_raw_g0_bs2_fp32",
+        "sp_w128_a3_raw_g3_bs2_fp32",
+        "sp_w128_a4_raw_g3_bs2_fp32",
+        "sp_w128_a6_raw_g3_bs2_fp32",
+        "sp_w128_a4_raw_g3_bs4_fp32",
+        "sp_w128_a4_raw_g3_bs2_bf16",
+    ]
+    assert not set(names) & {c["name"] for c in smoke.CONFIGS}
+    for config in smoke.SMOKE03_CONFIGS:
+        assert (config["worlds"], config["self_play"]) == (128, True)
+        command = smoke.trainer_command(
+            config, tmp_path, tmp_path / "out", tmp_path / "init", 150, "off", tmp_path / "ring"
+        )
+        assert "--all-snakes-learner" in command and "--compile-learner" not in command
+        assert ("--obs-pack" in command) == config.get("obs_pack", True)
+        assert command[command.index("--batch-scale") + 1] == str(config.get("batch_scale", 2))
+        assert command[command.index("--actors") + 1] == str(config["actors"])
+        if config.get("precision", "fp32") == "fp32":
+            assert "--learner-precision" not in command
+        else:
+            assert command[command.index("--learner-precision") + 1] == config["precision"]
+    raw = [c for c in smoke.SMOKE03_CONFIGS if c.get("obs_pack", True) is False]
+    assert len(raw) == 6 and smoke.SMOKE03_CONFIGS[0].get("obs_pack", True) is True
+
+
+def test_smoke03_matrix_is_the_preregistered_seven_row_recipe(tmp_path):
     assert [(c["actors"], c["gather_threads"]) for c in smoke.SMOKE03_CONFIGS] == [
         (2, 0),
-        (2, 3),
+        (2, 0),
         (3, 3),
-        (3, 4),
+        (4, 3),
+        (6, 3),
+        (4, 3),
+        (4, 3),
     ]
     assert all(c["worlds"] == 128 and c["self_play"] for c in smoke.SMOKE03_CONFIGS)
     assert all(c["actor_queue_frames"] == 4 for c in smoke.SMOKE03_CONFIGS)
+    assert [c.get("obs_pack", True) for c in smoke.SMOKE03_CONFIGS] == [True, False, False, False, False, False, False]
+    assert [c.get("batch_scale", 2) for c in smoke.SMOKE03_CONFIGS] == [2, 2, 2, 2, 2, 4, 2]
+    assert [c.get("precision", "fp32") for c in smoke.SMOKE03_CONFIGS] == ["fp32"] * 6 + ["bf16"]
+    assert [c.get("throughput_only", False) for c in smoke.SMOKE03_CONFIGS] == [False] * 5 + [True, True]
     assert smoke.warmup_for_suite("smoke03") == smoke.SMOKE03_WARMUP
     assert smoke.SMOKE03_WARMUP["self_play"]
     command = smoke.trainer_command(
@@ -69,9 +111,15 @@ def test_smoke03_matrix_is_selfplay_gather_only_with_small_actor_queues(tmp_path
         "reduce-overhead",
         tmp_path / "ring",
     )
-    assert command[command.index("--gather-threads") + 1] == "4"
+    assert command[command.index("--gather-threads") + 1] == "3"
     assert command[command.index("--actor-queue-frames") + 1] == "4"
     assert "--all-snakes-learner" in command
+
+
+def test_smoke03_row5_is_only_explicit_optional_omission():
+    configs = smoke.configs_for_suite("smoke03", omit_smoke03_row5=True)
+    assert len(configs) == 6
+    assert smoke.SMOKE03_CONFIGS[4] not in configs
 
 
 def test_post_warmup_rate_uses_interval_not_lifetime_average():

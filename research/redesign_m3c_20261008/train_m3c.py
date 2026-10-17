@@ -3003,6 +3003,28 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         shm_p.close()
 
 
+def stop_actors(
+    stop_evt, txs, procs, join_seconds: float = 30.0, kill_seconds: float = 10.0
+) -> None:
+    """Set ``stop_evt`` and keep draining the actor queues until every actor has exited.
+
+    A single drain is not enough: an actor whose queue is full (back-pressure, the normal
+    state of a learner-bound run) hands its last message to the queue's feeder thread, and
+    ``multiprocessing`` joins that thread at process exit, so the actor blocks until the
+    learner reads again. With one drain before ``join`` the actor was terminated after the
+    timeout and reported as not having exited cleanly (``actor_exitcodes`` -15).
+    """
+    stop_evt.set()
+    _drain_queues_while_joining(procs, txs, deadline_seconds=join_seconds)
+    # Signal all stragglers before joining under one shared termination deadline.
+    for proc in procs:
+        if proc.is_alive():
+            proc.terminate()
+    deadline = time.monotonic() + float(kill_seconds)
+    for proc in procs:
+        proc.join(timeout=max(0.0, deadline - time.monotonic()))
+
+
 def _learner_counters(st: Dict[str, Any]) -> Dict[str, Any]:
     """Learner counters bracketing a profiled window (``M3C_PROFILE``; never called when off)."""
     keys = ("transitions", "updates", "learn_s", "wait_s", "env_s")
@@ -3659,12 +3681,7 @@ def main_multi(args) -> int:
         if prof is not None and prof.running:
             prof.meta["end"] = _learner_counters(st)
             prof.stop()
-        stop_evt.set()
-        _drain_queues_while_joining(procs, txs)
-        for p in procs:
-            if p.is_alive():
-                p.terminate()
-                p.join(timeout=10)
+        stop_actors(stop_evt, txs, procs)
         for blk in shms:  # idempotent; covers a crash before every actor attached
             blk.unlink()
     try:

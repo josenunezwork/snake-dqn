@@ -268,6 +268,7 @@ def test_actor_messages_identical_across_impls(tmp_path, monkeypatch, extra):
             assert np.array_equal(ref_ring[k], ring[k]), (key, k)
 
 
+@pytest.mark.skipif(not HAVE_CKPT, reason="needs the pinned frp3-s12 checkpoints")
 def test_all_snakes_learner_collects_each_live_slot(tmp_path):
     """The opt-in self-play actor writes and trains rows beyond the hero slot."""
     import torch
@@ -302,6 +303,7 @@ def test_all_snakes_learner_collects_each_live_slot(tmp_path):
     assert sum(len(msg["s"]) for msg in msgs) > 6 * 6
 
 
+@pytest.mark.skipif(not HAVE_CKPT, reason="needs the pinned frp3-s12 checkpoints")
 def test_all_snakes_compile_actor_stages_all_slots(tmp_path, monkeypatch):
     """The optional static actor forward reserves every learner-driven slot."""
     import torch

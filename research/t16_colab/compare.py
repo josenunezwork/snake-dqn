@@ -30,11 +30,15 @@ SELF_PLAY_CAVEAT = (
     "same-configuration comparison until a Mac self-play rate is measured"
 )
 SMOKE03_REQUIRED_CONFIG_NAMES = (
-    "selfplay_w128_a2_g0",
-    "selfplay_w128_a2_g3",
-    "selfplay_w128_a3_g3",
-    "selfplay_w128_a3_g4",
+    "sp_w128_a2_packed_g0_bs2_fp32",
+    "sp_w128_a2_raw_g0_bs2_fp32",
+    "sp_w128_a3_raw_g3_bs2_fp32",
+    "sp_w128_a4_raw_g3_bs2_fp32",
+    "sp_w128_a6_raw_g3_bs2_fp32",
+    "sp_w128_a4_raw_g3_bs4_fp32",
+    "sp_w128_a4_raw_g3_bs2_bf16",
 )
+SMOKE03_THROUGHPUT_ONLY_NAMES = frozenset(SMOKE03_REQUIRED_CONFIG_NAMES[-2:])
 
 
 class ResultsError(ValueError):
@@ -48,13 +52,11 @@ def _valid_tps(value: Any) -> float | None:
     return numeric if math.isfinite(numeric) and numeric >= 0 else None
 
 
-def _within_batch_tolerance(value: float | None) -> bool:
+def _within_batch_tolerance(value: float | None, expected: float) -> bool:
     """Whether the measured replay ratio remains within the smoke-03 invariant."""
     if value is None:
         return False
-    return abs(value - EXPECTED_TRANSITIONS_PER_UPDATE) <= (
-        EXPECTED_TRANSITIONS_PER_UPDATE * TRANSITIONS_PER_UPDATE_TOLERANCE
-    )
+    return abs(value - expected) <= expected * TRANSITIONS_PER_UPDATE_TOLERANCE
 
 
 def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -75,9 +77,20 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise ResultsError(f"unknown suite {suite!r}")
     smoke03 = suite == "smoke03"
     required_names = SMOKE03_REQUIRED_CONFIG_NAMES if smoke03 else REQUIRED_CONFIG_NAMES
+    if smoke03 and payload.get("omitted_smoke03_row5"):
+        required_names = tuple(name for index, name in enumerate(required_names, start=1) if index != 5)
     top_level_failure = overall_status == "failed"
     names = [row.get("name") for row in configs if isinstance(row, Mapping)]
     duplicate_names = {name for name in names if isinstance(name, str) and names.count(name) > 1}
+    control = next(
+        (row for row in configs if isinstance(row, Mapping) and row.get("name") == SMOKE03_REQUIRED_CONFIG_NAMES[0]),
+        None,
+    )
+    control_policy_lag = (
+        _valid_tps(control.get("policy_lag_mean"))
+        if control and control.get("status") == "completed" and control.get("name") not in duplicate_names
+        else None
+    )
     rows = []
     for index, config in enumerate(configs):
         if not isinstance(config, Mapping):
@@ -89,6 +102,16 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
         throughput = _valid_tps(config.get("transitions_per_second"))
         updates = _valid_tps(config.get("updates_per_second"))
         transitions_per_update = _valid_tps(config.get("transitions_per_update"))
+        policy_lag = _valid_tps(config.get("policy_lag_mean"))
+        batch_scale = config.get("batch_scale", 2)
+        expected_tpu = (
+            EXPECTED_TRANSITIONS_PER_UPDATE * float(batch_scale) / 2
+            if isinstance(batch_scale, (int, float)) and not isinstance(batch_scale, bool)
+            else None
+        )
+        throughput_only = smoke03 and (
+            bool(config.get("throughput_only", False)) or name in SMOKE03_THROUGHPUT_ONLY_NAMES
+        )
         if top_level_failure:
             verdict, reason = "INVALID", "top-level smoke status is failed"
         elif name in duplicate_names:
@@ -99,8 +122,16 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
             verdict, reason = "INVALID", "missing or invalid transitions_per_second"
         elif smoke03 and updates is None:
             verdict, reason = "INVALID", "missing or invalid updates_per_second"
-        elif smoke03 and not _within_batch_tolerance(transitions_per_update):
-            verdict, reason = "INVALID", "transitions_per_update is outside 256 +/-2%"
+        elif smoke03 and (expected_tpu is None or not _within_batch_tolerance(transitions_per_update, expected_tpu)):
+            verdict, reason = "INVALID", "transitions_per_update is outside the configured +/-2% range"
+        elif smoke03 and policy_lag is None:
+            verdict, reason = "INVALID", "missing policy_lag_mean"
+        elif smoke03 and name != SMOKE03_REQUIRED_CONFIG_NAMES[0] and (
+            control_policy_lag is None or policy_lag > control_policy_lag
+        ):
+            verdict, reason = "FAIL", "policy_lag_mean exceeds the packed control"
+        elif throughput_only:
+            verdict, reason = "THROUGHPUT_ONLY", "recipe arm; throughput evidence only"
         elif smoke03 and updates >= FOUR_X_UPDATES_PER_SECOND:
             verdict, reason = (
                 "PASS",
@@ -125,6 +156,8 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
             "baseline_updates_per_second": MAC_BASELINE_UPDATES_PER_SECOND,
             "threshold_updates_per_second": FOUR_X_UPDATES_PER_SECOND,
             "transitions_per_update": transitions_per_update,
+            "expected_transitions_per_update": expected_tpu,
+            "policy_lag_mean": policy_lag,
             "verdict": verdict,
             "reason": reason,
         }
@@ -134,7 +167,6 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
             "tail_transitions_per_second",
             "resources",
             "oversubscription",
-            "policy_lag_mean",
             "learn_seconds_per_update",
         ):
             if key in config:
@@ -156,7 +188,7 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
                     "threshold_updates_per_second": FOUR_X_UPDATES_PER_SECOND,
                     "transitions_per_update": None,
                     "verdict": "INVALID",
-                    "reason": "required T16 configuration is missing",
+                    "reason": "required smoke configuration is missing",
                 }
             )
     return {
