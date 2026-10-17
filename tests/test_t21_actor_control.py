@@ -97,6 +97,11 @@ class _MockStaticPool:
     def prime_b8_with_learner_rows(self, _prepared, _hero, _alive, _seats):
         return None  # This fixture contains only scripted policies.
 
+    def v8_with_learner_rows(self, prepared, hero, mask, _alive, _seats):
+        from src.simd_env.ego_raster_bv8 import v8_scalars
+
+        return v8_scalars(prepared, hero, mask)  # No frozen B8 group to share in this fixture.
+
     def dispatch(self, _prepared, masks, alive, actions, seats):
         rows = np.argwhere(alive & np.asarray(seats != None))  # noqa: E711 - elementwise None
         if len(rows):

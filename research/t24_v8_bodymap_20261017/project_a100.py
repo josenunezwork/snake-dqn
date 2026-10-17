@@ -63,7 +63,7 @@ def project(before_path: Path, after_path: Path) -> dict:
             )
     return {
         "schema": "t24-a100-projection/v1",
-        "authority": "Conditional sensitivity; neither measured throughput nor a confidence interval",
+        "authority": "Conditional sensitivity, not an A100 measurement",
         "formula": (
             "baseline_rate / (1-h+h*r22 - (1-rv8)*(h*b8_v8_ms/old_host_ms + f*v8_s/env_s))"
         ),
