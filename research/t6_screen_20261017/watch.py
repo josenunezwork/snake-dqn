@@ -340,9 +340,7 @@ def run(args: argparse.Namespace) -> int:
                 return _finish(args, rows, statuses)
             controls_complete = _controls_complete(completed)
             ready_names = {
-                job["name"]
-                for job in eligible
-                if ready(job["name"], args.train, args.ctrl)
+                job["name"] for job in eligible if ready(job["name"], args.train, args.ctrl)
             }
             capacity = WORKER_LIMIT - len(active)
             for job in launchable_jobs(

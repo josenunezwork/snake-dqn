@@ -155,3 +155,61 @@ def test_failed_receipt_is_terminal_before_any_gameplay_probe(tmp_path, monkeypa
 
     assert watch.run(args) == 0
     assert finished == [([], {"RESTART_s10": 9})]
+
+
+def test_mocked_run_launches_the_one_nested_analysis_extension_then_finishes(
+    tmp_path, monkeypatch
+) -> None:
+    train = tmp_path / "train"
+    train.mkdir()
+    for lane, seeds in ((0, (10, 12, 14)), (1, (11, 13))):
+        (train / f"lane{lane}-status.jsonl").write_text(
+            "".join(
+                json.dumps(
+                    {"out": str(train / f"RESTART_s{seed}"), "exit_code": 0, "success": True}
+                )
+                + "\n"
+                for seed in seeds
+            )
+        )
+    args = argparse.Namespace(
+        train=train,
+        ctrl=tmp_path / "ctrl",
+        out=tmp_path / "out",
+        poll_seconds=0,
+    )
+    audits: list[int] = []
+    finished: list[int] = []
+    decisions = iter(("EXTEND", "KILL"))
+    monkeypatch.setattr(
+        watch,
+        "_audit",
+        lambda _path, *, round_index, **_kwargs: audits.append(round_index) or {"status": "PASS"},
+    )
+
+    def complete_row(path, *_args):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}")
+        return True
+
+    monkeypatch.setattr(watch, "valid_t6_row", complete_row)
+    monkeypatch.setattr(watch, "ready", lambda *_args: True)
+    monkeypatch.setattr(
+        watch,
+        "_provisional",
+        lambda *_args: {"arms": {"RESTART": {"decision": next(decisions)}}},
+    )
+    monkeypatch.setattr(
+        watch,
+        "_finish",
+        lambda _args, rows, _statuses: finished.append(len(rows)) or 0,
+    )
+    monkeypatch.setattr(
+        watch.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail("all mocked rows are already complete"),
+    )
+
+    assert watch.run(args) == 0
+    assert audits == [72, 73]
+    assert finished == [43]
