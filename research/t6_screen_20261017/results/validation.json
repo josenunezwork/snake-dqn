@@ -1,0 +1,23 @@
+{
+  "utc": "2026-10-17T04:34:19.763055+00:00",
+  "head": "d1ddf17825496d5d2640285786e283c2cd39d7d5",
+  "tests": {
+    "count": 28,
+    "result": "PASS",
+    "command": "SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -m pytest -q tests/test_t6_screen_analysis.py tests/test_t6_screen_probe.py tests/test_t6_screen_watch.py tests/test_t6_screen_audit.py"
+  },
+  "flake8": "PASS",
+  "independent_review": "No remaining actionable findings; actual scanner fixture accepted consumed initial evidence and rejected an injected extension seed",
+  "source_sha256": {
+    "research/t6_screen_20261017/audit.py": "91b6dab2e9bfa344eac0addbfb77d12413ffd7d372bc207acd4558d1514dea5d",
+    "research/t6_screen_20261017/__init__.py": "23c714c414b9fa25a91e5463c37ad7ed866a75fc31f9438810f298b6e7441753",
+    "research/t6_screen_20261017/probe.py": "b6ddbf82b2095017e213c4a01f1357be62f631081753f4b015fb8341441e7b77",
+    "research/t6_screen_20261017/watch.py": "b7172f293114cb5bc0118b8f9054e1099f34a3f44000a21a48c1446cd5dfb01b",
+    "research/t6_screen_20261017/analyze.py": "effbefd305831d48e9c76c208262e28f86229fd9025f2ab4b3bf9fc59ff4211a",
+    "tests/test_t6_screen_probe.py": "f5a8d37dfa7793abfe0d62e8883b69ce8c53498f552006b64bb4b5776b98f58a",
+    "tests/test_t6_screen_analysis.py": "aa887da2a7aa9a1ba2d2388fc7e4e1a1a1f82c41f2cd7ed1093f803282580fa0",
+    "tests/test_t6_screen_watch.py": "0351005cb749c42fc26f195fdef3cb3bf3433e6fb798af7b9e5006bfae44d0b9",
+    "tests/test_t6_screen_audit.py": "8ae4f40b4961a85b4c5d77ba94d6caf17a146e7893f8e53a7276f1789903eb45"
+  },
+  "independent_numeric_review": "Exact primary count deltas [-8,0,3,0,5]/96; KILL; all metrics independently recomputed from 33 rows."
+}

@@ -1,0 +1,29 @@
+{
+  "utc": "2026-10-17T04:34:19.784047+00:00",
+  "source_commit": "d1ddf17825496d5d2640285786e283c2cd39d7d5",
+  "decision": "KILL",
+  "rows": 33,
+  "all_probe_exits_zero": true,
+  "watcher_exit": 0,
+  "max_probe_processes": 2,
+  "controls_before_restart": true,
+  "active_owned_probes": 0,
+  "extension_launched": false,
+  "inputs_unchanged": true,
+  "evidence_sha256": {
+    "analysis.json": "685fdcf8e5c7eb37b5c41a1688b33c5042beff077e85aaee1f53710e4d373419",
+    "telemetry.json": "83fc3bbbb23d40a33a64d3ca4b700f9729f8d350f99ae10701c73347a0d27911",
+    "heldout_q_gaps.json": "eeb5a4aed6154a85145a77f90cc07f4f69a3a9feaccfca5ec7cddd064333890d",
+    "probes.jsonl": "89f2d425a0c0042f34e089b2e36a05a5b020a05b76e4b3c6c7191a0f7f2073f0",
+    "seed_bank_audit_round72.json": "f49fd22c733757dbe468e7e7498599fd7bd5431c618c5a9920ae08db19cd5832",
+    "inputs.json": "d1281b8c7237de077611c61240df2863175513eec7f7b3374ad7aefe0b50d8a9",
+    "validation.json": "6f46585e496f431f097216ec654dd55839eccfe5b0fb188735436965dec22995",
+    "training_receipts.json": "95c5be0005a28cbd2898f174bfcc2678d13fe8650c458e094411754c7a7a27e2",
+    "watcher.jsonl": "694a338e95621bed9f5b784654c68ee912f634583599e25f074b91cf874500be",
+    "launch-probe.sh": "25d82bcb3257db78eadaf0c90536e50d9469921d04a48369a0ae47a3b1b45e7c",
+    "watcher-exit.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "boost_curves.svg": "e1525bfc3d20a3d077c94e0c6040571fd2c96d84f40b1502776e1c030e4d918e"
+  },
+  "exact_count_boundary_fix": "Floating residual at exact zero corrected using rational paired counts before watcher decision; own watcher paused/resumed; no round73 probe launched.",
+  "report_sha256": "9dfbb56e38e49a42598bdd0fb723ba07dede9c2a5eb5c0e0557c655f4c13cb41"
+}

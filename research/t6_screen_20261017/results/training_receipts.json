@@ -1,0 +1,162 @@
+{
+  "10": {
+    "summary_sha256": "0c5f85b67ac6c110b264478df2a1cbe7e4fcb2bf551b3eb3e10d57a8bf577934",
+    "checkpoint_sha256": "4c0d85046b6da312ffc07e3b242c5732ab0cd5d49c9b573014bb43b565b69cfa",
+    "terminal_exit": 0,
+    "transitions": 8000066,
+    "halt": null,
+    "actor_exitcodes": [
+      0,
+      0
+    ],
+    "restart_totals": {
+      "restart_decisions": 622100,
+      "fresh_decisions": 7377966,
+      "restart_decisions_ge800": 468501,
+      "fresh_decisions_ge800": 2051434,
+      "restart_deaths": 175,
+      "fresh_deaths": 891,
+      "restart_deaths_ge800": 144,
+      "fresh_deaths_ge800": 401,
+      "restart_length_sum": 589140310,
+      "fresh_length_sum": 4019664872,
+      "restart_death_length_sum": 174955,
+      "fresh_death_length_sum": 639956,
+      "restart_deaths_per_1k_ge800": 0.3073632713697516,
+      "fresh_deaths_per_1k_ge800": 0.1954730203360186,
+      "restart_length_mean": 947.0186625944382,
+      "fresh_length_mean": 544.8201946173241,
+      "restart_death_length_mean": 999.7428571428571,
+      "fresh_death_length_mean": 718.2446689113356,
+      "restart_frac_actual": 0.203125
+    }
+  },
+  "11": {
+    "summary_sha256": "8633dbce75f2aaecd35ca0b99ed4beeb68a5082624828f4c28df29c3ab0d1a7f",
+    "checkpoint_sha256": "97aa97ecd36ac5bd9c29236aae1313de4229d03cec90a13d4825d6b6bae4b413",
+    "terminal_exit": 0,
+    "transitions": 8000237,
+    "halt": null,
+    "actor_exitcodes": [
+      0,
+      0
+    ],
+    "restart_totals": {
+      "restart_decisions": 618701,
+      "fresh_decisions": 7381536,
+      "restart_decisions_ge800": 457812,
+      "fresh_decisions_ge800": 2116676,
+      "restart_deaths": 180,
+      "fresh_deaths": 911,
+      "restart_deaths_ge800": 142,
+      "fresh_deaths_ge800": 450,
+      "restart_length_sum": 584673486,
+      "fresh_length_sum": 4085871041,
+      "restart_death_length_sum": 183546,
+      "fresh_death_length_sum": 691866,
+      "restart_deaths_per_1k_ge800": 0.31017098721746045,
+      "fresh_deaths_per_1k_ge800": 0.21259748775910908,
+      "restart_length_mean": 945.0016825574874,
+      "fresh_length_mean": 553.5258570844876,
+      "restart_death_length_mean": 1019.7,
+      "fresh_death_length_mean": 759.4577387486279,
+      "restart_frac_actual": 0.203125
+    }
+  },
+  "12": {
+    "summary_sha256": "f5212ba9f0fab115413540866e82846dbd03287cd817c870af696cb35f97357b",
+    "checkpoint_sha256": "cb3c243861b912c1434513c211656cf42c113890eef99c34a8bcc60464fd2afc",
+    "terminal_exit": 0,
+    "transitions": 8000047,
+    "halt": null,
+    "actor_exitcodes": [
+      0,
+      0
+    ],
+    "restart_totals": {
+      "restart_decisions": 631873,
+      "fresh_decisions": 7368174,
+      "restart_decisions_ge800": 464279,
+      "fresh_decisions_ge800": 2007580,
+      "restart_deaths": 183,
+      "fresh_deaths": 882,
+      "restart_deaths_ge800": 153,
+      "fresh_deaths_ge800": 367,
+      "restart_length_sum": 588264281,
+      "fresh_length_sum": 3968558626,
+      "restart_death_length_sum": 188775,
+      "fresh_death_length_sum": 614670,
+      "restart_deaths_per_1k_ge800": 0.329543227240517,
+      "fresh_deaths_per_1k_ge800": 0.18280716086033932,
+      "restart_length_mean": 930.9849938199607,
+      "fresh_length_mean": 538.6081580049548,
+      "restart_death_length_mean": 1031.5573770491803,
+      "fresh_death_length_mean": 696.9047619047619,
+      "restart_frac_actual": 0.203125
+    }
+  },
+  "13": {
+    "summary_sha256": "b382fdeea604220780eb34fe4e126e5868af52da22ca80d654942d6e6dbe846d",
+    "checkpoint_sha256": "13c99753c294f592344b9676af800dc6b26a58954f90fd9e5d1481997b534a1c",
+    "terminal_exit": 0,
+    "transitions": 8000104,
+    "halt": null,
+    "actor_exitcodes": [
+      0,
+      0
+    ],
+    "restart_totals": {
+      "restart_decisions": 630400,
+      "fresh_decisions": 7369704,
+      "restart_decisions_ge800": 469315,
+      "fresh_decisions_ge800": 1976759,
+      "restart_deaths": 184,
+      "fresh_deaths": 926,
+      "restart_deaths_ge800": 155,
+      "fresh_deaths_ge800": 403,
+      "restart_length_sum": 594867180,
+      "fresh_length_sum": 3951950981,
+      "restart_death_length_sum": 189250,
+      "fresh_death_length_sum": 661598,
+      "restart_deaths_per_1k_ge800": 0.3302685829347027,
+      "fresh_deaths_per_1k_ge800": 0.20386906041657077,
+      "restart_length_mean": 943.6344860406091,
+      "fresh_length_mean": 536.2428370257476,
+      "restart_death_length_mean": 1028.5326086956522,
+      "fresh_death_length_mean": 714.4686825053996,
+      "restart_frac_actual": 0.203125
+    }
+  },
+  "14": {
+    "summary_sha256": "41572eccad4403ce9fb262df43733e61c97732cda9700eef69b8449f98849e1c",
+    "checkpoint_sha256": "e0c6782691c55d1dd5b2ceca9458dadb754a3dbf2e2384278ea4125f67ee6e68",
+    "terminal_exit": 0,
+    "transitions": 8000031,
+    "halt": null,
+    "actor_exitcodes": [
+      0,
+      0
+    ],
+    "restart_totals": {
+      "restart_decisions": 637161,
+      "fresh_decisions": 7362870,
+      "restart_decisions_ge800": 450968,
+      "fresh_decisions_ge800": 1969805,
+      "restart_deaths": 193,
+      "fresh_deaths": 888,
+      "restart_deaths_ge800": 155,
+      "fresh_deaths_ge800": 368,
+      "restart_length_sum": 573985084,
+      "fresh_length_sum": 3929540254,
+      "restart_death_length_sum": 195902,
+      "fresh_death_length_sum": 609877,
+      "restart_deaths_per_1k_ge800": 0.34370509659221943,
+      "fresh_deaths_per_1k_ge800": 0.18682052284363174,
+      "restart_length_mean": 900.8477982801835,
+      "fresh_length_mean": 533.6968130633843,
+      "restart_death_length_mean": 1015.0362694300518,
+      "fresh_death_length_mean": 686.7984234234234,
+      "restart_frac_actual": 0.203125
+    }
+  }
+}
