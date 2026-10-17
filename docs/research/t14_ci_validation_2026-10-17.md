@@ -92,7 +92,7 @@ preflight passed all 8 tests.
 
 ## Hosted environment and metadata portability
 
-The Python quality job uses `macos-26` ARM64, matching the platform authority for
+The Python quality job uses `macos-15` ARM64, matching the platform authority for
 historical numerical plans. Linux and Darwin produced a nominal probability
 of `1.941938163774193e-06` and `1.941938163829704e-06`, respectively, from the same
 boundary `4.617501629587915`. The path uses stdlib `NormalDist` and platform
@@ -102,6 +102,15 @@ numerical preflight runs before the full suite. The frontend stays on Ubuntu.
 [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 lists this standard ARM64 runner. Full Git history is checked out for source-parity
 tests and `rg` is explicitly ensured for artifact scanners.
+
+The macOS 26 attempt passed the frozen-plan preflight but failed six unchanged
+Torch numerical tests even with the identical 2.9.1 wheel used locally.
+[GitHub runner issue 14380](https://github.com/actions/runner-images/issues/14380)
+records a separately reproduced OS Metal numerical regression and validates
+macOS 15 as a workaround that still executes MPS. The workflow therefore uses
+macOS 15 and retains all original CPU bitwise and MPS assertions, including the
+compiled actor availability assertion. This is a runner qualification choice;
+no optimization math or parity tolerances were changed to accommodate macOS 26.
 
 T10's prefix-boundary writer now records `directory_birthtime_utc_approx: null`
 when the host filesystem exposes no birth time, rather than inventing one from

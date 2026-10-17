@@ -10,7 +10,8 @@ jobs:
   quality:
     name: lint + tests
     # Historical numerical plans are byte-pinned on Darwin/ARM64 (STATUS: Mac authority).
-    runs-on: macos-26
+    # macos-26 has OS Metal numerical regressions: actions/runner-images#14380.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
