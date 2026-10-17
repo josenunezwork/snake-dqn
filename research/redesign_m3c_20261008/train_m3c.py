@@ -3588,6 +3588,8 @@ def main_multi(args) -> int:
     rng = np.random.default_rng([args.seed, 17])
     device = torch.device(args.device)
     sched = schedules_from_args(args)
+    if resume_payload is not None and resume_payload.get("schedules") != sched.__dict__:
+        raise ValueError("full-state schedule recipe differs")
 
     from src.model.ego2s_network import OBS_SPEC_B, OBS_SPEC_BV8, spec_for
 
@@ -3809,6 +3811,8 @@ def main_multi(args) -> int:
             "resumed_without_replay": not resumed_with_replay,
         }
         st["flags"].append(resume_event)
+        with log_path.open("a") as stream:
+            stream.write(json.dumps(resume_event) + "\n")
         if not resumed_with_replay:
             st["since_update"] = 0
     st["halt"] = arm_halt_reason(args)
