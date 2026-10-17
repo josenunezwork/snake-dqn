@@ -1,0 +1,1132 @@
+{
+  "episodes": 125,
+  "finished_unix": 1792243396.6391559,
+  "receipts": [
+    {
+      "pid": 96556,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 3138666708,
+      "sha256": "ec4180bb5213a07ed7ed58c5c50fb4d90bc42cb9194cda68796533c0b0d3e4a6",
+      "snake_count": 6,
+      "wall_seconds": 23.128985166549683
+    },
+    {
+      "pid": 96557,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 3138666708,
+      "sha256": "2bbee41d30f18628f2492f2afd86aec734be87ca3cad7a2c06923ff1ee5bf013",
+      "snake_count": 6,
+      "wall_seconds": 27.093142986297607
+    },
+    {
+      "pid": 96558,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 3138666708,
+      "sha256": "5a9b76e814a6afa5c85b48b3fdf89fba1710629ed87328712f43f8c88062353a",
+      "snake_count": 6,
+      "wall_seconds": 48.46280097961426
+    },
+    {
+      "pid": 96555,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3138666708,
+      "sha256": "0ed2c0afa5b171b26a4dfb7ef001bde3a55185f03dc525028a47faed0b7e8329",
+      "snake_count": 6,
+      "wall_seconds": 50.89415502548218
+    },
+    {
+      "pid": 96673,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 3409650489,
+      "sha256": "9cdf4dd7a614d6973f64c89649c229d250b84746f89875ab50e7674f968b2f0b",
+      "snake_count": 6,
+      "wall_seconds": 24.610145092010498
+    },
+    {
+      "pid": 96681,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 3409650489,
+      "sha256": "8a21595bb67821a53708d35e925b1fe03887ac6ed2657b4fb906a34d612f2553",
+      "snake_count": 6,
+      "wall_seconds": 23.193347930908203
+    },
+    {
+      "pid": 96614,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3409650489,
+      "sha256": "0ffe326070451d4923f27754b4b50c25a4c32d298158185e26fa4ab089f0957f",
+      "snake_count": 6,
+      "wall_seconds": 51.10849404335022
+    },
+    {
+      "pid": 96613,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3138666708,
+      "sha256": "dc8e662dd21a97f0880623a29e7cfd24775167f7d6ab2c8403fbc2d87e365322",
+      "snake_count": 8,
+      "wall_seconds": 59.99323916435242
+    },
+    {
+      "pid": 96705,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 3026608368,
+      "sha256": "d1f14f7e1285f30f359d340242868462cbb420c071e0666fac3b532210fdef3a",
+      "snake_count": 6,
+      "wall_seconds": 22.91050386428833
+    },
+    {
+      "pid": 96699,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 3409650489,
+      "sha256": "4c0afd898684dc04c1252847d4323e90361415ba70ee7e0281d81d445259284c",
+      "snake_count": 6,
+      "wall_seconds": 46.194154024124146
+    },
+    {
+      "pid": 96704,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3026608368,
+      "sha256": "02e525ee61075b87c75abd86c35379ffc95013835acd3080ec983cb60938407d",
+      "snake_count": 6,
+      "wall_seconds": 52.79821300506592
+    },
+    {
+      "pid": 96724,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 3026608368,
+      "sha256": "0adcc810a335cd5c0650dd92825fd0ba1a91304e62205fafb8ed4144a658f613",
+      "snake_count": 6,
+      "wall_seconds": 26.719477891921997
+    },
+    {
+      "pid": 96700,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3409650489,
+      "sha256": "c10f4a9c0fb7df95746dfd46b07a89b5f3c2c98f798833be2167351b2a6460a8",
+      "snake_count": 8,
+      "wall_seconds": 62.156233072280884
+    },
+    {
+      "pid": 96745,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 3632024549,
+      "sha256": "711def874605115b0c44d870c752fc30682570ddc8332a851c8cd422b6dc5a73",
+      "snake_count": 6,
+      "wall_seconds": 28.533134698867798
+    },
+    {
+      "pid": 96735,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 3026608368,
+      "sha256": "4080c83c2f11c39c5cc83a0bdc6094f285636e578b9f240c720243584a7d545f",
+      "snake_count": 6,
+      "wall_seconds": 46.07248044013977
+    },
+    {
+      "pid": 96744,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3632024549,
+      "sha256": "7d726c00ff843dd187f0bcefa1cdd86700d1cdc4ffa5cc8795233592a2561359",
+      "snake_count": 6,
+      "wall_seconds": 47.75265026092529
+    },
+    {
+      "pid": 96788,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 3632024549,
+      "sha256": "c8364c2e64cf3cf15331db79e707e7a3b9a3a101037c24e55ed6d9f24a84ed7a",
+      "snake_count": 6,
+      "wall_seconds": 24.66974687576294
+    },
+    {
+      "pid": 96743,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3026608368,
+      "sha256": "22ea2d16f54bb782e7d756a2e72a3d68d9ea01d5a0325dae4fb37dbe8706d484",
+      "snake_count": 8,
+      "wall_seconds": 59.65186786651611
+    },
+    {
+      "pid": 96789,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 3632024549,
+      "sha256": "36aa92ebf4e5653b2ba49a75a8e801ef03814b764466b58239610b8708a7ae06",
+      "snake_count": 6,
+      "wall_seconds": 49.6645770072937
+    },
+    {
+      "pid": 97098,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 4092954511,
+      "sha256": "2994d11f7327851acbe33a25d11385ca383bcf1eea7c4525335d919e31593b01",
+      "snake_count": 6,
+      "wall_seconds": 28.52688717842102
+    },
+    {
+      "pid": 97188,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 4092954511,
+      "sha256": "845784cee9525358456d88d35cb5af1b7eab22e5732bc34b85cdd730d1ce9e8b",
+      "snake_count": 6,
+      "wall_seconds": 21.01213002204895
+    },
+    {
+      "pid": 97096,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 4092954511,
+      "sha256": "01de83883a042b54102a4b7fbf97f580099f3041010ab52763492a447c85815b",
+      "snake_count": 6,
+      "wall_seconds": 50.64214897155762
+    },
+    {
+      "pid": 96977,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3632024549,
+      "sha256": "74a82c2a3d841facc68be884c0af10ae01be9f084189ad53dcbf8a821cbdcb32",
+      "snake_count": 8,
+      "wall_seconds": 64.38692879676819
+    },
+    {
+      "pid": 97189,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 4092954511,
+      "sha256": "8442d5f9e4aee9d073f3044f3ab738e6fd1c686cde4374a7dfdb14b354bb8b8c",
+      "snake_count": 6,
+      "wall_seconds": 48.90194010734558
+    },
+    {
+      "pid": 97320,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 1162403892,
+      "sha256": "be5a51cd1dfe7bc02ed6382945b36e20aa86f785c54377109018ce9832ae754d",
+      "snake_count": 6,
+      "wall_seconds": 26.151235818862915
+    },
+    {
+      "pid": 97273,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1162403892,
+      "sha256": "37aa792bf52337f4e9ca0f338c99a6a2de2cf3a5563349fb004f8f1497c82427",
+      "snake_count": 6,
+      "wall_seconds": 50.717397928237915
+    },
+    {
+      "pid": 97353,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 1162403892,
+      "sha256": "40c8c06384a3bdf503c1f478cba335a761f4b4f6108861e884437e729dc2c899",
+      "snake_count": 6,
+      "wall_seconds": 27.17152690887451
+    },
+    {
+      "pid": 97225,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 4092954511,
+      "sha256": "8be4606ae5311a9ed37130d3ffa55b1497ccea1ac7e0818b4f40f99708307e61",
+      "snake_count": 8,
+      "wall_seconds": 62.54658603668213
+    },
+    {
+      "pid": 97355,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 1162403892,
+      "sha256": "575afb5736623d6ed16c3284188c76c4a4c1f73e428559fb85fad66bb4ac9d8f",
+      "snake_count": 6,
+      "wall_seconds": 48.22962927818298
+    },
+    {
+      "pid": 97359,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 1790465016,
+      "sha256": "c2c67b095839ba47e8cfa80916207026ac1515d80589dbc9505ac6e878f3a143",
+      "snake_count": 6,
+      "wall_seconds": 24.377974033355713
+    },
+    {
+      "pid": 97358,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1790465016,
+      "sha256": "91cc5847851965977b89afda94dc81f6572976435bedc7a2c1752356c1b01044",
+      "snake_count": 6,
+      "wall_seconds": 49.15710401535034
+    },
+    {
+      "pid": 97369,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 1790465016,
+      "sha256": "f2d7d553e0a1aa9eac31ccc2fc1890b52874a03f13b8255ae4c5284a16b5622b",
+      "snake_count": 6,
+      "wall_seconds": 25.3152117729187
+    },
+    {
+      "pid": 97357,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1162403892,
+      "sha256": "d0805c711930cd943b970e3c5b5fdefcfc9591306dce721299daae92471468f8",
+      "snake_count": 8,
+      "wall_seconds": 60.14887714385986
+    },
+    {
+      "pid": 97370,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 1790465016,
+      "sha256": "91f067c10f3831e02b5c2c8063f461418a366f2364398d5e02243935f08bc14b",
+      "snake_count": 6,
+      "wall_seconds": 44.092073917388916
+    },
+    {
+      "pid": 97436,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 1922041701,
+      "sha256": "a20938b0d758f704873295714cd217101abb48f8f1daa701701fb1d9b7a4548d",
+      "snake_count": 6,
+      "wall_seconds": 25.817084074020386
+    },
+    {
+      "pid": 97448,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 1922041701,
+      "sha256": "c051f3d05cbde8e079655eda4af7a1ad29d695dc45531520c698623af6a3c021",
+      "snake_count": 6,
+      "wall_seconds": 26.3614981174469
+    },
+    {
+      "pid": 97397,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1922041701,
+      "sha256": "f408ebb6056063eab8aa7c7da25b7c8b0669dc8bfdbfae6cff25a5538b0451dd",
+      "snake_count": 6,
+      "wall_seconds": 51.90108609199524
+    },
+    {
+      "pid": 97396,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1790465016,
+      "sha256": "052b5953895a2923ce8af62797a53f3326340e9dd041cfe518ab4193fbed7272",
+      "snake_count": 8,
+      "wall_seconds": 64.46394610404968
+    },
+    {
+      "pid": 97544,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 1922041701,
+      "sha256": "a6a7dceb32afc79acce2cc36937e5fd7ddaf59c1f863b85bff38a31ec7b2ea7f",
+      "snake_count": 6,
+      "wall_seconds": 46.20703983306885
+    },
+    {
+      "pid": 97647,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 4243517629,
+      "sha256": "8e77ad1c1eb48fffa58330fad8e5f0943852fa34282b2df0cab5683f5153856c",
+      "snake_count": 6,
+      "wall_seconds": 25.932342052459717
+    },
+    {
+      "pid": 97571,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 4243517629,
+      "sha256": "53c6bd31467f5f95dc44a3e319639dfc73e15d9a8aaaa5e9a679da651ca81c2f",
+      "snake_count": 6,
+      "wall_seconds": 49.07151198387146
+    },
+    {
+      "pid": 97803,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 4243517629,
+      "sha256": "1146d571c1b5d42b876f9d8a64465d32d39aacaa5ab2b1b8e75b64f65a9cdc6d",
+      "snake_count": 6,
+      "wall_seconds": 26.502937078475952
+    },
+    {
+      "pid": 97570,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1922041701,
+      "sha256": "fc11ab3c68cedf643135520e822a3a541a6901eabdd3454e823c2d5278ab0286",
+      "snake_count": 8,
+      "wall_seconds": 63.59747505187988
+    },
+    {
+      "pid": 97939,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 4243517629,
+      "sha256": "f63797d1ad6d98d27373c4470ec6be03b8851a0ea9e5be764ef563227d360c4f",
+      "snake_count": 6,
+      "wall_seconds": 45.527886152267456
+    },
+    {
+      "pid": 98215,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 3691394874,
+      "sha256": "9d65ed8c2934a8ca3edd0022e307a7d8db9769e797f71b2a811ae555f182438d",
+      "snake_count": 6,
+      "wall_seconds": 23.518845081329346
+    },
+    {
+      "pid": 98114,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3691394874,
+      "sha256": "b26e615a11d1e46bb0bc180079a5bc21b61c2a204c6411aa4fbb44b09da02da0",
+      "snake_count": 6,
+      "wall_seconds": 46.843687295913696
+    },
+    {
+      "pid": 98063,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 4243517629,
+      "sha256": "78343ab6722198119b10d78d9b57537a222c703938bc4bf637ac662db14cb365",
+      "snake_count": 8,
+      "wall_seconds": 57.964739084243774
+    },
+    {
+      "pid": 98481,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 3691394874,
+      "sha256": "882e92ae663d7c0e1c8226388aef2e78344ae1038fe2d115623646e5cab69e97",
+      "snake_count": 6,
+      "wall_seconds": 24.963436126708984
+    },
+    {
+      "pid": 98482,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 3691394874,
+      "sha256": "9391fce5a7ef1ba4c346f95868cbdb4d8912c5fa2503ae477c0a656cdca10f58",
+      "snake_count": 6,
+      "wall_seconds": 48.76418495178223
+    },
+    {
+      "pid": 98803,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 2133886198,
+      "sha256": "102060009fe56d4ce539532dba2541e4b6ef3c257fe425b22ea5506aa6b545f2",
+      "snake_count": 6,
+      "wall_seconds": 25.002722024917603
+    },
+    {
+      "pid": 99030,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 2133886198,
+      "sha256": "9587565cf4225620e8bdd072e45c76c537e99e713c098da136a2162a846fa7e7",
+      "snake_count": 6,
+      "wall_seconds": 22.11830973625183
+    },
+    {
+      "pid": 98781,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 2133886198,
+      "sha256": "c1b99fcf9570afb5486c0f87a0f63e14b361cd3e2301d80959115bd14416ab09",
+      "snake_count": 6,
+      "wall_seconds": 54.136621952056885
+    },
+    {
+      "pid": 98686,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3691394874,
+      "sha256": "9070e51eadd14bbe74b8478a2777bf4a847c1f379392f00b6dff81bf7283aa8a",
+      "snake_count": 8,
+      "wall_seconds": 63.16492700576782
+    },
+    {
+      "pid": 99033,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 2133886198,
+      "sha256": "2de8dbef874a014152ade9a79305c785df3ef83f7cfb106ca455e658fc12d0b7",
+      "snake_count": 6,
+      "wall_seconds": 52.58213400840759
+    },
+    {
+      "pid": 99051,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 1547643013,
+      "sha256": "83ff3dff73998892392f63597fd6bdf6df30de61f16a9cef9a20130a1bee7388",
+      "snake_count": 6,
+      "wall_seconds": 27.043756008148193
+    },
+    {
+      "pid": 99105,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 1547643013,
+      "sha256": "6ce79513b091f772e69b69733d8a48fcebdd49bbf0f79f8e5df6f7e11342b928",
+      "snake_count": 6,
+      "wall_seconds": 25.290159225463867
+    },
+    {
+      "pid": 99049,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1547643013,
+      "sha256": "8023c087dda4d2ec13ce782ed3557196dcf348bbe7049b0e5e478fccb857322d",
+      "snake_count": 6,
+      "wall_seconds": 53.03913712501526
+    },
+    {
+      "pid": 99048,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 2133886198,
+      "sha256": "9dd0b25b4d8c56a0bf17aa8c50a9be2f3c43be048d028df8de50a49284fd5d5a",
+      "snake_count": 8,
+      "wall_seconds": 66.2856969833374
+    },
+    {
+      "pid": 99118,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 1547643013,
+      "sha256": "15d61913e3f2f4799447b7316309a0679c066ed9e052a918ac62673deb39f6f1",
+      "snake_count": 6,
+      "wall_seconds": 49.781753063201904
+    },
+    {
+      "pid": 99226,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 1618759274,
+      "sha256": "fdb4edab10638990635fdc9f32fa6813fab33533857b863c3b1964d1d3bcbba0",
+      "snake_count": 6,
+      "wall_seconds": 22.255942821502686
+    },
+    {
+      "pid": 99273,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 1618759274,
+      "sha256": "c14527ec595d713c18866a24626adaf718b3551af471319f0cd876ca57ac06d1",
+      "snake_count": 6,
+      "wall_seconds": 24.863518953323364
+    },
+    {
+      "pid": 99197,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1618759274,
+      "sha256": "6b3b0e90311212015fbf6dce80477558a782837ed01c6cf596aeb4dda04cb53b",
+      "snake_count": 6,
+      "wall_seconds": 57.87209510803223
+    },
+    {
+      "pid": 99182,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1547643013,
+      "sha256": "9d7dd9f15304dc9a83f41c63542c3dbd4f2ee19b42f8ab4adf0a57c5bd1e0ab2",
+      "snake_count": 8,
+      "wall_seconds": 61.773252725601196
+    },
+    {
+      "pid": 99293,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 1618759274,
+      "sha256": "8167346b03db064c1638bb71f415d7b2785c0bd5069a00008e82b2a97609fa0f",
+      "snake_count": 6,
+      "wall_seconds": 45.43756413459778
+    },
+    {
+      "pid": 99462,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 2971931757,
+      "sha256": "ab24c027d707e677dd155cf785b112f614cccd2f92bf533fd17805171bfe0038",
+      "snake_count": 6,
+      "wall_seconds": 21.867790937423706
+    },
+    {
+      "pid": 99539,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 2971931757,
+      "sha256": "4c80406c2084c5e2886258873ee0946632ad834af5bbbaf5d8f504941326a72f",
+      "snake_count": 6,
+      "wall_seconds": 23.73788619041443
+    },
+    {
+      "pid": 99458,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 2971931757,
+      "sha256": "3d9c946e37487a869d02b95952e644edd45e7e1e6bd0df460707bc70278415ec",
+      "snake_count": 6,
+      "wall_seconds": 51.235631704330444
+    },
+    {
+      "pid": 99430,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1618759274,
+      "sha256": "543595422e208ddb6822726b3024f49682343225515683dec95d2c1a32f7c210",
+      "snake_count": 8,
+      "wall_seconds": 60.16734504699707
+    },
+    {
+      "pid": 99576,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 2971931757,
+      "sha256": "4ac88373c2f755d5a6b4a9c35a036bb64a8428cc5ffa787faeed3269cc15e909",
+      "snake_count": 6,
+      "wall_seconds": 49.50108003616333
+    },
+    {
+      "pid": 99592,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 2952224542,
+      "sha256": "55ffe49da25516d6f8f10039b98e2ed7655297ec92a6929783faa7bf00dea154",
+      "snake_count": 6,
+      "wall_seconds": 25.005193948745728
+    },
+    {
+      "pid": 99596,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 2952224542,
+      "sha256": "869cbbc87fcefc62e5d1b1bdbb7974a272c0e4086e141c5061666b16a4e9da79",
+      "snake_count": 6,
+      "wall_seconds": 25.817302227020264
+    },
+    {
+      "pid": 99580,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 2971931757,
+      "sha256": "284060acce444867c08f76c02d0072a6745647c8b739e8e560ff9d671728f809",
+      "snake_count": 8,
+      "wall_seconds": 60.314000844955444
+    },
+    {
+      "pid": 99591,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 2952224542,
+      "sha256": "286e250741da5bce930bfd24da31f67c44d9d78e1fcfb0bd063a2f76926b4d9f",
+      "snake_count": 6,
+      "wall_seconds": 51.932145833969116
+    },
+    {
+      "pid": 99597,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 2952224542,
+      "sha256": "dcf1a6b709aa9f7f5bd0418665d50990b6955cf52b4c8951bc01312862ee4531",
+      "snake_count": 6,
+      "wall_seconds": 48.42230796813965
+    },
+    {
+      "pid": 99641,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 3311819741,
+      "sha256": "1c5cdfe7356e423458f82f0baa2b6da3a4119cf03628221f376b793e30db5e6a",
+      "snake_count": 6,
+      "wall_seconds": 24.44342803955078
+    },
+    {
+      "pid": 99657,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 3311819741,
+      "sha256": "07c2d7557d68d4ccee4c7f33ae5a3fde6a40e4b4ceaa68789959e5777bc09fd0",
+      "snake_count": 6,
+      "wall_seconds": 23.517647743225098
+    },
+    {
+      "pid": 99640,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3311819741,
+      "sha256": "a30af1aa2214697ad1da51be31d733b1e1494bf17d7232274414650c2cedbf95",
+      "snake_count": 6,
+      "wall_seconds": 52.76517915725708
+    },
+    {
+      "pid": 99639,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 2952224542,
+      "sha256": "c0a8e8d50840355b2002ed78e4cf9374ab5bf49859835f8f898db1b91af7db33",
+      "snake_count": 8,
+      "wall_seconds": 67.34811806678772
+    },
+    {
+      "pid": 99660,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 3311819741,
+      "sha256": "d86aaac465160e2efd94affdb78335580eecd8a3f11830bb8599e08c53ff068e",
+      "snake_count": 6,
+      "wall_seconds": 49.001922845840454
+    },
+    {
+      "pid": 99825,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 161714954,
+      "sha256": "ea805b369901d8bc9cb445e538f52090a3824f80cd18eb4324e25ea0f23dc93f",
+      "snake_count": 6,
+      "wall_seconds": 21.9351909160614
+    },
+    {
+      "pid": 99842,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 161714954,
+      "sha256": "ef6d11d4aee5ebb46c8a8be4606ed544fa0a48494e8c6cf12acaef85b7b449c4",
+      "snake_count": 6,
+      "wall_seconds": 25.847476959228516
+    },
+    {
+      "pid": 99750,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 161714954,
+      "sha256": "4d7688b2bd6be23a188832a2399b4ce847e90eaf5e7227e1421c952a79be8734",
+      "snake_count": 6,
+      "wall_seconds": 53.790186166763306
+    },
+    {
+      "pid": 99707,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 3311819741,
+      "sha256": "5734067e69de23903bbb489a3385ca34baa2d2594fe7d87b36f11061380cb780",
+      "snake_count": 8,
+      "wall_seconds": 63.20461583137512
+    },
+    {
+      "pid": 99844,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 161714954,
+      "sha256": "e4baa53865ae7249781dd6b0200a0208ce2de91592c513597cfa67cc825f2203",
+      "snake_count": 6,
+      "wall_seconds": 48.049182176589966
+    },
+    {
+      "pid": 99849,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 20434748,
+      "sha256": "c572d62c4a822b22cfd2db40077cf708d6044a634614632e7c575e811a719e8b",
+      "snake_count": 6,
+      "wall_seconds": 23.271812200546265
+    },
+    {
+      "pid": 99846,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 20434748,
+      "sha256": "b1e6aaf75af990c7966f9d7b36c4747279346008398fee55edda82f04e712ac3",
+      "snake_count": 6,
+      "wall_seconds": 48.05638074874878
+    },
+    {
+      "pid": 99851,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 20434748,
+      "sha256": "7896d2736aed8f75779461616cf879e08fecd852b07081ea4aba0bde792c93a8",
+      "snake_count": 6,
+      "wall_seconds": 21.938868045806885
+    },
+    {
+      "pid": 99845,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 161714954,
+      "sha256": "a0c5b87d254d076317881364f4f187b9aaf819fef11272a4d5975b3e98ef8c6c",
+      "snake_count": 8,
+      "wall_seconds": 58.6762580871582
+    },
+    {
+      "pid": 99887,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 1271525398,
+      "sha256": "d49be827e2b10abaef0c7a5964eedd0c618136f3229d38be7c98fed59889a103",
+      "snake_count": 6,
+      "wall_seconds": 25.20865297317505
+    },
+    {
+      "pid": 99852,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 20434748,
+      "sha256": "69ee76c7737c587aabf963952633e77f1e68d36d59c9d7ae2740921e6a81d94e",
+      "snake_count": 6,
+      "wall_seconds": 51.068379163742065
+    },
+    {
+      "pid": 99886,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1271525398,
+      "sha256": "64531b0235a459bd57d08d2eefde01760b99bba5aec5312f7120947379e7f197",
+      "snake_count": 6,
+      "wall_seconds": 47.16469097137451
+    },
+    {
+      "pid": 99891,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 1271525398,
+      "sha256": "fe809632c6cbe3f20847932fc287cfd01fd256dc5830ba87b6be892a464ac721",
+      "snake_count": 6,
+      "wall_seconds": 23.433542728424072
+    },
+    {
+      "pid": 99885,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 20434748,
+      "sha256": "14ce8204fc9d36f61fb02a629ed0971fda7672921de3bf3084b98e8627e089e4",
+      "snake_count": 8,
+      "wall_seconds": 61.93709707260132
+    },
+    {
+      "pid": 99892,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 1271525398,
+      "sha256": "70c97253190495b897eb6771783fb6df2659b8bc101c24f6c076eb37795784af",
+      "snake_count": 6,
+      "wall_seconds": 50.49984407424927
+    },
+    {
+      "pid": 99898,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 1813093890,
+      "sha256": "b0ae795342c2b7bcb6f1853d8bf743614daef9d056dc5f5644f6f32e81da2b4a",
+      "snake_count": 6,
+      "wall_seconds": 24.7294499874115
+    },
+    {
+      "pid": 99897,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1813093890,
+      "sha256": "9d3e8db015bd034f04f118bba730363bfb9d82e7809a3fdcf7030226158f105e",
+      "snake_count": 6,
+      "wall_seconds": 47.762181997299194
+    },
+    {
+      "pid": 99902,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 1813093890,
+      "sha256": "ef1dd72fb02340d4f78b311615e491d2457f3f19df571904edd00a8389343e84",
+      "snake_count": 6,
+      "wall_seconds": 24.149400234222412
+    },
+    {
+      "pid": 99894,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1271525398,
+      "sha256": "879a510f8b821715a7df007f90eb3503c98366fd02d70b326cc19693e30dd73c",
+      "snake_count": 8,
+      "wall_seconds": 62.12872123718262
+    },
+    {
+      "pid": 99914,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 753424010,
+      "sha256": "f8dfb2b9a45ba0dec6e30b8d24ab51354f0a5c1c416a7ce68356c3fa511a7623",
+      "snake_count": 6,
+      "wall_seconds": 22.6313259601593
+    },
+    {
+      "pid": 99903,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 1813093890,
+      "sha256": "5c15e86fec4d13f7da75ae48adc27ecf2538bfb173b3c0176b371251afc063fe",
+      "snake_count": 6,
+      "wall_seconds": 50.24254393577576
+    },
+    {
+      "pid": 99905,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 753424010,
+      "sha256": "d37dbce47cebbc7fcdfe1e631bb83e7a52659dd8b2a39c0469d77db9f983d268",
+      "snake_count": 6,
+      "wall_seconds": 50.15275979042053
+    },
+    {
+      "pid": 99917,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 753424010,
+      "sha256": "9c0e0518bdcf6c57b4b5f232ce8b58b8d2ddd77ce295cd275f8896956c3f10ae",
+      "snake_count": 6,
+      "wall_seconds": 23.342754125595093
+    },
+    {
+      "pid": 99904,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 1813093890,
+      "sha256": "136ddc49db5a098e57f2fa3608ed63625c8cd23e61b2eeeedac91e09908dd7be",
+      "snake_count": 8,
+      "wall_seconds": 63.446990966796875
+    },
+    {
+      "pid": 99918,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 753424010,
+      "sha256": "967266f5f03b37b5e73a1c2131b68d28357ff2afe9f3c2531499caa127fe9fce",
+      "snake_count": 6,
+      "wall_seconds": 46.39398789405823
+    },
+    {
+      "pid": 99923,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 4049503349,
+      "sha256": "26bc9beab828d6c0c9e0e2c46b824071638e5ce50c3c8b6cc9ff2bf3f6b4c90c",
+      "snake_count": 6,
+      "wall_seconds": 25.398910999298096
+    },
+    {
+      "pid": 99922,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 4049503349,
+      "sha256": "7640739d0c32962738a84f6ce59162e5cf08da25344bf5eb16f936797d1432a1",
+      "snake_count": 6,
+      "wall_seconds": 46.579221963882446
+    },
+    {
+      "pid": 99932,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 4049503349,
+      "sha256": "ced462bc0e3ee02e9c8203d5162155108ba0e661ed63788956845660f4425409",
+      "snake_count": 6,
+      "wall_seconds": 24.69668197631836
+    },
+    {
+      "pid": 99921,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 753424010,
+      "sha256": "4835a961b8fe083666de622e776aa50daf4930bc94b25d45e0a5ff797d5baf22",
+      "snake_count": 8,
+      "wall_seconds": 60.75544810295105
+    },
+    {
+      "pid": 99935,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 4049503349,
+      "sha256": "92eeb5f3c6f9296327071304f013798dbc650a7d3903f0f3496d6205796f4cc7",
+      "snake_count": 6,
+      "wall_seconds": 49.27776098251343
+    },
+    {
+      "pid": 99938,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 981241680,
+      "sha256": "013a829babed31075186f43278c9f46b69749ef864f821a7ca6192e19ebdfdf5",
+      "snake_count": 6,
+      "wall_seconds": 25.416349172592163
+    },
+    {
+      "pid": 99937,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 981241680,
+      "sha256": "92500c092b6bc07d0f6b39d8abc6300782d1bc3502848afaaa1c39f0e124a431",
+      "snake_count": 6,
+      "wall_seconds": 50.61074423789978
+    },
+    {
+      "pid": 99936,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 4049503349,
+      "sha256": "737e97dcd8a0d6384501937cda2b94f53e66150f5d69904ffdf499c5fb8fb5ed",
+      "snake_count": 8,
+      "wall_seconds": 59.784854888916016
+    },
+    {
+      "pid": 99947,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 981241680,
+      "sha256": "a9cc2f712b0acc9073b838b4a25c0dbfa3d3542f4f188d912685e7ed071709bd",
+      "snake_count": 6,
+      "wall_seconds": 26.56491184234619
+    },
+    {
+      "pid": 99953,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 2252312033,
+      "sha256": "896de1e776d71cc1513e092fe9bd53d35ab7beb4f6db70e471ec98bf5bb8abfb",
+      "snake_count": 6,
+      "wall_seconds": 22.73438835144043
+    },
+    {
+      "pid": 99948,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 981241680,
+      "sha256": "1ea71dbb96b56f5204c5043b82bca648adbc6e2c5978854c4323834f84606b95",
+      "snake_count": 6,
+      "wall_seconds": 48.494768142700195
+    },
+    {
+      "pid": 99952,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 2252312033,
+      "sha256": "859e0304c86a98c38b8a36e00f883d6f3293bd3d868dfa6a02d45a8b555a2c1d",
+      "snake_count": 6,
+      "wall_seconds": 45.94670104980469
+    },
+    {
+      "pid": 99954,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 2252312033,
+      "sha256": "23843faacb37417e5d17dfcdb272136d950bbca29924f5afd2f2a4a82b78d7fc",
+      "snake_count": 6,
+      "wall_seconds": 26.108171939849854
+    },
+    {
+      "pid": 99951,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 981241680,
+      "sha256": "65a72579621f04136af2c2d4df3502fcbd93f404e310803ba1debfab341f606f",
+      "snake_count": 8,
+      "wall_seconds": 64.6155378818512
+    },
+    {
+      "pid": 99955,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 2252312033,
+      "sha256": "fb142c8238e370c5aed6f1f60f1fdaac1f9565c7b2b58eb490e3661d8ca93186",
+      "snake_count": 6,
+      "wall_seconds": 48.37625002861023
+    },
+    {
+      "pid": 115,
+      "returncode": 0,
+      "roster": "all_frp3",
+      "seed": 2993407987,
+      "sha256": "4f69a35679603314bd18f19214417adb1ff0e847429cafe8b961eb43a831f5d4",
+      "snake_count": 6,
+      "wall_seconds": 26.358328104019165
+    },
+    {
+      "pid": 99975,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 2993407987,
+      "sha256": "c9199116e8c38df3f5fb3fcb665edf031abea87dbaf4ddf23eb8c04266c1e0e2",
+      "snake_count": 6,
+      "wall_seconds": 46.91288089752197
+    },
+    {
+      "pid": 116,
+      "returncode": 0,
+      "roster": "all_champion",
+      "seed": 2993407987,
+      "sha256": "b7f2a9b84fa84fdf6dde3f1c11d21e0d77929c8bbeef59fbb8de991bd6c03c3a",
+      "snake_count": 6,
+      "wall_seconds": 26.179521083831787
+    },
+    {
+      "pid": 99974,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 2252312033,
+      "sha256": "aab29e5fe672e1bb34343054c7d1c81ca6494c3f914d3af495246435b0c2fda7",
+      "snake_count": 8,
+      "wall_seconds": 59.07476305961609
+    },
+    {
+      "pid": 119,
+      "returncode": 0,
+      "roster": "mixed",
+      "seed": 2993407987,
+      "sha256": "78eaf5c00595994470a0ea60b674280aa7a4d06bb4990d690bb71db6763ed543",
+      "snake_count": 6,
+      "wall_seconds": 44.91610789299011
+    },
+    {
+      "pid": 135,
+      "returncode": 0,
+      "roster": "all_b8",
+      "seed": 2993407987,
+      "sha256": "2105d553930f2d4164b09a238f00cb31786a90cd4a14181ea12acd27d327be31",
+      "snake_count": 8,
+      "wall_seconds": 54.273256063461304
+    }
+  ],
+  "status": "complete"
+}

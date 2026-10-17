@@ -1,0 +1,14 @@
+{
+  "all_b8_deaths_per_1000": 0.392,
+  "all_b8_length_p95": 596.0,
+  "death_difference": 0.09600000000000003,
+  "death_within_0_10": true,
+  "frp3_length_p95": 723.0,
+  "length_difference": -127.0,
+  "length_within_100": false,
+  "mixed_deaths_per_1000": 0.296,
+  "outcome": "PLAN_MIXED_PENDING_ROSTER_QUALIFICATION",
+  "serving_defaults_changed": false,
+  "watch8_baseline": 0.496,
+  "watch8_trigger": 0.992
+}
