@@ -215,6 +215,66 @@ def test_bodymap_more_than_64_slots_uses_exact_general_fallback() -> None:
     assert_v8_result_bytes_equal(expected, actual, frame=0)
 
 
+def test_bodymap_workspace_thread_isolation_and_stamp_rollover() -> None:
+    """Concurrent reads and a near-overflow stamp retain frozen-kernel bytes."""
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+
+    import src.simd_env.v8_nb as current
+
+    baseline = prechange_v8_module()
+    gw = gh = 11
+    bodies = np.zeros((1, 4, 8, 2), dtype=np.int64)
+    for slot, cells in enumerate(
+        (((5, 5), (4, 5), (3, 5)), ((7, 5),), ((5, 7), (5, 8)), ((2, 2),))
+    ):
+        for index, cell in enumerate(cells):
+            bodies[0, slot, (-index) % 8] = cell
+    sim = SimpleNamespace(
+        cfg=SimpleNamespace(
+            arena_type="rectangular",
+            min_boost_length=3,
+            boost_length_cost_frames=3,
+            mechanics_version=2,
+        ),
+        grid_w=gw,
+        grid_h=gh,
+        bodies=bodies,
+        head_ptr=np.zeros((1, 4), dtype=np.int64),
+        seg_count=np.array([[3, 1, 2, 1]], dtype=np.int64),
+        length=np.array([[4, 1, 2, 1]], dtype=np.int64),  # physical n < logical L growth lag
+        boost_frames=np.array([[2, 0, 1, 0]], dtype=np.int64),
+        direction=np.array([[1, 3, 0, 2]], dtype=np.int64),
+        alive=np.ones((1, 4), dtype=bool),
+    )
+    rows = np.array([[0, 2], [0, 0], [0, 2], [0, 1]], dtype=np.int64)
+    mask = np.array(
+        [[True, True, True, True, True, True], [False] * 6, [True] * 6, [True] * 6],
+        dtype=bool,
+    )
+    qs = [
+        np.array([[2, 2, 1, 3, 0, 3], [3, 3, 2, 3, 3, 2], [1] * 6, [0, 1, 2, 3, 4, 5]], np.float32),
+        np.array([[5, 4, 3, 2, 1, 0], [0] * 6, [2, 2, 2, 2, 2, 2], [5, 4, 3, 2, 1, 0]], np.float32),
+    ]
+    expected = [baseline.v8_decide(sim, rows, q, mask, features=True) for q in qs]
+
+    def invoke(index):
+        return current.v8_decide(sim, rows, qs[index], mask, features=True)
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        actual = list(workers.map(invoke, (0, 1)))
+    for old, new in zip(expected, actual):
+        assert_v8_result_bytes_equal(old, new, frame=0)
+
+    workspace = current._workspace(gw, gh)
+    workspace[0][:] = np.iinfo(np.int64).max - 2
+    try:
+        rollover = current.v8_decide(sim, rows, qs[0], mask, features=True)
+    finally:
+        workspace[0][:] = 1
+    assert_v8_result_bytes_equal(expected[0], rollover, frame=1)
+
+
 def run_recorded_pair(
     seed: int = 741,
     frames: int = 96,
@@ -267,6 +327,7 @@ def run_recorded_pair(
     runtimes[1].controlled[:] = vector
     assert np.count_nonzero(runtimes[0].controlled) > np.count_nonzero(vector)
     baseline_v8 = prechange_v8_module()
+    observed_segments = {"learner": 0, **{policy_id: 0 for policy_id in POLICIES}}
     recorded, deaths, respawns = [], set(), set()
     previous_alive = sims[0].get_alive()
     for frame in range(frames):
@@ -277,6 +338,18 @@ def run_recorded_pair(
                 alive, masks = prepared.get_alive(), prepared.get_resolved_action_mask()
                 runtime.prepare(prepared)
                 hero = np.argwhere(alive & learner)
+                if len(hero):
+                    observed_segments["learner"] = max(
+                        observed_segments["learner"],
+                        int(prepared.seg_count[hero[:, 0], hero[:, 1]].max()),
+                    )
+                for policy_id in POLICIES:
+                    policy_rows = np.argwhere((seats == policy_id) & alive)
+                    if len(policy_rows):
+                        observed_segments[policy_id] = max(
+                            observed_segments[policy_id],
+                            int(prepared.seg_count[policy_rows[:, 0], policy_rows[:, 1]].max()),
+                        )
                 if index:
                     obs = pool.prime_b8_with_learner_rows(prepared, hero, alive, seats)
                     extras, v8res = pool.v8_with_learner_rows(
@@ -371,12 +444,12 @@ def run_recorded_pair(
             else []
         )
     )
-    return np.stack(recorded), seats
+    return np.stack(recorded), seats, observed_segments
 
 
 @pytest.mark.skipif(not HAVE_CHECKPOINTS, reason="requires all three pinned pool checkpoints")
 def test_all_six_real_policy_streams_match_frozen_source_and_recording():
-    actual, seats = run_recorded_pair()
+    actual, seats, _ = run_recorded_pair()
     with np.load(FIXTURES / "actions_seed741.npz", allow_pickle=False) as expected:
         np.testing.assert_array_equal(actual, expected["actions"])
         np.testing.assert_array_equal(seats.astype(str), expected["seats"])
@@ -385,10 +458,11 @@ def test_all_six_real_policy_streams_match_frozen_source_and_recording():
 @pytest.mark.skipif(not HAVE_CHECKPOINTS, reason="requires all three pinned pool checkpoints")
 def test_all_six_real_policy_streams_match_prechange_v8_on_physical_long_bodies():
     """The independent six-policy oracle also covers the >=1000 segment body-map path."""
-    actual, _ = run_recorded_pair(
+    actual, _, observed_segments = run_recorded_pair(
         seed=743, frames=12, long_body_length=1000, force_lifetime_boundary=False
     )
     assert actual.shape == (12, 12, 6)
+    assert all(value >= 1000 for value in observed_segments.values()), observed_segments
 
 
 @pytest.mark.skipif(not HAVE_CHECKPOINTS, reason="requires pinned B8 checkpoint")
