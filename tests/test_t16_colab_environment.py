@@ -112,6 +112,7 @@ def test_notebook_routes_workload_to_selected_interpreter(tmp_path, monkeypatch)
         "CUDA_WHEEL_INDEX": "https://download.pytorch.org/whl/cu126",
         "TIMING_SECONDS": 150,
         "SCRATCH_DIR": "/content/scratch",
+        "MATRIX": "smoke03",
         "run_owned": fake_run,
         "sha256": lambda path: "hash",
         "display": Mock(),
@@ -126,4 +127,5 @@ def test_notebook_routes_workload_to_selected_interpreter(tmp_path, monkeypatch)
     )
     assert "torch==2.9.1" in workloads[1]
     assert "--scratch-dir" in workloads[-1] and "--budget-seconds" in workloads[-1]
+    assert workloads[-1][workloads[-1].index("--matrix") + 1] == "smoke03"
     colab.files.download.assert_called_once()

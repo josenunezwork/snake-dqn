@@ -10,8 +10,9 @@ import numpy as np
 from research.redesign_m3c_20261008 import train_m3c as T
 
 
-def _actor(tx, stop_evt) -> None:
-    """A back-pressured actor: it keeps offering one large message until told to stop."""
+def _actor(tx, stop_evt, delivered) -> None:
+    """A back-pressured actor: it keeps offering one large message until told to stop and
+    counts its accepted puts (``Queue.qsize`` is not implemented on macOS)."""
     import queue
 
     msg = {"s": np.zeros(768, np.int64), "acts": np.zeros(768, np.int8), "R": np.zeros(768)}
@@ -20,21 +21,26 @@ def _actor(tx, stop_evt) -> None:
             tx.put(msg, timeout=1.0)
         except queue.Full:
             continue
+        with delivered.get_lock():
+            delivered.value += 1
 
 
 def _spawn(n_actors: int, maxsize: int = 8):
     ctx = mp.get_context("spawn")
     stop_evt = ctx.Event()
     txs = [ctx.Queue(maxsize=maxsize) for _ in range(n_actors)]
+    counters = [ctx.Value("i", 0) for _ in range(n_actors)]
     procs = [
-        ctx.Process(target=_actor, args=(txs[j], stop_evt), daemon=True) for j in range(n_actors)
+        ctx.Process(target=_actor, args=(txs[j], stop_evt, counters[j]), daemon=True)
+        for j in range(n_actors)
     ]
     for p in procs:
         p.start()
     deadline = time.time() + 30
-    while time.time() < deadline and any(q.qsize() < maxsize for q in txs):
-        time.sleep(0.05)  # the queues fill; each actor then blocks in put
-    assert all(q.qsize() == maxsize for q in txs)
+    while time.time() < deadline and any(c.value < maxsize for c in counters):
+        time.sleep(0.05)  # the queues fill; each actor then blocks in its next put
+    assert all(c.value == maxsize for c in counters)
+    time.sleep(0.5)  # let each actor enter the blocking put (and its feeder thread fill)
     return stop_evt, txs, procs
 
 
