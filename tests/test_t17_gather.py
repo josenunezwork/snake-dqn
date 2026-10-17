@@ -50,6 +50,69 @@ def _legacy_gather(multi, ids, out, rows, mask_out=None):
             mask_out[selected] = arrays["mask"][pos]
 
 
+def _legacy_sample_fast(learner):
+    """Frozen pre-T17 ``_sample_fast`` for the fixture's demo + label configuration."""
+    st, rng, multi, replay = learner.st, learner.rng, learner.multi, learner.replay
+    demos, labels, args = learner.demos, learner.labels, learner.args
+    idx = replay.sample(rng, learner.a_rows, multi)
+    if len(idx) < learner.min_rows:
+        return None
+    stage, v = learner._stage[learner._which], learner._stage[learner._which].v
+    n0, s_ids, nxt = len(idx), replay.s[idx], replay.nxt[idx]
+    _legacy_gather(multi, np.where(nxt >= 0, nxt, s_ids), v, slice(0, n0), v["nmask"][:n0])
+    _legacy_gather(multi, s_ids, v, slice(n0, 2 * n0))
+    ok = multi.valid(s_ids) & ((nxt < 0) | multi.valid(nxt))
+    n = n0
+    if not ok.all():
+        st["ring_overrun_rows"] += int((~ok).sum())
+        keep = np.flatnonzero(ok)
+        idx, n = idx[keep], len(keep)
+        if n < learner.min_rows:
+            return None
+        for key in ("local", "global", "scalars"):
+            v[key][:n] = v[key][:n0][keep]
+            v[key][n : 2 * n] = v[key][n0 : 2 * n0][keep]
+        v["nmask"][:n] = v["nmask"][:n0][keep]
+    v["a"][:n], v["R"][:n], v["disc"][:n] = replay.a[idx], replay.R[idx], replay.disc[idx]
+    n_lab = int(round(learner.anchor_rows * args.label_frac))
+    base = 2 * n
+    n_demo = learner.anchor_rows - n_lab
+    di = rng.integers(0, demos.size, size=n_demo)
+    demos.gather_into(di, v, base)
+    li = labels.sample(rng, n_lab, multi)
+    lids, m0, lo = labels.ids[li], len(li), base + n_demo
+    _legacy_gather(multi, lids, v, slice(lo, lo + m0), v["mask_resolved"][n_demo : n_demo + m0])
+    keep = np.flatnonzero(multi.valid(lids))
+    if len(keep) < m0:
+        for key in ("local", "global", "scalars"):
+            v[key][lo : lo + len(keep)] = v[key][lo : lo + m0][keep]
+        masks = v["mask_resolved"]
+        masks[n_demo : n_demo + len(keep)] = masks[n_demo : n_demo + m0][keep]
+    v["a_v8"][n_demo : n_demo + len(keep)] = labels.a[li][keep]
+    n_lab = len(keep)
+    st["label_rows"].append(n_lab)
+    return {"stage": stage, "n": n, "m": n_demo + n_lab, "n_demo": n_demo}
+
+
+def _record_sample_indices(learner):
+    """Capture every stochastic replay/label selection without changing the calls."""
+    calls = []
+    replay_sample, label_sample = learner.replay.sample, learner.labels.sample
+
+    def replay_spy(*args):
+        value = replay_sample(*args)
+        calls.append(("replay", value.copy()))
+        return value
+
+    def label_spy(*args):
+        value = label_sample(*args)
+        calls.append(("label", value.copy()))
+        return value
+
+    learner.replay.sample, learner.labels.sample = replay_spy, label_spy
+    return calls
+
+
 def _st():
     return {
         "updates": 0,
@@ -226,6 +289,41 @@ def test_parallel_gather_matches_frozen_legacy_oracle(packed, actors):
         parallel._gather(ids, parallel_v, slice(0, len(ids)), parallel_v["nmask"][: len(ids)])
         for key in legacy_v:
             assert legacy_v[key].tobytes() == parallel_v[key].tobytes(), key
+    finally:
+        legacy.close()
+        parallel.close()
+
+
+@pytest.mark.parametrize("packed", [False, True])
+@pytest.mark.parametrize("actors", [1, 2, 3])
+@pytest.mark.parametrize("threads", [2, 3, 4])
+def test_parallel_sample_matches_frozen_pre_t17_complete_staging(packed, actors, threads):
+    """Hard P1 invariant: old sampling/gather and threaded gather produce identical bytes."""
+    legacy = _learner(packed=packed, actors=actors, gather_threads=0)
+    parallel = _learner(packed=packed, actors=actors, gather_threads=threads)
+    try:
+        for learner in (legacy, parallel):
+            for stage in learner._stage:
+                for value in stage.v.values():
+                    value.fill(0)
+        legacy_calls, parallel_calls = _record_sample_indices(legacy), _record_sample_indices(
+            parallel
+        )
+        old, new = _legacy_sample_fast(legacy), parallel._sample_fast()
+        assert old is not None and new is not None
+        assert {key: value for key, value in old.items() if key != "stage"} == {
+            key: value for key, value in new.items() if key != "stage"
+        }
+        assert len(legacy_calls) == len(parallel_calls)
+        for (old_name, old_ids), (new_name, new_ids) in zip(legacy_calls, parallel_calls):
+            assert old_name == new_name
+            assert old_ids.tobytes() == new_ids.tobytes()
+        assert legacy.rng.bit_generator.state == parallel.rng.bit_generator.state
+        assert legacy.st["ring_overrun_rows"] == parallel.st["ring_overrun_rows"]
+        assert legacy.st["label_rows"] == parallel.st["label_rows"]
+        for old_stage, new_stage in zip(legacy._stage, parallel._stage):
+            for key in old_stage.v:
+                assert old_stage.v[key].tobytes() == new_stage.v[key].tobytes(), key
     finally:
         legacy.close()
         parallel.close()
