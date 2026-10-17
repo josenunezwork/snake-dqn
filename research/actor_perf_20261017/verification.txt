@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-pactor
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 41 items / 30 deselected / 11 selected
+
+tests/test_ego_raster.py ...........                                     [100%]
+
+====================== 11 passed, 30 deselected in 7.26s =======================

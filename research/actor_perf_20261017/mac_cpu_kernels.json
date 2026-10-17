@@ -1,0 +1,4506 @@
+{
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "python": "3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]",
+  "torch": "2.9.1",
+  "numba": "0.68.0",
+  "numpy": "1.26.4",
+  "threads": 1,
+  "git_head": "42dae602e1e8a6bf4030a17d12cc2d82bc48f081",
+  "source_sha256": {
+    "src/simd_env/v8_nb.py": "72947d97a3d3d293a6f99e76a88236f38c933eda3dbf605e99399e1b58082e32",
+    "src/simd_env/ego_raster_nb.py": "b9e30919c018119d56209b67c6aa54cfbd33622332a50573b3514e4d2c26d5a0",
+    "src/simd_env/ego_raster.py": "0a9dea5a3128435656dec4beeab5c8b4a6f6b600a5f4b63c82beb635dfaf10ad",
+    "src/simd_env/ego_raster_b.py": "7de8197b98649486fa95e83eb8e7fa668a84b636d9e5915c811d0fd5f4e0d7c7",
+    "research/redesign_m3c_20261008/train_m3c.py": "2b5e5f7d16bda7b02f25ba4621ae06acdfd737c6777c4125733acd421afcd0d6",
+    "research/actor_perf_20261017/bench_kernels.py": "101a174ddafe204ce113d693f7eb4f3e8c27bd8bde32dab56050ab42ced434d1"
+  },
+  "cases": [
+    {
+      "worlds": 1,
+      "rows": 6,
+      "length": 5,
+      "v8": {
+        "median_ms": 0.034333206713199615,
+        "samples_ms": [
+          0.04437519237399101,
+          0.038667116314172745,
+          0.03691716119647026,
+          0.034333206713199615,
+          0.033167190849781036,
+          0.032499898225069046,
+          0.032791867852211
+        ]
+      },
+      "ego": {
+        "median_ms": 0.28479238972067833,
+        "samples_ms": [
+          0.3148750402033329,
+          0.2907910384237766,
+          0.2887090668082237,
+          0.28479238972067833,
+          0.28287479653954506,
+          0.28012506663799286,
+          0.2758749760687351
+        ]
+      },
+      "redecide": {
+        "median_ms": 0.007874798029661179,
+        "samples_ms": [
+          0.01654215157032013,
+          0.008832663297653198,
+          0.007333699613809586,
+          0.008666887879371643,
+          0.007874798029661179,
+          0.0064997002482414246,
+          0.0064158812165260315
+        ]
+      },
+      "ego_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 93,
+          "name": "enemy_next_plane",
+          "calls": 7,
+          "own_ms_per_call": 0.136588,
+          "cumulative_ms_per_call": 0.18306542857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 194,
+          "name": "b_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.04378414285714286,
+          "cumulative_ms_per_call": 0.07547028571428573
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 398,
+          "name": "build_planes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.03283271428571429,
+          "cumulative_ms_per_call": 0.038779857142857144
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 280,
+          "own_ms_per_call": 0.02243014285714286,
+          "cumulative_ms_per_call": 0.02243014285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 357,
+          "name": "_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.021154285714285716,
+          "cumulative_ms_per_call": 0.04582157142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 445,
+          "name": "build_ego_raster",
+          "calls": 7,
+          "own_ms_per_call": 0.011630714285714286,
+          "cumulative_ms_per_call": 0.3732677142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'sum' of 'numpy.ndarray' objects>",
+          "calls": 252,
+          "own_ms_per_call": 0.006784285714285715,
+          "cumulative_ms_per_call": 0.030651714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 616,
+          "name": "region_sizes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.006119285714285715,
+          "cumulative_ms_per_call": 0.009512142857142858
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 84,
+          "own_ms_per_call": 0.005541428571428571,
+          "cumulative_ms_per_call": 0.019261714285714288
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 21,
+          "own_ms_per_call": 0.005463714285714286,
+          "cumulative_ms_per_call": 0.006428571428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 27,
+          "name": "_make_along_axis_idx",
+          "calls": 28,
+          "own_ms_per_call": 0.005267857142857144,
+          "cumulative_ms_per_call": 0.011136714285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 140,
+          "own_ms_per_call": 0.004619571428571429,
+          "cumulative_ms_per_call": 0.004619571428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 1768,
+          "name": "ravel",
+          "calls": 84,
+          "own_ms_per_call": 0.0036370000000000005,
+          "cumulative_ms_per_call": 0.006268714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/_methods.py",
+          "line": 47,
+          "name": "_sum",
+          "calls": 252,
+          "own_ms_per_call": 0.0035681428571428574,
+          "cumulative_ms_per_call": 0.023867428571428574
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 54,
+          "name": "take_along_axis",
+          "calls": 28,
+          "own_ms_per_call": 0.0033095714285714286,
+          "cumulative_ms_per_call": 0.014678714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 112,
+          "own_ms_per_call": 0.003196714285714286,
+          "cumulative_ms_per_call": 0.009084
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/grid_sim.py",
+          "line": 954,
+          "name": "ego_view",
+          "calls": 7,
+          "own_ms_per_call": 0.0030714285714285717,
+          "cumulative_ms_per_call": 0.008916714285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.arange>",
+          "calls": 84,
+          "own_ms_per_call": 0.002536285714285714,
+          "cumulative_ms_per_call": 0.002536285714285714
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 56,
+          "own_ms_per_call": 0.0025239999999999998,
+          "cumulative_ms_per_call": 0.0025239999999999998
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/stride_tricks.py",
+          "line": 340,
+          "name": "_broadcast_to",
+          "calls": 7,
+          "own_ms_per_call": 0.0024060000000000006,
+          "cumulative_ms_per_call": 0.0036847142857142864
+        }
+      ],
+      "v8_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 768,
+          "name": "v8_decide",
+          "calls": 7,
+          "own_ms_per_call": 0.019161428571428576,
+          "cumulative_ms_per_call": 0.025696428571428575
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_bv8.py",
+          "line": 29,
+          "name": "v8_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.005625428571428572,
+          "cumulative_ms_per_call": 0.05336885714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 728,
+          "name": "v8_feature_planes",
+          "calls": 7,
+          "own_ms_per_call": 0.003828142857142857,
+          "cumulative_ms_per_call": 0.018357142857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 706,
+          "name": "area_g",
+          "calls": 7,
+          "own_ms_per_call": 0.0036491428571428573,
+          "cumulative_ms_per_call": 0.004184571428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 7,
+          "own_ms_per_call": 0.002618857142857143,
+          "cumulative_ms_per_call": 0.0030834285714285716
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 119,
+          "own_ms_per_call": 0.0020055714285714286,
+          "cumulative_ms_per_call": 0.0020055714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 714,
+          "name": "landing_ok",
+          "calls": 7,
+          "own_ms_per_call": 0.001868857142857143,
+          "cumulative_ms_per_call": 0.002916714285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.0013094285714285714,
+          "cumulative_ms_per_call": 0.0013094285714285714
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "calls": 1,
+          "own_ms_per_call": 0.0011488571428571429,
+          "cumulative_ms_per_call": 0.0011488571428571429
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 49,
+          "own_ms_per_call": 0.0010701428571428574,
+          "cumulative_ms_per_call": 0.0010701428571428574
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 71,
+          "name": "_wrapreduction",
+          "calls": 14,
+          "own_ms_per_call": 0.0009821428571428572,
+          "cumulative_ms_per_call": 0.002446285714285714
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.ascontiguousarray>",
+          "calls": 77,
+          "own_ms_per_call": 0.0008932857142857143,
+          "cumulative_ms_per_call": 0.0008932857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 722,
+          "name": "spacious",
+          "calls": 7,
+          "own_ms_per_call": 0.0007915714285714286,
+          "cumulative_ms_per_call": 0.0007915714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 136,
+          "name": "ones",
+          "calls": 7,
+          "own_ms_per_call": 0.0007800000000000001,
+          "cumulative_ms_per_call": 0.0010001428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 764,
+          "name": "_i64",
+          "calls": 49,
+          "own_ms_per_call": 0.0007794285714285714,
+          "cumulative_ms_per_call": 0.0012021428571428571
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 21,
+          "own_ms_per_call": 0.0007495714285714285,
+          "cumulative_ms_per_call": 0.0007495714285714285
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 185,
+          "name": "features",
+          "calls": 7,
+          "own_ms_per_call": 0.0005775714285714285,
+          "cumulative_ms_per_call": 0.053946428571428576
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 14,
+          "own_ms_per_call": 0.0005774285714285715,
+          "cumulative_ms_per_call": 0.0012562857142857146
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 7,
+          "own_ms_per_call": 0.0005658571428571429,
+          "cumulative_ms_per_call": 0.0020415714285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method builtins.len>",
+          "calls": 63,
+          "own_ms_per_call": 0.00043442857142857145,
+          "cumulative_ms_per_call": 0.00043442857142857145
+        }
+      ],
+      "ego_components": {
+        "planes_local_global": {
+          "median_ms": 0.03137486055493355,
+          "samples_ms": [
+            0.033791642636060715,
+            0.0321660190820694,
+            0.03158301115036011,
+            0.03137486055493355,
+            0.03116670995950699,
+            0.031041912734508514,
+            0.031000003218650818
+          ]
+        },
+        "enemy_next_plane": {
+          "median_ms": 0.14399969950318336,
+          "samples_ms": [
+            0.14625024050474167,
+            0.14408305287361145,
+            0.14283321797847748,
+            0.14399969950318336,
+            0.14258269220590591,
+            0.14479178935289383,
+            0.14191633090376854
+          ]
+        },
+        "b_scalars_including_regions": {
+          "median_ms": 0.05850009620189667,
+          "samples_ms": [
+            0.05850009620189667,
+            0.05508307367563248,
+            0.05337502807378769,
+            0.11245906352996826,
+            0.08341623470187187,
+            0.0621662475168705,
+            0.056208111345767975
+          ]
+        },
+        "regions_only": {
+          "median_ms": 0.004666857421398163,
+          "samples_ms": [
+            0.005666166543960571,
+            0.005834270268678665,
+            0.0050836242735385895,
+            0.004666857421398163,
+            0.004666857421398163,
+            0.004583969712257385,
+            0.004583969712257385
+          ]
+        }
+      },
+      "repeat_byte_identity": true,
+      "observation_sha256": "82bd4ba9e343ec54dcf2a117ee311c60954101743f8e5559a9f1b7099fcf80c0",
+      "ego_numpy_byte_identity": true,
+      "landing_area_100x6": {
+        "median_ms": 0.07016677409410477,
+        "samples_ms": [
+          0.07504085078835487,
+          0.07083360105752945,
+          0.07083406671881676,
+          0.07016677409410477,
+          0.06962474435567856,
+          0.06991717964410782,
+          0.06949994713068008
+        ]
+      },
+      "landing_paint_only_100x6": {
+        "median_ms": 0.004665926098823547,
+        "samples_ms": [
+          0.004791188985109329,
+          0.004707835614681244,
+          0.004665926098823547,
+          0.004666857421398163,
+          0.004624947905540466,
+          0.004624947905540466,
+          0.004624947905540466
+        ]
+      }
+    },
+    {
+      "worlds": 1,
+      "rows": 6,
+      "length": 150,
+      "v8": {
+        "median_ms": 0.07537519559264183,
+        "samples_ms": [
+          0.07966719567775726,
+          0.07762480527162552,
+          0.07537519559264183,
+          0.07541710510849953,
+          0.07420778274536133,
+          0.0743749551475048,
+          0.07429206743836403
+        ]
+      },
+      "ego": {
+        "median_ms": 0.27241697534918785,
+        "samples_ms": [
+          0.2925419248640537,
+          0.28070807456970215,
+          0.27466705068945885,
+          0.27166586369276047,
+          0.2697906456887722,
+          0.2710828557610512,
+          0.27241697534918785
+        ]
+      },
+      "redecide": {
+        "median_ms": 0.006541144102811813,
+        "samples_ms": [
+          0.008416827768087387,
+          0.007125083357095718,
+          0.007292255759239197,
+          0.006541144102811813,
+          0.006416812539100647,
+          0.006207730621099472,
+          0.00620819628238678
+        ]
+      },
+      "ego_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 93,
+          "name": "enemy_next_plane",
+          "calls": 7,
+          "own_ms_per_call": 0.14624,
+          "cumulative_ms_per_call": 0.19642271428571428
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 194,
+          "name": "b_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.048974714285714295,
+          "cumulative_ms_per_call": 0.08594042857142858
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 398,
+          "name": "build_planes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.02763728571428572,
+          "cumulative_ms_per_call": 0.033774000000000005
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 280,
+          "own_ms_per_call": 0.025058857142857143,
+          "cumulative_ms_per_call": 0.025058857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 357,
+          "name": "_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.022696714285714285,
+          "cumulative_ms_per_call": 0.04963685714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 445,
+          "name": "build_ego_raster",
+          "calls": 7,
+          "own_ms_per_call": 0.012826857142857143,
+          "cumulative_ms_per_call": 0.3993217142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 616,
+          "name": "region_sizes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.007685428571428572,
+          "cumulative_ms_per_call": 0.011476
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'sum' of 'numpy.ndarray' objects>",
+          "calls": 252,
+          "own_ms_per_call": 0.007330571428571429,
+          "cumulative_ms_per_call": 0.033781285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 21,
+          "own_ms_per_call": 0.006226857142857143,
+          "cumulative_ms_per_call": 0.007297428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 84,
+          "own_ms_per_call": 0.006040571428571429,
+          "cumulative_ms_per_call": 0.020910142857142856
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 27,
+          "name": "_make_along_axis_idx",
+          "calls": 28,
+          "own_ms_per_call": 0.005713571428571429,
+          "cumulative_ms_per_call": 0.012006000000000001
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 140,
+          "own_ms_per_call": 0.0050765714285714286,
+          "cumulative_ms_per_call": 0.0050765714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/_methods.py",
+          "line": 47,
+          "name": "_sum",
+          "calls": 252,
+          "own_ms_per_call": 0.0037844285714285714,
+          "cumulative_ms_per_call": 0.026450714285714282
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 1768,
+          "name": "ravel",
+          "calls": 84,
+          "own_ms_per_call": 0.0036015714285714292,
+          "cumulative_ms_per_call": 0.006827428571428573
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 54,
+          "name": "take_along_axis",
+          "calls": 28,
+          "own_ms_per_call": 0.0035774285714285717,
+          "cumulative_ms_per_call": 0.015880857142857144
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 112,
+          "own_ms_per_call": 0.0035172857142857145,
+          "cumulative_ms_per_call": 0.010231714285714287
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/grid_sim.py",
+          "line": 954,
+          "name": "ego_view",
+          "calls": 7,
+          "own_ms_per_call": 0.0034821428571428577,
+          "cumulative_ms_per_call": 0.010178428571428573
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/stride_tricks.py",
+          "line": 340,
+          "name": "_broadcast_to",
+          "calls": 7,
+          "own_ms_per_call": 0.0028804285714285715,
+          "cumulative_ms_per_call": 0.004202428571428571
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.arange>",
+          "calls": 84,
+          "own_ms_per_call": 0.0028452857142857147,
+          "cumulative_ms_per_call": 0.0028452857142857147
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 105,
+          "own_ms_per_call": 0.0027320000000000005,
+          "cumulative_ms_per_call": 0.0027320000000000005
+        }
+      ],
+      "v8_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 768,
+          "name": "v8_decide",
+          "calls": 7,
+          "own_ms_per_call": 0.06456557142857143,
+          "cumulative_ms_per_call": 0.07116671428571428
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_bv8.py",
+          "line": 29,
+          "name": "v8_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.005820571428571429,
+          "cumulative_ms_per_call": 0.09986300000000001
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 728,
+          "name": "v8_feature_planes",
+          "calls": 7,
+          "own_ms_per_call": 0.004285142857142857,
+          "cumulative_ms_per_call": 0.019148857142857145
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 706,
+          "name": "area_g",
+          "calls": 7,
+          "own_ms_per_call": 0.0036722857142857143,
+          "cumulative_ms_per_call": 0.004190571428571428
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 7,
+          "own_ms_per_call": 0.0026730000000000005,
+          "cumulative_ms_per_call": 0.0031072857142857148
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 119,
+          "own_ms_per_call": 0.0020951428571428575,
+          "cumulative_ms_per_call": 0.0020951428571428575
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 714,
+          "name": "landing_ok",
+          "calls": 7,
+          "own_ms_per_call": 0.0019047142857142858,
+          "cumulative_ms_per_call": 0.0030297142857142858
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.0014642857142857144,
+          "cumulative_ms_per_call": 0.0014642857142857144
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "calls": 1,
+          "own_ms_per_call": 0.0012082857142857143,
+          "cumulative_ms_per_call": 0.0012082857142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 49,
+          "own_ms_per_call": 0.0011370000000000002,
+          "cumulative_ms_per_call": 0.0011370000000000002
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 71,
+          "name": "_wrapreduction",
+          "calls": 14,
+          "own_ms_per_call": 0.0010775714285714286,
+          "cumulative_ms_per_call": 0.0027442857142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.ascontiguousarray>",
+          "calls": 77,
+          "own_ms_per_call": 0.0008807142857142858,
+          "cumulative_ms_per_call": 0.0008807142857142858
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 136,
+          "name": "ones",
+          "calls": 7,
+          "own_ms_per_call": 0.000827857142857143,
+          "cumulative_ms_per_call": 0.0010597142857142858
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 722,
+          "name": "spacious",
+          "calls": 7,
+          "own_ms_per_call": 0.0008094285714285715,
+          "cumulative_ms_per_call": 0.0008094285714285715
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 21,
+          "own_ms_per_call": 0.0007624285714285716,
+          "cumulative_ms_per_call": 0.0007624285714285716
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 764,
+          "name": "_i64",
+          "calls": 49,
+          "own_ms_per_call": 0.0006788571428571428,
+          "cumulative_ms_per_call": 0.0010772857142857142
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 185,
+          "name": "features",
+          "calls": 7,
+          "own_ms_per_call": 0.0005775714285714285,
+          "cumulative_ms_per_call": 0.10044057142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 7,
+          "own_ms_per_call": 0.0005714285714285716,
+          "cumulative_ms_per_call": 0.002024142857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 14,
+          "own_ms_per_call": 0.0005471428571428573,
+          "cumulative_ms_per_call": 0.0012915714285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'copy' of 'numpy.ndarray' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.00046428571428571433,
+          "cumulative_ms_per_call": 0.00046428571428571433
+        }
+      ],
+      "ego_components": {
+        "planes_local_global": {
+          "median_ms": 0.024416949599981308,
+          "samples_ms": [
+            0.026999972760677338,
+            0.025167129933834076,
+            0.024584122002124786,
+            0.024416949599981308,
+            0.02400018274784088,
+            0.023582950234413147,
+            0.023417174816131592
+          ]
+        },
+        "enemy_next_plane": {
+          "median_ms": 0.13970769941806793,
+          "samples_ms": [
+            0.14412496238946915,
+            0.14070793986320496,
+            0.14012493193149567,
+            0.1393752172589302,
+            0.13970769941806793,
+            0.13954192399978638,
+            0.13904180377721786
+          ]
+        },
+        "b_scalars_including_regions": {
+          "median_ms": 0.05316734313964844,
+          "samples_ms": [
+            0.05962466821074486,
+            0.056040938943624496,
+            0.054541975259780884,
+            0.05316734313964844,
+            0.05262484773993492,
+            0.05212519317865372,
+            0.052208080887794495
+          ]
+        },
+        "regions_only": {
+          "median_ms": 0.00533275306224823,
+          "samples_ms": [
+            0.006082933396100998,
+            0.005582813173532486,
+            0.005499925464391708,
+            0.00533275306224823,
+            0.005291309207677841,
+            0.00533275306224823,
+            0.005292240530252457
+          ]
+        }
+      },
+      "repeat_byte_identity": true,
+      "observation_sha256": "e11f9970266452b58dd411be1a380b7e5640db7cbab3122cb7b01991c6fba627",
+      "ego_numpy_byte_identity": true,
+      "landing_area_100x6": {
+        "median_ms": 0.5158749409019947,
+        "samples_ms": [
+          0.504292082041502,
+          0.5065831355750561,
+          0.516792293637991,
+          0.5158749409019947,
+          0.5134162493050098,
+          0.5189171060919762,
+          0.5182498134672642
+        ]
+      },
+      "landing_paint_only_100x6": {
+        "median_ms": 0.10345783084630966,
+        "samples_ms": [
+          0.09808409959077835,
+          0.10374980047345161,
+          0.1004580408334732,
+          0.10358309373259544,
+          0.10349974036216736,
+          0.09787455201148987,
+          0.10345783084630966
+        ]
+      }
+    },
+    {
+      "worlds": 1,
+      "rows": 6,
+      "length": 600,
+      "v8": {
+        "median_ms": 0.16404082998633385,
+        "samples_ms": [
+          0.16933400183916092,
+          0.1665828749537468,
+          0.1644170843064785,
+          0.16283290460705757,
+          0.16245804727077484,
+          0.16404082998633385,
+          0.1616673544049263
+        ]
+      },
+      "ego": {
+        "median_ms": 0.2786656841635704,
+        "samples_ms": [
+          0.29904209077358246,
+          0.2837502397596836,
+          0.27949968352913857,
+          0.2786656841635704,
+          0.2760407514870167,
+          0.27670804411172867,
+          0.27458276599645615
+        ]
+      },
+      "redecide": {
+        "median_ms": 0.006500165909528732,
+        "samples_ms": [
+          0.008707866072654724,
+          0.007291790097951889,
+          0.006792135536670685,
+          0.006500165909528732,
+          0.0064158812165260315,
+          0.006332993507385254,
+          0.006292015314102173
+        ]
+      },
+      "ego_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 93,
+          "name": "enemy_next_plane",
+          "calls": 7,
+          "own_ms_per_call": 0.13488642857142857,
+          "cumulative_ms_per_call": 0.18122628571428573
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 194,
+          "name": "b_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.04273242857142857,
+          "cumulative_ms_per_call": 0.07666671428571428
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 398,
+          "name": "build_planes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.024464857142857142,
+          "cumulative_ms_per_call": 0.030155142857142856
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 280,
+          "own_ms_per_call": 0.021799000000000006,
+          "cumulative_ms_per_call": 0.021799000000000006
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 357,
+          "name": "_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.020703857142857145,
+          "cumulative_ms_per_call": 0.045315571428571434
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 445,
+          "name": "build_ego_raster",
+          "calls": 7,
+          "own_ms_per_call": 0.011071000000000001,
+          "cumulative_ms_per_call": 0.36248800000000003
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 616,
+          "name": "region_sizes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.00905942857142857,
+          "cumulative_ms_per_call": 0.012279714285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'sum' of 'numpy.ndarray' objects>",
+          "calls": 252,
+          "own_ms_per_call": 0.0065792857142857155,
+          "cumulative_ms_per_call": 0.029840714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 84,
+          "own_ms_per_call": 0.005841714285714285,
+          "cumulative_ms_per_call": 0.01949985714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 27,
+          "name": "_make_along_axis_idx",
+          "calls": 28,
+          "own_ms_per_call": 0.00541157142857143,
+          "cumulative_ms_per_call": 0.01125557142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 21,
+          "own_ms_per_call": 0.005238857142857143,
+          "cumulative_ms_per_call": 0.006208000000000001
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 140,
+          "own_ms_per_call": 0.004637571428571429,
+          "cumulative_ms_per_call": 0.004637571428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/_methods.py",
+          "line": 47,
+          "name": "_sum",
+          "calls": 252,
+          "own_ms_per_call": 0.003521857142857143,
+          "cumulative_ms_per_call": 0.023261428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 112,
+          "own_ms_per_call": 0.0033102857142857144,
+          "cumulative_ms_per_call": 0.009131428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 54,
+          "name": "take_along_axis",
+          "calls": 28,
+          "own_ms_per_call": 0.003220571428571429,
+          "cumulative_ms_per_call": 0.014767857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 1768,
+          "name": "ravel",
+          "calls": 84,
+          "own_ms_per_call": 0.003196142857142857,
+          "cumulative_ms_per_call": 0.006065285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/grid_sim.py",
+          "line": 954,
+          "name": "ego_view",
+          "calls": 7,
+          "own_ms_per_call": 0.0028752857142857148,
+          "cumulative_ms_per_call": 0.008595285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/stride_tricks.py",
+          "line": 340,
+          "name": "_broadcast_to",
+          "calls": 7,
+          "own_ms_per_call": 0.0025121428571428578,
+          "cumulative_ms_per_call": 0.003702428571428572
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 105,
+          "own_ms_per_call": 0.002492714285714286,
+          "cumulative_ms_per_call": 0.002492714285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.arange>",
+          "calls": 84,
+          "own_ms_per_call": 0.0024401428571428573,
+          "cumulative_ms_per_call": 0.0024401428571428573
+        }
+      ],
+      "v8_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 768,
+          "name": "v8_decide",
+          "calls": 7,
+          "own_ms_per_call": 0.149197,
+          "cumulative_ms_per_call": 0.15567228571428574
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_bv8.py",
+          "line": 29,
+          "name": "v8_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.005654714285714286,
+          "cumulative_ms_per_call": 0.18401185714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 728,
+          "name": "v8_feature_planes",
+          "calls": 7,
+          "own_ms_per_call": 0.004154428571428572,
+          "cumulative_ms_per_call": 0.018857285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 706,
+          "name": "area_g",
+          "calls": 7,
+          "own_ms_per_call": 0.0037560000000000002,
+          "cumulative_ms_per_call": 0.004309571428571428
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 7,
+          "own_ms_per_call": 0.002547714285714286,
+          "cumulative_ms_per_call": 0.0030060000000000004
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 119,
+          "own_ms_per_call": 0.002040714285714286,
+          "cumulative_ms_per_call": 0.002040714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 714,
+          "name": "landing_ok",
+          "calls": 7,
+          "own_ms_per_call": 0.0018691428571428572,
+          "cumulative_ms_per_call": 0.0029405714285714287
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.0013631428571428575,
+          "cumulative_ms_per_call": 0.0013631428571428575
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "calls": 1,
+          "own_ms_per_call": 0.0012261428571428573,
+          "cumulative_ms_per_call": 0.0012261428571428573
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 49,
+          "own_ms_per_call": 0.00116,
+          "cumulative_ms_per_call": 0.00116
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 71,
+          "name": "_wrapreduction",
+          "calls": 14,
+          "own_ms_per_call": 0.0010652857142857144,
+          "cumulative_ms_per_call": 0.0026247142857142858
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.ascontiguousarray>",
+          "calls": 77,
+          "own_ms_per_call": 0.0008871428571428573,
+          "cumulative_ms_per_call": 0.0008871428571428573
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 722,
+          "name": "spacious",
+          "calls": 7,
+          "own_ms_per_call": 0.0008094285714285715,
+          "cumulative_ms_per_call": 0.0008094285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 136,
+          "name": "ones",
+          "calls": 7,
+          "own_ms_per_call": 0.0007915714285714286,
+          "cumulative_ms_per_call": 0.001018
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 21,
+          "own_ms_per_call": 0.0007741428571428571,
+          "cumulative_ms_per_call": 0.0007741428571428571
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 764,
+          "name": "_i64",
+          "calls": 49,
+          "own_ms_per_call": 0.000743857142857143,
+          "cumulative_ms_per_call": 0.0011544285714285717
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 185,
+          "name": "features",
+          "calls": 7,
+          "own_ms_per_call": 0.0006129999999999999,
+          "cumulative_ms_per_call": 0.18462485714285712
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 7,
+          "own_ms_per_call": 0.0006129999999999999,
+          "cumulative_ms_per_call": 0.002035857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 14,
+          "own_ms_per_call": 0.0005895714285714287,
+          "cumulative_ms_per_call": 0.001273857142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method builtins.len>",
+          "calls": 63,
+          "own_ms_per_call": 0.0005178571428571429,
+          "cumulative_ms_per_call": 0.0005178571428571429
+        }
+      ],
+      "ego_components": {
+        "planes_local_global": {
+          "median_ms": 0.023916829377412796,
+          "samples_ms": [
+            0.02837507054209709,
+            0.02533290535211563,
+            0.024458859115839005,
+            0.023916829377412796,
+            0.02370774745941162,
+            0.023541972041130066,
+            0.023582950234413147
+          ]
+        },
+        "enemy_next_plane": {
+          "median_ms": 0.14083320274949074,
+          "samples_ms": [
+            0.14204205945134163,
+            0.14083320274949074,
+            0.13950001448392868,
+            0.13912515714764595,
+            0.1387912780046463,
+            0.14966679736971855,
+            0.14979159459471703
+          ]
+        },
+        "b_scalars_including_regions": {
+          "median_ms": 0.06029196083545685,
+          "samples_ms": [
+            0.065583735704422,
+            0.0660829246044159,
+            0.06170803681015968,
+            0.06029196083545685,
+            0.058667268604040146,
+            0.0554998405277729,
+            0.055250246077775955
+          ]
+        },
+        "regions_only": {
+          "median_ms": 0.007708091288805008,
+          "samples_ms": [
+            0.00858306884765625,
+            0.008167233318090439,
+            0.007916707545518875,
+            0.007708091288805008,
+            0.00762520357966423,
+            0.007667113095521927,
+            0.00762520357966423
+          ]
+        }
+      },
+      "repeat_byte_identity": true,
+      "observation_sha256": "4023b85ef626cdbf3fcbbaf82c5ad7bac960d4c4a3e56b5edac5f118d2c4f82a",
+      "ego_numpy_byte_identity": true,
+      "landing_area_100x6": {
+        "median_ms": 1.5847920440137386,
+        "samples_ms": [
+          1.6371249221265316,
+          1.567208208143711,
+          1.5305839478969574,
+          1.557166688144207,
+          1.5847920440137386,
+          1.6193748451769352,
+          1.6082911752164364
+        ]
+      },
+      "landing_paint_only_100x6": {
+        "median_ms": 0.3736671060323715,
+        "samples_ms": [
+          0.37562521174550056,
+          0.37404103204607964,
+          0.37504127249121666,
+          0.373166985809803,
+          0.3736671060323715,
+          0.3726668655872345,
+          0.3736661747097969
+        ]
+      }
+    },
+    {
+      "worlds": 1,
+      "rows": 6,
+      "length": 1200,
+      "v8": {
+        "median_ms": 0.3110421821475029,
+        "samples_ms": [
+          0.3099585883319378,
+          0.31345803290605545,
+          0.30166609212756157,
+          0.3110421821475029,
+          0.3100000321865082,
+          0.3127921372652054,
+          0.31362520530819893
+        ]
+      },
+      "ego": {
+        "median_ms": 0.2722088247537613,
+        "samples_ms": [
+          0.3065420314669609,
+          0.28116581961512566,
+          0.27404213324189186,
+          0.2709580585360527,
+          0.2722088247537613,
+          0.26970868930220604,
+          0.2692500129342079
+        ]
+      },
+      "redecide": {
+        "median_ms": 0.006416812539100647,
+        "samples_ms": [
+          0.007792375981807709,
+          0.007458031177520752,
+          0.006750226020812988,
+          0.006416812539100647,
+          0.006250105798244476,
+          0.006250105798244476,
+          0.006125308573246002
+        ]
+      },
+      "ego_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 93,
+          "name": "enemy_next_plane",
+          "calls": 7,
+          "own_ms_per_call": 0.13081442857142858,
+          "cumulative_ms_per_call": 0.17579785714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 194,
+          "name": "b_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.04194485714285715,
+          "cumulative_ms_per_call": 0.07837528571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 398,
+          "name": "build_planes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.023007428571428575,
+          "cumulative_ms_per_call": 0.028357285714285717
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 280,
+          "own_ms_per_call": 0.021808285714285718,
+          "cumulative_ms_per_call": 0.021808285714285718
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 357,
+          "name": "_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.020208,
+          "cumulative_ms_per_call": 0.043803571428571435
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 616,
+          "name": "region_sizes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.011863,
+          "cumulative_ms_per_call": 0.015017857142857144
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 445,
+          "name": "build_ego_raster",
+          "calls": 7,
+          "own_ms_per_call": 0.010124,
+          "cumulative_ms_per_call": 0.35382757142857146
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'sum' of 'numpy.ndarray' objects>",
+          "calls": 252,
+          "own_ms_per_call": 0.006697142857142858,
+          "cumulative_ms_per_call": 0.029810857142857142
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 84,
+          "own_ms_per_call": 0.005448857142857143,
+          "cumulative_ms_per_call": 0.018772714285714285
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 27,
+          "name": "_make_along_axis_idx",
+          "calls": 28,
+          "own_ms_per_call": 0.005166714285714286,
+          "cumulative_ms_per_call": 0.01096457142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 21,
+          "own_ms_per_call": 0.005035857142857143,
+          "cumulative_ms_per_call": 0.005886714285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 140,
+          "own_ms_per_call": 0.004387857142857143,
+          "cumulative_ms_per_call": 0.004387857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 1768,
+          "name": "ravel",
+          "calls": 84,
+          "own_ms_per_call": 0.003351857142857143,
+          "cumulative_ms_per_call": 0.005970285714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/_methods.py",
+          "line": 47,
+          "name": "_sum",
+          "calls": 252,
+          "own_ms_per_call": 0.0033170000000000005,
+          "cumulative_ms_per_call": 0.02311371428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 54,
+          "name": "take_along_axis",
+          "calls": 28,
+          "own_ms_per_call": 0.0031897142857142857,
+          "cumulative_ms_per_call": 0.01440457142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 112,
+          "own_ms_per_call": 0.0031608571428571428,
+          "cumulative_ms_per_call": 0.008725428571428571
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/grid_sim.py",
+          "line": 954,
+          "name": "ego_view",
+          "calls": 7,
+          "own_ms_per_call": 0.002714714285714286,
+          "cumulative_ms_per_call": 0.008178857142857144
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.arange>",
+          "calls": 84,
+          "own_ms_per_call": 0.0025057142857142856,
+          "cumulative_ms_per_call": 0.0025057142857142856
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 105,
+          "own_ms_per_call": 0.0023684285714285712,
+          "cumulative_ms_per_call": 0.0023684285714285712
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/stride_tricks.py",
+          "line": 340,
+          "name": "_broadcast_to",
+          "calls": 7,
+          "own_ms_per_call": 0.002255571428571429,
+          "cumulative_ms_per_call": 0.003386857142857143
+        }
+      ],
+      "v8_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 768,
+          "name": "v8_decide",
+          "calls": 7,
+          "own_ms_per_call": 0.29191685714285714,
+          "cumulative_ms_per_call": 0.2984702857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_bv8.py",
+          "line": 29,
+          "name": "v8_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.005607714285714285,
+          "cumulative_ms_per_call": 0.3267621428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 728,
+          "name": "v8_feature_planes",
+          "calls": 7,
+          "own_ms_per_call": 0.004261571428571429,
+          "cumulative_ms_per_call": 0.018982
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 706,
+          "name": "area_g",
+          "calls": 7,
+          "own_ms_per_call": 0.003732,
+          "cumulative_ms_per_call": 0.0042915714285714284
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 7,
+          "own_ms_per_call": 0.0025592857142857145,
+          "cumulative_ms_per_call": 0.003017857142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 119,
+          "own_ms_per_call": 0.002058714285714286,
+          "cumulative_ms_per_call": 0.002058714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 714,
+          "name": "landing_ok",
+          "calls": 7,
+          "own_ms_per_call": 0.001910714285714286,
+          "cumulative_ms_per_call": 0.0029821428571428573
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.0014047142857142856,
+          "cumulative_ms_per_call": 0.0014047142857142856
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "calls": 1,
+          "own_ms_per_call": 0.0011964285714285716,
+          "cumulative_ms_per_call": 0.0011964285714285716
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 49,
+          "own_ms_per_call": 0.0011010000000000002,
+          "cumulative_ms_per_call": 0.0011010000000000002
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 71,
+          "name": "_wrapreduction",
+          "calls": 14,
+          "own_ms_per_call": 0.001095,
+          "cumulative_ms_per_call": 0.002672857142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.ascontiguousarray>",
+          "calls": 77,
+          "own_ms_per_call": 0.0009588571428571429,
+          "cumulative_ms_per_call": 0.0009588571428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 722,
+          "name": "spacious",
+          "calls": 7,
+          "own_ms_per_call": 0.0007858571428571429,
+          "cumulative_ms_per_call": 0.0007858571428571429
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 21,
+          "own_ms_per_call": 0.0007675714285714285,
+          "cumulative_ms_per_call": 0.0007675714285714285
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 764,
+          "name": "_i64",
+          "calls": 49,
+          "own_ms_per_call": 0.0007610000000000001,
+          "cumulative_ms_per_call": 0.001214
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 136,
+          "name": "ones",
+          "calls": 7,
+          "own_ms_per_call": 0.0007564285714285714,
+          "cumulative_ms_per_call": 0.0010000000000000002
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 7,
+          "own_ms_per_call": 0.0006074285714285714,
+          "cumulative_ms_per_call": 0.002000142857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 185,
+          "name": "features",
+          "calls": 7,
+          "own_ms_per_call": 0.0005830000000000001,
+          "cumulative_ms_per_call": 0.32734514285714283
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 14,
+          "own_ms_per_call": 0.0005425714285714286,
+          "cumulative_ms_per_call": 0.0012382857142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method builtins.len>",
+          "calls": 63,
+          "own_ms_per_call": 0.0005004285714285715,
+          "cumulative_ms_per_call": 0.0005004285714285715
+        }
+      ],
+      "ego_components": {
+        "planes_local_global": {
+          "median_ms": 0.023250002413988113,
+          "samples_ms": [
+            0.02533290535211563,
+            0.023957807570695877,
+            0.0233333557844162,
+            0.023208092898130417,
+            0.023250002413988113,
+            0.023250002413988113,
+            0.02295803278684616
+          ]
+        },
+        "enemy_next_plane": {
+          "median_ms": 0.13745902106165886,
+          "samples_ms": [
+            0.1404997892677784,
+            0.13779103755950928,
+            0.13766717165708542,
+            0.13745902106165886,
+            0.13645878061652184,
+            0.13620825484395027,
+            0.136583112180233
+          ]
+        },
+        "b_scalars_including_regions": {
+          "median_ms": 0.058374833315610886,
+          "samples_ms": [
+            0.06304215639829636,
+            0.06004190072417259,
+            0.058374833315610886,
+            0.05849963054060936,
+            0.05804235115647316,
+            0.057625118643045425,
+            0.05699973553419113
+          ]
+        },
+        "regions_only": {
+          "median_ms": 0.011125113815069199,
+          "samples_ms": [
+            0.011499971151351929,
+            0.011249911040067673,
+            0.011292286217212677,
+            0.011125113815069199,
+            0.01095794141292572,
+            0.010707881301641464,
+            0.010459218174219131
+          ]
+        }
+      },
+      "repeat_byte_identity": true,
+      "observation_sha256": "269cb50652bacd0d28ca4576b9a01146db41f9bff950fae942afd427dc904bd1",
+      "ego_numpy_byte_identity": true,
+      "landing_area_100x6": {
+        "median_ms": 3.3558327704668045,
+        "samples_ms": [
+          3.3819167874753475,
+          3.4187091514468193,
+          3.4655416384339333,
+          3.3558327704668045,
+          3.2130000181496143,
+          3.289916552603245,
+          3.2840417698025703
+        ]
+      },
+      "landing_paint_only_100x6": {
+        "median_ms": 0.7370002567768097,
+        "samples_ms": [
+          0.7147905416786671,
+          0.7124170660972595,
+          0.7275412790477276,
+          0.7370002567768097,
+          0.7407921366393566,
+          0.7555419579148293,
+          0.7413751445710659
+        ]
+      }
+    },
+    {
+      "worlds": 16,
+      "rows": 96,
+      "length": 5,
+      "v8": {
+        "median_ms": 0.16137491911649704,
+        "samples_ms": [
+          0.16087479889392853,
+          0.1593749038875103,
+          0.16395794227719307,
+          0.1587499864399433,
+          0.16358261927962303,
+          0.16137491911649704,
+          0.16345875337719917
+        ]
+      },
+      "ego": {
+        "median_ms": 0.7807919755578041,
+        "samples_ms": [
+          0.8728750981390476,
+          0.7970421575009823,
+          0.783165916800499,
+          0.7807919755578041,
+          0.7768752984702587,
+          0.7789591327309608,
+          0.7786247879266739
+        ]
+      },
+      "redecide": {
+        "median_ms": 0.008082948625087738,
+        "samples_ms": [
+          0.011208001524209976,
+          0.009207986295223236,
+          0.00858306884765625,
+          0.008082948625087738,
+          0.00800006091594696,
+          0.007917173206806183,
+          0.007791910320520401
+        ]
+      },
+      "ego_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 398,
+          "name": "build_planes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.43411242857142857,
+          "cumulative_ms_per_call": 0.45688114285714293
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 93,
+          "name": "enemy_next_plane",
+          "calls": 7,
+          "own_ms_per_call": 0.1598332857142857,
+          "cumulative_ms_per_call": 0.2165594285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 194,
+          "name": "b_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.06191471428571429,
+          "cumulative_ms_per_call": 0.13348228571428572
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 280,
+          "own_ms_per_call": 0.04429785714285715,
+          "cumulative_ms_per_call": 0.04429785714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 616,
+          "name": "region_sizes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.03784557142857143,
+          "cumulative_ms_per_call": 0.04156585714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 445,
+          "name": "build_ego_raster",
+          "calls": 7,
+          "own_ms_per_call": 0.03571442857142858,
+          "cumulative_ms_per_call": 0.9175180000000002
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 357,
+          "name": "_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.025671142857142858,
+          "cumulative_ms_per_call": 0.05308314285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 56,
+          "own_ms_per_call": 0.011066142857142858,
+          "cumulative_ms_per_call": 0.011066142857142858
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'sum' of 'numpy.ndarray' objects>",
+          "calls": 252,
+          "own_ms_per_call": 0.007196857142857144,
+          "cumulative_ms_per_call": 0.052815
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 21,
+          "own_ms_per_call": 0.006421428571428572,
+          "cumulative_ms_per_call": 0.007392857142857144
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 84,
+          "own_ms_per_call": 0.005852857142857143,
+          "cumulative_ms_per_call": 0.020185000000000005
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 27,
+          "name": "_make_along_axis_idx",
+          "calls": 28,
+          "own_ms_per_call": 0.005602,
+          "cumulative_ms_per_call": 0.011607428571428572
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 140,
+          "own_ms_per_call": 0.005268285714285714,
+          "cumulative_ms_per_call": 0.005268285714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 54,
+          "name": "take_along_axis",
+          "calls": 28,
+          "own_ms_per_call": 0.0044885714285714294,
+          "cumulative_ms_per_call": 0.016363714285714287
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/_methods.py",
+          "line": 47,
+          "name": "_sum",
+          "calls": 252,
+          "own_ms_per_call": 0.003635714285714286,
+          "cumulative_ms_per_call": 0.045618142857142864
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 1768,
+          "name": "ravel",
+          "calls": 84,
+          "own_ms_per_call": 0.0035224285714285718,
+          "cumulative_ms_per_call": 0.006392857142857144
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 112,
+          "own_ms_per_call": 0.003504571428571429,
+          "cumulative_ms_per_call": 0.010892428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/batch_sim.py",
+          "line": 279,
+          "name": "_segments_at",
+          "calls": 7,
+          "own_ms_per_call": 0.003369,
+          "cumulative_ms_per_call": 0.004940571428571428
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/grid_sim.py",
+          "line": 954,
+          "name": "ego_view",
+          "calls": 7,
+          "own_ms_per_call": 0.003350714285714286,
+          "cumulative_ms_per_call": 0.011339142857142857
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.arange>",
+          "calls": 84,
+          "own_ms_per_call": 0.002815714285714286,
+          "cumulative_ms_per_call": 0.002815714285714286
+        }
+      ],
+      "v8_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 768,
+          "name": "v8_decide",
+          "calls": 7,
+          "own_ms_per_call": 0.140737,
+          "cumulative_ms_per_call": 0.14784514285714287
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_bv8.py",
+          "line": 29,
+          "name": "v8_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.007570571428571428,
+          "cumulative_ms_per_call": 0.18270228571428573
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 706,
+          "name": "area_g",
+          "calls": 7,
+          "own_ms_per_call": 0.004809142857142857,
+          "cumulative_ms_per_call": 0.005422571428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 728,
+          "name": "v8_feature_planes",
+          "calls": 7,
+          "own_ms_per_call": 0.0047685714285714284,
+          "cumulative_ms_per_call": 0.02295242857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 7,
+          "own_ms_per_call": 0.003505571428571428,
+          "cumulative_ms_per_call": 0.003958142857142857
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 119,
+          "own_ms_per_call": 0.002542428571428572,
+          "cumulative_ms_per_call": 0.002542428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 714,
+          "name": "landing_ok",
+          "calls": 7,
+          "own_ms_per_call": 0.0022501428571428572,
+          "cumulative_ms_per_call": 0.003368857142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.0015417142857142858,
+          "cumulative_ms_per_call": 0.0015417142857142858
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "calls": 1,
+          "own_ms_per_call": 0.0012201428571428571,
+          "cumulative_ms_per_call": 0.0012201428571428571
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 71,
+          "name": "_wrapreduction",
+          "calls": 14,
+          "own_ms_per_call": 0.0011664285714285715,
+          "cumulative_ms_per_call": 0.0029047142857142856
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 49,
+          "own_ms_per_call": 0.0011604285714285714,
+          "cumulative_ms_per_call": 0.0011604285714285714
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 21,
+          "own_ms_per_call": 0.0011547142857142856,
+          "cumulative_ms_per_call": 0.0011547142857142856
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.ascontiguousarray>",
+          "calls": 77,
+          "own_ms_per_call": 0.0011012857142857144,
+          "cumulative_ms_per_call": 0.0011012857142857144
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 722,
+          "name": "spacious",
+          "calls": 7,
+          "own_ms_per_call": 0.0009404285714285714,
+          "cumulative_ms_per_call": 0.0009404285714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 136,
+          "name": "ones",
+          "calls": 7,
+          "own_ms_per_call": 0.0008452857142857143,
+          "cumulative_ms_per_call": 0.0010652857142857144
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 764,
+          "name": "_i64",
+          "calls": 49,
+          "own_ms_per_call": 0.0007381428571428572,
+          "cumulative_ms_per_call": 0.0011727142857142858
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 185,
+          "name": "features",
+          "calls": 7,
+          "own_ms_per_call": 0.0007081428571428572,
+          "cumulative_ms_per_call": 0.18341042857142859
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'repeat' of 'numpy.ndarray' objects>",
+          "calls": 7,
+          "own_ms_per_call": 0.0006430000000000001,
+          "cumulative_ms_per_call": 0.0006430000000000001
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 14,
+          "own_ms_per_call": 0.0006367142857142858,
+          "cumulative_ms_per_call": 0.0016428571428571427
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 7,
+          "own_ms_per_call": 0.0005775714285714285,
+          "cumulative_ms_per_call": 0.0021904285714285715
+        }
+      ],
+      "ego_components": {
+        "planes_local_global": {
+          "median_ms": 0.431000255048275,
+          "samples_ms": [
+            0.43512508273124695,
+            0.4326249472796917,
+            0.431000255048275,
+            0.43000001460313797,
+            0.4292502999305725,
+            0.42995763942599297,
+            0.4320000298321247
+          ]
+        },
+        "enemy_next_plane": {
+          "median_ms": 0.16416702419519424,
+          "samples_ms": [
+            0.16916589811444283,
+            0.16537494957447052,
+            0.16395887359976768,
+            0.16416702419519424,
+            0.16424991190433502,
+            0.16408320516347885,
+            0.16254186630249023
+          ]
+        },
+        "b_scalars_including_regions": {
+          "median_ms": 0.10687531903386116,
+          "samples_ms": [
+            0.1243329606950283,
+            0.11812476441264153,
+            0.10891677811741829,
+            0.10687531903386116,
+            0.10683387517929077,
+            0.10670814663171768,
+            0.10558310896158218
+          ]
+        },
+        "regions_only": {
+          "median_ms": 0.0350000336766243,
+          "samples_ms": [
+            0.039832666516304016,
+            0.03579212352633476,
+            0.03529153764247894,
+            0.03479188308119774,
+            0.03479095175862312,
+            0.03474997356534004,
+            0.0350000336766243
+          ]
+        }
+      },
+      "repeat_byte_identity": true,
+      "observation_sha256": "e78df6e6d9816622de6400af70a6c15706e0ba41f16a5cfc0c84beb1acfabe61",
+      "landing_area_100x6": {
+        "median_ms": 0.06975000724196434,
+        "samples_ms": [
+          0.07029110565781593,
+          0.07016723975539207,
+          0.07004104554653168,
+          0.06975000724196434,
+          0.06962521001696587,
+          0.06937514990568161,
+          0.06966665387153625
+        ]
+      },
+      "landing_paint_only_100x6": {
+        "median_ms": 0.004458241164684296,
+        "samples_ms": [
+          0.00458303838968277,
+          0.0044996850192546844,
+          0.004457775503396988,
+          0.004458241164684296,
+          0.004457775503396988,
+          0.004500150680541992,
+          0.004416797310113907
+        ]
+      },
+      "cpu_forward_random_weights": {
+        "median_ms": 37.85604191944003,
+        "samples_ms": [
+          38.22174994274974,
+          39.45316560566425,
+          38.49945776164532,
+          37.5985000282526,
+          37.76383260264993,
+          37.83125011250377,
+          37.85604191944003
+        ]
+      }
+    },
+    {
+      "worlds": 16,
+      "rows": 96,
+      "length": 150,
+      "v8": {
+        "median_ms": 0.8700410835444927,
+        "samples_ms": [
+          0.8637919090688229,
+          0.8700410835444927,
+          0.8650827221572399,
+          0.9287092834711075,
+          0.8552498184144497,
+          0.8711251430213451,
+          0.8756248280405998
+        ]
+      },
+      "ego": {
+        "median_ms": 0.698333140462637,
+        "samples_ms": [
+          0.7150000892579556,
+          0.7035420276224613,
+          0.705416314303875,
+          0.6917919963598251,
+          0.6850841455161572,
+          0.698333140462637,
+          0.6940830498933792
+        ]
+      },
+      "redecide": {
+        "median_ms": 0.00858306884765625,
+        "samples_ms": [
+          0.010415911674499512,
+          0.017542392015457153,
+          0.010750256478786469,
+          0.00858306884765625,
+          0.008291564881801605,
+          0.008333008736371994,
+          0.00762520357966423
+        ]
+      },
+      "ego_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 398,
+          "name": "build_planes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.30866185714285715,
+          "cumulative_ms_per_call": 0.342399
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 93,
+          "name": "enemy_next_plane",
+          "calls": 7,
+          "own_ms_per_call": 0.15505928571428576,
+          "cumulative_ms_per_call": 0.20983928571428573
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 616,
+          "name": "region_sizes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.08049314285714285,
+          "cumulative_ms_per_call": 0.08422585714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 194,
+          "name": "b_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.06210614285714287,
+          "cumulative_ms_per_call": 0.17577957142857145
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 280,
+          "own_ms_per_call": 0.055484285714285715,
+          "cumulative_ms_per_call": 0.055484285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 445,
+          "name": "build_ego_raster",
+          "calls": 7,
+          "own_ms_per_call": 0.03545757142857143,
+          "cumulative_ms_per_call": 0.8384287142857144
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 357,
+          "name": "_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.02563014285714286,
+          "cumulative_ms_per_call": 0.05318457142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 56,
+          "own_ms_per_call": 0.009916285714285714,
+          "cumulative_ms_per_call": 0.009916285714285714
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'sum' of 'numpy.ndarray' objects>",
+          "calls": 252,
+          "own_ms_per_call": 0.006960285714285716,
+          "cumulative_ms_per_call": 0.06369071428571428
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 21,
+          "own_ms_per_call": 0.006213571428571429,
+          "cumulative_ms_per_call": 0.007196000000000001
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 27,
+          "name": "_make_along_axis_idx",
+          "calls": 28,
+          "own_ms_per_call": 0.005714571428571429,
+          "cumulative_ms_per_call": 0.011815571428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 84,
+          "own_ms_per_call": 0.005708714285714287,
+          "cumulative_ms_per_call": 0.019547142857142857
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 140,
+          "own_ms_per_call": 0.005073285714285715,
+          "cumulative_ms_per_call": 0.005073285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 54,
+          "name": "take_along_axis",
+          "calls": 28,
+          "own_ms_per_call": 0.0045592857142857145,
+          "cumulative_ms_per_call": 0.016660428571428573
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/_methods.py",
+          "line": 47,
+          "name": "_sum",
+          "calls": 252,
+          "own_ms_per_call": 0.0035144285714285716,
+          "cumulative_ms_per_call": 0.05673042857142858
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 1768,
+          "name": "ravel",
+          "calls": 84,
+          "own_ms_per_call": 0.003451714285714286,
+          "cumulative_ms_per_call": 0.0061070000000000004
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 112,
+          "own_ms_per_call": 0.0034161428571428576,
+          "cumulative_ms_per_call": 0.010767714285714285
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/batch_sim.py",
+          "line": 279,
+          "name": "_segments_at",
+          "calls": 7,
+          "own_ms_per_call": 0.003357571428571429,
+          "cumulative_ms_per_call": 0.004875142857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/grid_sim.py",
+          "line": 954,
+          "name": "ego_view",
+          "calls": 7,
+          "own_ms_per_call": 0.0032498571428571433,
+          "cumulative_ms_per_call": 0.011113
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.arange>",
+          "calls": 84,
+          "own_ms_per_call": 0.0027675714285714287,
+          "cumulative_ms_per_call": 0.0027675714285714287
+        }
+      ],
+      "v8_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 768,
+          "name": "v8_decide",
+          "calls": 7,
+          "own_ms_per_call": 0.8573888571428572,
+          "cumulative_ms_per_call": 0.8653808571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_bv8.py",
+          "line": 29,
+          "name": "v8_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.008559285714285715,
+          "cumulative_ms_per_call": 0.9073748571428571
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 728,
+          "name": "v8_feature_planes",
+          "calls": 7,
+          "own_ms_per_call": 0.0061787142857142865,
+          "cumulative_ms_per_call": 0.028714428571428575
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 706,
+          "name": "area_g",
+          "calls": 7,
+          "own_ms_per_call": 0.005857428571428572,
+          "cumulative_ms_per_call": 0.0066430000000000005
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 7,
+          "own_ms_per_call": 0.004601285714285715,
+          "cumulative_ms_per_call": 0.005077142857142857
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 119,
+          "own_ms_per_call": 0.002903857142857143,
+          "cumulative_ms_per_call": 0.002903857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 714,
+          "name": "landing_ok",
+          "calls": 7,
+          "own_ms_per_call": 0.0026611428571428576,
+          "cumulative_ms_per_call": 0.004041714285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.0019824285714285716,
+          "cumulative_ms_per_call": 0.0019824285714285716
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 71,
+          "name": "_wrapreduction",
+          "calls": 14,
+          "own_ms_per_call": 0.0013981428571428571,
+          "cumulative_ms_per_call": 0.0035831428571428572
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "calls": 1,
+          "own_ms_per_call": 0.001387,
+          "cumulative_ms_per_call": 0.001387
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 21,
+          "own_ms_per_call": 0.001363,
+          "cumulative_ms_per_call": 0.001363
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 722,
+          "name": "spacious",
+          "calls": 7,
+          "own_ms_per_call": 0.0013571428571428571,
+          "cumulative_ms_per_call": 0.0013571428571428571
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 49,
+          "own_ms_per_call": 0.0013268571428571429,
+          "cumulative_ms_per_call": 0.0013268571428571429
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.ascontiguousarray>",
+          "calls": 77,
+          "own_ms_per_call": 0.0011734285714285716,
+          "cumulative_ms_per_call": 0.0011734285714285716
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 136,
+          "name": "ones",
+          "calls": 7,
+          "own_ms_per_call": 0.0010532857142857143,
+          "cumulative_ms_per_call": 0.0013272857142857144
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 764,
+          "name": "_i64",
+          "calls": 49,
+          "own_ms_per_call": 0.0008378571428571429,
+          "cumulative_ms_per_call": 0.0012672857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 185,
+          "name": "features",
+          "calls": 7,
+          "own_ms_per_call": 0.0007858571428571429,
+          "cumulative_ms_per_call": 0.9081607142857144
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'repeat' of 'numpy.ndarray' objects>",
+          "calls": 7,
+          "own_ms_per_call": 0.0007561428571428571,
+          "cumulative_ms_per_call": 0.0007561428571428571
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 14,
+          "own_ms_per_call": 0.000683857142857143,
+          "cumulative_ms_per_call": 0.001856857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 7,
+          "own_ms_per_call": 0.0006604285714285715,
+          "cumulative_ms_per_call": 0.0023095714285714286
+        }
+      ],
+      "ego_components": {
+        "planes_local_global": {
+          "median_ms": 0.3292080946266651,
+          "samples_ms": [
+            0.3292080946266651,
+            0.3369157202541828,
+            0.3187498077750206,
+            0.33412501215934753,
+            0.3192499279975891,
+            0.33395783975720406,
+            0.3169160336256027
+          ]
+        },
+        "enemy_next_plane": {
+          "median_ms": 0.16412511467933655,
+          "samples_ms": [
+            0.16858289018273354,
+            0.16508297994732857,
+            0.1643751747906208,
+            0.16412511467933655,
+            0.16345782205462456,
+            0.1638331450521946,
+            0.16341591253876686
+          ]
+        },
+        "b_scalars_including_regions": {
+          "median_ms": 0.12674974277615547,
+          "samples_ms": [
+            0.12674974277615547,
+            0.15683285892009735,
+            0.1199161633849144,
+            0.15312479808926582,
+            0.11754222214221954,
+            0.15145819634199142,
+            0.11675013229250908
+          ]
+        },
+        "regions_only": {
+          "median_ms": 0.05045812577009201,
+          "samples_ms": [
+            0.04862481728196144,
+            0.08166581392288208,
+            0.04816707223653793,
+            0.08108420297503471,
+            0.04791701212525368,
+            0.0811251811683178,
+            0.05045812577009201
+          ]
+        }
+      },
+      "repeat_byte_identity": true,
+      "observation_sha256": "96a607635c81e72eef74dec419e74eab5237c9f0c3aa8165f614460240814c67",
+      "landing_area_100x6": {
+        "median_ms": 0.5018752999603748,
+        "samples_ms": [
+          0.5071251653134823,
+          0.5011251196265221,
+          0.5093328654766083,
+          0.5018752999603748,
+          0.5056667141616344,
+          0.4976247437298298,
+          0.5006664432585239
+        ]
+      },
+      "landing_paint_only_100x6": {
+        "median_ms": 0.10091671720147133,
+        "samples_ms": [
+          0.1005837693810463,
+          0.10091718286275864,
+          0.10083289816975594,
+          0.10095769539475441,
+          0.1005423255264759,
+          0.10641710832715034,
+          0.10091671720147133
+        ]
+      },
+      "cpu_forward_random_weights": {
+        "median_ms": 37.664917297661304,
+        "samples_ms": [
+          37.86462498828769,
+          37.664917297661304,
+          38.12141576781869,
+          37.60799998417497,
+          37.63870941475034,
+          37.86687459796667,
+          37.52312529832125
+        ]
+      }
+    },
+    {
+      "worlds": 16,
+      "rows": 96,
+      "length": 600,
+      "v8": {
+        "median_ms": 2.2990000434219837,
+        "samples_ms": [
+          2.2384580224752426,
+          2.2990000434219837,
+          2.3112082853913307,
+          2.3037497885525227,
+          2.257667016237974,
+          2.2901250049471855,
+          2.319625113159418
+        ]
+      },
+      "ego": {
+        "median_ms": 0.7429169490933418,
+        "samples_ms": [
+          0.9419592097401619,
+          0.7926253601908684,
+          0.7586670108139515,
+          0.7429169490933418,
+          0.7358747534453869,
+          0.7299589924514294,
+          0.7301666773855686
+        ]
+      },
+      "redecide": {
+        "median_ms": 0.00795908272266388,
+        "samples_ms": [
+          0.011041760444641113,
+          0.009167008101940155,
+          0.008292030543088913,
+          0.00795908272266388,
+          0.007833819836378098,
+          0.0075837597250938416,
+          0.007667113095521927
+        ]
+      },
+      "ego_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 398,
+          "name": "build_planes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.2897247142857143,
+          "cumulative_ms_per_call": 0.3170057142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 93,
+          "name": "enemy_next_plane",
+          "calls": 7,
+          "own_ms_per_call": 0.15439057142857143,
+          "cumulative_ms_per_call": 0.20927385714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 616,
+          "name": "region_sizes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.09764785714285716,
+          "cumulative_ms_per_call": 0.10119642857142856
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 194,
+          "name": "b_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.06089385714285715,
+          "cumulative_ms_per_call": 0.1911071428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 445,
+          "name": "build_ego_raster",
+          "calls": 7,
+          "own_ms_per_call": 0.04604171428571429,
+          "cumulative_ms_per_call": 0.8378154285714287
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 280,
+          "own_ms_per_call": 0.042314285714285714,
+          "cumulative_ms_per_call": 0.042314285714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 357,
+          "name": "_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.025439714285714284,
+          "cumulative_ms_per_call": 0.05261300000000001
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 56,
+          "own_ms_per_call": 0.016458428571428572,
+          "cumulative_ms_per_call": 0.016458428571428572
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'sum' of 'numpy.ndarray' objects>",
+          "calls": 252,
+          "own_ms_per_call": 0.006994428571428571,
+          "cumulative_ms_per_call": 0.050644428571428576
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 21,
+          "own_ms_per_call": 0.005969857142857143,
+          "cumulative_ms_per_call": 0.006940142857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 84,
+          "own_ms_per_call": 0.005786571428571428,
+          "cumulative_ms_per_call": 0.019863142857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 27,
+          "name": "_make_along_axis_idx",
+          "calls": 28,
+          "own_ms_per_call": 0.005767,
+          "cumulative_ms_per_call": 0.011821714285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 140,
+          "own_ms_per_call": 0.005166428571428572,
+          "cumulative_ms_per_call": 0.005166428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 54,
+          "name": "take_along_axis",
+          "calls": 28,
+          "own_ms_per_call": 0.004459,
+          "cumulative_ms_per_call": 0.016547857142857145
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/_methods.py",
+          "line": 47,
+          "name": "_sum",
+          "calls": 252,
+          "own_ms_per_call": 0.00355,
+          "cumulative_ms_per_call": 0.04365000000000001
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 1768,
+          "name": "ravel",
+          "calls": 84,
+          "own_ms_per_call": 0.003439857142857143,
+          "cumulative_ms_per_call": 0.006261428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/batch_sim.py",
+          "line": 279,
+          "name": "_segments_at",
+          "calls": 7,
+          "own_ms_per_call": 0.0033271428571428575,
+          "cumulative_ms_per_call": 0.004892571428571428
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 112,
+          "own_ms_per_call": 0.003269714285714286,
+          "cumulative_ms_per_call": 0.010315571428571427
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/grid_sim.py",
+          "line": 954,
+          "name": "ego_view",
+          "calls": 7,
+          "own_ms_per_call": 0.0031965714285714284,
+          "cumulative_ms_per_call": 0.011095285714285714
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.arange>",
+          "calls": 84,
+          "own_ms_per_call": 0.00272,
+          "cumulative_ms_per_call": 0.00272
+        }
+      ],
+      "v8_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 768,
+          "name": "v8_decide",
+          "calls": 7,
+          "own_ms_per_call": 2.2727495714285717,
+          "cumulative_ms_per_call": 2.2801011428571427
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_bv8.py",
+          "line": 29,
+          "name": "v8_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.008053285714285716,
+          "cumulative_ms_per_call": 2.319517857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 728,
+          "name": "v8_feature_planes",
+          "calls": 7,
+          "own_ms_per_call": 0.005803000000000001,
+          "cumulative_ms_per_call": 0.026744
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 706,
+          "name": "area_g",
+          "calls": 7,
+          "own_ms_per_call": 0.005535714285714285,
+          "cumulative_ms_per_call": 0.006285714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 7,
+          "own_ms_per_call": 0.004035714285714286,
+          "cumulative_ms_per_call": 0.004488142857142857
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 119,
+          "own_ms_per_call": 0.0026911428571428572,
+          "cumulative_ms_per_call": 0.0026911428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 714,
+          "name": "landing_ok",
+          "calls": 7,
+          "own_ms_per_call": 0.002524142857142857,
+          "cumulative_ms_per_call": 0.003827571428571429
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.0017201428571428572,
+          "cumulative_ms_per_call": 0.0017201428571428572
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "calls": 1,
+          "own_ms_per_call": 0.001511857142857143,
+          "cumulative_ms_per_call": 0.001511857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 71,
+          "name": "_wrapreduction",
+          "calls": 14,
+          "own_ms_per_call": 0.0013395714285714285,
+          "cumulative_ms_per_call": 0.003291714285714286
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 21,
+          "own_ms_per_call": 0.0012495714285714287,
+          "cumulative_ms_per_call": 0.0012495714285714287
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 722,
+          "name": "spacious",
+          "calls": 7,
+          "own_ms_per_call": 0.0012144285714285714,
+          "cumulative_ms_per_call": 0.0012144285714285714
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 49,
+          "own_ms_per_call": 0.0012025714285714285,
+          "cumulative_ms_per_call": 0.0012025714285714285
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.ascontiguousarray>",
+          "calls": 77,
+          "own_ms_per_call": 0.0011671428571428573,
+          "cumulative_ms_per_call": 0.0011671428571428573
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 136,
+          "name": "ones",
+          "calls": 7,
+          "own_ms_per_call": 0.0009702857142857143,
+          "cumulative_ms_per_call": 0.0012321428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 185,
+          "name": "features",
+          "calls": 7,
+          "own_ms_per_call": 0.0007977142857142858,
+          "cumulative_ms_per_call": 2.3203155714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 764,
+          "name": "_i64",
+          "calls": 49,
+          "own_ms_per_call": 0.0007311428571428572,
+          "cumulative_ms_per_call": 0.001166285714285714
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'repeat' of 'numpy.ndarray' objects>",
+          "calls": 7,
+          "own_ms_per_call": 0.0007082857142857144,
+          "cumulative_ms_per_call": 0.0007082857142857144
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 14,
+          "own_ms_per_call": 0.0007025714285714286,
+          "cumulative_ms_per_call": 0.0018274285714285716
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 7,
+          "own_ms_per_call": 0.0006605714285714287,
+          "cumulative_ms_per_call": 0.0023214285714285715
+        }
+      ],
+      "ego_components": {
+        "planes_local_global": {
+          "median_ms": 0.3417087718844414,
+          "samples_ms": [
+            0.41970890015363693,
+            0.32241595908999443,
+            0.34566689282655716,
+            0.325959175825119,
+            0.3493325784802437,
+            0.3330828621983528,
+            0.3417087718844414
+          ]
+        },
+        "enemy_next_plane": {
+          "median_ms": 0.16258284449577332,
+          "samples_ms": [
+            0.16708346083760262,
+            0.17625000327825546,
+            0.16300007700920105,
+            0.16258284449577332,
+            0.16250042244791985,
+            0.16170786693692207,
+            0.1609157770872116
+          ]
+        },
+        "b_scalars_including_regions": {
+          "median_ms": 0.1559578813612461,
+          "samples_ms": [
+            0.16762502491474152,
+            0.16183359548449516,
+            0.15254179015755653,
+            0.15537487342953682,
+            0.1548328436911106,
+            0.1559578813612461,
+            0.15745777636766434
+          ]
+        },
+        "regions_only": {
+          "median_ms": 0.08508283644914627,
+          "samples_ms": [
+            0.08570868521928787,
+            0.08537527173757553,
+            0.08504185825586319,
+            0.08508283644914627,
+            0.08508283644914627,
+            0.08525000885128975,
+            0.0849580392241478
+          ]
+        }
+      },
+      "repeat_byte_identity": true,
+      "observation_sha256": "e81dbc0884cfd1ad2d12fa5a4c2d8539c513d47a7fdab6eafcfc5ea559dded80",
+      "landing_area_100x6": {
+        "median_ms": 1.561374869197607,
+        "samples_ms": [
+          1.5502497553825378,
+          1.5185000374913216,
+          1.5320000238716602,
+          1.561374869197607,
+          1.5720832161605358,
+          1.5922910533845425,
+          1.5870421193540096
+        ]
+      },
+      "landing_paint_only_100x6": {
+        "median_ms": 0.3644591197371483,
+        "samples_ms": [
+          0.3676656633615494,
+          0.3742086701095104,
+          0.35920925438404083,
+          0.36300020292401314,
+          0.3626248799264431,
+          0.3644591197371483,
+          0.3687920980155468
+        ]
+      },
+      "cpu_forward_random_weights": {
+        "median_ms": 37.99766721203923,
+        "samples_ms": [
+          38.10670832172036,
+          37.908833008259535,
+          38.811707869172096,
+          39.20945804566145,
+          37.99766721203923,
+          37.86258306354284,
+          37.985207978636026
+        ]
+      }
+    },
+    {
+      "worlds": 16,
+      "rows": 96,
+      "length": 1200,
+      "v8": {
+        "median_ms": 4.552291706204414,
+        "samples_ms": [
+          4.661832936108112,
+          4.532500170171261,
+          4.552291706204414,
+          4.6132090501487255,
+          4.616083111613989,
+          4.452249966561794,
+          4.533582832664251
+        ]
+      },
+      "ego": {
+        "median_ms": 0.8048745803534985,
+        "samples_ms": [
+          0.8313339203596115,
+          0.7994580082595348,
+          0.8109170012176037,
+          0.8048745803534985,
+          0.8026249706745148,
+          0.8020410314202309,
+          0.8072913624346256
+        ]
+      },
+      "redecide": {
+        "median_ms": 0.008292030543088913,
+        "samples_ms": [
+          0.011917203664779663,
+          0.009249895811080933,
+          0.008292030543088913,
+          0.00837491825222969,
+          0.007958151400089264,
+          0.007999595254659653,
+          0.00795908272266388
+        ]
+      },
+      "ego_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 398,
+          "name": "build_planes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.2759881428571429,
+          "cumulative_ms_per_call": 0.2956728571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 616,
+          "name": "region_sizes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.20903000000000002,
+          "cumulative_ms_per_call": 0.21259514285714287
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 93,
+          "name": "enemy_next_plane",
+          "calls": 7,
+          "own_ms_per_call": 0.16045642857142856,
+          "cumulative_ms_per_call": 0.21664885714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 194,
+          "name": "b_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.061623857142857154,
+          "cumulative_ms_per_call": 0.30392271428571427
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 280,
+          "own_ms_per_call": 0.04301128571428571,
+          "cumulative_ms_per_call": 0.04301128571428571
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 445,
+          "name": "build_ego_raster",
+          "calls": 7,
+          "own_ms_per_call": 0.032768000000000005,
+          "cumulative_ms_per_call": 0.9253632857142858
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 357,
+          "name": "_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.026161428571428575,
+          "cumulative_ms_per_call": 0.053940571428571435
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 56,
+          "own_ms_per_call": 0.008935285714285715,
+          "cumulative_ms_per_call": 0.008935285714285715
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'sum' of 'numpy.ndarray' objects>",
+          "calls": 252,
+          "own_ms_per_call": 0.007073142857142857,
+          "cumulative_ms_per_call": 0.05162585714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 21,
+          "own_ms_per_call": 0.006137571428571429,
+          "cumulative_ms_per_call": 0.007143285714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 84,
+          "own_ms_per_call": 0.006041142857142858,
+          "cumulative_ms_per_call": 0.020393571428571428
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 27,
+          "name": "_make_along_axis_idx",
+          "calls": 28,
+          "own_ms_per_call": 0.005822000000000001,
+          "cumulative_ms_per_call": 0.012059285714285717
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 140,
+          "own_ms_per_call": 0.005149142857142857,
+          "cumulative_ms_per_call": 0.005149142857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 54,
+          "name": "take_along_axis",
+          "calls": 28,
+          "own_ms_per_call": 0.004470142857142857,
+          "cumulative_ms_per_call": 0.016827
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/_methods.py",
+          "line": 47,
+          "name": "_sum",
+          "calls": 252,
+          "own_ms_per_call": 0.0038030000000000004,
+          "cumulative_ms_per_call": 0.04455271428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 112,
+          "own_ms_per_call": 0.003522142857142857,
+          "cumulative_ms_per_call": 0.010767428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/grid_sim.py",
+          "line": 954,
+          "name": "ego_view",
+          "calls": 7,
+          "own_ms_per_call": 0.0034108571428571434,
+          "cumulative_ms_per_call": 0.011470142857142858
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/batch_sim.py",
+          "line": 279,
+          "name": "_segments_at",
+          "calls": 7,
+          "own_ms_per_call": 0.0033864285714285715,
+          "cumulative_ms_per_call": 0.0049700000000000005
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 1768,
+          "name": "ravel",
+          "calls": 84,
+          "own_ms_per_call": 0.003351571428571429,
+          "cumulative_ms_per_call": 0.006262285714285715
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.arange>",
+          "calls": 84,
+          "own_ms_per_call": 0.0028278571428571432,
+          "cumulative_ms_per_call": 0.0028278571428571432
+        }
+      ],
+      "v8_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 768,
+          "name": "v8_decide",
+          "calls": 7,
+          "own_ms_per_call": 4.480440714285714,
+          "cumulative_ms_per_call": 4.488476
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_bv8.py",
+          "line": 29,
+          "name": "v8_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.008917285714285714,
+          "cumulative_ms_per_call": 4.531708428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 728,
+          "name": "v8_feature_planes",
+          "calls": 7,
+          "own_ms_per_call": 0.006476428571428572,
+          "cumulative_ms_per_call": 0.02932728571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 706,
+          "name": "area_g",
+          "calls": 7,
+          "own_ms_per_call": 0.006064714285714286,
+          "cumulative_ms_per_call": 0.006940142857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 7,
+          "own_ms_per_call": 0.004279857142857143,
+          "cumulative_ms_per_call": 0.004725857142857144
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 119,
+          "own_ms_per_call": 0.002874714285714286,
+          "cumulative_ms_per_call": 0.002874714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 714,
+          "name": "landing_ok",
+          "calls": 7,
+          "own_ms_per_call": 0.002624428571428572,
+          "cumulative_ms_per_call": 0.004041571428571428
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.002042,
+          "cumulative_ms_per_call": 0.002042
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "calls": 1,
+          "own_ms_per_call": 0.0015952857142857142,
+          "cumulative_ms_per_call": 0.0015952857142857142
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 71,
+          "name": "_wrapreduction",
+          "calls": 14,
+          "own_ms_per_call": 0.0014814285714285715,
+          "cumulative_ms_per_call": 0.003785428571428572
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 21,
+          "own_ms_per_call": 0.001423,
+          "cumulative_ms_per_call": 0.001423
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 49,
+          "own_ms_per_call": 0.0013867142857142858,
+          "cumulative_ms_per_call": 0.0013867142857142858
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 722,
+          "name": "spacious",
+          "calls": 7,
+          "own_ms_per_call": 0.0013691428571428572,
+          "cumulative_ms_per_call": 0.0013691428571428572
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.ascontiguousarray>",
+          "calls": 77,
+          "own_ms_per_call": 0.0011195714285714285,
+          "cumulative_ms_per_call": 0.0011195714285714285
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 136,
+          "name": "ones",
+          "calls": 7,
+          "own_ms_per_call": 0.0010774285714285716,
+          "cumulative_ms_per_call": 0.0013515714285714288
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 764,
+          "name": "_i64",
+          "calls": 49,
+          "own_ms_per_call": 0.0008387142857142857,
+          "cumulative_ms_per_call": 0.001273857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 185,
+          "name": "features",
+          "calls": 7,
+          "own_ms_per_call": 0.0008214285714285714,
+          "cumulative_ms_per_call": 4.532529857142857
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 14,
+          "own_ms_per_call": 0.0007794285714285714,
+          "cumulative_ms_per_call": 0.0019762857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 7,
+          "own_ms_per_call": 0.0007382857142857144,
+          "cumulative_ms_per_call": 0.0025772857142857147
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'repeat' of 'numpy.ndarray' objects>",
+          "calls": 7,
+          "own_ms_per_call": 0.0007324285714285715,
+          "cumulative_ms_per_call": 0.0007324285714285715
+        }
+      ],
+      "ego_components": {
+        "planes_local_global": {
+          "median_ms": 0.3186659887433052,
+          "samples_ms": [
+            0.3738752566277981,
+            0.3032078966498375,
+            0.3188746050000191,
+            0.30737463384866714,
+            0.31908322125673294,
+            0.309208407998085,
+            0.3186659887433052
+          ]
+        },
+        "enemy_next_plane": {
+          "median_ms": 0.16616610810160637,
+          "samples_ms": [
+            0.16616610810160637,
+            0.16341730952262878,
+            0.16141682863235474,
+            0.161709263920784,
+            0.16795890405774117,
+            0.1899581402540207,
+            0.17416616901755333
+          ]
+        },
+        "b_scalars_including_regions": {
+          "median_ms": 0.20504184067249298,
+          "samples_ms": [
+            0.2138330601155758,
+            0.20733382552862167,
+            0.20533427596092224,
+            0.20504184067249298,
+            0.2032499760389328,
+            0.20358292385935783,
+            0.202166847884655
+          ]
+        },
+        "regions_only": {
+          "median_ms": 0.13220775872468948,
+          "samples_ms": [
+            0.12858305126428604,
+            0.12737512588500977,
+            0.12737512588500977,
+            0.13220775872468948,
+            0.1350422389805317,
+            0.13566715642809868,
+            0.13566669076681137
+          ]
+        }
+      },
+      "repeat_byte_identity": true,
+      "observation_sha256": "8c2530c8a5803ce969987508fad3efb3f30898da6e79b3e1a16a533ba2b99c78",
+      "landing_area_100x6": {
+        "median_ms": 3.2320418395102024,
+        "samples_ms": [
+          3.2320418395102024,
+          3.323750104755163,
+          3.1852913089096546,
+          3.215292003005743,
+          3.292541019618511,
+          3.1995000317692757,
+          3.285791724920273
+        ]
+      },
+      "landing_paint_only_100x6": {
+        "median_ms": 0.7634172216057777,
+        "samples_ms": [
+          0.7650828920304775,
+          0.7634172216057777,
+          0.7603750564157963,
+          0.7599173113703728,
+          0.7866658270359039,
+          0.7740408182144165,
+          0.7190830074250698
+        ]
+      },
+      "cpu_forward_random_weights": {
+        "median_ms": 37.88312524557114,
+        "samples_ms": [
+          37.88312524557114,
+          37.90495777502656,
+          37.473250180482864,
+          38.01658283919096,
+          38.11195818707347,
+          37.61200001463294,
+          37.83595794811845
+        ]
+      }
+    },
+    {
+      "worlds": 128,
+      "rows": 768,
+      "length": 5,
+      "v8": {
+        "median_ms": 1.3284580782055855,
+        "samples_ms": [
+          1.307208091020584,
+          1.293540932238102,
+          1.3169590383768082,
+          1.5707910060882568,
+          1.5479172579944134,
+          1.3284580782055855,
+          1.343166921287775
+        ]
+      },
+      "ego": {
+        "median_ms": 5.709332879632711,
+        "samples_ms": [
+          5.942333023995161,
+          5.990792065858841,
+          5.354417022317648,
+          5.714667029678822,
+          5.709332879632711,
+          5.336290691047907,
+          5.568999797105789
+        ]
+      },
+      "redecide": {
+        "median_ms": 0.01929188147187233,
+        "samples_ms": [
+          0.02683280035853386,
+          0.021624844521284103,
+          0.0199158675968647,
+          0.019249971956014633,
+          0.019291415810585022,
+          0.01929188147187233,
+          0.019249971956014633
+        ]
+      },
+      "ego_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 398,
+          "name": "build_planes_numba",
+          "calls": 7,
+          "own_ms_per_call": 3.305446428571429,
+          "cumulative_ms_per_call": 3.729720428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 445,
+          "name": "build_ego_raster",
+          "calls": 7,
+          "own_ms_per_call": 0.44759457142857145,
+          "cumulative_ms_per_call": 5.352613142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 56,
+          "own_ms_per_call": 0.35914842857142854,
+          "cumulative_ms_per_call": 0.35914842857142854
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 93,
+          "name": "enemy_next_plane",
+          "calls": 7,
+          "own_ms_per_call": 0.3030351428571429,
+          "cumulative_ms_per_call": 0.4434585714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 616,
+          "name": "region_sizes_numba",
+          "calls": 7,
+          "own_ms_per_call": 0.2983448571428572,
+          "cumulative_ms_per_call": 0.30392857142857144
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 280,
+          "own_ms_per_call": 0.2152437142857143,
+          "cumulative_ms_per_call": 0.2152437142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 194,
+          "name": "b_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.19134542857142858,
+          "cumulative_ms_per_call": 0.5781727142857144
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 357,
+          "name": "_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.06337571428571429,
+          "cumulative_ms_per_call": 0.109768
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 182,
+          "name": "ego",
+          "calls": 7,
+          "own_ms_per_call": 0.031601000000000004,
+          "cumulative_ms_per_call": 5.385470285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/batch_sim.py",
+          "line": 279,
+          "name": "_segments_at",
+          "calls": 7,
+          "own_ms_per_call": 0.01745857142857143,
+          "cumulative_ms_per_call": 0.020339428571428574
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 54,
+          "name": "take_along_axis",
+          "calls": 28,
+          "own_ms_per_call": 0.015386428571428573,
+          "cumulative_ms_per_call": 0.030178571428571433
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 140,
+          "own_ms_per_call": 0.009988285714285715,
+          "cumulative_ms_per_call": 0.009988285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 21,
+          "own_ms_per_call": 0.009654000000000001,
+          "cumulative_ms_per_call": 0.010719999999999999
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'argsort' of 'numpy.ndarray' objects>",
+          "calls": 7,
+          "own_ms_per_call": 0.008773857142857142,
+          "cumulative_ms_per_call": 0.008773857142857142
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'sum' of 'numpy.ndarray' objects>",
+          "calls": 252,
+          "own_ms_per_call": 0.007728714285714286,
+          "cumulative_ms_per_call": 0.22387528571428575
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 27,
+          "name": "_make_along_axis_idx",
+          "calls": 28,
+          "own_ms_per_call": 0.006814142857142858,
+          "cumulative_ms_per_call": 0.014512
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 84,
+          "own_ms_per_call": 0.006643571428571429,
+          "cumulative_ms_per_call": 0.023773714285714287
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/grid_sim.py",
+          "line": 954,
+          "name": "ego_view",
+          "calls": 7,
+          "own_ms_per_call": 0.004720142857142858,
+          "cumulative_ms_per_call": 0.029190428571428572
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'nonzero' of 'numpy.ndarray' objects>",
+          "calls": 84,
+          "own_ms_per_call": 0.004107571428571428,
+          "cumulative_ms_per_call": 0.004107571428571428
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.arange>",
+          "calls": 84,
+          "own_ms_per_call": 0.004095142857142858,
+          "cumulative_ms_per_call": 0.004095142857142858
+        }
+      ],
+      "v8_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 768,
+          "name": "v8_decide",
+          "calls": 7,
+          "own_ms_per_call": 1.0526865714285714,
+          "cumulative_ms_per_call": 1.0633154285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 706,
+          "name": "area_g",
+          "calls": 7,
+          "own_ms_per_call": 0.024945714285714286,
+          "cumulative_ms_per_call": 0.026327285714285716
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_bv8.py",
+          "line": 29,
+          "name": "v8_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.020350428571428575,
+          "cumulative_ms_per_call": 1.160434714285714
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 7,
+          "own_ms_per_call": 0.011392714285714286,
+          "cumulative_ms_per_call": 0.011827428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 728,
+          "name": "v8_feature_planes",
+          "calls": 7,
+          "own_ms_per_call": 0.008987571428571428,
+          "cumulative_ms_per_call": 0.06819042857142857
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 119,
+          "own_ms_per_call": 0.006874285714285715,
+          "cumulative_ms_per_call": 0.006874285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 714,
+          "name": "landing_ok",
+          "calls": 7,
+          "own_ms_per_call": 0.005798,
+          "cumulative_ms_per_call": 0.007398857142857144
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 21,
+          "own_ms_per_call": 0.005696857142857142,
+          "cumulative_ms_per_call": 0.005696857142857142
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 722,
+          "name": "spacious",
+          "calls": 7,
+          "own_ms_per_call": 0.0027024285714285718,
+          "cumulative_ms_per_call": 0.0027024285714285718
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'repeat' of 'numpy.ndarray' objects>",
+          "calls": 7,
+          "own_ms_per_call": 0.0026607142857142862,
+          "cumulative_ms_per_call": 0.0026607142857142862
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.ascontiguousarray>",
+          "calls": 77,
+          "own_ms_per_call": 0.0024764285714285717,
+          "cumulative_ms_per_call": 0.0024764285714285717
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.002089571428571429,
+          "cumulative_ms_per_call": 0.002089571428571429
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "calls": 1,
+          "own_ms_per_call": 0.0016310000000000003,
+          "cumulative_ms_per_call": 0.0016310000000000003
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 71,
+          "name": "_wrapreduction",
+          "calls": 14,
+          "own_ms_per_call": 0.0014522857142857146,
+          "cumulative_ms_per_call": 0.0037440000000000004
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 49,
+          "own_ms_per_call": 0.0013984285714285715,
+          "cumulative_ms_per_call": 0.0013984285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 136,
+          "name": "ones",
+          "calls": 7,
+          "own_ms_per_call": 0.0012258571428571431,
+          "cumulative_ms_per_call": 0.0015295714285714287
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'copy' of 'numpy.ndarray' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.0009702857142857143,
+          "cumulative_ms_per_call": 0.0009702857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 185,
+          "name": "features",
+          "calls": 7,
+          "own_ms_per_call": 0.0008331428571428572,
+          "cumulative_ms_per_call": 1.1612678571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 14,
+          "own_ms_per_call": 0.0007802857142857144,
+          "cumulative_ms_per_call": 0.004143285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 764,
+          "name": "_i64",
+          "calls": 49,
+          "own_ms_per_call": 0.0006844285714285714,
+          "cumulative_ms_per_call": 0.0011251428571428573
+        }
+      ],
+      "ego_components": {
+        "planes_local_global": {
+          "median_ms": 3.7115407176315784,
+          "samples_ms": [
+            3.6774170584976673,
+            3.7115407176315784,
+            3.843375016003847,
+            3.60716599971056,
+            3.7139160558581352,
+            3.6955419927835464,
+            3.719750326126814
+          ]
+        },
+        "enemy_next_plane": {
+          "median_ms": 0.36912504583597183,
+          "samples_ms": [
+            0.36912504583597183,
+            0.39083370938897133,
+            0.36637531593441963,
+            0.36804191768169403,
+            0.3991248086094856,
+            0.47904206439852715,
+            0.3539170138537884
+          ]
+        },
+        "b_scalars_including_regions": {
+          "median_ms": 0.4969998262822628,
+          "samples_ms": [
+            0.5082921124994755,
+            0.5045831203460693,
+            0.49737514927983284,
+            0.4969998262822628,
+            0.4952498711645603,
+            0.4965001717209816,
+            0.4942920058965683
+          ]
+        },
+        "regions_only": {
+          "median_ms": 0.2750419080257416,
+          "samples_ms": [
+            0.2753753215074539,
+            0.2750419080257416,
+            0.2747499383985996,
+            0.27462467551231384,
+            0.28124963864684105,
+            0.27462514117360115,
+            0.28016557916998863
+          ]
+        }
+      },
+      "repeat_byte_identity": true,
+      "observation_sha256": "bd9bfb73813fe0032bcad1d4fba3c4208afbe86a153174bec5d2c9bfb45e6407",
+      "landing_area_100x6": {
+        "median_ms": 0.06870925426483154,
+        "samples_ms": [
+          0.06870785728096962,
+          0.0687912106513977,
+          0.06870925426483154,
+          0.06862496957182884,
+          0.06874976679682732,
+          0.06879214197397232,
+          0.06849970668554306
+        ]
+      },
+      "landing_paint_only_100x6": {
+        "median_ms": 0.0045406632125377655,
+        "samples_ms": [
+          0.0045406632125377655,
+          0.004542060196399689,
+          0.004458241164684296,
+          0.004458241164684296,
+          0.004457775503396988,
+          0.004542060196399689,
+          0.00458303838968277
+        ]
+      },
+      "cpu_forward_random_weights": {
+        "median_ms": 338.7056249193847,
+        "samples_ms": [
+          349.5167912915349,
+          338.08841556310654,
+          339.8160417564213,
+          338.75754196196795,
+          338.5425843298435,
+          338.7056249193847,
+          338.232624810189
+        ]
+      }
+    },
+    {
+      "worlds": 128,
+      "rows": 768,
+      "length": 1200,
+      "v8": {
+        "median_ms": 36.295542027801275,
+        "samples_ms": [
+          36.0012911260128,
+          36.295542027801275,
+          36.32004093378782,
+          36.823667120188475,
+          36.016833037137985,
+          36.208417266607285,
+          36.34820785373449
+        ]
+      },
+      "ego": {
+        "median_ms": 5.376250017434359,
+        "samples_ms": [
+          5.376250017434359,
+          5.5982498452067375,
+          5.998250097036362,
+          5.174416583031416,
+          5.4487502202391624,
+          5.150333978235722,
+          5.1756249740719795
+        ]
+      },
+      "redecide": {
+        "median_ms": 0.020833220332860947,
+        "samples_ms": [
+          0.025624874979257584,
+          0.021875370293855667,
+          0.02220878377556801,
+          0.020792242139577866,
+          0.020833220332860947,
+          0.019458122551441193,
+          0.019665807485580444
+        ]
+      },
+      "ego_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 398,
+          "name": "build_planes_numba",
+          "calls": 7,
+          "own_ms_per_call": 2.2629994285714283,
+          "cumulative_ms_per_call": 2.711256
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_nb.py",
+          "line": 616,
+          "name": "region_sizes_numba",
+          "calls": 7,
+          "own_ms_per_call": 1.1078990000000002,
+          "cumulative_ms_per_call": 1.113744
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 445,
+          "name": "build_ego_raster",
+          "calls": 7,
+          "own_ms_per_call": 0.43955885714285714,
+          "cumulative_ms_per_call": 5.184637142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 56,
+          "own_ms_per_call": 0.4041197142857143,
+          "cumulative_ms_per_call": 0.4041197142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 93,
+          "name": "enemy_next_plane",
+          "calls": 7,
+          "own_ms_per_call": 0.30072014285714294,
+          "cumulative_ms_per_call": 0.4453454285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_b.py",
+          "line": 194,
+          "name": "b_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.23126485714285713,
+          "cumulative_ms_per_call": 1.4302557142857144
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 280,
+          "own_ms_per_call": 0.2015764285714286,
+          "cumulative_ms_per_call": 0.2015764285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster.py",
+          "line": 357,
+          "name": "_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.06667771428571428,
+          "cumulative_ms_per_call": 0.11363657142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 182,
+          "name": "ego",
+          "calls": 7,
+          "own_ms_per_call": 0.03185114285714286,
+          "cumulative_ms_per_call": 5.217881142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/batch_sim.py",
+          "line": 279,
+          "name": "_segments_at",
+          "calls": 7,
+          "own_ms_per_call": 0.016232285714285716,
+          "cumulative_ms_per_call": 0.019482
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 54,
+          "name": "take_along_axis",
+          "calls": 28,
+          "own_ms_per_call": 0.014881000000000002,
+          "cumulative_ms_per_call": 0.029779857142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 140,
+          "own_ms_per_call": 0.011392428571428572,
+          "cumulative_ms_per_call": 0.011392428571428572
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 21,
+          "own_ms_per_call": 0.010095142857142858,
+          "cumulative_ms_per_call": 0.011208000000000001
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'argsort' of 'numpy.ndarray' objects>",
+          "calls": 7,
+          "own_ms_per_call": 0.008654857142857143,
+          "cumulative_ms_per_call": 0.008654857142857143
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'sum' of 'numpy.ndarray' objects>",
+          "calls": 252,
+          "own_ms_per_call": 0.007809428571428571,
+          "cumulative_ms_per_call": 0.20958357142857145
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/lib/shape_base.py",
+          "line": 27,
+          "name": "_make_along_axis_idx",
+          "calls": 28,
+          "own_ms_per_call": 0.006672714285714286,
+          "cumulative_ms_per_call": 0.014642714285714287
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 84,
+          "own_ms_per_call": 0.006297428571428572,
+          "cumulative_ms_per_call": 0.023356714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/grid_sim.py",
+          "line": 954,
+          "name": "ego_view",
+          "calls": 7,
+          "own_ms_per_call": 0.005101285714285714,
+          "cumulative_ms_per_call": 0.028970285714285716
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.arange>",
+          "calls": 84,
+          "own_ms_per_call": 0.004333571428571429,
+          "cumulative_ms_per_call": 0.004333571428571429
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'nonzero' of 'numpy.ndarray' objects>",
+          "calls": 84,
+          "own_ms_per_call": 0.004143571428571429,
+          "cumulative_ms_per_call": 0.004143571428571429
+        }
+      ],
+      "v8_profile": [
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 768,
+          "name": "v8_decide",
+          "calls": 7,
+          "own_ms_per_call": 36.842279000000005,
+          "cumulative_ms_per_call": 36.857512
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 706,
+          "name": "area_g",
+          "calls": 7,
+          "own_ms_per_call": 0.09165457142857143,
+          "cumulative_ms_per_call": 0.09466671428571428
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/ego_raster_bv8.py",
+          "line": 29,
+          "name": "v8_scalars",
+          "calls": 7,
+          "own_ms_per_call": 0.07460028571428572,
+          "cumulative_ms_per_call": 37.128916714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 728,
+          "name": "v8_feature_planes",
+          "calls": 7,
+          "own_ms_per_call": 0.027262285714285715,
+          "cumulative_ms_per_call": 0.1827501428571429
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/shape_base.py",
+          "line": 372,
+          "name": "stack",
+          "calls": 7,
+          "own_ms_per_call": 0.01999314285714286,
+          "cumulative_ms_per_call": 0.020851
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.zeros>",
+          "calls": 119,
+          "own_ms_per_call": 0.01144657142857143,
+          "cumulative_ms_per_call": 0.01144657142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 714,
+          "name": "landing_ok",
+          "calls": 7,
+          "own_ms_per_call": 0.008493428571428572,
+          "cumulative_ms_per_call": 0.012541428571428573
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reduce' of 'numpy.ufunc' objects>",
+          "calls": 14,
+          "own_ms_per_call": 0.007821428571428571,
+          "cumulative_ms_per_call": 0.007821428571428571
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'astype' of 'numpy.ndarray' objects>",
+          "calls": 21,
+          "own_ms_per_call": 0.005786285714285715,
+          "cumulative_ms_per_call": 0.005786285714285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/src/simd_env/v8_nb.py",
+          "line": 722,
+          "name": "spacious",
+          "calls": 7,
+          "own_ms_per_call": 0.005761857142857143,
+          "cumulative_ms_per_call": 0.005761857142857143
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 71,
+          "name": "_wrapreduction",
+          "calls": 14,
+          "own_ms_per_call": 0.004112857142857143,
+          "cumulative_ms_per_call": 0.012553428571428573
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'repeat' of 'numpy.ndarray' objects>",
+          "calls": 7,
+          "own_ms_per_call": 0.004077428571428571,
+          "cumulative_ms_per_call": 0.004077428571428571
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 136,
+          "name": "ones",
+          "calls": 7,
+          "own_ms_per_call": 0.003184714285714286,
+          "cumulative_ms_per_call": 0.0038572857142857146
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<built-in method numpy.ascontiguousarray>",
+          "calls": 77,
+          "own_ms_per_call": 0.0028801428571428576,
+          "cumulative_ms_per_call": 0.0028801428571428576
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'reshape' of 'numpy.ndarray' objects>",
+          "calls": 49,
+          "own_ms_per_call": 0.0021851428571428573,
+          "cumulative_ms_per_call": 0.0021851428571428573
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "name": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "calls": 1,
+          "own_ms_per_call": 0.0020892857142857145,
+          "cumulative_ms_per_call": 0.0020892857142857145
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn-pactor/research/actor_perf_20261017/bench_kernels.py",
+          "line": 185,
+          "name": "features",
+          "calls": 7,
+          "own_ms_per_call": 0.0018154285714285716,
+          "cumulative_ms_per_call": 37.13073214285715
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 2322,
+          "name": "any",
+          "calls": 7,
+          "own_ms_per_call": 0.0013155714285714288,
+          "cumulative_ms_per_call": 0.011023714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/fromnumeric.py",
+          "line": 53,
+          "name": "_wrapfunc",
+          "calls": 14,
+          "own_ms_per_call": 0.0012504285714285714,
+          "cumulative_ms_per_call": 0.006684714285714286
+        },
+        {
+          "file": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/core/numeric.py",
+          "line": 615,
+          "name": "flatnonzero",
+          "calls": 7,
+          "own_ms_per_call": 0.0012207142857142857,
+          "cumulative_ms_per_call": 0.004488285714285715
+        }
+      ],
+      "ego_components": {
+        "planes_local_global": {
+          "median_ms": 2.721040975302458,
+          "samples_ms": [
+            2.721040975302458,
+            2.7505839243531227,
+            2.86387512460351,
+            2.7152500115334988,
+            2.7359998784959316,
+            2.7119172737002373,
+            2.6570409536361694
+          ]
+        },
+        "enemy_next_plane": {
+          "median_ms": 0.35733310505747795,
+          "samples_ms": [
+            0.3599999472498894,
+            0.3537079319357872,
+            0.35245902836322784,
+            0.35741692408919334,
+            0.348665751516819,
+            0.35733310505747795,
+            0.3714580088853836
+          ]
+        },
+        "b_scalars_including_regions": {
+          "median_ms": 1.3416251167654991,
+          "samples_ms": [
+            1.3865833170711994,
+            1.352124847471714,
+            1.321250107139349,
+            1.3112910091876984,
+            1.3060420751571655,
+            1.3416251167654991,
+            1.3450421392917633
+          ]
+        },
+        "regions_only": {
+          "median_ms": 1.1128340847790241,
+          "samples_ms": [
+            1.1128340847790241,
+            1.0932502336800098,
+            1.0780412703752518,
+            1.2452499940991402,
+            1.039625145494938,
+            1.1765840463340282,
+            1.1178748682141304
+          ]
+        }
+      },
+      "repeat_byte_identity": true,
+      "observation_sha256": "c521c3107b9a4c1d575cd2f05e7db13e5c296fe48c3e97d11bab0e5b8d6b8cfc",
+      "landing_area_100x6": {
+        "median_ms": 3.2535837963223457,
+        "samples_ms": [
+          3.1882082112133503,
+          3.23066720739007,
+          3.30333411693573,
+          3.2433331944048405,
+          3.2535837963223457,
+          3.3367080613970757,
+          3.254957962781191
+        ]
+      },
+      "landing_paint_only_100x6": {
+        "median_ms": 0.7787500508129597,
+        "samples_ms": [
+          0.7520001381635666,
+          0.7625832222402096,
+          0.7731658406555653,
+          0.7787500508129597,
+          0.7858332246541977,
+          0.7823328487575054,
+          0.7801656611263752
+        ]
+      },
+      "cpu_forward_random_weights": {
+        "median_ms": 338.95662473514676,
+        "samples_ms": [
+          338.7427497655153,
+          340.63945803791285,
+          338.62499985843897,
+          338.6279158294201,
+          338.95662473514676,
+          339.6309996023774,
+          344.00625014677644
+        ]
+      }
+    }
+  ],
+  "total_wall_s_including_setup_jit": 8.873616833239794
+}
