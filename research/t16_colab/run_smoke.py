@@ -111,6 +111,31 @@ SMOKE03_PROFILE_CONFIG = "sp_w128_a4_raw_g3_bs2_fp32"
 SMOKE03_PROFILE_WARM_SECONDS = 60
 SMOKE03_PROFILE_SECONDS = 60
 SMOKE03_PROFILE_STOP_GRACE_SECONDS = 5
+# The first league-throughput receipt: same fixed recipe in both rows, with exactly three
+# learner seats and the registered static frozen pool.  It deliberately excludes PFSP,
+# scheduler bursts and payoff feedback; those need their own qualified implementation.
+N3_CONFIGS = (
+    {
+        "name": "n3_w128_a3_raw_g3_bs2_fp32_static_pool",
+        "worlds": 128,
+        "actors": 3,
+        "learner_seats": 3,
+        "static_pool": True,
+        "gather_threads": 3,
+        "actor_queue_frames": 2,
+        "obs_pack": False,
+    },
+    {
+        "name": "n3_w128_a4_raw_g3_bs2_fp32_static_pool",
+        "worlds": 128,
+        "actors": 4,
+        "learner_seats": 3,
+        "static_pool": True,
+        "gather_threads": 3,
+        "actor_queue_frames": 2,
+        "obs_pack": False,
+    },
+)
 # One unscored run before the matrix: it populates the numba on-disk kernel cache and the
 # inductor FX-graph cache, so no scored row pays first-process compilation.
 WARMUP = {"name": "warmup_w128_a2", "worlds": 128, "actors": 2, "self_play": False}
@@ -121,6 +146,16 @@ SMOKE03_WARMUP = {
     "self_play": True,
     "gather_threads": 3,
     "actor_queue_frames": 4,
+    "obs_pack": False,
+}
+N3_WARMUP = {
+    "name": "warmup_n3_w128_a3_raw_g3_static_pool",
+    "worlds": 128,
+    "actors": 3,
+    "learner_seats": 3,
+    "static_pool": True,
+    "gather_threads": 3,
+    "actor_queue_frames": 2,
     "obs_pack": False,
 }
 WARMUP_SECONDS = 60
@@ -297,8 +332,12 @@ def trainer_command(
         command += ["--learner-precision", str(config["precision"])]
     if compile_mode != "off":
         command += ["--compile-learner", compile_mode]
-    if config["self_play"]:
+    if config.get("self_play"):
         command += ["--all-snakes-learner"]
+    if "learner_seats" in config:
+        command += ["--learner-seats", str(int(config["learner_seats"]))]
+    if config.get("static_pool"):
+        command += ["--league-b8-checkpoint", str(inputs / "init" / "B8_s3_final.pth")]
     if "gather_threads" in config:
         command += ["--gather-threads", str(config["gather_threads"])]
     if config.get("actor_queue_frames") is not None:
@@ -334,7 +373,13 @@ def measured_rate(
         )
     first, last = window[0], window[-1]
     elapsed = last["wall"] - first["wall"]
-    transitions = last["transitions"] - first["transitions"]
+    # ``transitions`` remains the legacy D/R alias. League rows make the ledger
+    # explicit: D is learner decisions, R is emitted replay rows and U is updates.
+    decisions_key = "learner_decisions" if "learner_decisions" in last else "transitions"
+    replay_key = "replay_rows" if "replay_rows" in last else "transitions"
+    decisions = last[decisions_key] - first[decisions_key]
+    replay_rows = last[replay_key] - first[replay_key]
+    transitions = replay_rows
     if elapsed < min_window_seconds or transitions <= 0 or last["updates"] <= first["updates"]:
         raise ValueError(
             f"need >={min_window_seconds:.0f} seconds of transitions and learner updates "
@@ -346,7 +391,7 @@ def measured_rate(
     tail = [row for row in window if row["wall"] >= last["wall"] - tail_seconds]
     tail_rate = None
     if len(tail) >= 2 and tail[-1]["wall"] > tail[0]["wall"]:
-        tail_rate = (tail[-1]["transitions"] - tail[0]["transitions"]) / (
+        tail_rate = (tail[-1][replay_key] - tail[0][replay_key]) / (
             tail[-1]["wall"] - tail[0]["wall"]
         )
     updates = last["updates"] - first["updates"]
@@ -357,22 +402,122 @@ def measured_rate(
         for value in lag_values
         if isinstance(value, (int, float)) and math.isfinite(value)
     ]
+    p95_values = [
+        float(row["policy_lag_p95"])
+        for row in window
+        if isinstance(row.get("policy_lag_p95"), (int, float))
+        and math.isfinite(row["policy_lag_p95"])
+    ]
+    lag_histogram: dict[int, int] = {}
+    for row in window:
+        histogram = row.get("policy_lag_histogram")
+        if not isinstance(histogram, dict):
+            continue
+        for lag, count in histogram.items():
+            if isinstance(count, int) and count >= 0:
+                try:
+                    lag_histogram[int(lag)] = lag_histogram.get(int(lag), 0) + count
+                except (TypeError, ValueError):
+                    pass
+    total_lag_samples = sum(lag_histogram.values())
+    lag_p95 = max(p95_values) if p95_values else None
+    if total_lag_samples:
+        threshold = math.ceil(total_lag_samples * 0.95)
+        cumulative = 0
+        for lag in sorted(lag_histogram):
+            cumulative += lag_histogram[lag]
+            if cumulative >= threshold:
+                lag_p95 = float(lag)
+                break
+    frozen_gpu_seconds = None
+    if all(isinstance(row.get("frozen_forward_gpu_s"), (int, float)) for row in (first, last)):
+        frozen_gpu_seconds = last["frozen_forward_gpu_s"] - first["frozen_forward_gpu_s"]
+    first_live = first.get("per_policy_live_rows", first.get("live_rows_by_policy"))
+    last_live = last.get("per_policy_live_rows", last.get("live_rows_by_policy"))
+    live_rows_by_policy = None
+    if isinstance(first_live, dict) and isinstance(last_live, dict):
+        keys = set(first_live) | set(last_live)
+        live_rows_by_policy = {
+            str(key): int(last_live.get(key, 0)) - int(first_live.get(key, 0))
+            for key in sorted(keys)
+        }
     return {
         "transitions_per_second": rate,
         "tail_transitions_per_second": tail_rate,
         "updates_per_second": updates / elapsed,
         "transitions_per_update": transitions / updates,
+        "learner_decisions": decisions,
+        "learner_decisions_per_second": decisions / elapsed,
+        "replay_rows": replay_rows,
+        "replay_rows_per_second": replay_rows / elapsed,
+        "replay_rows_per_update": replay_rows / updates,
         "learn_seconds_per_update": learn_seconds / updates if updates else None,
         "policy_lag_mean": sum(finite_lags) / len(finite_lags) if finite_lags else None,
+        # Each log row is an interval summary; retaining the maximum protects the
+        # tail while avoiding a false claim that concatenated interval p95s are raw samples.
+        "policy_lag_p95": lag_p95,
+        "live_rows_by_policy": live_rows_by_policy,
+        "frozen_forward_gpu_seconds": frozen_gpu_seconds,
+        "frozen_forward_gpu_seconds_per_second": (
+            frozen_gpu_seconds / elapsed if frozen_gpu_seconds is not None else None
+        ),
         "measured_transitions": transitions,
         "measured_seconds": elapsed,
-        "first_transition": first["transitions"],
-        "last_transition": last["transitions"],
+        "first_transition": first[replay_key],
+        "last_transition": last[replay_key],
         "first_update_wall": first_update_wall,
         "window_start_wall": first["wall"],
         "warmup_seconds": warm_seconds,
         "settle_seconds": settle_seconds,
     }
+
+
+def require_league_metrics(measured: dict) -> None:
+    """Reject an N=3 receipt that omits any counters needed to compare league cost."""
+    numeric = (
+        "learner_decisions",
+        "replay_rows",
+        "updates_per_second",
+        "replay_rows_per_update",
+        "policy_lag_mean",
+        "policy_lag_p95",
+        "frozen_forward_gpu_seconds",
+    )
+    missing = [key for key in numeric if not isinstance(measured.get(key), (int, float))]
+    live_rows = measured.get("live_rows_by_policy")
+    if not isinstance(live_rows, dict) or not live_rows:
+        missing.append("live_rows_by_policy")
+    if missing:
+        raise ValueError("missing league telemetry: " + ", ".join(missing))
+
+
+def merge_telemetry_rows(log_rows: list[dict], telemetry_rows: list[dict]) -> list[dict]:
+    """Join side-channel timing/lag fields to their matching trainer log interval."""
+    by_transition = {
+        row.get("transitions"): row
+        for row in telemetry_rows
+        if isinstance(row.get("transitions"), int)
+    }
+    merged = []
+    for row in log_rows:
+        item = dict(row)
+        telemetry = by_transition.get(row.get("transitions"))
+        if telemetry is not None:
+            item.update(
+                {
+                    key: telemetry[key]
+                    for key in (
+                        "policy_lag_mean",
+                        "policy_lag_p95",
+                        "policy_lag_histogram",
+                        "frozen_forward_gpu_s",
+                        "frozen_forward_s",
+                    )
+                    if key in telemetry
+                }
+            )
+        merged.append(item)
+    return merged
 
 
 def latest_checkpoint(directory: Path) -> Path | None:
@@ -583,6 +728,8 @@ def configs_for_suite(suite: str, omit_smoke03_row5: bool = False) -> tuple[dict
                 config for index, config in enumerate(SMOKE03_CONFIGS, start=1) if index != 5
             )
         return SMOKE03_CONFIGS
+    if suite == "n3":
+        return N3_CONFIGS
     raise ValueError(f"unknown suite {suite!r}")
 
 
@@ -593,7 +740,11 @@ def matrix_configs(matrix: str) -> list[dict]:
 
 def warmup_for_suite(suite: str) -> dict:
     """Return an unscored cache warm-up matching the selected learner path."""
-    return SMOKE03_WARMUP if suite == "smoke03" else WARMUP
+    if suite == "smoke03":
+        return SMOKE03_WARMUP
+    if suite == "n3":
+        return N3_WARMUP
+    return WARMUP
 
 
 def run(
@@ -880,7 +1031,16 @@ def run(
                         json.loads(line)
                         for line in (measured_dir / "log.jsonl").read_text().splitlines()
                     ]
-                    row.update(measured_rate(rows), status="completed")
+                    telemetry_path = measured_dir / "telemetry.jsonl"
+                    if telemetry_path.exists():
+                        telemetry_rows = [
+                            json.loads(line) for line in telemetry_path.read_text().splitlines()
+                        ]
+                        rows = merge_telemetry_rows(rows, telemetry_rows)
+                    measured = measured_rate(rows)
+                    if suite == "n3":
+                        require_league_metrics(measured)
+                    row.update(measured, status="completed")
                     row["end_to_end_rate"] = summary["rate"]
                     row["compile_actual"] = summary.get("compile_learner", {"mode": "off"})
                     row["artifacts"] = [
@@ -923,7 +1083,7 @@ def main() -> int:
         "--suite",
         "--matrix",
         dest="suite",
-        choices=("t16", "smoke02", "smoke03"),
+        choices=("t16", "smoke02", "smoke03", "n3"),
         default="t16",
         help="pre-registered smoke suite; --matrix is a compatibility alias",
     )

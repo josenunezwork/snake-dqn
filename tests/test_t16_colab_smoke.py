@@ -173,6 +173,84 @@ def test_smoke03_row5_is_only_explicit_optional_omission():
     assert smoke.SMOKE03_CONFIGS[4] not in configs
 
 
+def test_n3_matrix_is_static_three_learner_seat_actor_comparison(tmp_path):
+    assert smoke.matrix_configs("n3") == list(smoke.N3_CONFIGS)
+    assert smoke.warmup_for_suite("n3") == smoke.N3_WARMUP
+    assert [(row["actors"], row["learner_seats"]) for row in smoke.N3_CONFIGS] == [(3, 3), (4, 3)]
+    for config in smoke.N3_CONFIGS:
+        command = smoke.trainer_command(
+            config, tmp_path, tmp_path / "out", tmp_path / "init", 150, "off", tmp_path / "ring"
+        )
+        assert command[command.index("--learner-seats") + 1] == "3"
+        assert command[command.index("--league-b8-checkpoint") + 1] == str(
+            tmp_path / "init" / "B8_s3_final.pth"
+        )
+        assert "--all-snakes-learner" not in command
+        assert command[command.index("--actor-queue-frames") + 1] == "2"
+
+
+def test_league_measurement_lifts_counters_lag_tail_policy_rows_and_frozen_gpu_time():
+    rows = [
+        {
+            "wall": 40,
+            "learner_decisions": 1_000,
+            "replay_rows": 1_000,
+            "updates": 4,
+            "learn_s": 0.1,
+            "policy_lag_mean": 2,
+            "policy_lag_p95": 3,
+            "frozen_forward_gpu_s": 1.0,
+            "live_rows_by_policy": {"b8-s3": 500, "frp3-s12": 500},
+        },
+        {
+            "wall": 70,
+            "learner_decisions": 257_000,
+            "replay_rows": 257_000,
+            "updates": 1_004,
+            "learn_s": 12.1,
+            "policy_lag_mean": 4,
+            "policy_lag_p95": 7,
+            "frozen_forward_gpu_s": 4.0,
+            "live_rows_by_policy": {"b8-s3": 128_500, "frp3-s12": 128_500},
+        },
+        {
+            "wall": 100,
+            "learner_decisions": 513_000,
+            "replay_rows": 513_000,
+            "updates": 2_004,
+            "learn_s": 24.1,
+            "policy_lag_mean": 6,
+            "policy_lag_p95": 9,
+            "frozen_forward_gpu_s": 7.0,
+            "live_rows_by_policy": {"b8-s3": 256_500, "frp3-s12": 256_500},
+        },
+    ]
+    measured = smoke.measured_rate(rows)
+    assert measured["learner_decisions"] == 256_000
+    assert measured["replay_rows"] == 256_000
+    assert measured["replay_rows_per_update"] == 256
+    assert measured["policy_lag_mean"] == 5
+    assert measured["policy_lag_p95"] == 9
+    assert measured["frozen_forward_gpu_seconds"] == 3.0
+    assert measured["live_rows_by_policy"] == {"b8-s3": 128_000, "frp3-s12": 128_000}
+    smoke.require_league_metrics(measured)
+    measured["policy_lag_p95"] = None
+    with pytest.raises(ValueError, match="policy_lag_p95"):
+        smoke.require_league_metrics(measured)
+
+
+def test_telemetry_is_joined_to_log_rows_by_transition_identity():
+    rows = smoke.merge_telemetry_rows(
+        [{"transitions": 100, "wall": 1}, {"transitions": 200, "wall": 2}],
+        [
+            {"transitions": 100, "policy_lag_histogram": {"1": 3}},
+            {"transitions": 200, "frozen_forward_gpu_s": 0.25, "policy_lag_p95": 4},
+        ],
+    )
+    assert rows[0]["policy_lag_histogram"] == {"1": 3}
+    assert rows[1]["frozen_forward_gpu_s"] == 0.25
+
+
 def test_runner_cap_is_3600_seconds(monkeypatch):
     monkeypatch.setattr(
         sys,
