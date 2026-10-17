@@ -76,8 +76,29 @@ out=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t10-certificate-horizon-202
 ./venv/bin/python -m research.t10_certificate_horizon_20261017.horizon --out "$out/horizon" --boot 2000
 ./venv/bin/python -m research.t10_certificate_horizon_20261017.audit --root "$out"
 ./venv/bin/python -m research.t10_certificate_horizon_20261017.report --root "$out"
-./venv/bin/python -m pytest -q tests/test_t10_certificate.py tests/test_t10_horizon.py tests/test_t10_audit.py
-./venv/bin/python -m flake8 research/t10_certificate_horizon_20261017 tests/test_t10_certificate.py tests/test_t10_horizon.py tests/test_t10_audit.py
+./venv/bin/python -m pytest -q tests/test_t10_certificate.py tests/test_t10_horizon.py tests/test_t10_audit.py tests/test_t10_shards.py
+./venv/bin/python -m flake8 research/t10_certificate_horizon_20261017 tests/test_t10_certificate.py tests/test_t10_horizon.py tests/test_t10_audit.py tests/test_t10_shards.py
+```
+
+The actual run freed a slot when certificate replay completed. The unchanged fit
+implementation then ran D200/D300 in that second slot via a hash-bound wrapper;
+the original worker retained D30/D60/D100. This changes scheduling only. Each
+GBM starts fresh with the same fixed seed, and the folds and bootstrap draws are
+unchanged. The original task-owned worker is intentionally interrupted only after
+its complete D100 prediction and bootstrap receipt are durable, before accepting
+any D200 receipt. Its raw partial report is preserved rather than marked PASS.
+The combined output requires the boundary, source, settings, branch identity and
+copy hashes, then the full numerical audit. Do not manage any pre-existing process.
+
+```sh
+# Only after certificate exits: original fit + late fit = two CPU processes.
+./venv/bin/python -m research.t10_certificate_horizon_20261017.horizon_shards late --out "$out/horizon-late"
+# After the task-owned original process has exited at the D100 boundary:
+./venv/bin/python -m research.t10_certificate_horizon_20261017.horizon_shards mark-prefix-boundary --prefix "$out/horizon"
+# Once the late worker has completed:
+./venv/bin/python -m research.t10_certificate_horizon_20261017.horizon_shards combine --prefix "$out/horizon" --late "$out/horizon-late" --out "$out/horizon-combined"
+./venv/bin/python -m research.t10_certificate_horizon_20261017.audit --root "$out" --horizon-dir "$out/horizon-combined"
+./venv/bin/python -m research.t10_certificate_horizon_20261017.report --root "$out" --horizon-dir "$out/horizon-combined"
 ```
 
 Git publication after **every** task commit is:

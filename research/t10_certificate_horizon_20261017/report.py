@@ -70,6 +70,8 @@ def render(certificate: dict, horizon: dict, audit: dict) -> str:
         "",
         "Measurements include every prepared alive decision at L >= 800. The strict area",
         "thresholds are race-128 > L/2 and race-128 > L, not >=.",
+        "Fractions pool decisions, not per-world means; the policies induce different",
+        "state exposures and trajectory lengths. These are descriptive policy comparisons.",
         "",
         "| Policy | H5000 survivors | L >= 800 decisions | Tail by L | Tail by 128 | "
         "Race > L/2 | Race > L |",
@@ -171,6 +173,8 @@ def render(certificate: dict, horizon: dict, audit: dict) -> str:
         "stopping) and 2,000 whole-world bootstrap draws, seed 20261017. Intervals are",
         "95% percentile intervals of fixed out-of-fold predictions, not model-refit",
         "uncertainty. Six action one-hot columns are appended to every input design.",
+        "Changing the horizon changes prevalence and the composition of positive outcomes;",
+        "AUC is not required to decline monotonically across these different targets.",
         "",
         (
             "T8 arrival features are available and included: 60+24+18."
@@ -223,17 +227,23 @@ def render(certificate: dict, horizon: dict, audit: dict) -> str:
         "## Verification and provenance",
         "",
         f"- Certificate replay: {certificate['wall_seconds']:.2f} seconds, 128/128 episodes.",
-        f"- Horizon refits: {horizon['elapsed_s']:.2f} seconds, "
-        f"{25 * len(horizon['feature_sets'])} fold fits, "
+        f"- Horizon refits: {25 * len(horizon['feature_sets'])} fold fits, "
         f"{len(horizon['feature_sets'])} input sets.",
+        f"- {'Late D200/D300 shard' if 'provenance' in horizon else 'Fit worker'} elapsed: "
+        f"{horizon['elapsed_s']:.2f} seconds (not total parallel study wall time).",
         "- Both workers used CPU only, one numerical thread each, at most two concurrent",
         "  numerical processes. No tmux session or process not started by this task",
         "  was controlled.",
         "- Saved-artifact audit PASS: complete cohorts, source/output hashes, every label",
         "  and fold identity, all AUCs and all bootstrap intervals recomputed from saved",
         "  predictions using the established T5 routines. This is saved-artifact verification,",
-        "  not a second statistical implementation. D300 T5/T8 predictions match exactly.",
+        "  not a second statistical implementation. D300 T5/T8/T5b predictions match exactly.",
         "- Execution source: implementation `86458528`, merged/pushed launch HEAD `c3558167`.",
+        "- After certificate completion, D200/D300 ran in the free second slot under",
+        "  shard driver `a739094e`, using the unchanged fit implementation. The original",
+        "  worker was intentionally stopped only after saving D30/D60/D100; its raw",
+        "  receipt retains that partial status. The combined five-horizon receipt passes",
+        "  source/settings/branch/copy-hash checks and the complete saved-artifact audit.",
         "- Focused tests and flake8 results are recorded in `verification.json` in the",
         "  evidence directory. Read-only independent review found no blocking issue.",
         "",

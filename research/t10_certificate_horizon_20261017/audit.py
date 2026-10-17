@@ -88,6 +88,29 @@ def audit_horizon(root: Path) -> dict:
     assert report["source_sha256_before"] == report["source_sha256_after"]
     hashes = verify_hashes(report["source_sha256_before"])
     verify_hashes(report["artifact_sha256"], root)
+    if "provenance" in report:
+        provenance = report["provenance"]
+        for name in ("prefix", "late"):
+            directory = Path(provenance[name])
+            assert sha256(directory / "horizon_fits.json") == provenance[f"{name}_report_sha256"]
+            horizons = (30, 60, 100) if name == "prefix" else (200, 300)
+            verify_hashes(
+                {
+                    f"D{h}.predictions.npz": report["artifact_sha256"][f"D{h}.predictions.npz"]
+                    for h in horizons
+                },
+                directory,
+            )
+        boundary = provenance["prefix_boundary"]
+        assert boundary["report_sha256"] == provenance["prefix_report_sha256"]
+        assert boundary["status"] == "INTENTIONALLY_INTERRUPTED_AFTER_D100"
+        launch = provenance["late_launch"]
+        verify_hashes(
+            {
+                launch["driver"]: launch["driver_sha256"],
+                launch["implementation"]: launch["implementation_sha256"],
+            }
+        )
     data, results = load_t5_data(T5_DATA), {}
     folds = saved_folds(data)
     state, action = np.nonzero(data["legal"])
@@ -155,7 +178,11 @@ def audit_horizon(root: Path) -> dict:
             if key in current:
                 paths.append(
                     (
-                        T5B_ROOT / "runs" / f"B8_s{seed}" / "fuse_q.predictions.npz",
+                        T5B_ROOT
+                        / "runs"
+                        / f"B8_s{seed}"
+                        / f"B8_s{seed}"
+                        / "fuse_q.predictions.npz",
                         {"hist_gradient_boosting": key},
                     )
                 )
