@@ -458,6 +458,52 @@ def _decisive_gaps(
     return np.asarray(gaps, dtype=float)
 
 
+def _phase_a_decisive_spools(
+    store: Path, bank_root: Path, shard_hashes: Mapping[str, str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Bind Phase-A spools and their published shards to the holdout manifest."""
+    phase_root = store / "staging/phase-a"
+    result: dict[str, str] = {}
+    holdout_receipts: dict[str, str] = {}
+    for receipt in sorted(phase_root.glob("*.json")):
+        value = json.loads(receipt.read_text())
+        relative, digest = value.get("decisive_spool"), value.get("decisive_spool_sha256")
+        if value.get("schema") != "t4e-phase-a-world/v1" or not isinstance(relative, str):
+            raise ValueError("malformed Phase-A decisive spool receipt")
+        if not relative.startswith("decisive/") or not isinstance(digest, str) or len(digest) != 64:
+            raise ValueError("Phase-A receipt lacks a bound decisive spool hash")
+        path = store / "staging" / relative
+        if not path.is_file() or _sha256(path) != digest:
+            raise ValueError("Phase-A decisive spool hash mismatch")
+        previous = result.setdefault(relative, digest)
+        if previous != digest:
+            raise ValueError("conflicting Phase-A decisive spool hashes")
+        published = value.get("published", {})
+        shard = published.get("shard") if isinstance(published, Mapping) else None
+        if shard in shard_hashes:
+            if published.get("sha256") != shard_hashes[shard]:
+                raise ValueError("Phase-A published shard does not match holdout manifest")
+            receipt = bank_root / "worlds" / (Path(shard).stem + ".receipt.json")
+            if not receipt.is_file() or _sha256(receipt) != json.loads(
+                (bank_root / "manifest.json").read_text()
+            )["publication"]["world_receipts"].get(receipt.name):
+                raise ValueError("holdout world receipt is not bound by the manifest")
+            receipt_value = json.loads(receipt.read_text())
+            if receipt_value.get("sha256") != shard_hashes[shard]:
+                raise ValueError("holdout world receipt does not bind Phase-A shard")
+            holdout_receipts[receipt.name] = _sha256(receipt)
+    if not result:
+        raise FileNotFoundError("Phase-A decisive spool receipts are required")
+    found = {"decisive/" + path.name for path in (store / "staging/decisive").glob("*.npz")}
+    if found != set(result):
+        raise ValueError("Phase-A receipt/spool inventory mismatch")
+    if set(shard_hashes) != {
+        json.loads((bank_root / "worlds" / name).read_text())["shard"] for name in holdout_receipts
+    }:
+        raise ValueError("not every immutable holdout shard has a Phase-A receipt")
+    return result, holdout_receipts
+
+
 def heldout_decisive_q_gaps(
     roots: Mapping[str, Path], bank_root: Path = HOLDOUT_ROOT
 ) -> dict[str, Any]:
@@ -479,6 +525,8 @@ def heldout_decisive_q_gaps(
     if _sha256(manifest_path) != HOLDOUT_MANIFEST_SHA256:
         raise ValueError("immutable T4e holdout manifest hash mismatch")
     manifest = json.loads(manifest_path.read_text())
+    store = bank_root.parents[1]
+    spool_hashes, holdout_receipts = _phase_a_decisive_spools(store, bank_root, manifest["shards"])
     pieces: dict[str, list[Any]] = {}
     for name, digest in manifest["shards"].items():
         shard = bank_root / name
@@ -499,7 +547,10 @@ def heldout_decisive_q_gaps(
         )
 
     b8_action: dict[bytes, int] = {}
-    for spool in sorted((bank_root.parents[1] / "staging/decisive").glob("*.npz")):
+    for relative, digest in sorted(spool_hashes.items()):
+        spool = store / "staging" / relative
+        if _sha256(spool) != digest:
+            raise ValueError("Phase-A decisive spool hash mismatch")
         with np.load(spool, allow_pickle=False) as archive:
             for index in range(len(archive["b8_action"])):
                 state = key_for(archive["state_packed"][index], archive["state_scalars"][index])
@@ -573,6 +624,8 @@ def heldout_decisive_q_gaps(
         {
             "schema": "t6-heldout-decisive-q-gap/v1",
             "holdout_manifest_sha256": HOLDOUT_MANIFEST_SHA256,
+            "phase_a_decisive_spool_sha256": spool_hashes,
+            "holdout_phase_a_receipt_sha256": holdout_receipts,
             "states": len(take),
             "branches": int(len(rows["action"])),
             "per_seed": per_seed,

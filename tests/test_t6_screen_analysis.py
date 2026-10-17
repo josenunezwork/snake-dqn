@@ -11,6 +11,7 @@ from research.t6_screen_20261017.analyze import (
     ARM,
     EXTENSION_ROUND,
     _decisive_gaps,
+    _phase_a_decisive_spools,
     analyze,
     extension_requirements,
     heldout_decisive_q_gaps,
@@ -55,6 +56,29 @@ def test_qgap_rejects_wrong_immutable_manifest_before_checkpoint_load(tmp_path: 
     (tmp_path / "manifest.json").write_text("{}")
     with pytest.raises(ValueError, match="manifest hash mismatch"):
         heldout_decisive_q_gaps({}, tmp_path)
+
+
+def test_phase_a_spool_hash_drift_is_rejected_before_spool_use(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    phase = store / "staging/phase-a"
+    decisive = store / "staging/decisive"
+    holdout = store / "banks/holdout"
+    phase.mkdir(parents=True)
+    decisive.mkdir(parents=True)
+    (holdout / "worlds").mkdir(parents=True)
+    spool = decisive / "world-1.npz"
+    spool.write_bytes(b"changed")
+    (phase / "world-1.json").write_text(
+        json.dumps(
+            {
+                "schema": "t4e-phase-a-world/v1",
+                "decisive_spool": "decisive/world-1.npz",
+                "decisive_spool_sha256": "0" * 64,
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="Phase-A decisive spool hash mismatch"):
+        _phase_a_decisive_spools(store, holdout, {})
 
 
 def _row(
