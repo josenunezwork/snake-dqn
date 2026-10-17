@@ -1984,6 +1984,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--all-snakes-learner / --max-wall-seconds need the multi-actor trainer")
     if args.all_snakes_learner and args.obs_version != "bv8":
         raise SystemExit("--all-snakes-learner needs --obs-version bv8 (the B8 self-play path)")
+    if args.learner_seats in (3, 6) and args.obs_version != "bv8":
+        raise SystemExit("--learner-seats 3/6 needs --obs-version bv8 (the B8 league path)")
     if args.all_snakes_learner and args.restart_frac > 0.0:
         raise SystemExit("--all-snakes-learner does not support --restart-frac")
     if args.learner_seats is not None and args.restart_frac > 0.0:
@@ -2794,10 +2796,13 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 policy_ids = tuple(pool.policy_ids)
                 if not policy_ids:
                     raise RuntimeError("static pool has no eligible frozen policies")
+                pool_rng = np.random.default_rng(
+                    np.random.SeedSequence([args.seed, 19_018, segment])
+                )
                 for e in range(sim.E):
                     for s in range(sim.S):
                         if not live_seats[e, s]:
-                            frozen[e, s] = policy_ids[(e * sim.S + s) % len(policy_ids)]
+                            frozen[e, s] = policy_ids[int(pool_rng.integers(len(policy_ids)))]
                 pool_seats = frozen
             else:
                 pool_seats = None
