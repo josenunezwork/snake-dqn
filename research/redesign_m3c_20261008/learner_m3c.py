@@ -126,6 +126,8 @@ class LearnerOpts:
             raise ValueError("--compile-learner needs --learner-fast")
         if int(self.gather_threads) < 0:
             raise ValueError("--gather-threads must be >= 0")
+        if self.gather_threads and not self.fast:
+            raise ValueError("--gather-threads needs --learner-fast")
 
     @classmethod
     def from_args(cls, args) -> "LearnerOpts":
@@ -1225,6 +1227,8 @@ class Learner:
         if labels is not None and labels.size >= LABEL_ANCHOR_MIN_ROWS:
             n_lab = int(round(self.anchor_rows * args.label_frac))
         base = 2 * n
+        # Anchor destinations depend on the post-gather validity/compaction above.
+        # Keep that barrier: next/current run together, then demo/label work runs together.
         n_demo = 0
         # Keep the original serial sequencing exactly at the default.  In particular,
         # LabelBuffer.sample validates mutable actor rings, so it must remain after the
@@ -1629,6 +1633,8 @@ def learner_flags(args) -> dict:
         out["lr_scale"] = args.lr_scale
     if int(getattr(args, "update_every", 1)) != 1:
         out["update_every"] = int(args.update_every)
+    if int(getattr(args, "gather_threads", 0)):
+        out["gather_threads"] = int(args.gather_threads)
     if getattr(args, "compile_learner", "off") != "off":
         out["compile_learner"] = args.compile_learner
         out["compile_learner_scope"] = getattr(args, "compile_learner_scope", "loss")

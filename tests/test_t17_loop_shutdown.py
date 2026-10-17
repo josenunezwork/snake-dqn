@@ -151,6 +151,14 @@ def test_gather_threads_rejects_negative_values(value: str) -> None:
         )
 
 
+def test_gather_threads_requires_the_fast_multi_actor_path() -> None:
+    base = ["--seed", "0", "--init", "x", "--demo-data", ".", "--out", "x"]
+    with pytest.raises(SystemExit, match="multi-actor"):
+        T.main([*base, "--gather-threads", "2"])
+    with pytest.raises(SystemExit, match="needs --learner-fast"):
+        T.main([*base, "--actors", "2", "--gather-threads", "2"])
+
+
 def test_gather_threads_is_recorded_only_when_enabled() -> None:
     parser = T.build_parser()
     base = parser.parse_args(["--seed", "0", "--init", "x", "--demo-data", ".", "--out", "x"])

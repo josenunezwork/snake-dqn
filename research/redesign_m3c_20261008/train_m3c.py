@@ -2041,6 +2041,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         or args.batch_scale != 1
         or args.lr_scale != "none"
         or args.update_every != 1
+        or args.gather_threads != 0
         or args.compile_learner != "off"
     )
     if args.compile_learner_scope != "loss" and args.compile_learner == "off":
