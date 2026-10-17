@@ -18,6 +18,10 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+# The notebook launches this file by path, so the repo root is not on sys.path; the in-process
+# `from research.t16_colab.sampler import ...` below needs it (Colab smoke-01 failed here).
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
 SCHEMA = "t16-colab-throughput/v1"
 CONFIGS = (
     [
