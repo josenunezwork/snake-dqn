@@ -124,6 +124,24 @@ def test_profile_duration_rejects_invalid_values(tmp_path, monkeypatch, duration
         P.ProcessProfile.from_env("learner", tmp_path)
 
 
+def test_learner_profile_counters_end_when_duration_expires(tmp_path, monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr(P.time, "perf_counter", lambda: now[0])
+    prof = P.ProcessProfile("cprofile", "learner", tmp_path, duration_s=60)
+    st = {"transitions": 256, "updates": 1, "learn_s": 0.1, "wait_s": 0.2, "env_s": 0.3}
+    T._tick_learner_profile(prof, st)
+    now[0] = 70.0
+    st["updates"] = 4001
+    T._tick_learner_profile(prof, st)
+    assert prof.meta["end"]["updates"] == 4001
+    st["updates"] = 4200  # teardown grace must not inflate profiled update counts
+    now[0] = 75.0
+    T._tick_learner_profile(prof, st)
+    meta = json.loads(prof.dump().read_text())
+    assert A.per_unit("learner", meta) == ("update", 4000.0)
+    assert meta["profiled_s"] == 60
+
+
 def test_compact_session_merges_stacks(tmp_path):
     pytest.importorskip("pyinstrument")
     from pyinstrument.session import Session

@@ -3008,6 +3008,15 @@ def _learner_counters(st: Dict[str, Any]) -> Dict[str, Any]:
     return {**{k: st[k] for k in keys}, "t": time.perf_counter()}
 
 
+def _tick_learner_profile(prof, st: Dict[str, Any]) -> None:
+    """Bracket the active profile only, including a duration-triggered stop."""
+    was_running = prof.running
+    if prof.tick():
+        prof.meta["start"] = _learner_counters(st)
+    elif was_running and not prof.running:
+        prof.meta["end"] = _learner_counters(st)
+
+
 def main_multi(args) -> int:
     """Learner process with ``args.actors`` actor processes (see the module docstring)."""
     import multiprocessing as mp
@@ -3308,8 +3317,8 @@ def main_multi(args) -> int:
             ):
                 stopped_for_time = True
                 break
-            if prof is not None and prof.tick():
-                prof.meta["start"] = _learner_counters(st)
+            if prof is not None:
+                _tick_learner_profile(prof, st)
             if st["transitions"] >= next_guard:
                 next_guard += 320_000
                 problems = guard_ok()
