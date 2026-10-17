@@ -131,9 +131,21 @@ def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Pat
     # independent old call byte-for-byte and its primed B8 dispatch must preserve
     # the baseline action stream on this exact prepared state.
     direct_features, direct_result = v8_scalars(sim, learner_rows, learner_mask)
-    shared_features, shared_result = pool.v8_with_learner_rows(
-        sim, learner_rows, learner_mask, alive, seats
-    )
+    supports_shared_v8 = hasattr(pool, "v8_with_learner_rows")
+
+    def old_two_v8_calls() -> tuple[Any, Any]:
+        """The pinned pre-T24 shape: independent learner and B8 v8 calls."""
+        learner_out = v8_scalars(sim, learner_rows, learner_mask)
+        b8_mask = sim.get_advisory_action_mask()[b8_rows[:, 0], b8_rows[:, 1]]
+        v8_scalars(sim, b8_rows, b8_mask)
+        return learner_out
+
+    def shared_v8_call() -> tuple[Any, Any]:
+        if supports_shared_v8:
+            return pool.v8_with_learner_rows(sim, learner_rows, learner_mask, alive, seats)
+        return old_two_v8_calls()
+
+    shared_features, shared_result = shared_v8_call()
     if not np.array_equal(direct_features, shared_features):
         raise AssertionError("shared learner v8 feature bytes differ from direct v8")
     for field in ("action", "base", "counts", "need", "spacious", "area", "area_cap"):
@@ -146,7 +158,11 @@ def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Pat
     def shared_learner_b8_v8() -> Any:
         # This is the actor's candidate shared host call: it produces learner
         # bytes and primes B8's exact advisory-mask slice for the following dispatch.
-        return pool.v8_with_learner_rows(sim, learner_rows, learner_mask, alive, seats)
+        return shared_v8_call()
+
+    def direct_b8_v8() -> Any:
+        b8_mask = sim.get_advisory_action_mask()[b8_rows[:, 0], b8_rows[:, 1]]
+        return v8_scalars(sim, b8_rows, b8_mask)
 
     def baseline_b8_dispatch() -> np.ndarray:
         pool.policies["b8-s3"].clear_frame_cache()
@@ -155,7 +171,7 @@ def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Pat
         return actions
 
     def candidate_b8_dispatch() -> np.ndarray:
-        pool.v8_with_learner_rows(sim, learner_rows, learner_mask, alive, seats)
+        shared_v8_call()
         actions = np.ones((sim.E, sim.S), dtype=np.int64)
         pool.dispatch(sim, masks, alive, actions, seats)
         return actions
@@ -176,7 +192,7 @@ def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Pat
     def candidate_decision_frame() -> np.ndarray:
         runtime.prepare(sim)
         _ = pool.prime_b8_with_learner_rows(sim, learner_rows, alive, seats)
-        _ = pool.v8_with_learner_rows(sim, learner_rows, learner_mask, alive, seats)
+        _ = shared_v8_call()
         actions = np.ones((sim.E, sim.S), dtype=np.int64)
         pool.dispatch(sim, masks, alive, actions, seats)
         return actions
@@ -197,8 +213,12 @@ def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Pat
             "frozen_dispatch_actions_identical": True,
             "decision_frame_actions_identical": True,
         },
+        "shared_v8_implementation": (
+            "one learner+B8 call" if supports_shared_v8 else "two independent baseline calls"
+        ),
         "timing": {
             "learner_v8_direct_baseline": _timed(direct_learner_v8, repeats),
+            "b8_v8_direct_baseline": _timed(direct_b8_v8, repeats),
             "learner_plus_b8_v8_shared_candidate": _timed(shared_learner_b8_v8, repeats),
             "b8_frozen_dispatch_baseline": _timed(baseline_b8_dispatch, repeats),
             "b8_frozen_dispatch_primed_candidate": _timed(candidate_b8_dispatch, repeats),
