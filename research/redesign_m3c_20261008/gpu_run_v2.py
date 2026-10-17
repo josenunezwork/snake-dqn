@@ -79,6 +79,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib.parse import urlsplit
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -821,10 +822,62 @@ def _ssl():
     return _SSL[0]
 
 
+def read_self_delete_key() -> Optional[str]:
+    """Read the optional owner key into memory; never consult Keychain under pytest.
+
+    Tests inject this function's result, or mock subprocess before exercising the
+    reader. Only a missing item falls back; access/decoding failures fail closed.
+    """
+    if os.environ.get("PYTEST_CURRENT_TEST") or sys.platform != "darwin":
+        return None
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", "runpod-selfdelete", "-a", "runpod", "-w"],
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+        if result.returncode == 44:  # errSecItemNotFound
+            return None
+        if result.returncode != 0:
+            raise ValueError("Keychain access failed")
+        key = result.stdout.decode("utf-8").strip()
+        if not key or len(key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key):
+            raise ValueError("invalid key")
+        return key
+    except Exception:
+        # Exceptions and security stderr may contain secrets; never propagate either.
+        raise RuntimeError("self-delete Keychain read failed") from None
+
+
+def provision_self_delete(agent, health: Dict[str, Any]) -> Dict[str, Any]:
+    """Deliver an optional key before uploads/jobs, retaining only probe metadata."""
+    try:
+        key = read_self_delete_key()
+        if key is None:
+            return health
+        result = agent.set_self_delete_key(key)
+        probe = result.get("self_delete_probe")
+        # No server text or arbitrary fields can enter state, receipts, or logs.
+        return {
+            **health,
+            "self_delete_armed": result.get("self_delete_armed") is True,
+            "self_delete_probe": probe if type(probe) is int else None,
+        }
+    except Exception:
+        raise RuntimeError("self-delete credential provisioning failed") from None
+
+
+class _NoCredentialRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise RuntimeError("credential channel redirect refused")
+
+
 class Agent:
     def __init__(self, pod_id: str, token: str, base: Optional[str] = None) -> None:
         self.base = base or f"https://{pod_id}-{PORT}.proxy.runpod.net"
         self.token = token
+        self._self_delete_key: Optional[bytes] = None
 
     def _req(self, method: str, path: str, data: Optional[bytes] = None, headers=None, timeout=60):
         req = urllib.request.Request(self.base + path, data=data, method=method)
@@ -833,8 +886,53 @@ class Agent:
         for k, v in (headers or {}).items():
             req.add_header(k, v)
         ctx = _ssl() if self.base.startswith("https") else None
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            return resp.read()
+        try:
+            if path == "/self-delete-key":
+                opener = urllib.request.build_opener(
+                    _NoCredentialRedirect(), urllib.request.HTTPSHandler(context=ctx)
+                )
+                response = opener.open(req, timeout=timeout)
+            else:
+                response = urllib.request.urlopen(req, timeout=timeout, context=ctx)
+            with response as resp:
+                data = resp.read()
+            if self._self_delete_key and self._self_delete_key in data:
+                raise RuntimeError("credential in agent response refused")
+            return data
+        except Exception as exc:
+            if self._self_delete_key:
+                # Preserve status for existing retry handling, never remote reason/body.
+                if isinstance(exc, urllib.error.HTTPError):
+                    raise urllib.error.HTTPError(
+                        self.base + path, exc.code, "agent request failed", {}, None
+                    ) from None
+                if isinstance(exc, OSError):
+                    raise OSError("agent request failed") from None
+                raise RuntimeError("agent request failed") from None
+            raise
+
+    def set_self_delete_key(self, key: str) -> Dict[str, Any]:
+        """Send only over authenticated TLS, without redirects or a subprocess."""
+        self._self_delete_key = key.encode()
+        try:
+            url = urlsplit(self.base)
+            if url.scheme != "https" or not url.hostname or url.username or url.password:
+                raise ValueError("TLS required")
+            result = json.loads(
+                self._req(
+                    "POST",
+                    "/self-delete-key",
+                    json.dumps({"key": key}).encode(),
+                    {"Content-Type": "application/json"},
+                )
+            )
+            probe = result.get("self_delete_probe")
+            return {
+                "self_delete_armed": result.get("self_delete_armed") is True,
+                "self_delete_probe": probe if type(probe) is int else None,
+            }
+        except Exception:
+            raise RuntimeError("self-delete credential delivery failed") from None
 
     def health(self) -> Dict[str, Any]:
         return json.loads(self._req("GET", "/health", timeout=20))
@@ -2033,6 +2131,10 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
             if now() - t0 > 1200:
                 return "agent never came up"
             time.sleep(15)
+    try:
+        h = provision_self_delete(agent, h)
+    except RuntimeError:
+        return "self-delete credential provisioning failed"
     keys = ("gpu", "cpus", "cpus_allowed", "cgroup_cpus", "cgroup_memory_gb", "cpu_model")
     note(
         stage="agent_up",

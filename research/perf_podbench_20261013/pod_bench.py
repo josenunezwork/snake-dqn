@@ -699,6 +699,10 @@ def drive_bench(agent, rp, run_dir: Path, state, inputs, args, commands) -> str:
             if gr.now() - t0 > AGENT_UP_S:
                 return "agent never came up"
             time.sleep(15)
+    try:
+        h = gr.provision_self_delete(agent, h)
+    except RuntimeError:
+        return "self-delete credential provisioning failed"
     state["host"] = {k: h.get(k) for k in HOST_KEYS}
     gr.save_state(run_dir, state)
     _note(run_dir, stage="agent_up", self_delete_armed=h.get("self_delete_armed"), **state["host"])

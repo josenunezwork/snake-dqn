@@ -14,14 +14,16 @@ GET  /health                 uptime, deadline, disk, GPU, processes, inputs rece
 PUT  /in/<relpath>           a file; header X-Sha256 must equal the body's sha256
 POST /exec                   {"name", "argv", "cwd", "env"}: start one named process
 POST /kill                   {"name"}: SIGKILL that job's process group (a stalled run)
+POST /self-delete-key        {"key"}: install an owner key in memory and probe it
 GET  /log/<name>             tail of that process's stdout+stderr
 GET  /out/<relpath>          a file under /r/out (results)
 GET  /ls/out                 [{"path", "bytes", "sha256"}] under /r/out (hashes cached)
 GET  /telemetry              GPU / CPU / RAM / per-job usage snapshot
 
 Money safety: at ``M3_DEADLINE_EPOCH`` every process is killed and /exec is refused; at
-``M3_SELF_DELETE_EPOCH`` the pod deletes itself with the pod-scoped RunPod credentials
-(RUNPOD_POD_ID / RUNPOD_API_KEY) if the local runner and its watchdog have not.
+``M3_SELF_DELETE_EPOCH`` the pod deletes itself using the runtime owner key, or the injected
+``RUNPOD_API_KEY`` when no owner key was supplied. Both paths target ``RUNPOD_POD_ID`` if
+the local runner and its watchdog have not already deleted the pod.
 """
 
 import hashlib
@@ -46,8 +48,12 @@ SELF_DELETE = float(os.environ.get("M3_SELF_DELETE_EPOCH", "0"))
 DEADMAN = float(os.environ.get("M3_DEADMAN_SECONDS", "1200"))
 BOOT = time.time()
 LAST_AUTH = [time.time()]
-PROBE = [None]  # HTTP status of an authenticated GET of this pod with the pod-scoped key
+PROBE = [None]  # HTTP status of an authenticated GET of this pod with the active key
+# Never persist or log this key. The Mac runner delivers it through the authenticated proxy
+# after boot, so the pod-start environment and every child process remain key-free.
+SELF_DELETE_KEY = [None]
 LOCK = threading.Lock()
+CREDENTIAL_LOCK = threading.RLock()
 PROCS = {}
 HASHES = {}  # path -> (size, mtime_ns, sha256)
 CPU_LAST = [None]  # (total, idle) jiffies of the previous /telemetry call
@@ -59,7 +65,26 @@ for d in (IN, OUT, LOGS):
 
 def log(msg):
     with (LOGS / "agent.log").open("a") as fh:
-        fh.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+        fh.write(f"{time.strftime('%H:%M:%S')} {_redact(msg)}\n")
+
+
+def _redact(value):
+    """Replace any in-memory or legacy RunPod key before it reaches an agent log/JSON error."""
+    text = str(value)
+    for key in (SELF_DELETE_KEY[0], os.environ.get("RUNPOD_API_KEY")):
+        if key:
+            text = text.replace(key, "[redacted]")
+    return text
+
+
+def _redact_payload(value):
+    if isinstance(value, dict):
+        return {_redact(k): _redact_payload(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_payload(v) for v in value]
+    if isinstance(value, str):
+        return _redact(value)
+    return value
 
 
 def safe(base, rel):
@@ -275,15 +300,34 @@ def mem_total_gb():
     return None
 
 
-def _runpod(method, url, body=None):
-    key = os.environ.get("RUNPOD_API_KEY", "")
+def _active_self_delete_key():
+    """The owner-delivered key when present, otherwise RunPod's legacy injected key."""
+    with CREDENTIAL_LOCK:
+        return SELF_DELETE_KEY[0] or os.environ.get("RUNPOD_API_KEY", "")
+
+
+class _NoRunPodRedirect(urllib.request.HTTPRedirectHandler):
+    """Do not forward an Authorization header to a redirect destination."""
+
+    def _reject(self, req, fp, code, msg, headers):
+        raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
+
+    http_error_301 = _reject
+    http_error_302 = _reject
+    http_error_303 = _reject
+    http_error_307 = _reject
+    http_error_308 = _reject
+
+
+def _runpod(method, url, body=None, key=None):
+    key = _active_self_delete_key() if key is None else key
     req = urllib.request.Request(url, data=body, method=method)
     req.add_header("Authorization", "Bearer " + key)
     req.add_header("User-Agent", "m3c-gpu-agent/2.0")
     if body is not None:
         req.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.build_opener(_NoRunPodRedirect()).open(req, timeout=30) as resp:
             return resp.status
     except urllib.error.HTTPError as exc:
         return exc.code
@@ -292,11 +336,36 @@ def _runpod(method, url, body=None):
 
 
 def probe_self_delete():
-    """Prove the pod-scoped key can see this pod (the runner refuses to train otherwise)."""
-    pod = os.environ.get("RUNPOD_POD_ID")
-    if pod and os.environ.get("RUNPOD_API_KEY"):
-        PROBE[0] = _runpod("GET", f"https://rest.runpod.io/v1/pods/{pod}")
-        log(f"self-delete probe: {PROBE[0]}")
+    """Prove the active key can see this pod (the runner refuses to train otherwise)."""
+    # Keep an install/probe and a deadline/dead-man delete ordered. A delete must never use a
+    # half-installed key, and no caller ever receives the key or an exception containing it.
+    with CREDENTIAL_LOCK:
+        pod = os.environ.get("RUNPOD_POD_ID")
+        key = _active_self_delete_key()
+        if pod and key:
+            PROBE[0] = _runpod("GET", f"https://rest.runpod.io/v1/pods/{pod}", key=key)
+            log(f"self-delete probe: {PROBE[0]}")
+        else:
+            PROBE[0] = None
+        return PROBE[0]
+
+
+def install_self_delete_key(key):
+    """Install an owner key only in memory, then return its redacted probe result."""
+    if (
+        not isinstance(key, str)
+        or not key
+        or len(key) > 4096
+        or any(char.isspace() or ord(char) < 33 or ord(char) > 126 for char in key)
+    ):
+        raise ValueError("invalid self-delete key")
+    with CREDENTIAL_LOCK:
+        SELF_DELETE_KEY[0] = key
+        status = probe_self_delete()
+        return {
+            "self_delete_armed": bool(os.environ.get("RUNPOD_POD_ID")),
+            "self_delete_probe": status,
+        }
 
 
 def health():
@@ -323,9 +392,7 @@ def health():
         "cgroup_cpus": cgroup_cpus(),
         "mem_total_gb": mem_total_gb(),
         "self_delete_probe": PROBE[0],
-        "self_delete_armed": bool(
-            os.environ.get("RUNPOD_POD_ID") and os.environ.get("RUNPOD_API_KEY")
-        ),
+        "self_delete_armed": bool(os.environ.get("RUNPOD_POD_ID") and _active_self_delete_key()),
         "last_auth_age": time.time() - LAST_AUTH[0],
         "gpu": gpu(),
         "procs": procs,
@@ -334,16 +401,19 @@ def health():
 
 
 def self_delete():
-    pod = os.environ.get("RUNPOD_POD_ID")
-    if not pod or not os.environ.get("RUNPOD_API_KEY"):
-        log("self-delete: no pod-scoped credentials")
-        return
-    code = _runpod("DELETE", f"https://rest.runpod.io/v1/pods/{pod}")
-    log(f"self-delete REST: {code}")
-    if code not in (200, 202, 204):
-        query = 'mutation { podTerminate(input: {podId: "%s"}) }' % pod
-        body = json.dumps({"query": query}).encode()
-        log(f"self-delete GraphQL: {_runpod('POST', 'https://api.runpod.io/graphql', body)}")
+    with CREDENTIAL_LOCK:
+        pod = os.environ.get("RUNPOD_POD_ID")
+        key = _active_self_delete_key()
+        if not pod or not key:
+            log("self-delete: no pod-scoped credentials")
+            return
+        code = _runpod("DELETE", f"https://rest.runpod.io/v1/pods/{pod}", key=key)
+        log(f"self-delete REST: {code}")
+        if code not in (200, 202, 204):
+            query = 'mutation { podTerminate(input: {podId: "%s"}) }' % pod
+            body = json.dumps({"query": query}).encode()
+            graphql = _runpod("POST", "https://api.runpod.io/graphql", body, key)
+            log(f"self-delete GraphQL: {graphql}")
 
 
 def kill_all():
@@ -397,7 +467,7 @@ class Handler(BaseHTTPRequestHandler):
         return ok
 
     def _send(self, code, payload, raw=None):
-        body = raw if raw is not None else json.dumps(payload).encode()
+        body = raw if raw is not None else json.dumps(_redact_payload(payload)).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/octet-stream" if raw else "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -466,6 +536,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         if not self._auth():
             return
+        if self.path == "/self-delete-key":
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if size < 1 or size > 8192:
+                    raise ValueError("invalid self-delete key")
+                req = json.loads(self.rfile.read(size))
+                if not isinstance(req, dict) or set(req) != {"key"}:
+                    raise ValueError("invalid self-delete key")
+                result = install_self_delete_key(req["key"])
+                return self._send(200, result)
+            except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+                # Do not reflect a malformed body: it may contain the key.
+                return self._send(400, {"error": "invalid self-delete key"})
         if self.path == "/kill":  # stop one job (its whole process group); never the agent
             try:
                 req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
@@ -497,6 +580,7 @@ class Handler(BaseHTTPRequestHandler):
                 env = dict(os.environ)
                 env.pop("RUNPOD_API_KEY", None)  # never hand the pod key to the jobs
                 env.update({str(k): str(v) for k, v in req.get("env", {}).items()})
+                env.pop("RUNPOD_API_KEY", None)  # request bodies cannot reintroduce a key
                 PROCS[name] = subprocess.Popen(
                     [str(a) for a in req["argv"]],
                     cwd=str(req.get("cwd", ROOT)),
