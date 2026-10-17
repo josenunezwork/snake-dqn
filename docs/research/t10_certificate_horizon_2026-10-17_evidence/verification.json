@@ -1,0 +1,64 @@
+{
+  "status": "PASS",
+  "pytest": {
+    "passed": 31,
+    "elapsed_s": 2.88,
+    "exit_code": 0,
+    "targets": [
+      "tests/test_t10_certificate.py",
+      "tests/test_t10_horizon.py",
+      "tests/test_t10_audit.py",
+      "tests/test_t10_shards.py",
+      "tests/test_t9_metrics.py",
+      "tests/test_t5_fit.py",
+      "tests/test_t8_arrival_fit.py"
+    ],
+    "log_sha256": "f5bb5506c74d8feb8d85f8090d5fc67348518e068227c7e5ebe03ef197d30ef2"
+  },
+  "flake8": {
+    "exit_code": 0,
+    "targets": [
+      "research/t10_certificate_horizon_20261017",
+      "tests/test_t10_certificate.py",
+      "tests/test_t10_horizon.py",
+      "tests/test_t10_audit.py",
+      "tests/test_t10_shards.py"
+    ]
+  },
+  "git_diff_check_exit_code": 0,
+  "source_sha256": {
+    "research/t10_certificate_horizon_20261017/audit.py": "bc19b13bea7dcf31bb418f5e7ecdc51ee2b16b052b2d3785fde5b9685c90c157",
+    "research/t10_certificate_horizon_20261017/certificate.py": "af6bc0b03a84b36d88a4a67d40e3136a156c395633b864c40ea3bf9c37142e3b",
+    "research/t10_certificate_horizon_20261017/horizon.py": "30e1233b1862b83f3b0c24e8c2b0f418fcbf4b21adb495ccc7e8121baa085109",
+    "research/t10_certificate_horizon_20261017/__init__.py": "a11593819f6680fffb2413ebbf51d1cef3e30adf7d06eadf1f3f53f113947bab",
+    "research/t10_certificate_horizon_20261017/horizon_shards.py": "52b9bd4205d570b86ab75a8879a86e83fdd9024bad609fd9ea54c91e9cc8b202",
+    "research/t10_certificate_horizon_20261017/report.py": "c7642acd71e4dfb6fa10262408c8065f711e4b59a39597b6268a731efde944a4",
+    "tests/test_t10_horizon.py": "e89b630429bd40c5ccce164dd98b2bf3e2e107c155123ba24293246c1cb01124",
+    "tests/test_t10_certificate.py": "66738f984af1b51712c8ecd15a7310570d8c184799951c7e8d161b5f2c363d0e",
+    "tests/test_t10_shards.py": "9365455a91b932e138cd0edeea4993e55d31d1919fde00c0fbce451c6f65d7df",
+    "tests/test_t10_audit.py": "b1d7bd47881db28c2119bb63cf689371e984476cbc631c0190909ead7d0b02cc"
+  },
+  "environment": {
+    "python": "3.12.3",
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "versions": {
+      "numpy": "1.26.4",
+      "scikit-learn": "1.7.2",
+      "torch": "2.9.1",
+      "numba": "0.68.0",
+      "scipy": "1.14.1"
+    },
+    "device": "cpu",
+    "max_concurrent_numerical_processes": 2,
+    "threads_per_worker": 1
+  },
+  "review": {
+    "status": "PASS_AFTER_WORDING_CORRECTIONS",
+    "scope": "Read-only review of report, certificate/horizon receipts and saved-artifact audit",
+    "corrections": [
+      "Limit inference from pooled proxy holding rates",
+      "Describe all workers and retained fold fits precisely"
+    ],
+    "product_files_changed": []
+  }
+}

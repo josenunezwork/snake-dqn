@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "restored_T1_states": 46,
+  "actions": 276,
+  "exact_float32_reference_compiled_parity": true,
+  "elapsed_s": 1.8911734172143042
+}

@@ -1,0 +1,179 @@
+{
+  "certificate": {
+    "status": "PASS",
+    "episodes": 128,
+    "input_source_hashes": 235,
+    "deadline_sensitivity": {
+      "b8": {
+        "strictly_before_L": 121158,
+        "exactly_at_L": 0,
+        "eligible_decisions": 121261
+      },
+      "dense": {
+        "strictly_before_L": 144914,
+        "exactly_at_L": 0,
+        "eligible_decisions": 144958
+      }
+    },
+    "eligible_decisions": 266219,
+    "source_sha256": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t10-certificate-horizon-20261017/certificate/manifest.json": "8073bfd037a8fbcdcf0fdfc69764c4d2f676e4e5c7d2829ffe09ba875c89a201",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t10-certificate-horizon-20261017/certificate/episodes.jsonl": "1c75628ac540f666de497dbea7e604c0bb72d544d61fe7a776d57f17a807cca1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t10-certificate-horizon-20261017/certificate/results.json": "c5d675778765157e1981b1e8b5335098e26d865d4abd03cfc833ba551e2118c7"
+    }
+  },
+  "horizon": {
+    "status": "PASS",
+    "input_source_hashes": 12,
+    "results": {
+      "D30": {
+        "labels": 103264,
+        "deaths": 1655,
+        "arrival_comparisons": {
+          "arrival_minus_60": {
+            "auc_delta": 0.02090775435330139,
+            "ci95": [
+              0.012549270693737406,
+              0.029322818643138234
+            ],
+            "valid_bootstraps": 2000
+          },
+          "arrival_minus_60+24": {
+            "auc_delta": 0.01908153698234072,
+            "ci95": [
+              0.01303906856408026,
+              0.024978159763828077
+            ],
+            "valid_bootstraps": 2000
+          }
+        }
+      },
+      "D60": {
+        "labels": 103264,
+        "deaths": 3437,
+        "arrival_comparisons": {
+          "arrival_minus_60": {
+            "auc_delta": 0.035629487427564666,
+            "ci95": [
+              0.025715022196678802,
+              0.045812275755753216
+            ],
+            "valid_bootstraps": 2000
+          },
+          "arrival_minus_60+24": {
+            "auc_delta": 0.029874289445384394,
+            "ci95": [
+              0.021243723248446072,
+              0.03840458285075453
+            ],
+            "valid_bootstraps": 2000
+          }
+        }
+      },
+      "D100": {
+        "labels": 103264,
+        "deaths": 5931,
+        "arrival_comparisons": {
+          "arrival_minus_60": {
+            "auc_delta": 0.039520271879313396,
+            "ci95": [
+              0.028054517688959748,
+              0.050856780796779195
+            ],
+            "valid_bootstraps": 2000
+          },
+          "arrival_minus_60+24": {
+            "auc_delta": 0.036424882747474796,
+            "ci95": [
+              0.026016689151465135,
+              0.04692967896922201
+            ],
+            "valid_bootstraps": 2000
+          }
+        }
+      },
+      "D200": {
+        "labels": 103264,
+        "deaths": 12021,
+        "arrival_comparisons": {
+          "arrival_minus_60": {
+            "auc_delta": 0.028655267213673064,
+            "ci95": [
+              0.01823680220768472,
+              0.03871329851582227
+            ],
+            "valid_bootstraps": 2000
+          },
+          "arrival_minus_60+24": {
+            "auc_delta": 0.0193867894109222,
+            "ci95": [
+              0.010154669113103967,
+              0.02872989775043718
+            ],
+            "valid_bootstraps": 2000
+          }
+        }
+      },
+      "D300": {
+        "labels": 103264,
+        "deaths": 19094,
+        "arrival_comparisons": {
+          "arrival_minus_60": {
+            "auc_delta": 0.02298279894350086,
+            "ci95": [
+              0.015500671545823828,
+              0.03001034514667856
+            ],
+            "valid_bootstraps": 2000
+          },
+          "arrival_minus_60+24": {
+            "auc_delta": 0.01415680741535974,
+            "ci95": [
+              0.007322859425136169,
+              0.02088295010659986
+            ],
+            "valid_bootstraps": 2000
+          }
+        }
+      }
+    },
+    "D300_prediction_parity": {
+      "oof_60": {
+        "max_abs_difference": 0.0,
+        "source_sha256": "e91fb3c2f546135fbc9d2f8141c05389f29eb370ac5d97d3ad0b106795ea780f"
+      },
+      "oof_60+24": {
+        "max_abs_difference": 0.0,
+        "source_sha256": "e91fb3c2f546135fbc9d2f8141c05389f29eb370ac5d97d3ad0b106795ea780f"
+      },
+      "oof_60+24+18_arrival": {
+        "max_abs_difference": 0.0,
+        "source_sha256": "1e3712734107e702f64655e4a7c62ea9ef84b87944459df62c1e065573734851"
+      },
+      "oof_fuse_q_B8_s0": {
+        "max_abs_difference": 0.0,
+        "source_sha256": "aae1d8c32ab88aa65e4b8bdc564c213fcfdc91703f9edbe51341fafe8b2b452c"
+      },
+      "oof_fuse_q_B8_s1": {
+        "max_abs_difference": 0.0,
+        "source_sha256": "eb6f6647ad6cdbe061d20935e6c580462bb91622c09137554e8e9d196ec98445"
+      },
+      "oof_fuse_q_B8_s2": {
+        "max_abs_difference": 0.0,
+        "source_sha256": "073f816f6f62545a817b2e618d6720dfbccb942e8d91863f3b92d75d0d968ea0"
+      },
+      "oof_fuse_q_B8_s3": {
+        "max_abs_difference": 0.0,
+        "source_sha256": "915f7906a9a83b14dd7d7e0c5f7cfe729630e6dd4190404fe9febfa37c13695c"
+      },
+      "oof_fuse_q_B8_s4": {
+        "max_abs_difference": 0.0,
+        "source_sha256": "194b33fe6650ad8748d57a333de925e66e7bd1a5e075cb184d982e6537d438e5"
+      }
+    },
+    "source_sha256": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t10-certificate-horizon-20261017/horizon-combined/horizon_fits.json": "32d57dc4a304f6144ecf3e82bea28c9f824a1f51af2a5144321d4d83532f2fa5"
+    }
+  },
+  "status": "PASS"
+}

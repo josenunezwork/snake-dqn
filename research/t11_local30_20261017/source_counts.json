@@ -1,0 +1,21 @@
+{
+  "artifact_manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/bank-local30/manifest.json",
+  "artifact_manifest_sha256": "a7825a6096373c4e8c31da36e92e7d14e40d9c7de3d77d22b6a683efabd7bf18",
+  "note": "Supplemental source-population counts for the immutable first derivation. The matching selected and counter-available counts remain in the hash-identical bank_manifest.json.",
+  "original_counter_counts": {
+    "700_999:D1": 133, "700_999:D10": 44, "700_999:D2": 381, "700_999:D3": 472,
+    "700_999:D4": 385, "700_999:D5": 485, "700_999:D6": 383, "700_999:D7": 247,
+    "700_999:D8": 169, "700_999:D9": 166, "ge1000:D1": 74, "ge1000:D10": 76,
+    "ge1000:D2": 153, "ge1000:D3": 170, "ge1000:D4": 167, "ge1000:D5": 260,
+    "ge1000:D6": 333, "ge1000:D7": 428, "ge1000:D8": 563, "ge1000:D9": 353
+  },
+  "original_decisive_counts": {
+    "700_999:D1": 920, "700_999:D10": 89, "700_999:D2": 746, "700_999:D3": 766,
+    "700_999:D4": 750, "700_999:D5": 737, "700_999:D6": 515, "700_999:D7": 293,
+    "700_999:D8": 265, "700_999:D9": 332, "ge1000:D1": 430, "ge1000:D10": 189,
+    "ge1000:D2": 347, "ge1000:D3": 349, "ge1000:D4": 376, "ge1000:D5": 574,
+    "ge1000:D6": 699, "ge1000:D7": 855, "ge1000:D8": 1106, "ge1000:D9": 547
+  },
+  "original_family_counts": {"counter": 5442, "decisive": 10885},
+  "schema": "t11-local30-source-counts/v1"
+}

@@ -1,0 +1,979 @@
+{
+  "status": "PASS",
+  "full_cohort": true,
+  "wall_seconds": 1029.5107490830123,
+  "summary": {
+    "b8": {
+      "episodes": 64,
+      "survivors": 38,
+      "eligible_decisions": 121261,
+      "counts": {
+        "tail_L": 121158,
+        "tail_128": 71346,
+        "race_above_L2": 104050,
+        "race_above_L": 81168
+      },
+      "fractions": {
+        "tail_L": 0.9991505925235649,
+        "tail_128": 0.588367240910103,
+        "race_above_L2": 0.8580664846900488,
+        "race_above_L": 0.6693660781289945
+      },
+      "deaths": [
+        {
+          "arm": "b8_s0",
+          "env": 3,
+          "world_seed": 1229887956,
+          "death_decision": 4362,
+          "death_length": 1284,
+          "eligible_decisions": 1917,
+          "tail_L": {
+            "last_true_decision": 4362,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 4362,
+            "decisions_before_death": 0,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 5,
+          "world_seed": 2976813830,
+          "death_decision": 2041,
+          "death_length": 724,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 8,
+          "world_seed": 3988821633,
+          "death_decision": 4553,
+          "death_length": 1010,
+          "eligible_decisions": 1682,
+          "tail_L": {
+            "last_true_decision": 4553,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "never_held_in_eligible_states"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 11,
+          "world_seed": 4046445356,
+          "death_decision": 4198,
+          "death_length": 1316,
+          "eligible_decisions": 1968,
+          "tail_L": {
+            "last_true_decision": 4160,
+            "decisions_before_death": 38,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 4140,
+            "decisions_before_death": 58,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 12,
+          "world_seed": 3010307125,
+          "death_decision": 4877,
+          "death_length": 1443,
+          "eligible_decisions": 2275,
+          "tail_L": {
+            "last_true_decision": 4876,
+            "decisions_before_death": 1,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 4876,
+            "decisions_before_death": 1,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 14,
+          "world_seed": 2935400294,
+          "death_decision": 1763,
+          "death_length": 596,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 15,
+          "world_seed": 474182439,
+          "death_decision": 4177,
+          "death_length": 1106,
+          "eligible_decisions": 1608,
+          "tail_L": {
+            "last_true_decision": 4165,
+            "decisions_before_death": 12,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 3947,
+            "decisions_before_death": 230,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 17,
+          "world_seed": 1712899657,
+          "death_decision": 4610,
+          "death_length": 1304,
+          "eligible_decisions": 2021,
+          "tail_L": {
+            "last_true_decision": 4610,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 4483,
+            "decisions_before_death": 127,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 21,
+          "world_seed": 1247816794,
+          "death_decision": 3080,
+          "death_length": 974,
+          "eligible_decisions": 494,
+          "tail_L": {
+            "last_true_decision": 3065,
+            "decisions_before_death": 15,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 3065,
+            "decisions_before_death": 15,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 22,
+          "world_seed": 15900433,
+          "death_decision": 3694,
+          "death_length": 1116,
+          "eligible_decisions": 1326,
+          "tail_L": {
+            "last_true_decision": 3694,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 3692,
+            "decisions_before_death": 2,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 30,
+          "world_seed": 1638785368,
+          "death_decision": 1523,
+          "death_length": 340,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 1,
+          "world_seed": 539912944,
+          "death_decision": 2889,
+          "death_length": 886,
+          "eligible_decisions": 203,
+          "tail_L": {
+            "last_true_decision": 2889,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 2874,
+            "decisions_before_death": 15,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 6,
+          "world_seed": 4130786071,
+          "death_decision": 4050,
+          "death_length": 1178,
+          "eligible_decisions": 1853,
+          "tail_L": {
+            "last_true_decision": 4050,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 3071,
+            "decisions_before_death": 979,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 8,
+          "world_seed": 3988821633,
+          "death_decision": 4407,
+          "death_length": 1196,
+          "eligible_decisions": 1988,
+          "tail_L": {
+            "last_true_decision": 4386,
+            "decisions_before_death": 21,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 4050,
+            "decisions_before_death": 357,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 9,
+          "world_seed": 1996812937,
+          "death_decision": 4416,
+          "death_length": 1020,
+          "eligible_decisions": 1837,
+          "tail_L": {
+            "last_true_decision": 4416,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 4319,
+            "decisions_before_death": 97,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 12,
+          "world_seed": 3010307125,
+          "death_decision": 3492,
+          "death_length": 972,
+          "eligible_decisions": 1061,
+          "tail_L": {
+            "last_true_decision": 3492,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 3490,
+            "decisions_before_death": 2,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 13,
+          "world_seed": 2570788724,
+          "death_decision": 2208,
+          "death_length": 624,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 15,
+          "world_seed": 474182439,
+          "death_decision": 2636,
+          "death_length": 907,
+          "eligible_decisions": 373,
+          "tail_L": {
+            "last_true_decision": 2628,
+            "decisions_before_death": 8,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 2403,
+            "decisions_before_death": 233,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 16,
+          "world_seed": 1142648366,
+          "death_decision": 255,
+          "death_length": 53,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 17,
+          "world_seed": 1712899657,
+          "death_decision": 4531,
+          "death_length": 1089,
+          "eligible_decisions": 1726,
+          "tail_L": {
+            "last_true_decision": 4531,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 4282,
+            "decisions_before_death": 249,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 18,
+          "world_seed": 987234626,
+          "death_decision": 1623,
+          "death_length": 559,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 19,
+          "world_seed": 3774445511,
+          "death_decision": 4939,
+          "death_length": 1115,
+          "eligible_decisions": 1876,
+          "tail_L": {
+            "last_true_decision": 4933,
+            "decisions_before_death": 6,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 3853,
+            "decisions_before_death": 1086,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 21,
+          "world_seed": 1247816794,
+          "death_decision": 1983,
+          "death_length": 601,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 26,
+          "world_seed": 1331460052,
+          "death_decision": 3282,
+          "death_length": 1059,
+          "eligible_decisions": 1116,
+          "tail_L": {
+            "last_true_decision": 3281,
+            "decisions_before_death": 1,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 2828,
+            "decisions_before_death": 454,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 29,
+          "world_seed": 4051715387,
+          "death_decision": 2151,
+          "death_length": 664,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 30,
+          "world_seed": 1638785368,
+          "death_decision": 3846,
+          "death_length": 1035,
+          "eligible_decisions": 958,
+          "tail_L": {
+            "last_true_decision": 3846,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 3846,
+            "decisions_before_death": 0,
+            "status": "observed"
+          }
+        }
+      ],
+      "loss_duration": {
+        "tail_L": {
+          "observed": 18,
+          "unobserved": 8,
+          "quartiles": [
+            0.0,
+            0.0,
+            0.0,
+            7.5,
+            38.0
+          ]
+        },
+        "tail_128": {
+          "observed": 17,
+          "unobserved": 9,
+          "quartiles": [
+            0.0,
+            2.0,
+            97.0,
+            249.0,
+            1086.0
+          ]
+        }
+      },
+      "conditional_survival": {
+        "tail_L": {
+          "1": {
+            "episodes": 56,
+            "survivors": 38,
+            "survival": 0.6785714285714286,
+            "decision_landmarks": 121158,
+            "surviving_decision_landmarks": 94979
+          },
+          "5": {
+            "episodes": 56,
+            "survivors": 38,
+            "survival": 0.6785714285714286,
+            "decision_landmarks": 120930,
+            "surviving_decision_landmarks": 94827
+          },
+          "10": {
+            "episodes": 56,
+            "survivors": 38,
+            "survival": 0.6785714285714286,
+            "decision_landmarks": 120645,
+            "surviving_decision_landmarks": 94637
+          },
+          "25": {
+            "episodes": 56,
+            "survivors": 38,
+            "survival": 0.6785714285714286,
+            "decision_landmarks": 119790,
+            "surviving_decision_landmarks": 94067
+          },
+          "50": {
+            "episodes": 56,
+            "survivors": 38,
+            "survival": 0.6785714285714286,
+            "decision_landmarks": 118365,
+            "surviving_decision_landmarks": 93117
+          },
+          "100": {
+            "episodes": 56,
+            "survivors": 38,
+            "survival": 0.6785714285714286,
+            "decision_landmarks": 115515,
+            "surviving_decision_landmarks": 91217
+          },
+          "200": {
+            "episodes": 56,
+            "survivors": 38,
+            "survival": 0.6785714285714286,
+            "decision_landmarks": 109815,
+            "surviving_decision_landmarks": 87417
+          },
+          "300": {
+            "episodes": 55,
+            "survivors": 38,
+            "survival": 0.6909090909090909,
+            "decision_landmarks": 104293,
+            "surviving_decision_landmarks": 83617
+          }
+        },
+        "tail_128": {
+          "1": {
+            "episodes": 55,
+            "survivors": 38,
+            "survival": 0.6909090909090909,
+            "decision_landmarks": 71346,
+            "surviving_decision_landmarks": 58801
+          },
+          "5": {
+            "episodes": 55,
+            "survivors": 38,
+            "survival": 0.6909090909090909,
+            "decision_landmarks": 70238,
+            "surviving_decision_landmarks": 57901
+          },
+          "10": {
+            "episodes": 55,
+            "survivors": 38,
+            "survival": 0.6909090909090909,
+            "decision_landmarks": 69002,
+            "surviving_decision_landmarks": 56894
+          },
+          "25": {
+            "episodes": 55,
+            "survivors": 38,
+            "survival": 0.6909090909090909,
+            "decision_landmarks": 65621,
+            "surviving_decision_landmarks": 54134
+          },
+          "50": {
+            "episodes": 55,
+            "survivors": 38,
+            "survival": 0.6909090909090909,
+            "decision_landmarks": 60399,
+            "surviving_decision_landmarks": 49876
+          },
+          "100": {
+            "episodes": 54,
+            "survivors": 38,
+            "survival": 0.7037037037037037,
+            "decision_landmarks": 51212,
+            "surviving_decision_landmarks": 42275
+          },
+          "200": {
+            "episodes": 51,
+            "survivors": 38,
+            "survival": 0.7450980392156863,
+            "decision_landmarks": 35351,
+            "surviving_decision_landmarks": 28997
+          },
+          "300": {
+            "episodes": 50,
+            "survivors": 37,
+            "survival": 0.74,
+            "decision_landmarks": 23889,
+            "surviving_decision_landmarks": 19523
+          }
+        }
+      }
+    },
+    "dense": {
+      "episodes": 64,
+      "survivors": 54,
+      "eligible_decisions": 144958,
+      "counts": {
+        "tail_L": 144914,
+        "tail_128": 85563,
+        "race_above_L2": 124059,
+        "race_above_L": 96452
+      },
+      "fractions": {
+        "tail_L": 0.9996964638033086,
+        "tail_128": 0.5902606272161591,
+        "race_above_L2": 0.8558272051214835,
+        "race_above_L": 0.6653789373473696
+      },
+      "deaths": [
+        {
+          "arm": "b8_s0",
+          "env": 8,
+          "world_seed": 3988821633,
+          "death_decision": 4601,
+          "death_length": 1014,
+          "eligible_decisions": 1730,
+          "tail_L": {
+            "last_true_decision": 4599,
+            "decisions_before_death": 2,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "never_held_in_eligible_states"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 14,
+          "world_seed": 2935400294,
+          "death_decision": 1763,
+          "death_length": 596,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 21,
+          "world_seed": 1247816794,
+          "death_decision": 4043,
+          "death_length": 1086,
+          "eligible_decisions": 1457,
+          "tail_L": {
+            "last_true_decision": 4010,
+            "decisions_before_death": 33,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 3535,
+            "decisions_before_death": 508,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s0",
+          "env": 30,
+          "world_seed": 1638785368,
+          "death_decision": 1523,
+          "death_length": 340,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 6,
+          "world_seed": 4130786071,
+          "death_decision": 4776,
+          "death_length": 1218,
+          "eligible_decisions": 2579,
+          "tail_L": {
+            "last_true_decision": 4776,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 3071,
+            "decisions_before_death": 1705,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 8,
+          "world_seed": 3988821633,
+          "death_decision": 4533,
+          "death_length": 1200,
+          "eligible_decisions": 2114,
+          "tail_L": {
+            "last_true_decision": 4533,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 4050,
+            "decisions_before_death": 483,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 9,
+          "world_seed": 1996812937,
+          "death_decision": 4510,
+          "death_length": 1020,
+          "eligible_decisions": 1931,
+          "tail_L": {
+            "last_true_decision": 4504,
+            "decisions_before_death": 6,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 4326,
+            "decisions_before_death": 184,
+            "status": "observed"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 16,
+          "world_seed": 1142648366,
+          "death_decision": 255,
+          "death_length": 53,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 18,
+          "world_seed": 987234626,
+          "death_decision": 1623,
+          "death_length": 559,
+          "eligible_decisions": 0,
+          "tail_L": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          },
+          "tail_128": {
+            "last_true_decision": null,
+            "decisions_before_death": null,
+            "status": "no_L800_states"
+          }
+        },
+        {
+          "arm": "b8_s3",
+          "env": 26,
+          "world_seed": 1331460052,
+          "death_decision": 3952,
+          "death_length": 1067,
+          "eligible_decisions": 1786,
+          "tail_L": {
+            "last_true_decision": 3952,
+            "decisions_before_death": 0,
+            "status": "observed"
+          },
+          "tail_128": {
+            "last_true_decision": 3297,
+            "decisions_before_death": 655,
+            "status": "observed"
+          }
+        }
+      ],
+      "loss_duration": {
+        "tail_L": {
+          "observed": 6,
+          "unobserved": 4,
+          "quartiles": [
+            0.0,
+            0.0,
+            1.0,
+            5.0,
+            33.0
+          ]
+        },
+        "tail_128": {
+          "observed": 5,
+          "unobserved": 5,
+          "quartiles": [
+            184.0,
+            483.0,
+            508.0,
+            655.0,
+            1705.0
+          ]
+        }
+      },
+      "conditional_survival": {
+        "tail_L": {
+          "1": {
+            "episodes": 60,
+            "survivors": 54,
+            "survival": 0.9,
+            "decision_landmarks": 144914,
+            "surviving_decision_landmarks": 133359
+          },
+          "5": {
+            "episodes": 60,
+            "survivors": 54,
+            "survival": 0.9,
+            "decision_landmarks": 144672,
+            "surviving_decision_landmarks": 133143
+          },
+          "10": {
+            "episodes": 60,
+            "survivors": 54,
+            "survival": 0.9,
+            "decision_landmarks": 144372,
+            "surviving_decision_landmarks": 132873
+          },
+          "25": {
+            "episodes": 60,
+            "survivors": 54,
+            "survival": 0.9,
+            "decision_landmarks": 143472,
+            "surviving_decision_landmarks": 132063
+          },
+          "50": {
+            "episodes": 60,
+            "survivors": 54,
+            "survival": 0.9,
+            "decision_landmarks": 141972,
+            "surviving_decision_landmarks": 130713
+          },
+          "100": {
+            "episodes": 60,
+            "survivors": 54,
+            "survival": 0.9,
+            "decision_landmarks": 138972,
+            "surviving_decision_landmarks": 128013
+          },
+          "200": {
+            "episodes": 60,
+            "survivors": 54,
+            "survival": 0.9,
+            "decision_landmarks": 132972,
+            "surviving_decision_landmarks": 122613
+          },
+          "300": {
+            "episodes": 60,
+            "survivors": 54,
+            "survival": 0.9,
+            "decision_landmarks": 126972,
+            "surviving_decision_landmarks": 117213
+          }
+        },
+        "tail_128": {
+          "1": {
+            "episodes": 59,
+            "survivors": 54,
+            "survival": 0.9152542372881356,
+            "decision_landmarks": 85563,
+            "surviving_decision_landmarks": 82885
+          },
+          "5": {
+            "episodes": 59,
+            "survivors": 54,
+            "survival": 0.9152542372881356,
+            "decision_landmarks": 84253,
+            "surviving_decision_landmarks": 81624
+          },
+          "10": {
+            "episodes": 59,
+            "survivors": 54,
+            "survival": 0.9152542372881356,
+            "decision_landmarks": 82784,
+            "surviving_decision_landmarks": 80199
+          },
+          "25": {
+            "episodes": 59,
+            "survivors": 54,
+            "survival": 0.9152542372881356,
+            "decision_landmarks": 78791,
+            "surviving_decision_landmarks": 76317
+          },
+          "50": {
+            "episodes": 59,
+            "survivors": 54,
+            "survival": 0.9152542372881356,
+            "decision_landmarks": 72744,
+            "surviving_decision_landmarks": 70445
+          },
+          "100": {
+            "episodes": 59,
+            "survivors": 54,
+            "survival": 0.9152542372881356,
+            "decision_landmarks": 62054,
+            "surviving_decision_landmarks": 60088
+          },
+          "200": {
+            "episodes": 59,
+            "survivors": 54,
+            "survival": 0.9152542372881356,
+            "decision_landmarks": 43737,
+            "surviving_decision_landmarks": 42371
+          },
+          "300": {
+            "episodes": 58,
+            "survivors": 53,
+            "survival": 0.9137931034482759,
+            "decision_landmarks": 30304,
+            "surviving_decision_landmarks": 29507
+          }
+        }
+      }
+    }
+  },
+  "episodes_sha256": "1c75628ac540f666de497dbea7e604c0bb72d544d61fe7a776d57f17a807cca1",
+  "manifest_sha256": "8073bfd037a8fbcdcf0fdfc69764c4d2f676e4e5c7d2829ffe09ba875c89a201"
+}

@@ -1,0 +1,39 @@
+{
+  "focused_pytest": {
+    "passed": 37,
+    "failed": 0,
+    "skipped": 0,
+    "files": [
+      "test_t8_cnn.py",
+      "test_t8_arrival.py",
+      "test_t8_arrival_fit.py",
+      "test_t8_audit.py",
+      "test_t5_features.py",
+      "test_t5_fit.py",
+      "test_t5_restore.py",
+      "test_t5b_fuse.py"
+    ]
+  },
+  "black_check": "PASS",
+  "flake8": "PASS",
+  "git_diff_check": "PASS",
+  "independent_review": {
+    "commit": "95dd11df",
+    "findings": [],
+    "test_passed": 9,
+    "test_modules_skipped": 3,
+    "skip_reason": "review command did not set task-local sklearn PYTHONPATH; root 37-test suite did and passed",
+    "scope": "static correctness/leakage/spec review; final arrival numerical results not available during review"
+  },
+  "completed_owned_processes": {
+    "cnn": 0,
+    "arrival_shard_0": 0,
+    "arrival_shard_1": 0,
+    "cnn_audit": 0,
+    "focused_pytest": 0,
+    "arrival_fit": 0,
+    "final_audit": 0
+  },
+  "numerical_audit": "PASS",
+  "preflight_correction": "T1 count comparison uses raw territory because its arena exceeds4096 cells; final comparison passed"
+}

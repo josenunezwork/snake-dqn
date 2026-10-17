@@ -1,0 +1,1309 @@
+{
+  "authority": "diagnostic only; no policy training or gate evidence",
+  "source_sha256_before": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/arrival/features.npz": "ffa553acef2f6acbd02206b1b6c4c638edf94631bc41ad3acc717f02937e7c0b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features.npz": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/fits/folds.npz": "8940a6217c271987da98db7b1a80471067d0807c9884932c0e5e08aeab1f9fb2",
+    "/Users/josenunez/Projects/ml/snake-dqn-t5/research/t8_probes_20261017/arrival_fit.py": "c5ab4a6ccc0ac6f22ec7e8381829a983e1b612282cb4510d08c78a39ff3d89be",
+    "research/t5_separability_20261016/fit.py": "85b33e62f07f47a99ee001a1d84a583e35048d8bf32eee475ca0c21f0308865f",
+    "src/simd_env/t8_features.py": "f2c052e7944711d929114e44e6f30e283bddb7addbe53bcd3afb085b39af035f"
+  },
+  "width": 108,
+  "feature_design": "60+24+18 action-major race features + 6 one-hot",
+  "results": {
+    "hist_gradient_boosting": {
+      "baseline_60_24": {
+        "auc": 0.7349495546746903,
+        "ci95": [
+          0.7160622693311351,
+          0.7551822115607062
+        ],
+        "valid_bootstraps": 2000
+      },
+      "arrival_60_24_18": {
+        "auc": 0.74910636209005,
+        "ci95": [
+          0.7316552595533741,
+          0.7676434947595414
+        ],
+        "valid_bootstraps": 2000
+      },
+      "delta_vs_60_24": {
+        "auc_delta": 0.01415680741535974,
+        "ci95": [
+          0.007322859425136169,
+          0.02088295010659986
+        ],
+        "valid_bootstraps": 2000
+      },
+      "delta_vs_60": {
+        "auc_delta": 0.02298279894350086,
+        "ci95": [
+          0.015500671545823828,
+          0.03001034514667856
+        ],
+        "valid_bootstraps": 2000
+      },
+      "baseline_max_abs_prediction_difference": 0.0,
+      "baseline_predictions_sha256": "e91fb3c2f546135fbc9d2f8141c05389f29eb370ac5d97d3ad0b106795ea780f"
+    },
+    "logistic_regression": {
+      "baseline_60_24": {
+        "auc": 0.7334156220597261,
+        "ci95": [
+          0.7169050959818453,
+          0.7497309903498026
+        ],
+        "valid_bootstraps": 2000
+      },
+      "arrival_60_24_18": {
+        "auc": 0.7434354685950024,
+        "ci95": [
+          0.7283382588134287,
+          0.7585449026074481
+        ],
+        "valid_bootstraps": 2000
+      },
+      "delta_vs_60_24": {
+        "auc_delta": 0.010019846535276322,
+        "ci95": [
+          0.005188133268940501,
+          0.014463156752289857
+        ],
+        "valid_bootstraps": 2000
+      },
+      "delta_vs_60": {
+        "auc_delta": 0.01411862068340719,
+        "ci95": [
+          0.007662950023448983,
+          0.02051097763877902
+        ],
+        "valid_bootstraps": 2000
+      },
+      "baseline_max_abs_prediction_difference": 0.0,
+      "baseline_predictions_sha256": "5bad143194ab34ea51a2d5096c956a19c50467315926b7360b8cfa6dabc46dab"
+    }
+  },
+  "t1": {
+    "authority": "diagnostic only",
+    "late_lads": 46,
+    "larger_voronoi": 11,
+    "share": 0.2391304347826087,
+    "rows": [
+      {
+        "arm": "b8_s0",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3065,
+        "env": 21,
+        "frame": 3066,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1247816794,
+        "chosen_action": 1,
+        "best_surviving_action": 5,
+        "chosen": [
+          20.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          63.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": true
+      },
+      {
+        "arm": "b8_s0",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3692,
+        "env": 22,
+        "frame": 3693,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 15900433,
+        "chosen_action": 2,
+        "best_surviving_action": 5,
+        "chosen": [
+          2.0,
+          0.9998320937156677,
+          1.0
+        ],
+        "best_surviving": [
+          2.0,
+          0.9998320937156677,
+          2.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s0",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3946,
+        "env": 15,
+        "frame": 3947,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 474182439,
+        "chosen_action": 1,
+        "best_surviving_action": 3,
+        "chosen": [
+          276.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          2.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s0",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4127,
+        "env": 11,
+        "frame": 4128,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 4046445356,
+        "chosen_action": 2,
+        "best_surviving_action": 0,
+        "chosen": [
+          3107.0,
+          0.7394112348556519,
+          5.0
+        ],
+        "best_surviving": [
+          224.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s0",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4280,
+        "env": 8,
+        "frame": 4281,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 3988821633,
+        "chosen_action": 0,
+        "best_surviving_action": 5,
+        "chosen": [
+          719.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          718.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s0",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4357,
+        "env": 3,
+        "frame": 4358,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1229887956,
+        "chosen_action": 3,
+        "best_surviving_action": 1,
+        "chosen": [
+          3.0,
+          0.9997475147247314,
+          2.0
+        ],
+        "best_surviving": [
+          236.0,
+          0.9801363348960876,
+          2.0
+        ],
+        "survivor_larger_voronoi": true
+      },
+      {
+        "arm": "b8_s0",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4586,
+        "env": 17,
+        "frame": 4587,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1712899657,
+        "chosen_action": 1,
+        "best_surviving_action": 3,
+        "chosen": [
+          115.0,
+          0.2434210479259491,
+          3.0
+        ],
+        "best_surviving": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s0",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4873,
+        "env": 12,
+        "frame": 4874,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 3010307125,
+        "chosen_action": 0,
+        "best_surviving_action": 1,
+        "chosen": [
+          20.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          20.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s1",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 2399,
+        "env": 17,
+        "frame": 2400,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1712899657,
+        "chosen_action": 2,
+        "best_surviving_action": 0,
+        "chosen": [
+          96.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          96.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s1",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 2691,
+        "env": 5,
+        "frame": 2692,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 2976813830,
+        "chosen_action": 1,
+        "best_surviving_action": 4,
+        "chosen": [
+          7.0,
+          0.9994098544120789,
+          1.0
+        ],
+        "best_surviving": [
+          3744.0,
+          0.6843702793121338,
+          2.0
+        ],
+        "survivor_larger_voronoi": true
+      },
+      {
+        "arm": "b8_s1",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3092,
+        "env": 30,
+        "frame": 3093,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1638785368,
+        "chosen_action": 1,
+        "best_surviving_action": 2,
+        "chosen": [
+          2805.0,
+          0.7609918117523193,
+          26.0
+        ],
+        "best_surviving": [
+          2798.0,
+          0.7615882754325867,
+          27.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s1",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3432,
+        "env": 21,
+        "frame": 3433,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1247816794,
+        "chosen_action": 1,
+        "best_surviving_action": 2,
+        "chosen": [
+          400.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          400.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s1",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3521,
+        "env": 28,
+        "frame": 3522,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1562232037,
+        "chosen_action": 1,
+        "best_surviving_action": 3,
+        "chosen": [
+          499.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          498.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s1",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3587,
+        "env": 12,
+        "frame": 3588,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 3010307125,
+        "chosen_action": 1,
+        "best_surviving_action": 4,
+        "chosen": [
+          481.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          480.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s1",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3984,
+        "env": 27,
+        "frame": 3985,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 4114750927,
+        "chosen_action": 1,
+        "best_surviving_action": 5,
+        "chosen": [
+          349.0,
+          0.8314823508262634,
+          1.0
+        ],
+        "best_surviving": [
+          346.0,
+          0.8328502178192139,
+          3.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s1",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4419,
+        "env": 11,
+        "frame": 4420,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 4046445356,
+        "chosen_action": 2,
+        "best_surviving_action": 0,
+        "chosen": [
+          610.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          610.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s1",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4582,
+        "env": 0,
+        "frame": 4583,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 2515367783,
+        "chosen_action": 2,
+        "best_surviving_action": 5,
+        "chosen": [
+          5.0,
+          0.9893162250518799,
+          2.0
+        ],
+        "best_surviving": [
+          3.0,
+          0.9935622215270996,
+          3.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s1",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4741,
+        "env": 24,
+        "frame": 4742,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1181537111,
+        "chosen_action": 0,
+        "best_surviving_action": 3,
+        "chosen": [
+          129.0,
+          0.9124236106872559,
+          1.0
+        ],
+        "best_surviving": [
+          143.0,
+          0.90285325050354,
+          2.0
+        ],
+        "survivor_larger_voronoi": true
+      },
+      {
+        "arm": "b8_s2",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 2423,
+        "env": 24,
+        "frame": 2424,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1181537111,
+        "chosen_action": 0,
+        "best_surviving_action": 4,
+        "chosen": [
+          400.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          399.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s2",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 2449,
+        "env": 1,
+        "frame": 2450,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 539912944,
+        "chosen_action": 0,
+        "best_surviving_action": 2,
+        "chosen": [
+          7.0,
+          0.9146341681480408,
+          6.0
+        ],
+        "best_surviving": [
+          4.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s2",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3507,
+        "env": 17,
+        "frame": 3508,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1712899657,
+        "chosen_action": 0,
+        "best_surviving_action": 1,
+        "chosen": [
+          435.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          435.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s2",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3915,
+        "env": 9,
+        "frame": 3916,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1996812937,
+        "chosen_action": 0,
+        "best_surviving_action": 2,
+        "chosen": [
+          58.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          58.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s2",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3956,
+        "env": 8,
+        "frame": 3957,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 3988821633,
+        "chosen_action": 0,
+        "best_surviving_action": 5,
+        "chosen": [
+          922.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          921.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s2",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4149,
+        "env": 2,
+        "frame": 4150,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 3835332564,
+        "chosen_action": 0,
+        "best_surviving_action": 1,
+        "chosen": [
+          365.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          365.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s2",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4327,
+        "env": 7,
+        "frame": 4328,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1401204162,
+        "chosen_action": 2,
+        "best_surviving_action": 5,
+        "chosen": [
+          440.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          439.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s2",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4885,
+        "env": 26,
+        "frame": 4886,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1331460052,
+        "chosen_action": 1,
+        "best_surviving_action": 3,
+        "chosen": [
+          1.0,
+          0.9999158978462219,
+          1.0
+        ],
+        "best_surviving": [
+          51.0,
+          0.9957113862037659,
+          2.0
+        ],
+        "survivor_larger_voronoi": true
+      },
+      {
+        "arm": "b8_s3",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 2607,
+        "env": 15,
+        "frame": 2608,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 474182439,
+        "chosen_action": 1,
+        "best_surviving_action": 0,
+        "chosen": [
+          100.0,
+          0.9914944171905518,
+          5.0
+        ],
+        "best_surviving": [
+          96.0,
+          0.9918346405029297,
+          6.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s3",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 2789,
+        "env": 1,
+        "frame": 2790,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 539912944,
+        "chosen_action": 3,
+        "best_surviving_action": 4,
+        "chosen": [
+          178.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          178.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s3",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3247,
+        "env": 26,
+        "frame": 3248,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1331460052,
+        "chosen_action": 2,
+        "best_surviving_action": 0,
+        "chosen": [
+          2329.0,
+          0.8045157194137573,
+          11.0
+        ],
+        "best_surviving": [
+          2325.0,
+          0.8048514127731323,
+          12.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s3",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3490,
+        "env": 12,
+        "frame": 3491,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 3010307125,
+        "chosen_action": 0,
+        "best_surviving_action": 2,
+        "chosen": [
+          2.0,
+          0.9998306632041931,
+          1.0
+        ],
+        "best_surviving": [
+          662.0,
+          0.9439505338668823,
+          30.0
+        ],
+        "survivor_larger_voronoi": true
+      },
+      {
+        "arm": "b8_s3",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3832,
+        "env": 30,
+        "frame": 3833,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1638785368,
+        "chosen_action": 2,
+        "best_surviving_action": 0,
+        "chosen": [
+          125.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          125.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s3",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4049,
+        "env": 6,
+        "frame": 4050,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 4130786071,
+        "chosen_action": 2,
+        "best_surviving_action": 1,
+        "chosen": [
+          1.0,
+          0.9993997812271118,
+          1.0
+        ],
+        "best_surviving": [
+          1628.0,
+          0.022809123620390892,
+          1.0
+        ],
+        "survivor_larger_voronoi": true
+      },
+      {
+        "arm": "b8_s3",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4155,
+        "env": 8,
+        "frame": 4156,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 3988821633,
+        "chosen_action": 2,
+        "best_surviving_action": 1,
+        "chosen": [
+          554.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          554.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s3",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4200,
+        "env": 9,
+        "frame": 4201,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1996812937,
+        "chosen_action": 2,
+        "best_surviving_action": 3,
+        "chosen": [
+          581.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          580.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s3",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4271,
+        "env": 17,
+        "frame": 4272,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1712899657,
+        "chosen_action": 2,
+        "best_surviving_action": 1,
+        "chosen": [
+          422.0,
+          0.9643279910087585,
+          23.0
+        ],
+        "best_surviving": [
+          661.0,
+          0.8081277012825012,
+          35.0
+        ],
+        "survivor_larger_voronoi": true
+      },
+      {
+        "arm": "b8_s3",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4670,
+        "env": 19,
+        "frame": 4671,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 3774445511,
+        "chosen_action": 2,
+        "best_surviving_action": 4,
+        "chosen": [
+          665.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          664.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s4",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 2743,
+        "env": 13,
+        "frame": 2744,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 2570788724,
+        "chosen_action": 1,
+        "best_surviving_action": 0,
+        "chosen": [
+          5.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          5.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s4",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 2794,
+        "env": 2,
+        "frame": 2795,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 3835332564,
+        "chosen_action": 0,
+        "best_surviving_action": 5,
+        "chosen": [
+          29.0,
+          0.9975640773773193,
+          3.0
+        ],
+        "best_surviving": [
+          829.0,
+          0.9303653836250305,
+          2.0
+        ],
+        "survivor_larger_voronoi": true
+      },
+      {
+        "arm": "b8_s4",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 2990,
+        "env": 5,
+        "frame": 2991,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 2976813830,
+        "chosen_action": 1,
+        "best_surviving_action": 3,
+        "chosen": [
+          54.0,
+          0.9309462904930115,
+          8.0
+        ],
+        "best_surviving": [
+          64.0,
+          0.9180538058280945,
+          7.0
+        ],
+        "survivor_larger_voronoi": true
+      },
+      {
+        "arm": "b8_s4",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3084,
+        "env": 31,
+        "frame": 3085,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 3273584622,
+        "chosen_action": 1,
+        "best_surviving_action": 2,
+        "chosen": [
+          1.0,
+          0.9999158978462219,
+          1.0
+        ],
+        "best_surviving": [
+          1.0,
+          0.9999158978462219,
+          1.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s4",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3342,
+        "env": 12,
+        "frame": 3343,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 3010307125,
+        "chosen_action": 0,
+        "best_surviving_action": 2,
+        "chosen": [
+          381.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          381.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s4",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3672,
+        "env": 28,
+        "frame": 3673,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1562232037,
+        "chosen_action": 1,
+        "best_surviving_action": 2,
+        "chosen": [
+          133.0,
+          0.9888479113578796,
+          3.0
+        ],
+        "best_surviving": [
+          132.0,
+          0.9889317750930786,
+          4.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s4",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 3747,
+        "env": 4,
+        "frame": 3748,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 4038340764,
+        "chosen_action": 1,
+        "best_surviving_action": 4,
+        "chosen": [
+          1032.0,
+          0.9136257171630859,
+          2.0
+        ],
+        "best_surviving": [
+          3570.0,
+          0.7012051939964294,
+          2.0
+        ],
+        "survivor_larger_voronoi": true
+      },
+      {
+        "arm": "b8_s4",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4451,
+        "env": 22,
+        "frame": 4452,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 15900433,
+        "chosen_action": 1,
+        "best_surviving_action": 0,
+        "chosen": [
+          961.0,
+          0.9195681214332581,
+          1.0
+        ],
+        "best_surviving": [
+          954.0,
+          0.9201539754867554,
+          2.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s4",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4594,
+        "env": 0,
+        "frame": 4595,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 2515367783,
+        "chosen_action": 1,
+        "best_surviving_action": 3,
+        "chosen": [
+          549.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          548.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      },
+      {
+        "arm": "b8_s4",
+        "boost_length_cost_frames": 3,
+        "cap": 10400,
+        "decision": 4755,
+        "env": 3,
+        "frame": 4756,
+        "grid_h": 83,
+        "grid_w": 145,
+        "min_boost_length": 5,
+        "slots": 6,
+        "world_seed": 1229887956,
+        "chosen_action": 1,
+        "best_surviving_action": 2,
+        "chosen": [
+          474.0,
+          0.0,
+          12036.0
+        ],
+        "best_surviving": [
+          474.0,
+          0.0,
+          12036.0
+        ],
+        "survivor_larger_voronoi": false
+      }
+    ],
+    "source_sha256": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/t1_feature_states.final.npz": "17b62967ed2b8d00c78a0b5dbc397bce7bdf9b4eb45aeb6c05c648e7637539ce",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/t1_check.final.json": "46513a39c5cb5f21b12c79f8d3bb39a7fbff3ac52f0eb63fff6d248f2ff10c66"
+    }
+  },
+  "source_sha256_after": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/arrival/features.npz": "ffa553acef2f6acbd02206b1b6c4c638edf94631bc41ad3acc717f02937e7c0b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features.npz": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/fits/folds.npz": "8940a6217c271987da98db7b1a80471067d0807c9884932c0e5e08aeab1f9fb2",
+    "/Users/josenunez/Projects/ml/snake-dqn-t5/research/t8_probes_20261017/arrival_fit.py": "c5ab4a6ccc0ac6f22ec7e8381829a983e1b612282cb4510d08c78a39ff3d89be",
+    "research/t5_separability_20261016/fit.py": "85b33e62f07f47a99ee001a1d84a583e35048d8bf32eee475ca0c21f0308865f",
+    "src/simd_env/t8_features.py": "f2c052e7944711d929114e44e6f30e283bddb7addbe53bcd3afb085b39af035f"
+  },
+  "elapsed_s": 119.98658174974844,
+  "artifact_sha256": {
+    "hist_gradient_boosting.predictions.npz": "1e3712734107e702f64655e4a7c62ea9ef84b87944459df62c1e065573734851",
+    "logistic_regression.predictions.npz": "35c02df1165c5eef43d4f377897e5e4669758199ed51a8c9a290c7a2c42c033b",
+    "t1_check.json": "6cddb938dd004b41807f8890cf955b30c1b76d479e35e6498c09a144bdea05e6"
+  }
+}

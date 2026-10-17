@@ -79,3 +79,27 @@ The separately reported seed audit must be refreshed at evaluation launch.
 
 No tmux session was accessed. The bounded smoke's actors exited cleanly; no
 8M run, evaluation, promotion, or unrelated process control was performed.
+
+## Evaluation seed audit
+
+The executable audit is `research/t6_restart_20261016/seed_audit.py`; its saved
+receipt is [t6_seed_audit_2026-10-16.json](t6_seed_audit_2026-10-16.json).
+It checks rounds 72/73 against prior registered history, the T3 namespace, all
+1,200 T4e planned collection worlds and all 319 source-world seeds of the
+hash-bound full snapshot store. JSON/JSONL scanning includes ignored and hidden
+paths, with only the exact current output receipt excluded.
+
+A separate conservative inventory covers 41 reconstructable recorded/planned
+training configurations. Dead heroes and respawn waits prevent using
+worlds-times-frames as a decision lower bound; the inventory instead guarantees
+only fresh segment-start decisions and includes actor partitioning and queue
+prefetch. A generated seed-prefix collision caps the envelope because the
+trainer refuses such a prefix. Potential collisions in this envelope would
+block the audit rather than be reported as proven actual world reuse.
+
+Seven legacy summaries lack enough arguments for this reconstruction and are
+listed explicitly in the receipt. Neither this inventory nor text scans prove
+anything about unrecorded/external experiments. This preparation is not an
+evaluation launch qualification: refresh the audit against then-current evidence
+and resolve any remaining history coverage before probing. Six focused seed-audit
+tests passed, including collision and ignored/hidden-path coverage.

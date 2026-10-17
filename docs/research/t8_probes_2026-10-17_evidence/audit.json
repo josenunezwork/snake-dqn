@@ -1,0 +1,69 @@
+{
+  "status": "PASS",
+  "cnn": {
+    "metrics": {
+      "cnn": {
+        "auc": 0.7419503204066638,
+        "ci95": [
+          0.7261478753000005,
+          0.7573931738576895
+        ]
+      }
+    },
+    "cpu_vs_mps_60_state_max_abs_prediction_difference": 5.837073174808083e-08,
+    "nested_split_and_train_only_scaling": "PASS"
+  },
+  "arrival": {
+    "hist_gradient_boosting": {
+      "baseline": {
+        "auc": 0.7349495546746903,
+        "ci95": [
+          0.7160622693311351,
+          0.7551822115607062
+        ]
+      },
+      "arrival": {
+        "auc": 0.74910636209005,
+        "ci95": [
+          0.7316552595533741,
+          0.7676434947595414
+        ]
+      },
+      "delta": {
+        "auc_delta": 0.01415680741535974,
+        "ci95": [
+          0.007322859425136169,
+          0.02088295010659986
+        ]
+      }
+    },
+    "logistic_regression": {
+      "baseline": {
+        "auc": 0.7334156220597261,
+        "ci95": [
+          0.7169050959818453,
+          0.7497309903498026
+        ]
+      },
+      "arrival": {
+        "auc": 0.7434354685950024,
+        "ci95": [
+          0.7283382588134287,
+          0.7585449026074481
+        ]
+      },
+      "delta": {
+        "auc_delta": 0.010019846535276322,
+        "ci95": [
+          0.005188133268940501,
+          0.014463156752289857
+        ]
+      }
+    }
+  },
+  "audited_predictions_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/arrival-fit/hist_gradient_boosting.predictions.npz": "1e3712734107e702f64655e4a7c62ea9ef84b87944459df62c1e065573734851",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/arrival-fit/logistic_regression.predictions.npz": "35c02df1165c5eef43d4f377897e5e4669758199ed51a8c9a290c7a2c42c033b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/cnn/predictions.npz": "2318a3a5fc46763acce0cb46d373d0976deacecdc8c82b3fb41e8cc10d2c07e0"
+  }
+}
