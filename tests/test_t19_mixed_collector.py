@@ -1,11 +1,12 @@
 """Focused invariants for the opt-in T19 mixed-seat collector."""
 
-import numpy as np
-import pytest
-from pathlib import Path
 import importlib.util
 import subprocess
 import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
 
 from research.redesign_m3c_20261008.train_m3c import (
     NStepBuilder,
@@ -28,7 +29,9 @@ def test_mixed_seat_permutation_is_seeded_segment_pinned_and_balanced() -> None:
 
 
 def test_mixed_stream_ids_are_dense_per_world_despite_shuffled_physical_seats() -> None:
-    seats = np.array([[False, True, False, True, True, False], [True, False, True, False, False, True]])
+    seats = np.array(
+        [[False, True, False, True, True, False], [True, False, True, False, False, True]]
+    )
     rows = np.argwhere(seats)
     assert np.array_equal(mixed_stream_ids(rows, seats), np.arange(6))
 
@@ -94,9 +97,17 @@ def test_real_short_n3_actor_dispatches_only_live_rows(tmp_path, monkeypatch) ->
         init,
         8,
         (
-            "--learner-seats", "3", "--obs-version", "bv8", "--onpolicy-labels",
-            "--label-frac", "1.0", "--anchor-mode", "v8margin",
-            "--league-b8-checkpoint", str(init),
+            "--learner-seats",
+            "3",
+            "--obs-version",
+            "bv8",
+            "--onpolicy-labels",
+            "--label-frac",
+            "1.0",
+            "--anchor-mode",
+            "v8margin",
+            "--league-b8-checkpoint",
+            str(init),
         ),
     )
     assert len(messages) == 8
@@ -106,16 +117,23 @@ def test_real_short_n3_actor_dispatches_only_live_rows(tmp_path, monkeypatch) ->
     assert any(any(key != "learner" for key in m["live_rows_by_policy"]) for m in messages)
 
 
-@pytest.mark.parametrize("old_extra,new_extra", [((), ("--learner-seats", "1")), (("--all-snakes-learner",), ("--learner-seats", "6"))], ids=["n1", "n6"])
+@pytest.mark.parametrize(
+    "old_extra,new_extra",
+    [((), ("--learner-seats", "1")), (("--all-snakes-learner",), ("--learner-seats", "6"))],
+    ids=["n1", "n6"],
+)
 def test_real_legacy_actor_matches_pre_league_collector(tmp_path, old_extra, new_extra) -> None:
     """N=1 and N=6 preserve pre-league hero/all-slot frames under fixed RNG."""
     sys.path.insert(0, str(Path(__file__).parent))
     from test_m6_reward import _init, _run_actor
+
     from research.redesign_m3c_20261008 import train_m3c as current
 
     source = subprocess.run(
         ["git", "show", "1331b346:research/redesign_m3c_20261008/train_m3c.py"],
-        check=True, capture_output=True, text=True,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
     path = tmp_path / "baseline_train_m3c.py"
     path.write_text(source)

@@ -140,7 +140,9 @@ def test_commands_cover_the_four_p0_cells_then_smoke03():
 
 def test_n3_commands_are_isolated_from_the_existing_t18_workload():
     commands = json.loads(
-        (prepare.Path(__file__).parents[1] / "research/t18_h100pod_20261017/commands_n3.json").read_text()
+        (
+            prepare.Path(__file__).parents[1] / "research/t18_h100pod_20261017/commands_n3.json"
+        ).read_text()
     )
     assert commands["schema"] == "perf-podbench-commands/v1"
     assert len(commands["commands"]) == 1

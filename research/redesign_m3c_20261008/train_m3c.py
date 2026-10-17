@@ -2926,9 +2926,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     hero = (
                         np.argwhere(alive)
                         if all_snakes
-                        else np.argwhere(alive & live_seats)
-                        if mixed_seats
-                        else np.argwhere(alive[:, :1])
+                        else (
+                            np.argwhere(alive & live_seats)
+                            if mixed_seats
+                            else np.argwhere(alive[:, :1])
+                        )
                     )
                     # vectorized: the opponents (no actor RNG, read-only runtime state, disjoint
                     # action cells) run while an asynchronous (MPS / CUDA) hero forward is in
@@ -3067,9 +3069,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     driven = (
                         rows[:, 0] * sim.S + rows[:, 1]
                         if all_snakes
-                        else mixed_stream_ids(rows, live_seats, league_n)
-                        if mixed_seats
-                        else rows[:, 0]
+                        else (
+                            mixed_stream_ids(rows, live_seats, league_n)
+                            if mixed_seats
+                            else rows[:, 0]
+                        )
                     )
                     flat_reward = reward.reshape(-1) if all_snakes else reward[:, 0]
                     flat_done = done.reshape(-1) if all_snakes else done[:, 0]
@@ -3081,7 +3085,9 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     else:
                         dense_reward = flat_reward
                         dense_done = flat_done
-                    deaths = nsb.step(driven, ids, chosen["act"], dense_reward, dense_done, gamma_now)
+                    deaths = nsb.step(
+                        driven, ids, chosen["act"], dense_reward, dense_done, gamma_now
+                    )
                     if restart_telemetry is not None:
                         restart_telemetry.record(
                             chosen["hero"][:, 0],
@@ -3530,9 +3536,9 @@ def main_multi(args) -> int:
                 st["since_update"] += len(gs)
                 st["replay_rows"] += int(msg["replay_rows"])
                 for policy_id, count in msg["live_rows_by_policy"].items():
-                    st["live_rows_by_policy"][policy_id] = (
-                        st["live_rows_by_policy"].get(policy_id, 0) + int(count)
-                    )
+                    st["live_rows_by_policy"][policy_id] = st["live_rows_by_policy"].get(
+                        policy_id, 0
+                    ) + int(count)
                 if msg.get("pool_identities") is not None:
                     if st["pool_identities"] is None:
                         st["pool_identities"] = msg["pool_identities"]
@@ -3816,7 +3822,13 @@ def main_multi(args) -> int:
                     ),
                 )
                 st.update(
-                    td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0,
+                    td=[],
+                    anc=[],
+                    qmax=0.0,
+                    boost=0,
+                    greedy_boost=0,
+                    decisions=0,
+                    deaths=0,
                 )
                 st["greedy_boost_length_decisions"] = np.zeros(4, dtype=np.int64)
                 st["greedy_boost_length_boosts"] = np.zeros(4, dtype=np.int64)
