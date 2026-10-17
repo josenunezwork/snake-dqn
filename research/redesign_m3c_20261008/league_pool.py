@@ -76,13 +76,6 @@ def _normal_fallback_mask(mask: Any) -> Any:
     return mask
 
 
-class _PolicyIds(tuple):
-    """Tuple that remains callable during the collector API transition."""
-
-    def __call__(self) -> Tuple[str, ...]:
-        return tuple(self)
-
-
 def sha256_file(path: Path) -> str:
     """Return the SHA-256 of ``path`` without trusting checkpoint metadata."""
     digest = hashlib.sha256()
@@ -268,9 +261,9 @@ class StaticPool:
         self.policies = dict(policies)
 
     @property
-    def policy_ids(self) -> _PolicyIds:
-        """Permanent ID order (also callable for the first collector draft)."""
-        return _PolicyIds(identity.policy_id for identity in self.identities)
+    def policy_ids(self) -> Tuple[str, ...]:
+        """Permanent identity order used for deterministic sampling and dispatch."""
+        return tuple(identity.policy_id for identity in self.identities)
 
     def identity_records(self) -> list[Dict[str, Any]]:
         return [identity.record() for identity in self.identities]
@@ -423,13 +416,14 @@ def build_default_static_pool(
     """Collector-facing constructor for the permanent first-slice pool.
 
     ``args`` and ``ctx`` are accepted so the actor call site has one stable
-    extension hook; only ``args.league_checkpoint_dir`` is consumed when present.
+    extension hook; ``league_checkpoint_dir`` and ``league_b8_checkpoint`` select
+    the independently pinned pool artifacts, never the mutable learner init.
     The simulator's actual world seeds are passed to deterministic scripted
     anchors, preserving their established per-world action semantics.
     """
     del ctx
     directory = getattr(args, "league_checkpoint_dir", None)
-    b8_checkpoint = getattr(args, "league_b8_checkpoint", None) or getattr(args, "init", None)
+    b8_checkpoint = getattr(args, "league_b8_checkpoint", None)
     seeds = sim.get_world_seeds()
     identities = default_pool_identities(directory, b8_checkpoint)
     for identity in identities:
