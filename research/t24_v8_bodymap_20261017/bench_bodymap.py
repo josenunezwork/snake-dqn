@@ -248,12 +248,21 @@ def _whole_actor_samples(
     from src.simd_env.grid_scenarios import inject_serpentines
 
     original = train.build_segment
+    fixture_before: list[dict[str, int]] = []
 
     def injected(*args: Any, **kwargs: Any) -> Any:
         output = original(*args, **kwargs)
         sim = output[0]
         inject_serpentines([sim], [length] * sim.S, box_height=9)
         sim.frame[...] = 1
+        segs = sim.seg_count[sim.alive]
+        fixture_before.append(
+            {
+                "live_rows": int(sim.alive.sum()),
+                "min_segments": int(segs.min()),
+                "max_segments": int(segs.max()),
+            }
+        )
         return output
 
     train.build_segment = injected
@@ -292,6 +301,7 @@ def _whole_actor_samples(
         "scope": "real actor_main: step, runtime carry, replay/n-step ring writes; no learner updates",
         "frames_per_sample": frames,
         "warm_frames_excluded": warm,
+        "fixture_before_first_decision": fixture_before,
         "samples": samples,
         "median_ms_per_frame": float(np.median(values)),
         "median_env_ms_per_frame": float(np.median(env_values)),
