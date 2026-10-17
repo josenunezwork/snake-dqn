@@ -15,7 +15,9 @@ Add these infrastructure flags to an already registered training command:
 
 Resume with the same registered recipe and a fresh `--out` directory, adding
 `--resume-full-state <snapshot root>`. The loader validates manifests and SHA-256
-before loading the newest complete snapshot. A corrupt newest snapshot is skipped
+before loading the newest complete snapshot. Synchronous and multi-actor snapshots
+are distinct contracts; the recipe and storage layout must match. Keep league
+checkpoint paths and input artifact identities unchanged across resumes. A corrupt newest snapshot is skipped
 when an older verified snapshot remains. A directory with no valid snapshot fails
 closed. The Colab notebook also refuses to restart a named run silently when its
 snapshot directory contains only corrupt or incomplete named snapshots.
@@ -51,7 +53,8 @@ snapshot, and disk for retained snapshots and an in-progress atomic write.
 CUDA model tensors are copied into pinned CPU storage and fenced before training
 can mutate their source. CPU arrays are detached while writers are held at a
 consistent boundary. `capture_stall_ms` includes boundary synchronization and state
-capture; local serialization/fsync and durable copy/retry durations are recorded
+capture; actor-barrier latency is recorded separately as `actor_barrier_ms`. Local
+serialization/fsync and durable copy/retry durations are recorded
 separately. The small-state CPU test requires capture below 50 ms. **A full copy of
 multi-gigabyte host observation rings does not carry a 50 ms guarantee.** The code
 reports the measured pause; it does not hide it in background-copy timing. CUDA and
@@ -69,11 +72,21 @@ snapshot attempts durable copying again.
 Each snapshot directory contains `state.pt` and a `manifest.json` recording its
 size, SHA-256, transition count and metadata. The local writer uses temporary files,
 fsync and rename. The durable worker publishes the manifest last, after copying and
-verifying the payload. Partially written directories are never resume candidates.
-A final snapshot is requested at orderly exit. Failed or outstanding final writes
+verifying the payload. Partially written directories are never resume candidates. An exclusive local
+writer lease allows a new writer to reclaim temporary directories left by an
+interrupted process without touching another active writer.
+A final snapshot is requested at orderly exit, including a configured wall-time
+stop. After training ends, the process stays alive while queued I/O drains; this
+may take minutes for a large Drive upload. Failed final writes
 make the summary's `full_state_complete` false; the long-run notebook then keeps
 the runtime assigned. Abrupt VM loss can lose work since the last completed durable
 snapshot, so choose checkpoint cadence and Drive capacity accordingly.
 
 The infrastructure does not select or authorize a training recipe. See the separate
 [T16 long-run notebook guide](../t16_colab/long_run.md).
+
+Bit-identical continuation is tested on the deterministic synchronous CPU path.
+The asynchronous multi-actor trainer already depends on OS scheduling and actor
+weight lag: restoring complete state does not make that execution order, compiled
+kernels, or different GPU architectures bit-reproducible. No GPU latency claim is
+inferred from CPU tests.

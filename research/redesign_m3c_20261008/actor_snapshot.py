@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import copy
 import random
-from typing import Any, Dict, Iterable, Mapping, MutableMapping, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 import numpy as np
 
@@ -278,3 +278,8 @@ def restore_actor_state(
         "pool_seats": None if pool is None else np.asarray(pool).copy(),
         "extra": _restore_value(None, snapshot.get("extra", {})),
     }
+
+
+def actor_snapshot_extra(snapshot: Mapping[str, Any]) -> Dict[str, Any]:
+    """Decode control metadata before constructing the saved segment configuration."""
+    return _restore_value(None, snapshot.get("extra", {}))

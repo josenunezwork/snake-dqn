@@ -9,6 +9,7 @@ snapshots: torch's full-state pickle can contain Python objects.
 from __future__ import annotations
 
 import copy
+import fcntl
 import hashlib
 import json
 import os
@@ -187,6 +188,7 @@ class AsyncCheckpointer:
         self._lock = threading.Lock()
         self._prune_lock = threading.Lock()
         self._pending: set[str] = set()
+        self._lease = None
         self._latest_name = None
         self._local_complete_name = None
         self._durable_complete_name = None
@@ -236,6 +238,24 @@ class AsyncCheckpointer:
                 protected = set(self._pending)
             self._prune(self.local_dir, protected)
 
+    def _acquire_local_lease(self) -> None:
+        """Only the background writer touches storage or reclaims dead-writer temps."""
+        if self._lease is not None:
+            return
+        self.local_dir.mkdir(parents=True, exist_ok=True)
+        lease = (self.local_dir / ".writer.lock").open("a+")
+        try:
+            fcntl.flock(lease.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # Kernel lock ownership proves no previous writer is still using these.
+            # An OOM/SIGKILL releases the lease even when finally blocks never ran.
+            for path in self.local_dir.glob(".tmp-snapshot-*"):
+                if path.is_dir() and not path.is_symlink():
+                    shutil.rmtree(path)
+        except BaseException:
+            lease.close()
+            raise
+        self._lease = lease
+
     def _write_loop(self) -> None:
         import torch
 
@@ -250,6 +270,7 @@ class AsyncCheckpointer:
                 self._latest_name = name
             temporary = self.local_dir / f".tmp-{name}"
             try:
+                self._acquire_local_lease()
                 temporary.mkdir(parents=True)
                 data = temporary / "state.pt"
                 with data.open("wb") as stream:
@@ -418,6 +439,11 @@ class AsyncCheckpointer:
             time.sleep(0.005)
         return not self.busy
 
+    @property
+    def workers_alive(self) -> bool:
+        """Terminal orchestration can keep the process alive until queued I/O finishes."""
+        return self._writer.is_alive() or self._copier.is_alive()
+
     def close(self, timeout: float = 30.0) -> bool:
         """Bounded shutdown; false means pending work remains, never release the runtime."""
         with self._lock:
@@ -426,6 +452,10 @@ class AsyncCheckpointer:
         deadline = time.monotonic() + timeout
         for worker in (self._writer, self._copier):
             worker.join(max(0.0, deadline - time.monotonic()))
+        if not self.workers_alive and self._lease is not None:
+            fcntl.flock(self._lease.fileno(), fcntl.LOCK_UN)
+            self._lease.close()
+            self._lease = None
         with self._lock:
             pending = (
                 bool(self._pending)

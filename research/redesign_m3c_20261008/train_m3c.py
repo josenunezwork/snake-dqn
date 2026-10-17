@@ -37,7 +37,10 @@ Everything new is behind a flag:
 * ``--max-wall-seconds`` (multi-actor only): default-off graceful smoke bound.  It stops the
   learner loop at the requested elapsed wall time, then writes the normal final checkpoint
   and summary with ``stopped_for_time: true``.  It is a weights-only restart boundary, not an
-  exact optimizer/replay/actor-state resume.
+  exact optimizer/replay/actor-state resume unless full-state checkpointing is enabled.
+* ``--full-state-every N``: opt-in full training state, with local serialization and durable
+  copying in separate workers. ``--resume-full-state DIR`` restores a verified manifest;
+  see ``CHECKPOINTS.md`` for replay size, refill and measured capture latency limits.
 * ``--obs-version bv8`` (M4-B; multi-actor only): the ``ego2s-bv8`` observation (``ego2s-b``
   plus the v8 veto's 30 per-action features as scalars 30..59; ``--init`` must be an
   ``ego2s-bv8`` checkpoint, e.g. from ``research/redesign_m4b_20261012/widen_bv8.py``). The
@@ -1530,12 +1533,39 @@ def save_checkpoint_atomic(path: Path, net, meta: Dict[str, Any], manifest: Path
         fh.write(json.dumps(row) + "\n")
 
 
-# ----------------------------------------------------------------------------- full-state checkpoints
-# These helpers deliberately use ordinary dicts of arrays.  The asynchronous writer owns
-# serialization and durability; this module owns the training-state contract.  In particular,
+# ---------------------------------------------------------------------- full-state checkpoints
+# These helpers use ordinary dicts of arrays. The asynchronous writer owns
+# serialization and durability; this module owns the training-state contract. In particular,
 # a replay row is only meaningful with its observation ring(s), because ``s`` and ``nxt`` are
 # monotone ring ids rather than observations.
 FULL_STATE_SCHEMA = "m3c-full-state/v1"
+
+
+def full_state_recipe(args) -> Dict[str, str]:
+    """Math/layout identity, excluding migration paths and checkpoint infrastructure."""
+    ignored = {
+        "out",
+        "init",
+        "demo_data",
+        "device",
+        "actor_device",
+        "ckpt_local_dir",
+        "ckpt_durable_dir",
+        "resume_full_state",
+        "full_state_every",
+        "full_state_replay",
+        "transitions",
+        "checkpoint_every",
+        "no_guard",
+        "ring_dir",
+        "demo_mmap",
+        "max_wall_seconds",
+    }
+    return {
+        key: str(value)
+        for key, value in vars(args).items()
+        if key not in ignored and not key.startswith("_")
+    }
 
 
 def _array_state(obj: Any, names: Sequence[str], *, copy: bool = True) -> Dict[str, Any]:
@@ -1560,9 +1590,7 @@ def _restore_array_state(obj: Any, state: Dict[str, Any]) -> None:
 
 def replay_state(replay: Replay, *, copy: bool = True) -> Dict[str, Any]:
     """Copy a replay's transition ring.  Its observation ring is saved separately."""
-    return _array_state(
-        replay, ("s", "a", "R", "disc", "nxt", "size", "ptr", "added"), copy=copy
-    )
+    return _array_state(replay, ("s", "a", "R", "disc", "nxt", "size", "ptr", "added"), copy=copy)
 
 
 def restore_replay_state(replay: Replay, state: Dict[str, Any]) -> None:
@@ -1575,7 +1603,9 @@ def obs_ring_state(ring: Any, *, copy: bool = True) -> Dict[str, Any]:
         return {
             "shared": True,
             "count": ring.count,
-            "arrays": {name: array.copy() if copy else array for name, array in ring.arrays.items()},
+            "arrays": {
+                name: array.copy() if copy else array for name, array in ring.arrays.items()
+            },
         }
     return {
         "shared": False,
@@ -1612,7 +1642,9 @@ def label_buffer_state(
     return None if labels is None else _array_state(labels, ("ids", "a", "size", "ptr"), copy=copy)
 
 
-def restore_label_buffer_state(labels: Optional[LabelBuffer], state: Optional[Dict[str, Any]]) -> None:
+def restore_label_buffer_state(
+    labels: Optional[LabelBuffer], state: Optional[Dict[str, Any]]
+) -> None:
     if state is not None:
         if labels is None:
             raise ValueError("full-state contains labels but labels are disabled")
@@ -1660,7 +1692,11 @@ def full_state_payload(
         "optimizer": optimizer.state_dict(),
         "counters": counters,
         "schedules": schedules.__dict__.copy(),
-        "rng": {"learner": rng.bit_generator.state, "numpy": np.random.get_state(), "torch": _torch_rng_state(torch)},
+        "rng": {
+            "learner": rng.bit_generator.state,
+            "numpy": np.random.get_state(),
+            "torch": _torch_rng_state(torch),
+        },
         "replay_mode": replay_mode,
         # ``capture_state`` performs the single detaching copy after this logical payload is
         # assembled.  Do not pre-copy multi-GB rings here.
@@ -1849,25 +1885,25 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         metavar="N",
-        help="opt-in full-state snapshot cadence in learner transitions (0 disables; snapshots are asynchronous)",
+        help="full-state cadence in learner transitions (0 disables; persistence is asynchronous)",
     )
     ap.add_argument(
         "--full-state-replay",
         choices=("none", "full"),
         default="none",
-        help="whether full-state snapshots include replay plus observation rings; full may be many GB",
+        help="include replay and observation rings (full may be many GB)",
     )
     ap.add_argument(
         "--ckpt-local-dir",
         type=Path,
         default=None,
-        help="local directory for asynchronous full-state snapshots (required with --full-state-every)",
+        help="local snapshot directory (required with --full-state-every)",
     )
     ap.add_argument(
         "--ckpt-durable-dir",
         type=Path,
         default=None,
-        help="optional durable mirror directory (for example, Google Drive); never blocks the learner",
+        help="optional durable mirror (e.g. Google Drive); copying runs in a separate worker",
     )
     ap.add_argument(
         "--resume-full-state",
@@ -2187,8 +2223,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--full-state-every needs --ckpt-local-dir")
     if args.resume_full_state is not None and args.ckpt_local_dir is None:
         # Continuing a long run should retain a new local recovery point without making a
-        # surprising Drive write.  The supplied resume directory is normally the local dir.
-        args.ckpt_local_dir = args.resume_full_state
+        # surprising Drive write: the resume source may itself be mounted Drive.
+        args.ckpt_local_dir = args.out / "full_state"
     if args.actors < 0:
         raise SystemExit("--actors must be >= 0")
     if args.learner_seats is not None and args.all_snakes_learner:
@@ -2538,7 +2574,7 @@ def main_sync(args) -> int:
         pend: List[deque] = [deque() for _ in range(E)]  # per world: (obs_id, a, reward)
         last_obs = np.full(E, -1, dtype=np.int64)
         if sync_cp is not None:
-            pend, last_obs = sync_cp.restore_segment(sim, runtime, pend, last_obs)
+            pend, last_obs = sync_cp.restore_segment(sim, runtime, pend, last_obs, policies)
         frame_start = int(sync_controls.pop("next_frame", 0)) if sync_controls else 0
 
         def flush(e: int, bootstrap: int, gamma_now: float) -> None:
@@ -2657,6 +2693,7 @@ def main_sync(args) -> int:
                     next_log,
                     next_ckpt,
                     force=state["halt"] is not None or state["transitions"] >= args.transitions,
+                    policies=policies,
                 )
             if state["halt"] or state["transitions"] >= args.transitions:
                 break
@@ -2939,7 +2976,9 @@ def _drain_queues_while_joining(procs, txs, deadline_seconds: float = 30.0) -> N
             proc.join(timeout=wait)
 
 
-def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt, control=None) -> None:
+def actor_main(
+    j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt, control=None
+) -> None:
     """One actor process: worlds, acting, n-step windows, observation ring writes."""
     os.environ["OMP_NUM_THREADS"] = "1"
     import torch
@@ -3030,12 +3069,17 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt,
         if opp_forward not in OPP_FORWARDS:
             raise ValueError(f"opp forward must be one of {OPP_FORWARDS}, got {opp_forward!r}")
         actor_resume = cfg.get("resume_actor_states", {}).get(str(j))
+        actor_resume_extra = {}
+        if actor_resume is not None:
+            from research.redesign_m3c_20261008.actor_snapshot import actor_snapshot_extra
+
+            actor_resume_extra = actor_snapshot_extra(actor_resume)
         segment = int(actor_resume["segment"]) if actor_resume is not None else j
         resume_applied = False
         while not stop_evt.is_set():
             t_glob = int(progress[0])
             gamma_seg = (
-                actor_resume.get("extra", {}).get("gamma_seg", sched.gamma(t_glob))
+                actor_resume_extra.get("gamma_seg", sched.gamma(t_glob))
                 if actor_resume is not None and not resume_applied
                 else sched.gamma(t_glob)
             )
@@ -3129,6 +3173,20 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt,
                     extra = restored.get("extra", {})
                     if extra.get("pool_identities") not in (None, pool_identity_records):
                         raise RuntimeError("actor snapshot static-pool identities differ")
+                from research.redesign_m3c_20261008.execution_snapshot import (
+                    restore_actor_execution,
+                    restore_policy_execution,
+                )
+
+                extra = restored["extra"]
+                restore_actor_execution(hero_fwd, extra.get("execution"))
+                restore_policy_execution(policies, extra.get("policies", {}))
+                restore_policy_execution({"shield": shield}, extra.get("shield", {"shield": {}}))
+                if pool is not None:
+                    restore_policy_execution(pool.policies, extra["pool_policies"])
+                    pool_rng.bit_generator.state = extra["pool_rng"]
+                if restart_telemetry is not None and extra.get("restart_telemetry") is not None:
+                    vars(restart_telemetry).update(extra["restart_telemetry"])
                 if not cfg.get("resume_with_full_replay", True):
                     # Pending n-step IDs refer to deliberately omitted ring rows.
                     nsb = NStepBuilder(n_driven) if fast else NStepBuilderRef(n_driven)
@@ -3437,6 +3495,10 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt,
                         pass
                 if request is not None and request.get("op") == "snapshot":
                     from research.redesign_m3c_20261008.actor_snapshot import capture_actor_state
+                    from research.redesign_m3c_20261008.execution_snapshot import (
+                        capture_actor_execution,
+                        capture_policy_execution,
+                    )
 
                     snapshot = capture_actor_state(
                         sim,
@@ -3453,6 +3515,16 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt,
                             "pool_identities": pool_identity_records,
                             "weights_version": last,
                             "gamma_seg": gamma_seg,
+                            "execution": capture_actor_execution(hero_fwd),
+                            "policies": capture_policy_execution(policies),
+                            "shield": capture_policy_execution({"shield": shield}),
+                            "pool_policies": (
+                                capture_policy_execution(pool.policies) if pool else None
+                            ),
+                            "pool_rng": pool_rng.bit_generator.state if pool else None,
+                            "restart_telemetry": (
+                                vars(restart_telemetry) if restart_telemetry else None
+                            ),
                         },
                     )
                     _put_until_stopped(
@@ -3532,6 +3604,10 @@ def main_multi(args) -> int:
 
         # Verification happens before allocating GPUs/shared memory or launching actors.
         resume_payload, resume_manifest = load_latest_snapshot(args.resume_full_state)
+        if resume_payload.get("extra", {}).get("recipe") != full_state_recipe(args):
+            raise ValueError("full-state multi-actor training recipe differs")
+        if resume_payload.get("extra", {}).get("trainer") != "multi":
+            raise ValueError("multi-actor resume requires a multi-actor snapshot")
 
     if args.no_guard:
 
@@ -3719,7 +3795,9 @@ def main_multi(args) -> int:
     ctx_mp = mp.get_context("spawn")
     stop_evt = ctx_mp.Event()
     txs = [ctx_mp.Queue(maxsize=args.actor_queue_frames) for _ in range(K)]
-    controls = [ctx_mp.Queue(maxsize=1) for _ in range(K)]
+    # The protocol permits only a release plus the next request per actor. An
+    # unbounded control FIFO avoids partial fan-out when a release is still queued.
+    controls = [ctx_mp.Queue() for _ in range(K)] if args.full_state_every else [None] * K
     cfg = {
         "args": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()},
         "K": K,
@@ -3732,8 +3810,7 @@ def main_multi(args) -> int:
         cfg["obs_pack"] = pack.to_dict()
     if resume_payload is not None:
         cfg["resume_actor_states"] = {
-            str(j): state
-            for j, state in resume_payload.get("extra", {}).get("actors", {}).items()
+            str(j): state for j, state in resume_payload.get("extra", {}).get("actors", {}).items()
         }
         cfg["resume_with_full_replay"] = resumed_with_replay
     cfg["args"]["demo_data"] = str(args.demo_data)
@@ -3810,7 +3887,7 @@ def main_multi(args) -> int:
             "replay": "full" if resumed_with_replay else "none",
             "resumed_without_replay": not resumed_with_replay,
         }
-        st["flags"].append(resume_event)
+        st["flags"] = list(st["flags"]) + [resume_event]
         with log_path.open("a") as stream:
             stream.write(json.dumps(resume_event) + "\n")
         if not resumed_with_replay:
@@ -3887,22 +3964,38 @@ def main_multi(args) -> int:
         **({"return_bank": return_bank} if return_bank is not None else {}),
     )
     if resume_payload is not None:
-        saved_learner = resume_payload.get("extra", {}).get("learner", {})
-        if saved_learner.get("scaler") is not None and getattr(learner, "scaler", None) is not None:
-            learner.scaler.load_state_dict(saved_learner["scaler"])
-        if saved_learner.get("amp_skipped") is not None:
-            learner.amp_skipped = saved_learner["amp_skipped"]
+        from research.redesign_m3c_20261008.execution_snapshot import restore_learner_execution
+
+        restore_learner_execution(learner, resume_payload["extra"]["learner"])
+
+        # Learner/options initialize optional telemetry groups; install every saved
+        # counter only after those constructors, retaining its shared st reference.
+        st.clear()
+        st.update(resume_payload["counters"])
+        st["flags"] = list(st["flags"]) + [resume_event]
+        if not resumed_with_replay:
+            st["since_update"] = 0
+        np.random.set_state(resume_payload["rng"]["numpy"])
+        _restore_torch_rng_state(torch, resume_payload["rng"]["torch"])
 
     checkpointer = None
     next_full_state = 0
     full_state_events: List[Dict[str, Any]] = []
+
+    def record_full_state(event: Dict[str, Any]) -> None:
+        full_state_events.append(event)
+        with log_path.open("a") as stream:
+            stream.write(json.dumps(event) + "\n")
+
+    def poll_full_state() -> None:
+        for event in checkpointer.poll_events():
+            record_full_state(event)
+
     if args.full_state_every:
         from research.redesign_m3c_20261008.async_checkpoint import AsyncCheckpointer, capture_state
 
         checkpointer = AsyncCheckpointer(args.ckpt_local_dir, args.ckpt_durable_dir, keep=2)
-        next_full_state = (
-            (st["transitions"] // args.full_state_every) + 1
-        ) * args.full_state_every
+        next_full_state = ((st["transitions"] // args.full_state_every) + 1) * args.full_state_every
 
     def submit_full_state(force: bool = False) -> None:
         """Detach at an update boundary then hand off nonblocking persistence.
@@ -3912,11 +4005,12 @@ def main_multi(args) -> int:
         stall claim; model-only / replay-none snapshots are normally small.
         """
         nonlocal next_full_state, actor_snapshot_serial, pending_actor_snapshot
+        nonlocal actor_barrier_started, last_snapshot_counters
         if checkpointer is None or (not force and st["transitions"] < next_full_state):
             return
         if not force and demos is not None and getattr(demos, "_thread", None) is not None:
             if demos._thread.is_alive():
-                full_state_events.append(
+                record_full_state(
                     {"event": "full-state-snapshot-deferred", "reason": "demo-prefetch"}
                 )
                 return
@@ -3925,19 +4019,16 @@ def main_multi(args) -> int:
         # always skip rather than block.
         if checkpointer.busy:
             if not force or not checkpointer.wait_local(timeout=30):
-                full_state_events.append(
+                record_full_state(
                     {"event": "full-state-snapshot-skipped", "reason": "serializer-busy"}
                 )
                 return
         if pending_actor_snapshot is None:
             actor_snapshot_serial += 1
             pending_actor_snapshot = actor_snapshot_serial
+            actor_barrier_started = time.perf_counter()
             for control in controls:
-                try:
-                    control.put_nowait({"op": "snapshot", "id": pending_actor_snapshot})
-                except queue.Full:
-                    pending_actor_snapshot = None
-                    return
+                control.put_nowait({"op": "snapshot", "id": pending_actor_snapshot})
             return
         frozen = {
             j: msg["state"]
@@ -3946,6 +4037,8 @@ def main_multi(args) -> int:
         }
         if len(frozen) != K:
             return
+        from research.redesign_m3c_20261008.execution_snapshot import capture_learner_execution
+
         begin = time.perf_counter()
         learner.flush()  # finish any AMP/pipelined learner update before copying optimizer state
         demo_snapshot = None
@@ -3966,6 +4059,8 @@ def main_multi(args) -> int:
             rings,
             args.full_state_replay,
             {
+                "trainer": "multi",
+                "recipe": full_state_recipe(args),
                 "published": published,
                 "rr": rr,
                 "next_log": next_log,
@@ -3976,15 +4071,7 @@ def main_multi(args) -> int:
                 "progress": progress.copy(),
                 "demos": demo_snapshot,
                 "actors": frozen,
-                "learner": {
-                    "scaler": (
-                        learner.scaler.state_dict()
-                        if getattr(learner, "scaler", None) is not None
-                        else None
-                    ),
-                    "amp_skipped": getattr(learner, "amp_skipped", None),
-                    "compile": learner.compile_status(),
-                },
+                "learner": capture_learner_execution(learner),
             },
         )
         detached = capture_state(payload)
@@ -3992,23 +4079,28 @@ def main_multi(args) -> int:
         accepted = checkpointer.submit(
             detached,
             int(st["transitions"]),
-            {"schema": FULL_STATE_SCHEMA, "capture_stall_ms": stall_ms, "replay": args.full_state_replay},
+            {
+                "schema": FULL_STATE_SCHEMA,
+                "capture_stall_ms": stall_ms,
+                "replay": args.full_state_replay,
+            },
         )
         event = {
             "event": "full-state-snapshot",
             "transitions": int(st["transitions"]),
             "capture_stall_ms": stall_ms,
             "accepted": accepted,
+            "actor_barrier_ms": 1000.0 * (begin - actor_barrier_started),
             "replay": args.full_state_replay,
         }
-        full_state_events.append(event)
+        record_full_state(event)
         tel.add("full_state_capture_stall_ms", stall_ms)
         for control in controls:
             control.put({"op": "release", "id": pending_actor_snapshot})
         pending_actor_snapshot = None
-        next_full_state = (
-            (st["transitions"] // args.full_state_every) + 1
-        ) * args.full_state_every
+        if accepted:
+            last_snapshot_counters = (int(st["transitions"]), int(st["updates"]))
+        next_full_state = ((st["transitions"] // args.full_state_every) + 1) * args.full_state_every
 
     code = 0
     rr = int(resume_extra.get("rr", 0))
@@ -4018,16 +4110,19 @@ def main_multi(args) -> int:
     actor_snapshots: Dict[int, Dict[str, Any]] = {}
     actor_snapshot_serial = 0
     pending_actor_snapshot: Optional[int] = None
+    actor_barrier_started = 0.0
+    last_snapshot_counters = None
     try:
         while (
-            st["transitions"] < args.transitions and st["halt"] is None
+            not stopped_for_time and st["transitions"] < args.transitions and st["halt"] is None
         ) or pending_actor_snapshot is not None:
             if (
                 getattr(args, "max_wall_seconds", 0.0)
                 and time.perf_counter() - started >= args.max_wall_seconds
             ):
                 stopped_for_time = True
-                break
+                if checkpointer is None:
+                    break
             if prof is not None:
                 _tick_learner_profile(prof, st)
             if st["transitions"] >= next_guard:
@@ -4119,9 +4214,13 @@ def main_multi(args) -> int:
                 counts = st["action_window"].counts
                 if counts.max() > 0.9 * counts.sum():
                     st["halt"] = f"action collapse {counts.tolist()}"
-            submit_full_state(force=st["transitions"] >= args.transitions or st["halt"] is not None)
+            submit_full_state(
+                force=stopped_for_time
+                or st["transitions"] >= args.transitions
+                or st["halt"] is not None
+            )
             if checkpointer is not None:
-                full_state_events.extend(checkpointer.poll_events())
+                poll_full_state()
             if st["transitions"] >= next_log:
                 next_log += 100_000
                 learner.flush()  # fast learner: apply the pending step, sync device stats
@@ -4427,10 +4526,18 @@ def main_multi(args) -> int:
         if checkpointer is not None:
             # A bounded close joins serializer/copy workers; a durable-copy failure is
             # surfaced in the run receipt but must never have interrupted the learner.
-            full_state_complete = bool(checkpointer.close(timeout=30))
+            persisted = checkpointer.close(timeout=30)
+            # Training is over. Keep this process (and its daemon writers) alive until
+            # pending local/Drive I/O finishes; a large final upload may take minutes.
+            while checkpointer.workers_alive:
+                poll_full_state()
+                persisted = checkpointer.close(timeout=30)
+            full_state_complete = bool(persisted) and (
+                last_snapshot_counters == (int(st["transitions"]), int(st["updates"]))
+            )
             if not full_state_complete:
                 st["flags"].append({"event": "full-state-close-incomplete"})
-            full_state_events.extend(checkpointer.poll_events())
+            poll_full_state()
     try:
         learner.flush()  # fast learner: the last pipelined step belongs to the final weights
     except Exception as exc:  # noqa: BLE001

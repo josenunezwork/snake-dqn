@@ -18,6 +18,10 @@ from research.redesign_m3c_20261008.async_checkpoint import (
     load_latest_snapshot,
 )
 from research.redesign_m3c_20261008.demo_snapshot import capture_demo_state, restore_demo_state
+from research.redesign_m3c_20261008.execution_snapshot import (
+    capture_policy_execution,
+    restore_policy_execution,
+)
 
 
 class SyncCheckpointSession:
@@ -124,12 +128,15 @@ class SyncCheckpointSession:
         with self.log_path.open("a") as stream:
             stream.write(json.dumps(event) + "\n")
 
-    def restore_segment(self, sim, runtime, pend, last_obs):
+    def restore_segment(self, sim, runtime, pend, last_obs, policies=None):
         """Restore after build_segment; returns n-step queues and last observation IDs."""
         if self.pending_actor is None:
             return pend, last_obs
         state = SimpleNamespace(pend=pend, last_obs=last_obs)
-        restore_actor_state(self.pending_actor, sim, runtime, state, self.rng, self.online)
+        restored = restore_actor_state(
+            self.pending_actor, sim, runtime, state, self.rng, self.online
+        )
+        restore_policy_execution(policies or {}, restored["extra"].get("policies", {}))
         self.pending_actor = None
         if not self.resumed_with_replay:
             state.pend = [deque() for _ in range(sim.E)]
@@ -149,6 +156,7 @@ class SyncCheckpointSession:
         next_ckpt: int,
         *,
         force: bool = False,
+        policies=None,
     ) -> bool:
         from research.redesign_m3c_20261008.train_m3c import full_state_payload
 
@@ -175,6 +183,7 @@ class SyncCheckpointSession:
             segment,
             next_frame,
             0,
+            extra={"policies": capture_policy_execution(policies or {})},
         )
         payload = full_state_payload(
             self.torch,
@@ -214,7 +223,7 @@ class SyncCheckpointSession:
             },
         )
         if accepted:
-            self.last_submitted = transitions
+            self.last_submitted = (transitions, self.counters["updates"])
             self.next_snapshot = (
                 (transitions // self.args.full_state_every) + 1
             ) * self.args.full_state_every
@@ -232,8 +241,16 @@ class SyncCheckpointSession:
         if self.writer is None:
             return None
         self.complete = self.writer.close(30)
+        while self.writer.workers_alive:
+            for event in self.writer.poll_events():
+                self._record(event)
+            self.complete = self.writer.close(30)
         for event in self.writer.poll_events():
             self._record(event)
+        self.complete = bool(self.complete) and self.last_submitted == (
+            self.counters["transitions"],
+            self.counters["updates"],
+        )
         return self.complete
 
     def summary(self) -> dict[str, Any]:
