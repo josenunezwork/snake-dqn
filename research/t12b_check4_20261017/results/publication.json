@@ -1,0 +1,38 @@
+{
+  "diagnostics": {
+    "diagnosis-v1.json": "ceab759e08197b55669cda2a43f9a59cacaeccd3b8aab470bcc20befd639bad0",
+    "diagnosis-websocket-v1.json": "a94ccdc6a95578521fc680670668fd077dd673fedd147d5cc42ca60aaf46f470"
+  },
+  "files": {
+    "audit.json": {
+      "bytes": 290,
+      "sha256": "8722c40b897be5da823ed600f298d11aadba3dfb06b0a4c9f5151bf777b8b80b"
+    },
+    "evidence.tar.gz": {
+      "bytes": 1130491,
+      "sha256": "51b7d3671e88b2951bf11a09f0c92f33fda10e1c567561025f755d3085d3cd00"
+    },
+    "intent.json": {
+      "bytes": 131449,
+      "sha256": "ff4a522f6b96bd8c42b31c5c37b629051ce3e43f9067a5dfdc4a6e622ca3bb34"
+    },
+    "receipt.json": {
+      "bytes": 837,
+      "sha256": "c045d5d91f49180eeb1108ed75f34330c958a43ca0116293addccec84dea1bea"
+    },
+    "seed-audit.json": {
+      "bytes": 77408,
+      "sha256": "745fe51210bfdfee6d2730aa1285838f43f4ffa94e4aca0abc947b379f6e4f4d"
+    },
+    "summary.json": {
+      "bytes": 7211,
+      "sha256": "c9ae098782641bfcaed8e36b17b5144e1686c6880f9a901ac9c7a13ab93dc537"
+    },
+    "validation.json": {
+      "bytes": 2116,
+      "sha256": "c8dbc3bd3f21761d1875386571c04665bb3fd63f005820281d6b412418c94d5a"
+    }
+  },
+  "schema": "t12b-publication/v1",
+  "source_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t12b-check4-20261017/run-v1"
+}

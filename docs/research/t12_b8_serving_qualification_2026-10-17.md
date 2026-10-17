@@ -1,5 +1,9 @@
 # B8 seed 3 extended Mac serving qualification (2026-10-17)
 
+**Latest qualification update:** the authorized [T12B check-4-only rerun](#t12b-check-4-result-and-evidence)
+passed after the serving-speed repair. The original T12 failure below is preserved.
+Checks 1–3 and 5–8 are carried forward; the released default is still **frp3-s12 + v8**.
+
 **Outcome: `SERVING_FAIL` / HOLD — not a release record.** The independent audit passed
 checks 1–3 and 5–8 but failed check 4's paced high-speed validation. The released default
 remains **frp3-s12 + v8** throughout this work:
@@ -250,6 +254,85 @@ The measured tick excludes socket transmission and client rendering; achieved ca
 reported separately because the server sleeps the entire interval after its work.
 
 Product validation before qualification: 104 backend tests, 15 Controls frontend tests,
-the frontend production build, and flake8 passed. The repair commit is `25b25bf0`, pushed
-to `main` and `t12-20261017`. Qualification results and final evidence follow below once
-the pinned check-4-only run completes; this section alone is not a pass or release.
+the frontend production build, and flake8 passed. The independent harness/audit added
+16 passing tests. The repair commit is `25b25bf0`, pushed to `main` and `t12-20261017`.
+The integrated preflight also confirmed that 136 protected source hashes (all bound
+`src/` files, the ego2s serving policy, and the checkpoint registry) match the original
+T12 intent. No numbered check other than check 4 was re-run.
+
+### T12B check-4 result and evidence
+
+**Check 4: `SERVING_PASS`.** The four cases passed all three amended conditions, with
+zero overruns across eight separate 120-tick probes. No lower retry was needed or used.
+The original T12 audit still says `SERVING_FAIL`; the new sibling audit clears its
+check-4 HOLD under the authorized amendment. This is qualification evidence, not a release:
+`CHECKPOINT_RELEASED_DEFAULT = NAME_FRP3_S12` remains unchanged.
+
+| Case | Driven AI | Update p50 / p95 / max (ms) | Tick p95 / max (ms) | Default 12 fps overruns | Enforced ceiling | Ceiling overruns |
+|---|---:|---:|---:|---:|---:|---:|
+| Watch6 | 6 | 5.967 / 8.048 / 30.710 | 8.752 / 31.552 | 0 / 120 | 24 fps | 0 / 120 |
+| Watch12 | 12 | 12.621 / 15.417 / 42.616 | 33.123 / 43.424 | 0 / 120 | 12 fps | 0 / 120 |
+| Play6 | 5 | 4.589 / 5.790 / 31.626 | 5.887 / 31.733 | 0 / 120 | 24 fps | 0 / 120 |
+| Play12 | 11 | 9.115 / 11.727 / 40.362 | 11.961 / 40.460 | 0 / 120 | 12 fps | 0 / 120 |
+
+Each update/tick distribution above contains 1,500 advancing samples. Warm-up totals
+were 200, 200, 800, and 1,200, with 0, 0, 3, and 5 Play/reset events respectively.
+Every individual paced probe had its own 200-frame warm-up. The largest default-speed
+ticks were 24.159, 63.143, 17.605, and 68.857 ms; all are below 83.333 ms. The largest
+ceiling-speed ticks were 17.085, 25.914, 14.801, and 24.535 ms, below the corresponding
+41.667 or 83.333 ms budgets.
+
+Ceilings are processing-budget settings, not achieved frame rates. Measured cadence
+at default/ceiling was Watch6 9.499/16.025, Watch12 8.788/8.855,
+Play6 9.606/15.827, and Play12 8.942/8.968 fps. The unchanged sleep-after-work loop,
+human-control work, and scheduler overhead explain why these differ from settings;
+the audit does not certify real-time 12/24 fps delivery. Remote network/client rendering
+remain outside this check. Larger rosters and other ego2s checkpoints were not qualified
+by these four B8 cases.
+
+The run took 173.094 seconds on this Mac, with one Torch/BLAS thread, AC power, and open
+lid. Initial and before/after-case process snapshots record no other training/evaluation
+workload. The existing `git-sync` and `t3-run` tmux shells were idle and left untouched.
+The raw process snapshots still include ordinary OS/application activity; no claim of
+an otherwise idle operating system is made. Every candidate construction selected B8
+via `SNAKE_SERVE_CHECKPOINT=b8-s3`, with no fallback or `last_error`.
+
+The producer and amendment were committed and pushed **before** preparation and timing:
+`23c571de289cc2d16029489935fbff5e9e6bbe6a`. Amendment SHA-256:
+`ce753f69c162f036a66187ac8eac384ff84e30abcb2f13dc2849e316785559c1`.
+The fresh four-seed audit passed under `t12b-check4-20261017/v1`, including 76 explicit
+original-T12/diagnostic exclusions and inherited T7/exclusion-bank coverage.
+
+Raw create-only evidence is rooted at
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/t12b-check4-20261017/run-v1`.
+Portable evidence is in [T12B results](../../research/t12b_check4_20261017/results/), including
+the [intent](../../research/t12b_check4_20261017/results/intent.json),
+[receipt](../../research/t12b_check4_20261017/results/receipt.json),
+[audit](../../research/t12b_check4_20261017/results/audit.json),
+[summary](../../research/t12b_check4_20261017/results/summary.json),
+[independent evidence review](../../research/t12b_check4_20261017/results/REVIEW.md),
+[publication manifest](../../research/t12b_check4_20261017/results/publication.json), and
+[raw-evidence archive](../../research/t12b_check4_20261017/results/evidence.tar.gz).
+The archive also preserves both diagnostics, the seed audit, validation logs, and the
+qualification process log. Its SHA-256 is
+`51b7d3671e88b2951bf11a09f0c92f33fda10e1c567561025f755d3085d3cd00`.
+
+| Binding | SHA-256 |
+|---|---|
+| Intent | `ff4a522f6b96bd8c42b31c5c37b629051ce3e43f9067a5dfdc4a6e622ca3bb34` |
+| Receipt | `c045d5d91f49180eeb1108ed75f34330c958a43ca0116293addccec84dea1bea` |
+| Independent audit | `8722c40b897be5da823ed600f298d11aadba3dfb06b0a4c9f5151bf777b8b80b` |
+| Raw latency result | `3e24bc537629cedd91c90f8e438eee5f6d55f4472f67c667d1f9c87e83a3a4d0` |
+| Fresh seed audit | `745fe51210bfdfee6d2730aa1285838f43f4ffa94e4aca0abc947b379f6e4f4d` |
+
+Reproduce the independent evidence audit without running gameplay:
+
+```bash
+./venv/bin/python -I research/t12b_check4_20261017/audit.py \
+  --root /Users/josenunez/Projects/ml/snake-dqn-artifacts/t12b-check4-20261017/run-v1
+```
+
+Expected exit is 0, `SERVING_PASS`, `check4_qualified: true`. The seven carried checks,
+Watch monitoring baseline, and self-play/no-veto/leaderboard disclosures remain those of
+the original T12 evidence. No release, checkpoint-default change, or monitoring job was
+performed by T12B.

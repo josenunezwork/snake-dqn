@@ -1,0 +1,8 @@
+{
+  "check4_qualified": true,
+  "failures": [],
+  "intent_sha256": "ff4a522f6b96bd8c42b31c5c37b629051ce3e43f9067a5dfdc4a6e622ca3bb34",
+  "protocol_sha256": "ce753f69c162f036a66187ac8eac384ff84e30abcb2f13dc2849e316785559c1",
+  "schema": "t12b-check4-audit/v1",
+  "verdict": "SERVING_PASS"
+}

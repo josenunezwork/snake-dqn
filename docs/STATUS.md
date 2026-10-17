@@ -97,3 +97,13 @@ paced Watch12 high-speed retry. This is not a release: `CHECKPOINT_RELEASED_DEFA
 `frp3-s12`, and T12 selected B8 only with `SNAKE_SERVE_CHECKPOINT=b8-s3`. No default flip or
 extra timing attempt was made. See the [T12 B8 serving qualification](research/t12_b8_serving_qualification_2026-10-17.md)
 for the audit-bound evidence and the required fresh-qualification boundary for any repair.
+
+### T12B check-4 repair passed (2026-10-17)
+
+The authorized check-4-only rerun passed its pinned sibling amendment: Watch6/Play6
+are server-clamped to 24 fps, Watch12/Play12 to 12 fps, and all default/ceiling paced
+probes had zero overruns. Checks 1–3 and 5–8 carry forward from T12; its original failed
+attempt remains preserved. The repair changes ego2s serving speed controls only, with
+policy math and forward paths unchanged. **This is not a release:**
+`CHECKPOINT_RELEASED_DEFAULT` remains `frp3-s12`. See the
+[T12B result and evidence](research/t12_b8_serving_qualification_2026-10-17.md#t12b-check-4-result-and-evidence).

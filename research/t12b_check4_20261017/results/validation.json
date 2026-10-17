@@ -1,0 +1,51 @@
+{
+  "checks": [
+    {
+      "command": [
+        "./venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_t12b_check4_run.py",
+        "tests/test_t12b_check4_audit.py"
+      ],
+      "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t12b-check4-20261017/validation-integrated-0.log",
+      "returncode": 0,
+      "seconds": 0.9249720573425293,
+      "sha256": "2e7bacd2311c966d9269b66962fc0b35aba79ab3b75ef47bcb271859b44f395b"
+    },
+    {
+      "command": [
+        "./venv/bin/python",
+        "-m",
+        "flake8",
+        "research/t12b_check4_20261017",
+        "web/backend/session.py",
+        "web/backend/serving_speed.py",
+        "tests/test_web_ego2s_serving.py",
+        "tests/test_t12b_check4_run.py",
+        "tests/test_t12b_check4_audit.py"
+      ],
+      "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t12b-check4-20261017/validation-integrated-1.log",
+      "returncode": 0,
+      "seconds": 0.20137977600097656,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "passed": true,
+  "product_results": {
+    "backend_passed": 104,
+    "flake8": "PASS",
+    "frontend_build": "PASS",
+    "frontend_passed": 15
+  },
+  "product_validation_logs": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t12b-check4-20261017/validation-speed/backend-focused.log": "b6e6c04da2d84676ea5b8ccd59611b54ef6498c06f347c430b53b4d706772ed4",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t12b-check4-20261017/validation-speed/flake8-speed.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t12b-check4-20261017/validation-speed/frontend-build.log": "9a04531923e10df904ebf95fbde9eee5924d4e57c516416a561d65012d984334",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t12b-check4-20261017/validation-speed/frontend-controls.log": "2a0f989520910f1c0e0689de4c233522d394cc3336a289797d991ab7d84df693"
+  },
+  "protected_source_differences": [],
+  "protected_source_hashes_matched_original_t12": 136,
+  "schema": "t12b-preflight/v1"
+}

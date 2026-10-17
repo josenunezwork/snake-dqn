@@ -1,0 +1,269 @@
+{
+  "cases": [
+    {
+      "advancing_measured_frames": 1500,
+      "advancing_warmup_frames": 200,
+      "case": "Watch6",
+      "clamped_ceiling_fps": 24.0,
+      "paced": [
+        {
+          "actual_achieved_fps": 9.499285598151205,
+          "actual_clamped_fps": 12.0,
+          "overruns": 0,
+          "server_speed_ceiling_fps": 24.0,
+          "set_speed_request_fps": 12,
+          "tick_ms": {
+            "count": 120,
+            "max": 24.158834014087915,
+            "mean": 15.17884093724812,
+            "p50": 15.3932711109519,
+            "p95": 16.889725578948855
+          },
+          "ticks": 120,
+          "warmup": {
+            "advancing_frames": 200,
+            "restarts": 0
+          }
+        },
+        {
+          "actual_achieved_fps": 16.024874521736823,
+          "actual_clamped_fps": 24.0,
+          "overruns": 0,
+          "server_speed_ceiling_fps": 24.0,
+          "set_speed_request_fps": 120,
+          "tick_ms": {
+            "count": 120,
+            "max": 17.085209023207426,
+            "mean": 14.125654865832379,
+            "p50": 14.591145562008023,
+            "p95": 16.149168577976525
+          },
+          "ticks": 120,
+          "warmup": {
+            "advancing_frames": 200,
+            "restarts": 0
+          }
+        }
+      ],
+      "restart_count": 0,
+      "seed": 3793921460,
+      "tick_ms": {
+        "count": 1500,
+        "max": 31.55229100957513,
+        "mean": 7.2058471869677305,
+        "p50": 6.603812100365758,
+        "p95": 8.752484642900527
+      },
+      "update_ms": {
+        "count": 1500,
+        "max": 30.710290651768446,
+        "mean": 6.495543064239125,
+        "p50": 5.966895958408713,
+        "p95": 8.048326522111893
+      }
+    },
+    {
+      "advancing_measured_frames": 1500,
+      "advancing_warmup_frames": 200,
+      "case": "Watch12",
+      "clamped_ceiling_fps": 12.0,
+      "paced": [
+        {
+          "actual_achieved_fps": 8.78795410973718,
+          "actual_clamped_fps": 12.0,
+          "overruns": 0,
+          "server_speed_ceiling_fps": 12.0,
+          "set_speed_request_fps": 12,
+          "tick_ms": {
+            "count": 120,
+            "max": 63.14320815727115,
+            "mean": 23.963522961518418,
+            "p50": 24.22597911208868,
+            "p95": 25.95868529751897
+          },
+          "ticks": 120,
+          "warmup": {
+            "advancing_frames": 200,
+            "restarts": 0
+          }
+        },
+        {
+          "actual_achieved_fps": 8.85538644705969,
+          "actual_clamped_fps": 12.0,
+          "overruns": 0,
+          "server_speed_ceiling_fps": 12.0,
+          "set_speed_request_fps": 120,
+          "tick_ms": {
+            "count": 120,
+            "max": 25.913875084370375,
+            "mean": 23.30947006509329,
+            "p50": 23.726020473986864,
+            "p95": 25.228152656927705
+          },
+          "ticks": 120,
+          "warmup": {
+            "advancing_frames": 200,
+            "restarts": 0
+          }
+        }
+      ],
+      "restart_count": 0,
+      "seed": 3088726773,
+      "tick_ms": {
+        "count": 1500,
+        "max": 43.42441679909825,
+        "mean": 13.987222860877713,
+        "p50": 13.42493761330843,
+        "p95": 33.12329142354427
+      },
+      "update_ms": {
+        "count": 1500,
+        "max": 42.615583166480064,
+        "mean": 13.014421355600158,
+        "p50": 12.621249537914991,
+        "p95": 15.417010523378835
+      }
+    },
+    {
+      "advancing_measured_frames": 1500,
+      "advancing_warmup_frames": 800,
+      "case": "Play6",
+      "clamped_ceiling_fps": 24.0,
+      "paced": [
+        {
+          "actual_achieved_fps": 9.605966521607812,
+          "actual_clamped_fps": 12.0,
+          "overruns": 0,
+          "server_speed_ceiling_fps": 24.0,
+          "set_speed_request_fps": 12,
+          "tick_ms": {
+            "count": 120,
+            "max": 17.604959197342396,
+            "mean": 12.990731617901474,
+            "p50": 13.164187548682094,
+            "p95": 14.594522607512772
+          },
+          "ticks": 120,
+          "warmup": {
+            "advancing_frames": 200,
+            "restarts": 0
+          }
+        },
+        {
+          "actual_achieved_fps": 15.82691544532698,
+          "actual_clamped_fps": 24.0,
+          "overruns": 0,
+          "server_speed_ceiling_fps": 24.0,
+          "set_speed_request_fps": 120,
+          "tick_ms": {
+            "count": 120,
+            "max": 14.801249839365482,
+            "mean": 12.315402424428612,
+            "p50": 12.555771507322788,
+            "p95": 14.027216751128435
+          },
+          "ticks": 120,
+          "warmup": {
+            "advancing_frames": 200,
+            "restarts": 0
+          }
+        }
+      ],
+      "restart_count": 3,
+      "seed": 829580027,
+      "tick_ms": {
+        "count": 1500,
+        "max": 31.73312498256564,
+        "mean": 4.841860054992139,
+        "p50": 4.650020506232977,
+        "p95": 5.887258495204151
+      },
+      "update_ms": {
+        "count": 1500,
+        "max": 31.62566712126136,
+        "mean": 4.7705820907528205,
+        "p50": 4.589478950947523,
+        "p95": 5.789862293750048
+      }
+    },
+    {
+      "advancing_measured_frames": 1500,
+      "advancing_warmup_frames": 1200,
+      "case": "Play12",
+      "clamped_ceiling_fps": 12.0,
+      "paced": [
+        {
+          "actual_achieved_fps": 8.941708943296803,
+          "actual_clamped_fps": 12.0,
+          "overruns": 0,
+          "server_speed_ceiling_fps": 12.0,
+          "set_speed_request_fps": 12,
+          "tick_ms": {
+            "count": 120,
+            "max": 68.8565419986844,
+            "mean": 21.535093418788165,
+            "p50": 21.62616653367877,
+            "p95": 23.280012817122042
+          },
+          "ticks": 120,
+          "warmup": {
+            "advancing_frames": 200,
+            "restarts": 0
+          }
+        },
+        {
+          "actual_achieved_fps": 8.968044195816585,
+          "actual_clamped_fps": 12.0,
+          "overruns": 0,
+          "server_speed_ceiling_fps": 12.0,
+          "set_speed_request_fps": 120,
+          "tick_ms": {
+            "count": 120,
+            "max": 24.534708820283413,
+            "mean": 21.48054476904993,
+            "p50": 21.7139373999089,
+            "p95": 23.13952639233321
+          },
+          "ticks": 120,
+          "warmup": {
+            "advancing_frames": 200,
+            "restarts": 0
+          }
+        }
+      ],
+      "restart_count": 5,
+      "seed": 3178599299,
+      "tick_ms": {
+        "count": 1500,
+        "max": 40.4599579051137,
+        "mean": 9.847670294654867,
+        "p50": 9.223270928487182,
+        "p95": 11.96141866967082
+      },
+      "update_ms": {
+        "count": 1500,
+        "max": 40.36212479695678,
+        "mean": 9.631306588960191,
+        "p50": 9.115458466112614,
+        "p95": 11.726538324728608
+      }
+    }
+  ],
+  "checks_carried_forward": [
+    1,
+    2,
+    3,
+    5,
+    6,
+    7,
+    8
+  ],
+  "checks_rerun": [
+    4
+  ],
+  "producer_commit": "23c571de289cc2d16029489935fbff5e9e6bbe6a",
+  "released_default": "frp3-s12",
+  "schema": "t12b-check4-summary/v1",
+  "verdict": "SERVING_PASS",
+  "wall_seconds": 173.09419012488797
+}

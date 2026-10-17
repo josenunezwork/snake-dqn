@@ -1,0 +1,14 @@
+{
+ "created_utc": "2026-10-17T08:37:50.959675+00:00",
+ "files": {
+  "cases/latency-000.json": "48853fe4160a7d7d2a883fec087196627e00af3c2b76dafc5b4acd5b60ed136d",
+  "cases/latency-001.json": "4f48d15ec0d0a712ff901b8bf8475f00dc666adfcd8150a5ca55771b58310416",
+  "cases/latency-002.json": "d5c4472af386f22d21af8e43726d353419deb76a9ad618aac6744bf8677fb5f5",
+  "cases/latency-003.json": "f4844aaeac0cc36169802c9ce7f39bf706aa86149d683399cc29befa7437b6b1",
+  "intent.json": "ff4a522f6b96bd8c42b31c5c37b629051ce3e43f9067a5dfdc4a6e622ca3bb34",
+  "latency.json": "3e24bc537629cedd91c90f8e438eee5f6d55f4472f67c667d1f9c87e83a3a4d0",
+  "validation.json": "c8dbc3bd3f21761d1875386571c04665bb3fd63f005820281d6b412418c94d5a"
+ },
+ "intent_sha256": "ff4a522f6b96bd8c42b31c5c37b629051ce3e43f9067a5dfdc4a6e622ca3bb34",
+ "schema": "t12b-check4-receipt/v1"
+}
