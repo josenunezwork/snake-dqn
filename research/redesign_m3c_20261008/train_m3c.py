@@ -2532,7 +2532,7 @@ def main_sync(args) -> int:
             state["flags"].append({"t": state["transitions"], "guard": problems})
             time.sleep(60)
             continue
-        gamma_seg = sync_controls.get("gamma_seg", sched.gamma(state["transitions"]))
+        gamma_seg = sync_controls.pop("gamma_seg", sched.gamma(state["transitions"]))
         sim, runtime, policies, groups = build_segment(args, ctx, segment, gamma_seg)
         E = sim.E
         pend: List[deque] = [deque() for _ in range(E)]  # per world: (obs_id, a, reward)
@@ -2939,7 +2939,7 @@ def _drain_queues_while_joining(procs, txs, deadline_seconds: float = 30.0) -> N
             proc.join(timeout=wait)
 
 
-def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, control, stop_evt) -> None:
+def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt, control=None) -> None:
     """One actor process: worlds, acting, n-step windows, observation ring writes."""
     os.environ["OMP_NUM_THREADS"] = "1"
     import torch
@@ -3034,7 +3034,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, control, 
         resume_applied = False
         while not stop_evt.is_set():
             t_glob = int(progress[0])
-            gamma_seg = sched.gamma(t_glob)
+            gamma_seg = (
+                actor_resume.get("extra", {}).get("gamma_seg", sched.gamma(t_glob))
+                if actor_resume is not None and not resume_applied
+                else sched.gamma(t_glob)
+            )
             # The Python v8 reads the hero's vector61 rows; the compiled one (numba shield,
             # bv8 features) needs only the sim, so the hero is not featurized for it.
             python_v8 = (
@@ -3125,6 +3129,9 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, control, 
                     extra = restored.get("extra", {})
                     if extra.get("pool_identities") not in (None, pool_identity_records):
                         raise RuntimeError("actor snapshot static-pool identities differ")
+                if not cfg.get("resume_with_full_replay", True):
+                    # Pending n-step IDs refer to deliberately omitted ring rows.
+                    nsb = NStepBuilder(n_driven) if fast else NStepBuilderRef(n_driven)
                 resume_applied = True
             for _frame in range(frame_start, args.segment_frames):
                 if stop_evt.is_set():
@@ -3422,10 +3429,12 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, control, 
                 # A FIFO marker is emitted *after* the ordinary frame message.  The learner
                 # drains through one marker from every actor before copying shared rings,
                 # so replay ids and actor n-step state describe the same boundary.
-                try:
-                    request = control.get_nowait()
-                except queue.Empty:
-                    request = None
+                request = None
+                if control is not None:
+                    try:
+                        request = control.get_nowait()
+                    except queue.Empty:
+                        pass
                 if request is not None and request.get("op") == "snapshot":
                     from research.redesign_m3c_20261008.actor_snapshot import capture_actor_state
 
@@ -3684,7 +3693,25 @@ def main_multi(args) -> int:
             labels,
             rings,
         )
-    _publish_weights(online, wbuf, wver)  # version 2 = publish #1
+        if not resumed_with_replay and labels is not None:
+            # Label ids point into omitted observation rings.  Treat the continuation as
+            # a fresh replay warm-up rather than sampling dangling ids.
+            labels.ids.fill(-1)
+            labels.size = labels.ptr = 0
+    if resume_payload is not None:
+        saved_extra = resume_payload.get("extra", {})
+        saved_wbuf = saved_extra.get("wbuf")
+        if saved_wbuf is not None:
+            if saved_wbuf.shape != wbuf.shape:
+                raise ValueError("full-state shared weight buffer is incompatible")
+            wbuf[...] = saved_wbuf
+            wver[0] = int(saved_extra["weights_version"])
+        else:
+            _publish_weights(online, wbuf, wver)
+        if "progress" in saved_extra:
+            progress[...] = saved_extra["progress"]
+    else:
+        _publish_weights(online, wbuf, wver)  # version 2 = publish #1
     multi = MultiRing(rings)
 
     ctx_mp = mp.get_context("spawn")
@@ -3706,10 +3733,11 @@ def main_multi(args) -> int:
             str(j): state
             for j, state in resume_payload.get("extra", {}).get("actors", {}).items()
         }
+        cfg["resume_with_full_replay"] = resumed_with_replay
     cfg["args"]["demo_data"] = str(args.demo_data)
     procs = [
         ctx_mp.Process(
-            target=actor_main, args=(j, cfg, names, txs[j], controls[j], stop_evt), daemon=True
+            target=actor_main, args=(j, cfg, names, txs[j], stop_evt, controls[j]), daemon=True
         )
         for j in range(K)
     ]
@@ -3781,6 +3809,8 @@ def main_multi(args) -> int:
             "resumed_without_replay": not resumed_with_replay,
         }
         st["flags"].append(resume_event)
+        if not resumed_with_replay:
+            st["since_update"] = 0
     st["halt"] = arm_halt_reason(args)
     if bank is not None:
         st.update(
@@ -3827,8 +3857,11 @@ def main_multi(args) -> int:
         "m3c": m3c_flags(args),
     }
     started = time.perf_counter()
-    next_log, next_ckpt, next_guard = 100_000, args.checkpoint_every, 0
-    published = 1  # the initial publish (weights version 2 * published)
+    resume_extra = resume_payload.get("extra", {}) if resume_payload is not None else {}
+    next_log = int(resume_extra.get("next_log", 100_000))
+    next_ckpt = int(resume_extra.get("next_ckpt", args.checkpoint_every))
+    next_guard = int(resume_extra.get("next_guard", 0))
+    published = int(resume_extra.get("published", 1))  # weights version 2 * published
 
     learner = Learner(
         torch,
@@ -3935,6 +3968,7 @@ def main_multi(args) -> int:
                 "next_ckpt": next_ckpt,
                 "next_guard": next_guard,
                 "weights_version": int(wver[0]),
+                "wbuf": wbuf,
                 "progress": progress.copy(),
                 "demos": demo_snapshot,
                 "actors": frozen,
@@ -3973,7 +4007,7 @@ def main_multi(args) -> int:
         ) * args.full_state_every
 
     code = 0
-    rr = 0
+    rr = int(resume_extra.get("rr", 0))
     attached: set = set()
     stopped_for_time = False
     full_state_complete: Optional[bool] = None
@@ -4081,9 +4115,7 @@ def main_multi(args) -> int:
                 counts = st["action_window"].counts
                 if counts.max() > 0.9 * counts.sum():
                     st["halt"] = f"action collapse {counts.tolist()}"
-            submit_full_state()
-            if st["transitions"] >= args.transitions or st["halt"] is not None:
-                submit_full_state(force=True)
+            submit_full_state(force=st["transitions"] >= args.transitions or st["halt"] is not None)
             if checkpointer is not None:
                 full_state_events.extend(checkpointer.poll_events())
             if st["transitions"] >= next_log:
