@@ -357,7 +357,10 @@ def completed_profile_artifacts_match(profile: object) -> bool:
         or not math.isfinite(profiled_seconds)
         or profiled_seconds < SMOKE03_PROFILE_SECONDS - 0.1
         or requested_duration != SMOKE03_PROFILE_SECONDS
-        or recorded_warm_seconds != SMOKE03_PROFILE_WARM_SECONDS
+        or not isinstance(recorded_warm_seconds, (int, float))
+        or not math.isclose(
+            recorded_warm_seconds, SMOKE03_PROFILE_WARM_SECONDS, rel_tol=0.0, abs_tol=1e-6
+        )
     ):
         return False
     artifacts = profile.get("artifacts")

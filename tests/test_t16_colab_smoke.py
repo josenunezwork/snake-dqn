@@ -350,7 +350,7 @@ def test_smoke03_profile_is_warmed_and_result_identity_resumes(tmp_path, monkeyp
             (profile / "learner.pstats").write_bytes(b"profile")
             (profile / "learner.meta.json").write_text(
                 '{"mode": "cprofile", "profiled_s": 60.0, "requested_duration_s": 60.0, '
-                '"warm_from_first_tick": true, "warm_s": 60.0}'
+                '"warm_from_first_tick": true, "warm_s": 60.000000000007276}'
             )
         (attempt / "summary.json").write_text(
             json.dumps({"halt": None, "actor_exitcodes": [0, 0, 0], "rate": 10_000})

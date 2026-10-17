@@ -256,6 +256,7 @@ def test_parallel_gather_staging_is_serial_byte_identical(packed, actors):
             assert serial.st["ring_overrun_rows"] == parallel.st["ring_overrun_rows"]
             assert serial.st["label_rows"] == parallel.st["label_rows"]
             for stage_a, stage_b in zip(serial._stage, parallel._stage):
+                assert stage_a.flat.tobytes() == stage_b.flat.tobytes()
                 for key in stage_a.v:
                     assert stage_a.v[key].tobytes() == stage_b.v[key].tobytes(), key
     finally:
@@ -322,6 +323,7 @@ def test_parallel_sample_matches_frozen_pre_t17_complete_staging(packed, actors,
         assert legacy.st["ring_overrun_rows"] == parallel.st["ring_overrun_rows"]
         assert legacy.st["label_rows"] == parallel.st["label_rows"]
         for old_stage, new_stage in zip(legacy._stage, parallel._stage):
+            assert old_stage.flat.tobytes() == new_stage.flat.tobytes()
             for key in old_stage.v:
                 assert old_stage.v[key].tobytes() == new_stage.v[key].tobytes(), key
     finally:
