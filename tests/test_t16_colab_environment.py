@@ -251,4 +251,4 @@ def test_notebook_routes_workload_to_selected_interpreter(
     ).is_file()
     assert not list(local_path("/dev/shm").glob("t17b-p0-*"))
     assert not list(local_path("/content/scratch/p0-rings").glob("t17b-p0-*"))
-    colab.files.download.assert_called_once()
+    colab.files.download.assert_not_called()
