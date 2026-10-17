@@ -130,13 +130,13 @@ def test_pod_body_image_is_opt_in_and_changes_nothing_else():
 
 
 @pytest.mark.parametrize("path", _committed_plans(), ids=lambda p: p.name)
-def test_train_argv_of_every_plan_without_init_is_the_old_argv(path):
+def test_train_argv_of_every_plan_preserves_old_argv_except_explicit_init(path):
     plan = gr.load_plan(path)
-    runs = [r for r in plan["runs"] if "init" not in r]
-    if path != M6_PLAN:
-        assert len(runs) == len(plan["runs"])  # the pre-M6 plans carry no opt-in key
-    for run in runs:
-        assert gr.train_argv(plan, run) == _old_train_argv(plan, run)
+    for run in plan["runs"]:
+        expected = _old_train_argv(plan, run)
+        if "init" in run:
+            expected[expected.index("--init") + 1] = run["init"]
+        assert gr.train_argv(plan, run) == expected
 
 
 def test_train_argv_defaults_match_the_old_argv():
