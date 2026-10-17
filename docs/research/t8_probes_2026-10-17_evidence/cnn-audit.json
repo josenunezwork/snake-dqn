@@ -1,0 +1,20 @@
+{
+  "status": "PASS",
+  "cnn": {
+    "metrics": {
+      "cnn": {
+        "auc": 0.7419503204066638,
+        "ci95": [
+          0.7261478753000005,
+          0.7573931738576895
+        ]
+      }
+    },
+    "cpu_vs_mps_60_state_max_abs_prediction_difference": 5.837073174808083e-08,
+    "nested_split_and_train_only_scaling": "PASS"
+  },
+  "arrival": {},
+  "audited_predictions_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/cnn/predictions.npz": "2318a3a5fc46763acce0cb46d373d0976deacecdc8c82b3fb41e8cc10d2c07e0"
+  }
+}

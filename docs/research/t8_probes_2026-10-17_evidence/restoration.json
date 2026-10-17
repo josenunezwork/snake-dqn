@@ -1,0 +1,127 @@
+{
+  "authority": "diagnostic only",
+  "states": 19976,
+  "worlds": 342,
+  "byte_verified_states": 19976,
+  "parts": [
+    {
+      "authority": "diagnostic only; not policy training or gate evidence",
+      "canonical_t5_data": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features.npz",
+      "canonical_t5_data_sha256": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+      "checkpoint_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s0/final.pth": "bf6a42b387e6d643e943a03620a30128ec6032f984abb5a08559b9b0ac865f4f",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s1/final.pth": "a7b04a84c94ad6cf90f6461a2ab23b214a28c4c59ac9e7bc69c61ca3ae617753",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s2/final.pth": "5840ba615efd600325d5c5bcedf87b2cbb452fe0969d954d5797ab12f6917a0e",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s3/final.pth": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s4/final.pth": "6b6d3f37c6db129de941c3fb205ca6af77c6506db0793b1291656f767e4fb28f"
+      },
+      "feature_conventions": {
+        "contested": "opponent arrival <= hero arrival over the hero tail-aware region",
+        "margin": "minimum hero arrival to a contested cell; width*height+1 when none exists",
+        "voronoi": "hero arrival strictly before the simultaneous opponent-head flood"
+      },
+      "feature_names": [
+        "a0_voronoi_area_log",
+        "a0_contested_fraction",
+        "a0_contested_margin",
+        "a1_voronoi_area_log",
+        "a1_contested_fraction",
+        "a1_contested_margin",
+        "a2_voronoi_area_log",
+        "a2_contested_fraction",
+        "a2_contested_margin",
+        "a3_voronoi_area_log",
+        "a3_contested_fraction",
+        "a3_contested_margin",
+        "a4_voronoi_area_log",
+        "a4_contested_fraction",
+        "a4_contested_margin",
+        "a5_voronoi_area_log",
+        "a5_contested_fraction",
+        "a5_contested_margin"
+      ],
+      "feature_seconds": 24.17661095270887,
+      "output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/arrival/features-part-0.npz",
+      "output_sha256": "23d3e959436ac8e5d62566eaa8046cb28f9b663bb5d054054d90baef4daeab46",
+      "schema": "t8-arrival-features/v1",
+      "shard": {
+        "count": 2,
+        "index": 0
+      },
+      "source_and_input_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/manifest.json": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/manifest.json": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0000.json": "42e17147006a3f5bebb16b1e60d5d53fd98a6e8debeecd154bd07c1949c9d75b",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0001.json": "8e05fd627c81ef950d96ce3c2b91c76e255a690bec1911a43afb2f5ef3046ebc",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0002.json": "95c0bf269ff11367b1e9f8287e156491f1d793f7266c8689282801bfe44c0682",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0003.json": "6a081c2f9d0e4e1129752eca7ca1ba6e64177c188b5e00221f6fbeaac50409e8",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0004.json": "19e83c939811d4fe250510219cc0bc456f2d020f2b9fbbc6dd4baccbb447b9b8",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0005.json": "7a71c9dc873d519c1f327c06d7dedf23938b723679037b87bf8d45d0e16a6575",
+        "/Users/josenunez/Projects/ml/snake-dqn-t5/research/t8_probes_20261017/arrival.py": "303576d6eac83b8fb786c986a766a0325b75852ff321b31ae49a26612bb104da",
+        "src/simd_env/t8_features.py": "f2c052e7944711d929114e44e6f30e283bddb7addbe53bcd3afb085b39af035f"
+      },
+      "states": 9298,
+      "wall_seconds": 1126.7472129580565
+    },
+    {
+      "authority": "diagnostic only; not policy training or gate evidence",
+      "canonical_t5_data": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features.npz",
+      "canonical_t5_data_sha256": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+      "checkpoint_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s0/final.pth": "bf6a42b387e6d643e943a03620a30128ec6032f984abb5a08559b9b0ac865f4f",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s1/final.pth": "a7b04a84c94ad6cf90f6461a2ab23b214a28c4c59ac9e7bc69c61ca3ae617753",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s2/final.pth": "5840ba615efd600325d5c5bcedf87b2cbb452fe0969d954d5797ab12f6917a0e",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s3/final.pth": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s4/final.pth": "6b6d3f37c6db129de941c3fb205ca6af77c6506db0793b1291656f767e4fb28f"
+      },
+      "feature_conventions": {
+        "contested": "opponent arrival <= hero arrival over the hero tail-aware region",
+        "margin": "minimum hero arrival to a contested cell; width*height+1 when none exists",
+        "voronoi": "hero arrival strictly before the simultaneous opponent-head flood"
+      },
+      "feature_names": [
+        "a0_voronoi_area_log",
+        "a0_contested_fraction",
+        "a0_contested_margin",
+        "a1_voronoi_area_log",
+        "a1_contested_fraction",
+        "a1_contested_margin",
+        "a2_voronoi_area_log",
+        "a2_contested_fraction",
+        "a2_contested_margin",
+        "a3_voronoi_area_log",
+        "a3_contested_fraction",
+        "a3_contested_margin",
+        "a4_voronoi_area_log",
+        "a4_contested_fraction",
+        "a4_contested_margin",
+        "a5_voronoi_area_log",
+        "a5_contested_fraction",
+        "a5_contested_margin"
+      ],
+      "feature_seconds": 28.275897254701704,
+      "output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/arrival/features-part-1.npz",
+      "output_sha256": "0c7b2157405e847d1f0679a9cbf10af4c402ad2d6392d6dccd625459fc5f7a0c",
+      "schema": "t8-arrival-features/v1",
+      "shard": {
+        "count": 2,
+        "index": 1
+      },
+      "source_and_input_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/manifest.json": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/manifest.json": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0000.json": "42e17147006a3f5bebb16b1e60d5d53fd98a6e8debeecd154bd07c1949c9d75b",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0001.json": "8e05fd627c81ef950d96ce3c2b91c76e255a690bec1911a43afb2f5ef3046ebc",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0002.json": "95c0bf269ff11367b1e9f8287e156491f1d793f7266c8689282801bfe44c0682",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0003.json": "6a081c2f9d0e4e1129752eca7ca1ba6e64177c188b5e00221f6fbeaac50409e8",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0004.json": "19e83c939811d4fe250510219cc0bc456f2d020f2b9fbbc6dd4baccbb447b9b8",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0005.json": "7a71c9dc873d519c1f327c06d7dedf23938b723679037b87bf8d45d0e16a6575",
+        "/Users/josenunez/Projects/ml/snake-dqn-t5/research/t8_probes_20261017/arrival.py": "303576d6eac83b8fb786c986a766a0325b75852ff321b31ae49a26612bb104da",
+        "src/simd_env/t8_features.py": "f2c052e7944711d929114e44e6f30e283bddb7addbe53bcd3afb085b39af035f"
+      },
+      "states": 10678,
+      "wall_seconds": 1075.7472126670182
+    }
+  ],
+  "output_sha256": "ffa553acef2f6acbd02206b1b6c4c638edf94631bc41ad3acc717f02937e7c0b"
+}

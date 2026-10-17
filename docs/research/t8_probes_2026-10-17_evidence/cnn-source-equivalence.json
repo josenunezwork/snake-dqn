@@ -1,0 +1,6 @@
+{
+  "status": "PASS",
+  "executed_cnn_commit": "08d49a1a",
+  "change": "subsequent import formatting only",
+  "import_members_and_executable_ast_equal": true
+}
