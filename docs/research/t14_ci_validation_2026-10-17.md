@@ -139,6 +139,16 @@ lifetime. Local fake-provider children are reaped on every owned cleanup path,
 and startup failures include their internal logs. These are CI and fixture
 repairs; they do not provide new research or serving qualification.
 
+The startup trace on hosted macOS 15 located the stall in
+`HTTPServer.server_bind -> socket.getfqdn`. Local test-agent bootstraps supply a
+deterministic hostname for their wildcard bind address; real socket binding,
+authenticated HTTP requests, immutable uploads and the 15-second readiness
+deadline remain exercised. This removes an external reverse-DNS dependency from
+local integration tests without changing the production agents. The frontend
+checkpoint-selection tests similarly wait for fetched options before selecting
+one, rather than treating the immediately rendered select element as proof that
+its asynchronous list is ready.
+
 The workflow remains [CI](../../.github/workflows/ci.yml). Its exact lint and test
 commands are:
 

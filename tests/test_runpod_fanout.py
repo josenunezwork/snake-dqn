@@ -30,10 +30,19 @@ _STARTUP_BOOTSTRAP = r"""
 import faulthandler
 import http.server
 import runpy
+import socket
 import sys
 
 faulthandler.enable()
 faulthandler.dump_traceback_later(10, file=sys.stderr)
+original_getfqdn = socket.getfqdn
+
+def getfqdn(name=""):
+    if name == "0.0.0.0":
+        return "localhost"
+    return original_getfqdn(name)
+
+socket.getfqdn = getfqdn
 original_serve_forever = http.server.ThreadingHTTPServer.serve_forever
 
 def serve_forever(self, *args, **kwargs):
@@ -874,6 +883,29 @@ def test_agent_rejects_bad_token_and_unlisted_uploads(tmp_path):
         proc.kill()
         proc.wait(timeout=5)
         shutil.rmtree(tmp_path / "r", ignore_errors=True)
+
+
+def test_startup_bootstrap_skips_wildcard_reverse_dns(tmp_path):
+    source = tmp_path / "wildcard_server.py"
+    source.write_text(
+        """
+import http.server
+import socket
+
+def forbidden_gethostbyaddr(*args):
+    raise AssertionError("wildcard bind attempted reverse DNS")
+
+socket.gethostbyaddr = forbidden_gethostbyaddr
+server = http.server.ThreadingHTTPServer(("0.0.0.0", 0), http.server.BaseHTTPRequestHandler)
+assert server.server_name == "localhost"
+assert server.server_address[0] == "0.0.0.0"
+server.server_close()
+"""
+    )
+    result = subprocess.run(
+        startup_argv(source), capture_output=True, text=True, check=False, timeout=15
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_commit_with_different_runner_files_refused(tmp_path):
