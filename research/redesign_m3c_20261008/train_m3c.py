@@ -3116,6 +3116,16 @@ def actor_main(
                         if not live_seats[e, s]:
                             frozen[e, s] = policy_ids[int(pool_rng.integers(len(policy_ids)))]
                 pool_seats = frozen
+                # Only vector61 pool rows need the carried state/trend runtime.
+                # B8 builds its raster straight from the maintained grid and the
+                # anchors use only grid/mask inputs.  The seat map is immutable
+                # within this segment, including through respawns.
+                vector_ids = tuple(
+                    identity.policy_id
+                    for identity in pool.identities
+                    if identity.kind == "vector61"
+                )
+                runtime.controlled[...] = np.isin(pool_seats, vector_ids)
             else:
                 pool_seats = None
             restarted_worlds = getattr(sim, "_restart_worlds", None)
@@ -3185,6 +3195,12 @@ def actor_main(
                 if pool is not None:
                     restore_policy_execution(pool.policies, extra["pool_policies"])
                     pool_rng.bit_generator.state = extra["pool_rng"]
+                    vector_ids = tuple(
+                        identity.policy_id
+                        for identity in pool.identities
+                        if identity.kind == "vector61"
+                    )
+                    runtime.controlled[...] = np.isin(pool_seats, vector_ids)
                 if restart_telemetry is not None and extra.get("restart_telemetry") is not None:
                     vars(restart_telemetry).update(extra["restart_telemetry"])
                 if not cfg.get("resume_with_full_replay", True):
@@ -3265,9 +3281,23 @@ def actor_main(
                     # action cells) run while an asynchronous (MPS / CUDA) hero forward is in
                     # flight; the hero's decisions and RNG draws are unchanged.
                     overlap = fast and len(hero) > 0 and not all_snakes and not mixed_seats
+                    if mixed_seats and pool is not None and pool_seats is not None and len(hero):
+                        t_shared_raster = time.perf_counter()
+                        pooled_hero_obs = pool.prime_b8_with_learner_rows(
+                            prepared, hero, alive, pool_seats
+                        )
+                        # This replaces the learner's raster gather below, so it
+                        # belongs to the existing actor featurizer accounting.
+                        timing["featurizer_s"] += time.perf_counter() - t_shared_raster
+                    else:
+                        pooled_hero_obs = None
                     if len(hero):
                         t_f = time.perf_counter()
-                        obs = build_ego_raster(prepared, B, backend="numba", rows=hero)
+                        obs = (
+                            pooled_hero_obs
+                            if pooled_hero_obs is not None
+                            else build_ego_raster(prepared, B, backend="numba", rows=hero)
+                        )
                         m = masks[hero[:, 0], hero[:, 1]]
                         mm = m.copy()
                         mm[~mm.any(axis=1), :3] = True  # the normal-only fallback

@@ -12,7 +12,7 @@ import hashlib
 import os
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
@@ -20,6 +20,74 @@ import numpy as np
 
 MAX_ELIGIBLE_POLICIES = 16
 V8_METHOD = "free-space-veto/v8-space-and-head(lambda=8.0)"
+
+
+class LeagueVector61Policy:
+    """Pool-local vector61 policy with the compiled, exact v8 wrapper.
+
+    ``Vector61SimdPolicy`` already batches a checkpoint's rows and, when its
+    runtime uses ``backend="numba"``, constructs vector61 states without a
+    Python row loop.  Its v8 compatibility wrapper intentionally invokes the
+    live hook one row at a time so it can retain serving diagnostics.  The
+    training pool never consumes those diagnostics, while its many worlds make
+    that Python loop the dominant actor cost.  This adapter keeps the policy's
+    public continuation fields and delegates every non-v8 behavior unchanged;
+    v8 uses the established decision-identical ``v8_decide`` kernel.
+
+    It is deliberately local to the league.  Serving and strict-evaluation
+    users retain their live-hook bookkeeping semantics.
+    """
+
+    def __init__(self, policy: Any) -> None:
+        object.__setattr__(self, "_policy", policy)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Keep cached-pool rebind and full-state restores on the real policy."""
+        if name == "_policy":
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._policy, name, value)
+
+    def __getattr__(self, name: str) -> Any:
+        """Expose the wrapped policy's immutable state and snapshot fields."""
+        return getattr(self._policy, name)
+
+    def actions(self, masks: np.ndarray, sim: Any, slots: np.ndarray) -> np.ndarray:
+        """Return vector61 actions, compiling only the pool's v8 decision path."""
+        if not self._policy.veto_slots or self._policy.veto_variant != "v8":
+            return self._policy.actions(masks, sim, slots)
+
+        from src.simd_env.v8_nb import v8_decide
+        from src.simd_env.vector61_policy import check_live_rule_config
+
+        del masks  # Vector61SimdPolicy intentionally acts on the runtime's advisory mask.
+        slots = np.ascontiguousarray(np.asarray(slots, dtype=np.int64).reshape(-1, 2))
+        if not len(slots):
+            return np.empty(0, dtype=np.int64)
+        states, mask = self._policy.runtime.selection(slots)
+        if states.shape[1] != self._policy.input_size:
+            raise ValueError(
+                f"checkpoint input_size={self._policy.input_size} does not match the active "
+                f"featurizer width {states.shape[1]}"
+            )
+        if getattr(self._policy, "_rule_config_checked", None) is not sim:
+            check_live_rule_config(sim)
+            self._policy._rule_config_checked = sim
+        q = self._policy.q_values(states).cpu().numpy()
+        result = v8_decide(sim, slots, q, mask, float(self._policy.veto_spec.lam))
+        # Preserve the fields a full-state snapshot captures.  The old hook's
+        # per-episode counters are diagnostics only and the trainer never reads
+        # them; action semantics are the compiled kernel's contract.
+        self._policy.last_veto = {
+            "rows": slots.copy(),
+            "frame": sim.frame[slots[:, 0]].copy(),
+            "counts": result.counts,
+            "need": result.need,
+            "spacious": result.spacious,
+            "base": result.base,
+            "final": result.action,
+        }
+        return result.action.astype(np.int64, copy=False)
 
 
 class LeagueBV8Policy:
@@ -43,6 +111,12 @@ class LeagueBV8Policy:
         self.ego_config = ego_config_for(self.net)
         self.obs_spec = spec_for(self.net)
         self.last_forward_gpu_s = 0.0
+        # The learner's b-format raster and B8's bv8 raster share these 7/4/30
+        # bytes exactly.  A frame-local cache lets the actor make that gather
+        # once for learner+B8 rows; v8 scalars remain B8-only.
+        self._base_ego_config = replace(self.ego_config, version="b")
+        self._base_cache_slots: Optional[np.ndarray] = None
+        self._base_cache_obs: Optional[Dict[str, np.ndarray]] = None
         for param in self.net.parameters():
             param.requires_grad_(False)
         self._torch = torch
@@ -54,7 +128,28 @@ class LeagueBV8Policy:
         slots = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
         if not len(slots):
             return np.empty(0, dtype=np.int64)
-        obs = build_ego_raster(sim, self.ego_config, backend="numba", rows=slots)
+        if self.ego_config.version == "bv8":
+            from src.simd_env.ego_raster_bv8 import v8_scalars
+
+            if self._base_cache_slots is not None and np.array_equal(self._base_cache_slots, slots):
+                base = self._base_cache_obs
+                self._base_cache_slots = None
+                self._base_cache_obs = None
+                assert base is not None
+            else:
+                self._base_cache_slots = None
+                self._base_cache_obs = None
+                base = build_ego_raster(sim, self._base_ego_config, backend="numba", rows=slots)
+            v8, _ = v8_scalars(sim, slots)
+            obs = {
+                "local": base["local"],
+                "global": base["global"],
+                "scalars": np.concatenate([base["scalars"], v8], axis=1),
+            }
+        else:
+            self._base_cache_slots = None
+            self._base_cache_obs = None
+            obs = build_ego_raster(sim, self.ego_config, backend="numba", rows=slots)
         tensors = obs_tensors(obs, self.device)
         torch = self._torch
         mask = _normal_fallback_mask(
@@ -66,6 +161,34 @@ class LeagueBV8Policy:
             actions = torch.where(mask, q, torch.full_like(q, -torch.inf)).argmax(dim=1)
         self.last_forward_gpu_s = _cuda_elapsed(events)
         return actions.cpu().numpy().astype(np.int64, copy=False)
+
+    def prime_with_learner_rows(
+        self, sim: Any, learner_rows: np.ndarray, b8_rows: np.ndarray
+    ) -> Dict[str, np.ndarray]:
+        """Gather shared b-format rasters once and retain B8's frame-local slice.
+
+        The row order is learner rows followed by B8 rows.  The numba raster
+        kernel is row independent, so each slice is byte-identical to its old
+        separate invocation.  V8 diagnostics are not included here: they are
+        B8-specific and are still evaluated only for B8 rows in :meth:`actions`.
+        """
+        from src.simd_env.ego_raster import build_ego_raster
+
+        if self.ego_config.version != "bv8":
+            raise ValueError("only ego2s-bv8 B8 policies have reusable b-format raster bytes")
+        learner_rows = np.ascontiguousarray(np.asarray(learner_rows, dtype=np.int64).reshape(-1, 2))
+        b8_rows = np.ascontiguousarray(np.asarray(b8_rows, dtype=np.int64).reshape(-1, 2))
+        both = np.concatenate([learner_rows, b8_rows], axis=0)
+        all_obs = build_ego_raster(sim, self._base_ego_config, backend="numba", rows=both)
+        n = len(learner_rows)
+        self._base_cache_slots = b8_rows.copy()
+        self._base_cache_obs = {key: value[n:] for key, value in all_obs.items()}
+        return {key: value[:n] for key, value in all_obs.items()}
+
+    def clear_frame_cache(self) -> None:
+        """Drop a transient raster slice at a segment/rebind boundary."""
+        self._base_cache_slots = None
+        self._base_cache_obs = None
 
 
 def _normal_fallback_mask(mask: Any) -> Any:
@@ -179,7 +302,11 @@ def default_pool_identities(
         "src/simd_env/v8_nb.py",
     )
     v61_sources = _source_pins(
-        "src/simd_env/vector61_policy.py", "src/simd_env/vector61_featurizer.py"
+        "research/redesign_m3c_20261008/league_pool.py",
+        "src/simd_env/vector61_policy.py",
+        "src/simd_env/vector61_featurizer.py",
+        "src/simd_env/vector61_nb.py",
+        "src/simd_env/v8_nb.py",
     )
     script_sources = _source_pins("src/simd_env/fast_anchors.py", "src/evaluation/anchors.py")
     return (
@@ -281,6 +408,8 @@ class StaticPool:
                 policy.last_veto = None
             elif identity.kind == "scripted":
                 policy._world_seeds = seeds
+            elif identity.kind == "bv8":
+                policy.clear_frame_cache()
 
     def groups_for(self, seats: np.ndarray, alive: np.ndarray) -> "OrderedDict[str, np.ndarray]":
         """Partition live frozen rows by ID in permanent identity order.
@@ -313,6 +442,41 @@ class StaticPool:
         seats: np.ndarray,
     ) -> Dict[str, Any]:
         """Run each exact frozen policy once and scatter to its owned live rows only."""
+        return self._dispatch(prepared, masks, alive, actions, seats)
+
+    def prime_b8_with_learner_rows(
+        self, prepared: Any, learner_rows: np.ndarray, alive: np.ndarray, seats: np.ndarray
+    ) -> Optional[Dict[str, np.ndarray]]:
+        """Reuse b-format raster bytes between the learner and the B8 pool group.
+
+        ``None`` means no live B8 group, leaving the learner's established
+        raster call unchanged.  The cache is consumed in B8's following
+        dispatch and is invalidated on any mismatch, so no observation can
+        survive a frame, death, or respawn boundary.
+        """
+        b8_rows = self.groups_for(seats, alive).get("b8-s3")
+        if b8_rows is None or not len(learner_rows):
+            return None
+        policy = self.policies["b8-s3"]
+        if not isinstance(policy, LeagueBV8Policy):
+            raise TypeError("b8-s3 pool policy must be LeagueBV8Policy")
+        from src.simd_env.ego_raster import EgoRasterConfig
+
+        if policy._base_ego_config != EgoRasterConfig(version="b"):
+            # A differently configured learner raster cannot be reused merely
+            # because its arrays have compatible shapes.
+            return None
+        return policy.prime_with_learner_rows(prepared, learner_rows, b8_rows)
+
+    def _dispatch(
+        self,
+        prepared: Any,
+        masks: np.ndarray,
+        alive: np.ndarray,
+        actions: np.ndarray,
+        seats: np.ndarray,
+    ) -> Dict[str, Any]:
+        """Shared one-call-per-policy dispatcher in permanent identity order."""
         groups = self.groups_for(seats, alive)
         counts = {policy_id: int(len(rows)) for policy_id, rows in groups.items()}
         start = time.perf_counter()
@@ -390,7 +554,7 @@ def build_static_pool(
             if policies[identity.policy_id].obs_spec != identity.obs_spec:
                 raise RuntimeError(f"{identity.policy_id}: checkpoint obs spec does not match pin")
         else:
-            policies[identity.policy_id] = Vector61SimdPolicy(
+            policy = Vector61SimdPolicy(
                 str(identity.checkpoint_path),
                 runtime,
                 veto_slots=range(6) if identity.wrapper == V8_METHOD else (),
@@ -402,10 +566,16 @@ def build_static_pool(
             # initial league rule explicitly keeps these opponents on CPU.
             import torch
 
-            policies[identity.policy_id].network = policies[identity.policy_id].network.to("cpu")
-            policies[identity.policy_id].device = torch.device("cpu")
-            if policies[identity.policy_id].input_size != 61:
+            policy.network = policy.network.to("cpu")
+            policy.device = torch.device("cpu")
+            if policy.input_size != 61:
                 raise RuntimeError(f"{identity.policy_id}: checkpoint is not vector61")
+            # Keep bare vector61 on its exact established implementation.  The
+            # v8 pool entries are safe to compile: their diagnostics are unused
+            # by M3-C, and v8_nb is action-parity pinned against the live hook.
+            policies[identity.policy_id] = (
+                LeagueVector61Policy(policy) if identity.wrapper == V8_METHOD else policy
+            )
         _freeze_policy(policies[identity.policy_id])
     return StaticPool(identities, policies)
 
@@ -447,6 +617,10 @@ def build_default_static_pool(
 
 def _freeze_policy(policy: Any) -> None:
     """Enforce eval/no-grad tensor ownership without assuming a policy class."""
+    wrapped = getattr(policy, "_policy", None)
+    if wrapped is not None:
+        _freeze_policy(wrapped)
+        return
     for value in vars(policy).values():
         if hasattr(value, "eval") and hasattr(value, "parameters"):
             value.eval()
