@@ -40,9 +40,10 @@ The test repairs preserve the workflow selection and add no skip markers:
 
 - The plan argument test now checks every committed plan, allowing only an explicit
   per-run initial-checkpoint substitution relative to the old argument list.
-- A function-scoped fixture restores the global game configuration after each test.
+- Function- and module-scoped fixtures restore the global game configuration.
+  Both scopes are necessary: module fixtures initialize before per-test fixtures.
   This repairs the reproduced 61-input research configuration leak into collected
-  58-input checkpoint fixtures; the previously failing sequence passed 252 tests.
+  58-input checkpoint fixtures; the expanded regression sequence passed 328 tests.
 - The pre-M6 actor test still checks legacy messages and ring rows bitwise. It
   separately validates the new length-bucket telemetry, including exact accounting
   and equality between default and explicit-zero configurations; both cases passed.
@@ -54,8 +55,39 @@ The test repairs preserve the workflow selection and add no skip markers:
   also checked against the committed receipt. All 23 portable tests passed, followed
   by 8 T6 tests after the final constant assertions. These are test fixtures, not
   new campaign evidence.
+- Portable checkpoint and roster fixtures preserve real evaluator construction,
+  mask parity, ordered roster rotation, and a live moving T1 replay/clone trace.
+  The affected evaluator shard passed 90 tests with 8 pre-existing opt-in skips.
+- Seed fixtures supply local pilot and observed-seed inputs to the real exclusion
+  parsers. T12 exercises 5,805 synthetic records and 45 prefix controls through
+  the real frozen rule, inventory hashing, and recomputation, using separate
+  evidence and immutable artifact copies. A separate test checks production pins
+  against committed envelopes. Synthetic data are not release evidence.
+- Stock-wait tests isolate their fake clock to the two modules under test, so
+  unrelated background-thread sleeps cannot advance it. All 37 tests passed,
+  including a regression checking that process-wide sleep remains unchanged.
 - SciPy and scikit-learn are declared development dependencies so diagnostic tests
   can run in a clean GitHub checkout.
+
+## Hosted environment and metadata portability
+
+The Python quality job uses `macos-26` ARM64, matching the platform authority for
+historical numerical plans. Linux and Darwin produced a nominal probability
+of `1.941938163774193e-06` and `1.941938163829704e-06`, respectively, from the same
+boundary `4.617501629587915`. The path uses stdlib `NormalDist` and platform
+`erf`/`erfc`, not SciPy; pinning SciPy cannot repair this last-bit SHA difference.
+Every original plan hash and production refusal guard remains intact. A 76-test
+numerical preflight runs before the full suite. The frontend stays on Ubuntu.
+[GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+lists this standard ARM64 runner. Full Git history is checked out for source-parity
+tests and `rg` is explicitly ensured for artifact scanners.
+
+T10's prefix-boundary writer now records `directory_birthtime_utc_approx: null`
+when the host filesystem exposes no birth time, rather than inventing one from
+modification time or failing on Linux. The timestamp is auxiliary metadata;
+receipt hashes, horizon and branch checks remain enforced. A regression test
+simulates missing birth time. This creates new research-driver source bytes;
+all historical T10 receipts and source-bound evidence remain unchanged.
 
 ## Verification procedure
 
