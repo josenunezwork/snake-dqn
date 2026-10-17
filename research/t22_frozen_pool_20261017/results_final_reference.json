@@ -2,10 +2,10 @@
   "argv": {
     "checkpoint_dir": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes",
     "frames": 30,
-    "out": "research/t22_frozen_pool_20261017/results_baseline_fresh.json",
+    "out": "research/t22_frozen_pool_20261017/results_final_reference.json",
     "reference": true,
     "seed": 314159,
-    "warmup": 12,
+    "warmup": 200,
     "worlds": 128
   },
   "host": {
@@ -14,65 +14,80 @@
     "python": "3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]"
   },
   "measurement": {
-    "dispatch_ms_per_frame": 36.620404183243714,
+    "action_stream_sha256": "b02339badab1dc36d12d76d4ec13ebb100f268e062f5eb38621588b2af726b14",
+    "dispatch_ms_per_frame": 41.0467429086566,
     "frozen_rows_per_frame": 384,
     "learner_seats": 3,
     "measured_frames": 30,
+    "phase_ms_per_frame": {
+      "all_b_format:build_ego_raster": 5.399365117773414,
+      "b8-s3:forward": 26.520106801763177,
+      "b8-s3:v8_scalars": 0.42842783344288665,
+      "champion-v8:forward": 0.23808473100264868,
+      "champion-v8:veto": 5.600256829832991,
+      "frp3-s12-v8:forward": 0.18881258244315782,
+      "frp3-s12-v8:veto": 6.1938846328606205,
+      "frp3-s12:forward": 0.21059305096666017,
+      "learner_b8:separate_b_raster": 4.0234540433933335,
+      "all-v8:v8_decide_nested": 0.38935961201786995
+    },
     "policy": {
       "b8-s3": {
         "calls": 30,
-        "elapsed_s": 0.8416260406374931,
-        "ms_per_frame": 28.054201354583103,
+        "elapsed_s": 0.8468168745748699,
+        "ms_per_frame": 28.227229152495664,
         "rows": 1920,
-        "us_per_row": 438.346896165361
+        "us_per_row": 441.05045550774474
       },
       "champion-v8": {
         "calls": 30,
-        "elapsed_s": 0.11949324840679765,
-        "ms_per_frame": 3.9831082802265882,
+        "elapsed_s": 0.17614195961505175,
+        "ms_per_frame": 5.871398653835058,
         "rows": 1920,
-        "us_per_row": 62.23606687854044
+        "us_per_row": 91.74060396617278
       },
       "frp3-s12": {
         "calls": 30,
-        "elapsed_s": 0.007089747581630945,
-        "ms_per_frame": 0.23632491938769817,
+        "elapsed_s": 0.007817334495484829,
+        "ms_per_frame": 0.26057781651616096,
         "rows": 1920,
-        "us_per_row": 3.692576865432784
+        "us_per_row": 4.071528383065015
       },
       "frp3-s12-v8": {
         "calls": 30,
-        "elapsed_s": 0.1222461243160069,
-        "ms_per_frame": 4.074870810533564,
+        "elapsed_s": 0.19229467026889324,
+        "ms_per_frame": 6.409822342296441,
         "rows": 1920,
-        "us_per_row": 63.669856414586924
+        "us_per_row": 100.15347409838189
       },
       "scripted:greedy_food": {
         "calls": 30,
-        "elapsed_s": 0.0017892555333673954,
-        "ms_per_frame": 0.05964185111224651,
+        "elapsed_s": 0.0019160830415785313,
+        "ms_per_frame": 0.06386943471928437,
         "rows": 1920,
-        "us_per_row": 0.9319039236288518
+        "us_per_row": 0.9979599174888184
       },
       "scripted:random_safe": {
         "calls": 30,
-        "elapsed_s": 0.0024728761054575443,
-        "ms_per_frame": 0.08242920351525147,
+        "elapsed_s": 0.0024754153564572334,
+        "ms_per_frame": 0.08251384521524112,
         "rows": 1920,
-        "us_per_row": 1.2879563049258043
+        "us_per_row": 1.2892788314881425
       }
     },
     "profile_self_time_s": {
-      "bv8_forward_self_s": 0.0022959620000000003,
-      "bv8_raster_self_s": 0.007786021000000001,
-      "other_actions_self_s": 0.000755744,
-      "pool_dispatch_self_s": 0.0013204550000000003,
-      "scripted_self_s": 0.001191746,
-      "vector61_features_self_s": 0.017172253000000002,
-      "vector61_veto_and_dispatch_self_s": 0.11989642700000004
+      "bv8_forward_self_s": 0.0020208310000000003,
+      "bv8_raster_self_s": 0.035815168,
+      "other_actions_self_s": 0.00026267200000000004,
+      "pool_dispatch_self_s": 0.001811201,
+      "scripted_self_s": 0.0012418940000000001,
+      "vector61_features_self_s": 0.020362250000000002,
+      "vector61_veto_and_dispatch_self_s": 0.193656309
     },
-    "runtime_and_mask_ms_per_frame": 0.1009917352348566,
-    "warmup_frames_excluded": 12,
+    "runtime_and_mask_ms_per_frame": 0.15079855608443418,
+    "runtime_controlled_rows": 384,
+    "runtime_observe_ms_per_frame": 2.2740040440112352,
+    "warmup_frames_excluded": 200,
     "worlds": 128
   },
   "pool_identities": [
@@ -84,7 +99,7 @@
       "obs_spec": "ego2s-bv8",
       "policy_id": "b8-s3",
       "source_sha256s": {
-        "research/redesign_m3c_20261008/league_pool.py": "1ce1ca2b6fd96504b82f3395c085b0fd060f222216fcc6257252b273f1786aaa",
+        "research/redesign_m3c_20261008/league_pool.py": "e29b9812b445a16bf4799e7cacb90bdfa9c2bcfa30ef5c5092941eff77c1bc4c",
         "src/model/ego2s_network.py": "06b262b7ad4bc89ff4d46caff37090635fe32b81008fa91d5956b34d940345a9",
         "src/simd_env/ego_raster.py": "0a9dea5a3128435656dec4beeab5c8b4a6f6b600a5f4b63c82beb635dfaf10ad",
         "src/simd_env/ego_raster_bv8.py": "7dc4068101563b7a6a84614d82a4b18310e88aa7a2afaca70cc689dafc48c017",
@@ -175,8 +190,9 @@
   "reference": true,
   "schema": "t22-frozen-pool-microbench/v1",
   "source": {
-    "label": "git:4c1e1b2",
-    "league_pool_sha256": "18c3b2e7257af0410069d0f344f3bbe37dbee0f08d5a8e53938b87667575919c"
+    "executed_league_pool_sha256": "18c3b2e7257af0410069d0f344f3bbe37dbee0f08d5a8e53938b87667575919c",
+    "identity_source_pins": "reference module is executed, but identity validation intentionally reads the current checkout source paths; see pool_identities for those pins",
+    "label": "git:4c1e1b2"
   },
   "torch": "2.9.1"
 }

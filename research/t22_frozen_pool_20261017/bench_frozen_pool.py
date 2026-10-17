@@ -173,6 +173,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     pool.policies = timed
     learner = train_m3c.learner_seat_mask(args.seed, 0, sim.E, 3)
     seats = uniformly_assigned_seats(pool, learner)
+    # The optimized actor avoids carrying vector61 selection state for B8/scripted
+    # seats.  The base commit intentionally retains its broader old binding.
+    if not args.reference:
+        vector_ids = {
+            identity.policy_id for identity in pool.identities if identity.kind == "vector61"
+        }
+        runtime.controlled[...] = np.isin(seats, tuple(vector_ids))
 
     prep_s = 0.0
     dispatch_s = 0.0
@@ -199,6 +206,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     for policy_id in ("frp3-s12-v8", "champion-v8"):
         timed_method(policy_id, "_apply_veto", "veto")
     import src.simd_env.ego_raster as ego_raster
+    import src.simd_env.ego_raster_bv8 as ego_raster_bv8
+    import src.simd_env.v8_nb as v8_nb
 
     original_raster = ego_raster.build_ego_raster
 
@@ -207,9 +216,31 @@ def main(argv: Iterable[str] | None = None) -> int:
         try:
             return original_raster(*call_args, **call_kwargs)
         finally:
-            phases["b8-s3:raster_features"] += time.perf_counter() - started
+            phases["all_b_format:build_ego_raster"] += time.perf_counter() - started
 
     ego_raster.build_ego_raster = raster_wrapped
+    original_v8_scalars = ego_raster_bv8.v8_scalars
+
+    def v8_scalars_wrapped(*call_args: Any, **call_kwargs: Any) -> Any:
+        started = time.perf_counter()
+        try:
+            return original_v8_scalars(*call_args, **call_kwargs)
+        finally:
+            phases["b8-s3:v8_scalars"] += time.perf_counter() - started
+
+    ego_raster_bv8.v8_scalars = v8_scalars_wrapped
+    original_v8_decide = v8_nb.v8_decide
+
+    def v8_decide_wrapped(*call_args: Any, **call_kwargs: Any) -> Any:
+        started = time.perf_counter()
+        try:
+            return original_v8_decide(*call_args, **call_kwargs)
+        finally:
+            features = bool(call_kwargs.get("features", call_args[5] if len(call_args) > 5 else False))
+            key = "b8-s3:v8_feature_kernel" if features else "vector61-v8:v8_decide"
+            phases[key] += time.perf_counter() - started
+
+    v8_nb.v8_decide = v8_decide_wrapped
     b8_net = timed["b8-s3"].policy.net
 
     def forward_pre(_module: Any, _inputs: Any) -> None:
@@ -292,6 +323,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     profiler.disable()
     for hook in b8_hooks:
         hook.remove()
+    ego_raster.build_ego_raster = original_raster
+    ego_raster_bv8.v8_scalars = original_v8_scalars
+    v8_nb.v8_decide = original_v8_decide
     report: Dict[str, Any] = {
         "schema": "t22-frozen-pool-microbench/v1",
         "reference": args.reference,
@@ -315,6 +349,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             "worlds": sim.E,
             "learner_seats": 3,
             "frozen_rows_per_frame": int((~learner).sum()),
+            "runtime_controlled_rows": int(runtime.controlled.sum()),
             "runtime_and_mask_ms_per_frame": 1000.0 * prep_s / args.frames,
             "runtime_observe_ms_per_frame": 1000.0 * observe_s / args.frames,
             "dispatch_ms_per_frame": 1000.0 * dispatch_s / args.frames,
