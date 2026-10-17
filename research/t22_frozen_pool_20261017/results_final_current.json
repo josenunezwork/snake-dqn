@@ -15,76 +15,78 @@
   },
   "measurement": {
     "action_stream_sha256": "b02339badab1dc36d12d76d4ec13ebb100f268e062f5eb38621588b2af726b14",
-    "dispatch_ms_per_frame": 28.773734796171386,
+    "dispatch_ms_per_frame": 28.68748892409106,
     "frozen_rows_per_frame": 384,
     "learner_seats": 3,
     "measured_frames": 30,
     "phase_ms_per_frame": {
-      "all_b_format:build_ego_raster": 4.335872332255046,
-      "b8-s3:forward": 26.98482925382753,
-      "b8-s3:v8_scalars": 0.4138875442246596,
-      "champion-v8:forward": 0.15983611034850279,
-      "frp3-s12-v8:forward": 0.1613848221798738,
-      "frp3-s12:forward": 0.17702225595712662,
-      "learner_b8:shared_b_raster": 4.347315430641174,
-      "all-v8:v8_decide_nested": 0.720741863672932
+      "b8-s3:forward": 26.84668748018642,
+      "b8-s3:v8_feature_kernel": 0.3814499670018752,
+      "b8-s3:v8_scalars": 0.4208458121865988,
+      "champion-v8:forward": 0.17104571064313254,
+      "champion-v8:veto_kernel": 0.15001255087554455,
+      "frp3-s12-v8:forward": 0.18127368142207465,
+      "frp3-s12-v8:veto_kernel": 0.19475150232513747,
+      "frp3-s12:forward": 0.18798887419203916,
+      "learner_b8:build_ego_raster": 4.281920955205957,
+      "learner_b8:shared_b_raster": 4.293569394697745
     },
     "policy": {
       "b8-s3": {
         "calls": 30,
-        "elapsed_s": 0.8285707477480173,
-        "ms_per_frame": 27.61902492493391,
+        "elapsed_s": 0.8247190867550671,
+        "ms_per_frame": 27.490636225168902,
         "rows": 1920,
-        "us_per_row": 431.54726445209235
+        "us_per_row": 429.5411910182641
       },
       "champion-v8": {
         "calls": 30,
-        "elapsed_s": 0.009803748223930597,
-        "ms_per_frame": 0.32679160746435326,
+        "elapsed_s": 0.010114916134625673,
+        "ms_per_frame": 0.3371638711541891,
         "rows": 1920,
-        "us_per_row": 5.10611886663052
+        "us_per_row": 5.268185486784205
       },
       "frp3-s12": {
         "calls": 30,
-        "elapsed_s": 0.006817958317697048,
-        "ms_per_frame": 0.22726527725656828,
+        "elapsed_s": 0.007119166199117899,
+        "ms_per_frame": 0.23730553997059664,
         "rows": 1920,
-        "us_per_row": 3.5510199571338794
+        "us_per_row": 3.7078990620405725
       },
       "frp3-s12-v8": {
         "calls": 30,
-        "elapsed_s": 0.011306373868137598,
-        "ms_per_frame": 0.3768791289379199,
+        "elapsed_s": 0.011915747541934252,
+        "ms_per_frame": 0.39719158473114174,
         "rows": 1920,
-        "us_per_row": 5.888736389654999
+        "us_per_row": 6.20611851142409
       },
       "scripted:greedy_food": {
         "calls": 30,
-        "elapsed_s": 0.0018802951090037823,
-        "ms_per_frame": 0.0626765036334594,
+        "elapsed_s": 0.0018939180299639702,
+        "ms_per_frame": 0.06313060099879901,
         "rows": 1920,
-        "us_per_row": 0.9793203692728033
+        "us_per_row": 0.9864156406062344
       },
       "scripted:random_safe": {
         "calls": 30,
-        "elapsed_s": 0.001148207113146782,
-        "ms_per_frame": 0.038273570438226066,
+        "elapsed_s": 0.00109446095302701,
+        "ms_per_frame": 0.036482031767567,
         "rows": 1920,
-        "us_per_row": 0.5980245380972823
+        "us_per_row": 0.5700317463682344
       }
     },
     "profile_self_time_s": {
-      "bv8_forward_self_s": 0.002079659,
-      "bv8_raster_self_s": 0.031218090999999996,
-      "other_actions_self_s": 0.0012834110000000001,
-      "pool_dispatch_self_s": 0.0019267580000000002,
-      "scripted_self_s": 0.00026608000000000003,
-      "vector61_features_self_s": 0.008782968,
-      "vector61_veto_and_dispatch_self_s": 0.000795496
+      "bv8_forward_self_s": 0.0022477960000000003,
+      "bv8_raster_self_s": 0.030668862,
+      "other_actions_self_s": 0.001155926,
+      "pool_dispatch_self_s": 0.0018837810000000002,
+      "scripted_self_s": 0.000255253,
+      "vector61_features_self_s": 0.008487963000000001,
+      "vector61_veto_and_dispatch_self_s": 0.000774464
     },
-    "runtime_and_mask_ms_per_frame": 0.10047086204091708,
+    "runtime_and_mask_ms_per_frame": 0.10620683121184508,
     "runtime_controlled_rows": 192,
-    "runtime_observe_ms_per_frame": 1.6727265746643145,
+    "runtime_observe_ms_per_frame": 1.739490342636903,
     "warmup_frames_excluded": 200,
     "worlds": 128
   },
@@ -199,6 +201,7 @@
   "reference": false,
   "schema": "t22-frozen-pool-microbench/v1",
   "source": {
+    "benchmark_sha256": "c01109f07a8ea6a83563fa99673e3d8278c19c026442c860a110cea3d415f77e",
     "executed_league_pool_sha256": "e29b9812b445a16bf4799e7cacb90bdfa9c2bcfa30ef5c5092941eff77c1bc4c",
     "identity_source_pins": "executed module and identity-source paths are the current checkout",
     "label": "working-tree"

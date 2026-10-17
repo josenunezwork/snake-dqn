@@ -1,0 +1,52 @@
+{
+  "schema": "t22-a100-projection/v1",
+  "shared_b8_charge_ms": 0.3131290587286153,
+  "old_host_pool_ms": 14.458002739896376,
+  "new_host_pool_ms": 2.1539305026332536,
+  "remaining_host_ratio": 0.14897842678432716,
+  "formula": "baseline_rate / (1 - host_frozen_fraction + host_frozen_fraction * remaining_host_ratio)",
+  "assumptions": [
+    "Mac relative host speedup transfers to x86; unmeasured",
+    "Cumulative actor-time fractions approximate the rate window",
+    "GPU frozen time and all other actor time unchanged",
+    "No extra credit for runtime-control pruning outside pool dispatch",
+    "No startup, transfer, GPU contention or scheduling penalty modeled"
+  ],
+  "target_tr_s": 20900,
+  "isolated_learner_capacity_tr_s": 21171.2,
+  "rows": [
+    {
+      "actors": 4,
+      "baseline_tr_s": 5937.952849012869,
+      "rate_authority": "saved scored rate",
+      "matched_transitions": 1800192,
+      "env_s": 1063.0435638130043,
+      "frozen_s": 709.054,
+      "frozen_gpu_s": 6.1990010924935435,
+      "host_frozen_fraction": 0.6611723384001813,
+      "projected_tr_s": 13577.799298376693,
+      "multiplier": 2.2866128518743425,
+      "zero_host_pool_ceiling_tr_s": 17524.99433185607
+    },
+    {
+      "actors": 6,
+      "baseline_tr_s": 7720.0,
+      "rate_authority": "owner-supplied approximate rate; sensitivity scales linearly",
+      "matched_transitions": 1900032,
+      "env_s": 1189.4919779529869,
+      "frozen_s": 677.422,
+      "frozen_gpu_s": 7.158576125860225,
+      "host_frozen_fraction": 0.5634871325720122,
+      "projected_tr_s": 14833.023939988172,
+      "multiplier": 1.9213761580295559,
+      "zero_host_pool_ceiling_tr_s": 17685.618399951476
+    }
+  ],
+  "input_sha256": {
+    "colab_throughput_results.json": "6ee73e72fb6e241c3d47ea644aae1a6c02e2c3397ce8b141d7bb5fcf81dbe5b8",
+    "n3_w128_a4_raw_g3_bs2_fp32_static_pool/attempt-001/telemetry.jsonl": "8bb3a08191a3674619a1587b5315bc3f10017e465de560fc05cd2abc4dc87f8e",
+    "n3_w128_a4_raw_g3_bs2_fp32_static_pool/attempt-001/log.jsonl": "883c7798e7e204ebcf433ce510420f8336f7965f9674e6ceb14bbd78842d1473",
+    "extra_a6/telemetry.jsonl": "c5f0f532a84cb3d1fd4e52577e25721941f0c1e270353542a86862696aa0e725",
+    "extra_a6/log.jsonl": "ef7fd8f1a12981c0de6f4dea2f4b11e2c0f3df0f6f8f2a10d4ced356b72ef5bc"
+  }
+}

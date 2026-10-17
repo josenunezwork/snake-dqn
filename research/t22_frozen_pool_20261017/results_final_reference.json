@@ -15,78 +15,81 @@
   },
   "measurement": {
     "action_stream_sha256": "b02339badab1dc36d12d76d4ec13ebb100f268e062f5eb38621588b2af726b14",
-    "dispatch_ms_per_frame": 41.0467429086566,
+    "dispatch_ms_per_frame": 41.10859306529164,
     "frozen_rows_per_frame": 384,
     "learner_seats": 3,
     "measured_frames": 30,
     "phase_ms_per_frame": {
-      "all_b_format:build_ego_raster": 5.399365117773414,
-      "b8-s3:forward": 26.520106801763177,
-      "b8-s3:v8_scalars": 0.42842783344288665,
-      "champion-v8:forward": 0.23808473100264868,
-      "champion-v8:veto": 5.600256829832991,
-      "frp3-s12-v8:forward": 0.18881258244315782,
-      "frp3-s12-v8:veto": 6.1938846328606205,
-      "frp3-s12:forward": 0.21059305096666017,
-      "learner_b8:separate_b_raster": 4.0234540433933335,
-      "all-v8:v8_decide_nested": 0.38935961201786995
+      "b8-s3:build_ego_raster": 1.5099124672512214,
+      "b8-s3:forward": 26.650590325395267,
+      "b8-s3:v8_feature_kernel": 0.37834585333863896,
+      "b8-s3:v8_scalars": 0.4151818497727315,
+      "champion-v8:decision_features": 0.41089172785480815,
+      "champion-v8:forward": 0.20707912432650724,
+      "champion-v8:veto": 5.606229060019056,
+      "frp3-s12-v8:decision_features": 0.4566845018416643,
+      "frp3-s12-v8:forward": 0.16746530309319496,
+      "frp3-s12-v8:veto": 6.255649883920948,
+      "frp3-s12:forward": 0.18077070514361063,
+      "learner_b8:build_ego_raster": 3.7940778148670993,
+      "learner_b8:separate_b_raster": 3.98044033596913
     },
     "policy": {
       "b8-s3": {
         "calls": 30,
-        "elapsed_s": 0.8468168745748699,
-        "ms_per_frame": 28.227229152495664,
+        "elapsed_s": 0.8492188337258995,
+        "ms_per_frame": 28.30729445752998,
         "rows": 1920,
-        "us_per_row": 441.05045550774474
+        "us_per_row": 442.30147589890595
       },
       "champion-v8": {
         "calls": 30,
-        "elapsed_s": 0.17614195961505175,
-        "ms_per_frame": 5.871398653835058,
+        "elapsed_s": 0.17536979215219617,
+        "ms_per_frame": 5.845659738406539,
         "rows": 1920,
-        "us_per_row": 91.74060396617278
+        "us_per_row": 91.33843341260217
       },
       "frp3-s12": {
         "calls": 30,
-        "elapsed_s": 0.007817334495484829,
-        "ms_per_frame": 0.26057781651616096,
+        "elapsed_s": 0.006909667514264584,
+        "ms_per_frame": 0.23032225047548613,
         "rows": 1920,
-        "us_per_row": 4.071528383065015
+        "us_per_row": 3.5987851636794708
       },
       "frp3-s12-v8": {
         "calls": 30,
-        "elapsed_s": 0.19229467026889324,
-        "ms_per_frame": 6.409822342296441,
+        "elapsed_s": 0.19345599925145507,
+        "ms_per_frame": 6.448533308381836,
         "rows": 1920,
-        "us_per_row": 100.15347409838189
+        "us_per_row": 100.75833294346619
       },
       "scripted:greedy_food": {
         "calls": 30,
-        "elapsed_s": 0.0019160830415785313,
-        "ms_per_frame": 0.06386943471928437,
+        "elapsed_s": 0.0018602916970849037,
+        "ms_per_frame": 0.06200972323616346,
         "rows": 1920,
-        "us_per_row": 0.9979599174888184
+        "us_per_row": 0.9689019255650541
       },
       "scripted:random_safe": {
         "calls": 30,
-        "elapsed_s": 0.0024754153564572334,
-        "ms_per_frame": 0.08251384521524112,
+        "elapsed_s": 0.0024733757600188255,
+        "ms_per_frame": 0.08244585866729419,
         "rows": 1920,
-        "us_per_row": 1.2892788314881425
+        "us_per_row": 1.2882165416764717
       }
     },
     "profile_self_time_s": {
-      "bv8_forward_self_s": 0.0020208310000000003,
-      "bv8_raster_self_s": 0.035815168,
-      "other_actions_self_s": 0.00026267200000000004,
-      "pool_dispatch_self_s": 0.001811201,
-      "scripted_self_s": 0.0012418940000000001,
-      "vector61_features_self_s": 0.020362250000000002,
-      "vector61_veto_and_dispatch_self_s": 0.193656309
+      "bv8_forward_self_s": 0.00181225,
+      "bv8_raster_self_s": 0.034995798999999994,
+      "other_actions_self_s": 0.000453799,
+      "pool_dispatch_self_s": 0.0016828440000000002,
+      "scripted_self_s": 0.001208143,
+      "vector61_features_self_s": 0.020211444,
+      "vector61_veto_and_dispatch_self_s": 0.18969678400000006
     },
-    "runtime_and_mask_ms_per_frame": 0.15079855608443418,
+    "runtime_and_mask_ms_per_frame": 0.14323340728878975,
     "runtime_controlled_rows": 384,
-    "runtime_observe_ms_per_frame": 2.2740040440112352,
+    "runtime_observe_ms_per_frame": 2.276040349776546,
     "warmup_frames_excluded": 200,
     "worlds": 128
   },
@@ -190,6 +193,7 @@
   "reference": true,
   "schema": "t22-frozen-pool-microbench/v1",
   "source": {
+    "benchmark_sha256": "c01109f07a8ea6a83563fa99673e3d8278c19c026442c860a110cea3d415f77e",
     "executed_league_pool_sha256": "18c3b2e7257af0410069d0f344f3bbe37dbee0f08d5a8e53938b87667575919c",
     "identity_source_pins": "reference module is executed, but identity validation intentionally reads the current checkout source paths; see pool_identities for those pins",
     "label": "git:4c1e1b2"

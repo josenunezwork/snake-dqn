@@ -32,7 +32,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("SNAKE_DQN_DEVICE", "cpu")
 
-import numpy as np
+import numpy as np  # noqa: E402 - thread limits precede NumPy import
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -186,6 +186,30 @@ def main(argv: Iterable[str] | None = None) -> int:
     observe_s = 0.0
     phases: Dict[str, float] = defaultdict(float)
     action_digest = hashlib.sha256()
+    active_policy = {"id": "learner_b8"}
+
+    for policy_id, observer in timed.items():
+        original_actions = observer.actions
+
+        def active_actions(*call_args, _id=policy_id, _fn=original_actions, **call_kwargs):
+            active_policy["id"] = _id
+            try:
+                return _fn(*call_args, **call_kwargs)
+            finally:
+                active_policy["id"] = "learner_b8"
+
+        observer.actions = active_actions
+
+    original_decision_features = runtime.decision_free_space
+
+    def decision_features(*call_args, **call_kwargs):
+        started = time.perf_counter()
+        try:
+            return original_decision_features(*call_args, **call_kwargs)
+        finally:
+            phases[f"{active_policy['id']}:decision_features"] += time.perf_counter() - started
+
+    runtime.decision_free_space = decision_features
 
     def timed_method(policy_id: str, method: str, phase: str) -> None:
         policy = timed[policy_id].policy
@@ -216,7 +240,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         try:
             return original_raster(*call_args, **call_kwargs)
         finally:
-            phases["all_b_format:build_ego_raster"] += time.perf_counter() - started
+            phases[f"{active_policy['id']}:build_ego_raster"] += time.perf_counter() - started
 
     ego_raster.build_ego_raster = raster_wrapped
     original_v8_scalars = ego_raster_bv8.v8_scalars
@@ -236,8 +260,14 @@ def main(argv: Iterable[str] | None = None) -> int:
         try:
             return original_v8_decide(*call_args, **call_kwargs)
         finally:
-            features = bool(call_kwargs.get("features", call_args[5] if len(call_args) > 5 else False))
-            key = "b8-s3:v8_feature_kernel" if features else "vector61-v8:v8_decide"
+            features = bool(
+                call_kwargs.get("features", call_args[5] if len(call_args) > 5 else False)
+            )
+            key = (
+                f"{active_policy['id']}:v8_feature_kernel"
+                if features
+                else f"{active_policy['id']}:veto_kernel"
+            )
             phases[key] += time.perf_counter() - started
 
     v8_nb.v8_decide = v8_decide_wrapped
@@ -251,10 +281,13 @@ def main(argv: Iterable[str] | None = None) -> int:
         if started is not None:
             phases["b8-s3:forward"] += time.perf_counter() - started
 
-    b8_hooks = [b8_net.register_forward_pre_hook(forward_pre), b8_net.register_forward_hook(forward_post)]
+    b8_hooks = [
+        b8_net.register_forward_pre_hook(forward_pre),
+        b8_net.register_forward_hook(forward_post),
+    ]
 
     def frame(measure: bool) -> None:
-        nonlocal prep_s, dispatch_s, observe_s
+        nonlocal observe_s
 
         def choose(prepared: Any) -> np.ndarray:
             nonlocal prep_s, dispatch_s
@@ -326,11 +359,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     ego_raster.build_ego_raster = original_raster
     ego_raster_bv8.v8_scalars = original_v8_scalars
     v8_nb.v8_decide = original_v8_decide
+    runtime.decision_free_space = original_decision_features
     report: Dict[str, Any] = {
         "schema": "t22-frozen-pool-microbench/v1",
         "reference": args.reference,
         "source": {
             "label": source_label,
+            "benchmark_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "executed_league_pool_sha256": source_digest,
             "identity_source_pins": (
                 "reference module is executed, but identity validation intentionally reads "
@@ -340,7 +375,11 @@ def main(argv: Iterable[str] | None = None) -> int:
             ),
         },
         "argv": vars(args),
-        "host": {"platform": platform.platform(), "processor": platform.processor(), "python": sys.version},
+        "host": {
+            "platform": platform.platform(),
+            "processor": platform.processor(),
+            "python": sys.version,
+        },
         "torch": str(torch.__version__),
         "pool_identities": pool.identity_records(),
         "measurement": {
