@@ -41,7 +41,7 @@ def test_notebook_has_pinned_isolated_and_resumable_contract() -> None:
     assert "--budget-seconds" in source
     assert "--scratch-dir" in source  # trainer outputs stay off Drive during timing
     assert re.search(r"MATRIX = '(smoke02|smoke03|n3)'", source) and "'--matrix', MATRIX" in source
-    assert "files.download" in source
+    assert "files.download" not in source  # results are on Drive; no browser download popup
     assert re.search(r"RUN_NAME = '[a-z0-9-]+'", source)
     assert "runtime.unassign()" in source and "AUTO_RELEASE_RUNTIME = " in source
     assert re.search(r"TOTAL_BUDGET_SECONDS = [0-9]+", source)
