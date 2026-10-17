@@ -535,14 +535,18 @@ class TestLiveStack:
     @pytest.mark.skipif(
         not (MAIN_SAVED / registry.B8_S3_FILENAME).is_file(), reason="B8 checkpoint absent"
     )
-    def test_unset_env_serves_b8_without_veto(self, champion_default):
+    def test_unset_env_serves_b8_with_mixed_watch_opponent_veto(self, champion_default):
         sess = GameSession()
         state = sess.safety_veto_state()
         assert sess.served_checkpoint["name"] == registry.NAME_B8_S3
         assert sess.served_checkpoint["reason"] is None
-        assert state["checkpoint_sha256"] == registry.B8_S3_SHA256
-        assert state["active"] is False
-        assert "applies only to a vector61 Apex policy" in state["reason"]
+        assert sess.watch_roster == "mixed"
+        assert sess.game.snakes[0].policy is sess.policy
+        assert sess.game.snakes[0].safety_veto is None
+        assert state["checkpoint_sha256"] == registry.FRP3_S12_SHA256
+        assert state["active"] is True
+        assert state["scope"] == "watch_opponents"
+        assert state["wrapped_snake_ids"] == [1, 2, 3, 4, 5]
         assert registry.B8_S3_SHA256 not in registry.v8_gated_checkpoint_sha256s()
         sess.step()
         assert sess.last_error is None

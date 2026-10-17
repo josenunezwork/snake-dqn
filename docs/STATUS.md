@@ -6,7 +6,11 @@ memory/decision records take precedence over older launch notes; source pointers
 
 ## Released agent
 
-**b8-s3 without a veto** (2026-10-17), checkpoint SHA prefix `3e649783`.
+**b8-s3 hero without a veto** (2026-10-17), checkpoint SHA prefix `3e649783`.
+Watch now defaults to **mixed**: the bare B8 hero at slot 0 faces **frp3-s12 + v8
+opponents** at slots 1 through N−1. The owner approved this roster switch after
+T15 `SERVING_PASS`. [Mixed Watch release erratum](research/b8_s3_release_erratum_mixed_watch_2026-10-17.md).
+Rollback: set `SNAKE_SERVE_WATCH_ROSTER=all_b8` and restart; unsetting it selects mixed.
 T7 fresh-bank Phase R `STRICT_PASS` and Tier 2 PASS, followed by all eight T12 serving
 checks (check 4 cleared by T12B). Claim: **more mass at equal survival against the served
 agent, with no veto**, not safer. [Release, startup verification and rollback record](research/b8_s3_release_2026-10-17.md).
@@ -22,16 +26,20 @@ SE 0.023; self-play rosters are ungated; pre/post-release leaderboard rows are n
 comparable. Existing ego2s ceilings are 24 fps through six driven AI and 12 fps through
 twelve. Train is refused and unqualified. Monitor for at least seven days and 100,000
 Watch hero decisions; roll back on fallback/ego2s exceptions, roster-specific hero
-deaths/1k >0.848 at Watch6, >0.992 at Watch8, or >1.536 at Watch12, or matched
+deaths/1k >0.544 at mixed Watch6; all-B8 thresholds remain >0.848 at Watch6,
+>0.992 at Watch8, and >1.536 at Watch12; or matched
 default-speed p95 >1.5× qualification. See the
 [monitoring erratum](research/b8_s3_monitoring_erratum_2026-10-17.md); Watch8's death
-baseline does not qualify its latency. Owner check-in: 2026-10-24.
+baseline does not qualify its all-B8 latency. Mixed Watch6/8/12 have T15 latency
+baselines, but mixed Watch8/12 have no registered death baseline. Observation windows
+are separate by roster mode and size. Owner check-in: 2026-10-24.
 
-T13b's fixed six-snake rule selects the mixed roster (bare B8 hero, FRP3 + v8
-opponents) as the **planned Watch default, pending separate roster qualification**:
-the death gap 0.096/1k is within 0.10, but the p95-length gap 127 cells exceeds 100.
-Serving defaults remain all-B8 and are unchanged. See the
-[T13b result and paired intervals](research/t13b_six_snake_roster_2026-10-17_results.md).
+T13b's fixed six-snake rule selected the mixed roster: the death gap 0.096/1k
+is within 0.10, but the p95-length gap 127 cells exceeds 100. T15 subsequently
+qualified the mixed serving path, and the owner approved the default switch in T15B.
+See the [T13b result](research/t13b_six_snake_roster_2026-10-17_results.md),
+[T15 qualification](research/t15_mixed_roster_qualification_2026-10-17.md), and
+[T15B release erratum](research/b8_s3_release_erratum_mixed_watch_2026-10-17.md).
 
 ## Standing decisions (current, updated 2026-10-17)
 

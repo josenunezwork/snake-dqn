@@ -1,0 +1,13 @@
+
+> snake-dqn-web@0.1.0 build
+> tsc --noEmit && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 66 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   1.82 kB │ gzip:  0.69 kB
+dist/assets/index-DfnTfxN9.css   30.60 kB │ gzip:  6.93 kB
+dist/assets/index-DN8ndbM4.js   259.49 kB │ gzip: 83.96 kB
+✓ built in 284ms

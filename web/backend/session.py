@@ -34,7 +34,13 @@ from src.game.game_state import GameState
 from src.model.obs_spec import DEFAULT_OBS_SPEC, EGO2S_OBS_SPECS, RASTER31V2, RASTER31V3, VECTOR61
 from src.training.apex_policy import ApexPolicy
 from web.backend.checkpoints import resolve_checkpoint_name
-from web.backend.release_monitoring import ego2s_exception, play_tick, served_resolution, watch_tick
+from web.backend.release_monitoring import (
+    ego2s_exception,
+    mixed_roster_fallback,
+    play_tick,
+    served_resolution,
+    watch_tick,
+)
 from web.backend.safety_veto_serving import (
     ServingVetoFlags,
     ServingVetoState,
@@ -606,6 +612,8 @@ class GameSession:
         state.vetoes.clear()
         state.wrapper = None
         state.reason = reason
+        if self._release_monitoring:
+            mixed_roster_fallback(reason=reason)
         log_build(state)
         self._log_watch_roster(WATCH_ROSTER_MIXED, reason)
         return state
@@ -922,9 +930,21 @@ class GameSession:
             elif self.mode == MODE_PLAY:
                 self._step_play()
             else:
-                hero = next((snake for snake in self.game.snakes if snake.id == self.hero_id), None)
-                decision_count = 0
                 monitor_b8 = self._is_b8_release_monitoring()
+                monitored_hero_id = self.hero_id
+                if (
+                    monitor_b8
+                    and getattr(self, "watch_roster", WATCH_ROSTER_ALL_B8) == WATCH_ROSTER_MIXED
+                    and self.game.snakes
+                ):
+                    # T15's B8 hero is fixed in slot zero. The inspector hero
+                    # selection is mutable and must not redirect its telemetry.
+                    monitored_hero_id = self.game.snakes[0].id
+                hero = next(
+                    (snake for snake in self.game.snakes if snake.id == monitored_hero_id),
+                    None,
+                )
+                decision_count = 0
                 original_update = None if hero is None or not monitor_b8 else hero.update
                 if original_update is not None:
                     # GameState respawns before it dispatches the action. Count the
@@ -952,10 +972,11 @@ class GameSession:
                     self._release_latency_warmup_remaining -= 1
                     watch_tick(
                         checkpoint="b8-s3",
+                        roster_mode=getattr(self, "watch_roster", WATCH_ROSTER_ALL_B8),
                         roster_size=roster_ai_count(self.game.snakes),
                         speed=self.speed,
                         decisions=decision_count,
-                        deaths=int(self.hero_id in self.game.frame_death_causes),
+                        deaths=int(monitored_hero_id in self.game.frame_death_causes),
                         update_ms=update_ms,
                         latency_eligible=latency_eligible,
                     )
@@ -963,11 +984,16 @@ class GameSession:
 
     def _is_b8_release_monitoring(self) -> bool:
         """Whether this is the released B8 path, not an unrelated checkpoint."""
-        return bool(
+        released_b8 = bool(
             self._release_monitoring
             and (self.served_checkpoint or {}).get("name") == "b8-s3"
             and self.obs_spec in EGO2S_OBS_SPECS
-            and getattr(self, "watch_roster", WATCH_ROSTER_ALL_B8) == WATCH_ROSTER_ALL_B8
+        )
+        if self.mode != MODE_WATCH:
+            return released_b8
+        return released_b8 and getattr(self, "watch_roster", WATCH_ROSTER_ALL_B8) in (
+            WATCH_ROSTER_ALL_B8,
+            WATCH_ROSTER_MIXED,
         )
 
     def _record_ego2s_exception(self, exc: BaseException) -> None:

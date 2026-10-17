@@ -1,4 +1,4 @@
-"""Focused contract tests for the opt-in T15 mixed Watch roster."""
+"""Focused contract tests for the released T15 mixed Watch roster."""
 
 from __future__ import annotations
 
@@ -42,7 +42,6 @@ def _released_checkpoint_fixture(monkeypatch, tmp_path):
     synthetic, so the hash reader returns the immutable release digest after
     asserting that every requested path is under this test's temporary root.
     """
-    from src.core.game_config import GameConfig
     from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
     from src.training.apex_policy import ApexPolicy
 
@@ -58,11 +57,14 @@ def _released_checkpoint_fixture(monkeypatch, tmp_path):
         name: replace(entry, artifact_path=None) for name, entry in registry.REGISTRY.items()
     }
     local_root = str(tmp_path)
-    receipt = lambda files: {
-        "verdict": "STRICT_PASS",
-        "root": local_root,
-        **{key: {"path": f"{key}.json", "sha256": "0" * 64} for key in files},
-    }
+
+    def receipt(files):
+        return {
+            "verdict": "STRICT_PASS",
+            "root": local_root,
+            **{key: {"path": f"{key}.json", "sha256": "0" * 64} for key in files},
+        }
+
     pins = {
         "schema": registry.PINS_SCHEMA,
         "checkpoints": {
@@ -150,17 +152,25 @@ def test_roster_fixture_survives_historical_artifact_denial_in_subprocess(tmp_pa
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_default_watch_roster_stays_all_b8():
+def test_unset_watch_roster_serves_mixed_with_an_unwrapped_hero():
     session = GameSession()
-    assert session.watch_roster == "all_b8"
+    assert session.watch_roster == "mixed"
     assert session.watch_roster_reason is None
-    assert all(snake.policy is session.policy for snake in session.game.snakes)
+    assert session.game.snakes[0].policy is session.policy
+    assert session.game.snakes[0].safety_veto is None
+    assert session.watch_opponent_policy is not None
+    assert all(snake.policy is session.watch_opponent_policy for snake in session.game.snakes[1:])
+    state = session.safety_veto_state()
+    assert state["active"] is True
+    assert state["scope"] == "watch_opponents"
+    assert state["wrapped_snake_ids"] == _ids(session)[1:]
+    assert int(session.game.snakes[0].id) not in state["wrapped_snake_ids"]
 
 
-def test_declared_watch_roster_default_stays_all_b8():
+def test_declared_watch_roster_default_is_mixed():
     from web.backend.served_checkpoint import WATCH_ROSTER_RELEASED_DEFAULT
 
-    assert WATCH_ROSTER_RELEASED_DEFAULT == "all_b8"
+    assert WATCH_ROSTER_RELEASED_DEFAULT == "mixed"
 
 
 def test_mixed_watch_has_unwrapped_b8_hero_and_wrapped_frp3_opponents(monkeypatch):
@@ -182,15 +192,29 @@ def test_mixed_watch_has_unwrapped_b8_hero_and_wrapped_frp3_opponents(monkeypatc
     assert session.control_state()["safety_veto"] == state
 
 
-@pytest.mark.parametrize("value", ("", "all_b8", "garbled"))
-def test_default_and_invalid_roster_words_keep_all_b8(monkeypatch, value):
+@pytest.mark.parametrize("value", ("", "garbled"))
+def test_unset_and_invalid_roster_words_use_released_mixed_default(monkeypatch, value):
     if value:
         monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", value)
     session = GameSession()
-    assert session.watch_roster == "all_b8"
-    assert all(snake.policy is session.policy for snake in session.game.snakes)
+    assert session.watch_roster == "mixed"
+    assert session.game.snakes[0].policy is session.policy
+    assert session.game.snakes[0].safety_veto is None
+    assert session.safety_veto_state()["scope"] == "watch_opponents"
+    assert session.safety_veto_state()["wrapped_snake_ids"] == _ids(session)[1:]
     if value == "garbled":
-        assert "unknown SNAKE_SERVE_WATCH_ROSTER" in str(session.watch_roster_reason)
+        assert session.watch_roster_reason == (
+            "unknown SNAKE_SERVE_WATCH_ROSTER 'garbled'; fell back to mixed"
+        )
+
+
+def test_all_b8_is_an_explicit_rollback(monkeypatch):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "all_b8")
+    session = GameSession()
+    assert session.watch_roster == "all_b8"
+    assert session.watch_roster_reason is None
+    assert all(snake.policy is session.policy for snake in session.game.snakes)
+    assert session.safety_veto_state()["active"] is False
 
 
 def test_mixed_fails_closed_when_fpr3_resolution_fails(monkeypatch):
@@ -344,10 +368,13 @@ def test_mixed_speed_ceiling_at_eight_and_twelve(monkeypatch, count, ceiling):
     assert session.speed_ceiling == ceiling
 
 
-def test_mixed_does_not_write_b8_release_watch_monitor(monkeypatch):
+def test_mixed_writes_a_roster_labeled_b8_release_watch_monitor(monkeypatch):
     monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
     tick = []
     monkeypatch.setattr(session_module, "watch_tick", lambda **kwargs: tick.append(kwargs))
     session = GameSession()
     session.step()
-    assert tick == []
+    assert len(tick) == 1
+    assert tick[0]["checkpoint"] == "b8-s3"
+    assert tick[0]["roster_mode"] == "mixed"
+    assert tick[0]["roster_size"] == len(session.game.snakes)

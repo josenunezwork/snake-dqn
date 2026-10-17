@@ -50,9 +50,15 @@ def served_resolution(choice: Mapping[str, object]) -> None:
     )
 
 
+def mixed_roster_fallback(*, reason: str) -> None:
+    """Record a released-default mixed Watch refusal before all-B8 fallback."""
+    emit("mixed_roster_fallback", reason=reason)
+
+
 def watch_tick(
     *,
     checkpoint: str,
+    roster_mode: str,
     roster_size: int,
     speed: float,
     decisions: int,
@@ -71,6 +77,7 @@ def watch_tick(
     emit(
         "watch_tick",
         checkpoint=checkpoint,
+        roster_mode=str(roster_mode),
         roster_size=int(roster_size),
         speed=float(speed),
         decisions=int(decisions),

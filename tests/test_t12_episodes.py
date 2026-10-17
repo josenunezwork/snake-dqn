@@ -47,7 +47,8 @@ def test_length_quantiles_keep_actual_decision_samples():
 
 
 @pytest.mark.skipif(not _b8_available(), reason="b8-s3 strict pin is intentionally unfilled")
-def test_watch_smoke_is_registry_selected_and_unwrapped():
+def test_watch_smoke_keeps_its_original_all_b8_unwrapped_contract(monkeypatch):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "all_b8")
     record = episodes.run_watch(918273, horizon=10)
     assert record["status"] == "complete"
     assert record["served"]["registry"]["name"] == "b8-s3"

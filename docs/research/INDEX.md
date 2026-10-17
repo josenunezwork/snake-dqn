@@ -145,3 +145,5 @@ that a plan or a branch-only note changed a released default.
 | Date | Study or decision | Recorded outcome / status | Branch and path | One-line record |
 |---|---|---|---|---|
 | 2026-10-17 | T12C B8 seed 3 serving release | RELEASE: b8-s3 without a veto | `main:docs/research/b8_s3_release_2026-10-17.md` | T7 STRICT_PASS + Tier 2 and T12/T12B qualification; default and both rollbacks verified live; first-week/100k-decision monitoring and day-7 owner check-in. |
+| 2026-10-17 | T15 mixed Watch roster qualification | SERVING_PASS, all six checks; opt-in at qualification | `main:docs/research/t15_mixed_roster_qualification_2026-10-17.md` | Bare B8 hero and FRP3 + v8 opponents; corrected evidence assembly preserves original invalid envelope. |
+| 2026-10-17 | T15B owner-approved mixed Watch default | RELEASE: mixed Watch, bare b8-s3 hero | `main:docs/research/b8_s3_release_erratum_mixed_watch_2026-10-17.md` | Separate mixed Watch6 baseline 0.272 deaths/1k, rollback >0.544; explicit all_b8 plus restart rolls back roster. |

@@ -1,0 +1,23 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-t15
+configfile: pytest.ini
+plugins: anyio-4.14.1
+collected 182 items
+
+tests/test_b8_release_monitoring.py ..................................   [ 18%]
+tests/test_web_watch_roster.py .........................                 [ 32%]
+tests/test_web_ego2s_serving.py ..........                               [ 37%]
+tests/test_t12_episodes.py ....                                          [ 40%]
+tests/test_web_safety_veto.py .......................................... [ 63%]
+.                                                                        [ 63%]
+tests/test_web_served_checkpoint.py .................................... [ 83%]
+..............................                                           [100%]
+
+=============================== warnings summary ===============================
+tests/test_t12_episodes.py::test_controls_smoke_uses_real_finalized_score_path
+  /Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 182 passed, 1 warning in 7.79s ========================

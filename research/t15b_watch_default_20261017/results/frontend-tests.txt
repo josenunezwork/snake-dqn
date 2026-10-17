@@ -1,0 +1,595 @@
+
+> snake-dqn-web@0.1.0 test
+> vitest run
+
+
+ RUN  v2.1.9 /Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend
+
+(node:40237) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40230) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40227) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40223) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40224) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40225) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40238) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40229) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40233) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40232) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40226) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40236) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40235) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40234) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40228) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40231) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40222) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/lib/runSummary.test.ts (3 tests) 1ms
+ ✓ src/keys.test.ts (6 tests) 1ms
+ ✓ src/api.test.ts (12 tests) 5ms
+ ✓ src/lib/narrate.test.ts (11 tests) 4ms
+ ✓ src/hooks/useGameSocket.test.ts (21 tests) 25ms
+ ✓ src/components/SteeringWheel.test.tsx (6 tests) 31ms
+ ✓ src/components/Sparkline.test.tsx (7 tests) 36ms
+ ✓ src/components/Slider.test.tsx (7 tests) 43ms
+stderr | src/App.test.tsx > mixed Watch veto counters > shows opponent-only total and per-opponent veto counters
+Warning: An update to App inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at App (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/App.tsx:84:47)
+
+stderr | src/App.test.tsx > mixed Watch veto counters > does not show the mixed counter pill outside opponent scope
+Warning: An update to App inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at App (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/App.tsx:84:47)
+
+stderr | src/App.test.tsx > mixed Watch veto counters > labels a failed mixed request as a Watch roster fallback
+Warning: An update to App inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at App (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/App.tsx:84:47)
+
+ ✓ src/App.test.tsx (3 tests) 117ms
+ ✓ src/components/TelemetryBand.test.tsx (8 tests) 130ms
+ ✓ src/components/EgoRasterViewer.test.tsx (10 tests) 278ms
+stderr | src/components/Play.test.tsx > Play component > shows the session error instead of hanging on a spinner
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+
+ ✓ src/components/Dashboard.test.tsx (5 tests) 309ms
+ ✓ src/components/CommandPalette.test.tsx (9 tests) 332ms
+ ✓ src/components/HelpOverlay.test.tsx (11 tests) 349ms
+ ✓ src/components/WelcomeTour.test.tsx (9 tests) 368ms
+stderr | src/components/Play.test.tsx > Play component > prompts to start before the first input and blanks score/time until then
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+
+stderr | src/components/Play.test.tsx > Play component > teaches the boost cost, not just availability
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+
+stderr | src/components/Play.test.tsx > Play component > renders a touch d-pad on coarse-pointer devices that steers and boosts
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+
+stderr | src/components/Play.test.tsx > Play component > hides the touch d-pad for fine pointers
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+
+stderr | src/components/Play.test.tsx > Play component > shows the live HUD including time while alive
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+
+stderr | src/components/Play.test.tsx > Play component > shows the game-over recap with duration when dead
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+Warning: An update to Play inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at Play (/Users/josenunez/Projects/ml/snake-dqn-t15/web/frontend/src/components/Play.tsx:119:3)
+
+stderr | src/components/Play.test.tsx > Play component > submits the normalized name with the client id and shows placement feedback
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+stderr | src/components/Play.test.tsx > Play component > collapses internal whitespace in the name before submitting
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+(node:40259) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | src/components/Play.test.tsx > Play component > remains playable when browser storage throws during name load and save
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+(node:40256) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/lib/decisionMargin.test.ts (4 tests) 1ms
+(node:40258) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | src/components/Play.test.tsx > Play component > does not claim a rank when the run scored below the player's best
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+(node:40257) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/identity.test.ts (2 tests) 2ms
+ ✓ src/components/Controls.test.tsx (15 tests) 527ms
+ ✓ src/lib/fuzzy.test.ts (7 tests) 2ms
+stderr | src/components/Play.test.tsx > Play component > keeps the Submit button usable after a failed submit (retry)
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+ ✓ src/components/SectorRadar.test.tsx (3 tests) 64ms
+ ✓ src/components/Play.test.tsx (19 tests) 529ms
+
+ Test Files  21 passed (21)
+      Tests  178 passed (178)
+   Start at  09:06:30
+   Duration  1.80s (transform 823ms, setup 1.84s, collect 2.46s, tests 3.16s, environment 11.93s, prepare 1.07s)
+

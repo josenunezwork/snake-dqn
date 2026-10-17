@@ -1,0 +1,18 @@
+{
+  "description": "T15B final live smoke and focused validation; full suite and CI results in final handoff",
+  "sha256": {
+    "research/t15b_watch_default_20261017/results/all_b8.frames.json": "6943441b6afa3c019794b69cdf63a15e16877b43c90011dedd0b74552da950b4",
+    "research/t15b_watch_default_20261017/results/all_b8.stderr.log": "f00baf7e8c736e58c3260c3b1a22c839eca07f9c3179c6991128b016727c3f49",
+    "research/t15b_watch_default_20261017/results/all_b8.stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "research/t15b_watch_default_20261017/results/black.txt": "677eb6388d8c69ceb0e70b548284306447aa5cbbe4cad6ff2411192435a918e8",
+    "research/t15b_watch_default_20261017/results/default.frames.json": "a98f3e1e0b2990017a8784df3f15a9c96983d88aa1b6137005d5c847aa5ecbe3",
+    "research/t15b_watch_default_20261017/results/default.stderr.log": "933767da34983576c3a6a519ce0cc3b78dfe8a1ca574834474f85bec3ef6c10f",
+    "research/t15b_watch_default_20261017/results/default.stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "research/t15b_watch_default_20261017/results/flake8.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "research/t15b_watch_default_20261017/results/focused-tests.txt": "7d2fcb7a1e77453198ce87d340144a211b850a81bd71d416cfa748a09af640d2",
+    "research/t15b_watch_default_20261017/results/frontend-build.txt": "1b0e24ac3b3367db0c6a194fd0cf4fb7cdbf9970123ab5281f140b2fba449c1b",
+    "research/t15b_watch_default_20261017/results/frontend-tests.txt": "d226c9a3bed2de3f4fa93d62e65bb729f3fff8c8d34a10a54b3994af6f48e481",
+    "research/t15b_watch_default_20261017/results/isort.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "research/t15b_watch_default_20261017/results/startups.json": "23657c14cbf4baea9658d444947f38a6fd09a163607091418426ea91f7003bf0"
+  }
+}

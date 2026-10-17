@@ -140,6 +140,7 @@ class TestFlags:
 
 class TestDefaultOff:
     def test_rollback_flag_wraps_nothing_in_watch_or_play(self, monkeypatch):
+        monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "all_b8")
         monkeypatch.setenv(ENV_WATCH_HERO, "0")
         monkeypatch.delenv(ENV_PLAY_AI, raising=False)
         sess = GameSession()
@@ -160,7 +161,8 @@ class TestDefaultOff:
         sess.set_mode(MODE_PLAY)
         assert wrapped_ids(sess) == []
 
-    def test_control_state_payload_is_unchanged(self):
+    def test_control_state_payload_is_unchanged(self, monkeypatch):
+        monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "all_b8")
         sess = GameSession(safety_veto_flags=ServingVetoFlags(True, True))
         assert "safety_veto" not in sess.control_state()
 
@@ -332,7 +334,8 @@ class TestBuildLogLine:
         (line,) = self._lines(caplog)
         assert "active=False" in line and "no strict-gate evidence" in line
 
-    def test_flags_off_logs_nothing_and_payload_is_unchanged(self, caplog, pinned):
+    def test_flags_off_logs_nothing_and_payload_is_unchanged(self, caplog, pinned, monkeypatch):
+        monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "all_b8")
         caplog.set_level(logging.INFO, logger=self.LOGGER)
         sess = GameSession(checkpoint=pinned, safety_veto_flags=ServingVetoFlags())
         sess.set_mode(MODE_PLAY)

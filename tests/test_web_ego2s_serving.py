@@ -104,7 +104,7 @@ def test_train_refused_and_play_works(ego_ckpt):
     assert sess.game is watch_game
 
 
-def test_default_session_serves_released_b8_without_a_veto(monkeypatch):
+def test_default_session_serves_released_b8_with_mixed_watch_opponents(monkeypatch):
     from web.backend import served_checkpoint as registry
 
     required = (registry.B8_S3_FILENAME, registry.FRP3_S12_FILENAME)
@@ -116,10 +116,12 @@ def test_default_session_serves_released_b8_without_a_veto(monkeypatch):
     assert sess.served_checkpoint["name"] == registry.NAME_B8_S3
     assert sess.obs_spec == EGO2S_BV8
     assert sess.control_state()["speed_ceiling"] == 24.0
-    assert sess.safety_veto_state()["active"] is False
-    assert sess.safety_veto_state()["reason"] == (
-        "the safety veto applies only to a vector61 Apex policy"
-    )
+    assert sess.watch_roster == "mixed"
+    assert sess.game.snakes[0].policy is sess.policy
+    assert sess.game.snakes[0].safety_veto is None
+    assert sess.safety_veto_state()["active"] is True
+    assert sess.safety_veto_state()["scope"] == "watch_opponents"
+    assert sess.safety_veto_state()["wrapped_snake_ids"] == [1, 2, 3, 4, 5]
 
     monkeypatch.setenv(registry.ENV_CHECKPOINT, registry.NAME_FRP3_S12)
     rollback = GameSession()

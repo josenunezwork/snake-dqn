@@ -74,15 +74,13 @@ NAME_B8_S3 = "b8-s3"
 # Rollback (restart, no code change): SNAKE_SERVE_CHECKPOINT=frp3-s12 or =champion.
 CHECKPOINT_RELEASED_DEFAULT = NAME_B8_S3
 
-# Watch roster selection is deliberately separate from checkpoint selection.  The
-# released Watch default remains the homogeneous B8 roster until its own serving
-# qualification is complete.  "mixed" is an opt-in qualification posture.
+# Watch roster selection is deliberately separate from checkpoint selection.
 WATCH_ROSTER_ALL_B8 = "all_b8"
 WATCH_ROSTER_MIXED = "mixed"
 WATCH_ROSTERS = (WATCH_ROSTER_ALL_B8, WATCH_ROSTER_MIXED)
-# Kept separate from the candidate constant so a release erratum can change one
-# reviewed line without touching checkpoint selection or the mixed implementation.
-WATCH_ROSTER_RELEASED_DEFAULT = WATCH_ROSTER_ALL_B8
+# Owner-approved 2026-10-17 after T15 SERVING_PASS. Roll back with
+# SNAKE_SERVE_WATCH_ROSTER=all_b8 and restart the serving instance.
+WATCH_ROSTER_RELEASED_DEFAULT = WATCH_ROSTER_MIXED
 
 # The veto-variant env key (read here only to keep the pre-swap veto rollbacks meaningful;
 # web/backend/safety_veto_serving.py owns the variant itself). The previous frp3-s12 default

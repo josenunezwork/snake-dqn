@@ -10,6 +10,7 @@ import pytest
 from scripts import monitor_b8_release as monitor
 from src.model.obs_spec import EGO2S_B
 from web.backend import session as session_mod
+from web.backend.served_checkpoint import B8_S3_SHA256, ServedCheckpointChoice
 from web.backend.session import MODE_PLAY, MODE_WATCH, GameSession
 
 
@@ -24,6 +25,7 @@ def _healthy_records(*, update_ms: float = 8.0) -> list[dict]:
         {
             "event": "watch_tick",
             "checkpoint": "b8-s3",
+            "roster_mode": "all_b8",
             "roster_size": 6,
             "speed": 12.0,
             "decisions": 1,
@@ -46,11 +48,21 @@ def test_healthy_b8_watch_records_report_all_three_metrics() -> None:
         "deaths_per_1000": 0.0,
         "baseline_deaths_per_1000": 0.424,
         "trigger_per_1000": 0.848,
+        "roster_mode": "all_b8",
     }
     assert metrics["latency_by_roster"]["watch6"]["update_p95_ms"] == 8.0
     assert metrics["latency_by_roster"]["watch6"]["trigger_ms"] == (
         1.5 * monitor.UPDATE_P95_BASELINE_MS[("watch", 6)]
     )
+
+
+def test_legacy_watch_record_without_a_roster_mode_is_all_b8() -> None:
+    records = _healthy_records()
+    del records[1]["roster_mode"]
+    healthy, messages, metrics = monitor.assess(records, [])
+
+    assert healthy and messages == []
+    assert set(metrics["deaths_by_roster"]) == {"watch6"}
 
 
 def test_any_fallback_or_ego2s_exception_requires_rollback() -> None:
@@ -64,6 +76,48 @@ def test_any_fallback_or_ego2s_exception_requires_rollback() -> None:
     assert metrics["fallback_records"] == 1 and metrics["ego2s_exceptions"] == 1
     assert any("fallback" in message for message in messages)
     assert any("ego2s-path exception" in message for message in messages)
+
+
+def test_real_mixed_refusal_is_durable_and_healthy_all_b8_ticks_cannot_hide_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hero = SimpleNamespace(policy=object(), ai=object(), safety_veto=None)
+    opponent = SimpleNamespace(policy=object(), ai=object(), safety_veto=None)
+    session = GameSession.__new__(GameSession)
+    session.mode = MODE_WATCH
+    session.game = SimpleNamespace(snakes=[hero, opponent])
+    session.policy = hero.policy
+    session._release_monitoring = True
+    session.served_checkpoint = {"name": "b8-s3", "path": "/test/b8.pth"}
+    session.checkpoint_path = "/test/b8.pth"
+    session.obs_spec = EGO2S_B
+    session.watch_opponent_checkpoint = None
+    session.watch_opponent_policy = None
+    events: list[dict] = []
+    monkeypatch.setattr(
+        session_mod,
+        "resolve_mixed_watch_opponent",
+        lambda: ServedCheckpointChoice(requested="frp3-s12", reason="bad pin"),
+    )
+    monkeypatch.setattr(
+        session_mod,
+        "mixed_roster_fallback",
+        lambda **kwargs: events.append({"event": "mixed_roster_fallback", **kwargs}),
+    )
+
+    session._install_mixed_watch_roster(B8_S3_SHA256)
+    healthy, messages, metrics = monitor.assess(_healthy_records() + events, [])
+
+    assert session.watch_roster == "all_b8"
+    assert events == [
+        {
+            "event": "mixed_roster_fallback",
+            "reason": "mixed Watch roster refused: FRP3 opponent pin/bytes failed: bad pin",
+        }
+    ]
+    assert not healthy
+    assert metrics["fallback_records"] == 1
+    assert any("fallback" in message for message in messages)
 
 
 def test_death_and_latency_thresholds_are_strictly_greater() -> None:
@@ -83,6 +137,7 @@ def _watch_death_rate_records(*, roster_size: int, deaths: int) -> list[dict]:
     dead_tick = {
         "event": "watch_tick",
         "checkpoint": "b8-s3",
+        "roster_mode": "all_b8",
         "roster_size": roster_size,
         "speed": speed,
         "decisions": 1,
@@ -136,6 +191,7 @@ def test_watch_death_thresholds_are_per_roster_and_cannot_be_diluted() -> None:
         {
             "event": "watch_tick",
             "checkpoint": "b8-s3",
+            "roster_mode": "all_b8",
             "roster_size": 12,
             "speed": 12.0,
             "decisions": 1,
@@ -172,6 +228,7 @@ def test_unknown_watch_roster_fails_closed_even_without_latency_samples() -> Non
         {
             "event": "watch_tick",
             "checkpoint": "b8-s3",
+            "roster_mode": "all_b8",
             "roster_size": 7,
             "speed": 24.0,
             "decisions": 0,
@@ -197,6 +254,7 @@ def test_missing_or_mixed_telemetry_never_reports_healthy() -> None:
         {
             "event": "watch_tick",
             "checkpoint": "b8-s3",
+            "roster_mode": "all_b8",
             "roster_size": 8,
             "speed": 12.0,
             "decisions": 0,
@@ -211,6 +269,87 @@ def test_missing_or_mixed_telemetry_never_reports_healthy() -> None:
         "no T12B-qualified update baseline for watch8" in message for message in messages
     )
     assert monitor.WATCH_DEATHS_PER_1K_BASELINE[8] == 0.496
+
+
+def _mixed_watch_records(*, roster_size: int = 6, update_ms: float = 7.0) -> list[dict]:
+    records = _healthy_records()
+    records[1].update(roster_mode="mixed", roster_size=roster_size, update_ms=update_ms)
+    return records
+
+
+def test_mixed_watch6_uses_t15_death_and_retained_latency_baselines() -> None:
+    healthy, messages, metrics = monitor.assess(_mixed_watch_records(), [])
+
+    assert healthy and messages == []
+    assert metrics["deaths_by_roster"]["mixed_watch6"]["baseline_deaths_per_1000"] == 0.272
+    assert metrics["deaths_by_roster"]["mixed_watch6"]["trigger_per_1000"] == 0.544
+    assert metrics["latency_by_roster"]["mixed_watch6"] == {
+        "update_p95_ms": 7.0,
+        "qualification_update_p95_ms": 7.792219356633723,
+        "trigger_ms": 11.688329034950584,
+        "qualification_bound_ms": 66.667,
+    }
+
+
+@pytest.mark.parametrize("roster_size", [8, 12])
+def test_mixed_watch_n8_and_n12_deaths_fail_closed_without_invented_baselines(
+    roster_size: int,
+) -> None:
+    healthy, messages, metrics = monitor.assess(_mixed_watch_records(roster_size=roster_size), [])
+
+    label = f"mixed_watch{roster_size}"
+    assert not healthy
+    assert metrics["deaths_by_roster"][label]["baseline_deaths_per_1000"] is None
+    assert metrics["deaths_by_roster"][label]["trigger_per_1000"] is None
+    assert metrics["latency_by_roster"][label]["qualification_update_p95_ms"] == (
+        9.519156138412654 if roster_size == 8 else 13.141333474777639
+    )
+    assert f"no registered Watch death baseline for {label}" in messages
+
+
+def _mixed_death_rate_records(deaths: int) -> list[dict]:
+    dead = _mixed_watch_records()[1]
+    dead.update(deaths=1)
+    survived = {**dead, "deaths": 0}
+    return [_healthy_records()[0], *([dead] * deaths), *([survived] * (125_000 - deaths))]
+
+
+def test_mixed_watch_death_trigger_is_strictly_greater() -> None:
+    healthy, messages, _ = monitor.assess(_mixed_death_rate_records(68), [])
+    assert healthy and messages == []  # Equality at 0.544/1k is not a rollback.
+
+    healthy, messages, _ = monitor.assess(_mixed_death_rate_records(69), [])
+    assert not healthy
+    assert any(
+        "mixed_watch6 deaths/1k" in message and "exceeds 0.544" in message for message in messages
+    )
+
+
+def test_mode_and_size_observation_windows_cannot_be_pooled() -> None:
+    all_b8 = _healthy_records()[1]
+    all_b8.update(timestamp=0.0)
+    mixed = dict(_mixed_watch_records()[1])
+    mixed.update(decisions=1, timestamp=0.0)
+    healthy, messages, metrics = monitor.assess(
+        [_healthy_records()[0], *([all_b8] * 100_000), mixed], [], now=8 * 86400
+    )
+
+    assert healthy and messages == []
+    assert metrics["windows_by_roster"]["watch6"]["window_complete"] is True
+    assert metrics["windows_by_roster"]["mixed_watch6"]["window_complete"] is False
+    assert metrics["window_complete"] is False
+
+
+def test_qualified_mixed_latency_group_cannot_be_hidden_by_all_b8_samples() -> None:
+    records = _healthy_records()
+    mixed = dict(_mixed_watch_records()[1])
+    mixed["latency_eligible"] = False
+    records.append(mixed)
+
+    healthy, messages, _ = monitor.assess(records, [])
+
+    assert not healthy
+    assert "missing default-speed eligible Watch update telemetry for mixed_watch6" in messages
 
 
 def test_parser_retains_malformed_prefixed_log_as_a_fault() -> None:
@@ -270,6 +409,41 @@ def test_watch_counts_actual_post_respawn_hero_update(monkeypatch: pytest.Monkey
 
     assert hero.updated is True
     assert events[0]["decisions"] == 1
+    assert events[0]["roster_mode"] == "all_b8"
+
+
+def test_mixed_watch_b8_session_emits_partitioning_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    hero = SimpleNamespace(id=0, is_alive=True, update=lambda *_args: None)
+    game = SimpleNamespace(snakes=[hero], frame_death_causes={})
+    game.update = lambda **_kwargs: hero.update([], [])
+    events: list[dict] = []
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(session_mod, "watch_tick", lambda **kwargs: events.append(kwargs))
+    session = _b8_session(game)
+    session.watch_roster = "mixed"
+    session.step()
+
+    assert events[0]["roster_mode"] == "mixed"
+    assert events[0]["decisions"] == 1
+
+
+def test_mixed_watch_monitoring_stays_on_b8_slot_zero_when_inspecting_an_opponent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    b8 = SimpleNamespace(id=0, is_alive=True, update=lambda *_args: None)
+    opponent = SimpleNamespace(id=1, is_alive=True, update=lambda *_args: None)
+    game = SimpleNamespace(snakes=[b8, opponent], frame_death_causes={0: "wall"})
+    game.update = lambda **_kwargs: (b8.update([], []), b8.update([], []), opponent.update([], []))
+    events: list[dict] = []
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(session_mod, "watch_tick", lambda **kwargs: events.append(kwargs))
+    session = _b8_session(game)
+    session.watch_roster = "mixed"
+    session.hero_id = 1  # Inspector selection; not the fixed B8 monitoring hero.
+    session.step()
+
+    assert events[0]["decisions"] == 2
+    assert events[0]["deaths"] == 1
 
 
 def test_watch_restores_hero_update_after_failure(monkeypatch: pytest.MonkeyPatch) -> None:
