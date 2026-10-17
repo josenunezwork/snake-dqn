@@ -70,3 +70,15 @@ def _restore_torch_intraop_threads():
     yield
     if torch.get_num_threads() != before:
         torch.set_num_threads(before)
+
+
+@pytest.fixture(autouse=True)
+def _restore_game_config():
+    """Keep research helpers' configuration changes local to the invoking test."""
+    from src.core import game_config
+
+    before = game_config._current_config
+    try:
+        yield
+    finally:
+        game_config._current_config = before
