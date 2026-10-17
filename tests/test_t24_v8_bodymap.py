@@ -156,3 +156,31 @@ def test_bodymap_empty_and_dead_rows_match_prechange_contract() -> None:
     for module in (reference, candidate):
         with pytest.raises(ValueError, match="alive"):
             module.v8_decide(sim, dead, np.zeros((1, 6), np.float32), np.ones((1, 6), bool))
+
+
+@pytest.mark.parametrize("mechanics", [1, 2])
+def test_bodymap_repeated_own_cells_at_normal_and_boost_landings(mechanics: int) -> None:
+    """Repeated old cells retain legacy max-release and overlay/restore semantics."""
+    import src.simd_env.v8_nb as candidate
+
+    reference = prechange_v8()
+    sim = make_sim(150, mechanics)
+    # Make the action targets explicit and duplicate each old cell.  Offset 10
+    # is the normal landing; offset 20 is boost's intermediate/landing path.
+    # The duplicates force the release map to take its maximum and exercise the
+    # template's saved-cell restoration after every action evaluation.
+    for env in range(2):
+        hp = int(sim.head_ptr[env, 0])
+        sim.bodies[env, 0, hp] = (20, 20)
+        sim.direction[env, 0] = 1
+        for offset in (9, 10):
+            sim.bodies[env, 0, (hp - offset) % sim.bodies.shape[2]] = (21, 20)
+        for offset in (19, 20, 21):
+            sim.bodies[env, 0, (hp - offset) % sim.bodies.shape[2]] = (22, 20)
+    rows = np.array([[1, 0], [0, 0], [1, 0]], dtype=np.int64)
+    q = np.array([[0, 1, 2, 3, 9, 4], [4, 3, 2, 1, 9, 0], [1, 1, 1, 1, 9, 1]], np.float32)
+    mask = np.ones((len(rows), 6), dtype=bool)
+    for eager in (False, True):
+        expected = reference.v8_decide(sim, rows, q, mask, features=eager)
+        actual = candidate.v8_decide(sim, rows, q, mask, features=eager)
+        assert_result_bytes(expected, actual)
