@@ -71,9 +71,8 @@ class LeagueBV8Policy:
 def _normal_fallback_mask(mask: Any) -> Any:
     """Mirror legacy resolved-mask fallback without a host round trip."""
     empty = ~mask.any(dim=1)
-    if bool(empty.any()):
-        mask = mask.clone()
-        mask[empty, :3] = True
+    mask = mask.clone()
+    mask[:, :3] |= empty[:, None]
     return mask
 
 
@@ -183,11 +182,13 @@ def default_pool_identities(
         "research/redesign_m3c_20261008/league_pool.py",
         "src/model/ego2s_network.py",
         "src/simd_env/ego_raster.py",
+        "src/simd_env/ego_raster_bv8.py",
+        "src/simd_env/v8_nb.py",
     )
     v61_sources = _source_pins(
         "src/simd_env/vector61_policy.py", "src/simd_env/vector61_featurizer.py"
     )
-    script_sources = _source_pins("src/simd_env/fast_anchors.py")
+    script_sources = _source_pins("src/simd_env/fast_anchors.py", "src/evaluation/anchors.py")
     return (
         PoolIdentity(
             "b8-s3",
