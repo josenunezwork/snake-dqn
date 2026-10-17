@@ -3307,7 +3307,12 @@ def actor_main(
                             # the same selection mask the shield / labels decide with.
                             t_v = time.perf_counter()
                             sel_mask = hero_selection_mask(prepared, hero)
-                            v8s, v8res = v8_scalars(prepared, hero, sel_mask)
+                            if mixed_seats and pool is not None and pool_seats is not None:
+                                v8s, v8res = pool.v8_with_learner_rows(
+                                    prepared, hero, sel_mask, alive, pool_seats
+                                )
+                            else:
+                                v8s, v8res = v8_scalars(prepared, hero, sel_mask)
                             if v8res is None:
                                 raise RuntimeError("bv8: v8 features need live hero rows")
                             obs["scalars"] = np.concatenate([obs["scalars"], v8s], axis=1)

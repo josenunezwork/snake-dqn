@@ -12,7 +12,7 @@ import hashlib
 import os
 import time
 from collections import OrderedDict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
@@ -113,12 +113,13 @@ class LeagueBV8Policy:
         self.last_forward_gpu_s = 0.0
         # The learner's b-format raster and B8's bv8 raster share these 7/4/30
         # bytes exactly.  A frame-local cache lets the actor make that gather
-        # once for learner+B8 rows; v8 scalars remain B8-only.
+        # once for learner+B8 rows. V8 diagnostics use a separate shared gather.
         self._base_ego_config = replace(self.ego_config, version="b")
         self._base_cache_slots: Optional[np.ndarray] = None
         self._base_cache_obs: Optional[Dict[str, np.ndarray]] = None
         self._base_cache_sim: Optional[Any] = None
         self._base_cache_frame: Optional[np.ndarray] = None
+        self._v8_cache: Optional[Tuple[Any, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = None
         for param in self.net.parameters():
             param.requires_grad_(False)
         self._torch = torch
@@ -149,15 +150,26 @@ class LeagueBV8Policy:
                 self._base_cache_slots = None
                 self._base_cache_obs = None
                 base = build_ego_raster(sim, self._base_ego_config, backend="numba", rows=slots)
-            v8, _ = v8_scalars(sim, slots)
+            advisory = sim.get_advisory_action_mask()[slots[:, 0], slots[:, 1]]
+            cached = self._v8_cache
+            self._v8_cache = None  # consume once, including mismatches
+            if (
+                cached is not None
+                and cached[0] is sim
+                and np.array_equal(cached[1], slots)
+                and np.array_equal(cached[2], sim.frame[slots[:, 0]])
+                and np.array_equal(cached[3], advisory)
+            ):
+                v8 = cached[4]
+            else:
+                v8, _ = v8_scalars(sim, slots, advisory)
             obs = {
                 "local": base["local"],
                 "global": base["global"],
                 "scalars": np.concatenate([base["scalars"], v8], axis=1),
             }
         else:
-            self._base_cache_slots = None
-            self._base_cache_obs = None
+            self.clear_frame_cache()
             obs = build_ego_raster(sim, self.ego_config, backend="numba", rows=slots)
         tensors = obs_tensors(obs, self.device)
         torch = self._torch
@@ -178,8 +190,8 @@ class LeagueBV8Policy:
 
         The row order is learner rows followed by B8 rows.  The numba raster
         kernel is row independent, so each slice is byte-identical to its old
-        separate invocation.  V8 diagnostics are not included here: they are
-        B8-specific and are still evaluated only for B8 rows in :meth:`actions`.
+        separate invocation. V8 diagnostics have their own gather so the actor
+        can pass the learner's exact selection mask and account its time separately.
         """
         from src.simd_env.ego_raster import build_ego_raster
 
@@ -197,8 +209,43 @@ class LeagueBV8Policy:
         self._base_cache_frame = np.asarray(sim.frame[b8_rows[:, 0]], dtype=np.int64).copy()
         return {key: value[:n] for key, value in all_obs.items()}
 
+    def prime_v8_with_learner_rows(
+        self, sim: Any, learner_rows: np.ndarray, learner_mask: np.ndarray, b8_rows: np.ndarray
+    ) -> Tuple[np.ndarray, Any]:
+        """Evaluate learner and B8 features together with their respective masks.
+
+        Scratch lives only inside this call. Returned learner arrays and the B8
+        slice own their storage; no later frame can overwrite replay observations.
+        The actor consumes B8's slice in the following dispatch of this prepared frame.
+        """
+        from src.simd_env.ego_raster_bv8 import v8_scalars
+
+        self._v8_cache = None
+        learner_rows = np.asarray(learner_rows, dtype=np.int64).reshape(-1, 2)
+        b8_rows = np.asarray(b8_rows, dtype=np.int64).reshape(-1, 2)
+        b8_mask = sim.get_advisory_action_mask()[b8_rows[:, 0], b8_rows[:, 1]]
+        both = np.concatenate([learner_rows, b8_rows])
+        masks = np.concatenate([np.asarray(learner_mask, dtype=bool), b8_mask])
+        extras, result = v8_scalars(sim, both, masks)
+        if result is None:
+            raise ValueError("shared v8 gather requires live learner and B8 rows")
+        n = len(learner_rows)
+        self._v8_cache = (
+            sim,
+            b8_rows.copy(),
+            np.asarray(sim.frame[b8_rows[:, 0]], dtype=np.int64).copy(),
+            b8_mask.copy(),
+            extras[n:].copy(),
+        )
+        learner_result = replace(
+            result,
+            **{field.name: getattr(result, field.name)[:n].copy() for field in fields(result)},
+        )
+        return extras[:n].copy(), learner_result
+
     def clear_frame_cache(self) -> None:
-        """Drop a transient raster slice at a segment/rebind boundary."""
+        """Drop transient raster and v8 slices at a segment/rebind boundary."""
+        self._v8_cache = None
         self._base_cache_slots = None
         self._base_cache_obs = None
         self._base_cache_sim = None
@@ -486,6 +533,26 @@ class StaticPool:
             # because its arrays have compatible shapes.
             return None
         return policy.prime_with_learner_rows(prepared, learner_rows, b8_rows)
+
+    def v8_with_learner_rows(
+        self,
+        prepared: Any,
+        learner_rows: np.ndarray,
+        learner_mask: np.ndarray,
+        alive: np.ndarray,
+        seats: np.ndarray,
+    ) -> Tuple[np.ndarray, Any]:
+        """Share one per-frame v8 computation across learner and frozen B8 seats."""
+        from src.simd_env.ego_raster_bv8 import v8_scalars
+
+        policy = self.policies["b8-s3"]
+        if not isinstance(policy, LeagueBV8Policy):
+            raise TypeError("b8-s3 pool policy must be LeagueBV8Policy")
+        policy._v8_cache = None
+        b8_rows = self.groups_for(seats, alive).get("b8-s3")
+        if b8_rows is None or not len(learner_rows) or policy.ego_config.version != "bv8":
+            return v8_scalars(prepared, learner_rows, learner_mask)
+        return policy.prime_v8_with_learner_rows(prepared, learner_rows, learner_mask, b8_rows)
 
     def _dispatch(
         self,
