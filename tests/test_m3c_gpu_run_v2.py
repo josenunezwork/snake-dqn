@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -173,10 +174,18 @@ class Clock:
     def __init__(self, monkeypatch, t0=1_000_000.0):
         self.t = t0
         monkeypatch.setattr(gr, "now", lambda: self.t)
-        monkeypatch.setattr(gr.time, "sleep", self.sleep)
+        monkeypatch.setattr(gr, "time", SimpleNamespace(**{**vars(time), "sleep": self.sleep}))
 
     def sleep(self, s):
         self.t += s
+
+
+def test_clock_does_not_advance_for_unrelated_thread_sleep(monkeypatch):
+    real_sleep = time.sleep
+    clock = Clock(monkeypatch)
+    assert time.sleep is real_sleep
+    gr.time.sleep(60)
+    assert clock.t == 1_000_060.0
 
 
 def test_puller_confines_checks_sha_and_is_incremental(tmp_path, monkeypatch):

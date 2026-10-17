@@ -14,7 +14,7 @@ from research.redesign_m3c_20261008 import learner_m3c as lm
 from research.redesign_m3c_20261008 import train_m3c as m3c
 from research.t3_rollout_labels_20261015.bank import LabelBank, surviving_margin
 from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
-from tests.t14_fixtures import subprocess_evaluator_sitecustomize
+from tests.t14_fixtures import install_train_layout_context, subprocess_evaluator_sitecustomize
 from tests.test_perf_learner import _args, _assert_same, _ingest, _st, _world
 
 
@@ -73,7 +73,8 @@ def test_bank_margin_scale_and_fatal_b8_action_are_not_an_extra_target() -> None
     assert float(agree) == 0.0
 
 
-def test_bank_packed_roundtrip(tmp_path: Path) -> None:
+def test_bank_packed_roundtrip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    install_train_layout_context(monkeypatch)
     from research.redesign_m3c_20261008.obs_pack import pack_ref, train_layout
 
     _write_bank(tmp_path)
@@ -260,7 +261,7 @@ def test_bank_only_cpu_cli_smoke(tmp_path: Path) -> None:
         "--ring-dir",
         str(tmp_path),
     ]
-    startup = subprocess_evaluator_sitecustomize(tmp_path)
+    startup = subprocess_evaluator_sitecustomize(tmp_path, deny_historical_artifacts=True)
     env = {
         **os.environ,
         "PYTHONPATH": os.pathsep.join((str(startup), str(root))),

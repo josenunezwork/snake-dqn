@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from research.t3_screen_20261015 import reroll_t3
+from tests.t14_fixtures import install_train_layout_context
 
 
 def _bank(tmp_path, decisive=3, packed=False):
@@ -75,7 +76,8 @@ def test_sample_requires_enough_decisive_exported_rows(tmp_path) -> None:
         reroll_t3.prepare_sample(_bank(tmp_path, decisive=1), tmp_path / "sample.json", size=2)
 
 
-def test_packed_export_is_unpacked_with_the_canonical_layout(tmp_path) -> None:
+def test_packed_export_is_unpacked_with_the_canonical_layout(monkeypatch, tmp_path) -> None:
+    install_train_layout_context(monkeypatch)
     bank = _bank(tmp_path, packed=True)
     sample = reroll_t3.prepare_sample(bank, tmp_path / "sample.json", size=2)
     assert len(sample["entries"]) == 2

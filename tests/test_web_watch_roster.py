@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
+import torch
 
 pytest.importorskip("fastapi")
 
+from web.backend import served_checkpoint as registry  # noqa: E402
 from web.backend import session as session_module  # noqa: E402
 from web.backend.safety_veto_serving import ServingVetoFlags, ServingVetoState  # noqa: E402
 from web.backend.served_checkpoint import ServedCheckpointChoice  # noqa: E402
@@ -26,8 +33,121 @@ def _clean_roster_env(monkeypatch):
         monkeypatch.delenv(key, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _released_checkpoint_fixture(monkeypatch, tmp_path):
+    """Use local serialized release-shaped inputs, never workstation artifacts.
+
+    The registry resolver and pin parser are deliberately real.  Only the
+    fixture boundary supplies the two release identities: their bytes are
+    synthetic, so the hash reader returns the immutable release digest after
+    asserting that every requested path is under this test's temporary root.
+    """
+    from src.core.game_config import GameConfig
+    from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
+    from src.training.apex_policy import ApexPolicy
+
+    b8 = tmp_path / registry.B8_S3_FILENAME
+    frp3 = tmp_path / registry.FRP3_S12_FILENAME
+    champion = tmp_path / registry.CHAMPION_FILENAME
+    save_ego2s_checkpoint(b8, Ego2sNet(local_channels=7, n_scalars=30), {"fixture": "b8"})
+    opponent = ApexPolicy(input_size=61, hidden_size=512, output_size=6, training=False)
+    torch.save(opponent.get_state_dict(), frp3)
+    torch.save(opponent.get_state_dict(), champion)
+
+    local_registry = {
+        name: replace(entry, artifact_path=None) for name, entry in registry.REGISTRY.items()
+    }
+    local_root = str(tmp_path)
+    receipt = lambda files: {
+        "verdict": "STRICT_PASS",
+        "root": local_root,
+        **{key: {"path": f"{key}.json", "sha256": "0" * 64} for key in files},
+    }
+    pins = {
+        "schema": registry.PINS_SCHEMA,
+        "checkpoints": {
+            registry.NAME_FRP3_S12: {
+                "checkpoint_sha256": registry.FRP3_S12_SHA256,
+                "veto_variant": registry.V8_VARIANT,
+                "veto_method": registry.V8_METHOD,
+                "strict_receipt": receipt(registry.STRICT_FILES),
+            },
+            registry.NAME_B8_S3: {
+                "checkpoint_sha256": registry.B8_S3_SHA256,
+                "veto_variant": "none",
+                "veto_method": "none",
+                "strict_receipt": receipt(registry.T7_PIN_FILES),
+            },
+        },
+    }
+    pins_path = tmp_path / "pins.json"
+    pins_path.write_text(json.dumps(pins))
+    expected_hashes = {
+        b8: registry.B8_S3_SHA256,
+        frp3: registry.FRP3_S12_SHA256,
+        champion: registry.CHAMPION_SHA256,
+    }
+
+    def fixture_digest(path):
+        resolved = Path(path)
+        assert resolved in expected_hashes, f"unexpected non-fixture checkpoint access: {path}"
+        return expected_hashes[resolved]
+
+    original_load = session_module._load_checkpoint_once
+
+    def load_fixture_checkpoint(path):
+        resolved = Path(path)
+        assert resolved in expected_hashes, f"unexpected non-fixture checkpoint access: {path}"
+        payload, blob, _ = original_load(path)
+        return payload, blob, expected_hashes[resolved]
+
+    monkeypatch.setattr(registry, "REGISTRY", local_registry)
+    monkeypatch.setattr(registry, "SAVED_DIR", str(tmp_path))
+    monkeypatch.setattr(registry, "PINS_PATH", str(pins_path))
+    monkeypatch.setattr(session_module, "DEFAULT_CHECKPOINT", str(champion))
+    monkeypatch.setattr(registry, "_sha256_file", fixture_digest)
+    monkeypatch.setattr(session_module, "_load_checkpoint_once", load_fixture_checkpoint)
+
+
 def _ids(session: GameSession) -> list[int]:
     return [int(snake.id) for snake in session.game.snakes]
+
+
+def test_roster_fixture_survives_historical_artifact_denial_in_subprocess(tmp_path):
+    """The local release identities must not mask reads from a developer's archive."""
+    historical_roots = (
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts",
+        str(Path(registry.REPO_ROOT) / "saved_snakes"),
+    )
+    hook = tmp_path / "sitecustomize.py"
+    hook.write_text(
+        "import os, sys\n"
+        f"_roots = {historical_roots!r}\n"
+        "def _deny(event, args):\n"
+        "    if event == 'open' and args and isinstance(args[0], str):\n"
+        "        if any(os.path.abspath(args[0]).startswith(root) for root in _roots):\n"
+        "            raise PermissionError(f'historical artifact access denied: {args[0]}')\n"
+        "sys.addaudithook(_deny)\n"
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join((str(tmp_path), str(Path.cwd()), env.get("PYTHONPATH", "")))
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            __file__,
+            "-k",
+            "not historical_artifact_denial_in_subprocess",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_default_watch_roster_stays_all_b8():

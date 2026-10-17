@@ -22,7 +22,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from tests.seed_artifact_fixtures import install_v8_seed_history
 
 from research.apex_safety_20260926 import dev_screen
 from research.frp3_strict_20261005 import preflight as P
@@ -30,6 +29,7 @@ from research.frp3_strict_20261005 import spec as S
 from research.runpod_fanout import jobspec, serverless
 from research.sequential_strict_template import remote_backend as RB
 from research.sequential_strict_template import sequential_runner as R
+from tests.seed_artifact_fixtures import install_v8_seed_history
 
 REPO = Path(__file__).resolve().parents[1]
 PACKAGE = REPO / "research" / "frp3_strict_20261005"
@@ -615,6 +615,11 @@ def test_banks_are_disjoint_from_every_enumerable_namespace(monkeypatch, tmp_pat
         )
         directories[name] = directory
     monkeypatch.setattr(P, "FRP_NAMESPACE_DIRS", directories)
+    # ``frp_written_exclusions`` captured the production map as its default
+    # argument at import time.  Keep its real report parser, but feed it this
+    # test's hermetic namespace directories.
+    written_exclusions = P.frp_written_exclusions
+    monkeypatch.setattr(P, "frp_written_exclusions", lambda: written_exclusions(directories))
     _light_exclusions.cache_clear()
     report = P.report(scan=False)
     assert report["disjoint"], report["problems"]

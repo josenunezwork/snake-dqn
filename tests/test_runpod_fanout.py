@@ -26,6 +26,34 @@ from research.runpod_fanout import jobspec, ledger, platform_rule, runner, watch
 from research.runpod_fanout.rp_client import RpClient, RunPodError
 from research.runpod_fanout.wrappers import HERO_SHA256, SCRIPTED_SHA256
 
+_STARTUP_BOOTSTRAP = r"""
+import faulthandler
+import http.server
+import runpy
+import sys
+
+faulthandler.enable()
+faulthandler.dump_traceback_later(10, file=sys.stderr)
+original_serve_forever = http.server.ThreadingHTTPServer.serve_forever
+
+def serve_forever(self, *args, **kwargs):
+    faulthandler.cancel_dump_traceback_later()
+    return original_serve_forever(self, *args, **kwargs)
+
+http.server.ThreadingHTTPServer.serve_forever = serve_forever
+source = sys.argv[1]
+sys.argv = [source, *sys.argv[2:]]
+try:
+    runpy.run_path(source, run_name="__main__")
+finally:
+    faulthandler.cancel_dump_traceback_later()
+"""
+
+
+def startup_argv(source):
+    return [sys.executable, "-c", _STARTUP_BOOTSTRAP, str(source)]
+
+
 OPP = "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
 GREEDY, RANDOM = sorted(SCRIPTED_SHA256, key=lambda s: SCRIPTED_SHA256[s])
 STUB = r"""
@@ -289,7 +317,33 @@ def free_port():
     return port
 
 
-def wait_for_agent_health(proc, port, token, log_path, ready, timeout=15.0):
+def stop_owned_process(proc):
+    """Terminate and reap a child process owned by a fake provider."""
+    if proc.poll() is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        proc.wait(timeout=5)
+
+
+def log_tail(*paths):
+    parts = []
+    for path in paths:
+        path = Path(path)
+        if path.exists():
+            parts.append(f"{path}:\n{path.read_text(errors='replace')[-2000:]}")
+    return "\n".join(parts) or "(no startup logs)"
+
+
+def wait_for_agent_health(proc, port, token, log_path, ready, timeout=15.0, extra_logs=()):
     """Wait for an owned local agent to answer authenticated health requests."""
     client = runner.AgentClient(f"http://127.0.0.1:{port}", token, timeout=0.25)
     deadline = time.monotonic() + timeout
@@ -297,7 +351,7 @@ def wait_for_agent_health(proc, port, token, log_path, ready, timeout=15.0):
     while time.monotonic() < deadline:
         returncode = proc.poll()
         if returncode is not None:
-            tail = log_path.read_text(errors="replace")[-2000:] if log_path.exists() else ""
+            tail = log_tail(log_path, *extra_logs)
             raise AssertionError(f"local agent exited rc={returncode}; startup log:\n{tail}")
         try:
             health = client.get_json("/health")
@@ -308,7 +362,7 @@ def wait_for_agent_health(proc, port, token, log_path, ready, timeout=15.0):
                 return health
             last = f"health not ready: {health!r}"
         time.sleep(0.05)
-    tail = log_path.read_text(errors="replace")[-2000:] if log_path.exists() else ""
+    tail = log_tail(log_path, *extra_logs)
     raise AssertionError(
         f"local agent health did not become ready within {timeout:.1f}s; "
         f"last={last}; startup log:\n{tail}"
@@ -368,7 +422,7 @@ class FakeRp:
         startup_log = self.tmp / f"{pod_id}.startup.log"
         with startup_log.open("wb") as startup_stream:
             proc = subprocess.Popen(
-                [sys.executable, str(runner.AGENT_SOURCE)],
+                startup_argv(runner.AGENT_SOURCE),
                 env=env,
                 stdout=startup_stream,
                 stderr=subprocess.STDOUT,
@@ -379,9 +433,11 @@ class FakeRp:
         deadline = time.monotonic() + 15.0
         while time.monotonic() < deadline:
             if proc.poll() is not None:
-                tail = startup_log.read_text(errors="replace")[-2000:]
+                returncode = proc.returncode
+                stop_owned_process(proc)
+                tail = log_tail(startup_log, root / "agent.log")
                 raise AssertionError(
-                    f"local pod agent exited rc={proc.returncode}; startup log:\n{tail}"
+                    f"local pod agent exited rc={returncode}; startup log:\n{tail}"
                 )
             try:
                 socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
@@ -389,14 +445,15 @@ class FakeRp:
             except OSError:
                 time.sleep(0.05)
         else:
-            tail = startup_log.read_text(errors="replace")[-2000:]
+            tail = log_tail(startup_log, root / "agent.log")
+            stop_owned_process(proc)
             raise AssertionError(f"local pod agent did not open port {port}; startup log:\n{tail}")
         return {"id": pod_id, "costPerHr": 0.03 * body["vcpuCount"], "desiredStatus": "RUNNING"}
 
     def delete_pod(self, pod_id, confirm):
         assert confirm is True
         if pod_id in self.procs:
-            self.procs.pop(pod_id).kill()
+            stop_owned_process(self.procs.pop(pod_id))
             self.deleted.append(pod_id)
             self.names.pop(pod_id, None)
         elif pod_id.startswith("other"):
@@ -410,11 +467,11 @@ class FakeRp:
         return self.extra_pods + [{"id": i, "name": n} for i, n in self.names.items()]
 
     def kill(self, pod_id):
-        self.procs[pod_id].kill()
+        stop_owned_process(self.procs[pod_id])
 
     def close(self):
         for p in self.procs.values():
-            p.kill()
+            stop_owned_process(p)
 
 
 def make_repo(tmp):
@@ -782,7 +839,7 @@ def test_agent_rejects_bad_token_and_unlisted_uploads(tmp_path):
     startup_log = tmp_path / "agent-startup.log"
     with startup_log.open("wb") as startup_stream:
         proc = subprocess.Popen(
-            [sys.executable, str(runner.AGENT_SOURCE)],
+            startup_argv(runner.AGENT_SOURCE),
             env=env,
             stdout=startup_stream,
             stderr=subprocess.STDOUT,
@@ -794,6 +851,7 @@ def test_agent_rejects_bad_token_and_unlisted_uploads(tmp_path):
             token,
             startup_log,
             lambda health: health.get("pip") == "ok",
+            extra_logs=(tmp_path / "r" / "agent.log",),
         )
         good = runner.AgentClient(f"http://127.0.0.1:{port}", token)
         bad = runner.AgentClient(f"http://127.0.0.1:{port}", "nope")

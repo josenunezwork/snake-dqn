@@ -7,6 +7,23 @@ from types import SimpleNamespace
 from typing import Any
 
 
+def install_train_layout_context(monkeypatch: Any) -> None:
+    """Supply only the canonical profile required by ``obs_pack.train_layout``.
+
+    Packed-bank unit tests need the profile's arena geometry, not the historical
+    checkpoint lookup that :func:`grid_h5000_identity._context` verifies.  Keep
+    the production function fail-closed and replace it only inside an individual
+    test with the same named profile and therefore the same layout inputs.
+    """
+    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+    from src.core.config_loader import load_and_initialize_config
+    from src.scripts.tournament_eval import evaluation_profile_for_name
+
+    load_and_initialize_config("research/apex_safety_20260926/deployment.yaml")
+    context = {"profile": evaluation_profile_for_name("promotion-v2-watch-rect", 5000)}
+    monkeypatch.setattr(gid, "_context", lambda _threads: context)
+
+
 def evaluator_context(tmp_path: Path) -> tuple[dict[str, Any], Path]:
     """Build a real GridBatchSim context backed only by temporary checkpoints.
 
@@ -66,7 +83,9 @@ def evaluator_context(tmp_path: Path) -> tuple[dict[str, Any], Path]:
     )
 
 
-def subprocess_evaluator_sitecustomize(tmp_path: Path) -> Path:
+def subprocess_evaluator_sitecustomize(
+    tmp_path: Path, *, deny_historical_artifacts: bool = False
+) -> Path:
     """Write a startup shim for CLI smoke tests that spawn fresh interpreters.
 
     The smoke test's subprocess and spawned actor cannot receive pytest's
@@ -77,6 +96,39 @@ def subprocess_evaluator_sitecustomize(tmp_path: Path) -> Path:
     """
     hooks = tmp_path / "python-startup"
     hooks.mkdir()
+    deny = (
+        """
+import os
+import pathlib
+import sys
+
+_historical_roots = (
+    "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts",
+)
+_path_open = pathlib.Path.open
+
+def _deny_historical_artifact_open(self, *args, **kwargs):
+    if str(self).startswith(_historical_roots):
+        raise AssertionError(f"historical artifact access is forbidden in this test: {self}")
+    return _path_open(self, *args, **kwargs)
+
+pathlib.Path.open = _deny_historical_artifact_open
+
+def _deny_historical_artifact_audit(event, args):
+    if event != "open" or not args:
+        return
+    path = args[0]
+    if isinstance(path, (str, bytes, os.PathLike)):
+        name = os.fsdecode(path)
+        if name.startswith(_historical_roots):
+            raise AssertionError(f"historical artifact access is forbidden in this test: {name}")
+
+sys.addaudithook(_deny_historical_artifact_audit)
+"""
+        if deny_historical_artifacts
+        else ""
+    )
     (hooks / "sitecustomize.py").write_text("""from types import SimpleNamespace
 
 from research.apex_safety_20260926 import dev_screen
@@ -101,5 +153,5 @@ _context = {"profile": evaluation_profile_for_name("promotion-v2-watch-rect", 50
             "lookup": _lookup, "ds": SimpleNamespace(_design_rows=_design_rows)}
 gid._context = lambda _threads: _context
 dev_screen._design_rows = _design_rows
-""")
+""" + deny)
     return hooks

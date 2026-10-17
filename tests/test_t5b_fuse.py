@@ -9,6 +9,7 @@ from research.t5b_risk_and_fuse_20261016.fuse import (  # noqa: E402
     forward_final,
     saved_folds,
 )
+from tests.t14_fixtures import install_train_layout_context  # noqa: E402
 
 
 def _data() -> dict[str, np.ndarray]:
@@ -31,11 +32,13 @@ def test_design_preserves_legal_branch_labels_and_action_context() -> None:
         np.testing.assert_array_equal(x[:, -6:], np.eye(6)[action])
 
 
-def test_forward_hook_reads_post_relu_fuse_output(tmp_path) -> None:
+def test_forward_hook_reads_post_relu_fuse_output(monkeypatch, tmp_path) -> None:
     import torch
 
     from research.redesign_m3c_20261008.obs_pack import pack_ref, train_layout
     from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
+
+    install_train_layout_context(monkeypatch)
 
     net = Ego2sNet(local_channels=7, n_scalars=60)
     with torch.no_grad():

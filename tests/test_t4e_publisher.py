@@ -8,6 +8,12 @@ import pytest
 from research.redesign_m3c_20261008.obs_pack import pack_ref, train_layout
 from research.t4d_return_regression_20261016.bank import ReturnBank
 from research.t4e_return_20261016 import publisher
+from tests.t14_fixtures import install_train_layout_context
+
+
+@pytest.fixture(autouse=True)
+def _portable_train_layout(monkeypatch):
+    install_train_layout_context(monkeypatch)
 
 
 def _terminal(value: int):

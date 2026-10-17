@@ -991,7 +991,7 @@ def start_seed_agent(tmp, token, runtime_json, port):
     startup_log = Path(tmp) / "seed-startup.log"
     with startup_log.open("wb") as startup_stream:
         proc = subprocess.Popen(
-            [sys.executable, str(serverless.SEED_AGENT_SOURCE)],
+            tfo.startup_argv(serverless.SEED_AGENT_SOURCE),
             env=env,
             stdout=startup_stream,
             stderr=subprocess.STDOUT,
@@ -1003,6 +1003,7 @@ def start_seed_agent(tmp, token, runtime_json, port):
             token,
             startup_log,
             lambda health: "boot_id" in health,
+            extra_logs=(Path(tmp) / "seed.log",),
         )
     except BaseException:
         if proc.poll() is None:
@@ -1130,7 +1131,7 @@ class SeedFakeRp:
         startup_log = self.tmp / f"{pid}.startup.log"
         with startup_log.open("wb") as startup_stream:
             self.procs[pid] = subprocess.Popen(
-                [sys.executable, str(serverless.SEED_AGENT_SOURCE)],
+                tfo.startup_argv(serverless.SEED_AGENT_SOURCE),
                 env=env,
                 stdout=startup_stream,
                 stderr=subprocess.STDOUT,
@@ -1142,24 +1143,25 @@ class SeedFakeRp:
         while time.monotonic() < deadline:
             proc = self.procs[pid]
             if proc.poll() is not None:
-                tail = startup_log.read_text(errors="replace")[-2000:]
-                raise AssertionError(
-                    f"local seeder exited rc={proc.returncode}; startup log:\n{tail}"
-                )
+                returncode = proc.returncode
+                tfo.stop_owned_process(proc)
+                tail = tfo.log_tail(startup_log, self.tmp / "seed.log")
+                raise AssertionError(f"local seeder exited rc={returncode}; startup log:\n{tail}")
             try:
                 socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
                 break
             except OSError:
                 time.sleep(0.05)
         else:
-            tail = startup_log.read_text(errors="replace")[-2000:]
+            tail = tfo.log_tail(startup_log, self.tmp / "seed.log")
+            tfo.stop_owned_process(self.procs[pid])
             raise AssertionError(f"local seeder did not open port {port}; startup log:\n{tail}")
         return {"id": pid, "costPerHr": 0.07}
 
     def delete_pod(self, pod_id, confirm):
         assert confirm is True
         if pod_id in self.procs:
-            self.procs.pop(pod_id).kill()
+            tfo.stop_owned_process(self.procs.pop(pod_id))
             self.names.pop(pod_id)
             self.deleted.append(pod_id)
         return {}
@@ -1172,7 +1174,7 @@ class SeedFakeRp:
 
     def close(self):
         for p in self.procs.values():
-            p.kill()
+            tfo.stop_owned_process(p)
 
 
 def test_seed_runner_seeds_registers_and_deletes_the_pod(tmp_path):

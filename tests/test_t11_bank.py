@@ -11,6 +11,7 @@ import pytest
 
 from research.t3_rollout_labels_20261015.bank import LabelBank
 from research.t11_local30_20261017 import bank
+from tests.t14_fixtures import install_train_layout_context
 
 
 def _digest(path: Path) -> str:
@@ -78,7 +79,8 @@ def _refresh_world_hashes(source: Path) -> None:
     manifest_path.write_text(json.dumps(manifest))
 
 
-def test_derive_selects_local30_and_matches_stable_strata(tmp_path: Path) -> None:
+def test_derive_selects_local30_and_matches_stable_strata(monkeypatch, tmp_path: Path) -> None:
+    install_train_layout_context(monkeypatch)
     source = _source(tmp_path)
     out = tmp_path / "out"
     receipt = bank.derive(source, out)

@@ -128,6 +128,17 @@ all historical T10 receipts and source-bound evidence remain unchanged.
 
 ## Verification procedure
 
+The subsequent clean-checkout run exposed additional test-only dependencies on
+historical checkpoint and seed-bank files. Packed-bank tests now supply the
+canonical training-layout profile, and roster tests supply temporary checkpoint
+identities. Production artifact verification remains intact. The Python job
+downloads the frontend job's actual build so the Watch source-closure assertion
+can inspect the shipped bundle. A second runner-clock fixture is scoped to its
+own module, preventing unrelated background sleeps from advancing its simulated
+lifetime. Local fake-provider children are reaped on every owned cleanup path,
+and startup failures include their internal logs. These are CI and fixture
+repairs; they do not provide new research or serving qualification.
+
 The workflow remains [CI](../../.github/workflows/ci.yml). Its exact lint and test
 commands are:
 
@@ -141,7 +152,7 @@ pytest -q -m "not slow"
 ```
 
 Frontend commands, from `web/frontend`, are `npm ci`, `npm test`, and
-`npm run build`; local verification passed all 175 frontend tests and the build.
+`npm run build`; local verification passed all 178 frontend tests and the build.
 All three lint commands passed locally. Full Python suite and per-commit hosted
 results are checked through `gh run list` and `gh run view`; the final run URL and
 published SHA are reported in the task completion message.

@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from research.t3_rollout_labels_20261015 import bank_engine as bank
-from tests.t14_fixtures import evaluator_context
+from tests.t14_fixtures import evaluator_context, install_train_layout_context
 
 
 def _parity_seeds(count: int) -> list[int]:
@@ -159,7 +159,10 @@ def test_raw_shard_is_loader_compatible(tmp_path: Path) -> None:
     assert loaded.surviving[0, 1]
 
 
-def test_packed_shard_uses_the_trainer_layout(tmp_path: Path) -> None:
+def test_packed_shard_uses_the_trainer_layout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    install_train_layout_context(monkeypatch)
     bank.write_rows(tmp_path / "bank.npz", [_row(True)], packed=True)
     from research.redesign_m3c_20261008.obs_pack import train_layout
     from research.t3_rollout_labels_20261015.bank import LabelBank
@@ -185,7 +188,8 @@ def test_empty_world_retains_metadata_schema(tmp_path: Path) -> None:
         assert all(data[key].shape == (0,) for key in ("length", "frame", "decision"))
 
 
-def test_export_retains_calibration_fields(tmp_path: Path) -> None:
+def test_export_retains_calibration_fields(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    install_train_layout_context(monkeypatch)
     row = _row(True) | {"q": np.arange(6, dtype=np.float32), "length": 1001}
     bank.write_rows(tmp_path / "bank.npz", [row], packed=True)
     with np.load(tmp_path / "bank.npz") as data:
