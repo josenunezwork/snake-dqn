@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from research.t3_rollout_labels_20261015 import bank_engine as bank
+from tests.t14_fixtures import evaluator_context
 
 
 def _parity_seeds(count: int) -> list[int]:
@@ -215,16 +216,16 @@ def test_resume_refuses_a_mismatched_receipt_before_world_build(tmp_path: Path) 
         collect.collect_world(job, plan, tmp_path, {"right": True})
 
 
-def test_planned_rosters_preserve_ordered_pool_rotation() -> None:
+def test_planned_rosters_preserve_ordered_pool_rotation(tmp_path: Path) -> None:
     """Regression: one-world materialization incorrectly made every index zero."""
-    from research.redesign_scope_20261007 import grid_h5000_identity as gid
-
-    context = gid._context(1)
+    context, _ = evaluator_context(tmp_path)
     seeds = _parity_seeds(3)
     plans = bank.planned_rosters(context, seeds, ("frozen", "frozen", "frozen"))
     assert [plan["world_index"] for plan in plans] == [0, 1, 2]
     assert plans[0]["member_sha256s"] != plans[1]["member_sha256s"]
     assert all(plan["seed"] == seed for plan, seed in zip(plans, seeds))
+    singleton_plans = [bank.planned_rosters(context, [seed], ("frozen",))[0] for seed in seeds]
+    assert len({tuple(plan["member_sha256s"]) for plan in singleton_plans}) == 1
 
 
 @pytest.mark.skipif(

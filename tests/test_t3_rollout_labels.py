@@ -9,6 +9,7 @@ from research.t1_commitment_20261015.replay import build_replay, configure_cpu
 from research.t1_commitment_20261015.study import rollout
 from research.t3_rollout_labels_20261015.engine import batched_rollout, extract_prepared_env
 from research.t3_rollout_labels_20261015.trigger import capped_triggers
+from tests.t14_fixtures import evaluator_context
 
 
 def test_batched_rollout_rejects_duplicate_candidates_before_simulation() -> None:
@@ -29,10 +30,25 @@ def test_extract_prepared_env_checks_index_before_cloning() -> None:
         extract_prepared_env(prepared, 2)
 
 
-def test_real_prepared_batch_matches_independent_continuations() -> None:
+def test_real_prepared_batch_matches_independent_continuations(monkeypatch, tmp_path) -> None:
     """Exercise extraction, different first actions and clone isolation together."""
     configure_cpu()
-    replay = build_replay("b8_s0", [0, 1])
+    from research.b8_death_census_20261014 import census
+
+    context, student = evaluator_context(tmp_path)
+    monkeypatch.setattr(census, "b8_path", lambda _arm: student)
+    replay = build_replay(
+        "b8_s0",
+        [0, 1],
+        context=(
+            context,
+            [101, 102],
+            {
+                101: [("scripted", "greedy_food")] * 5,
+                102: [("scripted", "greedy_food")] * 5,
+            },
+        ),
+    )
     captured = []
 
     def observe(current):

@@ -19,40 +19,82 @@ from research.t1_commitment_20261015.replay import (
     load_inputs,
 )
 from research.t1_commitment_20261015.study import coarse_decisions, rollout
+from tests.t14_fixtures import evaluator_context
 
 
-@pytest.fixture(scope="module")
-def census_replay() -> Replay:
+@pytest.fixture
+def synthetic_census(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Provide a recorded evaluator trace without historical Mac artifacts."""
+    from research.b8_death_census_20261014 import census
+
+    context, student = evaluator_context(tmp_path)
+    monkeypatch.setattr(census, "b8_path", lambda _arm: student)
+    seed = 100
+    replay = build_replay(
+        "b8_s0",
+        [0],
+        (context, [seed], {seed: [("scripted", "greedy_food")] * 5}),
+    )
+    initial_body = replay.sim.bodies[0, 0].copy()
+    actions = np.zeros((1, 320), dtype=np.int64)
+    lengths = np.zeros((1, 320), dtype=np.int64)
+    for step in range(actions.shape[1]):
+        lengths[0, step] = int(replay.sim.length[0, 0]) if replay.sim.alive[0, 0] else 0
+        actions[0, step] = replay.actions()[0, 0]
+        replay.step(actions[:, step])
+    assert np.all(
+        lengths[0, :300] > 0
+    ), "fixture must exercise live hero replay through clone parity"
+    assert not np.array_equal(initial_body, replay.sim.bodies[0, 0])
+    return context, {"action": actions, "length": lengths}
+
+
+@pytest.fixture
+def census_replay(synthetic_census) -> Replay:
     configure_cpu()
-    return build_replay("b8_s0", [3])
+    context, _ = synthetic_census
+    return build_replay("b8_s0", [0], (context, [100], {100: [("scripted", "greedy_food")] * 5}))
 
 
-def test_short_recorded_replay_clone_parity() -> None:
+def test_short_recorded_replay_clone_parity(
+    monkeypatch: pytest.MonkeyPatch, synthetic_census
+) -> None:
     """One real census world, 200 full-state clone comparisons plus lengths."""
     configure_cpu()
-    receipt = compare_world(3, warmup=100, frames=200)
+    from research.t1_commitment_20261015 import parity
+
+    context, series = synthetic_census
+    monkeypatch.setattr(parity, "load_inputs", lambda _arm: ({}, series))
+    receipt = compare_world(
+        0,
+        warmup=100,
+        frames=200,
+        context=(context, [100], {100: [("scripted", "greedy_food")] * 5}),
+    )
     assert receipt["identical"]
     assert receipt["full_digest_comparisons"] == 201
     assert receipt["length_values_compared"] == 500
 
 
-def test_prepared_clone_executes_exactly_one_transition(census_replay: Replay) -> None:
+def test_prepared_clone_executes_exactly_one_transition(
+    census_replay: Replay, synthetic_census
+) -> None:
     original = census_replay.clone()
-    _, series = load_inputs("b8_s0")
+    _, series = synthetic_census
     captured = []
 
     def capture(r: Replay) -> None:
         captured.append(r.clone(prepared=True))
 
-    action = int(series["action"][3, 0])
+    action = int(series["action"][0, 0])
     original.step([action], capture)
     branch = captured[0]
     assert int(branch.sim.frame[0]) == 1
     branch.first(action)
     assert int(branch.sim.frame[0]) == 1
     assert_same_world(original, branch)
-    original.step([int(series["action"][3, 1])])
-    branch.step([int(series["action"][3, 1])])
+    original.step([int(series["action"][0, 1])])
+    branch.step([int(series["action"][0, 1])])
     assert_same_world(original, branch)
 
 

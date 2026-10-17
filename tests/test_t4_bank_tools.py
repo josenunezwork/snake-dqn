@@ -134,6 +134,9 @@ def test_relabel_derives_a_new_hash_bound_bank_without_touching_source(tmp_path:
 def test_expert_plan_binds_student_as_played_and_continuation(monkeypatch, tmp_path: Path) -> None:
     student = tmp_path / "student.pth"
     student.write_bytes(b"checkpoint")
+    # Namespace freshness is covered independently; avoid scanning the developer's
+    # artifact volume when this test only exercises student/roster binding.
+    monkeypatch.setattr(expert, "fixed_string_hits", lambda _root, _needles: {})
     monkeypatch.setattr(expert, "concrete_seed_hits", lambda _root, _seeds: set())
     monkeypatch.setattr(
         expert,
