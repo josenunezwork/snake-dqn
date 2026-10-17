@@ -834,6 +834,7 @@ def run(
             else:
                 summary = finite_json(json.loads(summary_path.read_text()))
                 row["summary"] = summary
+                row["actor_exitcodes"] = summary.get("actor_exitcodes")
                 try:
                     if summary["halt"] or summary.get("ring_overrun_rows", 0):
                         raise ValueError("trainer halt or replay ring overrun")

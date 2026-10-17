@@ -201,6 +201,7 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
             "resources",
             "oversubscription",
             "learn_seconds_per_update",
+            "actor_exitcodes",
         ):
             if key in config:
                 row[key] = config[key]

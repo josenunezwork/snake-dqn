@@ -102,6 +102,7 @@ CONFIGS: Dict[str, Dict[str, Any]] = {
     "t1_bf16": {"fast": True, "precision": "bf16"},
     "t1_k2": {"fast": True, "batch_scale": 2},
     "t1_k4": {"fast": True, "batch_scale": 4},
+    "t1_bf16_k4": {"fast": True, "precision": "bf16", "batch_scale": 4},
     "t1_fp16_k2": {"fast": True, "precision": "fp16", "batch_scale": 2},
     "t1_bf16_k2": {"fast": True, "precision": "bf16", "batch_scale": 2},
     "t1_cl": {"fast": True, "channels_last": True},
@@ -115,6 +116,21 @@ CONFIGS: Dict[str, Dict[str, Any]] = {
     "t1_bf16_c_ro": {"fast": True, "precision": "bf16", "compile": "reduce-overhead"},
     "t1_k2_c": {"fast": True, "batch_scale": 2, "compile": "default"},
     "t1_bf16_k2_c": {"fast": True, "precision": "bf16", "batch_scale": 2, "compile": "default"},
+    # T17b P0: the pre-registered A100 cells (compiled loss, reduce-overhead).
+    "t1_k2_c_ro": {"fast": True, "batch_scale": 2, "compile": "reduce-overhead"},
+    "t1_bf16_k2_c_ro": {
+        "fast": True,
+        "precision": "bf16",
+        "batch_scale": 2,
+        "compile": "reduce-overhead",
+    },
+    "t1_k4_c_ro": {"fast": True, "batch_scale": 4, "compile": "reduce-overhead"},
+    "t1_bf16_k4_c_ro": {
+        "fast": True,
+        "precision": "bf16",
+        "batch_scale": 4,
+        "compile": "reduce-overhead",
+    },
 }
 DEFAULT_CONFIGS = "baseline,t1,t1_fp16,t1_bf16,t1_k2,t1_k4"
 NOISY_NOTE = "NOISY: measured while other training jobs shared the CPU and the MPS GPU"
@@ -126,27 +142,78 @@ class _Buf:
         self.buf = bytearray(n)
 
 
-def build_rings(nscal: int, rows: int, seed: int) -> m3c.MultiRing:
+def build_rings(
+    nscal: int,
+    rows: int,
+    seed: int,
+    *,
+    packed: bool = False,
+    ring_dir: Optional[Path] = None,
+) -> m3c.MultiRing:
+    """Build synthetic rings, optionally using the trainer's file-backed blocks.
+
+    ``ring_dir`` deliberately goes through :class:`train_m3c.Block`: a bytearray does not
+    exercise the mmap/page-cache path that a multi-actor run uses.  The retained blocks are
+    attached to the returned ``MultiRing`` and released by :func:`close_rings`.
+
+    Packed rows must satisfy the lossless-layout invariants.  A small valid live-raster
+    template is copied into every row, so packed gathering takes its normal unpack path
+    rather than the all-dead-row shortcut; raw and packed cells remain byte-identical.
+    """
+    pack = None
+    if packed:
+        from research.redesign_m3c_20261008.obs_pack import train_layout
+
+        pack = train_layout()
     r = np.random.default_rng(seed)
     rings = []
-    for _ in range(N_ACTORS):
-        ring = m3c.SharedObsRing(_Buf(m3c.ring_nbytes(rows, nscal)), rows, 1024, nscal)
-        a = ring.arrays
-        # sparse-ish planes (like rasters), generated in chunks to bound the temporaries
-        for lo in range(0, rows, 4096):
-            hi = min(rows, lo + 4096)
-            for k in ("local", "global"):
-                shape = (hi - lo,) + a[k].shape[1:]
-                a[k][lo:hi] = np.where(
-                    r.random(shape, dtype=np.float32) < 0.15,
-                    r.integers(1, 256, shape, dtype=np.uint8),
-                    0,
+    blocks = []
+    try:
+        for _ in range(N_ACTORS):
+            if ring_dir is None:
+                storage = _Buf(m3c.ring_nbytes(rows, nscal, pack))
+            else:
+                storage = m3c.Block.create(
+                    m3c.ring_nbytes(rows, nscal, pack), str(ring_dir), "bench"
                 )
-        a["scalars"][:] = r.standard_normal(a["scalars"].shape, dtype=np.float32)
-        a["mask"][:] = r.random(a["mask"].shape) < 0.8
-        ring._count[0] = rows
-        rings.append(ring)
-    return m3c.MultiRing(rings)
+                blocks.append(storage)
+            ring = m3c.SharedObsRing(storage, rows, min(1024, rows // 4), nscal, pack=pack)
+            a = ring.arrays
+            local = np.zeros((1,) + m3c.LOCAL, dtype=np.uint8)
+            global_ = np.zeros((1,) + m3c.GLOBAL, dtype=np.uint8)
+            local[0, 0, 15, 15] = 12  # valid own-body ttl, avoiding the dead-row unpack shortcut
+            global_[0, 3] = 255
+            global_[0, 3, 8:19, 9:28] = 0  # valid 11 x 19 in-arena rectangle (209 cells)
+            global_[0, 0, 12, 15] = 71
+            if pack is None:
+                a["local"][:] = local
+                a["global"][:] = global_
+            else:
+                from research.redesign_m3c_20261008.obs_pack import pack as pack_rows
+
+                a["packed"][:] = pack_rows(local, global_, pack)
+            a["scalars"][:] = r.standard_normal(a["scalars"].shape, dtype=np.float32)
+            a["mask"][:] = r.random(a["mask"].shape) < 0.8
+            ring._count[0] = rows
+            rings.append(ring)
+    except BaseException:
+        for block in blocks:
+            block.close()
+            block.unlink()
+        raise
+    multi = m3c.MultiRing(rings)
+    multi._bench_blocks = blocks
+    multi._bench_ring_backend = "file_mmap" if ring_dir is not None else "heap"
+    return multi
+
+
+def close_rings(multi: m3c.MultiRing) -> None:
+    """Close and remove benchmark-only file rings (safe after learners are closed)."""
+    for learner in getattr(multi, "_bench_learners", ()):
+        learner.close()
+    for block in getattr(multi, "_bench_blocks", ()):
+        block.close()
+        block.unlink()
 
 
 def ingest(replay: m3c.Replay, r: np.random.Generator, n: int, id_hi: int) -> None:
@@ -209,6 +276,8 @@ def device_available(device: str) -> bool:
     """False for a CUDA device on a host without CUDA (the device is then skipped)."""
     if device.startswith("cuda"):
         return bool(torch.cuda.is_available())
+    if device.startswith("mps"):
+        return bool(torch.backends.mps.is_available())
     return True
 
 
@@ -322,13 +391,111 @@ def run_updates(learner, n: int, feed: np.random.Generator, id_hi: int, device: 
     return time.perf_counter() - t0
 
 
+def timed_updates(learner, n: int, feed: np.random.Generator, id_hi: int, device: str) -> dict:
+    """Time throughput updates and host sampling/gather without inferring a device time.
+
+    The fast learner intentionally overlaps host sampling/gather for update ``i + 1`` with
+    GPU work for update ``i``.  Consequently, ``whole - host`` is *not* a device time.
+    Device timing comes from :func:`serialized_device_leg` after the timed rounds.
+    """
+    host_s: List[float] = []
+    original_sample = learner._sample_fast
+
+    def sampled():
+        t0 = time.perf_counter()
+        batch = original_sample()
+        host_s.append(time.perf_counter() - t0)
+        return batch
+
+    learner._sample_fast = sampled
+    try:
+        t0 = time.perf_counter()
+        for _ in range(n):
+            ingest(learner.replay, feed, learner.update_every, id_hi)
+            learner.update(0.5)
+        learner.flush()
+        sync(device)
+    finally:
+        learner._sample_fast = original_sample
+    return {
+        "wall_s": time.perf_counter() - t0,
+        "host_gather_ms": [1000 * x for x in host_s],
+    }
+
+
+def serialized_device_leg(learner, n: int, feed: np.random.Generator, id_hi: int, device: str):
+    """Measure a device leg separately from overlapped throughput rounds.
+
+    Each diagnostic update synchronizes before its host gather and after its launch.  A CUDA
+    or MPS event starts immediately after gather returns and ends after the update body.  This
+    is deliberately a small *serialized* diagnostic (not a total-minus-host estimate and not
+    the pipeline's wall time); it includes the deferred optimizer step paired with the next
+    backward, which is the learner's steady-state device update.
+    """
+    if not device.startswith(("cuda", "mps")):
+        return None, "unsupported_no_stream_events"
+    if not learner.opts.fast:
+        # The reference update has no _sample_fast boundary; do not fabricate a device
+        # leg or dereference an empty event list in the default baseline cell.
+        return None, "unsupported_reference_path"
+    event_type = torch.cuda.Event if device.startswith("cuda") else torch.mps.Event
+    events = []
+    original_sample = learner._sample_fast
+
+    def sampled():
+        batch = original_sample()
+        start = event_type(enable_timing=True)
+        start.record()
+        events.append([start, None])
+        return batch
+
+    learner.flush()  # Start the diagnostic with no unpaired pending backward.
+    learner._sample_fast = sampled
+    try:
+        for _ in range(n):
+            sync(device)
+            ingest(learner.replay, feed, learner.update_every, id_hi)
+            learner.update(0.5)
+            end = event_type(enable_timing=True)
+            end.record()
+            events[-1][1] = end
+            sync(device)
+    finally:
+        learner._sample_fast = original_sample
+    learner.flush()
+    return [start.elapsed_time(end) for start, end in events], "serialized_device_events"
+
+
 def bench(ns) -> Dict[str, Any]:
+    """Build benchmark-owned rings and always release their file mappings."""
     nscal = 60 if ns.mode == "bv8" else 30
-    multi = build_rings(nscal, ns.ring_rows, 0)
+    multi = build_rings(
+        nscal,
+        ns.ring_rows,
+        0,
+        packed=ns.obs_pack,
+        ring_dir=ns.ring_dir,
+    )
     id_hi = ns.ring_rows * N_ACTORS
-    net0 = init_net(nscal, ns.init)
-    out: Dict[str, Any] = {"cells": []}
+    try:
+        net0 = init_net(nscal, ns.init)
+        return _bench(ns, multi, nscal, id_hi, net0)
+    finally:
+        close_rings(multi)
+
+
+def _bench(ns, multi, nscal: int, id_hi: int, net0: Ego2sNet) -> Dict[str, Any]:
+    out: Dict[str, Any] = {
+        "cells": [],
+        "rings": {
+            "obs_pack": bool(ns.obs_pack),
+            "backend": multi._bench_ring_backend,
+            "ring_dir": str(ns.ring_dir) if ns.ring_dir is not None else None,
+            "gather_threads": ns.gather_threads,
+        },
+    }
     names_all = with_compile_twins(ns.configs.split(","), ns.compile, ns.compile_scope)
+    multi._bench_learners = []
     if any(CONFIGS[n].get("compile", "off") != "off" for n in names_all):
         compile_limits()
     for device in ns.devices.split(","):
@@ -342,11 +509,12 @@ def bench(ns) -> Dict[str, Any]:
         rounds = ns.rounds_cpu if device == "cpu" else ns.rounds
         learners = {}
         feeds = {}
+        timings: Dict[str, List[dict]] = {n: [] for n in names}
         for name in names:
             world = build_world(ns.mode, nscal, id_hi, 0)
-            learners[name] = make_learner(
-                CONFIGS[name], device, ns.mode, nscal, net0, multi, world, 0
-            )
+            cfg = {**CONFIGS[name], "gather_threads": ns.gather_threads}
+            learners[name] = make_learner(cfg, device, ns.mode, nscal, net0, multi, world, 0)
+            multi._bench_learners.append(learners[name])
             feeds[name] = np.random.default_rng(5)
             warm = ns.warm_cpu if device == "cpu" else ns.warm
             if CONFIGS[name].get("compile", "off") != "off":  # compile + check + CUDA graphs
@@ -356,7 +524,15 @@ def bench(ns) -> Dict[str, Any]:
         for rnd in range(rounds):
             order = names[rnd % len(names) :] + names[: rnd % len(names)]
             for name in order:
-                times[name].append(run_updates(learners[name], upd, feeds[name], id_hi, device))
+                timing = timed_updates(learners[name], upd, feeds[name], id_hi, device)
+                timings[name].append(timing)
+                times[name].append(timing["wall_s"])
+        device_legs = {
+            name: serialized_device_leg(
+                learners[name], ns.device_diag_updates, feeds[name], id_hi, device
+            )
+            for name in names
+        }
         base = None
         for name in names:
             lr = learners[name]
@@ -365,7 +541,7 @@ def bench(ns) -> Dict[str, Any]:
             cell = {
                 "device": device,
                 "config": name,
-                "flags": CONFIGS[name],
+                "flags": {**CONFIGS[name], "gather_threads": ns.gather_threads},
                 "updates_per_round": upd,
                 "rounds": rounds,
                 "round_seconds": [round(t, 4) for t in times[name]],
@@ -375,11 +551,37 @@ def bench(ns) -> Dict[str, Any]:
                 "transitions_per_s": round(ups * lr.update_every, 1),
                 "rows_per_update": {"agent": lr.a_rows, "anchor": lr.d_rows},
                 "halt": lr.st["halt"],
+                "host_gather_ms": (
+                    round(
+                        statistics.median(x for t in timings[name] for x in t["host_gather_ms"]), 3
+                    )
+                    if any(t["host_gather_ms"] for t in timings[name])
+                    else None
+                ),
+                "gpu_leg_ms": (
+                    round(statistics.median(device_legs[name][0]), 3)
+                    if device_legs[name][0]
+                    else None
+                ),
+                "gpu_leg_status": device_legs[name][1],
+                "gpu_leg_diagnostic_updates": ns.device_diag_updates,
             }
             if lr.scaler is not None:
                 cell["grad_scale_final"] = float(lr.scaler.get_scale())
             if lr.compile_status() is not None:
                 cell["compile"] = lr.compile_status()
+                cstat = cell["compile"]
+                cell["compile_execution"] = (
+                    "compiled"
+                    if cstat["compiled_calls"] and cstat["fallback"] is None
+                    else "fallback_eager" if cstat["fallback"] is not None else "not_executed"
+                )
+            else:
+                cell["compile_execution"] = "not_requested"
+            if device.startswith("mps") and CONFIGS[name].get("precision", "fp32") != "fp32":
+                cell["precision_execution"] = "mps_autocast_requested"
+            else:
+                cell["precision_execution"] = "requested"
             if name == "baseline":
                 base = cell["transitions_per_s"]
             if base:
@@ -400,6 +602,8 @@ def bench(ns) -> Dict[str, Any]:
                     cell["transitions_per_s"] / twin["transitions_per_s"], 3
                 )
             print(json.dumps({k: cell[k] for k in cell if k != "round_seconds"}), flush=True)
+        for learner in learners.values():
+            learner.close()
         del learners
     return out
 
@@ -513,12 +717,44 @@ def main(argv=None) -> int:
     ap.add_argument("--configs", default=DEFAULT_CONFIGS)
     ap.add_argument("--mode", choices=("bv8", "b"), default="bv8")
     ap.add_argument("--ring-rows", type=int, default=40_000, help="rows per actor ring")
+    ring_mode = ap.add_mutually_exclusive_group()
+    ring_mode.add_argument(
+        "--obs-pack",
+        dest="obs_pack",
+        action="store_true",
+        help="store synthetic ring planes in the lossless packed layout",
+    )
+    ring_mode.add_argument(
+        "--raw-rings",
+        dest="obs_pack",
+        action="store_false",
+        help="store raw ring planes (the default; explicit for matrix scripts)",
+    )
+    ap.set_defaults(obs_pack=False)
+    ap.add_argument(
+        "--ring-dir",
+        type=Path,
+        default=None,
+        help="directory for actual file-mmap rings (for example /dev/shm or a local scratch dir)",
+    )
+    ap.add_argument(
+        "--gather-threads",
+        type=int,
+        default=0,
+        help="fast learner host-gather workers; 0 retains serial gather",
+    )
     ap.add_argument("--updates", type=int, default=30, help="updates per round (GPU)")
     ap.add_argument("--rounds", type=int, default=5)
     ap.add_argument("--updates-cpu", type=int, default=2)
     ap.add_argument("--rounds-cpu", type=int, default=1)
     ap.add_argument("--warm", type=int, default=5)
     ap.add_argument("--warm-cpu", type=int, default=1)
+    ap.add_argument(
+        "--device-diag-updates",
+        type=int,
+        default=3,
+        help="serialized CUDA/MPS device-leg updates per cell after throughput rounds",
+    )
     ap.add_argument("--threads", type=int, default=1, help="torch threads (trainer: 1)")
     ap.add_argument(
         "--init",
@@ -555,6 +791,21 @@ def main(argv=None) -> int:
             ap.error(f"--compile modes: {lm.COMPILE_MODES[1:]}")
     if any(s not in lm.COMPILE_SCOPES for s in ns.compile_scope.split(",")):
         ap.error(f"--compile-scope: {lm.COMPILE_SCOPES}")
+    if ns.gather_threads < 0:
+        ap.error("--gather-threads must be >= 0")
+    if ns.device_diag_updates < 1:
+        ap.error("--device-diag-updates must be >= 1")
+    if ns.gather_threads and any(not CONFIGS[n].get("fast") for n in ns.configs.split(",")):
+        ap.error("--gather-threads needs fast configs (omit baseline)")
+    if ns.ring_dir is not None:
+        if not ns.ring_dir.is_dir():
+            ap.error(f"--ring-dir must be an existing directory: {ns.ring_dir}")
+        if not os.access(ns.ring_dir, os.W_OK):
+            ap.error(f"--ring-dir is not writable: {ns.ring_dir}")
+    if ns.drift and (ns.obs_pack or ns.ring_dir is not None or ns.gather_threads):
+        ap.error(
+            "--obs-pack/--raw-rings, --ring-dir, and --gather-threads apply to bench, not --drift"
+        )
     meta = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "platform": platform.platform(),
@@ -564,6 +815,9 @@ def main(argv=None) -> int:
         "argv": sys.argv[1:],
         "init": str(init_path(ns.init) or "random"),
         "mode": ns.mode,
+        "obs_pack": ns.obs_pack,
+        "ring_dir": str(ns.ring_dir) if ns.ring_dir is not None else None,
+        "gather_threads": ns.gather_threads,
         "note": ns.note,
     }
     res = drift(ns) if ns.drift else bench(ns)

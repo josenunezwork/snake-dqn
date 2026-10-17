@@ -22,6 +22,7 @@ def test_completed_configs_are_compared_with_the_4x_threshold():
                     "transitions_per_second": 30000,
                     "tail_transitions_per_second": 29000,
                     "resources": {"gpu_util_pct_mean": 40.0},
+                    "actor_exitcodes": [0, 0, 0, 0],
                 },
             ],
         }
@@ -33,6 +34,7 @@ def test_completed_configs_are_compared_with_the_4x_threshold():
     assert self_play["verdict"] == "PASS" and "caveat" in self_play
     assert self_play["tail_transitions_per_second"] == 29000
     assert self_play["resources"]["gpu_util_pct_mean"] == 40.0
+    assert self_play["actor_exitcodes"] == [0, 0, 0, 0]
     assert all(row["runner_status"] != "missing" for row in report["configs"])
 
 
