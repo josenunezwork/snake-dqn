@@ -24,11 +24,12 @@ twelve. Train is refused and unqualified. Monitor for at least seven days and 10
 Watch hero decisions; roll back on fallback/ego2s exceptions, deaths/1k >0.848, or
 matched default-speed p95 >1.5× qualification. Owner check-in: 2026-10-24.
 
-## Standing decisions (2026-10-08)
+## Standing decisions (current, updated 2026-10-17)
 
+- **Campaign goal met and released.** The October redesign goal was to beat **frp3-s12+v8 WITHOUT a veto**, using GridBatchSim, ego2s-b and distilled DQN; B8 seed 3 met it and is the served default. Its claim is more mass at equal survival against the served agent, with no veto. The release and rollback boundary are above.
 - **vector61 FROZEN:** no new governed FRP studies on the 61-D vector line. If the line is reopened, S2's 67-D sight inputs are the default.
-- **Redesign is the sole main line.** The goal is to beat **frp3-s12+v8 WITHOUT a veto**, using GridBatchSim, ego2s-b and distilled DQN.
-- **M3-C next:** code and pre-registration only until spend is approved. It must address Q drift (97→113–119), the peak at 10M followed by decline, and under-boosting, and it must include a no-veto arm. Size it at 10–15 seeds or multiple actors per learner, based on M3-B measurements. Target >70% utilization of the GPU-pod bottleneck, with incremental checkpoint pulls and live telemetry.
+- **Late-death bare-network arms are closed.** Reopen only with new evidence of a different mechanism or a new observation/architecture. The [campaign retrospective](research/redesign_campaign_retrospective_2026-10-17.md) links the closed-arm and diagnostic record.
+- **M3-C next is superseded.** The pre-release 2026-10-08 plan to address Q drift, late decline, and under-boosting is preserved in the historical record; the B8 release and late-death closure do not authorize it as current work.
 - **Process:** batch code changes before ratifying. Sequential Phase R is the default for new studies. **No new pod work until the runner is stable.** Existing fixed-N studies keep their registered rules.
 
 ## Operating rules (current)
@@ -76,12 +77,13 @@ learning-slope and distillation outcomes do not confer promotion.
 | 10-08 | Redesign M3-B | Learning-slope gate `PASS` | 5×20M RL; slope LB90 +0.46 > 0; ~5.9k transitions/s combined, 4.25× Mac; $3.92. |
 | 10-08 | Redesign M3 Phase R | `NO_GO_EARLY` | Look 1, n=22/seed×mix; candidate+v8 vs frp3-s12+v8: +11.4 (SE 13.7), UB +40.5 < G=50; MI10 −18 (SE 37). Verify/audit PASS. |
 
-## Open questions and compute
+## Historical pre-release questions and compute
 
-Can M3-C fix drift, late decline and boosting, and beat the served agent without a veto?
-Can the runner provide reliable incremental pulls and a pre-registered, tie-explaining
-Mac↔pod identity check? Exact float32 Q ties caused S2's 1/54 identity failure; this is
-not permission to waive identity. M3-C remains the next decision, not a reported result here.
+Before the B8 release, the recorded questions asked whether M3-C could fix drift,
+late decline, and boosting, and whether the runner could provide reliable incremental
+pulls and a pre-registered, tie-explaining Mac↔pod identity check. They are
+historical questions, not a current authorization. Exact float32 Q ties caused S2's
+1/54 identity failure; this is not permission to waive identity.
 
 Mac: AC + open lid, thermal guard, 3×2-thread Tier-1 slots; strict gates 2 slots.
 RunPod: see "Operating rules" above. That covers the ≥4× per-step rule, waivers, cheap pods

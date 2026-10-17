@@ -1,7 +1,7 @@
 # Documentation map
 
 Start with [STATUS.md](STATUS.md) for the released agent, current research
-direction, and operational decisions as of 2026-10-08. Then use the
+direction, and operational decisions as of 2026-10-17. Then use the
 [research index](research/INDEX.md) to find a dated decision or result, and
 the [glossary](research/GLOSSARY.md) for the evaluation vocabulary. Dated
 records preserve their original outcome; they are evidence, not permission to
@@ -11,11 +11,11 @@ resume an old plan.
 
 | Document or collection | Status | Use it for |
 | --- | --- | --- |
-| [STATUS.md](STATUS.md) | **Current** | Released `frp3-s12 + v8`, standing decisions, current results, questions, and compute-policy pointers. |
+| [STATUS.md](STATUS.md) | **Current** | Released `b8-s3` without a veto, standing decisions, current results, questions, and compute-policy pointers. |
 | [research/INDEX.md](research/INDEX.md) | **Current map** | Chronological locator for research and decision documents on `main` and study branches. |
 | [research/GLOSSARY.md](research/GLOSSARY.md) | **Current reference** | Terms used by the release, gate, and redesign records. |
 | [research/](research/) | **Mixed: current decisions and historical evidence** | Release receipts, governance amendments, compute/performance notes, diagnostics, and prior study decisions. Use the index to determine a record's status. |
-| [ml_algorithm.md](ml_algorithm.md) | **Current reference, limited scope** | The released Apex/vector policy's algorithm and serving-facing concepts. It does not prescribe the active redesign program. |
+| [ml_algorithm.md](ml_algorithm.md) | **Current reference, limited scope** | The historical Apex/vector policy's algorithm and serving-facing concepts. It does not prescribe the released B8 policy or the active redesign program. |
 | [simd_env_spec.md](simd_env_spec.md) | **Current technical contract** | `BatchSim` dynamics and parity/observation contract; consult source and tests for behavior changes after the dated specification. |
 | [ml_redesign_blueprint_2026-07.md](ml_redesign_blueprint_2026-07.md) | **Historical foundation** | The July rationale and original redesign blueprint. Its audit and implementation milestones are not a current run plan; use `STATUS.md` for the adopted October direction. |
 
@@ -23,13 +23,23 @@ resume an old plan.
 
 | Document or collection | Status | Use it for |
 | --- | --- | --- |
-| [research/frp3_serving_result_and_release_2026-10-06.md](research/frp3_serving_result_and_release_2026-10-06.md) | **Current release receipt** | Why `frp3-s12 + v8` became the served default and its serving qualification. |
-| [research/frp3_strict_result_2026-10-06.md](research/frp3_strict_result_2026-10-06.md) | **Current release evidence** | The strict result, including the survival-band disclosure. |
+| [research/b8_s3_release_2026-10-17.md](research/b8_s3_release_2026-10-17.md) | **Current release receipt** | Why `b8-s3` without a veto is the served default, including qualification, rollback, disclosures, and monitoring. |
+| [research/t7_phase_r_result_2026-10-16.md](research/t7_phase_r_result_2026-10-16.md) | **Current release evidence** | The B8 strict result and Tier 2 pass that supply the release skill evidence. |
+| [research/frp3_serving_result_and_release_2026-10-06.md](research/frp3_serving_result_and_release_2026-10-06.md) and [research/frp3_strict_result_2026-10-06.md](research/frp3_strict_result_2026-10-06.md) | **Historical prior-release evidence** | Why `frp3-s12 + v8` was the served default before B8 seed 3 replaced it. |
 | [research/governance_amendment_survival_band_v2_2026-10-06.md](research/governance_amendment_survival_band_v2_2026-10-06.md) | **Current for opted-in strict studies** | Ratified survival-band-v2 rule and its scope. |
 | [research/governance_amendment_sequential_phase_r_2026-10-07.md](research/governance_amendment_sequential_phase_r_2026-10-07.md) | **Current for Phase R** | Ratified sequential Phase R rule; do not apply it retroactively. |
 | [research/governance_amendment_strict_on_runpod_2026-10-05.md](research/governance_amendment_strict_on_runpod_2026-10-05.md) | **Not ratified; superseded 2026-10-08** | Historical proposal for strict gates on RunPod. Never used. Hash-bound, so its text is unchanged; its [status note](research/governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md) records the outcome and what a new amendment would need. Strict gates and serving qualification stay on the Mac. |
 | [research/governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md](research/governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md) | **Erratum** | The branch-only LH-1 amendment (`lh1-screen`) opens with `DRAFT`; it was ratified 2026-10-05 (`ecddfab`). The file is hash-bound and left unedited. |
 | [research/governance_tiers_2026-09-26.md](research/governance_tiers_2026-09-26.md) and [governance_amendment_sequential_gates_2026-10-02.md](research/governance_amendment_sequential_gates_2026-10-02.md) | **Historical policy base, amended** | Original tier and sequential-gate rules. Read later amendments before using either as an operating rule. |
+
+The served agent is **b8-s3 without a veto**. Its release claim is **more mass
+at equal survival against the served agent, with no veto**; it is not a safety
+claim. To roll back, restart the server with
+`SNAKE_SERVE_CHECKPOINT=frp3-s12` for `frp3-s12 + v8` or
+`SNAKE_SERVE_CHECKPOINT=champion` for `champion + v8`, with the remaining
+serving environment at defaults. The [B8 release record](research/b8_s3_release_2026-10-17.md)
+has the copyable commands, qualification boundary, disclosures, and monitoring
+thresholds.
 
 ## Research archive
 
@@ -71,7 +81,7 @@ preserve an earlier state without changing the recorded outcome.
 
 | Discrepancy | Current interpretation |
 | --- | --- |
-| Older release and redesign descriptions | Champion+v8 was replaced by **frp3-s12+v8 on 2026-10-06**. The July raster/PQN blueprint is historical; the October main line is **GridBatchSim + ego2s-b + distilled DQN**, with PQN deferred. See [STATUS.md](STATUS.md). |
+| Older release and redesign descriptions | Champion+v8 was replaced by **frp3-s12+v8 on 2026-10-06**, then by **b8-s3 without a veto on 2026-10-17**. The July raster/PQN blueprint is historical; the October main line is **GridBatchSim + ego2s-b + distilled DQN**, with PQN deferred. See [STATUS.md](STATUS.md). |
 | Old 5x RunPod rule and “always serverless” preference | The threshold was amended to **at least 4x wall-clock per step**. Waivers below 4x are granted by the user case by case and listed in [STATUS.md](STATUS.md#operating-rules-current). When RunPod is used, cheap pods are checked first; serverless is only a fallback because its real cost has run at about 6–10x the catalog rate. The Mac remains available on AC. See the external `~/.claude/projects/-Users-josenunez-Projects-ml-snake-dqn/memory/runpod-5x-rule.md` and `runpod-cheap-pods-first.md`. |
 | Strict gates on RunPod | The [strict-on-RunPod amendment](research/governance_amendment_strict_on_runpod_2026-10-05.md) is **NOT RATIFIED and was superseded on 2026-10-08**. It was never used: the FRP-v3 strict gate ran on the Mac. Mac↔x86 bitwise identity fails at random on exact float32 ties. The amendment is hash-bound by template v3 `prepare`, so its "Pending" footer stays unedited; the [status note](research/governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md) governs. Future strict-on-pods use needs a new amendment with a tie-explaining identity check and a per-world single CPU model. Strict gates and serving qualification stay on the Mac. |
 | FRP-v5-S versus FRP-v5-S2 | They are different studies. **v5-S** did not pass fidelity and did not train or enter Phase R; fresh-world **v5-S2** recorded `GO_S_RECIPE`, not a gate or promotion. |
