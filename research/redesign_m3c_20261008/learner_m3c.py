@@ -54,6 +54,7 @@ from __future__ import annotations
 import math
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -102,6 +103,7 @@ class LearnerOpts:
     channels_last: bool = False  # bench only
     compile: str = "off"  # perf-compile (needs fast): a torch.compile mode
     compile_scope: str = "loss"  # perf-compile: "loss" (forwards + losses) or "forward"
+    gather_threads: int = 0  # P1: 0 retains the serial host gather
 
     def __post_init__(self) -> None:
         if self.precision not in PRECISIONS:
@@ -122,6 +124,10 @@ class LearnerOpts:
             raise ValueError(f"--compile-learner-scope must be one of {COMPILE_SCOPES}")
         if self.compile != "off" and not self.fast:
             raise ValueError("--compile-learner needs --learner-fast")
+        if int(self.gather_threads) < 0:
+            raise ValueError("--gather-threads must be >= 0")
+        if self.gather_threads and not self.fast:
+            raise ValueError("--gather-threads needs --learner-fast")
 
     @classmethod
     def from_args(cls, args) -> "LearnerOpts":
@@ -133,6 +139,7 @@ class LearnerOpts:
             update_every=int(getattr(args, "update_every", 1)),
             compile=getattr(args, "compile_learner", "off"),
             compile_scope=getattr(args, "compile_learner_scope", "loss"),
+            gather_threads=int(getattr(args, "gather_threads", 0)),
         )
 
     @property
@@ -669,6 +676,15 @@ class Learner:
             ]
             self._which = 0
             self._non_blocking = pin
+        # P1: learner-owned workers survive across updates. Zero preserves the exact
+        # serial gather path and therefore remains the default.
+        self._gather_executor = (
+            ThreadPoolExecutor(
+                max_workers=int(self.opts.gather_threads), thread_name_prefix="m3c-gather"
+            )
+            if self.opts.fast and self.opts.gather_threads
+            else None
+        )
         self.scaler = None
         if self.opts.precision == "fp16":
             # init 2**10 (not 2**16): fewer skipped (overflowed) steps at the start
@@ -793,6 +809,20 @@ class Learner:
             self._qmax = None
         if self.bank is not None:
             self._flush_bank_stats()
+
+    def close(self) -> None:
+        """Release P1's persistent gather workers after the final pending update."""
+        executor, self._gather_executor = getattr(self, "_gather_executor", None), None
+        if executor is not None:
+            executor.shutdown(wait=True)
+
+    def __del__(self) -> None:
+        # The learner loop closes explicitly. This is only a partial-construction and
+        # short-lived-benchmark safety net.
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def _flush_bank_stats(self) -> None:
         """Move optional bank telemetry to CPU only at existing flush boundaries."""
@@ -1070,27 +1100,118 @@ class Learner:
         st["learn_s"] += time.perf_counter() - t0
 
     # ------------------------------------------------------------------ T1 fast path
+    @staticmethod
+    def _gather_ring(ring, pos, sel, local, global_, scalars, mask_out) -> None:
+        """Copy one ring's disjoint rows into staging; safe for one P1 worker."""
+        arr = ring.arrays
+        if ring.pack is None:
+            local[sel] = arr["local"][pos]
+            global_[sel] = arr["global"][pos]
+        else:  # --obs-pack: unpacked directly into the staging rows
+            from research.redesign_m3c_20261008.obs_pack import unpack_into
+
+            unpack_into(arr["packed"], pos, local, global_, sel, ring.pack)
+        scalars[sel] = arr["scalars"][pos]
+        if mask_out is not None:
+            mask_out[sel] = arr["mask"][pos]
+
+    @staticmethod
+    def _gather_chunk(multi, ids, start, stop, local, global_, scalars, mask_out) -> None:
+        """Copy one contiguous destination-row chunk, possibly spanning several rings."""
+        chunk_ids = ids[start:stop]
+        actor, source_rows = chunk_ids % multi.k, chunk_ids // multi.k
+        for actor_index, ring in enumerate(multi.rings):
+            selected = np.flatnonzero(actor == actor_index)
+            if len(selected):
+                Learner._gather_ring(
+                    ring,
+                    source_rows[selected] % ring.cap,
+                    selected + start,
+                    local,
+                    global_,
+                    scalars,
+                    mask_out,
+                )
+
+    def _gather_many(self, requests, extra=()) -> None:
+        """Gather disjoint requests concurrently, or in original order when disabled.
+
+        The caller owns all sampling and RNG draws. Tasks only read ring arrays and write
+        non-overlapping staging rows, so their scheduling cannot alter a sampled batch.
+        """
+        multi = self.multi
+        # The serial path retains the original ring-ordered execution exactly.  In the
+        # threaded path, partition destination rows rather than rings: two rings can then
+        # occupy three or four gather workers while retaining disjoint writes.
+        if self._gather_executor is None:
+            for ids, out, rows, mask_out in requests:
+                local = out["local"][rows]
+                global_ = out["global"][rows]
+                scalars = out["scalars"][rows]
+                actor, source_rows = ids % multi.k, ids // multi.k
+                for j, ring in enumerate(multi.rings):
+                    sel = np.flatnonzero(actor == j)
+                    if len(sel):
+                        self._gather_ring(
+                            ring,
+                            source_rows[sel] % ring.cap,
+                            sel,
+                            local,
+                            global_,
+                            scalars,
+                            mask_out,
+                        )
+            for fn in extra:
+                fn()
+            return
+
+        jobs = []
+        for ids, out, rows, mask_out in requests:
+            local = out["local"][rows]
+            global_ = out["global"][rows]
+            scalars = out["scalars"][rows]
+            workers = min(int(self.opts.gather_threads), len(ids))
+            for worker in range(workers):
+                start = len(ids) * worker // workers
+                stop = len(ids) * (worker + 1) // workers
+                jobs.append(
+                    (
+                        self._gather_chunk,
+                        (multi, ids, start, stop, local, global_, scalars, mask_out),
+                    )
+                )
+        jobs.extend((fn, ()) for fn in extra)
+        futures = [self._gather_executor.submit(fn, *args) for fn, args in jobs]
+        self._wait_for_gather_jobs(futures)
+
+    @staticmethod
+    def _wait_for_gather_jobs(futures) -> None:
+        """Wait every submitted staging writer even if the caller is interrupted.
+
+        A signal may interrupt ``Future.result`` without cancelling its worker.  Returning
+        then would let that worker write a staging block reused by the caller, so retain the
+        first exception but keep waiting until every writer has stopped.
+        """
+        error = None
+        for future in futures:
+            while not future.done():
+                try:
+                    future.result()
+                except BaseException as exc:
+                    if error is None:
+                        error = exc
+            # ``done`` can become true between the loop condition and an interrupted wait.
+            try:
+                future.result()
+            except BaseException as exc:
+                if error is None:
+                    error = exc
+        if error is not None:
+            raise error
+
     def _gather(self, ids: np.ndarray, out: dict, rows: slice, mask_out=None) -> None:
         """``multi.get(ids)`` written straight into staging rows ``rows``."""
-        multi = self.multi
-        L, G, S = out["local"][rows], out["global"][rows], out["scalars"][rows]
-        actor, local = ids % multi.k, ids // multi.k
-        for j, ring in enumerate(multi.rings):
-            sel = np.flatnonzero(actor == j)
-            if not len(sel):
-                continue
-            pos = local[sel] % ring.cap
-            arr = ring.arrays
-            if ring.pack is None:
-                L[sel] = arr["local"][pos]
-                G[sel] = arr["global"][pos]
-            else:  # --obs-pack: unpacked straight into the staging rows (byte-identical)
-                from research.redesign_m3c_20261008.obs_pack import unpack_into
-
-                unpack_into(arr["packed"], pos, L, G, sel, ring.pack)
-            S[sel] = arr["scalars"][pos]
-            if mask_out is not None:
-                mask_out[sel] = arr["mask"][pos]
+        self._gather_many(((ids, out, rows, mask_out),))
 
     @staticmethod
     def _compact(out: dict, start: int, n: int, keep: np.ndarray) -> None:
@@ -1111,8 +1232,12 @@ class Learner:
         s_ids = replay.s[idx]
         nxt = replay.nxt[idx]
         # rows: [next 0:n0 | current n0:2n0] (compacted below if an overwrite drops rows)
-        self._gather(np.where(nxt >= 0, nxt, s_ids), v, slice(0, n0), v["nmask"][:n0])
-        self._gather(s_ids, v, slice(n0, 2 * n0))
+        self._gather_many(
+            (
+                (np.where(nxt >= 0, nxt, s_ids), v, slice(0, n0), v["nmask"][:n0]),
+                (s_ids, v, slice(n0, 2 * n0), None),
+            )
+        )
         ok = multi.valid(s_ids) & ((nxt < 0) | multi.valid(nxt))
         n = n0
         if not ok.all():
@@ -1135,17 +1260,46 @@ class Learner:
         if labels is not None and labels.size >= LABEL_ANCHOR_MIN_ROWS:
             n_lab = int(round(self.anchor_rows * args.label_frac))
         base = 2 * n
+        # Anchor destinations depend on the post-gather validity/compaction above.
+        # Keep that barrier: next/current run together, then demo/label work runs together.
         n_demo = 0
-        if demos is not None:
-            n_demo = self.anchor_rows - n_lab - n_primary_bank
-            di = rng.integers(0, demos.size, size=n_demo)  # == DemoStream.sample
-            demos.gather_into(di, v, base)
+        # Keep the original serial sequencing exactly at the default.  In particular,
+        # LabelBuffer.sample validates mutable actor rings, so it must remain after the
+        # demonstration gather when P1 is disabled.
+        if self._gather_executor is None:
+            if demos is not None:
+                n_demo = self.anchor_rows - n_lab - n_primary_bank
+                di = rng.integers(0, demos.size, size=n_demo)  # == DemoStream.sample
+                demos.gather_into(di, v, base)
+            if n_lab:
+                li = labels.sample(rng, n_lab, multi)
+                lids = labels.ids[li]
+                m0 = len(lids)
+                lo = base + n_demo
+                self._gather(lids, v, slice(lo, lo + m0), v["mask_resolved"][n_demo : n_demo + m0])
+        else:
+            if demos is not None:
+                n_demo = self.anchor_rows - n_lab - n_primary_bank
+                di = rng.integers(0, demos.size, size=n_demo)  # == DemoStream.sample
+            if n_lab:
+                li = labels.sample(rng, n_lab, multi)
+                lids = labels.ids[li]
+                m0 = len(lids)
+                lo = base + n_demo
+                label_request = (
+                    lids,
+                    v,
+                    slice(lo, lo + m0),
+                    v["mask_resolved"][n_demo : n_demo + m0],
+                )
+            else:
+                label_request = None
+            extra = (lambda: demos.gather_into(di, v, base),) if demos is not None else ()
+            if label_request is not None:
+                self._gather_many((label_request,), extra)
+            elif extra:
+                self._gather_many((), extra)
         if n_lab:
-            li = labels.sample(rng, n_lab, multi)
-            lids = labels.ids[li]
-            m0 = len(lids)
-            lo = base + n_demo
-            self._gather(lids, v, slice(lo, lo + m0), v["mask_resolved"][n_demo : n_demo + m0])
             keep = np.flatnonzero(multi.valid(lids))  # re-check after the gather
             if len(keep) < m0:
                 self._compact(v, lo, m0, keep)
@@ -1512,6 +1666,8 @@ def learner_flags(args) -> dict:
         out["lr_scale"] = args.lr_scale
     if int(getattr(args, "update_every", 1)) != 1:
         out["update_every"] = int(args.update_every)
+    if int(getattr(args, "gather_threads", 0)):
+        out["gather_threads"] = int(args.gather_threads)
     if getattr(args, "compile_learner", "off") != "off":
         out["compile_learner"] = args.compile_learner
         out["compile_learner_scope"] = getattr(args, "compile_learner_scope", "loss")

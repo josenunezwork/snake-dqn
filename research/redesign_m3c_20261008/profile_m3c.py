@@ -14,6 +14,10 @@ Environment:
 * ``M3C_PROFILE_WARM_S``: seconds after the process created its profiler before sampling
   starts (default 0), to keep numba JIT / segment construction / warm-up out of the window.
 * ``M3C_PROFILE_INTERVAL``: pyinstrument sampling interval in seconds (default 0.001).
+* ``M3C_PROFILE_WARM_FROM_FIRST_TICK=1``: start the warm-up clock at the first learner
+  loop / actor frame, excluding model loading and process setup (default off).
+* ``M3C_PROFILE_DURATION_S``: stop at the first tick after this many active seconds
+  (default 0 = capture until exit). Actual elapsed time is always recorded in metadata.
 
 Per process (``role`` = ``learner`` / ``actor<j>``) the dump is ``<role>.pstats`` (cProfile)
 or ``<role>.pyisession`` (pyinstrument JSON session), a readable ``<role>.txt`` and
@@ -27,6 +31,7 @@ dump is reported on stderr and never changes the run's outcome.
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import time
@@ -37,6 +42,8 @@ PROFILE_ENV = "M3C_PROFILE"
 PROFILE_DIR_ENV = "M3C_PROFILE_DIR"
 PROFILE_WARM_ENV = "M3C_PROFILE_WARM_S"
 PROFILE_INTERVAL_ENV = "M3C_PROFILE_INTERVAL"
+PROFILE_DURATION_ENV = "M3C_PROFILE_DURATION_S"
+PROFILE_FIRST_TICK_ENV = "M3C_PROFILE_WARM_FROM_FIRST_TICK"
 MODES = ("cprofile", "pyinstrument")
 OFF = ("", "0", "off", "none")
 
@@ -82,7 +89,14 @@ class ProcessProfile:
     """One process's profiler: created idle, started by :meth:`tick` after the warm-up."""
 
     def __init__(
-        self, mode: str, role: str, out_dir: Path, warm_s: float = 0.0, interval: float = 0.001
+        self,
+        mode: str,
+        role: str,
+        out_dir: Path,
+        warm_s: float = 0.0,
+        interval: float = 0.001,
+        duration_s: float = 0.0,
+        warm_from_first_tick: bool = False,
     ) -> None:
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
@@ -98,6 +112,11 @@ class ProcessProfile:
         self.interval = float(interval)
         self.created = time.perf_counter()
         self.start_at = self.created + max(0.0, float(warm_s))
+        if not math.isfinite(duration_s) or duration_s < 0:
+            raise ValueError(f"{PROFILE_DURATION_ENV} must be finite and >= 0")
+        self.duration_s = float(duration_s)
+        self.warm_from_first_tick = bool(warm_from_first_tick)
+        self._first_tick: Optional[float] = None
         self.t_start: Optional[float] = None
         self.t_stop: Optional[float] = None
         self.ticks = 0  # tick() calls while running (frames / loop iterations profiled)
@@ -116,7 +135,15 @@ class ProcessProfile:
         )
         warm = float(os.environ.get(PROFILE_WARM_ENV) or 0.0)
         interval = float(os.environ.get(PROFILE_INTERVAL_ENV) or 0.001)
-        return cls(mode, role, Path(out), warm, interval)
+        return cls(
+            mode,
+            role,
+            Path(out),
+            warm,
+            interval,
+            duration_s=float(os.environ.get(PROFILE_DURATION_ENV) or 0.0),
+            warm_from_first_tick=os.environ.get(PROFILE_FIRST_TICK_ENV, "0") == "1",
+        )
 
     @property
     def running(self) -> bool:
@@ -126,10 +153,17 @@ class ProcessProfile:
         """Call once per frame / loop iteration; returns True on the call that starts it."""
         if self.t_stop is not None:
             return False
+        now = time.perf_counter()
+        if self.warm_from_first_tick and self._first_tick is None:
+            self.start_at = now + (self.start_at - self.created)
+            self._first_tick = now
         if self._prof is not None:
+            if self.duration_s and now - self.t_start >= self.duration_s:
+                self.stop()
+                return False
             self.ticks += 1
             return False
-        if time.perf_counter() < self.start_at:
+        if now < self.start_at:
             return False
         self._start()
         return True
@@ -197,6 +231,12 @@ class ProcessProfile:
             **self.meta,
             **(extra or {}),
         }
+        if self.duration_s or self.warm_from_first_tick:
+            meta.update(
+                requested_duration_s=self.duration_s,
+                warm_from_first_tick=self.warm_from_first_tick,
+                warm_s=self.start_at - (self._first_tick or self.created),
+            )
         path = Path(str(base) + ".meta.json")
         path.write_text(json.dumps(meta, indent=1, default=str) + "\n")
         return path

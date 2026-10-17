@@ -1,0 +1,181 @@
+{
+ "created_utc": "2026-10-17T20:16:31.023334+00:00",
+ "platform": "macOS-27.0-arm64-arm-64bit",
+ "machine": "arm64",
+ "torch": "2.9.1",
+ "loadavg_start": [
+  3.8369140625,
+  4.5625,
+  5.369140625
+ ],
+ "argv": [
+  "--devices",
+  "mps",
+  "--configs",
+  "t1_k2,t1_bf16_k2,t1_k4,t1_bf16_k4",
+  "--ring-rows",
+  "40000",
+  "--updates",
+  "20",
+  "--rounds",
+  "3",
+  "--warm",
+  "5",
+  "--device-diag-updates",
+  "5",
+  "--raw-rings",
+  "--ring-dir",
+  "research/t17b_20261017/results",
+  "--gather-threads",
+  "0",
+  "--out",
+  "research/t17b_20261017/results/b5_mps_raw_g0_eager.json",
+  "--note",
+  "T17b B5 Mac local-file raw g0 eager reference; MPS reduce-overhead fallback recorded in b5_mps_raw_g0.json"
+ ],
+ "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+ "mode": "bv8",
+ "obs_pack": false,
+ "ring_dir": "research/t17b_20261017/results",
+ "gather_threads": 0,
+ "note": "T17b B5 Mac local-file raw g0 eager reference; MPS reduce-overhead fallback recorded in b5_mps_raw_g0.json",
+ "cells": [
+  {
+   "device": "mps",
+   "config": "t1_k2",
+   "flags": {
+    "fast": true,
+    "batch_scale": 2,
+    "gather_threads": 0
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    1.0356,
+    0.9865,
+    1.0097
+   ],
+   "ms_per_update_median": 50.49,
+   "updates_per_s": 19.807,
+   "update_every": 256,
+   "transitions_per_s": 5070.7,
+   "rows_per_update": {
+    "agent": 768,
+    "anchor": 256
+   },
+   "halt": null,
+   "host_gather_ms": 5.459,
+   "gpu_leg_ms": 50.024,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile_execution": "not_requested",
+   "precision_execution": "requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_bf16_k2",
+   "flags": {
+    "fast": true,
+    "precision": "bf16",
+    "batch_scale": 2,
+    "gather_threads": 0
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    3.1619,
+    2.9956,
+    2.8591
+   ],
+   "ms_per_update_median": 149.78,
+   "updates_per_s": 6.676,
+   "update_every": 256,
+   "transitions_per_s": 1709.2,
+   "rows_per_update": {
+    "agent": 768,
+    "anchor": 256
+   },
+   "halt": null,
+   "host_gather_ms": 4.94,
+   "gpu_leg_ms": 135.688,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile_execution": "not_requested",
+   "precision_execution": "mps_autocast_requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_k4",
+   "flags": {
+    "fast": true,
+    "batch_scale": 4,
+    "gather_threads": 0
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    1.8774,
+    1.856,
+    1.8191
+   ],
+   "ms_per_update_median": 92.8,
+   "updates_per_s": 10.776,
+   "update_every": 512,
+   "transitions_per_s": 5517.1,
+   "rows_per_update": {
+    "agent": 1536,
+    "anchor": 512
+   },
+   "halt": null,
+   "host_gather_ms": 11.968,
+   "gpu_leg_ms": 89.973,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile_execution": "not_requested",
+   "precision_execution": "requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_bf16_k4",
+   "flags": {
+    "fast": true,
+    "precision": "bf16",
+    "batch_scale": 4,
+    "gather_threads": 0
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    3.4098,
+    3.1742,
+    3.1629
+   ],
+   "ms_per_update_median": 158.71,
+   "updates_per_s": 6.301,
+   "update_every": 512,
+   "transitions_per_s": 3226.0,
+   "rows_per_update": {
+    "agent": 1536,
+    "anchor": 512
+   },
+   "halt": null,
+   "host_gather_ms": 11.198,
+   "gpu_leg_ms": 142.741,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile_execution": "not_requested",
+   "precision_execution": "mps_autocast_requested"
+  }
+ ],
+ "rings": {
+  "obs_pack": false,
+  "backend": "file_mmap",
+  "ring_dir": "research/t17b_20261017/results",
+  "gather_threads": 0
+ },
+ "loadavg_end": [
+  4.0224609375,
+  4.5546875,
+  5.33447265625
+ ]
+}

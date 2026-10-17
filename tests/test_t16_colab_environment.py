@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -59,7 +60,21 @@ def test_uv_failure_does_not_fall_back_to_kernel(tmp_path):
     assert run_owned.call_count == 1
 
 
-def test_notebook_routes_workload_to_selected_interpreter(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "p0_failure,prior_omission",
+    [
+        (None, None),
+        ("timeout_all", None),
+        ("called_all", None),
+        ("called_once", None),
+        ("tempdir_once", None),
+        (None, False),
+        (None, True),
+    ],
+)
+def test_notebook_routes_workload_to_selected_interpreter(
+    tmp_path, monkeypatch, p0_failure, prior_omission
+):
     """Execute the actual orchestration cell with mocked Colab and all external commands."""
     import sys
     from types import ModuleType
@@ -87,18 +102,58 @@ def test_notebook_routes_workload_to_selected_interpreter(tmp_path, monkeypatch)
 
     def local_path(value):
         value = str(value)
+        if value == "/dev/shm":
+            return tmp_path / "dev-shm"
         return tmp_path / value.removeprefix("/content/")
 
     monkeypatch.setattr("pathlib.Path", local_path)
     archive = local_path("/content/archive")
     archive.write_bytes(b"archive")
+    local_path("/dev/shm").mkdir(parents=True)
     commit = "a" * 40
     calls = []
+    if prior_omission is not None:
+        output = local_path("/content/results")
+        output.mkdir()
+        (output / "identity.json").write_text(json.dumps({"omitted_smoke03_row5": prior_omission}))
+
+    p0_attempts = 0
+    tempdir_attempts = 0
+    original_temporary_directory = tempfile.TemporaryDirectory
+
+    if p0_failure == "tempdir_once":
+
+        def fail_first_temporary_directory(*args, **kwargs):
+            nonlocal tempdir_attempts
+            tempdir_attempts += 1
+            if tempdir_attempts == 1:
+                raise OSError("P0 test ring directory unavailable")
+            return original_temporary_directory(*args, **kwargs)
+
+        monkeypatch.setattr(tempfile, "TemporaryDirectory", fail_first_temporary_directory)
 
     def fake_run(command, **kwargs):
+        nonlocal p0_attempts
         calls.append(command)
+        if any(str(part).endswith("bench_learner.py") for part in command):
+            p0_attempts += 1
+            owned_ring = Path(command[command.index("--ring-dir") + 1])
+            (owned_ring / "m3c-bench-test.bin").write_bytes(b"owned mmap stand-in")
+            assert kwargs["deadline_at"] <= namespace["deadline"]
+            if p0_failure == "timeout_all":
+                raise TimeoutError("P0 test timeout after owned group cleanup")
+            if p0_failure == "called_all" or (p0_failure == "called_once" and p0_attempts == 1):
+                raise subprocess.CalledProcessError(1, command)
         if "research/t16_colab/run_smoke.py" in command:
             (local_path("/content/results") / "invocation_result.json").write_text("{}")
+        if command[:2] == [selected, "-c"] and "get_device_name(0)" in command[2]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                json.dumps({"torch": "2.9.1", "cuda": "12.6", "gpu": "test", "capability": [8, 0]}),
+            )
+        if command[:3] == ["df", "-h", "/dev/shm"]:
+            return subprocess.CompletedProcess(command, 0, "Filesystem  Size\n")
         return subprocess.CompletedProcess(command, 0, commit + "\n")
 
     namespace = {
@@ -111,21 +166,79 @@ def test_notebook_routes_workload_to_selected_interpreter(tmp_path, monkeypatch)
         "REPOSITORY": "repo",
         "CUDA_WHEEL_INDEX": "https://download.pytorch.org/whl/cu126",
         "TIMING_SECONDS": 150,
-        "SCRATCH_DIR": "/content/scratch",
         "MATRIX": "smoke03",
+        "SCRATCH_DIR": "/content/scratch",
         "run_owned": fake_run,
         "sha256": lambda path: "hash",
         "display": Mock(),
     }
     exec(compile(tree, str(notebook), "exec"), namespace)
     select.assert_called_once()
-    workloads = [command for command in calls if command[0] != "git"]
-    assert len(workloads) == 5  # dependencies, CUDA wheel, CUDA probe, bundle, runner
+    workloads = [command for command in calls if command[0] == selected]
+    if p0_failure:
+        assert any("research/t16_colab/run_smoke.py" in command for command in calls)
+        assert not list(local_path("/dev/shm").glob("t17b-p0-*"))
+        assert not list(local_path("/content/scratch/p0-rings").glob("t17b-p0-*"))
+        receipt = json.loads(
+            (
+                local_path("/content/results") / "p0_learner_bench" / commit / "p0_receipt.json"
+            ).read_text()
+        )
+        assert receipt["status"] == "completed_with_failures"
+        assert len(receipt["benchmarks"]) == 8
+        expected_failures = 1 if p0_failure in {"called_once", "tempdir_once"} else 8
+        failures = [row for row in receipt["benchmarks"] if row["status"] == "failed"]
+        successes = [row for row in receipt["benchmarks"] if row["status"] == "completed"]
+        assert len(failures) == expected_failures
+        assert len(successes) == 8 - expected_failures
+        if p0_failure == "timeout_all":
+            assert all("P0 test timeout" in row["error"] for row in failures)
+        elif p0_failure == "tempdir_once":
+            assert all("P0 test ring directory unavailable" in row["error"] for row in failures)
+        else:
+            assert all("CalledProcessError" in row["error"] for row in failures)
+    else:
+        receipt = json.loads(
+            (
+                local_path("/content/results") / "p0_learner_bench" / commit / "p0_receipt.json"
+            ).read_text()
+        )
+        assert receipt["status"] == "completed"
+        assert len(receipt["benchmarks"]) == 8
+        assert all(row["status"] == "completed" for row in receipt["benchmarks"])
+    expected_workloads = 13 if p0_failure == "tempdir_once" else 14
+    assert len(workloads) == expected_workloads  # setup, P0 runtime probe, P0 benches, smoke runner
     assert all(command[0] == selected for command in workloads)
     assert all(
         pin in workloads[0] for pin in ["numpy==1.26.4", "numba==0.68.0", "llvmlite==0.50.0"]
     )
     assert "torch==2.9.1" in workloads[1]
-    assert "--scratch-dir" in workloads[-1] and "--budget-seconds" in workloads[-1]
-    assert workloads[-1][workloads[-1].index("--matrix") + 1] == "smoke03"
+    assert any("get_device_name(0)" in command[2] for command in workloads if command[1] == "-c")
+    p0_calls = [
+        command
+        for command in workloads
+        if any(str(part).endswith("bench_learner.py") for part in command)
+    ]
+    expected_p0_calls = 7 if p0_failure == "tempdir_once" else 8
+    assert len(p0_calls) == expected_p0_calls
+    assert {command[command.index("--gather-threads") + 1] for command in p0_calls} == {"0", "3"}
+    ring_dirs = [Path(command[command.index("--ring-dir") + 1]) for command in p0_calls]
+    expected_shm_calls = 3 if p0_failure == "tempdir_once" else 4
+    assert sum(path.parent == local_path("/dev/shm") for path in ring_dirs) == expected_shm_calls
+    assert sum(path.parent == local_path("/content/scratch/p0-rings") for path in ring_dirs) == 4
+    assert all(path.name.startswith("t17b-p0-") for path in ring_dirs)
+    assert all(command[command.index("--devices") + 1] == "cuda" for command in p0_calls)
+    assert ["df", "-h", "/dev/shm"] in calls
+    runner = workloads[-1]
+    assert "--matrix" in runner and runner[runner.index("--matrix") + 1] == "smoke03"
+    assert "--scratch-dir" in runner and "--budget-seconds" in runner
+    assert ("--omit-smoke03-row5" in runner) == (prior_omission is not False)
+    assert (
+        local_path("/content/results") / "p0_learner_bench" / commit / "identity.json"
+    ).is_file()
+    assert (
+        local_path("/content/results") / "p0_learner_bench" / commit / "p0_receipt.json"
+    ).is_file()
+    assert not list(local_path("/dev/shm").glob("t17b-p0-*"))
+    assert not list(local_path("/content/scratch/p0-rings").glob("t17b-p0-*"))
     colab.files.download.assert_called_once()

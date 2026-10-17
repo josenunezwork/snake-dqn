@@ -1,0 +1,269 @@
+{
+ "created_utc": "2026-10-17T20:19:54.106831+00:00",
+ "platform": "macOS-27.0-arm64-arm-64bit",
+ "machine": "arm64",
+ "torch": "2.9.1",
+ "loadavg_start": [
+  3.7578125,
+  4.35986328125,
+  5.11767578125
+ ],
+ "argv": [
+  "--devices",
+  "mps",
+  "--configs",
+  "t1_k2_c_ro,t1_bf16_k2_c_ro,t1_k4_c_ro,t1_bf16_k4_c_ro",
+  "--ring-rows",
+  "40000",
+  "--updates",
+  "20",
+  "--rounds",
+  "3",
+  "--warm",
+  "5",
+  "--device-diag-updates",
+  "5",
+  "--obs-pack",
+  "--ring-dir",
+  "research/t17b_20261017/results",
+  "--gather-threads",
+  "0",
+  "--out",
+  "research/t17b_20261017/results/b5_mps_packed_g0_compile.json",
+  "--note",
+  "T17b B5 Mac local-file packed g0 reduce-overhead compile qualification; eager matched in b5_mps_packed_g0_eager.json"
+ ],
+ "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+ "mode": "bv8",
+ "obs_pack": true,
+ "ring_dir": "research/t17b_20261017/results",
+ "gather_threads": 0,
+ "note": "T17b B5 Mac local-file packed g0 reduce-overhead compile qualification; eager matched in b5_mps_packed_g0_eager.json",
+ "cells": [
+  {
+   "device": "mps",
+   "config": "t1_k2_c_ro",
+   "flags": {
+    "fast": true,
+    "batch_scale": 2,
+    "compile": "reduce-overhead",
+    "gather_threads": 0
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    0.9573,
+    0.993,
+    0.9759
+   ],
+   "ms_per_update_median": 48.8,
+   "updates_per_s": 20.493,
+   "update_every": 256,
+   "transitions_per_s": 5246.3,
+   "rows_per_update": {
+    "agent": 768,
+    "anchor": 256
+   },
+   "halt": null,
+   "host_gather_ms": 4.543,
+   "gpu_leg_ms": 49.011,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile": {
+    "mode": "reduce-overhead",
+    "scope": "loss",
+    "device": "mps",
+    "compiled_calls": 0,
+    "verify_calls": 1,
+    "eager_calls": 70,
+    "fallback": "RuntimeError: compiled step disagrees with eager: grad local.2.bias relative error 255 > allowed 0.001 (shape key (768, 256, 0))",
+    "first_call_s": 0.521,
+    "verify_worst_rel_err": 255.0000897774416,
+    "verify_worst_ratio": 255000.08977744158,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 4,
+     "frames_ok": 4,
+     "frames_total": 4,
+     "graph_breaks": 0
+    }
+   },
+   "compile_execution": "fallback_eager",
+   "precision_execution": "requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_bf16_k2_c_ro",
+   "flags": {
+    "fast": true,
+    "precision": "bf16",
+    "batch_scale": 2,
+    "compile": "reduce-overhead",
+    "gather_threads": 0
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    2.8616,
+    2.9277,
+    2.9809
+   ],
+   "ms_per_update_median": 146.38,
+   "updates_per_s": 6.831,
+   "update_every": 256,
+   "transitions_per_s": 1748.8,
+   "rows_per_update": {
+    "agent": 768,
+    "anchor": 256
+   },
+   "halt": null,
+   "host_gather_ms": 4.227,
+   "gpu_leg_ms": 135.932,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile": {
+    "mode": "reduce-overhead",
+    "scope": "loss",
+    "device": "mps",
+    "compiled_calls": 0,
+    "verify_calls": 1,
+    "eager_calls": 70,
+    "fallback": "RuntimeError: compiled step disagrees with eager: grad local.4.bias relative error 63.7 > allowed 0.05 (shape key (768, 256, 0))",
+    "first_call_s": 0.277,
+    "verify_worst_rel_err": 259.558039685777,
+    "verify_worst_ratio": 1274.2560001524923,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 4,
+     "frames_ok": 4,
+     "frames_total": 4,
+     "graph_breaks": 0
+    }
+   },
+   "compile_execution": "fallback_eager",
+   "precision_execution": "mps_autocast_requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_k4_c_ro",
+   "flags": {
+    "fast": true,
+    "batch_scale": 4,
+    "compile": "reduce-overhead",
+    "gather_threads": 0
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    1.8262,
+    1.8693,
+    1.7962
+   ],
+   "ms_per_update_median": 91.31,
+   "updates_per_s": 10.952,
+   "update_every": 512,
+   "transitions_per_s": 5607.2,
+   "rows_per_update": {
+    "agent": 1536,
+    "anchor": 512
+   },
+   "halt": null,
+   "host_gather_ms": 9.665,
+   "gpu_leg_ms": 90.031,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile": {
+    "mode": "reduce-overhead",
+    "scope": "loss",
+    "device": "mps",
+    "compiled_calls": 0,
+    "verify_calls": 1,
+    "eager_calls": 70,
+    "fallback": "RuntimeError: compiled step disagrees with eager: grad local.2.bias relative error 371 > allowed 0.001 (shape key (1536, 512, 0))",
+    "first_call_s": 0.275,
+    "verify_worst_rel_err": 371.1770751008069,
+    "verify_worst_ratio": 371177.0751008069,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 4,
+     "frames_ok": 4,
+     "frames_total": 4,
+     "graph_breaks": 0
+    }
+   },
+   "compile_execution": "fallback_eager",
+   "precision_execution": "requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_bf16_k4_c_ro",
+   "flags": {
+    "fast": true,
+    "precision": "bf16",
+    "batch_scale": 4,
+    "compile": "reduce-overhead",
+    "gather_threads": 0
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    2.7038,
+    2.8146,
+    2.7825
+   ],
+   "ms_per_update_median": 139.12,
+   "updates_per_s": 7.188,
+   "update_every": 512,
+   "transitions_per_s": 3680.2,
+   "rows_per_update": {
+    "agent": 1536,
+    "anchor": 512
+   },
+   "halt": null,
+   "host_gather_ms": 7.894,
+   "gpu_leg_ms": 140.246,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile": {
+    "mode": "reduce-overhead",
+    "scope": "loss",
+    "device": "mps",
+    "compiled_calls": 0,
+    "verify_calls": 1,
+    "eager_calls": 70,
+    "fallback": "RuntimeError: compiled step disagrees with eager: grad local.4.bias relative error inf > allowed 0.05 (shape key (1536, 512, 0))",
+    "first_call_s": 0.265,
+    "verify_worst_rel_err": Infinity,
+    "verify_worst_ratio": Infinity,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 4,
+     "frames_ok": 4,
+     "frames_total": 4,
+     "graph_breaks": 0
+    }
+   },
+   "compile_execution": "fallback_eager",
+   "precision_execution": "mps_autocast_requested"
+  }
+ ],
+ "rings": {
+  "obs_pack": true,
+  "backend": "file_mmap",
+  "ring_dir": "research/t17b_20261017/results",
+  "gather_threads": 0
+ },
+ "loadavg_end": [
+  3.63134765625,
+  4.27490234375,
+  5.0595703125
+ ]
+}

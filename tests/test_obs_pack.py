@@ -35,6 +35,37 @@ from test_v8_nb import HAVE_CKPT  # noqa: E402
 LAYOUT = op.layout_for_arena(145, 83, 6)
 
 
+def test_train_layout_without_checkpoint_pool(tmp_path, monkeypatch):
+    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+
+    monkeypatch.setattr(gid, "CHECKPOINT_DIR", tmp_path / "absent-pool")
+
+    def no_evaluation_context(*args, **kwargs):
+        raise AssertionError("layout must not build an evaluation context")
+
+    monkeypatch.setattr(gid, "_context", no_evaluation_context)
+    layout = op.train_layout()
+    assert layout == LAYOUT
+    assert layout.nbytes == 3064
+
+
+def test_train_layout_matches_checkpoint_verified_legacy_layout():
+    from research.apex_safety_20260926 import dev_screen as ds
+    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+
+    if not all((gid.CHECKPOINT_DIR / name).is_file() for name, _ in (*ds.POOL, gid.FRP3_S12)):
+        pytest.skip("needs the complete pinned checkpoint pool")
+    world = gid._context(1)["profile"].world
+    legacy = op.layout_for_arena(
+        world.width // world.segment_size, world.height // world.segment_size, world.num_snakes
+    )
+    actual = op.train_layout()
+    assert actual == legacy
+    assert actual.consts() == legacy.consts()
+    local, global_ = valid_rows(np.random.default_rng(17), 16, legacy)
+    assert op.pack(local, global_, actual).tobytes() == op.pack(local, global_, legacy).tobytes()
+
+
 # ----------------------------------------------------------------------------- data
 def valid_rows(rng: np.random.Generator, n: int, layout=LAYOUT, dead_every: int = 7):
     """Random ``(local, global)`` rows that satisfy every packing invariant (extremes too)."""

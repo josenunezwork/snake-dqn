@@ -53,17 +53,18 @@ def test_recipe_matrix_and_default_off_selfplay(tmp_path):
 def test_smoke03_matrix_varies_only_the_learner_host_work_and_actor_count(tmp_path):
     """smoke-03: 128-world self-play rows; raw rings, batch scale, bf16 and six actors."""
     assert smoke.matrix_configs("smoke02") == list(smoke.CONFIGS)
-    assert smoke.matrix_configs("smoke03") == smoke.SMOKE03_CONFIGS
+    assert smoke.matrix_configs("smoke03") == list(smoke.SMOKE03_CONFIGS)
     with pytest.raises(ValueError):
         smoke.matrix_configs("smoke99")
     names = [c["name"] for c in smoke.SMOKE03_CONFIGS]
     assert names == [
-        "sp_w128_a4_pack",
-        "sp_w128_a4_raw",
-        "sp_w128_a4_raw_bs4",
-        "sp_w128_a4_raw_bf16",
-        "sp_w128_a6_raw",
-        "sp_w128_a6_raw_bs4",
+        "sp_w128_a2_packed_g0_bs2_fp32",
+        "sp_w128_a2_raw_g0_bs2_fp32",
+        "sp_w128_a3_raw_g3_bs2_fp32",
+        "sp_w128_a4_raw_g3_bs2_fp32",
+        "sp_w128_a6_raw_g3_bs2_fp32",
+        "sp_w128_a4_raw_g3_bs4_fp32",
+        "sp_w128_a4_raw_g3_bs2_bf16",
     ]
     assert not set(names) & {c["name"] for c in smoke.CONFIGS}
     for config in smoke.SMOKE03_CONFIGS:
@@ -80,7 +81,76 @@ def test_smoke03_matrix_varies_only_the_learner_host_work_and_actor_count(tmp_pa
         else:
             assert command[command.index("--learner-precision") + 1] == config["precision"]
     raw = [c for c in smoke.SMOKE03_CONFIGS if c.get("obs_pack", True) is False]
-    assert len(raw) == 5 and smoke.SMOKE03_CONFIGS[0].get("obs_pack", True) is True
+    assert len(raw) == 6 and smoke.SMOKE03_CONFIGS[0].get("obs_pack", True) is True
+
+
+def test_smoke03_matrix_is_the_preregistered_seven_row_recipe(tmp_path):
+    assert [(c["actors"], c["gather_threads"]) for c in smoke.SMOKE03_CONFIGS] == [
+        (2, 0),
+        (2, 0),
+        (3, 3),
+        (4, 3),
+        (6, 3),
+        (4, 3),
+        (4, 3),
+    ]
+    assert all(c["worlds"] == 128 and c["self_play"] for c in smoke.SMOKE03_CONFIGS)
+    assert all(c["actor_queue_frames"] == 4 for c in smoke.SMOKE03_CONFIGS)
+    assert [c.get("obs_pack", True) for c in smoke.SMOKE03_CONFIGS] == [
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+    ]
+    assert [c.get("batch_scale", 2) for c in smoke.SMOKE03_CONFIGS] == [2, 2, 2, 2, 2, 4, 2]
+    assert [c.get("precision", "fp32") for c in smoke.SMOKE03_CONFIGS] == ["fp32"] * 6 + ["bf16"]
+    assert [c.get("throughput_only", False) for c in smoke.SMOKE03_CONFIGS] == [False] * 5 + [
+        True,
+        True,
+    ]
+    assert smoke.warmup_for_suite("smoke03") == smoke.SMOKE03_WARMUP
+    assert smoke.SMOKE03_WARMUP["self_play"]
+    command = smoke.trainer_command(
+        smoke.SMOKE03_CONFIGS[-1],
+        tmp_path,
+        tmp_path / "out",
+        tmp_path / "init",
+        600,
+        "reduce-overhead",
+        tmp_path / "ring",
+    )
+    assert command[command.index("--gather-threads") + 1] == "3"
+    assert command[command.index("--actor-queue-frames") + 1] == "4"
+    assert "--all-snakes-learner" in command
+
+
+def test_smoke03_row5_is_only_explicit_optional_omission():
+    configs = smoke.configs_for_suite("smoke03", omit_smoke03_row5=True)
+    assert len(configs) == 6
+    assert smoke.SMOKE03_CONFIGS[4] not in configs
+
+
+def test_runner_cap_is_3600_seconds(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_smoke.py",
+            "--inputs",
+            "/tmp/i",
+            "--output",
+            "/tmp/o",
+            "--commit",
+            "a" * 40,
+            "--budget-seconds",
+            "3601",
+        ],
+    )
+    with pytest.raises(SystemExit):
+        smoke.main()
 
 
 def test_post_warmup_rate_uses_interval_not_lifetime_average():
@@ -120,6 +190,30 @@ def test_steady_state_window_excludes_compile_and_replay_fill():
         smoke.measured_rate(rows[:2])
     with pytest.raises(ValueError, match="fewer than two"):
         smoke.measured_rate(rows[:4])
+
+
+def test_measured_rate_reports_fixed_batch_and_learner_metrics():
+    rows = [
+        {"wall": 40, "transitions": 1_000, "updates": 4, "learn_s": 0.1, "policy_lag_mean": 2},
+        {
+            "wall": 70,
+            "transitions": 257_000,
+            "updates": 1_004,
+            "learn_s": 12.1,
+            "policy_lag_mean": 4,
+        },
+        {
+            "wall": 100,
+            "transitions": 513_000,
+            "updates": 2_004,
+            "learn_s": 24.1,
+            "policy_lag_mean": 6,
+        },
+    ]
+    measured = smoke.measured_rate(rows)
+    assert measured["transitions_per_update"] == 256
+    assert measured["learn_seconds_per_update"] == pytest.approx(0.012)
+    assert measured["policy_lag_mean"] == 5
 
 
 def test_checkpoint_restart_requires_receipt_hash_and_skips_aborted(tmp_path):
@@ -304,6 +398,133 @@ def test_run_completion_and_hash_checked_resume(tmp_path, monkeypatch):
     assert smoke.run(tmp_path, output, "a" * 40, 180, 1050, scratch) == 1
     assert result_path.read_bytes() == saved
     assert (output / "refused_identity.json").exists()
+
+
+def test_smoke03_profile_is_warmed_and_result_identity_resumes(tmp_path, monkeypatch):
+    config = dict(smoke.SMOKE03_CONFIGS[2])
+    monkeypatch.setattr(smoke, "SMOKE03_CONFIGS", (config,))
+    monkeypatch.setattr(smoke, "SMOKE03_PROFILE_CONFIG", config["name"])
+    monkeypatch.setattr(smoke, "start_sampler", lambda *args: object())
+    monkeypatch.setattr(smoke, "stop_sampler", lambda *args: {})
+    monkeypatch.setattr(smoke.subprocess, "check_output", lambda *args, **kwargs: "a" * 40)
+    monkeypatch.setattr(
+        smoke,
+        "environment_info",
+        lambda: {"gpu": "test GPU", "versions": {}, "c_compiler": None, "cpu_count": 2},
+    )
+    (tmp_path / "manifest.json").write_text("{}")
+    (tmp_path / "init").mkdir()
+    (tmp_path / "init" / "B8_s3_final.pth").write_bytes(b"init")
+    calls = []
+
+    def fake_command(command, log, timeout, env):
+        if "--out" not in command:
+            return 0
+        attempt = Path(command[command.index("--out") + 1])
+        calls.append((attempt, list(command), dict(env)))
+        attempt.mkdir(parents=True)
+        if env.get("M3C_PROFILE") == "cprofile":
+            profile = attempt / "profile"
+            profile.mkdir()
+            (profile / "learner.pstats").write_bytes(b"profile")
+            (profile / "learner.meta.json").write_text(
+                '{"mode": "cprofile", "profiled_s": 60.0, "requested_duration_s": 60.0, '
+                '"warm_from_first_tick": true, "warm_s": 60.000000000007276}'
+            )
+        (attempt / "summary.json").write_text(
+            json.dumps({"halt": None, "actor_exitcodes": [0, 0, 0], "rate": 10_000})
+        )
+        (attempt / "final.pth").write_bytes(b"final")
+        (attempt / "log.jsonl").write_text(
+            "\n".join(
+                json.dumps(row)
+                for row in (
+                    {"wall": 40, "transitions": 1_000, "updates": 4},
+                    {"wall": 70, "transitions": 257_000, "updates": 1_004},
+                    {"wall": 100, "transitions": 513_000, "updates": 2_004},
+                )
+            )
+        )
+        return 0
+
+    monkeypatch.setattr(smoke, "bounded_command", fake_command)
+    output, scratch = tmp_path / "output", tmp_path / "scratch"
+    assert smoke.run(tmp_path, output, "a" * 40, 150, 1_200, scratch, "smoke03") == 0
+    profile_call = next(call for call in calls if call[2].get("M3C_PROFILE") == "cprofile")
+    assert profile_call[2]["M3C_PROFILE_WARM_S"] == "60"
+    assert profile_call[2]["M3C_PROFILE_WARM_FROM_FIRST_TICK"] == "1"
+    assert profile_call[2]["M3C_PROFILE_DURATION_S"] == "60"
+    assert "--max-wall-seconds" in profile_call[1]
+    assert profile_call[1][profile_call[1].index("--max-wall-seconds") + 1] == "125"
+    result = json.loads((output / "colab_throughput_results.json").read_text())
+    assert result["suite"] == "smoke03"
+    assert result["profile"]["seconds"] == 60 and result["profile"]["timed_after_warmup"]
+    assert result["profile"]["profile_metadata"]["learner.meta.json"]["profiled_s"] == 60.0
+    assert smoke.completed_profile_artifacts_match(result["profile"])
+    first_count = len(calls)
+    assert smoke.run(tmp_path, output, "a" * 40, 150, 1_200, scratch, "smoke03") == 0
+    assert len(calls) == first_count
+
+
+def test_smoke03_retries_a_failed_profile_before_completing(tmp_path, monkeypatch):
+    config = dict(smoke.SMOKE03_CONFIGS[2])
+    monkeypatch.setattr(smoke, "SMOKE03_CONFIGS", (config,))
+    monkeypatch.setattr(smoke, "SMOKE03_PROFILE_CONFIG", config["name"])
+    monkeypatch.setattr(smoke, "start_sampler", lambda *args: object())
+    monkeypatch.setattr(smoke, "stop_sampler", lambda *args: {})
+    monkeypatch.setattr(smoke.subprocess, "check_output", lambda *args, **kwargs: "a" * 40)
+    monkeypatch.setattr(
+        smoke,
+        "environment_info",
+        lambda: {"gpu": "test GPU", "versions": {}, "c_compiler": None, "cpu_count": 2},
+    )
+    (tmp_path / "manifest.json").write_text("{}")
+    (tmp_path / "init").mkdir()
+    (tmp_path / "init" / "B8_s3_final.pth").write_bytes(b"init")
+    profile_runs = 0
+
+    def fake_command(command, log, timeout, env):
+        nonlocal profile_runs
+        if "--out" not in command:
+            return 0
+        attempt = Path(command[command.index("--out") + 1])
+        attempt.mkdir(parents=True)
+        if env.get("M3C_PROFILE") == "cprofile":
+            profile_runs += 1
+            profile = attempt / "profile"
+            profile.mkdir()
+            (profile / "learner.pstats").write_bytes(b"profile")
+            profiled_s = 25.0 if profile_runs == 1 else 60.0
+            (profile / "learner.meta.json").write_text(
+                '{"mode": "cprofile", "profiled_s": '
+                + str(profiled_s)
+                + ', "requested_duration_s": 60.0, "warm_from_first_tick": true, "warm_s": 60.0}'
+            )
+        (attempt / "summary.json").write_text(
+            json.dumps({"halt": None, "actor_exitcodes": [0, 0, 0], "rate": 10_000})
+        )
+        (attempt / "final.pth").write_bytes(b"final")
+        (attempt / "log.jsonl").write_text(
+            "\n".join(
+                json.dumps(row)
+                for row in (
+                    {"wall": 40, "transitions": 1_000, "updates": 4},
+                    {"wall": 70, "transitions": 257_000, "updates": 1_004},
+                    {"wall": 100, "transitions": 513_000, "updates": 2_004},
+                )
+            )
+        )
+        return 0
+
+    monkeypatch.setattr(smoke, "bounded_command", fake_command)
+    output, scratch = tmp_path / "output", tmp_path / "scratch"
+    assert smoke.run(tmp_path, output, "a" * 40, 150, 1_200, scratch, "smoke03") == 1
+    failed = json.loads((output / "colab_throughput_results.json").read_text())
+    assert failed["profile"]["returncode"] == 0  # reject the truncated capture, not process failure
+    assert failed["profile"]["profile_metadata"]["learner.meta.json"]["profiled_s"] == 25.0
+    assert not smoke.completed_profile_artifacts_match(failed["profile"])
+    assert smoke.run(tmp_path, output, "a" * 40, 150, 1_200, scratch, "smoke03") == 0
+    assert profile_runs == 2
 
 
 def test_sampler_uses_runner_interpreter(tmp_path, monkeypatch):

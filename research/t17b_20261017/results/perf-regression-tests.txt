@@ -1,0 +1,12 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-t17
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 61 items / 1 deselected / 60 selected
+
+tests/test_perf_learner.py .................                             [ 28%]
+tests/test_perf_actor.py ........................                        [ 68%]
+tests/test_perf_podbench.py ...................                          [100%]
+
+================= 60 passed, 1 deselected in 97.50s (0:01:37) ==================

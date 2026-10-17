@@ -89,6 +89,59 @@ def test_profile_default_dir_is_out_profile(tmp_path, monkeypatch):
     assert prof.out_dir == tmp_path / "run" / "profile"
 
 
+def test_profile_duration_starts_after_first_tick_warmup(tmp_path, monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr(P.time, "perf_counter", lambda: now[0])
+    monkeypatch.setenv(P.PROFILE_ENV, "cprofile")
+    monkeypatch.setenv(P.PROFILE_WARM_ENV, "60")
+    monkeypatch.setenv(P.PROFILE_FIRST_TICK_ENV, "1")
+    monkeypatch.setenv(P.PROFILE_DURATION_ENV, "60")
+    prof = P.ProcessProfile.from_env("learner", tmp_path)
+    now[0] = 210.0  # expensive setup must not consume the warm-up
+    assert not prof.tick() and not prof.running
+    now[0] = 269.0
+    assert not prof.tick()
+    now[0] = 270.0
+    assert prof.tick() and prof.running
+    now[0] = 329.0
+    assert not prof.tick() and prof.running
+    now[0] = 330.25  # stop on the first loop tick past the duration
+    assert not prof.tick() and not prof.running
+    now[0] = 400.0
+    assert not prof.tick()
+    meta = json.loads(prof.dump().read_text())
+    assert meta["warm_s"] == 60
+    assert meta["profiled_s"] == 60.25
+    assert meta["requested_duration_s"] == 60
+    assert meta["warm_from_first_tick"] is True
+
+
+@pytest.mark.parametrize("duration", ["-1", "nan", "inf"])
+def test_profile_duration_rejects_invalid_values(tmp_path, monkeypatch, duration):
+    monkeypatch.setenv(P.PROFILE_ENV, "cprofile")
+    monkeypatch.setenv(P.PROFILE_DURATION_ENV, duration)
+    with pytest.raises(ValueError, match="DURATION_S"):
+        P.ProcessProfile.from_env("learner", tmp_path)
+
+
+def test_learner_profile_counters_end_when_duration_expires(tmp_path, monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr(P.time, "perf_counter", lambda: now[0])
+    prof = P.ProcessProfile("cprofile", "learner", tmp_path, duration_s=60)
+    st = {"transitions": 256, "updates": 1, "learn_s": 0.1, "wait_s": 0.2, "env_s": 0.3}
+    T._tick_learner_profile(prof, st)
+    now[0] = 70.0
+    st["updates"] = 4001
+    T._tick_learner_profile(prof, st)
+    assert prof.meta["end"]["updates"] == 4001
+    st["updates"] = 4200  # teardown grace must not inflate profiled update counts
+    now[0] = 75.0
+    T._tick_learner_profile(prof, st)
+    meta = json.loads(prof.dump().read_text())
+    assert A.per_unit("learner", meta) == ("update", 4000.0)
+    assert meta["profiled_s"] == 60
+
+
 def test_compact_session_merges_stacks(tmp_path):
     pytest.importorskip("pyinstrument")
     from pyinstrument.session import Session

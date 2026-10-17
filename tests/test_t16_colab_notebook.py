@@ -42,7 +42,31 @@ def test_notebook_has_pinned_isolated_and_resumable_contract() -> None:
     assert "--scratch-dir" in source  # trainer outputs stay off Drive during timing
     assert re.search(r"MATRIX = '(smoke02|smoke03)'", source) and "'--matrix', MATRIX" in source
     assert "files.download" in source
-    assert "TOTAL_BUDGET_SECONDS = 3300" in source
+    assert "RUN_NAME = 'smoke-03'" in source
+    assert "TOTAL_BUDGET_SECONDS = 4500" in source
+    assert "TIMING_SECONDS = 300" in source
+    assert "bench_learner.py" in source
+    assert "p0_learner_bench" in source
+    assert "p0_dir = results_dir / 'p0_learner_bench' / PINNED_COMMIT" in source
+    assert "p0_identity_path" in source
+    assert "p0_receipt_path = p0_dir / 'p0_receipt.json'" in source
+    assert "t17b-p0-learner-bench-receipt/v1" in source
+    assert "completed_with_failures" in source
+    assert "continuing to smoke matrix" in source
+    assert "p0_runtime" in source and "get_device_name(0)" in source
+    assert "df', '-h', '/dev/shm'" in source
+    assert "t1_k2_c_ro,t1_bf16_k2_c_ro,t1_k4_c_ro,t1_bf16_k4_c_ro" in source
+    assert "('--obs-pack', 'packed'), ('--raw-rings', 'raw')" in source
+    assert "for gather_threads in (0, 3)" in source
+    assert "local_ring_dir.mkdir(parents=True, exist_ok=True)" in source
+    assert "p0_deadline = time.monotonic() + 300" in source
+    assert "deadline_at=p0_deadline" in source
+    assert "remaining_budget = min(3600" in source
+    assert "--omit-smoke03-row5" in source
+    assert "runner_identity_path = results_dir / 'identity.json'" in source
+    assert "prior_identity.get('omitted_smoke03_row5')" in source
+    assert "full_matrix_estimated_seconds = 3785" in source
+    assert "six_row_estimated_seconds = 3335" in source
     assert "startswith('2.9.')" in source  # preserve the CUDA torch 2.9.x contract
 
 
@@ -50,7 +74,7 @@ def test_notebook_bounds_and_cleans_only_its_own_subprocess_groups() -> None:
     """All setup commands share the post-auth deadline and private process groups."""
     source = notebook_source()
     assert "deadline = started_after_drive_auth + TOTAL_BUDGET_SECONDS" in source
-    assert "timeout = deadline - time.monotonic() - cleanup_grace" in source
+    assert "timeout = active_deadline - time.monotonic() - cleanup_grace" in source
     assert "start_new_session=True" in source
     assert "os.killpg(process.pid, signal.SIGTERM)" in source
     assert "os.killpg(process.pid, signal.SIGKILL)" in source

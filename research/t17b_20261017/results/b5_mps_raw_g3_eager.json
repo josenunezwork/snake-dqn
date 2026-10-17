@@ -1,0 +1,181 @@
+{
+ "created_utc": "2026-10-17T20:17:19.879788+00:00",
+ "platform": "macOS-27.0-arm64-arm-64bit",
+ "machine": "arm64",
+ "torch": "2.9.1",
+ "loadavg_start": [
+  4.275390625,
+  4.59033203125,
+  5.3330078125
+ ],
+ "argv": [
+  "--devices",
+  "mps",
+  "--configs",
+  "t1_k2,t1_bf16_k2,t1_k4,t1_bf16_k4",
+  "--ring-rows",
+  "40000",
+  "--updates",
+  "20",
+  "--rounds",
+  "3",
+  "--warm",
+  "5",
+  "--device-diag-updates",
+  "5",
+  "--raw-rings",
+  "--ring-dir",
+  "research/t17b_20261017/results",
+  "--gather-threads",
+  "3",
+  "--out",
+  "research/t17b_20261017/results/b5_mps_raw_g3_eager.json",
+  "--note",
+  "T17b B5 Mac local-file raw g3 eager reference; MPS reduce-overhead fallback recorded in b5_mps_raw_g0.json"
+ ],
+ "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+ "mode": "bv8",
+ "obs_pack": false,
+ "ring_dir": "research/t17b_20261017/results",
+ "gather_threads": 3,
+ "note": "T17b B5 Mac local-file raw g3 eager reference; MPS reduce-overhead fallback recorded in b5_mps_raw_g0.json",
+ "cells": [
+  {
+   "device": "mps",
+   "config": "t1_k2",
+   "flags": {
+    "fast": true,
+    "batch_scale": 2,
+    "gather_threads": 3
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    1.0106,
+    1.0034,
+    1.0193
+   ],
+   "ms_per_update_median": 50.53,
+   "updates_per_s": 19.79,
+   "update_every": 256,
+   "transitions_per_s": 5066.2,
+   "rows_per_update": {
+    "agent": 768,
+    "anchor": 256
+   },
+   "halt": null,
+   "host_gather_ms": 2.848,
+   "gpu_leg_ms": 50.944,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile_execution": "not_requested",
+   "precision_execution": "requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_bf16_k2",
+   "flags": {
+    "fast": true,
+    "precision": "bf16",
+    "batch_scale": 2,
+    "gather_threads": 3
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    2.912,
+    3.0146,
+    2.9739
+   ],
+   "ms_per_update_median": 148.7,
+   "updates_per_s": 6.725,
+   "update_every": 256,
+   "transitions_per_s": 1721.6,
+   "rows_per_update": {
+    "agent": 768,
+    "anchor": 256
+   },
+   "halt": null,
+   "host_gather_ms": 2.669,
+   "gpu_leg_ms": 143.615,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile_execution": "not_requested",
+   "precision_execution": "mps_autocast_requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_k4",
+   "flags": {
+    "fast": true,
+    "batch_scale": 4,
+    "gather_threads": 3
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    1.8844,
+    1.8851,
+    1.8573
+   ],
+   "ms_per_update_median": 94.22,
+   "updates_per_s": 10.613,
+   "update_every": 512,
+   "transitions_per_s": 5434.0,
+   "rows_per_update": {
+    "agent": 1536,
+    "anchor": 512
+   },
+   "halt": null,
+   "host_gather_ms": 5.598,
+   "gpu_leg_ms": 89.218,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile_execution": "not_requested",
+   "precision_execution": "requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_bf16_k4",
+   "flags": {
+    "fast": true,
+    "precision": "bf16",
+    "batch_scale": 4,
+    "gather_threads": 3
+   },
+   "updates_per_round": 20,
+   "rounds": 3,
+   "round_seconds": [
+    3.0451,
+    3.085,
+    3.0772
+   ],
+   "ms_per_update_median": 153.86,
+   "updates_per_s": 6.499,
+   "update_every": 512,
+   "transitions_per_s": 3327.7,
+   "rows_per_update": {
+    "agent": 1536,
+    "anchor": 512
+   },
+   "halt": null,
+   "host_gather_ms": 4.752,
+   "gpu_leg_ms": 151.622,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 5,
+   "compile_execution": "not_requested",
+   "precision_execution": "mps_autocast_requested"
+  }
+ ],
+ "rings": {
+  "obs_pack": false,
+  "backend": "file_mmap",
+  "ring_dir": "research/t17b_20261017/results",
+  "gather_threads": 3
+ },
+ "loadavg_end": [
+  4.21875,
+  4.5478515625,
+  5.29150390625
+ ]
+}
