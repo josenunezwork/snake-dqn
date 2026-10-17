@@ -1,0 +1,233 @@
+"""Focused contract tests for the opt-in T15 mixed Watch roster."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+import pytest
+
+pytest.importorskip("fastapi")
+
+from web.backend import session as session_module  # noqa: E402
+from web.backend.safety_veto_serving import ServingVetoFlags, ServingVetoState  # noqa: E402
+from web.backend.served_checkpoint import ServedCheckpointChoice  # noqa: E402
+from web.backend.session import MODE_PLAY, MODE_WATCH, GameSession  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _clean_roster_env(monkeypatch):
+    for key in (
+        "SNAKE_SERVE_WATCH_ROSTER",
+        "SNAKE_SERVE_CHECKPOINT",
+        "SNAKE_SERVE_VETO_WATCH_HERO",
+        "SNAKE_SERVE_VETO_PLAY_AI",
+        "SNAKE_SERVE_VETO_VARIANT",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
+def _ids(session: GameSession) -> list[int]:
+    return [int(snake.id) for snake in session.game.snakes]
+
+
+def test_default_watch_roster_stays_all_b8():
+    session = GameSession()
+    assert session.watch_roster == "all_b8"
+    assert session.watch_roster_reason is None
+    assert all(snake.policy is session.policy for snake in session.game.snakes)
+
+
+def test_declared_watch_roster_default_stays_all_b8():
+    from web.backend.served_checkpoint import WATCH_ROSTER_RELEASED_DEFAULT
+
+    assert WATCH_ROSTER_RELEASED_DEFAULT == "all_b8"
+
+
+def test_mixed_watch_has_unwrapped_b8_hero_and_wrapped_frp3_opponents(monkeypatch):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    session = GameSession()
+
+    assert session.watch_roster == "mixed"
+    assert session.watch_roster_reason is None
+    assert session.game.snakes[0].policy is session.policy
+    assert session.game.snakes[0].safety_veto is None
+    assert session.watch_opponent_policy is not None
+    assert all(snake.policy is session.watch_opponent_policy for snake in session.game.snakes[1:])
+    state = session.safety_veto_state()
+    assert state["active"] is True
+    assert state["scope"] == "watch_opponents"
+    assert state["wrapped_snake_ids"] == _ids(session)[1:]
+    assert set(state["counters"]) == {str(value) for value in _ids(session)[1:]}
+    assert "0" not in state["counters"]
+    assert session.control_state()["safety_veto"] == state
+
+
+@pytest.mark.parametrize("value", ("", "all_b8", "garbled"))
+def test_default_and_invalid_roster_words_keep_all_b8(monkeypatch, value):
+    if value:
+        monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", value)
+    session = GameSession()
+    assert session.watch_roster == "all_b8"
+    assert all(snake.policy is session.policy for snake in session.game.snakes)
+    if value == "garbled":
+        assert "unknown SNAKE_SERVE_WATCH_ROSTER" in str(session.watch_roster_reason)
+
+
+def test_mixed_fails_closed_when_fpr3_resolution_fails(monkeypatch):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    monkeypatch.setattr(
+        session_module,
+        "resolve_mixed_watch_opponent",
+        lambda: ServedCheckpointChoice(
+            requested="frp3-s12", reason="pin checkpoint_sha256 is not the registry sha256"
+        ),
+    )
+    session = GameSession()
+    assert session.watch_roster == "all_b8"
+    assert "FRP3 opponent pin/bytes failed" in str(session.watch_roster_reason)
+    assert all(snake.policy is session.policy for snake in session.game.snakes)
+    assert session.safety_veto_state()["active"] is False
+
+
+@pytest.mark.parametrize(
+    "choice",
+    (
+        ServedCheckpointChoice(requested="frp3-s12", reason="missing strict pin"),
+        ServedCheckpointChoice(
+            requested="frp3-s12", name="champion", path="/tmp/wrong", sha256="0" * 64
+        ),
+    ),
+)
+def test_mixed_fails_closed_for_missing_or_wrong_opponent_pin(monkeypatch, choice):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    monkeypatch.setattr(session_module, "resolve_mixed_watch_opponent", lambda: choice)
+    session = GameSession()
+    assert session.watch_roster == "all_b8"
+    assert all(snake.policy is session.policy for snake in session.game.snakes)
+    assert session.safety_veto_state()["active"] is False
+
+
+def test_mixed_fails_closed_when_opponent_bytes_change_after_resolution(monkeypatch):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    original = session_module._load_checkpoint_once
+
+    def changed_hash(path):
+        payload, blob, digest = original(path)
+        return payload, blob, "0" * 64 if "frp3_m3" in path else digest
+
+    monkeypatch.setattr(session_module, "_load_checkpoint_once", changed_hash)
+    session = GameSession()
+    assert session.watch_roster == "all_b8"
+    assert "bytes changed after pin resolution" in str(session.watch_roster_reason)
+    assert all(snake.policy is session.policy for snake in session.game.snakes)
+
+
+@pytest.mark.parametrize("failure", ("raise", "partial"))
+def test_mixed_wrapper_failures_restore_policy_and_report_inactive_state(monkeypatch, failure):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    if failure == "raise":
+        monkeypatch.setattr(
+            session_module,
+            "install_watch_opponent_vetoes",
+            lambda *_: (_ for _ in ()).throw(RuntimeError("source failure")),
+        )
+    else:
+
+        def partial(*_):
+            state = ServingVetoState(
+                flags=ServingVetoFlags(watch_hero=True, variant="v8"),
+                mode="watch",
+                obs_spec="vector61",
+                checkpoint_sha256="x",
+                scope="watch_opponents",
+                variant="v8",
+            )
+            state.vetoes[1] = object()
+            return state
+
+        monkeypatch.setattr(session_module, "install_watch_opponent_vetoes", partial)
+    session = GameSession()
+    assert session.watch_roster == "all_b8"
+    assert all(snake.policy is session.policy for snake in session.game.snakes)
+    state = session.safety_veto_state()
+    assert state["active"] is False and state["wrapped_snake_ids"] == []
+
+
+def test_mixed_opponent_inspection_uses_the_selected_opponent_policy(monkeypatch):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    session = GameSession()
+    session.set_hero(1)
+    inspector = session.snapshot()["inspector"]
+    assert inspector is not None and inspector["input_size"] == 61
+
+
+def test_mixed_is_watch_only_and_rebuilds_on_return(monkeypatch):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    session = GameSession()
+    session.set_mode(MODE_PLAY)
+    assert session.mode == MODE_PLAY
+    assert session.watch_roster == "all_b8"
+    assert session.safety_veto_state()["scope"] != "watch_opponents"
+    session.set_mode(MODE_WATCH)
+    assert session.watch_roster == "mixed"
+    assert session.safety_veto_state()["wrapped_snake_ids"] == _ids(session)[1:]
+
+
+@pytest.mark.parametrize("checkpoint", ("frp3-s12", "champion"))
+def test_mixed_request_preserves_explicit_checkpoint_behavior(monkeypatch, checkpoint):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    monkeypatch.setenv("SNAKE_SERVE_CHECKPOINT", checkpoint)
+    session = GameSession()
+    assert session.watch_roster == "all_b8"
+    assert "requires the registry-selected" in str(session.watch_roster_reason)
+    assert session.safety_veto_state()["scope"] == "watch_hero"
+
+
+def test_mixed_opponents_are_exact_v8(monkeypatch):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    monkeypatch.setenv("SNAKE_SERVE_VETO_VARIANT", "v8")
+    session = GameSession()
+    state = session.safety_veto_state()
+    assert state["variant"] == "v8"
+    assert state["scope"] == "watch_opponents"
+    assert session.game.snakes[0].safety_veto is None
+
+
+@pytest.mark.parametrize("variant", ("v2", "v5", "v7"))
+def test_mixed_does_not_override_a_legacy_veto_rollback(monkeypatch, variant):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    monkeypatch.setenv("SNAKE_SERVE_VETO_VARIANT", variant)
+    session = GameSession()
+    assert session.watch_roster == "all_b8"
+    assert session.safety_veto_state()["scope"] == "watch_hero"
+
+
+def test_mixed_speed_ceiling_counts_the_total_roster(monkeypatch):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    session = GameSession()
+    assert len(session.game.snakes) == 6
+    assert session.speed_ceiling == 24.0
+
+
+@pytest.mark.parametrize("count, ceiling", ((8, 12.0), (12, 12.0)))
+def test_mixed_speed_ceiling_at_eight_and_twelve(monkeypatch, count, ceiling):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    original = session_module.load_config
+
+    def roster_config(path):
+        config = original(path)
+        return replace(config, game=replace(config.game, num_snakes=count))
+
+    monkeypatch.setattr(session_module, "load_config", roster_config)
+    session = GameSession()
+    assert len(session.game.snakes) == count
+    assert session.speed_ceiling == ceiling
+
+
+def test_mixed_does_not_write_b8_release_watch_monitor(monkeypatch):
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "mixed")
+    tick = []
+    monkeypatch.setattr(session_module, "watch_tick", lambda **kwargs: tick.append(kwargs))
+    session = GameSession()
+    session.step()
+    assert tick == []

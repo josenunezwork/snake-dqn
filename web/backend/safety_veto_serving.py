@@ -115,6 +115,7 @@ _FALSY = frozenset({"0", "false", "no", "off"})
 WATCH_HERO_RELEASED_DEFAULT = True
 
 SCOPE_WATCH_HERO = "watch_hero"
+SCOPE_WATCH_OPPONENTS = "watch_opponents"
 SCOPE_PLAY_AI = "play_ai"
 
 # The strict-gate receipt this wrapper's evidence is bound to (run-v3 STRICT_PASS).
@@ -504,6 +505,28 @@ def install_serving_vetoes(
     return state
 
 
+def install_watch_opponent_vetoes(
+    game: Any, policy: Any, checkpoint_sha256: Optional[str]
+) -> ServingVetoState:
+    """Install the exact v8 wrapper on mixed-Watch opponents only.
+
+    The mixed roster is a separately qualified opt-in serving posture.  Its B8
+    hero is raster and must remain unwrapped; every vector61 FRP3 opponent is
+    bound to the v8 receipt through the normal pin checks below.
+    """
+    flags = ServingVetoFlags(watch_hero=True, play_ai=False, variant=VARIANT_V8)
+    state = ServingVetoState(
+        flags=flags,
+        mode="watch",
+        obs_spec=VECTOR61,
+        checkpoint_sha256=checkpoint_sha256,
+        scope=SCOPE_WATCH_OPPONENTS,
+        variant=VARIANT_V8,
+    )
+    _install_scoped(state, game, policy, VECTOR61, checkpoint_sha256)
+    return state
+
+
 def _install(
     game: Any,
     policy: Any,
@@ -603,6 +626,8 @@ def _install_scoped(
     snakes = list(getattr(game, "snakes", []))
     if state.scope == SCOPE_WATCH_HERO:
         targets = snakes[:1]
+    elif state.scope == SCOPE_WATCH_OPPONENTS:
+        targets = snakes[1:]
     else:
         targets = [s for s in snakes if isinstance(s, AISnake) and not isinstance(s, HumanSnake)]
     targets = [s for s in targets if isinstance(s, AISnake) and s.policy is policy]

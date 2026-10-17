@@ -264,7 +264,7 @@ def test_watch_counts_actual_post_respawn_hero_update(monkeypatch: pytest.Monkey
             hero.update([], [])
 
     events: list[dict] = []
-    monkeypatch.setattr(session_mod, "driven_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
     monkeypatch.setattr(session_mod, "watch_tick", lambda **kwargs: events.append(kwargs))
     _b8_session(Game()).step()
 
@@ -345,7 +345,7 @@ def test_warmup_and_reset_exclude_latency_but_not_watch_decisions(
     game = SimpleNamespace(snakes=[hero], frame_death_causes={}, reset=lambda: None)
     game.update = lambda **_kwargs: hero.update([], [])
     events: list[dict] = []
-    monkeypatch.setattr(session_mod, "driven_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
     monkeypatch.setattr(session_mod, "watch_tick", lambda **kwargs: events.append(kwargs))
     session = _b8_session(game, warmup=1)
     session.step()

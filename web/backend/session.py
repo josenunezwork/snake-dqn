@@ -39,11 +39,25 @@ from web.backend.safety_veto_serving import (
     ServingVetoFlags,
     ServingVetoState,
     install_serving_vetoes,
+    install_watch_opponent_vetoes,
+    log_build,
 )
-from web.backend.served_checkpoint import LOG_PREFIX
+from web.backend.served_checkpoint import (
+    B8_S3_SHA256,
+    ENV_WATCH_ROSTER,
+    FRP3_S12_SHA256,
+    LOG_PREFIX,
+    NAME_B8_S3,
+    WATCH_ROSTER_ALL_B8,
+    WATCH_ROSTER_MIXED,
+    WATCH_ROSTER_RELEASED_DEFAULT,
+)
 from web.backend.served_checkpoint import logger as served_checkpoint_logger
-from web.backend.served_checkpoint import resolve_served_checkpoint
-from web.backend.serving_speed import driven_ai_count, speed_ceiling
+from web.backend.served_checkpoint import (
+    resolve_mixed_watch_opponent,
+    resolve_served_checkpoint,
+)
+from web.backend.serving_speed import driven_ai_count, roster_ai_count, speed_ceiling
 
 # The three ways to drive the shared game.
 MODE_WATCH = "watch"  # AI plays itself; we observe.
@@ -520,6 +534,10 @@ class GameSession:
         # the champion at DEFAULT_CHECKPOINT; SNAKE_SERVE_CHECKPOINT=champion rolls
         # back). An explicit checkpoint bypasses it (served_checkpoint stays None).
         self.served_checkpoint: Optional[Dict[str, object]] = None
+        self.watch_roster: str = WATCH_ROSTER_RELEASED_DEFAULT
+        self.watch_roster_reason: Optional[str] = None
+        self.watch_opponent_checkpoint: Optional[Dict[str, object]] = None
+        self.watch_opponent_policy: Optional[object] = None
         self._release_monitoring = False
         self._release_latency_warmup_remaining = 0
         ckpt = checkpoint
@@ -537,6 +555,138 @@ class GameSession:
             self.last_error = (
                 "No served champion checkpoint is available; Watch uses untrained weights."
             )
+
+    def _requested_watch_roster(self) -> tuple[str, Optional[str]]:
+        """Read the opt-in Watch roster selection without changing serving defaults."""
+        raw = os.environ.get(ENV_WATCH_ROSTER)
+        requested = raw.strip().lower() if raw and raw.strip() else WATCH_ROSTER_RELEASED_DEFAULT
+        if requested == WATCH_ROSTER_ALL_B8:
+            return WATCH_ROSTER_ALL_B8, None
+        if requested == WATCH_ROSTER_MIXED:
+            return WATCH_ROSTER_MIXED, None
+        return (
+            WATCH_ROSTER_RELEASED_DEFAULT,
+            f"unknown {ENV_WATCH_ROSTER} {raw!r}; fell back to {WATCH_ROSTER_RELEASED_DEFAULT}",
+        )
+
+    def _log_watch_roster(self, requested: str, reason: Optional[str]) -> None:
+        """Emit the final roster decision, including the fail-closed pin state."""
+        opponent = self.watch_opponent_checkpoint or {}
+        served_checkpoint_logger.info(
+            "%s watch_roster=%s requested=%s hero=%s opponent=%s opponent_pins=%s reason=%s",
+            LOG_PREFIX,
+            self.watch_roster,
+            requested,
+            (self.served_checkpoint or {}).get("name"),
+            opponent.get("name"),
+            opponent.get("pin_problems"),
+            reason,
+        )
+
+    def _mixed_fallback(
+        self, reason: str, state: Optional[ServingVetoState] = None
+    ) -> ServingVetoState:
+        """Undo every partial mixed assignment and report the actual all-B8 result."""
+        for snake in self.game.snakes[1:]:
+            snake.policy = self.policy
+            snake.ai = self.policy
+            snake.safety_veto = None
+        self.watch_roster = WATCH_ROSTER_ALL_B8
+        self.watch_roster_reason = reason
+        self.watch_opponent_policy = None
+        if state is None:
+            state = ServingVetoState(
+                flags=ServingVetoFlags(watch_hero=True, play_ai=False, variant="v8"),
+                mode=MODE_WATCH,
+                obs_spec=VECTOR61,
+                checkpoint_sha256=None,
+                scope="watch_opponents",
+                variant="v8",
+            )
+        state.vetoes.clear()
+        state.wrapper = None
+        state.reason = reason
+        log_build(state)
+        self._log_watch_roster(WATCH_ROSTER_MIXED, reason)
+        return state
+
+    def _install_mixed_watch_roster(
+        self, checkpoint_hash: Optional[str]
+    ) -> Optional[ServingVetoState]:
+        """Replace Watch opponents with pinned FRP3+v8, or fail closed to all-B8."""
+        requested, reason = self._requested_watch_roster()
+        self.watch_roster = WATCH_ROSTER_ALL_B8
+        self.watch_roster_reason = reason
+        self.watch_opponent_checkpoint = None
+        self.watch_opponent_policy = None
+        if requested != WATCH_ROSTER_MIXED:
+            self._log_watch_roster(requested, reason)
+            return None
+        hero_is_eligible = (
+            self.mode == MODE_WATCH
+            and (self.served_checkpoint or {}).get("name") == NAME_B8_S3
+            and (self.served_checkpoint or {}).get("path") == self.checkpoint_path
+            and checkpoint_hash == B8_S3_SHA256
+            and self.obs_spec in EGO2S_OBS_SPECS
+        )
+        if not hero_is_eligible:
+            self.watch_roster_reason = (
+                "mixed Watch roster requires the registry-selected released b8-s3 Watch hero"
+            )
+            self._log_watch_roster(requested, self.watch_roster_reason)
+            return None
+        try:
+            choice = resolve_mixed_watch_opponent()
+        except Exception as exc:
+            return self._mixed_fallback(
+                f"mixed Watch roster refused: FRP3 pin resolution failed: {exc}"
+            )
+        self.watch_opponent_checkpoint = choice.to_dict()
+        if not choice.path or choice.name != "frp3-s12" or choice.sha256 != FRP3_S12_SHA256:
+            return self._mixed_fallback(
+                f"mixed Watch roster refused: FRP3 opponent pin/bytes failed: {choice.reason}"
+            )
+        try:
+            _, blob, opponent_hash = _load_checkpoint_once(choice.path)
+            if opponent_hash != choice.sha256 or opponent_hash != FRP3_S12_SHA256:
+                return self._mixed_fallback(
+                    "mixed Watch roster refused: FRP3 opponent bytes changed after pin resolution"
+                )
+            opponent = ApexPolicy(
+                input_size=GameConfig.INPUT_SIZE,
+                hidden_size=GameConfig.HIDDEN_SIZE,
+                output_size=GameConfig.OUTPUT_SIZE,
+                training=False,
+            )
+            opponent.load_state_dict(blob)
+            opponent.epsilon = 0.0
+        except Exception as exc:
+            return self._mixed_fallback(
+                f"mixed Watch roster refused: FRP3 opponent load failed: {exc}"
+            )
+
+        opponents = list(self.game.snakes[1:])
+        for snake in opponents:
+            snake.policy = opponent
+            snake.ai = opponent
+        try:
+            state = install_watch_opponent_vetoes(self.game, opponent, opponent_hash)
+        except Exception as exc:
+            return self._mixed_fallback(
+                f"mixed Watch roster refused: FRP3 opponent v8 wrapper raised: {exc}"
+            )
+        expected_ids = [int(snake.id) for snake in opponents]
+        if not state.active or state.wrapped_snake_ids != expected_ids:
+            return self._mixed_fallback(
+                "mixed Watch roster refused: FRP3 opponent v8 wrapper failed: "
+                f"{state.reason or 'incomplete opponent scope'}",
+                state,
+            )
+        self.watch_roster = WATCH_ROSTER_MIXED
+        self.watch_opponent_policy = opponent
+        log_build(state)
+        self._log_watch_roster(requested, None)
+        return state
 
     # -- construction -------------------------------------------------------
     def _build(
@@ -674,6 +824,7 @@ class GameSession:
         self.config_path = config_path
         self.obs_spec = obs_spec
         self.mode = mode
+        mixed_veto = self._install_mixed_watch_roster(checkpoint_hash)
         # Scheduling guard for the forward-only ego2s serving path.  This is
         # intentionally installed after the final Watch/Play roster exists,
         # and never reaches policy math or the forward path.
@@ -750,8 +901,10 @@ class GameSession:
                 LOG_PREFIX,
                 prior_variant,
             )
-        self.safety_veto = install_serving_vetoes(
-            game, policy, mode, obs_spec, checkpoint_hash, flags
+        self.safety_veto = (
+            mixed_veto
+            if mixed_veto is not None
+            else install_serving_vetoes(game, policy, mode, obs_spec, checkpoint_hash, flags)
         )
 
     # -- stepping -----------------------------------------------------------
@@ -799,7 +952,7 @@ class GameSession:
                     self._release_latency_warmup_remaining -= 1
                     watch_tick(
                         checkpoint="b8-s3",
-                        roster_size=driven_ai_count(self.game.snakes, self.policy),
+                        roster_size=roster_ai_count(self.game.snakes),
                         speed=self.speed,
                         decisions=decision_count,
                         deaths=int(self.hero_id in self.game.frame_death_causes),
@@ -814,6 +967,7 @@ class GameSession:
             self._release_monitoring
             and (self.served_checkpoint or {}).get("name") == "b8-s3"
             and self.obs_spec in EGO2S_OBS_SPECS
+            and getattr(self, "watch_roster", WATCH_ROSTER_ALL_B8) == WATCH_ROSTER_ALL_B8
         )
 
     def _record_ego2s_exception(self, exc: BaseException) -> None:
@@ -895,7 +1049,7 @@ class GameSession:
         """Recompute the roster-sensitive ceiling and clamp the live speed."""
         self.speed_ceiling = speed_ceiling(
             self.obs_spec,
-            driven_ai_count(self.game.snakes, self.policy),
+            roster_ai_count(self.game.snakes),
         )
         self.speed = min(self.speed, self.speed_ceiling)
 
@@ -1286,7 +1440,7 @@ class GameSession:
 
     def control_state(self) -> Dict[str, object]:
         with self._lock:
-            return {
+            state = {
                 "playing": self.playing,
                 "speed": self.speed,
                 "speed_ceiling": self.speed_ceiling,
@@ -1313,6 +1467,20 @@ class GameSession:
                 # (fine-tune under current rewards, not a resume).
                 "reward_override_active": bool(self.reward_override_active),
             }
+            # Preserve the legacy wire shape unless the T15 roster selector was
+            # active or refused.  Mixed clients need these values to show the
+            # opponent counters or a visible all-B8 fallback reason.
+            if self.watch_roster == WATCH_ROSTER_MIXED or self.watch_roster_reason is not None:
+                state.update(
+                    {
+                        "watch_roster": self.watch_roster,
+                        "watch_roster_reason": self.watch_roster_reason,
+                        "safety_veto": (
+                            None if self.safety_veto is None else self.safety_veto.to_dict()
+                        ),
+                    }
+                )
+            return state
 
     def play_state(self) -> Optional[Dict[str, object]]:
         """Per-frame human-play status, or None when not in play mode.
