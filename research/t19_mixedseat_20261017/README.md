@@ -61,3 +61,19 @@ unlaunched 30-minute H100 command. It is separate from the existing T18
 `commands.json`, whose fixed P0/smoke03 workload is unchanged.
 
 No pod, long training, or tmux job was launched while preparing these files.
+
+Verification on the Mac: 66 focused league/shutdown/runner tests passed; 15
+non-slow trainer tests passed; 50 legacy M6/actor/league compatibility tests
+passed; and 77 input-bundle/environment/notebook/sampler/comparison/pod-runner
+tests passed. The batch-scale checks (including the bounded 12k-transition
+fast-learner regression) passed. The 26 non-slow compile tests passed with the
+command-local `DYLD_FALLBACK_LIBRARY_PATH=/usr/lib` needed by this host's
+TorchInductor shared libraries; no global environment was changed. These sets
+overlap and are not a full-repository test count. Slow suites were not required.
+
+A separate bounded real CPU N=3 integration smoke completed 1,032 learner
+decisions, 924 replay rows and three updates (`floor(924 / 256)`), with all six
+pool identities recorded, actor exit `[0]`, no halt and no ring overrun. The
+remaining replay-token debt was 156 rows. This verifies execution and accounting,
+not throughput or learning quality. CUDA execution, the prepared Mac baseline,
+and H100 measurements remain unrun.
