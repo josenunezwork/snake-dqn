@@ -655,9 +655,7 @@ def rollout(
 def _install_hero_safety_veto(hero: Any, hero_spec: AgentSpec) -> Any:
     """Install the opt-in free-space veto on a vector-checkpoint hero."""
     from src.evaluation.safety_veto import install_free_space_veto
-    from src.model.obs_spec import VECTOR61
-
-    from src.model.obs_spec import EGO2S_OBS_SPECS
+    from src.model.obs_spec import EGO2S_OBS_SPECS, VECTOR61
 
     kind, ref = hero_spec
     # The vetoes are policy-agnostic (masked Q + the game's free-space features); ego2s
