@@ -6,7 +6,7 @@ import torch
 
 pytest.importorskip("sklearn")
 from research.t8_probes_20261017.cnn import DeathCNN  # noqa: E402
-from research.t8_probes_20261017.cnn import inner_split, masked_loss
+from research.t8_probes_20261017.cnn import inner_split, masked_loss  # noqa: E402
 
 
 def test_nested_split_keeps_entire_worlds_outside_training_and_validation() -> None:

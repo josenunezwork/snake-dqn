@@ -30,7 +30,7 @@ from torch.nn import functional as F  # noqa: E402
 from research.redesign_m3c_20261008.obs_pack import train_layout, unpack  # noqa: E402
 from research.t5_separability_20261016.fit import bootstrap_auc  # noqa: E402
 from research.t5b_risk_and_fuse_20261016.fuse import BANK_ROOT  # noqa: E402
-from research.t5b_risk_and_fuse_20261016.fuse import (
+from research.t5b_risk_and_fuse_20261016.fuse import (  # noqa: E402
     T5_DATA,
     T5_FOLDS,
     load_t5_data,

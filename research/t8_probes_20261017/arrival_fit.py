@@ -26,10 +26,15 @@ from sklearn.exceptions import ConvergenceWarning  # noqa: E402
 from threadpoolctl import threadpool_limits  # noqa: E402
 
 from research.t5_separability_20261016.fit import bootstrap_auc  # noqa: E402
-from research.t5_separability_20261016.fit import design, estimator
+from research.t5_separability_20261016.fit import design, estimator  # noqa: E402
 from research.t5_separability_20261016.t1_check import load_feature_state  # noqa: E402
 from research.t5b_risk_and_fuse_20261016.fuse import T5_DATA  # noqa: E402
-from research.t5b_risk_and_fuse_20261016.fuse import T5_FOLDS, load_t5_data, saved_folds, sha256
+from research.t5b_risk_and_fuse_20261016.fuse import (  # noqa: E402
+    T5_FOLDS,
+    load_t5_data,
+    saved_folds,
+    sha256,
+)
 from src.simd_env.t8_features import compute_slot_features  # noqa: E402
 
 T5_ROOT = T5_DATA.parent
