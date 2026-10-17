@@ -39,6 +39,11 @@ SMOKE03_REQUIRED_CONFIG_NAMES = (
     "sp_w128_a4_raw_g3_bs2_bf16",
 )
 SMOKE03_THROUGHPUT_ONLY_NAMES = frozenset(SMOKE03_REQUIRED_CONFIG_NAMES[-2:])
+SMOKE03_BATCH_SCALE_BY_NAME = {
+    **{name: 2 for name in SMOKE03_REQUIRED_CONFIG_NAMES[:5]},
+    SMOKE03_REQUIRED_CONFIG_NAMES[5]: 4,
+    SMOKE03_REQUIRED_CONFIG_NAMES[6]: 2,
+}
 
 
 class ResultsError(ValueError):
@@ -78,17 +83,25 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
     smoke03 = suite == "smoke03"
     required_names = SMOKE03_REQUIRED_CONFIG_NAMES if smoke03 else REQUIRED_CONFIG_NAMES
     if smoke03 and payload.get("omitted_smoke03_row5"):
-        required_names = tuple(name for index, name in enumerate(required_names, start=1) if index != 5)
+        required_names = tuple(
+            name for index, name in enumerate(required_names, start=1) if index != 5
+        )
     top_level_failure = overall_status == "failed"
     names = [row.get("name") for row in configs if isinstance(row, Mapping)]
     duplicate_names = {name for name in names if isinstance(name, str) and names.count(name) > 1}
     control = next(
-        (row for row in configs if isinstance(row, Mapping) and row.get("name") == SMOKE03_REQUIRED_CONFIG_NAMES[0]),
+        (
+            row
+            for row in configs
+            if isinstance(row, Mapping) and row.get("name") == SMOKE03_REQUIRED_CONFIG_NAMES[0]
+        ),
         None,
     )
     control_policy_lag = (
         _valid_tps(control.get("policy_lag_mean"))
-        if control and control.get("status") == "completed" and control.get("name") not in duplicate_names
+        if control
+        and control.get("status") == "completed"
+        and control.get("name") not in duplicate_names
         else None
     )
     rows = []
@@ -103,7 +116,7 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
         updates = _valid_tps(config.get("updates_per_second"))
         transitions_per_update = _valid_tps(config.get("transitions_per_update"))
         policy_lag = _valid_tps(config.get("policy_lag_mean"))
-        batch_scale = config.get("batch_scale", 2)
+        batch_scale = SMOKE03_BATCH_SCALE_BY_NAME.get(name, config.get("batch_scale", 2))
         expected_tpu = (
             EXPECTED_TRANSITIONS_PER_UPDATE * float(batch_scale) / 2
             if isinstance(batch_scale, (int, float)) and not isinstance(batch_scale, bool)
@@ -111,6 +124,17 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
         )
         throughput_only = smoke03 and (
             bool(config.get("throughput_only", False)) or name in SMOKE03_THROUGHPUT_ONLY_NAMES
+        )
+        recipe_criteria_met = (
+            throughput_only
+            and status == "completed"
+            and updates is not None
+            and updates >= FOUR_X_UPDATES_PER_SECOND
+            and expected_tpu is not None
+            and _within_batch_tolerance(transitions_per_update, expected_tpu)
+            and policy_lag is not None
+            and control_policy_lag is not None
+            and policy_lag <= control_policy_lag
         )
         if top_level_failure:
             verdict, reason = "INVALID", "top-level smoke status is failed"
@@ -122,16 +146,24 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
             verdict, reason = "INVALID", "missing or invalid transitions_per_second"
         elif smoke03 and updates is None:
             verdict, reason = "INVALID", "missing or invalid updates_per_second"
-        elif smoke03 and (expected_tpu is None or not _within_batch_tolerance(transitions_per_update, expected_tpu)):
-            verdict, reason = "INVALID", "transitions_per_update is outside the configured +/-2% range"
+        elif smoke03 and (
+            expected_tpu is None
+            or not _within_batch_tolerance(transitions_per_update, expected_tpu)
+        ):
+            verdict, reason = (
+                "INVALID",
+                "transitions_per_update is outside the configured +/-2% range",
+            )
         elif smoke03 and policy_lag is None:
             verdict, reason = "INVALID", "missing policy_lag_mean"
-        elif smoke03 and name != SMOKE03_REQUIRED_CONFIG_NAMES[0] and (
-            control_policy_lag is None or policy_lag > control_policy_lag
-        ):
-            verdict, reason = "FAIL", "policy_lag_mean exceeds the packed control"
         elif throughput_only:
             verdict, reason = "THROUGHPUT_ONLY", "recipe arm; throughput evidence only"
+        elif (
+            smoke03
+            and name != SMOKE03_REQUIRED_CONFIG_NAMES[0]
+            and (control_policy_lag is None or policy_lag > control_policy_lag)
+        ):
+            verdict, reason = "FAIL", "policy_lag_mean exceeds the packed control"
         elif smoke03 and updates >= FOUR_X_UPDATES_PER_SECOND:
             verdict, reason = (
                 "PASS",
@@ -158,6 +190,7 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
             "transitions_per_update": transitions_per_update,
             "expected_transitions_per_update": expected_tpu,
             "policy_lag_mean": policy_lag,
+            "recipe_criteria_met": recipe_criteria_met if throughput_only else None,
             "verdict": verdict,
             "reason": reason,
         }

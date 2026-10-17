@@ -96,10 +96,21 @@ def test_smoke03_matrix_is_the_preregistered_seven_row_recipe(tmp_path):
     ]
     assert all(c["worlds"] == 128 and c["self_play"] for c in smoke.SMOKE03_CONFIGS)
     assert all(c["actor_queue_frames"] == 4 for c in smoke.SMOKE03_CONFIGS)
-    assert [c.get("obs_pack", True) for c in smoke.SMOKE03_CONFIGS] == [True, False, False, False, False, False, False]
+    assert [c.get("obs_pack", True) for c in smoke.SMOKE03_CONFIGS] == [
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+    ]
     assert [c.get("batch_scale", 2) for c in smoke.SMOKE03_CONFIGS] == [2, 2, 2, 2, 2, 4, 2]
     assert [c.get("precision", "fp32") for c in smoke.SMOKE03_CONFIGS] == ["fp32"] * 6 + ["bf16"]
-    assert [c.get("throughput_only", False) for c in smoke.SMOKE03_CONFIGS] == [False] * 5 + [True, True]
+    assert [c.get("throughput_only", False) for c in smoke.SMOKE03_CONFIGS] == [False] * 5 + [
+        True,
+        True,
+    ]
     assert smoke.warmup_for_suite("smoke03") == smoke.SMOKE03_WARMUP
     assert smoke.SMOKE03_WARMUP["self_play"]
     command = smoke.trainer_command(
@@ -120,6 +131,26 @@ def test_smoke03_row5_is_only_explicit_optional_omission():
     configs = smoke.configs_for_suite("smoke03", omit_smoke03_row5=True)
     assert len(configs) == 6
     assert smoke.SMOKE03_CONFIGS[4] not in configs
+
+
+def test_runner_cap_is_3600_seconds(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_smoke.py",
+            "--inputs",
+            "/tmp/i",
+            "--output",
+            "/tmp/o",
+            "--commit",
+            "a" * 40,
+            "--budget-seconds",
+            "3601",
+        ],
+    )
+    with pytest.raises(SystemExit):
+        smoke.main()
 
 
 def test_post_warmup_rate_uses_interval_not_lifetime_average():

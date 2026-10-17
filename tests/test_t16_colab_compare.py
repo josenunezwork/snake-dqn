@@ -83,7 +83,13 @@ def test_smoke03_requires_update_rate_and_fixed_transitions_per_update():
         {"schema": compare.SCHEMA, "suite": "smoke03", "status": "completed", "configs": configs}
     )
     assert [row["verdict"] for row in report["configs"]] == [
-        "PASS", "FAIL", "INVALID", "PASS", "PASS", "THROUGHPUT_ONLY", "THROUGHPUT_ONLY"
+        "PASS",
+        "FAIL",
+        "INVALID",
+        "PASS",
+        "PASS",
+        "THROUGHPUT_ONLY",
+        "THROUGHPUT_ONLY",
     ]
     assert report["configs"][0]["threshold_updates_per_second"] == 84
     assert report["configs"][0]["policy_lag_mean"] == 3.0
@@ -127,3 +133,23 @@ def test_smoke03_requires_a_completed_unique_control_for_lag_comparison():
     )
     assert report["configs"][1]["verdict"] == "FAIL"
     assert "packed control" in report["configs"][1]["reason"]
+
+
+def test_smoke03_registered_batch_scale_cannot_be_forged_in_results_metadata():
+    configs = [
+        {
+            "name": name,
+            "status": "completed",
+            "transitions_per_second": 21_600,
+            "updates_per_second": 84,
+            "transitions_per_update": 256,
+            "policy_lag_mean": 3.0,
+        }
+        for name in compare.SMOKE03_REQUIRED_CONFIG_NAMES
+    ]
+    configs[0]["batch_scale"] = 4
+    report = compare.compare_results(
+        {"schema": compare.SCHEMA, "suite": "smoke03", "status": "completed", "configs": configs}
+    )
+    assert report["configs"][0]["expected_transitions_per_update"] == 256
+    assert report["configs"][0]["verdict"] == "PASS"

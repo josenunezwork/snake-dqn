@@ -547,7 +547,9 @@ def configs_for_suite(suite: str, omit_smoke03_row5: bool = False) -> tuple[dict
         return CONFIGS
     if suite == "smoke03":
         if omit_smoke03_row5:
-            return tuple(config for index, config in enumerate(SMOKE03_CONFIGS, start=1) if index != 5)
+            return tuple(
+                config for index, config in enumerate(SMOKE03_CONFIGS, start=1) if index != 5
+            )
         return SMOKE03_CONFIGS
     raise ValueError(f"unknown suite {suite!r}")
 
@@ -875,11 +877,16 @@ def main() -> int:
     parser.add_argument("--seconds", type=float, default=None)
     parser.add_argument("--budget-seconds", type=float, default=2700)
     parser.add_argument(
-        "--suite", "--matrix", dest="suite", choices=("t16", "smoke02", "smoke03"), default="t16",
+        "--suite",
+        "--matrix",
+        dest="suite",
+        choices=("t16", "smoke02", "smoke03"),
+        default="t16",
         help="pre-registered smoke suite; --matrix is a compatibility alias",
     )
     parser.add_argument(
-        "--omit-smoke03-row5", action="store_true",
+        "--omit-smoke03-row5",
+        action="store_true",
         help="explicitly omit only smoke-03 row 5 (a6 raw g3) when the notebook budget requires it",
     )
     parser.add_argument(
@@ -893,8 +900,8 @@ def main() -> int:
         args.suite = "t16"
     if args.seconds is None:
         args.seconds = 300 if args.suite == "smoke03" else 150
-    if not 120 <= args.seconds <= 600 or not 0 < args.budget_seconds <= 4500:
-        parser.error("seconds must be 120..600 and budget must be >0 and <=4500")
+    if not 120 <= args.seconds <= 600 or not 0 < args.budget_seconds <= 3600:
+        parser.error("seconds must be 120..600 and budget must be >0 and <=3600")
     # The notebook owns this runner, while bounded_command owns separate trainer
     # groups. Propagate an outer deadline through Python cleanup of those groups.
     signal.signal(signal.SIGTERM, interrupt_on_signal)
