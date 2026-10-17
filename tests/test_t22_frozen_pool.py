@@ -186,7 +186,11 @@ def test_bodymap_bfs_visit_order_matches_prechange_kernel() -> None:
                 qd,
                 cap,
             )
-        return count, seen.copy(), qx[:count].copy(), qy[:count].copy(), qd[:count].copy()
+        # A capped BFS can enqueue a frontier beyond ``count``.  That queued
+        # suffix is observable work and must preserve the reference discovery
+        # order as well, so slice through every cell stamped seen.
+        tail = int(np.count_nonzero(seen == 31))
+        return count, seen.copy(), qx[:tail].copy(), qy[:tail].copy(), qd[:tail].copy()
 
     for start, use_release, cap in (((0, 0), False, 64), ((1, 5), True, 23), ((8, 7), True, 11)):
         expected = visit(baseline, start, use_release, cap, membership_backed=False)
