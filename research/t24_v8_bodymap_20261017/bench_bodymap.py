@@ -212,6 +212,72 @@ def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Pat
     }
 
 
+def _whole_actor_samples(
+    length: int, repeats: int, frames: int, warm: int, seed: int, checkpoint_dir: Path
+) -> dict[str, Any]:
+    """Run real actor_main frames after injecting an exact body fixture.
+
+    ``bench_actor.run_cell`` owns the shared-memory ring and sink accounting.  Its
+    local tracked builder calls this outer wrapper, so serpentines are injected
+    after normal segment construction but before the first policy decision.  No
+    state restore or simulator construction is charged to actor ``env_s`` or wall
+    frame timing.
+    """
+    from research.perf_actor_20261013 import bench_actor
+    from research.redesign_m3c_20261008 import train_m3c as train
+    from src.simd_env.grid_scenarios import inject_serpentines
+
+    original = train.build_segment
+
+    def injected(*args: Any, **kwargs: Any) -> Any:
+        output = original(*args, **kwargs)
+        sim = output[0]
+        inject_serpentines([sim], [length] * sim.S, box_height=9)
+        sim.frame[...] = 1
+        return output
+
+    train.build_segment = injected
+    extra = " ".join(
+        (
+            "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0",
+            "--anchor-mode v8margin --shield v8 --reward mass",
+            f"--league-checkpoint-dir {checkpoint_dir}",
+            f"--league-b8-checkpoint {checkpoint_dir / 'b8_s3_t7_20261016.pth'}",
+        )
+    )
+    samples: list[dict[str, Any]] = []
+    try:
+        # Each invocation creates a separate real actor and is deliberately
+        # unprofiled.  Alternating order belongs in an A/B driver; this function
+        # retains the raw samples so such a driver does not hide jitter.
+        for rep in range(repeats):
+            row = bench_actor.run_cell(
+                "numba",
+                128,
+                "cpu",
+                frames,
+                warm,
+                str(checkpoint_dir / "b8_s3_t7_20261016.pth"),
+                0,
+                0.0,
+                seed + rep,
+                trainer_args=extra,
+            )
+            samples.append(row)
+    finally:
+        train.build_segment = original
+    values = [float(sample["ms_per_frame"]) for sample in samples]
+    env_values = [float(sample["env_ms_per_frame"]) for sample in samples]
+    return {
+        "scope": "real actor_main: step, runtime carry, replay/n-step ring writes; no learner updates",
+        "frames_per_sample": frames,
+        "warm_frames_excluded": warm,
+        "samples": samples,
+        "median_ms_per_frame": float(np.median(values)),
+        "median_env_ms_per_frame": float(np.median(env_values)),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path)
@@ -219,6 +285,11 @@ def main() -> int:
     parser.add_argument("--worlds", type=int, default=128)
     parser.add_argument("--seed", type=int, default=314159)
     parser.add_argument("--checkpoint-dir", type=Path, default=DEFAULT_CKPTS)
+    parser.add_argument("--actor-frames", type=int, default=8)
+    parser.add_argument("--actor-warm", type=int, default=4)
+    parser.add_argument(
+        "--without-whole-actor", action="store_true", help="skip bounded actor_main rows"
+    )
     args = parser.parse_args()
     if args.repeats < 3 or args.worlds != 128:
         raise SystemExit("requires --worlds 128 and --repeats >= 3 for comparable T24 rows")
@@ -250,6 +321,15 @@ def main() -> int:
     }
     for length in (5, 1200):
         case = _case(args.worlds, length, args.repeats, args.seed, args.checkpoint_dir)
+        if not args.without_whole_actor:
+            case["whole_actor"] = _whole_actor_samples(
+                length,
+                args.repeats,
+                args.actor_frames,
+                args.actor_warm,
+                args.seed,
+                args.checkpoint_dir,
+            )
         output["cases"].append(case)
         print(json.dumps({"length": length, "timing": case["timing"]}, sort_keys=True), flush=True)
     args.out.parent.mkdir(parents=True, exist_ok=True)
