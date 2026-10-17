@@ -43,11 +43,11 @@ input archive is deliberately published.
 1. Open [notebooks/colab_throughput_smoke.ipynb](../../notebooks/colab_throughput_smoke.ipynb) in Colab, or use the direct [Colab notebook](https://colab.research.google.com/github/josenunezwork/snake-dqn/blob/main/notebooks/colab_throughput_smoke.ipynb).
 2. Select **Runtime -> Change runtime type -> A100 GPU** (recommended; see the
    [review note](advice/2026-10-17_colab_review.md) for the runtime choice). H100
-   and L4 also work. Colab's preinstalled CUDA torch is used when it is a 2.9.x
-   build; otherwise the official CUDA 12.6 PyTorch 2.9.1 wheel is installed, following
+   and L4 also work. The isolated Python 3.12 environment installs the official
+   CUDA 12.6 PyTorch 2.9.1 wheel, following
    [PyTorch's previous-version installation instructions](https://pytorch.org/get-started/previous-versions/).
 3. Confirm the parameter cell pins the commit named in the notebook's own
-   `PINNED_COMMIT` (the review branch pins the reviewed runner commit) and uses
+   `PINNED_COMMIT` (updated for the T16b Python 3.12 fix) and uses
    the desired separate Drive run directory (the default is `smoke-01`). Do not
    reuse a run name with different code or input bytes.
 4. Use **Runtime -> Run all** and complete the Drive authorization.
@@ -55,11 +55,23 @@ input archive is deliberately published.
 After Drive authorization, the notebook starts its 3,000-second budget (about
 30 minutes of expected runtime; the runner refuses budgets above 3,600). It
 creates an isolated `/content` checkout at the pinned public GitHub commit and
-a fresh `venv --system-site-packages`, so it does not reuse imports cached in
-the notebook kernel. It explicitly verifies Python 3.10--3.12, NumPy 1.26.4,
-Numba 0.68.0, llvmlite 0.50.0, and a CUDA-enabled torch 2.9.x (the exact
-version is recorded). It prints the
-actual GPU, CPU count, CUDA, and package versions in the runner result.
+a fresh isolated venv using **uv-managed Python 3.12**, regardless of the
+notebook kernel version (including Colab's Python 3.13). The kernel only handles
+Drive authorization, orchestration, and displaying/downloading results. Setup
+runs `python -m pip install uv`, `python -m uv python install 3.12`, then
+`python -m uv venv --python 3.12 --managed-python --seed /content/t16-colab-venv`.
+It verifies the selected interpreter is an isolated Python 3.12 before installing
+NumPy 1.26.4, Numba 0.68.0, llvmlite 0.50.0, and CUDA 12.6 torch 2.9.1. Pins are
+unchanged; no kernel packages are inherited. Allow several minutes within the
+existing budget for the Python download and CUDA wheel installation.
+
+Every bundle, parity, warm-up, trainer, and utilization-sampler Python subprocess
+uses that venv interpreter. Results JSON records `python` and `python_executable`,
+and resume identity includes the Python version alongside code and package pins.
+Setup failures record the interpreter details once selection succeeds and also
+record `kernel_python`. Runner results print the actual GPU, CPU count, CUDA,
+and package versions. Use a new run name when moving an old run to this fixed
+commit; a different code/runtime identity is deliberately refused.
 
 The runner first executes the small grid-sim parity and ego-live identity
 tests, then one unscored 60-second warm-up run (hero-only, 128 worlds, 2
@@ -120,3 +132,18 @@ unit verification completed: the 20 T16 bundle, comparison, runner, and
 notebook tests; 41 trainer/actor tests; and two selected grid-sim and ego-live
 identity tests (63 targeted tests total). Flake8, Black, isort, notebook JSON
 parsing, and whitespace checks also passed.
+
+## T16b Python 3.12 repair validation
+
+The Python 3.13 kernel rejection is removed. Mocked tests exercise managed 3.12
+selection under 3.10, 3.12, and 3.13 kernels, reject a wrong or non-isolated
+interpreter, and ensure uv failures do not fall back to the kernel. The actual
+notebook orchestration is executed with mocked external commands to check package
+pins and interpreter routing. Runner tests cover parity, warm-up, timed training,
+and sampler routing plus interpreter metadata on failure. The steady-state window,
+unscored warm-up, local scratch, utilization sampler, and 3,000-second notebook
+budget are retained. This repair does not claim a successful Colab/GPU run.
+
+All 32 T16 tests passed locally for this repair, as did Black, flake8, notebook
+syntax/JSON checks, and whitespace checks. Independent code review found no
+actionable defects. No Colab runtime, GPU job, or training experiment was started.

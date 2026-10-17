@@ -35,13 +35,14 @@ def test_notebook_has_pinned_isolated_and_resumable_contract() -> None:
     pins = re.findall(r"PINNED_COMMIT = '([0-9a-f]{40})'", source)
     assert len(pins) == 1
     assert "drive.mount" in source
-    assert "venv', '--system-site-packages" in source
+    assert "create_environment(venv, run_owned)" in source
+    assert "--system-site-packages" not in source
     assert "verify_and_extract" in source
     assert "--budget-seconds" in source
     assert "--scratch-dir" in source  # trainer outputs stay off Drive during timing
     assert "files.download" in source
     assert "TOTAL_BUDGET_SECONDS = 3000" in source
-    assert "startswith('2.9.')" in source  # any CUDA torch 2.9.x; no forced 2.5 GB reinstall
+    assert "startswith('2.9.')" in source  # preserve the CUDA torch 2.9.x contract
 
 
 def test_notebook_bounds_and_cleans_only_its_own_subprocess_groups() -> None:

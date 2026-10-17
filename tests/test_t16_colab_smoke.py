@@ -189,6 +189,8 @@ def test_preflight_failure_still_writes_results(tmp_path, monkeypatch):
     result = json.loads((tmp_path / "output" / "colab_throughput_results.json").read_text())
     assert result["status"] == "failed" and "no CUDA" in result["error"]
     assert result["configs"] == []
+    assert result["python"] == smoke.platform.python_version()
+    assert result["python_executable"] == sys.executable
 
 
 def test_parity_nodes_exist():
@@ -199,6 +201,9 @@ def test_parity_nodes_exist():
 
 
 def test_run_completion_and_hash_checked_resume(tmp_path, monkeypatch):
+    monkeypatch.setattr(smoke.sys, "executable", "/managed-312/bin/python")
+    monkeypatch.setattr(smoke, "start_sampler", lambda *args: object())
+    monkeypatch.setattr(smoke, "stop_sampler", lambda *args: {})
     monkeypatch.setattr(smoke, "CONFIGS", [smoke.CONFIGS[0]])
     monkeypatch.setattr(smoke.subprocess, "check_output", lambda *a, **k: "a" * 40)
     monkeypatch.setattr(
@@ -217,6 +222,7 @@ def test_run_completion_and_hash_checked_resume(tmp_path, monkeypatch):
     trainings = []
 
     def fake_command(command, log, timeout, env):
+        assert command[0] == "/managed-312/bin/python"
         if "--out" not in command:
             return 0
         attempt = Path(command[command.index("--out") + 1])
@@ -264,3 +270,18 @@ def test_run_completion_and_hash_checked_resume(tmp_path, monkeypatch):
     assert smoke.run(tmp_path, output, "a" * 40, 180, 1050, scratch) == 1
     assert result_path.read_bytes() == saved
     assert (output / "refused_identity.json").exists()
+
+
+def test_sampler_uses_runner_interpreter(tmp_path, monkeypatch):
+    """Sampling uses the same managed interpreter as parity and training."""
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(smoke.sys, "executable", "/managed-312/bin/python")
+    popen = Mock()
+    monkeypatch.setattr(smoke.subprocess, "Popen", popen)
+    smoke.start_sampler(tmp_path / "resources.jsonl", {})
+    assert popen.call_args.args[0][:3] == [
+        "/managed-312/bin/python",
+        "-m",
+        "research.t16_colab.sampler",
+    ]

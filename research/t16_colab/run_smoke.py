@@ -284,9 +284,7 @@ def environment_info() -> dict:
     }.items():
         if versions[name].split("+")[0] != expected:
             raise RuntimeError(f"{name}: expected {expected}, got {versions[name]}")
-    # Any torch 2.9.x CUDA build is acceptable for a throughput smoke: the exact patch
-    # version is recorded, and refusing Colab's preinstalled 2.9.x would force a 2.5 GB
-    # reinstall for no measurement benefit.
+    # Preserve the existing torch 2.9.x smoke contract; record the exact patch version.
     if not versions["torch"].split("+")[0].startswith("2.9."):
         raise RuntimeError(f"torch: expected 2.9.x, got {versions['torch']}")
     try:
@@ -383,6 +381,8 @@ def run(
     result_path = output / "colab_throughput_results.json"
     save_path = result_path
     result = {
+        "python": platform.python_version(),
+        "python_executable": sys.executable,
         "schema": SCHEMA,
         "commit": commit,
         "configs": [],
@@ -419,6 +419,7 @@ def run(
             "gpu": result["gpu"],
             "versions": result["versions"],
             "cpu_count": result["cpu_count"],
+            "python": result["python"],
             "compile_mode": mode,
             "seconds": seconds,
             "configs": CONFIGS,
