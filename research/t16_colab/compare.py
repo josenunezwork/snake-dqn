@@ -64,6 +64,82 @@ def _within_batch_tolerance(value: float | None, expected: float) -> bool:
     return abs(value - expected) <= expected * TRANSITIONS_PER_UPDATE_TOLERANCE
 
 
+def _compare_n3(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate static-league measurements without borrowing a different-N baseline."""
+    from research.t16_colab.run_smoke import N3_CONFIGS
+
+    required = {config["name"] for config in N3_CONFIGS}
+    configs = payload["configs"]
+    names = [row.get("name") for row in configs if isinstance(row, Mapping)]
+    rows = []
+    for config in configs:
+        if not isinstance(config, Mapping):
+            rows.append({"verdict": "INVALID", "reason": "config is not an object"})
+            continue
+        name = config.get("name")
+        reason = None
+        if payload.get("status") == "failed" or config.get("status") != "completed":
+            reason = "runner did not complete successfully"
+        elif name not in required or names.count(name) != 1:
+            reason = "unknown or duplicate configuration name"
+        elif config.get("learner_seats") != 3:
+            reason = "row is not the N=3 workload"
+        elif not _within_batch_tolerance(
+            _valid_tps(config.get("transitions_per_update")), EXPECTED_TRANSITIONS_PER_UPDATE
+        ):
+            reason = "transitions_per_update is outside the configured +/-2% range"
+        else:
+            for key in (
+                "transitions_per_second",
+                "updates_per_second",
+                "learner_decisions",
+                "replay_rows",
+                "measured_updates",
+                "policy_lag_mean",
+                "policy_lag_p95",
+                "frozen_forward_gpu_seconds",
+            ):
+                if _valid_tps(config.get(key)) is None:
+                    reason = f"missing or invalid {key}"
+                    break
+            policy_rows = config.get("live_rows_by_policy")
+            if reason is None and (
+                not isinstance(policy_rows, Mapping)
+                or not policy_rows
+                or any(_valid_tps(value) is None for value in policy_rows.values())
+            ):
+                reason = "missing or invalid per_policy_live_rows"
+        rows.append(
+            {
+                **config,
+                "verdict": "INVALID" if reason else "MEASURED",
+                "reason": reason
+                or "valid N=3 timing; matched Mac N=3 comparison is still required",
+                "speedup_vs_mac": None,
+                "baseline_transitions_per_second": None,
+                "threshold_transitions_per_second": None,
+            }
+        )
+    for name in sorted(required - set(n for n in names if isinstance(n, str))):
+        rows.append(
+            {
+                "name": name,
+                "verdict": "INVALID",
+                "reason": "required smoke configuration is missing",
+            }
+        )
+    return {
+        "schema": "t16-colab-throughput-comparison/v1",
+        "source_schema": SCHEMA,
+        "source_status": payload.get("status"),
+        "suite": "n3",
+        "baseline_transitions_per_second": None,
+        "threshold_transitions_per_second": None,
+        "expected_transitions_per_update": EXPECTED_TRANSITIONS_PER_UPDATE,
+        "configs": rows,
+    }
+
+
 def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Return one conservative verdict per declared timing configuration.
 
@@ -78,6 +154,8 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise ResultsError("results must contain a configs list")
     overall_status = payload.get("status")
     suite = payload.get("suite", "t16")
+    if suite == "n3":
+        return _compare_n3(payload)
     if suite not in ("t16", "smoke03"):
         raise ResultsError(f"unknown suite {suite!r}")
     smoke03 = suite == "smoke03"
