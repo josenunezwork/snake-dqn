@@ -1,9 +1,9 @@
 # snake-dqn
 
 Snake DQN is a local reinforcement-learning project with a live FastAPI/React
-snake game, an incumbent distributed Apex DQN policy, and an experimental
-raster/PQN path. The incumbent stays in service while repairs and experiments
-produce evidence; no command in this repository silently replaces it.
+snake game, the released `b8-s3` policy, a historical distributed Apex DQN
+policy, and an experimental raster/PQN path. No command in this repository
+silently replaces the served checkpoint.
 
 ![architecture](docs/architecture.svg)
 
@@ -19,11 +19,24 @@ release records, research chronology, and historical study evidence.
 
 ## What is established, and what is not
 
-The deployed reference is the 61-feature free-space Apex checkpoint. Its earlier
-evidence used a pre-repair, alive-conditioned, narrow-opponent gate, so it is
-useful historical evidence rather than proof under the repaired deployment
-task. The raster/PQN route is a plausible engineering direction, not a promoted
-replacement or an algorithm winner.
+The deployed reference is **b8-s3, without a veto**. Its release claim is
+**more mass at equal survival against the served agent, with no veto**; it is
+not a claim that B8 is safer. The [release record](docs/research/b8_s3_release_2026-10-17.md)
+documents the strict and serving evidence, disclosures, monitoring, and the
+fact that late-game deaths remain at parity with the prior served agent.
+
+To roll the server back, restart it with either of these explicit selections:
+
+```bash
+SNAKE_SERVE_CHECKPOINT=frp3-s12 ./venv/bin/python web/serve.py
+SNAKE_SERVE_CHECKPOINT=champion ./venv/bin/python web/serve.py
+```
+
+With the remaining serving environment at its defaults, these restore
+`frp3-s12 + v8` and `champion + v8`, respectively. The 61-feature free-space
+Apex checkpoint remains historical evidence; its earlier gate was pre-repair,
+alive-conditioned, and narrow-opponent. The raster/PQN route remains an
+experimental path, not a promoted replacement or an algorithm winner.
 
 The history also has an important correction: GRU/DRQN was trained and lost the
 older frozen-opponent trials, but the frequently repeated claim that CNNs were
