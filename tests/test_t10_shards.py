@@ -140,3 +140,24 @@ def test_hash_guards_reject_tampered_source_or_saved_output(tmp_path) -> None:
     output.write_bytes(b"changed")
     assert not horizon_shards._hashes_match_receipt(report)
     assert not horizon_shards._artifact_hashes_match_receipt(tmp_path, report)
+
+
+def test_prefix_boundary_records_unavailable_birthtime_as_null(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    prefix = tmp_path / "prefix"
+    prefix.mkdir()
+    rows = {f"D{value}": {} for value in horizon_shards.PREFIX_HORIZONS}
+    (prefix / "horizon_fits.json").write_text(json.dumps(_report(rows, horizons=[])))
+    _prediction(prefix / "D100.predictions.npz", np.array([0, 1]))
+    original_stat = Path.stat
+
+    def without_birthtime(path, *args, **kwargs):
+        stat = original_stat(path, *args, **kwargs)
+        return SimpleNamespace(st_mode=stat.st_mode) if path == prefix else stat
+
+    monkeypatch.setattr(Path, "stat", without_birthtime)
+    receipt = horizon_shards.mark_prefix_boundary(prefix)
+    assert receipt["directory_birthtime_utc_approx"] is None
+    assert receipt["recorded_utc"]
+    assert receipt["status"] == "INTENTIONALLY_INTERRUPTED_AFTER_D100"
