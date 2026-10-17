@@ -1,0 +1,3155 @@
+{
+  "artifact_sha256": {
+    "audit.json": "e031dc560bba2c4fb26c0d93384b276061b0d49292f888294642b5b4dae76dce",
+    "completion.json": "0bdc8edbe22e3eab40390af02e6591e8201bf837a6aec0a95095555993935fc8",
+    "manifest.json": "df3533531960c313bb71371127a59410a0e791cc1af4ef9d6b82c0557de91e71",
+    "rows.jsonl": "8fa30d4b52929f739d1eefce16ac781253fee548232e622c0f17b9c36630f1a6",
+    "summary.json": "f3a4ec0e718de66b5a25ecce51d26284a53d7fa0809372d1d9ab367f972fd5a0"
+  },
+  "audit": {
+    "audit_source_sha256": "7bf17d43d7fcb36b58f6c3848e764ddbd602cd94542e416718bb25e7b4eb6b3c",
+    "cohort": 46,
+    "manifest_sha256": "df3533531960c313bb71371127a59410a0e791cc1af4ef9d6b82c0557de91e71",
+    "rows_sha256": "8fa30d4b52929f739d1eefce16ac781253fee548232e622c0f17b9c36630f1a6",
+    "source_and_input_hashes_checked": 511,
+    "status": "PASS",
+    "trace_states": 7528
+  },
+  "authority": "development diagnostic, not gate evidence",
+  "branch_counts": {
+    "0": {
+      "fatal": {
+        "boundary_majority_own": 43,
+        "head_in_largest": 14,
+        "tail_reachable": 9,
+        "toward_food_in_smaller_component": 11
+      },
+      "n": 46,
+      "surviving": {
+        "boundary_majority_own": 43,
+        "head_in_largest": 14,
+        "tail_reachable": 9,
+        "toward_food_in_smaller_component": 13
+      }
+    },
+    "10": {
+      "fatal": {
+        "boundary_majority_own": 32,
+        "head_in_largest": 2,
+        "tail_reachable": 2,
+        "toward_food_in_smaller_component": 12
+      },
+      "n": 36,
+      "surviving": {
+        "boundary_majority_own": 35,
+        "head_in_largest": 8,
+        "tail_reachable": 3,
+        "toward_food_in_smaller_component": 18
+      }
+    },
+    "100": {
+      "fatal": {
+        "boundary_majority_own": 22,
+        "head_in_largest": 0,
+        "tail_reachable": 0,
+        "toward_food_in_smaller_component": 10
+      },
+      "n": 22,
+      "surviving": {
+        "boundary_majority_own": 22,
+        "head_in_largest": 2,
+        "tail_reachable": 1,
+        "toward_food_in_smaller_component": 8
+      }
+    },
+    "25": {
+      "fatal": {
+        "boundary_majority_own": 30,
+        "head_in_largest": 0,
+        "tail_reachable": 0,
+        "toward_food_in_smaller_component": 10
+      },
+      "n": 31,
+      "surviving": {
+        "boundary_majority_own": 31,
+        "head_in_largest": 4,
+        "tail_reachable": 2,
+        "toward_food_in_smaller_component": 9
+      }
+    },
+    "50": {
+      "fatal": {
+        "boundary_majority_own": 25,
+        "head_in_largest": 0,
+        "tail_reachable": 0,
+        "toward_food_in_smaller_component": 14
+      },
+      "n": 26,
+      "surviving": {
+        "boundary_majority_own": 26,
+        "head_in_largest": 5,
+        "tail_reachable": 3,
+        "toward_food_in_smaller_component": 8
+      }
+    }
+  },
+  "completion": {
+    "completed": 46,
+    "full_cohort": true,
+    "inputs_source_unchanged": true,
+    "manifest_sha256": "df3533531960c313bb71371127a59410a0e791cc1af4ef9d6b82c0557de91e71",
+    "rows_sha256": "8fa30d4b52929f739d1eefce16ac781253fee548232e622c0f17b9c36630f1a6",
+    "status": "PASS",
+    "wall_seconds": 117.33943141717464
+  },
+  "key_separation_offsets": {
+    "1": {
+      "boundary_opponent": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.2391304347826087,
+        "fatal_median": 0.03531746031746032,
+        "n": 46,
+        "negative": 6,
+        "positive": 11,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.03845704948646125,
+        "zero": 29
+      },
+      "boundary_own": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.2826086956521739,
+        "fatal_median": 0.9166666666666666,
+        "n": 46,
+        "negative": 13,
+        "positive": 5,
+        "quartiles": [
+          -0.00042267503015430696,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.9247311827956989,
+        "zero": 28
+      },
+      "boundary_wall": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.13043478260869565,
+        "fatal_median": 0.0,
+        "n": 46,
+        "negative": 2,
+        "positive": 6,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 38
+      },
+      "food_in_smaller_component": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.08695652173913043,
+        "fatal_median": 1.0,
+        "n": 46,
+        "negative": 1,
+        "positive": 4,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 41
+      },
+      "head_in_largest": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.043478260869565216,
+        "fatal_median": 0.0,
+        "n": 46,
+        "negative": 2,
+        "positive": 2,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 42
+      },
+      "head_region": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.41304347826086957,
+        "fatal_median": 490.0,
+        "n": 46,
+        "negative": 7,
+        "positive": 19,
+        "quartiles": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surviving_median": 551.0,
+        "zero": 20
+      },
+      "largest_region": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.41304347826086957,
+        "fatal_median": 8592.0,
+        "n": 46,
+        "negative": 19,
+        "positive": 1,
+        "quartiles": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 8768.0,
+        "zero": 26
+      },
+      "opponent_cells_r15": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.2391304347826087,
+        "fatal_median": 12.5,
+        "n": 46,
+        "negative": 11,
+        "positive": 9,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 9.0,
+        "zero": 26
+      },
+      "opponent_cells_r30": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.2391304347826087,
+        "fatal_median": 22.0,
+        "n": 46,
+        "negative": 7,
+        "positive": 11,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 20.0,
+        "zero": 28
+      },
+      "own_cells_r15": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.5652173913043478,
+        "fatal_median": 142.5,
+        "n": 46,
+        "negative": 26,
+        "positive": 19,
+        "quartiles": [
+          -7.0,
+          -1.5,
+          5.5
+        ],
+        "surviving_median": 141.5,
+        "zero": 1
+      },
+      "own_cells_r30": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.4782608695652174,
+        "fatal_median": 352.5,
+        "n": 46,
+        "negative": 22,
+        "positive": 21,
+        "quartiles": [
+          -7.0,
+          0.0,
+          7.25
+        ],
+        "surviving_median": 346.0,
+        "zero": 3
+      },
+      "race_128": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.4782608695652174,
+        "fatal_median": 357.0,
+        "n": 46,
+        "negative": 13,
+        "positive": 22,
+        "quartiles": [
+          -2.0,
+          0.0,
+          1.75
+        ],
+        "surviving_median": 434.5,
+        "zero": 11
+      },
+      "race_16": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.5434782608695652,
+        "fatal_median": 82.5,
+        "n": 46,
+        "negative": 25,
+        "positive": 15,
+        "quartiles": [
+          -31.25,
+          -2.0,
+          1.75
+        ],
+        "surviving_median": 106.5,
+        "zero": 6
+      },
+      "race_256": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.5,
+        "fatal_median": 357.0,
+        "n": 46,
+        "negative": 13,
+        "positive": 23,
+        "quartiles": [
+          -2.0,
+          0.5,
+          1.75
+        ],
+        "surviving_median": 434.5,
+        "zero": 10
+      },
+      "race_32": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.5,
+        "fatal_median": 168.0,
+        "n": 46,
+        "negative": 23,
+        "positive": 17,
+        "quartiles": [
+          -29.25,
+          -0.5,
+          2.0
+        ],
+        "surviving_median": 245.5,
+        "zero": 6
+      },
+      "race_64": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.41304347826086957,
+        "fatal_median": 278.0,
+        "n": 46,
+        "negative": 16,
+        "positive": 19,
+        "quartiles": [
+          -6.75,
+          0.0,
+          1.75
+        ],
+        "surviving_median": 390.0,
+        "zero": 11
+      },
+      "tail_bfs": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.5714285714285714,
+        "fatal_median": 150.0,
+        "n": 7,
+        "negative": 4,
+        "positive": 2,
+        "quartiles": [
+          -2.0,
+          -2.0,
+          1.5
+        ],
+        "surviving_median": 120.0,
+        "zero": 1
+      },
+      "tail_manhattan": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.391304347826087,
+        "fatal_median": 65.0,
+        "n": 46,
+        "negative": 18,
+        "positive": 18,
+        "quartiles": [
+          -2.0,
+          0.0,
+          2.0
+        ],
+        "surviving_median": 62.0,
+        "zero": 10
+      },
+      "tail_reachable": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.043478260869565216,
+        "fatal_median": 0.0,
+        "n": 46,
+        "negative": 1,
+        "positive": 2,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 43
+      },
+      "toward_food": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.2826086956521739,
+        "fatal_median": 1.0,
+        "n": 46,
+        "negative": 3,
+        "positive": 13,
+        "quartiles": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 30
+      }
+    },
+    "49": {
+      "boundary_opponent": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.2692307692307692,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 7,
+        "positive": 3,
+        "quartiles": [
+          -0.0043859649122807015,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 16
+      },
+      "boundary_own": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.23076923076923078,
+        "fatal_median": 1.0,
+        "n": 26,
+        "negative": 5,
+        "positive": 6,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 15
+      },
+      "boundary_wall": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.19230769230769232,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 5,
+        "positive": 2,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 19
+      },
+      "food_in_smaller_component": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.11538461538461539,
+        "fatal_median": 1.0,
+        "n": 26,
+        "negative": 0,
+        "positive": 3,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 23
+      },
+      "head_in_largest": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.19230769230769232,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 5,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 21
+      },
+      "head_region": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6923076923076923,
+        "fatal_median": 334.0,
+        "n": 26,
+        "negative": 18,
+        "positive": 7,
+        "quartiles": [
+          -1003.5,
+          -32.0,
+          0.75
+        ],
+        "surviving_median": 472.5,
+        "zero": 1
+      },
+      "largest_region": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.46153846153846156,
+        "fatal_median": 9249.0,
+        "n": 26,
+        "negative": 12,
+        "positive": 8,
+        "quartiles": [
+          -2.75,
+          0.0,
+          22.0
+        ],
+        "surviving_median": 9072.5,
+        "zero": 6
+      },
+      "opponent_cells_r15": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.2692307692307692,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 4,
+        "positive": 7,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.75
+        ],
+        "surviving_median": 0.0,
+        "zero": 15
+      },
+      "opponent_cells_r30": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.5,
+        "fatal_median": 18.0,
+        "n": 26,
+        "negative": 4,
+        "positive": 13,
+        "quartiles": [
+          0.0,
+          0.5,
+          9.5
+        ],
+        "surviving_median": 15.5,
+        "zero": 9
+      },
+      "own_cells_r15": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.5,
+        "fatal_median": 206.0,
+        "n": 26,
+        "negative": 13,
+        "positive": 13,
+        "quartiles": [
+          -23.75,
+          -4.0,
+          24.5
+        ],
+        "surviving_median": 224.0,
+        "zero": 0
+      },
+      "own_cells_r30": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6153846153846154,
+        "fatal_median": 486.0,
+        "n": 26,
+        "negative": 9,
+        "positive": 16,
+        "quartiles": [
+          -40.75,
+          5.0,
+          52.25
+        ],
+        "surviving_median": 487.5,
+        "zero": 1
+      },
+      "race_128": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.7692307692307693,
+        "fatal_median": 333.0,
+        "n": 26,
+        "negative": 20,
+        "positive": 5,
+        "quartiles": [
+          -476.5,
+          -48.0,
+          -1.0
+        ],
+        "surviving_median": 427.5,
+        "zero": 1
+      },
+      "race_16": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6153846153846154,
+        "fatal_median": 129.5,
+        "n": 26,
+        "negative": 16,
+        "positive": 9,
+        "quartiles": [
+          -125.5,
+          -13.5,
+          31.75
+        ],
+        "surviving_median": 163.5,
+        "zero": 1
+      },
+      "race_256": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.7692307692307693,
+        "fatal_median": 333.0,
+        "n": 26,
+        "negative": 20,
+        "positive": 5,
+        "quartiles": [
+          -524.5,
+          -48.0,
+          -1.0
+        ],
+        "surviving_median": 465.0,
+        "zero": 1
+      },
+      "race_32": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6153846153846154,
+        "fatal_median": 262.0,
+        "n": 26,
+        "negative": 16,
+        "positive": 10,
+        "quartiles": [
+          -317.25,
+          -28.0,
+          7.75
+        ],
+        "surviving_median": 336.5,
+        "zero": 0
+      },
+      "race_64": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6923076923076923,
+        "fatal_median": 333.0,
+        "n": 26,
+        "negative": 18,
+        "positive": 6,
+        "quartiles": [
+          -384.75,
+          -35.5,
+          0.0
+        ],
+        "surviving_median": 398.0,
+        "zero": 2
+      },
+      "tail_bfs": {
+        "alive_pairs": 26,
+        "direction_consistency": null,
+        "fatal_median": null,
+        "n": 0,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": null,
+        "surviving_median": null,
+        "zero": 0
+      },
+      "tail_manhattan": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.46153846153846156,
+        "fatal_median": 67.5,
+        "n": 26,
+        "negative": 12,
+        "positive": 12,
+        "quartiles": [
+          -3.75,
+          0.0,
+          12.75
+        ],
+        "surviving_median": 68.5,
+        "zero": 2
+      },
+      "tail_reachable": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.15384615384615385,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 4,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 22
+      },
+      "toward_food": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.23076923076923078,
+        "fatal_median": 1.0,
+        "n": 26,
+        "negative": 6,
+        "positive": 5,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 15
+      }
+    },
+    "65": {
+      "boundary_opponent": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.3076923076923077,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 8,
+        "positive": 2,
+        "quartiles": [
+          -0.022485526070052123,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 16
+      },
+      "boundary_own": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.2692307692307692,
+        "fatal_median": 1.0,
+        "n": 26,
+        "negative": 4,
+        "positive": 7,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.004310344827586243
+        ],
+        "surviving_median": 1.0,
+        "zero": 15
+      },
+      "boundary_wall": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.19230769230769232,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 5,
+        "positive": 2,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 19
+      },
+      "food_in_smaller_component": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.11538461538461539,
+        "fatal_median": 1.0,
+        "n": 26,
+        "negative": 3,
+        "positive": 3,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 20
+      },
+      "head_in_largest": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.19230769230769232,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 5,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 21
+      },
+      "head_region": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.7692307692307693,
+        "fatal_median": 306.5,
+        "n": 26,
+        "negative": 20,
+        "positive": 6,
+        "quartiles": [
+          -1002.0,
+          -29.5,
+          -1.0
+        ],
+        "surviving_median": 437.5,
+        "zero": 0
+      },
+      "largest_region": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.5,
+        "fatal_median": 9214.0,
+        "n": 26,
+        "negative": 9,
+        "positive": 13,
+        "quartiles": [
+          -2.0,
+          0.5,
+          39.75
+        ],
+        "surviving_median": 8999.5,
+        "zero": 4
+      },
+      "opponent_cells_r15": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.23076923076923078,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 6,
+        "positive": 4,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 16
+      },
+      "opponent_cells_r30": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.34615384615384615,
+        "fatal_median": 18.0,
+        "n": 26,
+        "negative": 7,
+        "positive": 9,
+        "quartiles": [
+          -3.75,
+          0.0,
+          4.75
+        ],
+        "surviving_median": 18.0,
+        "zero": 10
+      },
+      "own_cells_r15": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.5384615384615384,
+        "fatal_median": 195.5,
+        "n": 26,
+        "negative": 14,
+        "positive": 12,
+        "quartiles": [
+          -27.25,
+          -2.0,
+          42.0
+        ],
+        "surviving_median": 181.0,
+        "zero": 0
+      },
+      "own_cells_r30": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.5769230769230769,
+        "fatal_median": 463.5,
+        "n": 26,
+        "negative": 15,
+        "positive": 10,
+        "quartiles": [
+          -35.25,
+          -6.5,
+          30.25
+        ],
+        "surviving_median": 479.5,
+        "zero": 1
+      },
+      "race_128": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.7692307692307693,
+        "fatal_median": 301.0,
+        "n": 26,
+        "negative": 20,
+        "positive": 6,
+        "quartiles": [
+          -576.25,
+          -99.5,
+          -1.25
+        ],
+        "surviving_median": 425.0,
+        "zero": 0
+      },
+      "race_16": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6153846153846154,
+        "fatal_median": 113.5,
+        "n": 26,
+        "negative": 16,
+        "positive": 9,
+        "quartiles": [
+          -162.5,
+          -22.5,
+          24.5
+        ],
+        "surviving_median": 169.0,
+        "zero": 1
+      },
+      "race_256": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.7692307692307693,
+        "fatal_median": 301.0,
+        "n": 26,
+        "negative": 20,
+        "positive": 6,
+        "quartiles": [
+          -598.25,
+          -110.5,
+          -1.25
+        ],
+        "surviving_median": 435.0,
+        "zero": 0
+      },
+      "race_32": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6153846153846154,
+        "fatal_median": 231.0,
+        "n": 26,
+        "negative": 16,
+        "positive": 10,
+        "quartiles": [
+          -440.25,
+          -23.0,
+          13.5
+        ],
+        "surviving_median": 307.0,
+        "zero": 0
+      },
+      "race_64": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.7307692307692307,
+        "fatal_median": 291.5,
+        "n": 26,
+        "negative": 19,
+        "positive": 7,
+        "quartiles": [
+          -564.5,
+          -61.5,
+          0.25
+        ],
+        "surviving_median": 399.5,
+        "zero": 0
+      },
+      "tail_bfs": {
+        "alive_pairs": 26,
+        "direction_consistency": null,
+        "fatal_median": null,
+        "n": 0,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": null,
+        "surviving_median": null,
+        "zero": 0
+      },
+      "tail_manhattan": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6153846153846154,
+        "fatal_median": 61.5,
+        "n": 26,
+        "negative": 16,
+        "positive": 6,
+        "quartiles": [
+          -6.75,
+          -2.5,
+          0.0
+        ],
+        "surviving_median": 69.0,
+        "zero": 4
+      },
+      "tail_reachable": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.11538461538461539,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 3,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 23
+      },
+      "toward_food": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.2692307692307692,
+        "fatal_median": 1.0,
+        "n": 26,
+        "negative": 5,
+        "positive": 7,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.75
+        ],
+        "surviving_median": 0.5,
+        "zero": 14
+      }
+    }
+  },
+  "launch_head": "c173e63cfe732fafff536314bd538f10fa3a818b",
+  "n": 46,
+  "ranking": [
+    {
+      "first_75pct_same_sign_n20": 65,
+      "first_nonzero_median_n20": 6,
+      "metric": "head_region",
+      "negative_75pct_offsets": 18,
+      "negative_75pct_runs": [
+        [
+          65,
+          73
+        ],
+        [
+          75,
+          83
+        ]
+      ]
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": 2,
+      "metric": "largest_region",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": null,
+      "metric": "head_in_largest",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": null,
+      "metric": "tail_bfs",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": null,
+      "metric": "tail_reachable",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": 6,
+      "metric": "tail_manhattan",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": 1,
+      "metric": "own_cells_r15",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": 2,
+      "metric": "own_cells_r30",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": null,
+      "metric": "opponent_cells_r15",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": 47,
+      "metric": "opponent_cells_r30",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": null,
+      "metric": "boundary_own",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": null,
+      "metric": "boundary_opponent",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": null,
+      "metric": "boundary_wall",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": 24,
+      "metric": "toward_food",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": null,
+      "first_nonzero_median_n20": null,
+      "metric": "food_in_smaller_component",
+      "negative_75pct_offsets": 0,
+      "negative_75pct_runs": []
+    },
+    {
+      "first_75pct_same_sign_n20": 59,
+      "first_nonzero_median_n20": 1,
+      "metric": "race_16",
+      "negative_75pct_offsets": 3,
+      "negative_75pct_runs": [
+        [
+          59,
+          60
+        ],
+        [
+          80,
+          80
+        ]
+      ]
+    },
+    {
+      "first_75pct_same_sign_n20": 60,
+      "first_nonzero_median_n20": 1,
+      "metric": "race_32",
+      "negative_75pct_offsets": 2,
+      "negative_75pct_runs": [
+        [
+          60,
+          60
+        ],
+        [
+          80,
+          80
+        ]
+      ]
+    },
+    {
+      "first_75pct_same_sign_n20": 68,
+      "first_nonzero_median_n20": 2,
+      "metric": "race_64",
+      "negative_75pct_offsets": 13,
+      "negative_75pct_runs": [
+        [
+          68,
+          68
+        ],
+        [
+          70,
+          70
+        ],
+        [
+          72,
+          72
+        ],
+        [
+          75,
+          83
+        ],
+        [
+          96,
+          96
+        ]
+      ]
+    },
+    {
+      "first_75pct_same_sign_n20": 49,
+      "first_nonzero_median_n20": 4,
+      "metric": "race_128",
+      "negative_75pct_offsets": 20,
+      "negative_75pct_runs": [
+        [
+          49,
+          49
+        ],
+        [
+          65,
+          83
+        ]
+      ]
+    },
+    {
+      "first_75pct_same_sign_n20": 49,
+      "first_nonzero_median_n20": 1,
+      "metric": "race_256",
+      "negative_75pct_offsets": 20,
+      "negative_75pct_runs": [
+        [
+          49,
+          49
+        ],
+        [
+          65,
+          83
+        ]
+      ]
+    }
+  ],
+  "report_source_sha256": "aad78ebc42d5da6d816e4253934fe29bda48e706c377b940ad3b1efeade49c94",
+  "requested_offsets": {
+    "0": {
+      "boundary_opponent": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 0.0375,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0375,
+        "zero": 46
+      },
+      "boundary_own": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 0.8974673202614379,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.8974673202614379,
+        "zero": 46
+      },
+      "boundary_wall": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 0.0,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 46
+      },
+      "food_in_smaller_component": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 1.0,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 46
+      },
+      "head_in_largest": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 0.0,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 46
+      },
+      "head_region": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 596.5,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 596.5,
+        "zero": 46
+      },
+      "largest_region": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 8764.5,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 8764.5,
+        "zero": 46
+      },
+      "opponent_cells_r15": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 12.0,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 12.0,
+        "zero": 46
+      },
+      "opponent_cells_r30": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 22.0,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 22.0,
+        "zero": 46
+      },
+      "own_cells_r15": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 142.0,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 142.0,
+        "zero": 46
+      },
+      "own_cells_r30": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 344.5,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 344.5,
+        "zero": 46
+      },
+      "race_128": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 391.5,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 391.5,
+        "zero": 46
+      },
+      "race_16": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 98.0,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 98.0,
+        "zero": 46
+      },
+      "race_256": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 391.5,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 391.5,
+        "zero": 46
+      },
+      "race_32": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 197.0,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 197.0,
+        "zero": 46
+      },
+      "race_64": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 353.5,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 353.5,
+        "zero": 46
+      },
+      "tail_bfs": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 103.0,
+        "n": 9,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 103.0,
+        "zero": 9
+      },
+      "tail_manhattan": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 65.5,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 65.5,
+        "zero": 46
+      },
+      "tail_reachable": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.0,
+        "fatal_median": 0.0,
+        "n": 46,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 46
+      },
+      "toward_food": {
+        "alive_pairs": 46,
+        "direction_consistency": 0.2826086956521739,
+        "fatal_median": 0.0,
+        "n": 46,
+        "negative": 12,
+        "positive": 13,
+        "quartiles": [
+          -0.75,
+          0.0,
+          1.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 21
+      }
+    },
+    "10": {
+      "boundary_opponent": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.2777777777777778,
+        "fatal_median": 0.0,
+        "n": 36,
+        "negative": 8,
+        "positive": 10,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0015178045113878667
+        ],
+        "surviving_median": 0.010536823425022181,
+        "zero": 18
+      },
+      "boundary_own": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.3055555555555556,
+        "fatal_median": 1.0,
+        "n": 36,
+        "negative": 11,
+        "positive": 9,
+        "quartiles": [
+          -0.00313381719631714,
+          0.0,
+          0.006756756756756743
+        ],
+        "surviving_median": 0.9708614864864865,
+        "zero": 16
+      },
+      "boundary_wall": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.16666666666666666,
+        "fatal_median": 0.0,
+        "n": 36,
+        "negative": 6,
+        "positive": 4,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 26
+      },
+      "food_in_smaller_component": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.16666666666666666,
+        "fatal_median": 1.0,
+        "n": 36,
+        "negative": 5,
+        "positive": 6,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 25
+      },
+      "head_in_largest": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.16666666666666666,
+        "fatal_median": 0.0,
+        "n": 36,
+        "negative": 6,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 30
+      },
+      "head_region": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.5833333333333334,
+        "fatal_median": 384.0,
+        "n": 36,
+        "negative": 21,
+        "positive": 12,
+        "quartiles": [
+          -861.5,
+          -7.0,
+          1.25
+        ],
+        "surviving_median": 550.5,
+        "zero": 3
+      },
+      "largest_region": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.4166666666666667,
+        "fatal_median": 8699.5,
+        "n": 36,
+        "negative": 15,
+        "positive": 9,
+        "quartiles": [
+          -2.0,
+          0.0,
+          0.25
+        ],
+        "surviving_median": 8700.0,
+        "zero": 12
+      },
+      "opponent_cells_r15": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.3055555555555556,
+        "fatal_median": 8.0,
+        "n": 36,
+        "negative": 9,
+        "positive": 11,
+        "quartiles": [
+          -0.5,
+          0.0,
+          2.5
+        ],
+        "surviving_median": 0.0,
+        "zero": 16
+      },
+      "opponent_cells_r30": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.3333333333333333,
+        "fatal_median": 22.0,
+        "n": 36,
+        "negative": 8,
+        "positive": 12,
+        "quartiles": [
+          0.0,
+          0.0,
+          3.75
+        ],
+        "surviving_median": 10.0,
+        "zero": 16
+      },
+      "own_cells_r15": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.4722222222222222,
+        "fatal_median": 159.0,
+        "n": 36,
+        "negative": 17,
+        "positive": 17,
+        "quartiles": [
+          -6.5,
+          0.0,
+          12.75
+        ],
+        "surviving_median": 156.5,
+        "zero": 2
+      },
+      "own_cells_r30": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.4722222222222222,
+        "fatal_median": 415.5,
+        "n": 36,
+        "negative": 17,
+        "positive": 16,
+        "quartiles": [
+          -28.0,
+          0.0,
+          27.25
+        ],
+        "surviving_median": 394.0,
+        "zero": 3
+      },
+      "race_128": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.5277777777777778,
+        "fatal_median": 374.5,
+        "n": 36,
+        "negative": 19,
+        "positive": 14,
+        "quartiles": [
+          -200.75,
+          -1.0,
+          2.25
+        ],
+        "surviving_median": 431.5,
+        "zero": 3
+      },
+      "race_16": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.5833333333333334,
+        "fatal_median": 109.5,
+        "n": 36,
+        "negative": 21,
+        "positive": 14,
+        "quartiles": [
+          -76.25,
+          -14.5,
+          13.0
+        ],
+        "surviving_median": 134.0,
+        "zero": 1
+      },
+      "race_256": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.5,
+        "fatal_median": 374.5,
+        "n": 36,
+        "negative": 18,
+        "positive": 15,
+        "quartiles": [
+          -200.75,
+          -0.5,
+          2.25
+        ],
+        "surviving_median": 431.5,
+        "zero": 3
+      },
+      "race_32": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.5277777777777778,
+        "fatal_median": 268.0,
+        "n": 36,
+        "negative": 19,
+        "positive": 16,
+        "quartiles": [
+          -152.0,
+          -2.0,
+          16.5
+        ],
+        "surviving_median": 299.0,
+        "zero": 1
+      },
+      "race_64": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.5277777777777778,
+        "fatal_median": 363.5,
+        "n": 36,
+        "negative": 19,
+        "positive": 14,
+        "quartiles": [
+          -200.75,
+          -2.5,
+          4.75
+        ],
+        "surviving_median": 420.0,
+        "zero": 3
+      },
+      "tail_bfs": {
+        "alive_pairs": 36,
+        "direction_consistency": 1.0,
+        "fatal_median": 187.0,
+        "n": 2,
+        "negative": 2,
+        "positive": 0,
+        "quartiles": [
+          -18.5,
+          -15.0,
+          -11.5
+        ],
+        "surviving_median": 202.0,
+        "zero": 0
+      },
+      "tail_manhattan": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.4722222222222222,
+        "fatal_median": 64.5,
+        "n": 36,
+        "negative": 17,
+        "positive": 13,
+        "quartiles": [
+          -4.0,
+          0.0,
+          4.25
+        ],
+        "surviving_median": 63.0,
+        "zero": 6
+      },
+      "tail_reachable": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.027777777777777776,
+        "fatal_median": 0.0,
+        "n": 36,
+        "negative": 1,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 35
+      },
+      "toward_food": {
+        "alive_pairs": 36,
+        "direction_consistency": 0.2777777777777778,
+        "fatal_median": 1.0,
+        "n": 36,
+        "negative": 10,
+        "positive": 4,
+        "quartiles": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 22
+      }
+    },
+    "100": {
+      "boundary_opponent": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.09090909090909091,
+        "fatal_median": 0.0,
+        "n": 22,
+        "negative": 2,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 20
+      },
+      "boundary_own": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.13636363636363635,
+        "fatal_median": 1.0,
+        "n": 22,
+        "negative": 1,
+        "positive": 3,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 18
+      },
+      "boundary_wall": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.13636363636363635,
+        "fatal_median": 0.0,
+        "n": 22,
+        "negative": 3,
+        "positive": 1,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 18
+      },
+      "food_in_smaller_component": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.18181818181818182,
+        "fatal_median": 1.0,
+        "n": 22,
+        "negative": 2,
+        "positive": 4,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 16
+      },
+      "head_in_largest": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.09090909090909091,
+        "fatal_median": 0.0,
+        "n": 22,
+        "negative": 2,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 20
+      },
+      "head_region": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.7272727272727273,
+        "fatal_median": 261.5,
+        "n": 22,
+        "negative": 16,
+        "positive": 5,
+        "quartiles": [
+          -157.75,
+          -25.0,
+          -0.25
+        ],
+        "surviving_median": 323.5,
+        "zero": 1
+      },
+      "largest_region": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.4090909090909091,
+        "fatal_median": 9377.5,
+        "n": 22,
+        "negative": 8,
+        "positive": 9,
+        "quartiles": [
+          -1.75,
+          0.0,
+          36.0
+        ],
+        "surviving_median": 9364.5,
+        "zero": 5
+      },
+      "opponent_cells_r15": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.3181818181818182,
+        "fatal_median": 0.5,
+        "n": 22,
+        "negative": 7,
+        "positive": 4,
+        "quartiles": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 11
+      },
+      "opponent_cells_r30": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.36363636363636365,
+        "fatal_median": 7.0,
+        "n": 22,
+        "negative": 8,
+        "positive": 5,
+        "quartiles": [
+          -10.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 10.5,
+        "zero": 9
+      },
+      "own_cells_r15": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.5,
+        "fatal_median": 217.5,
+        "n": 22,
+        "negative": 10,
+        "positive": 11,
+        "quartiles": [
+          -11.5,
+          3.5,
+          28.5
+        ],
+        "surviving_median": 199.0,
+        "zero": 1
+      },
+      "own_cells_r30": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.5454545454545454,
+        "fatal_median": 453.5,
+        "n": 22,
+        "negative": 9,
+        "positive": 12,
+        "quartiles": [
+          -46.25,
+          1.0,
+          31.5
+        ],
+        "surviving_median": 533.5,
+        "zero": 1
+      },
+      "race_128": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.6818181818181818,
+        "fatal_median": 265.0,
+        "n": 22,
+        "negative": 15,
+        "positive": 6,
+        "quartiles": [
+          -160.0,
+          -18.5,
+          1.5
+        ],
+        "surviving_median": 341.5,
+        "zero": 1
+      },
+      "race_16": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.5454545454545454,
+        "fatal_median": 133.0,
+        "n": 22,
+        "negative": 12,
+        "positive": 8,
+        "quartiles": [
+          -56.5,
+          -13.0,
+          30.5
+        ],
+        "surviving_median": 129.0,
+        "zero": 2
+      },
+      "race_256": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.6818181818181818,
+        "fatal_median": 265.0,
+        "n": 22,
+        "negative": 15,
+        "positive": 6,
+        "quartiles": [
+          -160.0,
+          -18.5,
+          1.5
+        ],
+        "surviving_median": 341.5,
+        "zero": 1
+      },
+      "race_32": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.45454545454545453,
+        "fatal_median": 231.5,
+        "n": 22,
+        "negative": 10,
+        "positive": 10,
+        "quartiles": [
+          -136.25,
+          0.0,
+          18.0
+        ],
+        "surviving_median": 251.0,
+        "zero": 2
+      },
+      "race_64": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.7272727272727273,
+        "fatal_median": 261.5,
+        "n": 22,
+        "negative": 16,
+        "positive": 5,
+        "quartiles": [
+          -163.5,
+          -25.0,
+          -0.5
+        ],
+        "surviving_median": 323.5,
+        "zero": 1
+      },
+      "tail_bfs": {
+        "alive_pairs": 22,
+        "direction_consistency": null,
+        "fatal_median": null,
+        "n": 0,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": null,
+        "surviving_median": null,
+        "zero": 0
+      },
+      "tail_manhattan": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.5909090909090909,
+        "fatal_median": 55.0,
+        "n": 22,
+        "negative": 13,
+        "positive": 7,
+        "quartiles": [
+          -11.75,
+          -1.0,
+          2.75
+        ],
+        "surviving_median": 64.5,
+        "zero": 2
+      },
+      "tail_reachable": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.045454545454545456,
+        "fatal_median": 0.0,
+        "n": 22,
+        "negative": 1,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 21
+      },
+      "toward_food": {
+        "alive_pairs": 22,
+        "direction_consistency": 0.3181818181818182,
+        "fatal_median": 1.0,
+        "n": 22,
+        "negative": 6,
+        "positive": 7,
+        "quartiles": [
+          -0.75,
+          0.0,
+          1.0
+        ],
+        "surviving_median": 0.5,
+        "zero": 9
+      }
+    },
+    "25": {
+      "boundary_opponent": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.3548387096774194,
+        "fatal_median": 0.0,
+        "n": 31,
+        "negative": 11,
+        "positive": 3,
+        "quartiles": [
+          -0.025025839793281657,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 17
+      },
+      "boundary_own": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.3870967741935484,
+        "fatal_median": 1.0,
+        "n": 31,
+        "negative": 4,
+        "positive": 12,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.03983985591695027
+        ],
+        "surviving_median": 0.994535519125683,
+        "zero": 15
+      },
+      "boundary_wall": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.12903225806451613,
+        "fatal_median": 0.0,
+        "n": 31,
+        "negative": 4,
+        "positive": 2,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 25
+      },
+      "food_in_smaller_component": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.1935483870967742,
+        "fatal_median": 1.0,
+        "n": 31,
+        "negative": 1,
+        "positive": 6,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 24
+      },
+      "head_in_largest": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.12903225806451613,
+        "fatal_median": 0.0,
+        "n": 31,
+        "negative": 4,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 27
+      },
+      "head_region": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.5483870967741935,
+        "fatal_median": 368.0,
+        "n": 31,
+        "negative": 17,
+        "positive": 10,
+        "quartiles": [
+          -214.5,
+          -2.0,
+          2.0
+        ],
+        "surviving_median": 450.0,
+        "zero": 4
+      },
+      "largest_region": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.3548387096774194,
+        "fatal_median": 8810.0,
+        "n": 31,
+        "negative": 11,
+        "positive": 11,
+        "quartiles": [
+          -1.0,
+          0.0,
+          3.0
+        ],
+        "surviving_median": 8810.0,
+        "zero": 9
+      },
+      "opponent_cells_r15": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.2903225806451613,
+        "fatal_median": 1.0,
+        "n": 31,
+        "negative": 5,
+        "positive": 9,
+        "quartiles": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 17
+      },
+      "opponent_cells_r30": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.3225806451612903,
+        "fatal_median": 13.0,
+        "n": 31,
+        "negative": 7,
+        "positive": 10,
+        "quartiles": [
+          0.0,
+          0.0,
+          3.5
+        ],
+        "surviving_median": 10.0,
+        "zero": 14
+      },
+      "own_cells_r15": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.6451612903225806,
+        "fatal_median": 154.0,
+        "n": 31,
+        "negative": 11,
+        "positive": 20,
+        "quartiles": [
+          -19.5,
+          7.0,
+          25.5
+        ],
+        "surviving_median": 162.0,
+        "zero": 0
+      },
+      "own_cells_r30": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.5483870967741935,
+        "fatal_median": 446.0,
+        "n": 31,
+        "negative": 13,
+        "positive": 17,
+        "quartiles": [
+          -48.0,
+          6.0,
+          20.0
+        ],
+        "surviving_median": 438.0,
+        "zero": 1
+      },
+      "race_128": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.4838709677419355,
+        "fatal_median": 368.0,
+        "n": 31,
+        "negative": 15,
+        "positive": 13,
+        "quartiles": [
+          -682.0,
+          0.0,
+          3.0
+        ],
+        "surviving_median": 450.0,
+        "zero": 3
+      },
+      "race_16": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.5806451612903226,
+        "fatal_median": 103.0,
+        "n": 31,
+        "negative": 12,
+        "positive": 18,
+        "quartiles": [
+          -71.0,
+          9.0,
+          16.5
+        ],
+        "surviving_median": 145.0,
+        "zero": 1
+      },
+      "race_256": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.4838709677419355,
+        "fatal_median": 368.0,
+        "n": 31,
+        "negative": 15,
+        "positive": 13,
+        "quartiles": [
+          -682.0,
+          0.0,
+          3.0
+        ],
+        "surviving_median": 453.0,
+        "zero": 3
+      },
+      "race_32": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.5806451612903226,
+        "fatal_median": 243.0,
+        "n": 31,
+        "negative": 13,
+        "positive": 18,
+        "quartiles": [
+          -263.0,
+          4.0,
+          46.0
+        ],
+        "surviving_median": 305.0,
+        "zero": 0
+      },
+      "race_64": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.4838709677419355,
+        "fatal_median": 358.0,
+        "n": 31,
+        "negative": 15,
+        "positive": 14,
+        "quartiles": [
+          -599.5,
+          0.0,
+          5.0
+        ],
+        "surviving_median": 432.0,
+        "zero": 2
+      },
+      "tail_bfs": {
+        "alive_pairs": 31,
+        "direction_consistency": null,
+        "fatal_median": null,
+        "n": 0,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": null,
+        "surviving_median": null,
+        "zero": 0
+      },
+      "tail_manhattan": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.4838709677419355,
+        "fatal_median": 71.0,
+        "n": 31,
+        "negative": 14,
+        "positive": 15,
+        "quartiles": [
+          -5.0,
+          0.0,
+          11.0
+        ],
+        "surviving_median": 66.0,
+        "zero": 2
+      },
+      "tail_reachable": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.06451612903225806,
+        "fatal_median": 0.0,
+        "n": 31,
+        "negative": 2,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 29
+      },
+      "toward_food": {
+        "alive_pairs": 31,
+        "direction_consistency": 0.3870967741935484,
+        "fatal_median": 0.0,
+        "n": 31,
+        "negative": 12,
+        "positive": 9,
+        "quartiles": [
+          -1.0,
+          0.0,
+          1.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 10
+      }
+    },
+    "50": {
+      "boundary_opponent": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.2692307692307692,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 7,
+        "positive": 3,
+        "quartiles": [
+          -0.0043859649122807015,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 16
+      },
+      "boundary_own": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.23076923076923078,
+        "fatal_median": 1.0,
+        "n": 26,
+        "negative": 5,
+        "positive": 6,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 15
+      },
+      "boundary_wall": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.19230769230769232,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 5,
+        "positive": 2,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 19
+      },
+      "food_in_smaller_component": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.15384615384615385,
+        "fatal_median": 1.0,
+        "n": 26,
+        "negative": 0,
+        "positive": 4,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 1.0,
+        "zero": 22
+      },
+      "head_in_largest": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.19230769230769232,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 5,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 21
+      },
+      "head_region": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6923076923076923,
+        "fatal_median": 332.5,
+        "n": 26,
+        "negative": 18,
+        "positive": 7,
+        "quartiles": [
+          -1003.5,
+          -32.0,
+          0.75
+        ],
+        "surviving_median": 471.5,
+        "zero": 1
+      },
+      "largest_region": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.46153846153846156,
+        "fatal_median": 9251.0,
+        "n": 26,
+        "negative": 12,
+        "positive": 9,
+        "quartiles": [
+          -2.75,
+          0.0,
+          21.25
+        ],
+        "surviving_median": 9072.0,
+        "zero": 5
+      },
+      "opponent_cells_r15": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.2692307692307692,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 3,
+        "positive": 7,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.75
+        ],
+        "surviving_median": 0.0,
+        "zero": 16
+      },
+      "opponent_cells_r30": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.5,
+        "fatal_median": 18.0,
+        "n": 26,
+        "negative": 5,
+        "positive": 13,
+        "quartiles": [
+          0.0,
+          0.5,
+          8.5
+        ],
+        "surviving_median": 16.5,
+        "zero": 8
+      },
+      "own_cells_r15": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.5384615384615384,
+        "fatal_median": 205.5,
+        "n": 26,
+        "negative": 14,
+        "positive": 12,
+        "quartiles": [
+          -32.0,
+          -12.0,
+          25.5
+        ],
+        "surviving_median": 220.5,
+        "zero": 0
+      },
+      "own_cells_r30": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.5,
+        "fatal_median": 482.5,
+        "n": 26,
+        "negative": 12,
+        "positive": 13,
+        "quartiles": [
+          -41.25,
+          1.5,
+          58.0
+        ],
+        "surviving_median": 480.5,
+        "zero": 1
+      },
+      "race_128": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.7307692307692307,
+        "fatal_median": 332.0,
+        "n": 26,
+        "negative": 19,
+        "positive": 6,
+        "quartiles": [
+          -508.0,
+          -48.0,
+          -0.25
+        ],
+        "surviving_median": 427.0,
+        "zero": 1
+      },
+      "race_16": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6923076923076923,
+        "fatal_median": 123.5,
+        "n": 26,
+        "negative": 18,
+        "positive": 8,
+        "quartiles": [
+          -145.75,
+          -18.5,
+          17.5
+        ],
+        "surviving_median": 163.5,
+        "zero": 0
+      },
+      "race_256": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.7307692307692307,
+        "fatal_median": 332.0,
+        "n": 26,
+        "negative": 19,
+        "positive": 6,
+        "quartiles": [
+          -540.5,
+          -48.0,
+          -0.25
+        ],
+        "surviving_median": 454.5,
+        "zero": 1
+      },
+      "race_32": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6538461538461539,
+        "fatal_median": 252.5,
+        "n": 26,
+        "negative": 17,
+        "positive": 9,
+        "quartiles": [
+          -337.0,
+          -17.5,
+          12.5
+        ],
+        "surviving_median": 323.0,
+        "zero": 0
+      },
+      "race_64": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.6923076923076923,
+        "fatal_median": 331.5,
+        "n": 26,
+        "negative": 18,
+        "positive": 7,
+        "quartiles": [
+          -423.75,
+          -35.0,
+          0.75
+        ],
+        "surviving_median": 408.0,
+        "zero": 1
+      },
+      "tail_bfs": {
+        "alive_pairs": 26,
+        "direction_consistency": null,
+        "fatal_median": null,
+        "n": 0,
+        "negative": 0,
+        "positive": 0,
+        "quartiles": null,
+        "surviving_median": null,
+        "zero": 0
+      },
+      "tail_manhattan": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.5769230769230769,
+        "fatal_median": 68.0,
+        "n": 26,
+        "negative": 15,
+        "positive": 9,
+        "quartiles": [
+          -5.0,
+          -1.0,
+          12.75
+        ],
+        "surviving_median": 68.0,
+        "zero": 2
+      },
+      "tail_reachable": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.11538461538461539,
+        "fatal_median": 0.0,
+        "n": 26,
+        "negative": 3,
+        "positive": 0,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "surviving_median": 0.0,
+        "zero": 23
+      },
+      "toward_food": {
+        "alive_pairs": 26,
+        "direction_consistency": 0.2692307692307692,
+        "fatal_median": 1.0,
+        "n": 26,
+        "negative": 5,
+        "positive": 7,
+        "quartiles": [
+          0.0,
+          0.0,
+          0.75
+        ],
+        "surviving_median": 0.5,
+        "zero": 14
+      }
+    }
+  },
+  "source_inputs_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014/runs/b8_s0.json": "baccfe308f53843f04a1cd39435576ae626061dba3f1d9076a1d840f9f049dd4",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014/runs/b8_s0_series.npz": "188df5ad65dacc0326f4387bb7482589922bf2592cc0c1c3eeddbd43810e37b2",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014/runs/b8_s1.json": "897fa82abbdba3a7aa3742ac17ab4bc7b6792a45e042f633b0ff6e10ce7f5c75",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014/runs/b8_s1_series.npz": "bc273af01d2fb26cf1b8d9a13d90bed86bd3d382790c1a2323d9365142a5806a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014/runs/b8_s2.json": "1f7df834017a0d8d6befdb93a710f3418b3c54d16d34cb80b1271d85aee65c28",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014/runs/b8_s2_series.npz": "e172e26e04697379e078cabecef34ef1b2dfc4ee89666ad849860b3a1229137b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014/runs/b8_s3.json": "a705df8705ec7b5fd0b5965e52673913a1065978df89395609df42a6102ef8db",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014/runs/b8_s3_series.npz": "8fa3def19b2b5f815f2fb2fff92a4e89a63f4d5ca4262af5dda844cf8c2253fe",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014/runs/b8_s4.json": "53f57d69926dbe89f283fe192dcfb28cd21a8412b779acc42ab44a45107d4183",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/b8-death-census-20261014/runs/b8_s4_series.npz": "3076ab576edff779fccaa7869502c21a92ecce74d4c51333fd71fd238121357c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s0/final.pth": "bf6a42b387e6d643e943a03620a30128ec6032f984abb5a08559b9b0ac865f4f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s1/final.pth": "a7b04a84c94ad6cf90f6461a2ab23b214a28c4c59ac9e7bc69c61ca3ae617753",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s2/final.pth": "5840ba615efd600325d5c5bcedf87b2cbb452fe0969d954d5797ab12f6917a0e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s3/final.pth": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s4/final.pth": "6b6d3f37c6db129de941c3fb205ca6af77c6506db0793b1291656f767e4fb28f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t1-commitment-20261015/rows.jsonl": "7cadaca0a3a4097298cdbe5460f6d43f402dfd0ed33eba7636c42af6e7ffa89d"
+  },
+  "spatial": {
+    "criterion": "first D1..D100 with fatal head outside largest component and fatal head region strictly smaller than surviving head region",
+    "lad_boundary_outside15": 40,
+    "outside15": 23,
+    "outside15_share_all": 0.5,
+    "outside15_share_resolved": 0.5476190476190477,
+    "resolved": 42,
+    "rows": [
+      {
+        "arm": "b8_s0",
+        "boundary_max_chebyshev": 112,
+        "boundary_outside15_fraction": 0.8623481781376519,
+        "env": 3,
+        "offset": 1,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s0",
+        "boundary_max_chebyshev": 55,
+        "boundary_outside15_fraction": 0.7994011976047904,
+        "env": 8,
+        "offset": 4,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s0",
+        "boundary_max_chebyshev": 14,
+        "boundary_outside15_fraction": 0.0,
+        "env": 11,
+        "offset": 3,
+        "outside15": false,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s0",
+        "boundary_max_chebyshev": 1,
+        "boundary_outside15_fraction": 0.0,
+        "env": 12,
+        "offset": 4,
+        "outside15": false,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s0",
+        "boundary_max_chebyshev": 22,
+        "boundary_outside15_fraction": 0.16363636363636364,
+        "env": 15,
+        "offset": 1,
+        "outside15": true,
+        "survivor_in_largest": true
+      },
+      {
+        "arm": "b8_s0",
+        "boundary_max_chebyshev": 17,
+        "boundary_outside15_fraction": 0.08490566037735849,
+        "env": 17,
+        "offset": 2,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s0",
+        "boundary_max_chebyshev": 8,
+        "boundary_outside15_fraction": 0.0,
+        "env": 21,
+        "offset": 1,
+        "outside15": false,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s0",
+        "boundary_max_chebyshev": 1,
+        "boundary_outside15_fraction": 0.0,
+        "env": 22,
+        "offset": 2,
+        "outside15": false,
+        "survivor_in_largest": true
+      },
+      {
+        "arm": "b8_s1",
+        "boundary_max_chebyshev": 1,
+        "boundary_outside15_fraction": 0.0,
+        "env": 0,
+        "offset": 3,
+        "outside15": false,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s1",
+        "boundary_max_chebyshev": 5,
+        "boundary_outside15_fraction": 0.0,
+        "env": 5,
+        "offset": 2,
+        "outside15": false,
+        "survivor_in_largest": true
+      },
+      {
+        "arm": "b8_s1",
+        "boundary_max_chebyshev": 30,
+        "boundary_outside15_fraction": 0.42134831460674155,
+        "env": 11,
+        "offset": 5,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s1",
+        "boundary_max_chebyshev": 41,
+        "boundary_outside15_fraction": 0.5789473684210527,
+        "env": 12,
+        "offset": 31,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s1",
+        "boundary_max_chebyshev": 13,
+        "boundary_outside15_fraction": 0.0,
+        "env": 17,
+        "offset": 6,
+        "outside15": false,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s1",
+        "boundary_max_chebyshev": 41,
+        "boundary_outside15_fraction": 0.7,
+        "env": 21,
+        "offset": 36,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s1",
+        "boundary_max_chebyshev": 29,
+        "boundary_outside15_fraction": 0.30434782608695654,
+        "env": 24,
+        "offset": 2,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s1",
+        "boundary_max_chebyshev": 55,
+        "boundary_outside15_fraction": 0.61875,
+        "env": 27,
+        "offset": 4,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s1",
+        "boundary_max_chebyshev": 33,
+        "boundary_outside15_fraction": 0.2798507462686567,
+        "env": 28,
+        "offset": 45,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s1",
+        "boundary_max_chebyshev": 36,
+        "boundary_outside15_fraction": 0.35106382978723405,
+        "env": 30,
+        "offset": 25,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s2",
+        "boundary_max_chebyshev": 14,
+        "boundary_outside15_fraction": 0.0,
+        "env": 1,
+        "offset": 3,
+        "outside15": false,
+        "survivor_in_largest": true
+      },
+      {
+        "arm": "b8_s2",
+        "env": 2,
+        "offset": null,
+        "outside15": null
+      },
+      {
+        "arm": "b8_s2",
+        "env": 7,
+        "offset": null,
+        "outside15": null
+      },
+      {
+        "arm": "b8_s2",
+        "env": 8,
+        "offset": null,
+        "outside15": null
+      },
+      {
+        "arm": "b8_s2",
+        "boundary_max_chebyshev": 11,
+        "boundary_outside15_fraction": 0.0,
+        "env": 9,
+        "offset": 3,
+        "outside15": false,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s2",
+        "boundary_max_chebyshev": 31,
+        "boundary_outside15_fraction": 0.4943181818181818,
+        "env": 17,
+        "offset": 32,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s2",
+        "env": 24,
+        "offset": null,
+        "outside15": null
+      },
+      {
+        "arm": "b8_s2",
+        "boundary_max_chebyshev": 10,
+        "boundary_outside15_fraction": 0.0,
+        "env": 26,
+        "offset": 5,
+        "outside15": false,
+        "survivor_in_largest": true
+      },
+      {
+        "arm": "b8_s3",
+        "boundary_max_chebyshev": 21,
+        "boundary_outside15_fraction": 0.3,
+        "env": 1,
+        "offset": 2,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s3",
+        "boundary_max_chebyshev": 1,
+        "boundary_outside15_fraction": 0.0,
+        "env": 6,
+        "offset": 1,
+        "outside15": false,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s3",
+        "boundary_max_chebyshev": 39,
+        "boundary_outside15_fraction": 0.49122807017543857,
+        "env": 8,
+        "offset": 4,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s3",
+        "boundary_max_chebyshev": 26,
+        "boundary_outside15_fraction": 0.4603174603174603,
+        "env": 9,
+        "offset": 27,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s3",
+        "boundary_max_chebyshev": 1,
+        "boundary_outside15_fraction": 0.0,
+        "env": 12,
+        "offset": 2,
+        "outside15": false,
+        "survivor_in_largest": true
+      },
+      {
+        "arm": "b8_s3",
+        "boundary_max_chebyshev": 5,
+        "boundary_outside15_fraction": 0.0,
+        "env": 15,
+        "offset": 19,
+        "outside15": false,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s3",
+        "boundary_max_chebyshev": 75,
+        "boundary_outside15_fraction": 0.6654411764705882,
+        "env": 17,
+        "offset": 7,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s3",
+        "boundary_max_chebyshev": 77,
+        "boundary_outside15_fraction": 0.8115183246073299,
+        "env": 19,
+        "offset": 65,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s3",
+        "boundary_max_chebyshev": 8,
+        "boundary_outside15_fraction": 0.0,
+        "env": 26,
+        "offset": 15,
+        "outside15": false,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s3",
+        "boundary_max_chebyshev": 11,
+        "boundary_outside15_fraction": 0.0,
+        "env": 30,
+        "offset": 4,
+        "outside15": false,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s4",
+        "boundary_max_chebyshev": 35,
+        "boundary_outside15_fraction": 0.49236641221374045,
+        "env": 0,
+        "offset": 6,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s4",
+        "boundary_max_chebyshev": 5,
+        "boundary_outside15_fraction": 0.0,
+        "env": 2,
+        "offset": 2,
+        "outside15": false,
+        "survivor_in_largest": true
+      },
+      {
+        "arm": "b8_s4",
+        "boundary_max_chebyshev": 22,
+        "boundary_outside15_fraction": 0.26229508196721313,
+        "env": 3,
+        "offset": 65,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s4",
+        "boundary_max_chebyshev": 15,
+        "boundary_outside15_fraction": 0.0,
+        "env": 4,
+        "offset": 2,
+        "outside15": false,
+        "survivor_in_largest": true
+      },
+      {
+        "arm": "b8_s4",
+        "boundary_max_chebyshev": 36,
+        "boundary_outside15_fraction": 0.6132596685082873,
+        "env": 5,
+        "offset": 6,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s4",
+        "boundary_max_chebyshev": 36,
+        "boundary_outside15_fraction": 0.44907407407407407,
+        "env": 12,
+        "offset": 43,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s4",
+        "boundary_max_chebyshev": 3,
+        "boundary_outside15_fraction": 0.0,
+        "env": 13,
+        "offset": 3,
+        "outside15": false,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s4",
+        "boundary_max_chebyshev": 79,
+        "boundary_outside15_fraction": 0.8491379310344828,
+        "env": 22,
+        "offset": 26,
+        "outside15": true,
+        "survivor_in_largest": false
+      },
+      {
+        "arm": "b8_s4",
+        "boundary_max_chebyshev": 58,
+        "boundary_outside15_fraction": 0.6049382716049383,
+        "env": 28,
+        "offset": 6,
+        "outside15": true,
+        "survivor_in_largest": true
+      },
+      {
+        "arm": "b8_s4",
+        "boundary_max_chebyshev": 1,
+        "boundary_outside15_fraction": 0.0,
+        "env": 31,
+        "offset": 1,
+        "outside15": false,
+        "survivor_in_largest": true
+      }
+    ],
+    "unresolved": 4
+  },
+  "verification": {
+    "exact_lad_q_and_geometry": 46,
+    "fatal_deaths_reproduced": 46,
+    "length_values_checked": 178523,
+    "surviving_endpoints_reproduced": 46,
+    "unmutated_clone_sources": 46
+  },
+  "verification_log_sha256": "92b599742f3addcc6ab9095e83373fee88d351fde820da0e24d96c63a93acdda"
+}
