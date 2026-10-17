@@ -24,7 +24,7 @@ SCHEMA = "m3c-actor-state/v1"
 
 # These are process-local caches or callables recreated by ``build_segment``.
 # In particular GridBatchSim's numba module cannot be copied/pickled.
-_SIM_SKIP = {"_det", "_kernels", "_owner", "_slot", "_food"}
+_SIM_SKIP = {"cfg", "_det", "_kernels", "_owner", "_slot", "_food"}
 _RUNTIME_SKIP = {"trace", "featurizer", "free_space_featurizer"}
 _TAG = "__m3c_actor_snapshot_type__"
 
@@ -54,7 +54,12 @@ def _copy_value(value: Any) -> Any:
     except ImportError:
         pass
     if isinstance(value, dict):
-        return {_copy_value(k): _copy_value(v) for k, v in value.items()}
+        # A simulator's food/corpse state can use tuple keys.  Encoding maps as
+        # pairs avoids turning such a key into an unhashable tagged dict.
+        return {
+            _TAG: "mapping",
+            "items": [[_copy_value(k), _copy_value(v)] for k, v in value.items()],
+        }
     if isinstance(value, list):
         return [_copy_value(v) for v in value]
     if isinstance(value, tuple):
@@ -102,6 +107,13 @@ def _restore_value(current: Any, saved: Any) -> Any:
             )
         if kind == "set":
             return {_restore_value(None, item) for item in saved["items"]}
+        if kind == "mapping":
+            old = current if isinstance(current, dict) else {}
+            out = {}
+            for raw_key, raw_value in saved["items"]:
+                key = _restore_value(None, raw_key)
+                out[key] = _restore_value(old.get(key), raw_value)
+            return out
         if kind == "object":
             if current is None or not hasattr(current, "__dict__"):
                 raise ValueError("actor snapshot needs a freshly constructed compatible object")
@@ -169,6 +181,28 @@ def _restore_network_state(net: Any, state: Mapping[str, Any]) -> None:
     net.load_state_dict(copied, strict=True)
 
 
+def _process_rng_state() -> Dict[str, Any]:
+    """Capture actor-process streams used by extensions around the main NumPy RNG."""
+    import torch
+
+    state: Dict[str, Any] = {
+        "python": random.getstate(),
+        "torch_cpu": torch.get_rng_state().detach().cpu().clone(),
+    }
+    if torch.cuda.is_available():
+        state["torch_cuda"] = [s.detach().cpu().clone() for s in torch.cuda.get_rng_state_all()]
+    return state
+
+
+def _restore_process_rng_state(state: Mapping[str, Any]) -> None:
+    import torch
+
+    random.setstate(state["python"])
+    torch.set_rng_state(state["torch_cpu"])
+    if "torch_cuda" in state and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(state["torch_cuda"])
+
+
 def capture_actor_state(
     sim: Any,
     runtime: Any,
@@ -201,6 +235,7 @@ def capture_actor_state(
         "runtime": _capture_object_state(runtime, _RUNTIME_SKIP),
         "nsb": _capture_object_state(nsb),
         "rng": _copy_value(rng),
+        "process_rng": _process_rng_state(),
         "net": _network_state(net),
         "live_seats": None if live_seats is None else np.asarray(live_seats).copy(),
         "pool_seats": None if pool_seats is None else np.asarray(pool_seats).copy(),
@@ -231,6 +266,8 @@ def restore_actor_state(
     _restore_object_state(nsb, snapshot["nsb"])
     _restore_value(rng, snapshot["rng"])
     _restore_network_state(net, snapshot["net"])
+    if "process_rng" in snapshot:
+        _restore_process_rng_state(snapshot["process_rng"])
     live = snapshot.get("live_seats")
     pool = snapshot.get("pool_seats")
     return {

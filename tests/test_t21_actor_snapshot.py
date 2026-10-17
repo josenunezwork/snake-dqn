@@ -70,48 +70,62 @@ def _objects():
 
 
 def test_actor_state_round_trip_restores_sim_runtime_nstep_rng_and_network():
+    original_python = random.getstate()
+    original_torch = torch.get_rng_state()
     sim, runtime, nsb, rng, net = _objects()
     live = np.array([[True, False, True], [False, True, True]])
     pool = np.array([["a", None, "b"], ["c", "d", None]], dtype=object)
-    saved = capture_actor_state(
-        sim,
-        runtime,
-        nsb,
-        rng,
-        net,
-        segment=11,
-        frame=8,
-        last=42,
-        live_seats=live,
-        pool_seats=pool,
-        extra={"pool_rng": np.random.default_rng(9)},
-    )
-    expected_rng = rng.integers(1 << 30, size=5)
-    expected_env = [r.draw() for r in sim._rngs]
-    expected_out = net(torch.ones((2, 3))).detach().clone()
+    try:
+        random.seed(804)
+        torch.manual_seed(805)
+        saved = capture_actor_state(
+            sim,
+            runtime,
+            nsb,
+            rng,
+            net,
+            segment=11,
+            frame=8,
+            last=42,
+            live_seats=live,
+            pool_seats=pool,
+            extra={"pool_rng": np.random.default_rng(9)},
+        )
+        expected_rng = rng.integers(1 << 30, size=5)
+        expected_env = [r.draw() for r in sim._rngs]
+        expected_python = random.random()
+        expected_torch = torch.rand(4)
+        expected_out = net(torch.ones((2, 3))).detach().clone()
 
-    # Mutation after capture proves this is a detached boundary, not aliases.
-    sim.frame[:] = 99
-    runtime.memory.prev_id[:] = 123
-    nsb._chunks[0][0][:] = 88
-    _ = rng.integers(1 << 30, size=7)
-    with torch.no_grad():
-        next(net.parameters()).add_(100)
+        # Mutation after capture proves this is a detached boundary, not aliases.
+        sim.frame[:] = 99
+        runtime.memory.prev_id[:] = 123
+        nsb._chunks[0][0][:] = 88
+        _ = rng.integers(1 << 30, size=7)
+        _ = random.random()
+        _ = torch.rand(4)
+        with torch.no_grad():
+            next(net.parameters()).add_(100)
 
-    restored = _objects()
-    result = restore_actor_state(saved, *restored)
-    got_sim, got_runtime, got_nsb, got_rng, got_net = restored
-    np.testing.assert_array_equal(got_sim.frame, [7, 9])
-    np.testing.assert_array_equal(got_runtime.memory.prev_id, np.full((2, 3), -1))
-    np.testing.assert_array_equal(got_nsb._chunks[0][0], [3, 4])
-    np.testing.assert_array_equal(got_rng.integers(1 << 30, size=5), expected_rng)
-    assert [r.draw() for r in got_sim._rngs] == expected_env
-    torch.testing.assert_close(got_net(torch.ones((2, 3))), expected_out, rtol=0, atol=0)
-    assert result["segment"] == 11 and result["frame"] == 8 and result["last"] == 42
-    np.testing.assert_array_equal(result["live_seats"], live)
-    assert result["pool_seats"].tolist() == pool.tolist()
-    assert isinstance(result["extra"]["pool_rng"], np.random.Generator)
-    assert result["extra"]["pool_rng"].integers(1000) == np.random.default_rng(9).integers(1000)
+        restored = _objects()
+        result = restore_actor_state(saved, *restored)
+        got_sim, got_runtime, got_nsb, got_rng, got_net = restored
+        np.testing.assert_array_equal(got_sim.frame, [7, 9])
+        np.testing.assert_array_equal(got_runtime.memory.prev_id, np.full((2, 3), -1))
+        np.testing.assert_array_equal(got_nsb._chunks[0][0], [3, 4])
+        np.testing.assert_array_equal(got_rng.integers(1 << 30, size=5), expected_rng)
+        assert [r.draw() for r in got_sim._rngs] == expected_env
+        assert random.random() == expected_python
+        torch.testing.assert_close(torch.rand(4), expected_torch, rtol=0, atol=0)
+        torch.testing.assert_close(got_net(torch.ones((2, 3))), expected_out, rtol=0, atol=0)
+        assert result["segment"] == 11 and result["frame"] == 8 and result["last"] == 42
+        np.testing.assert_array_equal(result["live_seats"], live)
+        assert result["pool_seats"].tolist() == pool.tolist()
+        assert isinstance(result["extra"]["pool_rng"], np.random.Generator)
+        assert result["extra"]["pool_rng"].integers(1000) == np.random.default_rng(9).integers(1000)
+    finally:
+        random.setstate(original_python)
+        torch.set_rng_state(original_torch)
 
 
 def test_actor_state_rejects_incompatible_live_shape_and_schema():
@@ -124,3 +138,60 @@ def test_actor_state_rejects_incompatible_live_shape_and_schema():
     saved["schema"] = "wrong"
     with pytest.raises(ValueError, match="unsupported"):
         restore_actor_state(saved, *_objects())
+
+
+def _step_grid(sim, runtime, actions):
+    """Exercise the actual actor order: prepare, selection, environment, observation carry."""
+    runtime.prepare(sim)
+    sim.step_with_policy(lambda _prepared: actions.copy())
+    runtime.observe_step(sim)
+
+
+def test_grid_batch_sim_continues_bitwise_after_actor_snapshot():
+    """A real grid sim keeps padded views and EnvRng streams after restoration."""
+    from src.simd_env.batch_sim import BatchSimConfig
+    from src.simd_env.grid_sim import GridBatchSim
+    from src.simd_env.vector61_policy import Vector61Runtime
+
+    cfg = BatchSimConfig(
+        num_envs=2, num_snakes=2, initial_food=5, max_food=6, max_capacity=32, mechanics_version=2
+    )
+    seeds = [571, 829]
+    sim = GridBatchSim(cfg, seeds=seeds, train_mode=True, allow_respawn=True, jit=False)
+    runtime = Vector61Runtime(backend="python")
+    runtime.bind(sim, np.ones((2, 2), dtype=bool))
+    nsb = _NSB()
+    actor_rng = np.random.default_rng(20261017)
+    net = torch.nn.Linear(3, 2)
+    actions = np.array([[1, 2], [0, 1]], dtype=np.int64)
+    for _ in range(3):
+        _step_grid(sim, runtime, actions)
+    saved = capture_actor_state(sim, runtime, nsb, actor_rng, net, segment=0, frame=3, last=0)
+
+    for _ in range(5):
+        _step_grid(sim, runtime, actions)
+    expected = {
+        name: value.copy()
+        for name, value in vars(sim).items()
+        if isinstance(value, np.ndarray) and name not in {"_owner", "_slot", "_food"}
+    }
+    expected_env_rng = [env_rng._rng.getstate() for env_rng in sim._rngs]
+    expected_runtime = runtime._carry_state.copy()
+
+    restored_sim = GridBatchSim(cfg, seeds=seeds, train_mode=True, allow_respawn=True, jit=False)
+    restored_runtime = Vector61Runtime(backend="python")
+    restored_runtime.bind(restored_sim, np.ones((2, 2), dtype=bool))
+    restore_actor_state(
+        saved,
+        restored_sim,
+        restored_runtime,
+        _NSB(),
+        np.random.default_rng(1),
+        torch.nn.Linear(3, 2),
+    )
+    for _ in range(5):
+        _step_grid(restored_sim, restored_runtime, actions)
+    for name, value in expected.items():
+        np.testing.assert_array_equal(getattr(restored_sim, name), value, err_msg=name)
+    assert [env_rng._rng.getstate() for env_rng in restored_sim._rngs] == expected_env_rng
+    np.testing.assert_array_equal(restored_runtime._carry_state, expected_runtime)

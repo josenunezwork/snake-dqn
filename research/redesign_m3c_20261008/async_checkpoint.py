@@ -187,6 +187,11 @@ class AsyncCheckpointer:
         self._lock = threading.Lock()
         self._prune_lock = threading.Lock()
         self._pending: set[str] = set()
+        self._latest_name = None
+        self._local_complete_name = None
+        self._durable_complete_name = None
+        self._last_local_failed_transition = -1
+        self._last_local_transition = -1
         self._last_failed_transition = -1
         self._last_durable_transition = -1
         self._active = False
@@ -241,6 +246,8 @@ class AsyncCheckpointer:
                 continue
             started = time.perf_counter()
             name = f"snapshot-{transitions:020d}-{uuid.uuid4().hex[:8]}"
+            with self._lock:
+                self._latest_name = name
             temporary = self.local_dir / f".tmp-{name}"
             try:
                 temporary.mkdir(parents=True)
@@ -267,6 +274,8 @@ class AsyncCheckpointer:
                 os.replace(temporary, self.local_dir / name)
                 _fsync_dir(self.local_dir)
                 with self._lock:
+                    self._local_complete_name = name
+                    self._last_local_transition = max(self._last_local_transition, transitions)
                     if self.durable_dir is not None:
                         self._pending.add(name)
                         # Coalesce an unstarted upload to the newest snapshot. Only
@@ -302,6 +311,10 @@ class AsyncCheckpointer:
                     }
                 )
             except Exception as exc:
+                with self._lock:
+                    self._last_local_failed_transition = max(
+                        self._last_local_failed_transition, transitions
+                    )
                 self._events.put(
                     {
                         "event": "checkpoint_local_failed",
@@ -364,6 +377,7 @@ class AsyncCheckpointer:
                         }
                     )
                     with self._lock:
+                        self._durable_complete_name = name
                         self._last_durable_transition = max(
                             self._last_durable_transition, int(name.split("-")[1])
                         )
@@ -413,7 +427,12 @@ class AsyncCheckpointer:
         for worker in (self._writer, self._copier):
             worker.join(max(0.0, deadline - time.monotonic()))
         with self._lock:
-            pending = bool(self._pending) or (
-                self._last_failed_transition > self._last_durable_transition
+            pending = (
+                bool(self._pending)
+                or self._latest_name != self._local_complete_name
+                or (
+                    self.durable_dir is not None
+                    and self._latest_name != self._durable_complete_name
+                )
             )
         return not (self._writer.is_alive() or self._copier.is_alive() or pending)
