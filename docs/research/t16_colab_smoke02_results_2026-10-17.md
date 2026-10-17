@@ -45,3 +45,48 @@ Mac baseline: 5,283 hero / 5,459 self-play tr/s, learner-bound at ~21 upd/s.
 
 Rejected as a "speed-up": `--update-every 2` (halves the replay ratio). `--batch-scale 4 --lr-scale sqrt` only
 as a pre-registered arm after steps 1-2.
+
+## T17 implementation and smoke-03 pin (2026-10-17)
+
+Smoke-03 implementation pin: `fd3f0fc69214a6f42db591061ee9f5142f1d6e3a` (rebased on
+`origin/main`; the notebook pins this implementation commit). P1–P4 are implemented:
+opt-in persistent gather workers, exact running action-window counts, stop-aware actor
+puts with continuous queue draining, and the four 600-second smoke-03 configurations.
+The default gather remains serial and the T16 suite remains the runner default. Sampling
+draw order, replay ratio, batch sizes, optimizer, precision, and recipe devices are unchanged.
+The profile attempt records 60 active seconds after a 60-second loop warm-up and requires
+hash-verified learner profile artifacts; truncated captures cannot be resumed as complete.
+
+CPU micro-benchmark on Apple M5 Pro, Python 3.12.3: synthetic **anonymous mmap** rings with
+nonzero pack-valid observations, `--obs-pack`, 768 agent + 256 on-policy label rows,
+30 warm-up calls and 300 measured `_sample_fast` calls per setting. These are host-gather
+times, including serial sampling, with no GPU transfer or training. Existing background
+jobs were left running; timings are descriptive, not an isolated-machine throughput claim.
+
+| Gather threads | 2 actors median ms/update | 2 actors mean | 3 actors median ms/update | 3 actors mean |
+|---:|---:|---:|---:|---:|
+| 0 (serial) | 3.113 | 3.128 | 3.448 | 3.486 |
+| 2 | 1.679 | 1.686 | 1.962 | 1.977 |
+| 3 | 1.791 | 1.827 | 1.389 | 1.423 |
+| 4 | 1.205 | 1.252 | 1.403 | 1.411 |
+
+Reproduce with `SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
+./venv/bin/python research/redesign_m3c_20261008/bench_gather.py --packed --actors 2
+--warmup 30 --updates 300` (repeat with `--actors 3`).
+
+Validation: the requested `pytest tests/ -k "obs_pack or m3c or t16" -q` selection passed
+**172 tests**, with two archived-module collection skips and the explicit MPS test deselected
+to keep execution on CPU. Final focused validation passed **97 tests**, including all **40 T16
+tests**, the new gather/shutdown tests, and profiler regressions (one MPS test deselected).
+The frozen pre-T17 oracle checks replay and
+label indices, RNG state, full staging bytes (including padding), and compaction across
+packed/unpacked, wrapped 1/2/3-actor rings and 2/3/4 gather threads. Tiny-queue actors exit
+with code 0; collapse decisions match the deque reference at the same transition counts.
+Black, isort, flake8, and diff whitespace checks pass for changed Python files.
+
+Supplemental learner/actor/bank/compile checks produced **71 passed, 13 failed**: all failures
+were CPU Inductor compilation/loading checks in `test_perf_compile.py`. The local toolchain
+cannot resolve `@rpath/libc++.1.dylib` (no LC_RPATH), independently reproduced by compiling
+`lambda x: x + 1`, including with a fresh private cache. This does not qualify CUDA compilation.
+No shared environment was modified, no input tarball was rebuilt, and no tmux jobs were touched.
+The notebook is ready for the owner-run Colab smoke-03; **84 updates/s is not yet demonstrated**.
