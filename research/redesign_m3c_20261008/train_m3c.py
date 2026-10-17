@@ -1698,6 +1698,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="directory containing SHA-pinned static-pool checkpoints (default: SNAKE_CKPT_DIR)",
     )
     ap.add_argument(
+        "--league-b8-checkpoint",
+        default=None,
+        help="explicit SHA-pinned B8-s3 pool checkpoint (defaults to --league-checkpoint-dir)",
+    )
+    ap.add_argument(
         "--max-wall-seconds",
         type=float,
         default=0.0,
@@ -3763,7 +3768,6 @@ def main_multi(args) -> int:
                 )
                 st.update(
                     td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0,
-                    replay_rows=0, live_rows_by_policy={}, frozen_forward_gpu_s=0.0,
                 )
                 st["greedy_boost_length_decisions"] = np.zeros(4, dtype=np.int64)
                 st["greedy_boost_length_boosts"] = np.zeros(4, dtype=np.int64)
