@@ -45,6 +45,25 @@ def test_race_uses_finite_uncontested_sentinel_and_respects_walls() -> None:
     assert margin == 7  # width * height + 1
 
 
+def test_race_rejects_invalid_hero_start_before_compiled_kernel() -> None:
+    assert race_features((-1, 0), [(1, 0)], 3, 1, set(), {}) == (0, 0.0, 0)
+    assert race_features((0, 0), [], 0, 1, set(), {}) == (0, 0.0, 0)
+
+
+def test_compiled_race_matches_reference_on_random_hand_grids() -> None:
+    rng = np.random.default_rng(17)
+    for _ in range(25):
+        width, height = 7, 5
+        cells = [(x, y) for y in range(height) for x in range(width)]
+        hero = cells[int(rng.integers(len(cells)))]
+        blocked = {cell for cell in cells if rng.random() < 0.16 and cell != hero}
+        heads = [cell for cell in cells if rng.random() < 0.08]
+        release = {cell: int(rng.integers(1, 8)) for cell in cells if rng.random() < 0.12}
+        expected = race_features(hero, heads, width, height, blocked, release, compiled=False)
+        actual = race_features(hero, heads, width, height, blocked, release, compiled=True)
+        assert actual == expected
+
+
 def _sim() -> SimpleNamespace:
     # Hero faces right at (1, 1), opponent is at (5, 1); straight normal move
     # lands at (2, 1), leaving a valid post-action arrival race.

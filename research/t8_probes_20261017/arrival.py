@@ -105,10 +105,19 @@ def replay_world(
         world.runtime.prepare = original
 
 
-def extract_bank(bank_root: Path, out: Path, *, limit_worlds: int | None = None) -> dict[str, Any]:
+def extract_bank(
+    bank_root: Path,
+    out: Path,
+    *,
+    limit_worlds: int | None = None,
+    shard_index: int = 0,
+    shard_count: int = 1,
+) -> dict[str, Any]:
     """Write state IDs and 18 read-only T8 values for the complete T5 bank."""
     restore.configure_cpu()
     bank_root, out = Path(bank_root), Path(out)
+    if not 0 <= shard_index < shard_count:
+        raise ValueError("shard_index must lie in [0, shard_count)")
     receipt_path = out.with_suffix(".json")
     if out.exists() or receipt_path.exists():
         raise FileExistsError(f"refusing to overwrite arrival extraction output: {out}")
@@ -135,7 +144,9 @@ def extract_bank(bank_root: Path, out: Path, *, limit_worlds: int | None = None)
     started = time.perf_counter()
     for split in ("train", "holdout"):
         worlds = restore._load_split(bank_root, split)
-        selected = sorted(worlds)
+        selected = [
+            world_id for world_id in sorted(worlds) if world_id % shard_count == shard_index
+        ]
         if limit_worlds is not None:
             selected = selected[:limit_worlds]
         for world_id in selected:
@@ -179,14 +190,28 @@ def extract_bank(bank_root: Path, out: Path, *, limit_worlds: int | None = None)
         raise ValueError("duplicate restored T5 state identity")
     if limit_worlds is None:
         source_index = {state_id: index for index, state_id in enumerate(ids)}
-        if set(ids.tolist()) != set(canonical_ids.tolist()):
+        wanted = np.asarray(
+            [
+                state_id
+                for state_id in canonical_ids
+                if int(str(state_id)[6:11]) % shard_count == shard_index
+            ]
+        )
+        if set(ids.tolist()) != set(wanted.tolist()):
             raise ValueError(
-                "arrival restoration does not cover exactly the canonical T5 state set"
+                "arrival restoration does not cover exactly its canonical T5 state partition"
             )
-        order = np.asarray([source_index[state_id] for state_id in canonical_ids], dtype=np.int64)
+        order = np.asarray([source_index[state_id] for state_id in wanted], dtype=np.int64)
         ids = ids[order]
         rows = [rows[index] for index in order]
-        if not np.array_equal(np.asarray([row["world"] for row in rows]), canonical_worlds):
+        wanted_worlds = np.asarray(
+            [
+                world
+                for state_id, world in zip(canonical_ids, canonical_worlds)
+                if int(str(state_id)[6:11]) % shard_count == shard_index
+            ]
+        )
+        if not np.array_equal(np.asarray([row["world"] for row in rows]), wanted_worlds):
             raise ValueError("arrival restoration world identities differ from canonical T5 rows")
     after = {str(path): sha256(path) for path in input_paths}
     if after != before:
@@ -212,6 +237,7 @@ def extract_bank(bank_root: Path, out: Path, *, limit_worlds: int | None = None)
         "output": str(out),
         "output_sha256": sha256(out),
         "states": len(rows),
+        "shard": {"index": shard_index, "count": shard_count},
         "feature_names": [f"a{action}_{name}" for action in range(6) for name in FEATURE_NAMES],
         "feature_conventions": {
             "voronoi": "hero arrival strictly before the simultaneous opponent-head flood",
@@ -234,8 +260,21 @@ def main() -> None:
     parser.add_argument("--bank", type=Path, default=DEFAULT_BANK)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--limit-worlds", type=int)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
     args = parser.parse_args()
-    print(json.dumps(extract_bank(args.bank, args.out, limit_worlds=args.limit_worlds), indent=2))
+    print(
+        json.dumps(
+            extract_bank(
+                args.bank,
+                args.out,
+                limit_worlds=args.limit_worlds,
+                shard_index=args.shard_index,
+                shard_count=args.shard_count,
+            ),
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

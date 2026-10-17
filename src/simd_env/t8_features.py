@@ -1,10 +1,11 @@
 """Arrival-race topology features for the T8 diagnostic.
 
-The functions here are deliberately read-only, plain NumPy/Python helpers.  They
-model a hypothetical hero action exactly as T5 does, then compare the hero's
-tail-aware arrival time with a simultaneous, unit-speed flood seeded at every
-live opponent head.  This is a diagnostic feature extractor; it never chooses
-an action or changes simulator state.
+The functions here are deliberately read-only helpers.  They model a
+hypothetical hero action exactly as T5 does, then compare the hero's tail-aware
+arrival time with a simultaneous, unit-speed flood seeded at every live
+opponent head.  A compiled NumPy-array kernel is parity-tested against the
+small Python reference.  This is a diagnostic feature extractor; it never
+chooses an action or changes simulator state.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from collections import deque
 from typing import Dict, Iterable, Set, Tuple
 
 import numpy as np
+from numba import njit
 
 from src.simd_env.t5_features import _advance, _body, _log_area, _release_map
 
@@ -68,6 +70,100 @@ def _arrival_times(
     return times
 
 
+@njit(cache=True, nogil=True)
+def _race_kernel(
+    hero_x: int,
+    hero_y: int,
+    heads: np.ndarray,
+    blocked: np.ndarray,
+    release: np.ndarray,
+) -> tuple[int, float, int]:
+    """Compiled equivalent of the two tail-aware reference floods."""
+    height, width = blocked.shape
+    hero = np.full((height, width), -1, np.int32)
+    opponent = np.full((height, width), -1, np.int32)
+    qx = np.empty(height * width, np.int32)
+    qy = np.empty(height * width, np.int32)
+    head, tail = 0, 1
+    hero[hero_y, hero_x] = 0
+    qx[0], qy[0] = hero_x, hero_y
+    while head < tail:
+        x, y = qx[head], qy[head]
+        head += 1
+        distance = hero[y, x] + 1
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if (
+                0 <= nx < width
+                and 0 <= ny < height
+                and hero[ny, nx] < 0
+                and not blocked[ny, nx]
+                and (release[ny, nx] == 0 or distance >= release[ny, nx])
+            ):
+                hero[ny, nx] = distance
+                qx[tail], qy[tail] = nx, ny
+                tail += 1
+    head = 0
+    tail = 0
+    for index in range(heads.shape[0]):
+        x, y = heads[index, 0], heads[index, 1]
+        if 0 <= x < width and 0 <= y < height and opponent[y, x] < 0:
+            opponent[y, x] = 0
+            qx[tail], qy[tail] = x, y
+            tail += 1
+    while head < tail:
+        x, y = qx[head], qy[head]
+        head += 1
+        distance = opponent[y, x] + 1
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if (
+                0 <= nx < width
+                and 0 <= ny < height
+                and opponent[ny, nx] < 0
+                and not blocked[ny, nx]
+                and (release[ny, nx] == 0 or distance >= release[ny, nx])
+            ):
+                opponent[ny, nx] = distance
+                qx[tail], qy[tail] = nx, ny
+                tail += 1
+    region, strict, contested, margin = 0, 0, 0, width * height + 1
+    for y in range(height):
+        for x in range(width):
+            if hero[y, x] >= 0:
+                region += 1
+                if opponent[y, x] < 0 or hero[y, x] < opponent[y, x]:
+                    strict += 1
+                else:
+                    contested += 1
+                    if hero[y, x] < margin:
+                        margin = hero[y, x]
+    if region == 0:
+        return 0, 0.0, 0
+    return strict, contested / region, margin
+
+
+def _race_features_compiled(
+    hero_start: Cell,
+    opponent_heads: Iterable[Cell],
+    width: int,
+    height: int,
+    permanently_blocked: Set[Cell],
+    release: Dict[Cell, int],
+) -> tuple[int, float, int]:
+    """Marshal sparse reference inputs for the compiled BFS kernel."""
+    blocked = np.zeros((height, width), dtype=np.bool_)
+    releases = np.zeros((height, width), dtype=np.int32)
+    for x, y in permanently_blocked:
+        if _inside((x, y), width, height):
+            blocked[y, x] = True
+    for (x, y), time in release.items():
+        if _inside((x, y), width, height):
+            releases[y, x] = time
+    heads = np.asarray(list(opponent_heads), dtype=np.int32).reshape(-1, 2)
+    return _race_kernel(hero_start[0], hero_start[1], heads, blocked, releases)
+
+
 def race_features(
     hero_start: Cell,
     opponent_heads: Iterable[Cell],
@@ -75,6 +171,8 @@ def race_features(
     height: int,
     permanently_blocked: Set[Cell],
     release: Dict[Cell, int],
+    *,
+    compiled: bool = True,
 ) -> tuple[int, float, int]:
     """Return raw arrival-race measurements for one post-action state.
 
@@ -87,6 +185,12 @@ def race_features(
     this deliberately differs from both an immediate contest (zero) and an
     invalid action row (all feature values zero).
     """
+    if width <= 0 or height <= 0 or not _inside(hero_start, width, height):
+        return 0, 0.0, 0
+    if compiled:
+        return _race_features_compiled(
+            hero_start, opponent_heads, width, height, permanently_blocked, release
+        )
     hero = _arrival_times((hero_start,), width, height, permanently_blocked, release)
     if not hero:
         return 0, 0.0, 0
