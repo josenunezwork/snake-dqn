@@ -118,17 +118,39 @@ def main() -> int:
     parser.add_argument(
         "--reference", action="store_true", help="create the Mac reference artifact"
     )
+    parser.add_argument("--verify-reference", type=Path)
     parser.add_argument("--bank", type=Path, required=True)
     parser.add_argument("--b8", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    if not args.reference:
+    if not args.reference and args.verify_reference is None:
         raise SystemExit("Q1 parity reference creation requires explicit --reference")
     # The historical runner supplies the action/frame oracle; Q1 wraps the
     # resulting artifact with its own namespace so it cannot be confused with
     # a T23 reference.
-    run_sample(args.bank, args.b8, args.out)
-    return 0
+    runtime = run_sample(args.bank, args.b8, args.out)
+    if args.verify_reference is None:
+        return 0
+    reference = json.loads(args.verify_reference.read_text())
+    compared = compare_artifacts(reference, runtime)
+    from research.q0q1_20261017.q1_evaluate import source_manifest
+
+    receipt = {
+        "schema": "q1-runtime-parity-receipt/v1",
+        "pass": compared["pass"],
+        "bank_sha256": hashlib.sha256(args.bank.read_bytes()).hexdigest(),
+        "b8_sha256": t23.B8_SHA256,
+        "source_manifest": source_manifest(),
+        "environment": {
+            "sha256": hashlib.sha256(canonical(runtime["runtime"]).encode()).hexdigest(),
+            "runtime": runtime["runtime"],
+        },
+        "reference": reference,
+        "runtime_artifact": runtime,
+        "comparison": compared,
+    }
+    args.out.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
+    return 0 if receipt["pass"] else 1
 
 
 if __name__ == "__main__":
