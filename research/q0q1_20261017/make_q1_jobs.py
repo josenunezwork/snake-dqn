@@ -208,8 +208,8 @@ def _stage_evidence(
 ) -> Path:
     """Copy direct JSON or safely extract a hash-verified queue archive member."""
     if source.suffixes[-2:] != [".tar", ".gz"]:
-        value = _json_object(source, "evidence")
-        target.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+        _json_object(source, "evidence")
+        target.write_bytes(source.read_bytes())
         return target
     sidecar = source.with_name(source.name + ".sha256")
     fields = sidecar.read_text().split() if sidecar.is_file() else []
