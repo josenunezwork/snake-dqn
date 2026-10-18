@@ -1,6 +1,6 @@
 {
   "id": "t23-example-eval-0-of-3",
-  "commit": "0000000000000000000000000000000000000000",
+  "commit": "100bb43a7c976a5d4ab751002441964fdb8b2724",
   "script": "research/colab_queue/examples/t23_eval_shard.sh",
   "env": {
     "T23_ROOT": "/content/drive/MyDrive/t16_colab/t23-queue",

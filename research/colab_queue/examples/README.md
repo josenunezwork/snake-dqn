@@ -20,6 +20,6 @@ fallback. The registered evaluator needs all five seeds. It writes parity and
 evaluation receipts locally before packaging them, so it cannot reproduce the
 prior Drive duplicate-directory failure.
 
-The all-zero 40-character commit fields are placeholders. Replace each with the
-published full commit SHA when deliberately creating a new, authorized study;
-they are not runnable T23 requests.
+The commit fields pin the published queue adapters and repository setup. When
+adapting these examples for an authorized study, use its published full commit
+and registered launcher parameters; these guarded specs are not T23 relaunch requests.

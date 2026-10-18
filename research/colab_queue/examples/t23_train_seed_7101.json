@@ -1,6 +1,6 @@
 {
   "id": "t23-example-train-7101",
-  "commit": "0000000000000000000000000000000000000000",
+  "commit": "100bb43a7c976a5d4ab751002441964fdb8b2724",
   "script": "research/colab_queue/examples/t23_train_seed.sh",
   "env": {
     "T23_SEED": "7101",
