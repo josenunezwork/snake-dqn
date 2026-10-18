@@ -33,9 +33,7 @@ def test_mass_command_binds_job_local_partials_workers_and_verified_resume(tmp_p
         ),
         tmp_path / "local",
     )
-    assert command[command.index("--partials-dir") + 1] == str(
-        output.resolve() / "mass-partials"
-    )
+    assert command[command.index("--partials-dir") + 1] == str(output.resolve() / "mass-partials")
     assert command[command.index("--workers") + 1] == "2"
     assert command[command.index("--resume-partials") + 1] == str(prior.resolve())
     assert command[command.index("--resume-partials-sha256") + 1] == "a" * 64
@@ -49,7 +47,9 @@ def test_mass_command_binds_job_local_partials_workers_and_verified_resume(tmp_p
         ({"Q0Q1_MASS_WORKERS": "0"}, "positive integer"),
     ],
 )
-def test_mass_command_refuses_incomplete_or_invalid_optional_bindings(tmp_path, overrides, error) -> None:
+def test_mass_command_refuses_incomplete_or_invalid_optional_bindings(
+    tmp_path, overrides, error
+) -> None:
     output = tmp_path / "fresh-output"
     output.mkdir()
     with pytest.raises(RuntimeError, match=error):

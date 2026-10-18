@@ -670,10 +670,8 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # preserve an honest incomplete receipt
         packet = {"schema": SCHEMA, "status": "INCOMPLETE", "error": f"{type(exc).__name__}: {exc}"}
     (args.out / "receipt.json").write_text(json.dumps(packet, indent=2, sort_keys=True) + "\n")
-    print(
-        f"Q0b progress: packet receipt written; status={packet.get('qualification', {}).get('status', packet.get('status'))}",
-        flush=True,
-    )
+    packet_status = packet.get("qualification", {}).get("status", packet.get("status"))
+    print(f"Q0b progress: packet receipt written; status={packet_status}", flush=True)
     return 0 if packet.get("qualification", {}).get("status") == "QUALIFIED" else 2
 
 
