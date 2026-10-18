@@ -6,11 +6,16 @@ identity receipt match; analysis refuses duplicate or substituted B8 rows.
 """
 
 from __future__ import annotations
-import argparse, hashlib, json, os, platform
+
+import argparse
+import hashlib
+import json
+import os
+import platform
 from pathlib import Path
 from typing import Any, Sequence
-from research.q0q1_20261017 import q1_bank
-from research.q0q1_20261017 import q1_parity
+
+from research.q0q1_20261017 import q1_bank, q1_parity
 from research.t23_r0_screen_20261017 import evaluate as t23
 
 SCHEMA = "q1-eval-shard/v1"
@@ -28,15 +33,13 @@ def sha256(path: Path) -> str:
 
 
 def source_manifest() -> dict[str, str]:
+    """Pin the transitive simulator/model execution plus Q1-owned adapters."""
     root = Path(__file__).resolve().parents[2]
-    names = (
-        "research/q0q1_20261017/q1_bank.py",
-        "research/q0q1_20261017/q1_evaluate.py",
-        "research/t23_r0_screen_20261017/evaluate.py",
-        "research/apex_safety_20260926/dev_screen.py",
-        "research/redesign_scope_20261007/grid_h5000_identity.py",
-    )
-    return {name: sha256(root / name) for name in names}
+    result = t23.source_manifest()
+    for name in ("q1_bank.py", "q1_evaluate.py", "q1_parity.py"):
+        relative = "research/q0q1_20261017/" + name
+        result[relative] = sha256(root / relative)
+    return result
 
 
 def validate_provenance(value: dict[str, Any], arm: str, seed: int, checkpoint_sha256: str) -> None:
@@ -53,7 +56,10 @@ def validate_provenance(value: dict[str, Any], arm: str, seed: int, checkpoint_s
         raise ValueError("candidate provenance lacks Q1 arm/seed/8M/clean/parity binding")
     hashes = ("checkpoint_sha256", "environment_sha256", "runtime_parity_receipt_sha256")
     if value.get("tripwire_triggered") is not False or any(
-        not isinstance(value.get(key), str) or len(value[key]) != 64 for key in hashes
+        not isinstance(value.get(key), str)
+        or len(value[key]) != 64
+        or any(c not in "0123456789abcdef" for c in value[key])
+        for key in hashes
     ):
         raise ValueError(
             "candidate provenance has tripwire or missing environment/runtime parity binding"
@@ -65,14 +71,51 @@ def validate_provenance(value: dict[str, Any], arm: str, seed: int, checkpoint_s
     overshoot = counters.get("transition_budget_overshoot")
     bound = counters.get("registered_overshoot_bound")
     if (
-        not isinstance(decisions, int)
-        or not isinstance(overshoot, int)
-        or not isinstance(bound, int)
+        type(decisions) is not int
+        or type(overshoot) is not int
+        or type(bound) is not int
         or not 8_000_000 <= decisions <= 8_000_000 + bound
         or overshoot != decisions - 8_000_000
         or not 0 <= bound <= 1_000_000
     ):
         raise ValueError("candidate actual learner counter or overshoot bound is invalid")
+    actors, worlds, seats = (counters.get(k) for k in ("actors", "worlds", "learner_seats"))
+    if (
+        any(type(v) is not int or v <= 0 for v in (actors, worlds, seats))
+        or worlds != 128
+        or seats != (3 if arm in ("A", "B") else 1)
+        or bound != actors * worlds * seats - 1
+    ):
+        raise ValueError("candidate overshoot bound differs from registered actor packet")
+    for name in ("environment", "config"):
+        content = value.get(name)
+        if (
+            not isinstance(content, dict)
+            or value.get(name + "_sha256")
+            != hashlib.sha256(canonical(content).encode()).hexdigest()
+        ):
+            raise ValueError(f"candidate {name} hash does not bind recorded content")
+    root = Path(__file__).resolve().parents[2]
+    if value.get("source_sha256") != sha256(root / "research/redesign_m3c_20261008/train_m3c.py"):
+        raise ValueError("candidate trainer differs from registered source")
+    config = value["config"]
+    required_config = {
+        "seed": str(seed),
+        "transitions": "8000000",
+        "worlds": "128",
+        "learner_seats": str(seats),
+        "actors": str(actors),
+        "reward": "mass",
+        "kill_scale": "0.0",
+        "batch_scale": "2",
+        "obs_version": "bv8",
+        "anchor_mode": "v8margin",
+        "namespace": q1_bank.training_namespace(arm),
+        "schedule_package": "mature" if arm in ("B", "D") else "restart",
+        "collection_profile": "legacy" if arm in ("A", "B") else "task-aligned-n1",
+    }
+    if any(str(config.get(k)) != expected for k, expected in required_config.items()):
+        raise ValueError("candidate recipe differs from registered arm")
 
 
 def validate_candidate_provenance(
@@ -146,7 +189,9 @@ def run(
     index, count = _split(shard)
     bank = q1_bank.load_world_bank(bank_path)
     worlds = shard_worlds(q1_bank.worlds_for_seed(bank, seed), index, count)
-    context = t23._context(max(1, workers))
+    if workers != 1:
+        raise ValueError("Q1 uses one CPU thread per world; parallelize immutable shards")
+    context = t23._context(1)
     profile = str(context["profile"].digest)
     if bank["profile"].get("base_profile_digest") != profile:
         raise ValueError("Q1 bank profile differs from active evaluation profile")
@@ -171,6 +216,8 @@ def run(
     q1_parity.validate_runtime_receipt(
         parity, bank_sha256=q1_bank_digest, b8_sha256=b8_sha, source_manifest=source_manifest()
     )
+    if parity["runtime_artifact"]["runtime"] != q1_parity.runtime_environment():
+        raise ValueError("parity receipt belongs to a different evaluation runtime")
     provenance = (
         None
         if arm == "B8"

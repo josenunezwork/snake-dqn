@@ -1,13 +1,15 @@
 """Q1 parity receipt comparison, retaining T23's exact fail-closed comparator."""
 
 from __future__ import annotations
+
+import argparse
 import hashlib
 import json
-import argparse
 from pathlib import Path
 from typing import Any, Mapping
-from research.t23_r0_screen_20261017 import parity as t23
+
 from research.q0q1_20261017 import q1_bank
+from research.t23_r0_screen_20261017 import parity as t23
 
 SCHEMA = "q1-parity/v1"
 HORIZON = 5000
@@ -16,6 +18,31 @@ MIX_COUNTS = {"scripted": 2, "frozen": 1, "mixed": 1}
 
 def canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def runtime_environment() -> dict[str, Any]:
+    """Identify the CPU runtime used for both the probe and scored shards."""
+    import platform
+    import sys
+
+    import llvmlite
+    import numba
+    import numpy
+    import torch
+
+    return {
+        "python": sys.version,
+        "platform": platform.platform(),
+        "system": platform.system(),
+        "host": platform.node(),
+        "machine": platform.machine(),
+        "torch": torch.__version__,
+        "numpy": numpy.__version__,
+        "numba": numba.__version__,
+        "llvmlite": llvmlite.__version__,
+        "cpu_threads": 1,
+        "gpu_used": False,
+    }
 
 
 def validate_runtime_receipt(
@@ -44,9 +71,45 @@ def validate_runtime_receipt(
     compared = compare_artifacts(reference, runtime)
     if not compared.get("pass") or value.get("comparison") != compared:
         raise ValueError("runtime parity receipt comparison is forged or stale")
-    runtime_environment = hashlib.sha256(canonical(runtime.get("runtime")).encode()).hexdigest()
-    if environment.get("sha256") != runtime_environment:
+    environment_hash = hashlib.sha256(canonical(runtime.get("runtime")).encode()).hexdigest()
+    if environment.get("sha256") != environment_hash:
         raise ValueError("runtime parity environment hash does not bind runtime artifact")
+    bank = q1_bank.load_world_bank()
+    expected = {str(w["world_seed"]): w for w in bank["parity_worlds"]}
+    source_hash = hashlib.sha256(canonical(dict(source_manifest)).encode()).hexdigest()
+    for artifact in (reference, runtime):
+        if (
+            artifact.get("bank_sha256") != bank_sha256
+            or artifact.get("source_sha256") != source_hash
+            or artifact.get("profile_digest") != bank["profile_semantic_sha256"]
+        ):
+            raise ValueError("parity trace source/bank/profile is not the registered Q1 identity")
+        if (
+            artifact.get("runtime", {}).get("cpu_threads") != 1
+            or artifact.get("runtime", {}).get("gpu_used") is not False
+        ):
+            raise ValueError("parity trace must use one CPU thread")
+        if {row["world_id"] for row in artifact["worlds"]} != set(expected):
+            raise ValueError("parity trace does not use the reserved Q1 worlds")
+        for row in artifact["worlds"]:
+            world = expected[row["world_id"]]
+            if (
+                row["world_seed"] != world["world_seed"]
+                or row["mix"] != world["mix"]
+                or row["roster_digest"] != world["roster_semantic_sha256"]
+            ):
+                raise ValueError("parity trace roster/world mismatch")
+            if (
+                row["world_digest"]
+                != hashlib.sha256(canonical(row["frame_digests"]).encode()).hexdigest()
+            ):
+                raise ValueError("parity frame trace hash mismatch")
+    if reference["runtime"].get("system") != "Darwin":
+        raise ValueError("Q1 parity reference must originate on the Mac")
+    for left, right in zip(reference["worlds"], runtime["worlds"]):
+        # The historical comparator diagnoses Q ties, while masks are exact contracts.
+        if [x.get("mask") for x in left["actions"]] != [x.get("mask") for x in right["actions"]]:
+            raise ValueError("parity action masks differ")
 
 
 def compare_artifacts(mac: Mapping[str, Any], colab: Mapping[str, Any]) -> dict[str, Any]:
@@ -75,8 +138,8 @@ def run_sample(bank_path: Path, b8_path: Path, out: Path) -> dict[str, Any]:
     worlds = list(bank["parity_worlds"])
     if {m: sum(w["mix"] == m for w in worlds) for m in MIX_COUNTS} != MIX_COUNTS:
         raise ValueError("Q1 parity allocation is not 2/1/1")
-    from research.t23_r0_screen_20261017 import evaluate
     from research.redesign_scope_20261007 import grid_h5000_identity as gid
+    from research.t23_r0_screen_20261017 import evaluate
 
     context = evaluate._context(1)
     actions_worlds = []
@@ -108,15 +171,13 @@ def run_sample(bank_path: Path, b8_path: Path, out: Path) -> dict[str, Any]:
         "profile_digest": bank["profile_semantic_sha256"],
         "source_sha256": hashlib.sha256(
             canonical(
-                {"q1_parity": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+                __import__(
+                    "research.q0q1_20261017.q1_evaluate", fromlist=["source_manifest"]
+                ).source_manifest()
             ).encode()
         ).hexdigest(),
         "worlds": actions_worlds,
-        "runtime": {
-            "python": __import__("sys").version.split()[0],
-            "platform": __import__("platform").platform(),
-            "cpu_threads": 1,
-        },
+        "runtime": runtime_environment(),
     }
     out.write_text(json.dumps(artifact, sort_keys=True, indent=2) + "\n")
     return artifact
@@ -132,6 +193,10 @@ def main() -> int:
     parser.add_argument("--b8", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    if args.reference and args.verify_reference is not None:
+        parser.error("choose reference creation or runtime verification")
+    if args.reference and __import__("platform").system() != "Darwin":
+        parser.error("Mac reference creation requires Darwin")
     if not args.reference and args.verify_reference is None:
         raise SystemExit("Q1 parity reference creation requires explicit --reference")
     # The historical runner supplies the action/frame oracle; Q1 wraps the
