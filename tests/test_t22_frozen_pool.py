@@ -309,6 +309,9 @@ def run_recorded_pair(
     frames: int = 96,
     long_body_length: int = 0,
     force_lifetime_boundary: bool = True,
+    device: str = "cpu",
+    checkpoint_dir: Path | None = None,
+    b8_checkpoint: Path | None = None,
 ):
     """Compare real policies on lockstep worlds, including scripted forced mortality.
 
@@ -325,6 +328,7 @@ def run_recorded_pair(
     from src.simd_env.ego_raster_bv8 import v8_scalars
 
     torch.set_num_threads(1)
+    checkpoint_dir = checkpoint_dir or CHECKPOINTS
     args = trainer.default_args()
     args.worlds, args.seed, args.learner_seats, args.v61_backend = 12, seed, 3, "numba"
     args.obs_version = "bv8"
@@ -333,14 +337,45 @@ def run_recorded_pair(
     for module in (reference_module(), optimized):
         sim, runtime, _, _ = trainer.build_segment(args, ctx, 0, 0.99)
         pool = module.build_static_pool(
-            module.default_pool_identities(str(CHECKPOINTS)),
+            module.default_pool_identities(
+                str(checkpoint_dir), b8_checkpoint=str(b8_checkpoint) if b8_checkpoint else None
+            ),
             world_seeds=sim.get_world_seeds(),
             runtime=runtime,
-            device="cpu",
+            device=device,
         )
+        for identity in pool.identities:
+            identity.validate()
         sims.append(sim)
         runtimes.append(runtime)
         pools.append(pool)
+    # Capture all frozen tensor bytes and independently count actual B8 forwards.
+    models = []
+    forward_counts = [0, 0]
+    handles = []
+
+    def model_digest(model):
+        digest = hashlib.sha256()
+        for name, tensor in model.state_dict().items():
+            digest.update(name.encode())
+            digest.update(tensor.detach().cpu().numpy().tobytes())
+        return digest.hexdigest()
+
+    for pool_index, pool in enumerate(pools):
+        for policy_id, policy in pool.policies.items():
+            inner = getattr(policy, "inner", policy)
+            model = getattr(inner, "network", getattr(inner, "net", None))
+            if model is None:
+                continue
+            expected_device = device if policy_id == "b8-s3" else "cpu"
+            assert all(p.device.type == expected_device for p in model.parameters())
+            models.append((model, model_digest(model)))
+            if policy_id == "b8-s3":
+
+                def count_forward(module, inputs, output, index=pool_index):
+                    forward_counts[index] += 1
+
+                handles.append(model.register_forward_hook(count_forward))
     if long_body_length:
         from src.simd_env.grid_scenarios import inject_serpentines
 
@@ -473,6 +508,12 @@ def run_recorded_pair(
             else []
         )
     )
+    for handle in handles:
+        handle.remove()
+    assert all(count > 0 for count in forward_counts), forward_counts
+    for model, before in models:
+        assert model_digest(model) == before
+        assert all(p.grad is None and not p.requires_grad for p in model.parameters())
     return np.stack(recorded), seats, observed_segments
 
 

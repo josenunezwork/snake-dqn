@@ -21,7 +21,6 @@ import hashlib
 import json
 import os
 import platform
-import shutil
 import subprocess
 import sys
 import time
@@ -70,9 +69,33 @@ def _load_json(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
+def measurement_source_manifest() -> dict[str, str]:
+    """Executable qualification/training source bytes admitted as one package."""
+    # Bind the complete Python training stack plus simulator/model/core/evaluation
+    # contracts. Paths are repository-relative; absolute worker roots are irrelevant.
+    paths = sorted(
+        {
+            str(path)
+            for directory in (
+                "research/redesign_m3c_20261008",
+                "research/redesign_scope_20261007",
+                "src/simd_env",
+                "src/model",
+                "src/core",
+                "src/evaluation",
+            )
+            for path in Path(directory).rglob("*.py")
+        }
+        | {"research/q0q1_20261017/q0b_measure.py", "research/q0q1_20261017/q0b_cuda_fixtures.py"}
+    )
+    return {path: sha256_file(Path(path)) for path in paths}
+
+
 def _environment_identity() -> dict[str, str]:
     """Bind the Python/Torch stack without claiming a package lock exists."""
     try:
+        import llvmlite
+        import numba
         import numpy
         import torch
 
@@ -82,6 +105,8 @@ def _environment_identity() -> dict[str, str]:
             "torch": torch.__version__,
             "cuda": str(torch.version.cuda),
             "numpy": numpy.__version__,
+            "numba": numba.__version__,
+            "llvmlite": llvmlite.__version__,
         }
         if torch.cuda.is_available():
             details["gpu"] = torch.cuda.get_device_name(0)
@@ -135,11 +160,17 @@ def cell_from_boundaries(
     actor_exitcodes = summary.get("actor_exitcodes")
     if summary.get("stopped_for_time") is not True or summary.get("halt") is not None:
         raise ValueError("learner did not cleanly finish its bounded qualification cell")
-    if not isinstance(actor_exitcodes, list) or any(code != 0 for code in actor_exitcodes):
+    if (
+        not isinstance(actor_exitcodes, list)
+        or len(actor_exitcodes) != actor_count
+        or any(type(code) is not int or code != 0 for code in actor_exitcodes)
+    ):
         raise ValueError("learner did not cleanly exit every actor")
     windows = []
     for before, after in ((warmup, first), (first, second)):
         decisions = _delta(after, before, "learner_decisions")
+        _delta(after, before, "completed_updates")
+        _delta(after, before, "emitted_replay_rows")
         duration = _finite(after["elapsed_seconds"], "window.elapsed") - _finite(
             before["elapsed_seconds"], "window.start"
         )
@@ -149,6 +180,11 @@ def cell_from_boundaries(
     control = final.get("matched_control")
     if not isinstance(lag, Mapping) or not isinstance(control, Mapping):
         raise ValueError("boundary snapshot lacks measured policy lag and matched control")
+    target_lag = final.get("target_lag")
+    if not isinstance(target_lag, Mapping):
+        raise ValueError("boundary snapshot lacks measured target-network lag")
+    for field in ("mean", "p95"):
+        _finite(target_lag.get(field), f"target_lag.{field}")
     counters = {
         "actual_learner_decisions": _positive_int(
             final.get("learner_decisions"), "learner_decisions"
@@ -167,7 +203,7 @@ def cell_from_boundaries(
         "schedule": schedule,
         "collector": collector,
         "actor_count": actor_count,
-        "warmup_seconds": WARMUP_SECONDS,
+        "warmup_seconds": warmup_elapsed,
         "compile_ready": final.get("compile_ready") is True,
         "replay_ready": final.get("replay_ready") is True,
         "scored_windows": windows,
@@ -177,6 +213,8 @@ def cell_from_boundaries(
         "ring_overruns": final.get("ring_overruns"),
         "counters": counters,
         "policy_lag": {**lag, "matched_control": dict(control)},
+        "target_lag": final.get("target_lag"),
+        "metric_scope": "scored_windows_after_warmup",
         "long_body_exposure": final.get("long_body_exposure"),
         "memory": final.get("memory"),
     }
@@ -189,7 +227,10 @@ def make_packet(
     stages: Mapping[str, float],
 ) -> dict[str, Any]:
     """Build an auditable packet from measured values; no defaulted price or duration."""
-    packet_seconds = sum(stages.values()) + len(cells) * TOTAL_CELL_SECONDS
+    packet_seconds = sum(stages.values()) + sum(
+        cell["warmup_seconds"] + sum(window["seconds"] for window in cell["scored_windows"])
+        for cell in cells
+    )
     return {
         "schema": SCHEMA,
         "hardware": args.hardware,
@@ -205,13 +246,10 @@ def make_packet(
             "cpu_cores": args.cpu_cores,
         },
         "stages": dict(stages),
-        "source": {
-            "q0b_measure": sha256_file(Path(__file__)),
-            "train_m3c": sha256_file(
-                args.repo_root / "research/redesign_m3c_20261008/train_m3c.py"
-            ),
+        "source": measurement_source_manifest(),
+        "config": {
+            f"{cell['schedule']}/{cell['collector']}": cell["command_sha256"] for cell in cells
         },
-        "config": {"trainer_command": canonical_sha(args.trainer_command)},
         "environment": _environment_identity(),
         "hashes": {
             "b8_initializer": sha256_file(args.b8),
@@ -276,17 +314,23 @@ def run_cell(
     """Execute one exact 480-second learner measurement and read its owned snapshots."""
     cell_out = out / f"{schedule}-{collector}"
     trainer_collector = "task-aligned-n1" if collector == "n1" else "legacy"
-    command = _command(
-        args.trainer_command,
-        out=str(cell_out),
-        schedule=schedule,
-        collector=trainer_collector,
-        actors=str(actor_count),
-        max_wall_seconds="3600",
-        b8=str(args.b8),
-        demo_data=str(args.demo_data),
-        learner_seats="1" if collector == "n1" else "3",
-    )
+    if args.trainer_command is None:
+        command = registered_command(args, schedule, collector, actor_count, cell_out)
+    else:
+        command = _command(
+            args.trainer_command,
+            out=str(cell_out),
+            schedule=schedule,
+            collector=trainer_collector,
+            actors=str(actor_count),
+            max_wall_seconds="5100",
+            b8=str(args.b8),
+            demo_data=str(args.demo_data),
+            learner_seats="1" if collector == "n1" else "3",
+        )
+    from research.q0q1_20261017.run_queue_job import normalized_command_sha
+
+    config_sha = normalized_command_sha(command)
     required = (
         "--max-wall-seconds",
         "--batch-scale",
@@ -305,6 +349,7 @@ def run_cell(
         cwd=args.repo_root,
     )
     elapsed = time.monotonic() - started
+    cell_out.mkdir(parents=True, exist_ok=True)
     (cell_out / "launcher.stdout").write_text(result.stdout)
     (cell_out / "launcher.stderr").write_text(result.stderr)
     if result.returncode != 0:
@@ -320,11 +365,24 @@ def run_cell(
         boundaries=boundaries,
         summary=summary,
     )
+    measurement_started = _finite(
+        boundaries["warmup"].get("measurement_started_monotonic"), "measurement_started_monotonic"
+    )
+    measurement_ended = _finite(
+        boundaries["window2"].get("observed_monotonic"), "observed_monotonic"
+    )
+    if not started <= measurement_started <= measurement_ended <= started + elapsed:
+        raise ValueError("learner timing boundaries are outside the observed launcher lifetime")
+    cell["setup_seconds"] = measurement_started - started
+    cell["cleanup_seconds"] = started + elapsed - measurement_ended
+    cell["command_sha256"] = config_sha
     cell["observed_launcher_seconds"] = elapsed
     return cell
 
 
 def _parity(args: argparse.Namespace, out: Path) -> tuple[dict[str, Any], float]:
+    from research.q0q1_20261017.q0b_cuda_fixtures import fixture_sources
+
     t22, t24 = _load_json(args.t22_receipt), _load_json(args.t24_receipt)
     for name, receipt in (("t22", t22), ("t24", t24)):
         if (
@@ -336,6 +394,8 @@ def _parity(args: argparse.Namespace, out: Path) -> tuple[dict[str, Any], float]
             or receipt.get("long_body") is not True
             or not isinstance(receipt.get("source_sha256"), str)
             or len(receipt["source_sha256"]) != 64
+            or receipt.get("sources") != fixture_sources(name)
+            or receipt.get("environment") != _environment_identity()
         ):
             raise ValueError(f"{name.upper()} must be a completed hash-bound CUDA fixture receipt")
     receipt = out / "runtime-parity.json"
@@ -394,7 +454,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--observed-cpu-unit-rate-per-hour", type=float, required=True)
     parser.add_argument("--cpu-worker-efficiency", type=float, required=True)
     parser.add_argument("--ram-gb", type=float, required=True)
-    parser.add_argument("--cpu-cores", type=float, required=True)
+    parser.add_argument("--cpu-cores", type=int, required=True)
     parser.add_argument("--b8", required=True, type=Path)
     parser.add_argument("--demo-data", required=True, type=Path)
     parser.add_argument("--bank", required=True, type=Path)
@@ -407,7 +467,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--trainer-command",
         nargs="+",
-        help="override argv template with {out}, {schedule}, {collector}, {actors}, {max_wall_seconds}, {b8}, {demo_data}",
+        help=(
+            "override argv template with {out}, {schedule}, {collector}, {actors}, "
+            "{max_wall_seconds}, {b8}, {demo_data}"
+        ),
     )
     parser.add_argument("--n1-actors", type=int, required=True)
     parser.add_argument("--n3-actors", type=int, required=True)
@@ -428,78 +491,46 @@ def _registered_defaults(args: argparse.Namespace) -> None:
             "tests/test_t22_random_safe.py",
             "tests/test_t24_v8_bodymap.py",
         ]
-    if args.trainer_command is None:
-        args.trainer_command = [
-            sys.executable,
-            "-m",
-            "research.redesign_m3c_20261008.train_m3c",
-            "--seed",
-            "261701",
-            "--init",
-            "{b8}",
-            "--demo-data",
-            "{demo_data}",
-            "--out",
-            "{out}",
-            "--transitions",
-            "999999999",
-            "--device",
-            "cuda",
-            "--actor-device",
-            "cuda",
-            "--max-wall-seconds",
-            "{max_wall_seconds}",
-            "--worlds",
-            "128",
-            "--actors",
-            "{actors}",
-            "--checkpoint-every",
-            "999999999",
-            "--reward",
-            "mass",
-            "--mass-kappa",
-            "1.0",
-            "--kill-scale",
-            "0",
-            "--gamma-end",
-            "0.998",
-            "--gamma-anneal-end",
-            "8000000",
-            "--mixed-frac",
-            "0.25",
-            "--anchor-mode",
-            "v8margin",
-            "--onpolicy-labels",
-            "--label-frac",
-            "1",
-            "--obs-version",
-            "bv8",
-            "--v61-backend",
-            "numba",
-            "--learner-fast",
-            "--learner-precision",
-            "fp32",
-            "--batch-scale",
-            "2",
-            "--ring-dir",
-            "/dev/shm",
-            "--compile-learner",
-            "reduce-overhead",
-            "--gather-threads",
-            "3",
-            "--actor-queue-frames",
-            "2",
-            "--schedule-package",
-            "{schedule}",
-            "--collection-profile",
-            "{collector}",
-            "--learner-seats",
-            "{learner_seats}",
-            "--namespace",
-            "q0b-measurement-20261018/{collector}/{schedule}",
-            "--league-b8-checkpoint",
-            "{b8}",
-        ]
+
+
+def registered_command(
+    args: argparse.Namespace, schedule: str, collector: str, actors: int, out: Path
+) -> list[str]:
+    """Measure precisely the Q1 argv recipe; only replica identity differs.
+
+    The boundary opt-in environment stops measurement after its two windows, so
+    the scientific endpoint, checkpoint cadence and wall guard remain Q1's recipe.
+    """
+    from research.q0q1_20261017.run_queue_job import command
+
+    arm = {
+        ("restart", "n3"): "A",
+        ("mature", "n3"): "B",
+        ("restart", "n1"): "C",
+        ("mature", "n1"): "D",
+    }[(schedule, collector)]
+    inputs = args.b8.parent.parent
+    if args.b8 != inputs / "init/B8_s3_final.pth" or args.demo_data != inputs / "demo":
+        raise ValueError("Q0b must measure the Q1 staged initializer and demo layout")
+    argv = command(
+        {
+            "Q0Q1_JOB_KIND": "q1_train",
+            "Q0Q1_INPUT_ROOT": str(inputs),
+            "Q0Q1_PYTHON": sys.executable,
+            "Q1_ARM": arm,
+            "Q1_ACTORS": str(actors),
+            "Q1_SEED": "261701",
+            "Q1_TRANSITIONS": "8000000",
+        },
+        out,
+    )
+    argv[argv.index("--out") + 1] = str(out)
+    argv[argv.index("--namespace") + 1] = (
+        f"q1-task-aligned-n1-20261017/q0b/{schedule}"
+        if collector == "n1"
+        else f"q0b-measurement-20261018/n3/{schedule}"
+    )
+    return argv
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -543,9 +574,10 @@ def main(argv: list[str] | None = None) -> int:
         for cell in cells:
             cell["policy_lag"]["matched_control"] = controls[cell["collector"]]
         elapsed = time.monotonic() - began
+        outside_cells = max(0.0, elapsed - sum(cell["observed_launcher_seconds"] for cell in cells))
         stages = {
-            "setup_seconds": max(0.0, elapsed - len(cells) * TOTAL_CELL_SECONDS),
-            "cleanup_seconds": 0.0,
+            "setup_seconds": outside_cells + sum(cell["setup_seconds"] for cell in cells),
+            "cleanup_seconds": sum(cell["cleanup_seconds"] for cell in cells),
         }
         packet = make_packet(args, cells, parity, stages)
         packet["observed_units"] = packet["packet_seconds"] / 3600.0 * args.unit_rate_per_hour

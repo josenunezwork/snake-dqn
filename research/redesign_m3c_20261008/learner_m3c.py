@@ -1085,6 +1085,8 @@ class Learner:
             st["return_totals"]["updates"] += 1
             st["return_totals"]["rows"] += n_return
             st["return_totals"]["loss_sum"] += float(ret.detach())
+        if st.get("q0b_target_lag") is not None and "q0b_measurement" in st:
+            st["q0b_target_lag"].append(st["updates"] % self.target_every)
         st["updates"] += 1
         st["td"].append(float(td.detach()))
         if has_anchor:
@@ -1337,6 +1339,8 @@ class Learner:
             self.scaler.update()
         else:
             opt.step()
+        if st.get("q0b_target_lag") is not None and "q0b_measurement" in st:
+            st["q0b_target_lag"].append(st["updates"] % self.target_every)
         st["updates"] += 1
         if "bank_rows" in p:
             st["bank_rows"].append(p["bank_rows"])

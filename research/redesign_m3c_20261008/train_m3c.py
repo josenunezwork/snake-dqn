@@ -584,9 +584,12 @@ class Replay:
         self.size = 0
         self.ptr = 0
         self.added = 0
+        self.stale_rows_filtered = 0
+        self._stale_counted = np.zeros(capacity, dtype=bool)
 
     def add(self, s: int, a: int, R: float, disc: float, nxt: int) -> None:
         i = self.ptr
+        self._stale_counted[i] = False
         self.s[i], self.a[i], self.R[i], self.disc[i], self.nxt[i] = s, a, R, disc, nxt
         self.ptr = (self.ptr + 1) % self.cap
         self.size = min(self.size + 1, self.cap)
@@ -599,6 +602,7 @@ class Replay:
             return
         pos = (self.ptr + np.arange(n, dtype=np.int64)) % self.cap
         keep = slice(max(0, n - self.cap), n)  # a wrap within one call: the last write wins
+        self._stale_counted[pos[keep]] = False
         self.s[pos[keep]] = np.asarray(s, dtype=np.int64)[keep]
         self.a[pos[keep]] = np.asarray(a, dtype=np.int64)[keep]
         self.R[pos[keep]] = np.asarray(R, dtype=np.float64)[keep]
@@ -611,6 +615,9 @@ class Replay:
     def sample(self, rng: np.random.Generator, n: int, ring) -> np.ndarray:
         idx = rng.integers(0, self.size, size=n * 2)
         ok = ring.valid(self.s[idx]) & ((self.nxt[idx] < 0) | ring.valid(self.nxt[idx]))
+        stale = np.unique(idx[~ok])
+        self.stale_rows_filtered += int((~self._stale_counted[stale]).sum())
+        self._stale_counted[stale] = True
         idx = idx[ok][:n]
         return idx
 
@@ -3460,6 +3467,8 @@ def actor_main(
                         alive = alive.copy()
                         alive[~active] = False
                     actions = np.ones((E, prepared.S), dtype=np.int64)
+                    if task_aligned_n1:
+                        frozen_live_rows = {"historical_fixed_opponents": int(alive[:, 1:].sum())}
                     if uses_runtime:
                         runtime.prepare(prepared)
                     hero = (
@@ -3723,9 +3732,9 @@ def actor_main(
                     "weights_version": last,
                     "truncation_rows_dropped": truncation_drops,
                     "pending_nstep_rows": pending_nstep_rows,
-                    "world_frames": int(sim.E),
+                    "world_frames": int(active.sum()) if active is not None else int(sim.E),
                     "pool_decisions": int(sum(frozen_live_rows.values())),
-                    "long_body_decisions": int((chosen["L"] >= 800).sum()),
+                    "long_body_decisions": int((chosen.get("length", np.zeros(0)) >= 800).sum()),
                     "produced_monotonic": time.perf_counter(),
                     **stats,
                     **m6_stats,
@@ -3757,7 +3766,6 @@ def actor_main(
 
                         selected = np.flatnonzero(reset_worlds)
                         death_worlds = np.asarray(done[:, 0], dtype=bool)
-                        horizon_only = reset_worlds & ~death_worlds
                         for e in selected:
                             mix = str(sim._task_mixes[e])
                             task_pending["world_resets"][mix] += 1
@@ -3907,9 +3915,9 @@ def main_multi(args) -> int:
     import multiprocessing as mp
 
     import torch
-    from research.redesign_m3c_20261008.q0b_timing import Q0bBoundaryRecorder
 
     from research.redesign_m2_20261008.gen_data import guard_ok
+    from research.redesign_m3c_20261008.q0b_timing import Q0bBoundaryRecorder
 
     resume_payload = None
     resume_manifest = None
@@ -4180,6 +4188,10 @@ def main_multi(args) -> int:
         "long_body_decisions": 0,
         "q0b_lag": [],
         "q0b_age": [],
+        "q0b_target_lag": [],
+        "q0b_rss_gb_max": 0.0,
+        "q0b_gpu_gb_max": 0.0,
+        "q0b_memory_next": 0.0,
         "decisions": 0,
         "boost": 0,
         "greedy_boost": 0,
@@ -4434,6 +4446,8 @@ def main_multi(args) -> int:
             last_snapshot_counters = (int(st["transitions"]), int(st["updates"]))
         next_full_state = ((st["transitions"] // args.full_state_every) + 1) * args.full_state_every
 
+    if q0b_boundaries.enabled:
+        st["q0b_measurement"] = True
     code = 0
     rr = int(resume_extra.get("rr", 0))
     attached: set = set()
@@ -4447,7 +4461,9 @@ def main_multi(args) -> int:
     last_snapshot_counters = None
     try:
         while (
-            not stopped_for_time and st["transitions"] < args.transitions and st["halt"] is None
+            not stopped_for_time
+            and (q0b_boundaries.enabled or st["transitions"] < args.transitions)
+            and st["halt"] is None
         ) or pending_actor_snapshot is not None:
             if (
                 getattr(args, "max_wall_seconds", 0.0)
@@ -4529,10 +4545,9 @@ def main_multi(args) -> int:
                         st["restart_total"][key] += msg[key]
                 st["env_s"] += msg["env_s"]
                 st["lag"].append(published - msg["weights_version"] // 2)
-                st["q0b_lag"].append(published - msg["weights_version"] // 2)
-                st["q0b_age"].append(
-                    time.perf_counter() - float(msg.get("produced_monotonic", time.perf_counter()))
-                )
+                if q0b_boundaries.enabled:
+                    st["q0b_lag"].append(published - msg["weights_version"] // 2)
+                    st["q0b_age"].append(time.perf_counter() - float(msg["produced_monotonic"]))
                 st["action_window"].extend(msg["acts"])
                 for k_, v_ in msg["timing"].items():
                     tel.add(k_, v_)
@@ -4553,44 +4568,113 @@ def main_multi(args) -> int:
                     st["since_update"] -= learner.update_every
                     before = st["updates"]
                     learner.update(sched.anchor(st["transitions"]))
-                    if q0b_boundaries.enabled and q0b_measurement_started is None:
-                        q0b_measurement_started = time.perf_counter()
+                    if (
+                        q0b_boundaries.enabled
+                        and q0b_measurement_started is None
+                        and len(attached) == K
+                        and st["updates"] > 0
+                    ):
+                        learner.flush()
+                        compile_state = learner.compile_status()
+                        if (
+                            st["halt"] is None
+                            and compile_state is not None
+                            and compile_state["compiled_calls"] > 0
+                            and compile_state["verify_calls"] > 0
+                            and compile_state["fallback"] is None
+                        ):
+                            q0b_measurement_started = time.perf_counter()
+                            st["q0b_lag"].clear()
+                            st["q0b_age"].clear()
+                            st["q0b_target_lag"].clear()
                     if learner.publish_due(before):
                         _publish_weights(online, wbuf, wver)
                         published += 1
             if q0b_boundaries.enabled and q0b_measurement_started is not None:
                 elapsed = time.perf_counter() - q0b_measurement_started
-                lag = st["q0b_lag"]
-                age = st["q0b_age"]
-                lag_stats = {
-                    "mean": float(np.mean(lag)) if lag else 0.0,
-                    "p95": float(np.quantile(lag, 0.95)) if lag else 0.0,
-                    "age_p95": float(np.quantile(age, 0.95)) if age else 0.0,
-                }
-                q0b_boundaries.observe(
-                    elapsed,
-                    {
-                        "learner_decisions": int(st["transitions"]),
-                        "world_frames": int(st["world_frames"]),
-                        "pool_decisions": int(st["pool_decisions"]),
-                        "long_body_exposure": int(st["long_body_decisions"]),
-                        "memory": {"rss_gb_max": rss_gb()},
-                        "emitted_replay_rows": int(st["replay_rows"]),
-                        "completed_updates": int(st["updates"]),
-                        "pending_update_debt": int(st["since_update"]),
-                        "compile_ready": True,
-                        "replay_ready": replay.size >= args.warmup,
-                        "finite_updates": st["halt"] is None,
-                        "dropped_transitions": 0,
-                        "ring_overruns": int(st["ring_overrun_rows"]),
-                        "policy_lag": lag_stats,
-                        # The runner replaces this same-run placeholder with the
-                        # matched restart control before validating the packet.
-                        "matched_control": lag_stats,
-                    },
-                )
-                if q0b_boundaries.complete:
-                    stopped_for_time = True
+                if elapsed >= st["q0b_memory_next"]:
+                    import psutil
+
+                    processes = [psutil.Process()] + psutil.Process().children(recursive=True)
+                    process_rss = sum(p.memory_info().rss for p in processes if p.is_running())
+                    st["q0b_rss_gb_max"] = max(st["q0b_rss_gb_max"], process_rss / 1024**3)
+                    free_gpu, total_gpu = torch.cuda.mem_get_info(device)
+                    st["q0b_gpu_gb_max"] = max(
+                        st["q0b_gpu_gb_max"], (total_gpu - free_gpu) / 1024**3
+                    )
+                    st["q0b_memory_next"] = elapsed + 1.0
+                if q0b_boundaries.due(elapsed):
+                    learner.flush()  # finalized finite optimizer steps own every endpoint
+                    elapsed = time.perf_counter() - q0b_measurement_started
+                if q0b_boundaries.due(elapsed):
+                    lag = st["q0b_lag"]
+                    age = st["q0b_age"]
+                    lag_stats = {
+                        "mean": float(np.mean(lag)) if lag else 0.0,
+                        "p95": float(np.quantile(lag, 0.95)) if lag else 0.0,
+                        "age_p95": float(np.quantile(age, 0.95)) if age else 0.0,
+                    }
+                    previous_boundary_count = len(q0b_boundaries.records)
+                    q0b_boundaries.observe(
+                        elapsed,
+                        {
+                            "measurement_started_monotonic": q0b_measurement_started,
+                            "observed_monotonic": q0b_measurement_started + elapsed,
+                            "learner_decisions": int(st["transitions"]),
+                            "world_frames": int(st["world_frames"]),
+                            "pool_decisions": int(st["pool_decisions"]),
+                            "long_body_exposure": int(st["long_body_decisions"]),
+                            "memory": {
+                                "rss_gb_max": st["q0b_rss_gb_max"],
+                                "rss_scope": (
+                                    "sum_process_tree_rss_shared_pages_counted_per_process"
+                                ),
+                                "gpu_used_gb_max": st["q0b_gpu_gb_max"],
+                                "gpu_scope": "device_total_minus_free_all_processes",
+                                "sampling_period_seconds": 1.0,
+                            },
+                            "emitted_replay_rows": int(st["replay_rows"]),
+                            "completed_updates": int(st["updates"]),
+                            "pending_update_debt": int(st["since_update"]),
+                            "compile_ready": (
+                                learner.compile_status()["fallback"] is None
+                                and learner.compile_status()["compiled_calls"] > 0
+                                and learner.compile_status()["verify_calls"] > 0
+                            ),
+                            "replay_ready": replay.size >= args.warmup,
+                            "finite_updates": st["halt"] is None
+                            and all(
+                                bool(torch.isfinite(value).all())
+                                for state in opt.state.values()
+                                for value in state.values()
+                                if isinstance(value, torch.Tensor)
+                            )
+                            and all(
+                                bool(torch.isfinite(parameter).all())
+                                for net in (online, target)
+                                for parameter in net.parameters()
+                            ),
+                            "dropped_transitions": int(
+                                replay.stale_rows_filtered + st["truncation_rows_dropped"]
+                            ),
+                            "ring_overruns": int(st["ring_overrun_rows"]),
+                            "policy_lag": lag_stats,
+                            "target_lag": {
+                                "unit": "finalized_optimizer_updates",
+                                "mean": float(np.mean(st["q0b_target_lag"])),
+                                "p95": float(np.quantile(st["q0b_target_lag"], 0.95)),
+                            },
+                            # The runner replaces this same-run placeholder with the
+                            # matched restart control before validating the packet.
+                            "matched_control": lag_stats,
+                        },
+                    )
+                    if previous_boundary_count == 0 and "warmup" in q0b_boundaries.records:
+                        st["q0b_lag"].clear()
+                        st["q0b_age"].clear()
+                        st["q0b_target_lag"].clear()
+                    if q0b_boundaries.complete:
+                        stopped_for_time = True
             if st["action_window"].full:
                 counts = st["action_window"].counts
                 if counts.max() > 0.9 * counts.sum():

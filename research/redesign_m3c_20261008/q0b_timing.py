@@ -19,7 +19,7 @@ from typing import Any, Mapping
 class Q0bBoundaryRecorder:
     """Persist the 120s warm-up and two >=180s scored-window endpoints."""
 
-    _POINTS = (("warmup", 120.0), ("window1", 300.0), ("window2", 480.0))
+    _POINTS = (("warmup", 120.0), ("window1", 180.0), ("window2", 180.0))
 
     def __init__(self) -> None:
         raw = os.environ.get("Q0Q1_BOUNDARY_OUT")
@@ -34,18 +34,26 @@ class Q0bBoundaryRecorder:
     def complete(self) -> bool:
         return len(self.records) == len(self._POINTS)
 
+    def due(self, elapsed_seconds: float) -> bool:
+        """Whether the next endpoint is due relative to the last actual endpoint."""
+        if not self.enabled or self.complete:
+            return False
+        _, duration = self._POINTS[len(self.records)]
+        previous = next(reversed(self.records.values()))["elapsed_seconds"] if self.records else 0.0
+        return elapsed_seconds - previous >= duration
+
     def observe(self, elapsed_seconds: float, counters: Mapping[str, Any]) -> None:
-        if self.path is None:
+        if not self.due(elapsed_seconds):
             return
-        for phase, minimum in self._POINTS:
-            if phase in self.records or elapsed_seconds < minimum:
-                continue
-            self.records[phase] = {
-                "phase": phase,
-                "elapsed_seconds": float(elapsed_seconds),
-                **counters,
-            }
-            self._write()
+        # At most one endpoint per observation: even a long pause cannot fabricate
+        # two windows with the same counters or shorten the next scored window.
+        phase, _ = self._POINTS[len(self.records)]
+        self.records[phase] = {
+            "phase": phase,
+            "elapsed_seconds": float(elapsed_seconds),
+            **counters,
+        }
+        self._write()
 
     def _write(self) -> None:
         assert self.path is not None
