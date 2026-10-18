@@ -493,3 +493,14 @@ target. The prior isolated A100 learner capacity (~21,171 tr/s at the same
 transition recipe) also leaves little headroom for end-to-end overhead. T24
 establishes byte-identical CPU feature savings on these fixtures; it does not
 establish the A100 target, a training improvement, or a promotion result.
+
+## L4 N=3 league throughput (Colab NVIDIA L4, 12 vCPU, 2026-10-17, commit 62409ae with t22+t24)
+
+Source: Drive `t16_colab/n3bench-nvidia-l4-62409ae/colab_throughput_results.json` (run_smoke n3 matrix, 300 s rows).
+
+| row | tr/s | upd/s | lag mean/p95 | GPU % | CPU % |
+|---|---|---|---|---|---|
+| a3 | 7,505 | 29.3 | 1.12 / 2 | 87 | 31 |
+| a4 | 7,625 | 29.8 | 1.50 / 2 | 90 | 32 |
+
+GPU-bound at ~7.6k tr/s (~1.46x Mac N=3), ~2 units/h: ~3.8k tr/s per unit-hour vs A100 ~2.1k (projected).
