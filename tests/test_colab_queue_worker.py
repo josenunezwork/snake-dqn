@@ -29,13 +29,13 @@ WORKER = ROOT / "research" / "colab_queue" / "worker.sh"
         "colab_queue_worker_c.ipynb",
     ],
 )
-def test_worker_notebook_has_three_pinned_bootstrap_cells(name):
+def test_worker_notebook_has_four_pinned_bootstrap_and_keepalive_cells(name):
     path = ROOT / "notebooks" / name
     assert path.is_file(), path
     notebook = json.loads(path.read_text())
     assert notebook["nbformat"] >= 4
     cells = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
-    assert len(cells) == len(notebook["cells"]) == 3
+    assert len(cells) == len(notebook["cells"]) == 4
     for cell in cells:
         assert cell["execution_count"] is None and cell["outputs"] == []
         compile("".join(cell["source"]), str(path), "exec")
@@ -49,6 +49,83 @@ def test_worker_notebook_has_three_pinned_bootstrap_cells(name):
     assert any(token in source for token in ("COMMIT", "PIN", "SHA", "refs/heads"))
     pins = re.findall(r"[0-9a-f]{40}", source)
     assert pins and all(set(pin) != {"0"} for pin in pins)
+    assert "KEEP_RUNTIME = True" in "".join(cells[0]["source"])
+    assert "--worker-id" in "".join(cells[2]["source"])
+    assert "# Keep-alive" in "".join(cells[-1]["source"])
+    assert "proc.wait(timeout=600)" in "".join(cells[-1]["source"])
+
+
+@pytest.mark.parametrize("path", sorted((ROOT / "notebooks").glob("colab_queue_worker*.ipynb")))
+@pytest.mark.parametrize("keep_runtime", [True, False])
+def test_notebook_idle_setting_precedes_mount_and_launch(path, keep_runtime, monkeypatch):
+    notebook = json.loads(path.read_text())
+    source = "".join(notebook["cells"][0]["source"])
+    source = source.replace("KEEP_RUNTIME = True", f"KEEP_RUNTIME = {keep_runtime}")
+    monkeypatch.setenv("IDLE_MINUTES", "100000")
+    mounted = []
+
+    def mount(target):
+        mounted.append(target)
+        assert os.environ.get("IDLE_MINUTES", "10") == ("100000" if keep_runtime else "10")
+
+    monkeypatch.setitem(
+        sys.modules, "google.colab", SimpleNamespace(drive=SimpleNamespace(mount=mount))
+    )
+    exec(compile(source, str(path), "exec"), {})
+    assert mounted == ["/content/drive"]
+
+
+@pytest.mark.parametrize("path", sorted((ROOT / "notebooks").glob("colab_queue_worker*.ipynb")))
+@pytest.mark.parametrize("missing_status", [False, True])
+def test_notebook_keepalive_reports_own_job_and_ends_on_exit(
+    path, missing_status, tmp_path, capsys
+):
+    notebook = json.loads(path.read_text())
+    source = "".join(notebook["cells"][-1]["source"])
+    log_path = tmp_path / "worker.log"
+    heartbeat_dir = tmp_path / "queue" / "heartbeats"
+    heartbeat_dir.mkdir(parents=True)
+    (heartbeat_dir / "other-worker.json").write_text(json.dumps({"job_id": "other-job"}))
+    if not missing_status:
+        log_path.write_text("old line\nlatest line\n")
+        (heartbeat_dir / "this-worker.json").write_text(json.dumps({"job_id": "own-job"}))
+
+    class FakeProcess:
+        waits = 0
+
+        def poll(self):
+            return 0 if self.waits == 2 else None
+
+        def wait(self, timeout):
+            assert timeout == 600
+            self.waits += 1
+            if self.waits == 1:
+                raise subprocess.TimeoutExpired("worker", timeout)
+            return 0
+
+    proc = FakeProcess()
+    exec(
+        compile(source, str(path), "exec"),
+        {
+            "Path": Path,
+            "DRIVE_ROOT": str(tmp_path),
+            "worker_id": "this-worker",
+            "proc": proc,
+            "log_path": log_path,
+            "subprocess": subprocess,
+        },
+    )
+    output = capsys.readouterr().out
+    assert proc.waits == 2
+    assert output.count("worker alive: yes") == 2
+    assert output.count("worker alive: no") == 1
+    assert "other-job" not in output
+    assert "+00:00" in output
+    if missing_status:
+        assert "log unavailable" in output and "heartbeat unavailable" in output
+    else:
+        assert "current queue job: own-job" in output
+        assert "last worker.log line: latest line" in output
 
 
 def test_worker_shell_is_syntactically_valid_and_has_no_network_requirement():

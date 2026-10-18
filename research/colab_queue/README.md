@@ -163,8 +163,25 @@ Open a different notebook file for each concurrent runtime:
 - `notebooks/colab_queue_worker_b.ipynb`
 - `notebooks/colab_queue_worker_c.ipynb`
 
-Each notebook has exactly three code cells: mount Drive, fetch `worker.sh` from
-a full `QUEUE_REF`, then start it with `nohup` in the background. The checked-in `QUEUE_REF` pins the published queue implementation. Change it
+Each notebook has exactly four code cells, executable in order with **Runtime >
+Run all**: configure idle release and mount Drive, fetch `worker.sh` from a full
+`QUEUE_REF`, start it with `nohup` in the background, then block in the final
+**keep-alive** cell while that worker is alive. Keep the last cell executing so
+background work is accompanied by an active notebook cell. It prints a UTC
+timestamp, worker alive yes/no, the last `worker.log` line (up to an 8 KiB tail),
+and the current queue job from that worker's heartbeat immediately and every
+600 seconds. It wakes immediately when the worker exits, prints a final status,
+and ends; missing logs or heartbeats are reported without stopping monitoring.
+This does not guarantee that Colab will retain the runtime.
+
+The first cell defaults to `KEEP_RUNTIME = True`, setting
+`os.environ['IDLE_MINUTES'] = '100000'` before launch. Set it to `False` before
+Run all to remove the override and restore the worker's default 10-minute idle
+release. This flag controls queue-worker idle release; the final cell keeps
+executing in either mode and ends when the worker exits. Configure the flag
+before starting a new worker; it does not change an already running process.
+
+The checked-in `QUEUE_REF` pins the published queue implementation. Change it
 only to another full published implementation commit when upgrading. That pin is deliberately independent from a job's `commit`: the
 former controls the queue worker code, while the latter controls the repository
 checkout, `setup_runtime.sh`, and job script.
