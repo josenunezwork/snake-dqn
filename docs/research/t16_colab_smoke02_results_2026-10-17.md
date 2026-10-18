@@ -418,3 +418,78 @@ cache passed all compile tests. The scripted-only pool test double was updated
 to implement the new feature interface. No production workaround, tolerance
 relaxation, or test deselection was used. Exact commands and clean text/JUnit
 receipts are in [T24 verification](../../research/t24_v8_bodymap_20261017/VERIFICATION.md).
+
+### Matched before/after CPU timings
+
+The final run used 128 worlds, N=3, the six pinned pool policies, one CPU thread,
+and the same harness bytes on pre-change `23c1ba73` and candidate `4b4723ff`.
+Baseline/candidate/candidate/baseline (ABBA) legs each contributed three samples;
+the table shows medians of all six samples per side. Feature rows use fixed
+states. Whole-actor samples use four warm frames and eight scored frames through
+the real actor loop, including simulation, runtime carry, replay/n-step writes,
+learner CPU forward/labels and frozen dispatch. They exclude learner updates
+and queue pressure. Other task-owned tests had stopped before scoring.
+
+All values are **ms per 128-world frame**, before → after:
+
+| Component | Short bodies, L=5 | Long bodies, L=1200 |
+|---|---:|---:|
+| Learner-only v8, 384 rows, direct call | 0.619 → 0.496 | 19.104 → 14.111 |
+| B8-only v8, 64 rows, direct call | 0.127 → 0.115 | 3.250 → 2.984 |
+| Combined learner+B8 features, old two calls → shared call | **0.720 → 0.694** | **22.155 → 16.280** |
+| B8 standalone policy, raster + v8 + CPU forward + selection | 28.868 → 28.947 | 32.657 → 32.691 |
+| Actual actor `v8_s`, including shared B8 after the change | 0.907 → 1.046 | 19.712 → 16.389 |
+| Actual actor frozen dispatch, all six policies | 27.518 → 27.271 | 34.437 → 29.434 |
+| **Whole actor frame** | **204.683 → 206.574** | **246.738 → 234.482** |
+
+The combined feature row saves **3.6% short / 26.5% long**. Individual direct
+calls are diagnostics, not an additive decomposition of the shared call; its
+row selection, result copies and cache bookkeeping are included. B8 standalone
+includes its own raster/v8 preparation and therefore is not the primed dispatch
+timer from T22. In the actual actor it consumes the already-computed B8 slice.
+The `v8_s`/frozen timer boundary moved, so those counters cannot separately
+establish savings.
+
+The short whole-actor median is **0.9% slower**; no short-body actor speedup is
+established. The long median is **5.0% lower**, but whole-actor variability also
+includes unchanged CPU network work (learner forward medians 172.083 → 167.711
+ms in the long fixture). Do not attribute that entire 12.255 ms difference to
+the kernel. No outlier was dropped. Every long sample began with all 768 live
+bodies at L=1200; paired end distributions match exactly, with median L=1201
+and mean L=1179.143–1188.488. The long-body result therefore does not come from
+resetting into short bodies.
+
+The [benchmark README](../../research/t24_v8_bodymap_20261017/README.md),
+[before receipt](../../research/t24_v8_bodymap_20261017/before_23c1ba73.json),
+and [after receipt](../../research/t24_v8_bodymap_20261017/after_4b4723f.json)
+retain every sample, the four ABBA legs, checkpoint identities, matching action
+digests and source hashes. Independent review verified the aggregate is exactly
+the concatenation of its legs and that production bytes match both source pins.
+
+### Conditional A100 N=3 projection
+
+There was **no new A100 execution**. The
+[projection script](../../research/t24_v8_bodymap_20261017/project_a100.py) and
+[receipt](../../research/t24_v8_bodymap_20261017/a100_projection.json) extend
+T22's model using the saved, hash-bound a4/a6 counters. They assume the measured
+Mac combined-feature ratio transfers to x86, retain T22's host-pool savings,
+and charge shared B8 feature work once. The lower endpoint credits only the
+B8 feature fraction; the upper endpoint also scales the entire learner `v8_s`
+timer. That upper endpoint is optimistic because `v8_s` includes Q transfer
+and redecision in addition to feature construction. These endpoints are
+accounting sensitivities, not confidence intervals or measured throughput.
+
+| Feature-speed ratio used | N=3 a4 projected tr/s | N=3 a6 projected tr/s |
+|---|---:|---:|
+| Short L=5, 0.9639× old feature time | 13,599–13,688 | 14,850–14,981 |
+| Long L=1200, 0.7348× old feature time | 13,738–14,431 | 14,958–15,989 |
+
+The long row applies its ratio to the old telemetry time shares; it is not a
+forecast of late-game throughput with a newly measured length distribution.
+The a6 baseline rate remains the owner-supplied approximate 7,720 tr/s, so its
+projection scales with that estimate. Even the most optimistic listed result
+is **3.07×** the Mac N=3 baseline of **5,214 tr/s**, below the **20,900 tr/s**
+target. The prior isolated A100 learner capacity (~21,171 tr/s at the same
+transition recipe) also leaves little headroom for end-to-end overhead. T24
+establishes byte-identical CPU feature savings on these fixtures; it does not
+establish the A100 target, a training improvement, or a promotion result.

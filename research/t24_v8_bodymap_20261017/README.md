@@ -47,7 +47,7 @@ Across the six raw fixed-state samples, combined learner+B8 v8 work was
 16.280 ms after at length 1200, a 26.5% long-body reduction. The actual
 whole-actor long-body median was 246.738 ms/frame before and 234.482 ms/frame
 after. Its end-of-window median body length was 1201 in both receipts (initial
-length 1200; end mean 1179--1188 in the exploratory retention check), so the
+length 1200; end mean 1179.143–1188.488 in the final paired receipts), so the
 long row did not devolve into a short-body respawn measurement.
 
 These are single-host CPU microbenchmark results, not A100 throughput or
@@ -61,7 +61,7 @@ PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu \
 nice -n 10 "$PY" research/t24_v8_bodymap_20261017/bench_bodymap.py \
-  --repeats 7 --actor-frames 8 --actor-warm 4 \
+  --repeats 3 --actor-frames 8 --actor-warm 4 \
   --out research/t24_v8_bodymap_20261017/candidate.json
 ```
 

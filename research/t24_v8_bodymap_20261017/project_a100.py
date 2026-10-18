@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from statistics import median
 
 
 def project(before_path: Path, after_path: Path) -> dict:
@@ -31,7 +32,9 @@ def project(before_path: Path, after_path: Path) -> dict:
         assert old_case["body_length"] == new_case["body_length"]
         assert old_case["action_stream_sha256"] == new_case["action_stream_sha256"]
         key = "learner_plus_b8_v8_shared_candidate"
-        ratio = new_case["timing"][key]["median_ms"] / old_case["timing"][key]["median_ms"]
+        ratio = median(new_case["timing_samples_ms"][key]) / median(
+            old_case["timing_samples_ms"][key]
+        )
         for row in prior["rows"]:
             actors = row["actors"]
             host_share = row["host_frozen_fraction"]
