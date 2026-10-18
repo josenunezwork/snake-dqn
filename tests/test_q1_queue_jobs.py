@@ -10,9 +10,10 @@ from research.q0q1_20261017 import run_queue_job as runner
 PIN = "a" * 40
 SHA = "b" * 64
 BINDS = q.Bindings(
-    "/content/drive/MyDrive/t16_colab/q0b/l4.json", SHA,
-    "/content/drive/MyDrive/t16_colab/q1/study-plan.json", SHA,
-    "/content/drive/MyDrive/t16_colab/q1/parity-owner.json", SHA,
+    q0b_l4_receipt="/content/drive/MyDrive/t16_colab/q0b/l4.json", q0b_l4_receipt_sha256=SHA,
+    study_plan="/content/drive/MyDrive/t16_colab/q1/study-plan.json", study_plan_sha256=SHA,
+    runtime_parity_receipt="/content/drive/MyDrive/t16_colab/q1/runtime-parity.json", runtime_parity_receipt_sha256=SHA,
+    parity_owner_admission="/content/drive/MyDrive/t16_colab/q1/parity-owner.json", parity_owner_admission_sha256=SHA,
 )
 
 
@@ -41,6 +42,21 @@ def test_draft_graph_can_be_materialized_without_future_evidence_pins():
     assert len(jobs) == 122
     assert "Q0Q1_Q0B_L4_RECEIPT" not in jobs[2]["env"]
     assert jobs[2]["env"]["Q0Q1_REGISTRATION_STATUS"] == q.REGISTRATION_STATUS
+
+
+def test_train_command_pins_the_registered_t23_control_and_q1_treatments(tmp_path):
+    env = {
+        "Q0Q1_JOB_KIND": "q1_train", "Q0Q1_INPUT_ROOT": "/inputs", "Q1_SEED": "261701",
+        "Q1_TRANSITIONS": "8000000", "Q1_ARM": "D", "Q1_ACTORS": "3",
+    }
+    command = runner.command(env, tmp_path)
+    for flag, value in (("--worlds", "128"), ("--checkpoint-every", "500000"),
+                        ("--reward", "mass"), ("--kill-scale", "0"), ("--obs-version", "bv8"),
+                        ("--batch-scale", "2"), ("--actor-queue-frames", "2"),
+                        ("--collection-profile", "task-aligned-n1"), ("--learner-seats", "1")):
+        index = command.index(flag)
+        assert command[index + 1] == value
+    assert "--onpolicy-labels" in command and "--learner-fast" in command
 
 
 def test_draft_guard_runs_before_job_admission_or_output_access():

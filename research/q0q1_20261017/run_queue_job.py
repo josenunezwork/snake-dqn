@@ -99,6 +99,7 @@ def admission_checks(env: Mapping[str, str]) -> None:
         if admission.get("status") != "ADMITTED_FOR_OWNER_REVIEW" or packet.get("hardware") != "L4":
             raise RuntimeError("Q1 training requires full hash-bound L4 budget admission")
         q0_admission_checks(env)
+        _bound_json_bytes(env["Q1_RUNTIME_PARITY_RECEIPT"], env["Q1_RUNTIME_PARITY_RECEIPT_SHA256"])
         collector = "n1" if env["Q1_ARM"] in ("C", "D") else "n3"
         cells = packet.get("cells", [])
         matches = [cell for cell in cells if cell.get("collector") == collector]
@@ -127,8 +128,12 @@ def stage_training_final(env: Mapping[str, str], local_root: Path) -> str:
             raise RuntimeError("candidate training archive has an unsafe member name")
         tar.extractall(local_root / "training", filter="data")
     finals = list((local_root / "training").rglob("final.pth"))
-    if len(finals) != 1:
-        raise RuntimeError("candidate training archive must contain exactly one final.pth")
+    provenance = list((local_root / "training").rglob("training-provenance.json"))
+    if len(finals) != 1 or len(provenance) != 1:
+        raise RuntimeError("candidate archive must contain exactly one final.pth and provenance receipt")
+    if not isinstance(env, dict):
+        raise RuntimeError("evaluation environment must be mutable while staging provenance")
+    env["Q1_TRAINING_PROVENANCE"] = str(provenance[0])
     return str(finals[0])
 
 
@@ -147,7 +152,15 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
         return [py, "-m", "research.redesign_m3c_20261008.train_m3c", "--seed", env["Q1_SEED"],
                 "--init", str(inputs / "init/B8_s3_final.pth"), "--demo-data", str(inputs / "demo"),
                 "--out", str(local_root / "run"), "--transitions", env["Q1_TRANSITIONS"], "--device", "cuda",
-                "--actor-device", "cuda", "--actors", actors, "--schedule-package", "mature" if env["Q1_ARM"] in ("B", "D") else "restart",
+                "--actor-device", "cuda", "--worlds", "128", "--actors", actors,
+                "--checkpoint-every", "500000", "--reward", "mass", "--mass-kappa", "1.0",
+                "--kill-scale", "0", "--gamma-end", "0.998", "--gamma-anneal-end", "8000000",
+                "--mixed-frac", "0.25", "--anchor-mode", "v8margin", "--onpolicy-labels",
+                "--label-frac", "1", "--obs-version", "bv8", "--v61-backend", "numba",
+                "--learner-fast", "--learner-precision", "fp32", "--batch-scale", "2",
+                "--ring-dir", "/dev/shm", "--compile-learner", "reduce-overhead",
+                "--league-b8-checkpoint", str(inputs / "init/B8_s3_final.pth"), "--gather-threads", "3",
+                "--actor-queue-frames", "2", "--schedule-package", "mature" if env["Q1_ARM"] in ("B", "D") else "restart",
                 "--collection-profile", "task-aligned-n1" if env["Q1_ARM"] in ("C", "D") else "legacy",
                 "--learner-seats", "1" if env["Q1_ARM"] in ("C", "D") else "3",
                 "--namespace", (f"q1-task-aligned-n1-20261017/{env['Q1_ARM'].lower()}-{env['Q1_SEED']}/v1"
@@ -157,7 +170,8 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
         checkpoint = env["Q1_TRAINING_FINAL"]
         return [py, "-m", "research.q0q1_20261017.q1_evaluate", "--root", str(local_root),
                 "--bank", "research/q0q1_20261017/Q1_WORLD_BANK.json", "--b8-checkpoint", str(inputs / "init/B8_s3_final.pth"),
-                "--checkpoint", checkpoint, "--arm", env["Q1_ARM"], "--seed", env["Q1_SEED"], "--shard", env["Q1_SHARD"]]
+                "--checkpoint", checkpoint, "--arm", env["Q1_ARM"], "--seed", env["Q1_SEED"], "--shard", env["Q1_SHARD"],
+                *([] if env["Q1_ARM"] == "B8" else ["--provenance", env["Q1_TRAINING_PROVENANCE"]])]
     raise RuntimeError(f"unknown Q0/Q1 job kind: {kind!r}")
 
 
@@ -186,6 +200,35 @@ def _scientific_done(kind: str, local_root: Path) -> None:
         raise RuntimeError("training did not reach the registered 8M learner decisions")
 
 
+def _write_training_provenance(env: Mapping[str, str], local_root: Path) -> None:
+    """Bind evaluator-required provenance to the saved final bytes, never to a filename."""
+    runtime_receipt = Path(env["Q1_RUNTIME_PARITY_RECEIPT"])
+    expected = env["Q1_RUNTIME_PARITY_RECEIPT_SHA256"]
+    if not re.fullmatch(r"[0-9a-f]{64}", expected) or sha256_file(runtime_receipt) != expected:
+        raise RuntimeError("training runtime parity receipt is absent or changed")
+    summary = json.loads((local_root / "run/summary.json").read_text())
+    final = local_root / "run/final.pth"
+    if not final.is_file():
+        raise RuntimeError("scientifically complete training lacks final.pth")
+    payload = {
+        "schema": "q1-training-provenance/v1", "arm": env["Q1_ARM"],
+        "training_seed": int(env["Q1_SEED"]), "endpoint": 8_000_000, "clean_exit": True,
+        "checkpoint_sha256": sha256_file(final), "parity_pass": True, "tripwire_triggered": False,
+        "environment_sha256": hashlib.sha256(json.dumps(summary.get("args", {}), sort_keys=True).encode()).hexdigest(),
+        "runtime_parity_receipt_sha256": expected,
+    }
+    (local_root / "run/training-provenance.json").write_text(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _publish_attempt(output: Path, local: Path, *, job_id: str | None, status: str, error: str | None) -> None:
+    receipt = {"schema": "q0q1-queue-attempt/v1", "status": status, "job_id": job_id, "error": error}
+    (local / "queue-attempt-receipt.json").write_text(json.dumps(receipt, sort_keys=True) + "\n")
+    archive = output / "result.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(local, arcname="attempt")
+    (output / "result.tar.gz.sha256").write_text(f"{sha256_file(archive)}  result.tar.gz\n")
+
+
 def run(env: Mapping[str, str] | None = None) -> int:
     env = dict(os.environ if env is None else env)
     require_owner_release(env)
@@ -194,8 +237,9 @@ def run(env: Mapping[str, str] | None = None) -> int:
     if not output.is_absolute() or not output.is_dir() or any(output.iterdir()):
         raise RuntimeError("QUEUE_OUTPUT_DIR must be an existing empty job-private directory")
     local_parent = Path("/content") if Path("/content").is_dir() else Path(tempfile.gettempdir())
-    with tempfile.TemporaryDirectory(prefix="q0q1-", dir=local_parent) as temporary:
-        local = Path(temporary)
+    local = Path(tempfile.mkdtemp(prefix="q0q1-", dir=local_parent))
+    failure: Exception | None = None
+    try:
         child_env = {**env, "PYTHONPATH": f"/content/t16-snake-dqn:{env.get('PYTHONPATH', '')}"}
         run_env = dict(env)
         if env["Q0Q1_JOB_KIND"] == "q1_train":
@@ -203,15 +247,20 @@ def run(env: Mapping[str, str] | None = None) -> int:
             collector = "n1" if env["Q1_ARM"] in ("C", "D") else "n3"
             run_env["Q1_ACTORS"] = str(next(cell["actor_count"] for cell in packet["cells"] if cell["collector"] == collector))
         if env["Q0Q1_JOB_KIND"] == "q1_eval":
-            run_env["Q1_TRAINING_FINAL"] = stage_training_final(env, local)
+            run_env["Q1_TRAINING_FINAL"] = stage_training_final(run_env, local)
         completed = subprocess.run(command(run_env, local), cwd="/content/t16-snake-dqn", env=child_env)
         if completed.returncode != 0:
-            raise RuntimeError(f"child exited {completed.returncode}; no result was published")
+            raise RuntimeError(f"child exited {completed.returncode}")
         _scientific_done(env["Q0Q1_JOB_KIND"], local)
-        archive = output / "result.tar.gz"
-        with tarfile.open(archive, "w:gz") as tar:
-            tar.add(local, arcname="attempt")
-        (output / "result.tar.gz.sha256").write_text(f"{sha256_file(archive)}  result.tar.gz\n")
+        if env["Q0Q1_JOB_KIND"] == "q1_train":
+            _write_training_provenance(run_env, local)
+    except Exception as exc:  # retain every failed scientific attempt for audit
+        failure = exc
+    finally:
+        _publish_attempt(output, local, job_id=env.get("Q0Q1_JOB_ID"), status="COMPLETED" if failure is None else "INCOMPLETE", error=None if failure is None else str(failure))
+        shutil.rmtree(local, ignore_errors=True)
+    if failure is not None:
+        raise failure
     return 0
 
 

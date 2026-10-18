@@ -32,12 +32,15 @@ class Bindings:
     q0b_l4_receipt_sha256: str = ""
     study_plan: str = ""
     study_plan_sha256: str = ""
+    runtime_parity_receipt: str = ""
+    runtime_parity_receipt_sha256: str = ""
     parity_owner_admission: str = ""
     parity_owner_admission_sha256: str = ""
 
     def validate(self) -> None:
         for path_name, hash_name in (("q0b_l4_receipt", "q0b_l4_receipt_sha256"),
                                      ("study_plan", "study_plan_sha256"),
+                                     ("runtime_parity_receipt", "runtime_parity_receipt_sha256"),
                                      ("parity_owner_admission", "parity_owner_admission_sha256")):
             path, digest = getattr(self, path_name), getattr(self, hash_name)
             if bool(path) != bool(digest):
@@ -94,6 +97,7 @@ def build_jobs(commit: str, bindings: Bindings, *, eval_shards: int = 4) -> list
     for env_path, env_hash, value_path, value_hash in (
         ("Q0Q1_Q0B_L4_RECEIPT", "Q0Q1_Q0B_L4_RECEIPT_SHA256", bindings.q0b_l4_receipt, bindings.q0b_l4_receipt_sha256),
         ("Q0Q1_STUDY_PLAN", "Q0Q1_STUDY_PLAN_SHA256", bindings.study_plan, bindings.study_plan_sha256),
+        ("Q1_RUNTIME_PARITY_RECEIPT", "Q1_RUNTIME_PARITY_RECEIPT_SHA256", bindings.runtime_parity_receipt, bindings.runtime_parity_receipt_sha256),
         ("Q0Q1_PARITY_OWNER_ADMISSION", "Q0Q1_PARITY_OWNER_ADMISSION_SHA256", bindings.parity_owner_admission, bindings.parity_owner_admission_sha256),
     ):
         if value_path:
@@ -157,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--q0b-l4-receipt-sha256")
     parser.add_argument("--study-plan")
     parser.add_argument("--study-plan-sha256")
+    parser.add_argument("--runtime-parity-receipt")
+    parser.add_argument("--runtime-parity-receipt-sha256")
     parser.add_argument("--parity-owner-admission")
     parser.add_argument("--parity-owner-admission-sha256")
     parser.add_argument("--eval-shards", type=int, default=4)
@@ -164,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     jobs = build_jobs(args.commit, Bindings(args.q0b_l4_receipt or "", args.q0b_l4_receipt_sha256 or "",
                                            args.study_plan or "", args.study_plan_sha256 or "",
+                                           args.runtime_parity_receipt or "", args.runtime_parity_receipt_sha256 or "",
                                            args.parity_owner_admission or "", args.parity_owner_admission_sha256 or ""),
                       eval_shards=args.eval_shards)
     text = json.dumps(jobs, indent=2, sort_keys=True) + "\n"
