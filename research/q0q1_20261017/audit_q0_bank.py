@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from research.apex_safety_20260926 import dev_screen
 from research.t23_r0_screen_20261017 import bank as t23_bank
@@ -82,11 +83,25 @@ def build_world_bank() -> dict[str, Any]:
     return bank
 
 
-def audit_world_bank(repo: Path = ROOT) -> dict[str, Any]:
+def audit_world_bank(
+    repo: Path = ROOT,
+    artifacts: Path | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+    allow_receipt: bool = True,
+) -> dict[str, Any]:
+    """Audit locally, or require the Mac receipt for a queued Colab job."""
     bank = build_world_bank()
+    environment = os.environ if env is None else env
+    if environment.get("Q0Q1_JOB_KIND"):
+        if not allow_receipt:
+            raise ValueError("Mac inventory receipt producer cannot use a receipt")
+        from research.q0q1_20261017.inventory_receipt import KIND_Q0, load_receipt_audit
+
+        return load_receipt_audit(KIND_Q0, bank, env=environment, repo=repo)
     candidate = {r["world_seed"] for rows in bank["worlds"].values() for r in rows}
-    _, historical = t23_bank._prior_strict_seed_inventory(
-        repo, repo.parent / "snake-dqn-artifacts", candidate
+    bindings, historical = t23_bank._prior_strict_seed_inventory(
+        repo, artifacts or repo.parent / "snake-dqn-artifacts", candidate
     )
     historical.update(
         t23_bank._scan_candidate_tokens(
@@ -98,6 +113,8 @@ def audit_world_bank(repo: Path = ROOT) -> dict[str, Any]:
         "schema": "q0-audit-seed-audit/v1",
         "world_bank_semantic_sha256": bank["allocation_semantic_sha256"],
         "candidate_count": len(candidate),
+        "registered_strict_count": len(historical),
         "registered_collision_seeds": collisions,
+        "mandatory_evidence": bindings,
         "pass": not collisions,
     }

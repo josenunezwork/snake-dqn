@@ -62,6 +62,8 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
     runtime = tmp_path / "runtime.json"
     mac = tmp_path / "mac.json"
     accounting = tmp_path / "accounting.json"
+    inventory = tmp_path / "inventory.json"
+    inventory.write_text("{}")
     owner = Path("research/q0q1_20261017/OWNER_ADMISSION_20261018.json")
     for path, value in ((l4, {}), (a100, {}), (runtime, {}), (mac, {})):
         path.write_text(json.dumps(value))
@@ -112,6 +114,7 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
         "research.q0q1_20261017.run_queue_job.qualified_recipe_binding",
         lambda packet, command: None,
     )
+    monkeypatch.setattr(subject.inventory_receipt, "load_receipt_audit", lambda *a, **kw: {})
     jobs, plan = subject.make_jobs(
         commit="a" * 40,
         l4_receipt_path=l4,
@@ -120,6 +123,7 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
         mac_reference_path=mac,
         owner_admission_path=owner.resolve(),
         q0_accounting_path=accounting,
+        inventory_receipt_path=inventory,
         q0b_l4_job_id="q0b-l4",
         q0b_a100_job_id="q0b-a100",
         study_plan_drive_path=(
@@ -130,8 +134,14 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
     assert sum(job["id"].startswith("q1-train-") for job in jobs) == 20
     assert all(job["env"]["Q0Q1_OWNER_RELEASE"] == subject.OWNER_RELEASE for job in jobs)
     assert all({"q0b-l4", "q0b-a100"} <= set(job["depends_on"]) for job in jobs)
-    assert all("q0-audit-t23-mass-a100r" in job["depends_on"] for job in jobs)
+    assert all(subject.Q0_MASS_JOB_ID in job["depends_on"] for job in jobs)
     assert all(job["env"]["Q0Q1_Q0B_A100_RECEIPT_SHA256"] for job in jobs)
+    assert all(
+        job["env"]["Q0Q1_BANK_INVENTORY_RECEIPT_SHA256"] == subject.sha256_file(inventory)
+        for job in jobs
+    )
+    assert all(subject.Q0_INIT_JOB_ID in job["depends_on"] for job in jobs)
+    assert all(job["env"]["Q0Q1_MASS_ARCHIVE_DIR"] == subject.Q0_MASS_ARCHIVE_DIR for job in jobs)
     assert {
         job["requirements"]["min_vcpu"] for job in jobs if job["id"].startswith("q1-train-")
     } == {12}

@@ -19,13 +19,17 @@ import tempfile
 from pathlib import Path
 from typing import Any, Mapping
 
-from research.q0q1_20261017 import q1_bank, q1_evaluate, q1_parity, queue_jobs
+from research.q0q1_20261017 import inventory_receipt, q1_bank, q1_evaluate, q1_parity, queue_jobs
 from research.q0q1_20261017.qualification import PACKET_SCHEMA, validate_packet
 
 OWNER_RELEASE = "APPROVED_Q0Q1_20261017"
 AMENDMENT = "A1"
 OWNER_ADMISSION_SCHEMA = "q0q1-owner-admission/v1"
 DRIVE_ROOT = "/content/drive/MyDrive/t16_colab"
+Q0_MASS_JOB_ID = "q0-audit-t23-mass-a100r2"
+Q0_INIT_JOB_ID = "q0-audit-b8-init-a100r3"
+Q0_MASS_ARCHIVE_DIR = "q0q1-20261017/q0/audit-t23-mass-a100r2"
+Q0_INIT_ARCHIVE_DIR = "q0q1-20261017/q0/audit-b8-init-a100r3"
 
 
 def canonical(value: Any) -> str:
@@ -277,11 +281,19 @@ def make_jobs(
     mac_reference_path: Path,
     owner_admission_path: Path,
     q0_accounting_path: Path,
+    inventory_receipt_path: Path,
     q0b_l4_job_id: str,
     q0b_a100_job_id: str,
     study_plan_drive_path: str,
     drive_root: str = DRIVE_ROOT,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    inventory_env = {
+        "Q0Q1_BANK_INVENTORY_RECEIPT": str(inventory_receipt_path),
+        "Q0Q1_BANK_INVENTORY_RECEIPT_SHA256": sha256_file(inventory_receipt_path),
+    }
+    inventory_receipt.load_receipt_audit(
+        "q1_evaluation", q1_bank.load_world_bank(), env=inventory_env
+    )
     l4, l4_packet = _qualified_receipt(l4_receipt_path, "L4")
     a100, a100_packet = _qualified_receipt(a100_receipt_path, "A100")
     if a100_packet.get("source") != l4_packet.get("source") or a100_packet.get(
@@ -330,14 +342,15 @@ def make_jobs(
         job["env"]["Q0Q1_OWNER_RELEASE"] = OWNER_RELEASE
         job["env"]["Q0Q1_Q0B_A100_RECEIPT"] = str(a100_receipt_path)
         job["env"]["Q0Q1_Q0B_A100_RECEIPT_SHA256"] = sha256_file(a100_receipt_path)
-        job["env"]["Q0Q1_MASS_ARCHIVE_DIR"] = "q0q1-20261017/q0/audit-t23-mass-a100r"
-        job["env"]["Q0Q1_INIT_ARCHIVE_DIR"] = "q0q1-20261017/q0/audit-b8-init-a100r2"
+        job["env"].update(inventory_env)
+        job["env"]["Q0Q1_MASS_ARCHIVE_DIR"] = Q0_MASS_ARCHIVE_DIR
+        job["env"]["Q0Q1_INIT_ARCHIVE_DIR"] = Q0_INIT_ARCHIVE_DIR
         preserved = [item for item in job["depends_on"] if not item.startswith("q0-audit-")]
         job["depends_on"] = list(
             dict.fromkeys(
                 [
-                    "q0-audit-t23-mass-a100r",
-                    "q0-audit-b8-init-a100r2",
+                    Q0_MASS_JOB_ID,
+                    Q0_INIT_JOB_ID,
                     *preserved,
                     q0b_l4_job_id,
                     q0b_a100_job_id,
@@ -396,6 +409,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--q0b-l4-receipt", type=Path, required=True)
     parser.add_argument("--q0b-a100-receipt", type=Path, required=True)
+    parser.add_argument("--inventory-receipt", type=Path, required=True)
     parser.add_argument("--q0-mass-archive", type=Path, required=True)
     parser.add_argument("--q0-init-archive", type=Path, required=True)
     parser.add_argument("--runtime-parity-receipt", type=Path)
@@ -450,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
         member_name="attempt/measurement/runtime-parity.json",
         member_suffix="runtime-parity.json",
     )
+    inventory = _stage_evidence(args.inventory_receipt, evidence / "inventory-receipt.json")
     mac = _stage_evidence(args.mac_parity_reference, evidence / "mac-parity-reference.json")
     owner = _stage_evidence(args.owner_admission, evidence / "owner-admission.json")
     jobs, plan = make_jobs(
@@ -460,6 +475,7 @@ def main(argv: list[str] | None = None) -> int:
         mac_reference_path=mac,
         owner_admission_path=owner,
         q0_accounting_path=args.q0_accounting,
+        inventory_receipt_path=inventory,
         q0b_l4_job_id=args.q0b_l4_job_id,
         q0b_a100_job_id=args.q0b_a100_job_id,
         study_plan_drive_path=f"{args.drive_output_dir.rstrip('/')}/study-plan.json",
@@ -467,6 +483,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     drive_evidence = f"{args.drive_output_dir.rstrip('/')}/evidence"
     replacement = {
+        str(inventory): f"{drive_evidence}/inventory-receipt.json",
         str(l4): f"{drive_evidence}/q0b-l4-receipt.json",
         str(a100): f"{drive_evidence}/q0b-a100-receipt.json",
         str(runtime): f"{drive_evidence}/runtime-parity.json",

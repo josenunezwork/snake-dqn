@@ -14,9 +14,11 @@ import io
 import json
 import tarfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from research.q0q1_20261017 import inventory_receipt
 from research.q0q1_20261017 import make_q1_jobs as generator
 from research.q0q1_20261017 import q0b_measure, queue_jobs, run_queue_job
 from tests.test_q1_parity import _receipt as parity_receipt
@@ -89,11 +91,11 @@ def _config_bindings(packet: dict, tmp_path: Path) -> None:
 def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
     drive = tmp_path / "drive"
     mass = _write_archive(
-        drive / "q0q1-20261017/q0/audit-t23-mass-a100r",
+        drive / "q0q1-20261017/q0/audit-t23-mass-a100r2",
         {"schema": "q0-t23-mass-audit/v1", "status": "COMPLETE"},
     )
     init = _write_archive(
-        drive / "q0q1-20261017/q0/audit-b8-init-a100r2",
+        drive / "q0q1-20261017/q0/audit-b8-init-a100r3",
         {"schema": "q0-b8-init-fidelity/v1", "status": "COMPLETE"},
     )
 
@@ -162,6 +164,24 @@ def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
         )
     )
     owner = Path("research/q0q1_20261017/OWNER_ADMISSION_20261018.json").resolve()
+    # Retain the real producer/consumer binding logic while substituting only
+    # the Mac-only inventory scans with passing synthetic audit outcomes.
+    q0_bank = inventory_receipt.audit_q0_bank.build_world_bank()
+    q0_audit = {
+        "schema": "q0-audit-seed-audit/v1",
+        "world_bank_semantic_sha256": q0_bank["allocation_semantic_sha256"],
+        "candidate_count": 160,
+        "registered_collision_seeds": [],
+        "pass": True,
+    }
+    q1_audit = json.loads(Path("research/q0q1_20261017/Q1_SEED_AUDIT.json").read_text())
+    with (
+        patch.object(inventory_receipt.audit_q0_bank, "audit_world_bank", return_value=q0_audit),
+        patch.object(inventory_receipt.q1_bank, "audit_world_bank", return_value=q1_audit),
+    ):
+        inventory_value = inventory_receipt.create_receipt()
+    inventory = tmp_path / "inventory-receipt.json"
+    inventory.write_text(json.dumps(inventory_value, sort_keys=True) + "\n")
     return {
         "drive": drive,
         "mass": mass,
@@ -172,6 +192,7 @@ def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
         "mac": mac,
         "accounting": accounting,
         "owner": owner,
+        "inventory": inventory,
     }
 
 
@@ -191,6 +212,8 @@ def _cli_args(evidence: dict[str, Path | dict], out: Path, drive_output_dir: Pat
         str(evidence["runtime"]),
         "--mac-parity-reference",
         str(evidence["mac"]),
+        "--inventory-receipt",
+        str(evidence["inventory"]),
         "--q0-accounting",
         str(evidence["accounting"]),
         "--owner-admission",
@@ -242,6 +265,7 @@ def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, 
         "runtime-parity.json",
         "mac-parity-reference.json",
         "owner-admission.json",
+        "inventory-receipt.json",
     ):
         source = out / "evidence" / name
         (evidence_dir / name).write_bytes(source.read_bytes())
@@ -252,6 +276,7 @@ def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, 
     for path in (train, evaluate):
         env = _job_env(path, evidence["drive"])
         for name in (
+            "Q0Q1_BANK_INVENTORY_RECEIPT",
             "Q0Q1_Q0B_L4_RECEIPT",
             "Q0Q1_STUDY_PLAN",
             "Q1_RUNTIME_PARITY_RECEIPT",
@@ -266,7 +291,7 @@ def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, 
         run_queue_job.admission_checks(env)
 
 
-@pytest.mark.parametrize("mutation", ["study-plan", "mac", "source", "packet", "q0"])
+@pytest.mark.parametrize("mutation", ["study-plan", "mac", "source", "packet", "q0", "inventory"])
 def test_admission_rejects_mutated_bound_evidence(monkeypatch, tmp_path, mutation):
     evidence = _evidence(tmp_path)
     out = tmp_path / "jobs"
@@ -282,11 +307,12 @@ def test_admission_rejects_mutated_bound_evidence(monkeypatch, tmp_path, mutatio
     env = _job_env(train_path, evidence["drive"])
 
     targets = {
+        "inventory": Path(env["Q0Q1_BANK_INVENTORY_RECEIPT"]),
         "study-plan": Path(env["Q0Q1_STUDY_PLAN"]),
         "mac": Path(env["Q1_MAC_PARITY_REFERENCE"]),
         "source": Path(env["Q0Q1_Q0B_L4_RECEIPT"]),
         "packet": Path(env["Q0Q1_Q0B_L4_RECEIPT"]),
-        "q0": evidence["drive"] / "q0q1-20261017/q0/audit-t23-mass-a100r/result.tar.gz",
+        "q0": evidence["drive"] / "q0q1-20261017/q0/audit-t23-mass-a100r2/result.tar.gz",
     }
     target = targets[mutation]
     if mutation == "q0":

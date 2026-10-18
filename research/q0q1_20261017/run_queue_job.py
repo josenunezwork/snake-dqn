@@ -150,6 +150,9 @@ def qualified_recipe_binding(packet: Mapping[str, Any], train_command: list[str]
 def admission_checks(env: Mapping[str, str]) -> None:
     kind = env.get("Q0Q1_JOB_KIND")
     if kind in {"q1_train", "q1_eval"}:
+        from research.q0q1_20261017.inventory_receipt import load_receipt_audit
+
+        load_receipt_audit("q1_evaluation", q1_bank.load_world_bank(), env=env)
         owner = _bound_json(
             env["Q0Q1_PARITY_OWNER_ADMISSION"],
             env["Q0Q1_PARITY_OWNER_ADMISSION_SHA256"],
