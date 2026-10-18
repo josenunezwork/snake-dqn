@@ -1,0 +1,34 @@
+{
+  "commit": "2ef0e3b837402f6066ca5942986a1805766a14de",
+  "depends_on": [
+    "q0-audit-t23-mass-a100r4",
+    "q0-audit-b8-init-a100r4"
+  ],
+  "env": {
+    "Q0Q1_BANK_INVENTORY_RECEIPT": "/content/drive/MyDrive/t16_colab/q0q1-20261017/admission/inventory-receipt.json",
+    "Q0Q1_BANK_INVENTORY_RECEIPT_SHA256": "2f9d74980fc8ed6a683deb52c4933eaf0516bdbcb3dea072d1b27d03ced542aa",
+    "Q0Q1_HARDWARE": "L4",
+    "Q0Q1_INIT_ARCHIVE_DIR": "q0q1-20261017/q0/audit-b8-init-a100r4",
+    "Q0Q1_INPUT_ROOT": "/content/t16-colab-extracted/t16-colab-inputs",
+    "Q0Q1_JOB_ID": "q0b-capacity-l4-20261018r4",
+    "Q0Q1_JOB_KIND": "q0b_measure",
+    "Q0Q1_MASS_ARCHIVE_DIR": "q0q1-20261017/q0/audit-t23-mass-a100r4",
+    "Q0Q1_N1_ACTORS": "3",
+    "Q0Q1_N3_ACTORS": "6",
+    "Q0Q1_OWNER_RELEASE": "APPROVED_Q0Q1_20261017",
+    "Q0Q1_PRICING_FILE": "q0q1-20261017/admission/observed-pricing.json",
+    "Q0Q1_REGISTRATION_STATUS": "APPROVED_Q0Q1_20261017",
+    "Q1_MAC_PARITY_REFERENCE": "q0q1-20261017/admission/mac-parity-reference.json",
+    "QUEUE_DRIVE_ROOT": "/content/drive/MyDrive/t16_colab"
+  },
+  "id": "q0b-capacity-l4-20261018r4",
+  "output_dir": "q0q1-20261017/q0b/capacity-l4-20261018r3",
+  "priority": 95,
+  "requirements": {
+    "est_minutes": 60,
+    "gpu": "L4",
+    "min_vcpu": 12
+  },
+  "script": "research/q0q1_20261017/run_queue_job.sh",
+  "timeout_minutes": 60
+}
