@@ -1,0 +1,33 @@
+{
+  "packet": {
+    "schema": "q0q1-qualification-packet/v1",
+    "hardware": "L4",
+    "packet_seconds": null,
+    "unit_rate_per_hour": null,
+    "source": {"commit": "REPLACE_WITH_64_HEX_SOURCE_SHA256"},
+    "config": {"trainer": "REPLACE_WITH_64_HEX_CONFIG_SHA256"},
+    "environment": {"lock": "REPLACE_WITH_64_HEX_ENVIRONMENT_SHA256"},
+    "hashes": {"b8_initializer": "REPLACE_WITH_64_HEX_SHA256"},
+    "cells": [],
+    "parity": {
+      "target_runtime": "cuda",
+      "short_body": false,
+      "long_body": false,
+      "t22": "PENDING",
+      "t24": "PENDING"
+    }
+  },
+  "study_plan": {
+    "schema": "q0q1-study-budget/v1",
+    "owner_review_status": "DRAFT_PENDING_OWNER_REVIEW",
+    "dispatch": false,
+    "q0_units": null,
+    "cpu_unit_rate_per_hour": null,
+    "cpu_seconds_per_episode": null,
+    "cpu_workers": null,
+    "cpu_worker_efficiency": null,
+    "evaluation_episodes": 3200,
+    "runs_per_arm": 5,
+    "decisions_per_run": 8000000
+  }
+}
