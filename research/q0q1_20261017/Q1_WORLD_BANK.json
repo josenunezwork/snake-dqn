@@ -355,8 +355,8 @@
   "profile_semantic_sha256": "055c59555165cc610e2d7b488d13647fbaffa444248171f0a2871c94d74f79b8",
   "schema": "q1-world-bank/v1",
   "training_namespaces": {
-    "n1": "q1-task-aligned-n1-terminal-hero/20261017/v1",
-    "n3": "q1-mature-n3-pool/20261017/v1"
+    "n1": "q1-task-aligned-n1-20261017/v1",
+    "n3": "q1-t23-n3-20261017/v1"
   },
   "training_seeds": [
     261701,

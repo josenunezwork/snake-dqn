@@ -1,6 +1,6 @@
 {
   "candidate_count": 644,
-  "generated_utc": "2026-10-18T03:56:37.231448+00:00",
+  "generated_utc": "2026-10-18T04:01:13.517646+00:00",
   "internal_unique": true,
   "limitations": [
     "Visible receipts and bound strict inventories; opaque binary payloads are outside this audit."
@@ -104,14 +104,14 @@
   "registered_collision_seeds": [],
   "schema": "q1-seed-audit/v1",
   "training_namespaces": {
-    "n1": "q1-task-aligned-n1-terminal-hero/20261017/v1",
-    "n3": "q1-mature-n3-pool/20261017/v1"
+    "n1": "q1-task-aligned-n1-20261017/v1",
+    "n3": "q1-t23-n3-20261017/v1"
   },
   "training_seed_collision_seeds": [],
   "training_seed_count": 5,
   "world_bank_file": {
     "path": "research/q0q1_20261017/Q1_WORLD_BANK.json",
-    "sha256": "2378f8a19551a12079e11bc0406a2a84322fd45c5d309cd767e83e98e6b3cc6f"
+    "sha256": "d637a0610c0dfbbcc52f3800dd39255975bdb9728a92811b6ece9342fd82dc40"
   },
   "world_bank_semantic_sha256": "56fb4cd0cda1acc12e7729b3d717f829d2644e2e98d80116ccdd6c5eedde23a7"
 }

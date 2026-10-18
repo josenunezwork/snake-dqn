@@ -58,6 +58,21 @@ def validate_provenance(value: dict[str, Any], arm: str, seed: int, checkpoint_s
         raise ValueError(
             "candidate provenance has tripwire or missing environment/runtime parity binding"
         )
+    counters = value.get("counters")
+    if not isinstance(counters, dict):
+        raise ValueError("candidate provenance lacks actual counter receipt")
+    decisions = counters.get("actual_learner_decisions")
+    overshoot = counters.get("transition_budget_overshoot")
+    bound = counters.get("registered_overshoot_bound")
+    if (
+        not isinstance(decisions, int)
+        or not isinstance(overshoot, int)
+        or not isinstance(bound, int)
+        or not 8_000_000 <= decisions <= 8_000_000 + bound
+        or overshoot != decisions - 8_000_000
+        or not 0 <= bound <= 1_000_000
+    ):
+        raise ValueError("candidate actual learner counter or overshoot bound is invalid")
 
 
 def validate_candidate_provenance(

@@ -26,9 +26,18 @@ TRAINING_SEEDS = (261701, 261703, 261704, 261705, 261707)
 MIX_COUNTS = {"scripted": 64, "frozen": 32, "mixed": 32}
 PARITY_COUNT = 4
 TRAINING_NAMESPACES = {
-    "n3": "q1-mature-n3-pool/20261017/v1",
-    "n1": "q1-task-aligned-n1-terminal-hero/20261017/v1",
+    "n3": "q1-t23-n3-20261017/v1",
+    "n1": "q1-task-aligned-n1-20261017/v1",
 }
+
+
+def training_namespace(arm: str) -> str:
+    """Return the registered stream namespace shared by its collector arms."""
+    if arm in ("A", "B"):
+        return TRAINING_NAMESPACES["n3"]
+    if arm in ("C", "D"):
+        return TRAINING_NAMESPACES["n1"]
+    raise ValueError(f"unregistered Q1 arm {arm!r}")
 
 
 def canonical_sha(value: Any) -> str:
