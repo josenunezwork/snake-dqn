@@ -18,6 +18,7 @@ def _receipt(*, rate: float = 0.5) -> dict:
         "observed_cpu_unit_rate_per_hour": rate,
         "cpu_seconds_per_episode": 2.0,
         "cpu_worker_efficiency": 0.8,
+        "stages": {"setup_seconds": 120.0, "cleanup_seconds": 60.0},
     }
 
 

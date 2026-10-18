@@ -15,6 +15,7 @@ import json
 import math
 import subprocess
 import tempfile
+import tarfile
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -59,7 +60,7 @@ def _number(value: Any, label: str, *, positive: bool = True) -> float:
 
 def _qualified_receipt(path: Path, hardware: str) -> tuple[dict[str, Any], dict[str, Any]]:
     receipt = _json_object(path, f"Q0b {hardware} receipt")
-    packet = receipt.get("packet")
+    packet = receipt.get("packet", receipt)
     if not isinstance(packet, Mapping):
         raise ValueError(f"Q0b {hardware} receipt lacks its packet")
     if packet.get("schema") != PACKET_SCHEMA or packet.get("hardware") != hardware:
@@ -148,8 +149,18 @@ def _study_plan(
     efficiency = _number(l4.get("cpu_worker_efficiency"), "L4 cpu_worker_efficiency")
     if efficiency > 1:
         raise ValueError("L4 cpu_worker_efficiency cannot exceed 1")
-    # The registered per-attempt allowance includes startup/export, and evaluation
-    # has 100 parity probes.  Both overhead fields are explicit rather than free.
+    stages = l4.get("stages")
+    if not isinstance(stages, Mapping):
+        raise ValueError("L4 Q0b receipt lacks measured setup and cleanup stages")
+    setup = _number(stages.get("setup_seconds"), "L4 setup_seconds", positive=False)
+    cleanup = _number(stages.get("cleanup_seconds"), "L4 cleanup_seconds", positive=False)
+    # Spread the common runtime's observed four-cell setup/cleanup cost across
+    # 20 Q1 attempts. A maximum timeout is not a forecast.
+    q1_gpu_overhead_hours = 20 * (setup + cleanup) / (4 * 3600)
+    if q1_gpu_overhead_hours <= 0:
+        raise ValueError("L4 Q0b packet must report nonzero measured setup or cleanup overhead")
+    # Evaluation has 100 immutable shards with four-world parity probes. Training
+    # CPU parity runs inside its L4 attempt and is charged to GPU elapsed time.
     return {
         "schema": "q0q1-study-budget/v1",
         "owner_review_status": OWNER_RELEASE,
@@ -161,10 +172,8 @@ def _study_plan(
         "q0_units": q0_units,
         "q0_gpu_hours": q0_gpu,
         "q0_cpu_hours": q0_cpu,
-        "q1_gpu_overhead_hours": 20 * (30 + 5) / 60,
-        # 100 evaluation jobs each run a four-world probe, and each of the 20
-        # training attempts runs its own four-world CPU parity check.
-        "q1_cpu_overhead_hours": 120 * 4 * cpu_seconds / (3600 * efficiency),
+        "q1_gpu_overhead_hours": q1_gpu_overhead_hours,
+        "q1_cpu_overhead_hours": 100 * 4 * cpu_seconds / (3600 * efficiency),
         "cpu_unit_rate_per_hour": cpu_rate,
         "cpu_seconds_per_episode": cpu_seconds,
         "cpu_workers": 1,
@@ -188,6 +197,34 @@ def _clean_head(commit: str, root: Path) -> None:
     )
     if dirty.returncode:
         raise ValueError("refusing to bind jobs while the checkout has uncommitted source changes")
+
+
+def _stage_evidence(source: Path, target: Path, *, member_suffix: str | None = None) -> Path:
+    """Copy direct JSON or safely extract a hash-verified queue archive member."""
+    if source.suffixes[-2:] != [".tar", ".gz"]:
+        value = _json_object(source, "evidence")
+        target.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+        return target
+    sidecar = source.with_name(source.name + ".sha256")
+    fields = sidecar.read_text().split() if sidecar.is_file() else []
+    if not fields or fields[0] != sha256_file(source):
+        raise ValueError(f"queue archive sidecar does not bind {source}")
+    with tarfile.open(source, "r:gz") as archive:
+        members = [member for member in archive.getmembers() if member.name.endswith(member_suffix or "receipt.json")]
+        if len(members) != 1 or members[0].name.startswith("/") or ".." in Path(members[0].name).parts:
+            raise ValueError(f"queue archive lacks one safe {member_suffix or 'receipt.json'} member")
+        stream = archive.extractfile(members[0])
+        if stream is None:
+            raise ValueError("queue archive evidence member cannot be read")
+        raw = stream.read()
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("queue archive evidence member is not JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError("queue archive evidence member is not a JSON object")
+    target.write_bytes(raw)
+    return target
 
 
 def make_jobs(
@@ -301,20 +338,41 @@ def main(argv: list[str] | None = None) -> int:
     _clean_head(args.commit, root)
     if args.out_dir.exists():
         parser.error(f"refusing to replace existing output directory: {args.out_dir}")
+    args.out_dir.mkdir(parents=True)
+    evidence = args.out_dir / "evidence"
+    evidence.mkdir()
+    l4 = _stage_evidence(args.q0b_l4_receipt, evidence / "q0b-l4-receipt.json")
+    a100 = _stage_evidence(args.q0b_a100_receipt, evidence / "q0b-a100-receipt.json")
+    runtime = _stage_evidence(
+        args.runtime_parity_receipt, evidence / "runtime-parity.json", member_suffix="runtime-parity.json"
+    )
+    mac = _stage_evidence(args.mac_parity_reference, evidence / "mac-parity-reference.json")
+    owner = _stage_evidence(args.owner_admission, evidence / "owner-admission.json")
     jobs, plan = make_jobs(
         commit=args.commit,
-        l4_receipt_path=args.q0b_l4_receipt,
-        a100_receipt_path=args.q0b_a100_receipt,
-        runtime_receipt_path=args.runtime_parity_receipt,
-        mac_reference_path=args.mac_parity_reference,
-        owner_admission_path=args.owner_admission,
+        l4_receipt_path=l4,
+        a100_receipt_path=a100,
+        runtime_receipt_path=runtime,
+        mac_reference_path=mac,
+        owner_admission_path=owner,
         q0_accounting_path=args.q0_accounting,
         q0b_l4_job_id=args.q0b_l4_job_id,
         q0b_a100_job_id=args.q0b_a100_job_id,
         study_plan_drive_path=f"{args.drive_output_dir.rstrip('/')}/study-plan.json",
         drive_root=args.drive_root,
     )
-    args.out_dir.mkdir(parents=True)
+    drive_evidence = f"{args.drive_output_dir.rstrip('/')}/evidence"
+    replacement = {
+        str(l4): f"{drive_evidence}/q0b-l4-receipt.json",
+        str(a100): f"{drive_evidence}/q0b-a100-receipt.json",
+        str(runtime): f"{drive_evidence}/runtime-parity.json",
+        str(mac): f"{drive_evidence}/mac-parity-reference.json",
+        str(owner): f"{drive_evidence}/owner-admission.json",
+    }
+    for job in jobs:
+        for key, value in tuple(job["env"].items()):
+            if value in replacement:
+                job["env"][key] = replacement[value]
     (args.out_dir / "study-plan.json").write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
     for job in jobs:
         (args.out_dir / f"{job['id']}.json").write_text(json.dumps(job, indent=2, sort_keys=True) + "\n")
