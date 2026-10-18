@@ -1476,7 +1476,9 @@ def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False)
 
         mix_of = equal_mix_assignments(args.seed, segment * E + np.arange(E)).tolist()
     else:
-        mix_of = ["scripted"] * (E - n_frozen - n_mixed) + ["frozen"] * n_frozen + ["mixed"] * n_mixed
+        mix_of = (
+            ["scripted"] * (E - n_frozen - n_mixed) + ["frozen"] * n_frozen + ["mixed"] * n_mixed
+        )
     v61 = getattr(args, "v61_backend", None) or os.environ.get(V61_BACKEND_ENV) or "python"
     runtime = Vector61Runtime(backend=v61)
     controlled = np.zeros((E, 6), dtype=bool)
@@ -1598,7 +1600,9 @@ def refresh_task_aligned_rosters(args, ctx, sim, runtime, policies, groups, mixe
         if isinstance(policy, FastProfileAnchorSimdPolicy):
             policy._world_seeds = tuple(int(seed) for seed in sim._seeds)
     groups.clear()
-    groups.update({spec: np.asarray(cells, dtype=np.int64) for spec, cells in cells_by_spec.items()})
+    groups.update(
+        {spec: np.asarray(cells, dtype=np.int64) for spec, cells in cells_by_spec.items()}
+    )
     controlled = np.zeros((sim.E, sim.S), dtype=bool)
     for spec, cells in groups.items():
         if spec[0] != "scripted":
@@ -2370,15 +2374,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         from research.redesign_m3c_20261008.task_collection import HORIZON, NAMESPACE_PREFIX
 
         if not args.actors or learner_seats(args) != 1:
-            raise SystemExit("--collection-profile task-aligned-n1 needs --actors and --learner-seats 1")
-        if not str(args.namespace).startswith(NAMESPACE_PREFIX):
             raise SystemExit(
-                "task-aligned-n1 needs a fresh q1-task-aligned-n1-20261017 namespace"
+                "--collection-profile task-aligned-n1 needs --actors and --learner-seats 1"
             )
+        if not str(args.namespace).startswith(NAMESPACE_PREFIX):
+            raise SystemExit("task-aligned-n1 needs a fresh q1-task-aligned-n1-20261017 namespace")
         if args.segment_frames != HORIZON:
-            raise SystemExit("task-aligned-n1 needs --segment-frames 5000 (registered H5000 horizon)")
+            raise SystemExit(
+                "task-aligned-n1 needs --segment-frames 5000 (registered H5000 horizon)"
+            )
         if args.opp_forward not in (None, "per-group"):
-            raise SystemExit("task-aligned-n1 needs --opp-forward per-group for reset roster refresh")
+            raise SystemExit(
+                "task-aligned-n1 needs --opp-forward per-group for reset roster refresh"
+            )
     if args.gather_threads < 0:
         raise SystemExit("--gather-threads must be >= 0")
     if args.max_wall_seconds < 0.0 or not math.isfinite(args.max_wall_seconds):
@@ -3242,6 +3250,18 @@ def actor_main(
             sim, runtime, policies, groups = build_segment(
                 args, ctx, segment, gamma_seg, hero_v61=python_v8
             )
+            task_pending = None
+            if task_aligned_n1:
+                task_pending = {
+                    "world_resets": {
+                        mix: int((sim._task_mixes == mix).sum())
+                        for mix in ("scripted", "frozen", "mixed")
+                    },
+                    "death_resets": {mix: 0 for mix in ("scripted", "frozen", "mixed")},
+                    "horizon_resets": {mix: 0 for mix in ("scripted", "frozen", "mixed")},
+                    "world_frames": {mix: 0 for mix in ("scripted", "frozen", "mixed")},
+                    "learner_decisions": {mix: 0 for mix in ("scripted", "frozen", "mixed")},
+                }
             live_seats = learner_seat_mask(args.seed, segment, sim.E, league_n)
             pool = None
             pool_identity_records = None
@@ -3360,8 +3380,10 @@ def actor_main(
             # segment is only an implementation boundary, never an episode
             # boundary: a world that reset after a terminal hero death must get
             # a complete new H5000 horizon.
-            frame_iter = itertools.count(frame_start) if task_aligned_n1 else range(
-                frame_start, args.segment_frames
+            frame_iter = (
+                itertools.count(frame_start)
+                if task_aligned_n1
+                else range(frame_start, args.segment_frames)
             )
             for _frame in frame_iter:
                 if stop_evt.is_set():
@@ -3637,6 +3659,12 @@ def actor_main(
                             else 0
                         ),
                     }
+                    if task_pending is not None:
+                        for mix in sim._task_mixes[rows[:, 0]]:
+                            task_pending["learner_decisions"][str(mix)] += 1
+                if task_pending is not None:
+                    for mix in sim._task_mixes:
+                        task_pending["world_frames"][str(mix)] += 1
                 last_frame = (not task_aligned_n1) and _frame == args.segment_frames - 1
                 if restart_enabled:
                     expired = active & (sim.frame >= args.segment_frames)
@@ -3687,7 +3715,6 @@ def actor_main(
                     msg["restart_frac_actual"] = float(restarted_worlds.mean())
                 if prof is not None and prof.running:
                     _profile_count(prof.meta, msg)
-                _put_until_stopped(tx, msg, stop_evt)  # bounded: back-pressure from the learner
                 if task_aligned_n1:
                     # A hero death ends its episode.  The n-step builder has already
                     # terminal-flushed that stream above; only then may this whole
@@ -3703,6 +3730,14 @@ def actor_main(
                         )
 
                         selected = np.flatnonzero(reset_worlds)
+                        death_worlds = np.asarray(done[:, 0], dtype=bool)
+                        horizon_only = reset_worlds & ~death_worlds
+                        for e in selected:
+                            mix = str(sim._task_mixes[e])
+                            task_pending["world_resets"][mix] += 1
+                            task_pending["death_resets" if death_worlds[e] else "horizon_resets"][
+                                mix
+                            ] += 1
                         sim._task_reset_ordinals[selected] += 1
                         replacement_seeds = [
                             reset_seed(
@@ -3729,6 +3764,13 @@ def actor_main(
                         refresh_task_aligned_rosters(
                             args, ctx, sim, runtime, policies, groups, sim._task_mixes
                         )
+                if task_pending is not None:
+                    msg["task_collection"] = task_pending
+                    task_pending = {
+                        key: {mix: 0 for mix in ("scripted", "frozen", "mixed")}
+                        for key in task_pending
+                    }
+                _put_until_stopped(tx, msg, stop_evt)  # bounded: back-pressure from the learner
                 # A FIFO marker is emitted *after* the ordinary frame message.  The learner
                 # drains through one marker from every actor before copying shared rings,
                 # so replay ids and actor n-step state describe the same boundary.
@@ -4116,6 +4158,16 @@ def main_multi(args) -> int:
         "live_rows_by_policy": {},
         "frozen_forward_gpu_s": 0.0,
         "pool_identities": None,
+        "task_collection": {
+            key: {mix: 0 for mix in ("scripted", "frozen", "mixed")}
+            for key in (
+                "world_resets",
+                "death_resets",
+                "horizon_resets",
+                "world_frames",
+                "learner_decisions",
+            )
+        },
         "action_window": ActionWindow(),
     }
     resume_event = None
@@ -4404,6 +4456,10 @@ def main_multi(args) -> int:
                 replay.add_many(gs, msg["a"], msg["R"], msg["disc"], gn)
                 st["since_update"] += len(gs)
                 st["replay_rows"] += len(gs)
+                if "task_collection" in msg:
+                    for key, by_mix in msg["task_collection"].items():
+                        for mix, value in by_mix.items():
+                            st["task_collection"][key][mix] += int(value)
                 live_counts = msg.get("live_rows_by_policy", {"learner": msg["decisions"]})
                 for policy_id, count in live_counts.items():
                     st["live_rows_by_policy"][policy_id] = st["live_rows_by_policy"].get(
@@ -4677,6 +4733,8 @@ def main_multi(args) -> int:
                     policy_lag_p95=float(np.quantile(lag, 0.95)) if lag else None,
                     frozen_forward_gpu_s=st["frozen_forward_gpu_s"],
                 )
+                if args.collection_profile == "task-aligned-n1":
+                    row["task_collection"] = st["task_collection"]
                 tel.write(
                     row,
                     replay_size=replay.size,
@@ -4817,6 +4875,9 @@ def main_multi(args) -> int:
         "learner_decisions_accounted": st["decisions"],
         "decision_replay_delta": int(st["decisions"] - st["replay_rows"]),
         "transition_budget_overshoot": max(0, int(st["transitions"] - args.transitions)),
+        "task_collection": (
+            st["task_collection"] if args.collection_profile == "task-aligned-n1" else None
+        ),
         "updates": st["updates"],
         "wall_seconds": time.perf_counter() - started,
         "rate": st["transitions"] / (time.perf_counter() - started),
