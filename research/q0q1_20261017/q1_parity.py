@@ -3,6 +3,8 @@
 from __future__ import annotations
 import hashlib
 import json
+import argparse
+from pathlib import Path
 from typing import Any, Mapping
 from research.t23_r0_screen_20261017 import parity as t23
 from research.q0q1_20261017 import q1_bank
@@ -54,3 +56,27 @@ def compare_artifacts(mac: Mapping[str, Any], colab: Mapping[str, Any]) -> dict[
     result["pass"] = not errors and bool(result.get("pass"))
     result["errors"] = errors + list(result.get("errors", []))
     return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--reference", action="store_true", help="create the Mac reference artifact"
+    )
+    parser.add_argument("--bank", type=Path, required=True)
+    parser.add_argument("--b8", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args()
+    if not args.reference:
+        raise SystemExit("Q1 parity reference creation requires explicit --reference")
+    # The historical runner supplies the action/frame oracle; Q1 wraps the
+    # resulting artifact with its own namespace so it cannot be confused with
+    # a T23 reference.
+    artifact = t23.run_sample(str(args.bank), str(args.b8), str(args.out))
+    artifact.update({"schema": SCHEMA, "bank_namespace": q1_bank.NAMESPACE})
+    args.out.write_text(json.dumps(artifact, sort_keys=True, indent=2) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
