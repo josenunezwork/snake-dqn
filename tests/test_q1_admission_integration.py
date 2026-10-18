@@ -285,13 +285,18 @@ def test_admission_rejects_mutated_bound_evidence(monkeypatch, tmp_path, mutatio
     targets = {
         "study-plan": Path(env["Q0Q1_STUDY_PLAN"]),
         "mac": Path(env["Q1_MAC_PARITY_REFERENCE"]),
-        "source": Path("research/redesign_m3c_20261008/train_m3c.py"),
+        "source": Path(env["Q0Q1_Q0B_L4_RECEIPT"]),
         "packet": Path(env["Q0Q1_Q0B_L4_RECEIPT"]),
         "q0": evidence["drive"] / "q0q1-20261017/q0/audit-t23-mass-a100r/result.tar.gz",
     }
     target = targets[mutation]
     if mutation == "q0":
         target.write_bytes(b"changed archive")
+    elif mutation == "source":
+        source_packet = json.loads(target.read_text())
+        source_packet["source"]["train_m3c"] = "0" * 64
+        target.write_text(json.dumps(source_packet, sort_keys=True) + "\n")
+        env["Q0Q1_Q0B_L4_RECEIPT_SHA256"] = _sha(target)
     else:
         target.write_bytes(target.read_bytes() + b"changed")
     if mutation == "source":
