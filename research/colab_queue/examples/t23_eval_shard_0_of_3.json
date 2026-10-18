@@ -1,0 +1,25 @@
+{
+  "id": "t23-example-eval-0-of-3",
+  "commit": "0000000000000000000000000000000000000000",
+  "script": "research/colab_queue/examples/t23_eval_shard.sh",
+  "env": {
+    "T23_ROOT": "/content/drive/MyDrive/t16_colab/t23-queue",
+    "T23_EVAL_SHARD": "0/3",
+    "T23_WORKERS": "2",
+    "T23_QUEUE_EXAMPLE_ALLOW": "0"
+  },
+  "requirements": {
+    "gpu": "cpu",
+    "min_vcpu": 2,
+    "est_minutes": 75
+  },
+  "depends_on": [
+    "t23-example-train-7101",
+    "t23-example-train-7102",
+    "t23-example-train-7103",
+    "t23-example-train-7104",
+    "t23-example-train-7105"
+  ],
+  "output_dir": "t23-queue/evaluation/shard-0-of-3",
+  "priority": 90
+}

@@ -1,0 +1,17 @@
+{
+  "id": "t23-example-train-7101",
+  "commit": "0000000000000000000000000000000000000000",
+  "script": "research/colab_queue/examples/t23_train_seed.sh",
+  "env": {
+    "T23_SEED": "7101",
+    "T23_QUEUE_EXAMPLE_ALLOW": "0"
+  },
+  "requirements": {
+    "gpu": "A100",
+    "min_vcpu": 12,
+    "est_minutes": 90
+  },
+  "depends_on": [],
+  "output_dir": "t23-queue/seed-7101",
+  "priority": 100
+}
