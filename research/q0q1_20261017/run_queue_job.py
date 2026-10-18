@@ -129,7 +129,7 @@ def admission_checks(env: Mapping[str, str]) -> None:
             raise RuntimeError("qualified packet lacks one explicit actor count for this Q1 collector")
     elif kind == "q1_eval":
         _bound_json(env["Q0Q1_PARITY_OWNER_ADMISSION"], env["Q0Q1_PARITY_OWNER_ADMISSION_SHA256"], required_status="OWNER_ADMITTED")
-        _bound_json_bytes(env["Q1_EVAL_PARITY_RECEIPT"], env["Q1_EVAL_PARITY_RECEIPT_SHA256"])
+        _bound_json_bytes(env["Q1_MAC_PARITY_REFERENCE"], env["Q1_MAC_PARITY_REFERENCE_SHA256"])
 
 
 def stage_training_final(env: Mapping[str, str], local_root: Path) -> str:
@@ -297,6 +297,16 @@ def run(env: Mapping[str, str] | None = None) -> int:
             qualified_recipe_binding(packet, command(run_env, local))
         if env["Q0Q1_JOB_KIND"] == "q1_eval":
             run_env["Q1_TRAINING_FINAL"] = stage_training_final(run_env, local)
+            parity = subprocess.run([
+                run_env.get("Q0Q1_PYTHON", "/content/t16-colab-venv/bin/python"), "-m",
+                "research.q0q1_20261017.q1_parity", "--verify-reference",
+                run_env["Q1_MAC_PARITY_REFERENCE"], "--bank", "research/q0q1_20261017/Q1_WORLD_BANK.json",
+                "--b8", str(Path(run_env["Q0Q1_INPUT_ROOT"]) / "init/B8_s3_final.pth"),
+                "--out", str(local / "runtime-parity.json"),
+            ], cwd="/content/t16-snake-dqn", env=child_env)
+            if parity.returncode != 0:
+                raise RuntimeError(f"per-runtime parity verification exited {parity.returncode}")
+            run_env["Q1_EVAL_PARITY_RECEIPT"] = str(local / "runtime-parity.json")
         completed = subprocess.run(command(run_env, local), cwd="/content/t16-snake-dqn", env=child_env)
         if completed.returncode != 0:
             raise RuntimeError(f"child exited {completed.returncode}")
