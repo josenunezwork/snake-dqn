@@ -89,6 +89,26 @@ def q0_admission_checks(env: Mapping[str, str]) -> None:
             raise RuntimeError(f"Q1 training requires a completed passing Q0 receipt: {schema}")
 
 
+def qualified_recipe_binding(packet: Mapping[str, Any], train_command: list[str]) -> None:
+    """Require Q0b's source/config hashes to bind the actual queued recipe.
+
+    Volatile seed, output and namespace values are deliberately normalized: the
+    qualification packet qualifies each package, not one replica directory.
+    """
+    source_digest = sha256_file(Path("research/redesign_m3c_20261008/train_m3c.py"))
+    normalized = list(train_command)
+    for flag in ("--seed", "--out", "--namespace"):
+        index = normalized.index(flag)
+        normalized[index + 1] = f"<{flag[2:]}>"
+    config_digest = hashlib.sha256(json.dumps(normalized, separators=(",", ":")).encode()).hexdigest()
+    source = packet.get("source", {})
+    config = packet.get("config", {})
+    if not isinstance(source, Mapping) or source_digest not in source.values():
+        raise RuntimeError("Q0b source binding does not match the queued trainer bytes")
+    if not isinstance(config, Mapping) or config_digest not in config.values():
+        raise RuntimeError("Q0b config binding does not match the queued trainer arguments")
+
+
 def admission_checks(env: Mapping[str, str]) -> None:
     kind = env.get("Q0Q1_JOB_KIND")
     if kind == "q1_train":
@@ -272,6 +292,7 @@ def run(env: Mapping[str, str] | None = None) -> int:
             packet = _bound_json_bytes(env["Q0Q1_Q0B_L4_RECEIPT"], env["Q0Q1_Q0B_L4_RECEIPT_SHA256"])
             collector = "n1" if env["Q1_ARM"] in ("C", "D") else "n3"
             run_env["Q1_ACTORS"] = str(next(cell["actor_count"] for cell in packet["cells"] if cell["collector"] == collector))
+            qualified_recipe_binding(packet, command(run_env, local))
         if env["Q0Q1_JOB_KIND"] == "q1_eval":
             run_env["Q1_TRAINING_FINAL"] = stage_training_final(run_env, local)
         completed = subprocess.run(command(run_env, local), cwd="/content/t16-snake-dqn", env=child_env)
