@@ -1,0 +1,43 @@
+"""Queue graph and hard-admission contracts for the Q0/Q1 registration."""
+from __future__ import annotations
+
+import pytest
+
+from research.q0q1_20261017 import queue_jobs as q
+from research.q0q1_20261017 import run_queue_job as runner
+
+
+PIN = "a" * 40
+SHA = "b" * 64
+BINDS = q.Bindings("/content/drive/MyDrive/t16_colab/q0b/l4.json", SHA,
+                   "/content/drive/MyDrive/t16_colab/q1/parity-owner.json", SHA)
+
+
+def test_q1_graph_uses_final_pin_shared_b8_and_all_required_dependencies():
+    jobs = q.build_jobs(PIN, BINDS, eval_shards=2)
+    assert len(jobs) == 2 + 20 + (5 * 5 * 2)
+    assert {job["commit"] for job in jobs} == {PIN}
+    assert all(job["env"]["Q0Q1_REGISTRATION_STATUS"] == q.REGISTRATION_STATUS for job in jobs)
+    b8 = next(job for job in jobs if job["id"] == "q1-eval-b8-261701-s0of2")
+    candidate = next(job for job in jobs if job["id"] == "q1-eval-d-261701-s0of2")
+    assert b8["depends_on"] == ["q0-audit-t23-mass", "q0-audit-b8-init"]
+    assert set(candidate["depends_on"]) == {"q0-audit-t23-mass", "q0-audit-b8-init", "q1-train-d-261701", b8["id"]}
+    assert candidate["env"]["Q0Q1_PARITY_OWNER_ADMISSION"] == BINDS.parity_owner_admission
+    assert all(job["requirements"]["gpu"] == "L4" for job in jobs if job["id"].startswith("q1-train"))
+
+
+def test_generator_rejects_placeholder_or_unbound_evidence():
+    with pytest.raises(ValueError, match="immutable"):
+        q.build_jobs("0" * 40, BINDS)
+    with pytest.raises(ValueError, match="placeholder"):
+        q.build_jobs(PIN, q.Bindings(BINDS.q0b_l4_receipt, "0" * 64, BINDS.parity_owner_admission, SHA))
+
+
+def test_draft_guard_runs_before_job_admission_or_output_access():
+    with pytest.raises(RuntimeError, match=q.REGISTRATION_STATUS):
+        runner.require_owner_release({"Q0Q1_REGISTRATION_STATUS": q.REGISTRATION_STATUS})
+
+
+def test_future_release_still_requires_explicit_owner_token():
+    with pytest.raises(RuntimeError, match="owner release"):
+        runner.require_owner_release({"Q0Q1_REGISTRATION_STATUS": "OWNER_REVIEWED"})
