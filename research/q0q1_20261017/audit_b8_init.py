@@ -430,11 +430,15 @@ def _run_supplemental_fill(
                 )
             raise
         for result in results:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Q0 supplemental fill cap exhausted during ordered merge")
             reservoir.excluded_trapped += int(result["excluded_trapped"])
             for candidate in result["candidates"]:
                 reservoir.add(candidate)
         completed += len(results)
         state = assess_observations(reservoir.rows + [exact_tie_fixture()])
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Q0 supplemental fill cap exhausted during coverage assessment")
         waves.append(
             {
                 "ordinal": start // SUPPLEMENTAL_WAVE_SIZE,
