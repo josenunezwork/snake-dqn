@@ -140,7 +140,10 @@ def cell_from_boundaries(
     windows = []
     for before, after in ((warmup, first), (first, second)):
         decisions = _delta(after, before, "learner_decisions")
-        windows.append({"seconds": WINDOW_SECONDS, "learner_decisions": decisions})
+        duration = _finite(after["elapsed_seconds"], "window.elapsed") - _finite(
+            before["elapsed_seconds"], "window.start"
+        )
+        windows.append({"seconds": duration, "learner_decisions": decisions})
     final = second
     lag = final.get("policy_lag")
     control = final.get("matched_control")
@@ -532,6 +535,13 @@ def main(argv: list[str] | None = None) -> int:
             for collector in ("n1", "n3")
             for schedule in ("restart", "mature")
         ]
+        controls = {
+            cell["collector"]: dict(cell["policy_lag"])
+            for cell in cells
+            if cell["schedule"] == "restart"
+        }
+        for cell in cells:
+            cell["policy_lag"]["matched_control"] = controls[cell["collector"]]
         elapsed = time.monotonic() - began
         stages = {
             "setup_seconds": max(0.0, elapsed - len(cells) * TOTAL_CELL_SECONDS),

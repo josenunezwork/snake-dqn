@@ -3725,6 +3725,8 @@ def actor_main(
                     "pending_nstep_rows": pending_nstep_rows,
                     "world_frames": int(sim.E),
                     "pool_decisions": int(sum(frozen_live_rows.values())),
+                    "long_body_decisions": int((chosen["L"] >= 800).sum()),
+                    "produced_monotonic": time.perf_counter(),
                     **stats,
                     **m6_stats,
                 }
@@ -4175,6 +4177,9 @@ def main_multi(args) -> int:
         "ring_overrun_rows": 0,
         "world_frames": 0,
         "pool_decisions": 0,
+        "long_body_decisions": 0,
+        "q0b_lag": [],
+        "q0b_age": [],
         "decisions": 0,
         "boost": 0,
         "greedy_boost": 0,
@@ -4489,6 +4494,7 @@ def main_multi(args) -> int:
                 st["replay_rows"] += len(gs)
                 st["world_frames"] += int(msg.get("world_frames", 0))
                 st["pool_decisions"] += int(msg.get("pool_decisions", 0))
+                st["long_body_decisions"] += int(msg.get("long_body_decisions", 0))
                 st["truncation_rows_dropped"] += int(msg.get("truncation_rows_dropped", 0))
                 st["pending_nstep_rows_by_actor"][int(j)] = int(msg.get("pending_nstep_rows", 0))
                 if "task_collection" in msg:
@@ -4523,6 +4529,10 @@ def main_multi(args) -> int:
                         st["restart_total"][key] += msg[key]
                 st["env_s"] += msg["env_s"]
                 st["lag"].append(published - msg["weights_version"] // 2)
+                st["q0b_lag"].append(published - msg["weights_version"] // 2)
+                st["q0b_age"].append(
+                    time.perf_counter() - float(msg.get("produced_monotonic", time.perf_counter()))
+                )
                 st["action_window"].extend(msg["acts"])
                 for k_, v_ in msg["timing"].items():
                     tel.add(k_, v_)
@@ -4550,11 +4560,12 @@ def main_multi(args) -> int:
                         published += 1
             if q0b_boundaries.enabled and q0b_measurement_started is not None:
                 elapsed = time.perf_counter() - q0b_measurement_started
-                lag = st["lag"]
+                lag = st["q0b_lag"]
+                age = st["q0b_age"]
                 lag_stats = {
                     "mean": float(np.mean(lag)) if lag else 0.0,
                     "p95": float(np.quantile(lag, 0.95)) if lag else 0.0,
-                    "age_p95": 0.0,
+                    "age_p95": float(np.quantile(age, 0.95)) if age else 0.0,
                 }
                 q0b_boundaries.observe(
                     elapsed,
@@ -4562,6 +4573,8 @@ def main_multi(args) -> int:
                         "learner_decisions": int(st["transitions"]),
                         "world_frames": int(st["world_frames"]),
                         "pool_decisions": int(st["pool_decisions"]),
+                        "long_body_exposure": int(st["long_body_decisions"]),
+                        "memory": {"rss_gb_max": rss_gb()},
                         "emitted_replay_rows": int(st["replay_rows"]),
                         "completed_updates": int(st["updates"]),
                         "pending_update_debt": int(st["since_update"]),
