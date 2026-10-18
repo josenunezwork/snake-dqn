@@ -27,11 +27,19 @@ HAVE_DATA = STUDENT.exists() and (DEMO / "round-12").is_dir()
 def test_defaults_equal_m3():
     from dataclasses import asdict
 
-    assert asdict(m3c.Schedules()) == asdict(m3.Schedules())
+    # Q1 adds explicit schedule starts; their defaults retain every historical
+    # M3 value and the old schedule samples exactly.
+    new_schedule = m3c.Schedules()
+    old_schedule = m3.Schedules()
+    for field, value in asdict(old_schedule).items():
+        assert getattr(new_schedule, field) == value
+    assert new_schedule.anchor_start == 1.0
     d = m3c.default_args()
     assert d.reward == "v2" and d.actors == 0 and d.anchor_boost_weight == 1.0
     assert d.mixed_frac == 0.0 and d.namespace == m3.TRAIN_NAMESPACE
-    assert asdict(m3c.schedules_from_args(d)) == asdict(m3.Schedules())
+    resolved = asdict(m3c.schedules_from_args(d))
+    assert {k: resolved[k] for k in asdict(m3.Schedules())} == asdict(m3.Schedules())
+    assert resolved["anchor_start"] == 1.0
     assert m3c.m3c_flags(d) == {}
     flags = m3c.m3c_flags(
         m3c.build_parser().parse_args(

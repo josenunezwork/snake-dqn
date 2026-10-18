@@ -144,6 +144,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 import argparse  # noqa: E402
 import hashlib  # noqa: E402
+import itertools  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
 import queue  # noqa: E402
@@ -191,6 +192,7 @@ class Schedules:
     gamma_anneal_end: int = 6_000_000
     anchor_hold: int = 8_000_000
     anchor_floor_at: int = 15_000_000
+    anchor_start: float = 1.0
     anchor_floor: float = 0.1
     eps_start: float = 0.05
     eps_end: float = 0.01
@@ -206,13 +208,15 @@ class Schedules:
 
     def anchor(self, t: int) -> float:
         if t <= self.anchor_hold:
-            return 1.0
+            return self.anchor_start
         if t >= self.anchor_floor_at:
             return self.anchor_floor
         f = (t - self.anchor_hold) / (self.anchor_floor_at - self.anchor_hold)
-        return math.exp(f * math.log(self.anchor_floor))
+        return math.exp((1.0 - f) * math.log(self.anchor_start) + f * math.log(self.anchor_floor))
 
     def eps(self, t: int) -> float:
+        # Constant schedules retain a positive denominator: Q1's mature package
+        # is explicit configuration, never a division-by-zero special case.
         f = min(1.0, t / self.eps_end_at)
         return self.eps_start + f * (self.eps_end - self.eps_start)
 
@@ -235,9 +239,27 @@ def schedules_from_args(args) -> Schedules:
         gamma_anneal_end=args.gamma_anneal_end,
         anchor_hold=args.anchor_hold,
         anchor_floor_at=args.anchor_floor_at,
+        anchor_start=getattr(args, "anchor_start", Schedules.anchor_start),
         anchor_floor=args.anchor_floor,
+        eps_start=getattr(args, "eps_start", Schedules.eps_start),
+        eps_end=getattr(args, "eps_end", Schedules.eps_end),
         eps_end_at=args.eps_end_at,
     )
+
+
+def apply_schedule_package(args) -> None:
+    """Resolve Q1's named schedule package before any actor/learner is built.
+
+    ``restart`` leaves every historical argument untouched.  ``mature`` is a
+    package rather than an inferred continuation: it starts at B8's finished
+    gamma, epsilon and anchor values while retaining positive schedule spans for
+    telemetry and for code paths that calculate interpolation fractions.
+    """
+    if getattr(args, "schedule_package", "restart") != "mature":
+        return
+    args.gamma_start = args.gamma_end = 0.998
+    args.eps_start = args.eps_end = 0.01
+    args.anchor_start = args.anchor_floor = 0.1
 
 
 # ----------------------------------------------------------------------------- reward
@@ -1413,7 +1435,14 @@ def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False)
     n_mixed = int(round(E * getattr(args, "mixed_frac", 0.0)))
     if n_frozen + n_mixed > E:
         raise ValueError("frozen + mixed fractions exceed 1")
-    mix_of = ["scripted"] * (E - n_frozen - n_mixed) + ["frozen"] * n_frozen + ["mixed"] * n_mixed
+    if getattr(args, "collection_profile", "legacy") == "task-aligned-n1":
+        # Q1's C/D worlds sample the historical gate mixes uniformly at reset.
+        # ``_design_rows`` below remains the single roster/wrapper authority.
+        from research.redesign_m3c_20261008.task_collection import equal_mix_assignments
+
+        mix_of = equal_mix_assignments(args.seed, segment * E + np.arange(E)).tolist()
+    else:
+        mix_of = ["scripted"] * (E - n_frozen - n_mixed) + ["frozen"] * n_frozen + ["mixed"] * n_mixed
     v61 = getattr(args, "v61_backend", None) or os.environ.get(V61_BACKEND_ENV) or "python"
     runtime = Vector61Runtime(backend=v61)
     controlled = np.zeros((E, 6), dtype=bool)
@@ -1793,10 +1822,15 @@ def m3c_flags(args) -> Dict[str, Any]:
         "gamma_anneal_end",
         "anchor_hold",
         "anchor_floor_at",
+        "anchor_start",
         "anchor_floor",
+        "eps_start",
+        "eps_end",
         "td_huber_delta",
         "eps_end_at",
+        "schedule_package",
         "namespace",
+        "collection_profile",
         "mixed_frac",
         "actors",
         "all_snakes_learner",
@@ -1922,6 +1956,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gamma-anneal-end", type=int, default=Schedules.gamma_anneal_end)
     ap.add_argument("--anchor-hold", type=int, default=Schedules.anchor_hold)
     ap.add_argument("--anchor-floor-at", type=int, default=Schedules.anchor_floor_at)
+    ap.add_argument("--anchor-start", type=float, default=Schedules.anchor_start)
     ap.add_argument("--anchor-floor", type=float, default=Schedules.anchor_floor)
     ap.add_argument(
         "--td-huber-delta",
@@ -1933,8 +1968,23 @@ def build_parser() -> argparse.ArgumentParser:
         "regime: an expectation fit, not a median fit. NB smooth_l1(beta) would instead "
         "divide small-error gradients by beta.",
     )
+    ap.add_argument("--eps-start", type=float, default=Schedules.eps_start)
+    ap.add_argument("--eps-end", type=float, default=Schedules.eps_end)
     ap.add_argument("--eps-end-at", type=int, default=Schedules.eps_end_at)
+    ap.add_argument(
+        "--schedule-package",
+        choices=("restart", "mature"),
+        default="restart",
+        help="Q1 package: restart preserves historical schedules; mature fixes gamma=.998, "
+        "epsilon=.01, and anchor=.1 from learner decision zero",
+    )
     ap.add_argument("--namespace", default=TRAIN_NAMESPACE)
+    ap.add_argument(
+        "--collection-profile",
+        choices=("legacy", "task-aligned-n1"),
+        default="legacy",
+        help="Q1 task-aligned N=1 collector; uses exact gate rosters and terminal hero worlds",
+    )
     ap.add_argument(
         "--mixed-frac", type=float, default=0.0, help="share of worlds with the strict mixed roster"
     )
@@ -2217,6 +2267,7 @@ def default_args():
 # ----------------------------------------------------------------------------- main loop
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    apply_schedule_package(args)
     if args.full_state_every < 0:
         raise SystemExit("--full-state-every must be >= 0")
     if args.full_state_every and args.ckpt_local_dir is None:
@@ -2231,6 +2282,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--learner-seats and --all-snakes-learner are mutually exclusive")
     if args.learner_seats is not None and not args.actors:
         raise SystemExit("--learner-seats needs the multi-actor trainer")
+    if args.collection_profile == "task-aligned-n1":
+        from research.redesign_m3c_20261008.task_collection import HORIZON, NAMESPACE_PREFIX
+
+        if not args.actors or learner_seats(args) != 1:
+            raise SystemExit("--collection-profile task-aligned-n1 needs --actors and --learner-seats 1")
+        if not str(args.namespace).startswith(NAMESPACE_PREFIX):
+            raise SystemExit(
+                "task-aligned-n1 needs a fresh q1-task-aligned-n1-20261017 namespace"
+            )
+        if args.segment_frames != HORIZON:
+            raise SystemExit("task-aligned-n1 needs --segment-frames 5000 (registered H5000 horizon)")
     if args.gather_threads < 0:
         raise SystemExit("--gather-threads must be >= 0")
     if args.max_wall_seconds < 0.0 or not math.isfinite(args.max_wall_seconds):
@@ -3014,6 +3076,7 @@ def actor_main(
         last = _read_weights(net, spec, wbuf, wver, -1)
         net = net.to(device)
         league_n = learner_seats(args)
+        task_aligned_n1 = getattr(args, "collection_profile", "legacy") == "task-aligned-n1"
         # Keep the old paths literally selected for N=1 and N=6.  In particular the
         # latter must retain its old observation/ring/action RNG ordering.
         all_snakes = league_n == 6
@@ -3207,7 +3270,14 @@ def actor_main(
                     # Pending n-step IDs refer to deliberately omitted ring rows.
                     nsb = NStepBuilder(n_driven) if fast else NStepBuilderRef(n_driven)
                 resume_applied = True
-            for _frame in range(frame_start, args.segment_frames):
+            # The task-aligned collector has per-world H5000 clocks.  Its actor
+            # segment is only an implementation boundary, never an episode
+            # boundary: a world that reset after a terminal hero death must get
+            # a complete new H5000 horizon.
+            frame_iter = itertools.count(frame_start) if task_aligned_n1 else range(
+                frame_start, args.segment_frames
+            )
+            for _frame in frame_iter:
                 if stop_evt.is_set():
                     break
                 if prof is not None:
@@ -3476,7 +3546,7 @@ def actor_main(
                             else 0
                         ),
                     }
-                last_frame = _frame == args.segment_frames - 1
+                last_frame = (not task_aligned_n1) and _frame == args.segment_frames - 1
                 if restart_enabled:
                     expired = active & (sim.frame >= args.segment_frames)
                     if expired.any():
@@ -3488,6 +3558,14 @@ def actor_main(
                         nsb.end_worlds(expired_rows, sched.gamma(int(progress[0])))
                 elif last_frame:
                     nsb.end_segment(sched.gamma(int(progress[0])))
+                if task_aligned_n1:
+                    # ``sim.frame`` is per environment and was incremented by
+                    # the just-completed step.  A live hero at H5000 gets the
+                    # established truncation bootstrap, unlike a death which
+                    # was terminal-flushed by ``step`` above.
+                    horizon_worlds = np.asarray(sim.frame >= 5_000, dtype=bool)
+                    if horizon_worlds.any():
+                        nsb.end_worlds(np.flatnonzero(horizon_worlds), gamma_now)
                 s, a, R, d, nx = nsb.take()
                 live_rows_by_policy = {"learner": int(len(acts)), **frozen_live_rows}
                 msg = {
@@ -3519,6 +3597,16 @@ def actor_main(
                 if prof is not None and prof.running:
                     _profile_count(prof.meta, msg)
                 _put_until_stopped(tx, msg, stop_evt)  # bounded: back-pressure from the learner
+                if task_aligned_n1:
+                    # A hero death ends its episode.  The n-step builder has already
+                    # terminal-flushed that stream above; only then may this whole
+                    # six-snake world reset.  Non-death worlds continue to H5000,
+                    # where the existing end-segment bootstrap remains authoritative.
+                    reset_worlds = np.asarray(done[:, 0], dtype=bool) | np.asarray(
+                        sim.frame >= 5_000, dtype=bool
+                    )
+                    if reset_worlds.any():
+                        sim.reset_envs(reset_worlds)
                 # A FIFO marker is emitted *after* the ordinary frame message.  The learner
                 # drains through one marker from every actor before copying shared rings,
                 # so replay ids and actor n-step state describe the same boundary.
@@ -4600,6 +4688,13 @@ def main_multi(args) -> int:
         "transitions": st["transitions"],
         "learner_decisions": st["transitions"],
         "replay_rows": replay.added,
+        # ``replay_rows`` is the resident ring size and may be capped.  Q1's
+        # endpoint instead reconciles emitted rows against learner-owned action
+        # decisions, and records bounded actor-message overshoot explicitly.
+        "emitted_replay_rows": st["replay_rows"],
+        "learner_decisions_accounted": st["decisions"],
+        "decision_replay_delta": int(st["decisions"] - st["replay_rows"]),
+        "transition_budget_overshoot": max(0, int(st["transitions"] - args.transitions)),
         "updates": st["updates"],
         "wall_seconds": time.perf_counter() - started,
         "rate": st["transitions"] / (time.perf_counter() - started),
