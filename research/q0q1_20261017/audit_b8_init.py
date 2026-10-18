@@ -270,10 +270,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-observations", action="store_true")
     parser.add_argument("--observation-receipt", type=Path)
     args = parser.parse_args(argv)
+    print("Q0 B8 initializer audit: scanning released checkpoint and T23 bindings", flush=True)
     report = build_report(args.b8, args.t23_root)
     if args.run_observations:
         if args.observation_receipt is None:
             raise ValueError("--run-observations requires the Q0 mass --observation-receipt")
+        print("Q0 B8 initializer audit: validating saved mass-audit fidelity corpus", flush=True)
         report["fresh_observation_packet"] = run_observations(args.b8, args.observation_receipt)
         report["status"] = (
             "COMPLETE"
@@ -282,7 +284,9 @@ def main(argv: list[str] | None = None) -> int:
             else "INCOMPLETE"
         )
     write_json(args.out, report)
-    print(f"{report['schema']} {report['status']} -> {args.out}")
+    print(
+        f"Q0 B8 initializer audit: {report['schema']} {report['status']} -> {args.out}", flush=True
+    )
     return 0
 
 

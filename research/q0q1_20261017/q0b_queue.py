@@ -76,11 +76,33 @@ def run_bounded(command: list[str], *, seconds: float, env: Mapping[str, str]) -
     """Terminate the owned subprocess group, including spawned actors, on timeout."""
     if seconds <= 0:
         raise RuntimeError("Q0b's inclusive 60-minute packet cap is exhausted")
+    label = command[2] if len(command) > 2 else command[0]
+    started = time.monotonic()
+    print(f"Q0b progress: started {label}; packet budget={seconds:.0f}s", flush=True)
     process = subprocess.Popen(command, env=dict(env), start_new_session=True)
     try:
-        result = process.wait(timeout=seconds)
+        while True:
+            elapsed = time.monotonic() - started
+            remaining = seconds - elapsed
+            if remaining <= 0:
+                raise RuntimeError(f"Q0b child exceeded its bounded packet time: {label}")
+            try:
+                result = process.wait(timeout=min(120.0, remaining))
+                break
+            except subprocess.TimeoutExpired:
+                elapsed = time.monotonic() - started
+                remaining = seconds - elapsed
+                print(
+                    f"Q0b progress: {label} still running; elapsed={elapsed:.0f}s "
+                    f"remaining={max(0.0, remaining):.0f}s",
+                    flush=True,
+                )
         if result:
-            raise RuntimeError(f"Q0b child exited {result}: {command[2]}")
+            raise RuntimeError(f"Q0b child exited {result}: {label}")
+        print(
+            f"Q0b progress: completed {label}; elapsed={time.monotonic() - started:.0f}s",
+            flush=True,
+        )
     finally:
         # A completed parent can leave failed actor descendants. Reap this group only.
         try:

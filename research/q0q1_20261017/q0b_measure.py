@@ -333,11 +333,43 @@ def validate_current_runtime(
 
 
 def _run(
-    command: list[str], *, env: Mapping[str, str], cwd: Path
+    command: list[str],
+    *,
+    env: Mapping[str, str],
+    cwd: Path,
+    progress_interval_seconds: float = 120.0,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command, cwd=cwd, env=dict(env), text=True, capture_output=True, check=False
+    """Capture a child while emitting liveness without changing its argv or output.
+
+    The Q0b receipt binds the captured bytes, so child output remains captured.  The
+    parent emits separate, flushed queue-log heartbeats while a calibration or
+    measurement process is running.
+    """
+    if progress_interval_seconds <= 0:
+        raise ValueError("progress interval must be positive")
+    label = command[2] if len(command) > 2 else command[0]
+    started = time.monotonic()
+    print(f"Q0b progress: started captured {label}", flush=True)
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=dict(env),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
+    while True:
+        try:
+            stdout, stderr = process.communicate(timeout=progress_interval_seconds)
+            break
+        except subprocess.TimeoutExpired:
+            print(
+                f"Q0b progress: {label} still running; elapsed={time.monotonic() - started:.0f}s",
+                flush=True,
+            )
+    elapsed = time.monotonic() - started
+    print(f"Q0b progress: completed captured {label}; elapsed={elapsed:.0f}s", flush=True)
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def run_cell(
@@ -373,6 +405,7 @@ def run_cell(
         raise ValueError(
             "trainer command must explicitly bind time, fp32 batch-scale, and queue depth"
         )
+    print(f"Q0b progress: measurement cell {schedule}/{collector} started", flush=True)
     started = time.monotonic()
     result = _run(
         command,
@@ -409,6 +442,10 @@ def run_cell(
     cell["cleanup_seconds"] = started + elapsed - measurement_ended
     cell["command_sha256"] = config_sha
     cell["observed_launcher_seconds"] = elapsed
+    print(
+        f"Q0b progress: measurement cell {schedule}/{collector} completed; elapsed={elapsed:.0f}s",
+        flush=True,
+    )
     return cell
 
 
@@ -444,6 +481,7 @@ def _parity(args: argparse.Namespace, out: Path) -> tuple[dict[str, Any], float]
         "--out",
         str(receipt),
     ]
+    print("Q0b progress: runtime parity calibration started (4 serial worlds)", flush=True)
     started = time.monotonic()
     result = _run(command, env=os.environ, cwd=args.repo_root)
     elapsed = time.monotonic() - started
@@ -454,6 +492,10 @@ def _parity(args: argparse.Namespace, out: Path) -> tuple[dict[str, Any], float]
     value = _load_json(receipt)
     if value.get("schema") != "q1-runtime-parity-receipt/v1" or value.get("pass") is not True:
         raise ValueError("runtime parity receipt is not a passing Q1 receipt")
+    print(
+        f"Q0b progress: runtime parity calibration completed; elapsed={elapsed:.0f}s",
+        flush=True,
+    )
     # ``q1_parity`` always runs exactly the four reserved H5000 worlds on one
     # CPU thread.  This is a direct per-episode observation, not a projection.
     return (
@@ -470,11 +512,13 @@ def _parity(args: argparse.Namespace, out: Path) -> tuple[dict[str, Any], float]
 
 def _oracles(args: argparse.Namespace, out: Path) -> None:
     """Run the registered non-timed correctness suite before any capacity cell."""
+    print("Q0b progress: correctness oracles started", flush=True)
     result = _run(args.oracle_command, env=os.environ, cwd=args.repo_root)
     (out / "oracles.stdout").write_text(result.stdout)
     (out / "oracles.stderr").write_text(result.stderr)
     if result.returncode != 0:
         raise RuntimeError(f"Q0b oracle suite exited {result.returncode}")
+    print("Q0b progress: correctness oracles completed", flush=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -585,6 +629,7 @@ def main(argv: list[str] | None = None) -> int:
     args.out.mkdir(parents=True)
     began = time.monotonic()
     try:
+        print("Q0b progress: packet started; stages=oracles,parity,4-cells,receipt", flush=True)
         _oracles(args, args.out)
         parity, cpu_seconds_per_episode = _parity(args, args.out)
         cells = [
@@ -625,6 +670,10 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # preserve an honest incomplete receipt
         packet = {"schema": SCHEMA, "status": "INCOMPLETE", "error": f"{type(exc).__name__}: {exc}"}
     (args.out / "receipt.json").write_text(json.dumps(packet, indent=2, sort_keys=True) + "\n")
+    print(
+        f"Q0b progress: packet receipt written; status={packet.get('qualification', {}).get('status', packet.get('status'))}",
+        flush=True,
+    )
     return 0 if packet.get("qualification", {}).get("status") == "QUALIFIED" else 2
 
 

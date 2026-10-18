@@ -274,6 +274,26 @@ def test_cell_launcher_accounts_actual_readiness_and_cleanup(monkeypatch, tmp_pa
     assert cell["observed_launcher_seconds"] == 600.0
 
 
+def test_captured_subprocess_emits_flushed_progress_without_changing_captured_bytes(
+    tmp_path, capsys
+):
+    import os
+    import sys
+
+    result = subject._run(
+        [sys.executable, "-c", "import time; print('child-output'); time.sleep(0.06)"],
+        env=os.environ,
+        cwd=tmp_path,
+        progress_interval_seconds=0.01,
+    )
+    output = capsys.readouterr().out
+    assert result.returncode == 0
+    assert result.stdout == "child-output\n"
+    assert "started captured" in output
+    assert "still running" in output
+    assert "completed captured" in output
+
+
 @pytest.mark.parametrize("phase", ["warmup", "window1", "window2"])
 def test_registered_nstep_endpoint_rows_are_distinct_from_operational_loss(phase):
     boundaries = {
