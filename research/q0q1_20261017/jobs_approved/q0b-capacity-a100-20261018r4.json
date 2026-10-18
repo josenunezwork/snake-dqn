@@ -22,7 +22,7 @@
     "QUEUE_DRIVE_ROOT": "/content/drive/MyDrive/t16_colab"
   },
   "id": "q0b-capacity-a100-20261018r4",
-  "output_dir": "q0q1-20261017/q0b/capacity-a100-20261018r3",
+  "output_dir": "q0q1-20261017/q0b/capacity-a100-20261018r4",
   "priority": 95,
   "requirements": {
     "est_minutes": 60,
