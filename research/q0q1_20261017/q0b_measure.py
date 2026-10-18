@@ -124,6 +124,28 @@ def _phase_snapshot(value: Mapping[str, Any], name: str) -> Mapping[str, Any]:
         raise ValueError(f"expected {name} boundary snapshot")
     if _finite(value.get("elapsed_seconds"), f"{name}.elapsed_seconds") < 0:
         raise ValueError(f"invalid {name} elapsed time")
+    endpoint = {}
+    for field in ("truncation_rows_dropped", "pending_nstep_rows", "decision_replay_delta"):
+        count = value.get(field)
+        if type(count) is not int or count < 0:
+            raise ValueError(f"{name}.{field} must be a nonnegative integer")
+        endpoint[field] = count
+    by_actor = value.get("pending_nstep_rows_by_actor")
+    if (
+        not isinstance(by_actor, Mapping)
+        or not by_actor
+        or any(type(count) is not int or count < 0 for count in by_actor.values())
+        or sum(by_actor.values()) != endpoint["pending_nstep_rows"]
+    ):
+        raise ValueError(f"{name} per-actor n-step pending rows do not reconcile")
+    if (
+        value.get("nstep_accounting_reconciled") is not True
+        or endpoint["decision_replay_delta"]
+        != value.get("learner_decisions", 0) - value.get("emitted_replay_rows", 0)
+        or endpoint["decision_replay_delta"]
+        != endpoint["truncation_rows_dropped"] + endpoint["pending_nstep_rows"]
+    ):
+        raise ValueError(f"{name} n-step endpoint accounting does not reconcile exactly")
     return value
 
 
@@ -148,6 +170,9 @@ def cell_from_boundaries(
     warmup = _phase_snapshot(boundaries["warmup"], "warmup")
     first = _phase_snapshot(boundaries["window1"], "window1")
     second = _phase_snapshot(boundaries["window2"], "window2")
+    for boundary in (warmup, first, second):
+        if len(boundary["pending_nstep_rows_by_actor"]) != actor_count:
+            raise ValueError("boundary n-step pending rows omit actors")
     warmup_elapsed = _finite(warmup["elapsed_seconds"], "warmup.elapsed_seconds")
     first_elapsed = _finite(first["elapsed_seconds"], "window1.elapsed_seconds")
     second_elapsed = _finite(second["elapsed_seconds"], "window2.elapsed_seconds")
@@ -196,6 +221,11 @@ def cell_from_boundaries(
         ),
         "completed_updates": _positive_int(final.get("completed_updates"), "completed_updates"),
         "pending_update_debt": int(final.get("pending_update_debt", -1)),
+        "truncation_rows_dropped": final["truncation_rows_dropped"],
+        "pending_nstep_rows": final["pending_nstep_rows"],
+        "pending_nstep_rows_by_actor": dict(final["pending_nstep_rows_by_actor"]),
+        "decision_replay_delta": final["decision_replay_delta"],
+        "nstep_accounting_reconciled": final["nstep_accounting_reconciled"],
     }
     if counters["pending_update_debt"] < 0:
         raise ValueError("pending_update_debt must be nonnegative")

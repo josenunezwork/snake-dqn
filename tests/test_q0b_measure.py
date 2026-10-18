@@ -14,9 +14,14 @@ def _boundary(phase: str, elapsed: float, decisions: int) -> dict:
         "learner_decisions": decisions,
         "world_frames": decisions * 2,
         "pool_decisions": decisions * 3,
-        "emitted_replay_rows": decisions * 256,
-        "completed_updates": decisions,
-        "pending_update_debt": 0,
+        "emitted_replay_rows": decisions,
+        "completed_updates": decisions // 256,
+        "pending_update_debt": decisions % 256,
+        "truncation_rows_dropped": 0,
+        "pending_nstep_rows": 0,
+        "pending_nstep_rows_by_actor": {"0": 0, "1": 0},
+        "decision_replay_delta": 0,
+        "nstep_accounting_reconciled": True,
         "compile_ready": True,
         "replay_ready": True,
         "finite_updates": True,
@@ -45,7 +50,7 @@ def test_cell_uses_real_boundary_counter_deltas_and_exact_windows() -> None:
         {"seconds": 180.0, "learner_decisions": 3000},
         {"seconds": 180.0, "learner_decisions": 4000},
     ]
-    assert cell["counters"]["completed_updates"] == 8000
+    assert cell["counters"]["completed_updates"] == 31
 
 
 @pytest.mark.parametrize(
@@ -62,7 +67,7 @@ def test_cell_refuses_shortened_or_renamed_boundaries(phase: str, elapsed: float
         subject.cell_from_boundaries(
             schedule="mature",
             collector="n3",
-            actor_count=4,
+            actor_count=2,
             boundaries=boundaries,
             summary={"stopped_for_time": True, "halt": None, "actor_exitcodes": [0, 0]},
         )
@@ -267,3 +272,41 @@ def test_cell_launcher_accounts_actual_readiness_and_cleanup(monkeypatch, tmp_pa
     assert cell["setup_seconds"] == 10.0
     assert cell["cleanup_seconds"] == 110.0
     assert cell["observed_launcher_seconds"] == 600.0
+
+
+@pytest.mark.parametrize("phase", ["warmup", "window1", "window2"])
+def test_registered_nstep_endpoint_rows_are_distinct_from_operational_loss(phase):
+    boundaries = {
+        "warmup": _boundary("warmup", 120.0, 1000),
+        "window1": _boundary("window1", 300.0, 4000),
+        "window2": _boundary("window2", 480.0, 8000),
+    }
+    boundary = boundaries[phase]
+    boundary.update(
+        emitted_replay_rows=boundary["learner_decisions"] - 9,
+        truncation_rows_dropped=7,
+        pending_nstep_rows=2,
+        decision_replay_delta=9,
+        pending_nstep_rows_by_actor={"0": 1, "1": 1},
+    )
+    cell = subject.cell_from_boundaries(
+        schedule="restart",
+        collector="n3",
+        actor_count=2,
+        boundaries=boundaries,
+        summary={"stopped_for_time": True, "halt": None, "actor_exitcodes": [0, 0]},
+    )
+    assert cell["dropped_transitions"] == 0
+    if phase == "window2":
+        assert cell["counters"]["truncation_rows_dropped"] == 7
+        assert cell["counters"]["pending_nstep_rows"] == 2
+        assert cell["counters"]["decision_replay_delta"] == 9
+    boundary["truncation_rows_dropped"] = 8
+    with pytest.raises(ValueError, match="does not reconcile exactly"):
+        subject.cell_from_boundaries(
+            schedule="restart",
+            collector="n3",
+            actor_count=2,
+            boundaries=boundaries,
+            summary={"stopped_for_time": True, "halt": None, "actor_exitcodes": [0, 0]},
+        )

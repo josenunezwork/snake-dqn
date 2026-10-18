@@ -4654,8 +4654,22 @@ def main_multi(args) -> int:
                                 for net in (online, target)
                                 for parameter in net.parameters()
                             ),
-                            "dropped_transitions": int(
-                                replay.stale_rows_filtered + st["truncation_rows_dropped"]
+                            # Historical successor-less segment rows are registered
+                            # n-step endpoint accounting, not transport/ring loss.
+                            "dropped_transitions": int(replay.stale_rows_filtered),
+                            "truncation_rows_dropped": int(st["truncation_rows_dropped"]),
+                            "pending_nstep_rows": int(
+                                sum(st["pending_nstep_rows_by_actor"].values())
+                            ),
+                            "pending_nstep_rows_by_actor": {
+                                str(actor): int(rows)
+                                for actor, rows in st["pending_nstep_rows_by_actor"].items()
+                            },
+                            "decision_replay_delta": int(st["transitions"] - st["replay_rows"]),
+                            "nstep_accounting_reconciled": (
+                                int(st["transitions"] - st["replay_rows"])
+                                == int(st["truncation_rows_dropped"])
+                                + int(sum(st["pending_nstep_rows_by_actor"].values()))
                             ),
                             "ring_overruns": int(st["ring_overrun_rows"]),
                             "policy_lag": lag_stats,
