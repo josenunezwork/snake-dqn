@@ -90,6 +90,23 @@ def q0_admission_checks(env: Mapping[str, str]) -> None:
             raise RuntimeError(f"Q1 training requires a completed passing Q0 receipt: {schema}")
 
 
+def stage_q0_mass_receipt(env: Mapping[str, str], local_root: Path) -> Path:
+    """Stage the verified Q0 mass receipt for B8 fidelity without new worlds."""
+    archive = Path(env["QUEUE_DRIVE_ROOT"]) / "q0q1-20261017/q0/audit-t23-mass/result.tar.gz"
+    _receipt_from_archive(archive, archive.with_name("result.tar.gz.sha256"))
+    with tarfile.open(archive, "r:gz") as tar:
+        stream = tar.extractfile("attempt/receipt.json")
+        if stream is None:
+            raise RuntimeError("Q0 mass archive lacks its receipt")
+        raw = stream.read()
+    receipt = local_root / "q0-mass-receipt.json"
+    receipt.write_bytes(raw)
+    value = json.loads(raw)
+    if value.get("schema") != "q0-t23-mass-audit/v1" or value.get("status") != "COMPLETE":
+        raise RuntimeError("Q0 mass receipt is not a completed corpus producer")
+    return receipt
+
+
 def qualified_recipe_binding(packet: Mapping[str, Any], train_command: list[str]) -> None:
     """Require Q0b's source/config hashes to bind the actual queued recipe.
 
@@ -169,7 +186,8 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
                 "--b8", str(inputs / "init/B8_s3_final.pth"), "--out", str(local_root / "receipt.json"), "--run-development"]
     if kind == "q0_b8_init":
         return [py, "-m", "research.q0q1_20261017.audit_b8_init", "--b8", str(inputs / "init/B8_s3_final.pth"),
-                "--t23-root", env["Q0Q1_T23_ROOT"], "--out", str(local_root / "receipt.json"), "--run-observations"]
+                "--t23-root", env["Q0Q1_T23_ROOT"], "--out", str(local_root / "receipt.json"), "--run-observations",
+                "--observation-receipt", env["Q0Q1_MASS_OBSERVATION_RECEIPT"]]
     if kind == "q1_train":
         actors = env["Q1_ACTORS"]
         return [py, "-m", "research.redesign_m3c_20261008.train_m3c", "--seed", env["Q1_SEED"],
@@ -316,6 +334,8 @@ def run(env: Mapping[str, str] | None = None) -> int:
     try:
         child_env = {**env, "PYTHONPATH": f"/content/t16-snake-dqn:{env.get('PYTHONPATH', '')}"}
         run_env = dict(env)
+        if env["Q0Q1_JOB_KIND"] == "q0_b8_init":
+            run_env["Q0Q1_MASS_OBSERVATION_RECEIPT"] = str(stage_q0_mass_receipt(env, local))
         if env["Q0Q1_JOB_KIND"] == "q1_train":
             packet = _bound_json_bytes(env["Q0Q1_Q0B_L4_RECEIPT"], env["Q0Q1_Q0B_L4_RECEIPT_SHA256"])
             collector = "n1" if env["Q1_ARM"] in ("C", "D") else "n3"

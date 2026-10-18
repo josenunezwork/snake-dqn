@@ -26,6 +26,8 @@ def test_q1_graph_uses_final_pin_shared_b8_and_all_required_dependencies():
     b8 = next(job for job in jobs if job["id"] == "q1-eval-b8-261701-s0of2")
     candidate = next(job for job in jobs if job["id"] == "q1-eval-d-261701-s0of2")
     assert b8["depends_on"] == ["q0-audit-t23-mass", "q0-audit-b8-init"]
+    init = next(job for job in jobs if job["id"] == "q0-audit-b8-init")
+    assert init["depends_on"] == ["q0-audit-t23-mass"]
     assert set(candidate["depends_on"]) == {"q0-audit-t23-mass", "q0-audit-b8-init", "q1-train-d-261701", b8["id"]}
     assert candidate["env"]["Q0Q1_PARITY_OWNER_ADMISSION"] == BINDS.parity_owner_admission
     assert all(job["requirements"]["gpu"] == "L4" for job in jobs if job["id"].startswith("q1-train"))
@@ -62,6 +64,12 @@ def test_train_command_pins_the_registered_t23_control_and_q1_treatments(tmp_pat
     parsed = train_m3c.build_parser().parse_args(command[3:])
     assert parsed.max_wall_seconds == 7200
     assert parsed.namespace == q.q1_bank.training_namespace("D")
+
+
+def test_b8_fidelity_command_consumes_the_mass_observation_receipt(tmp_path):
+    command = runner.command({"Q0Q1_JOB_KIND": "q0_b8_init", "Q0Q1_INPUT_ROOT": "/inputs",
+                              "Q0Q1_T23_ROOT": "/t23", "Q0Q1_MASS_OBSERVATION_RECEIPT": "/mass.json"}, tmp_path)
+    assert command[command.index("--observation-receipt") + 1] == "/mass.json"
 
 
 def test_draft_guard_runs_before_job_admission_or_output_access():

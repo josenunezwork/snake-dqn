@@ -114,7 +114,7 @@ def build_jobs(commit: str, bindings: Bindings, *, eval_shards: int = 4) -> list
              est_minutes=240, depends_on=(), output_dir="q0q1-20261017/q0/audit-t23-mass",
              env={"Q0Q1_T23_ROOT": f"{DRIVE_ROOT}/t23-r0", **common}, priority=100),
         _job(job_id=q0_init, commit=commit, kind="q0_b8_init", gpu="cpu", min_vcpu=2,
-             est_minutes=120, depends_on=(), output_dir="q0q1-20261017/q0/audit-b8-init",
+             est_minutes=120, depends_on=(q0_mass,), output_dir="q0q1-20261017/q0/audit-b8-init",
              env={"Q0Q1_T23_ROOT": f"{DRIVE_ROOT}/t23-r0", **common}, priority=100),
     ))
     q0_dependencies = (q0_mass, q0_init)
