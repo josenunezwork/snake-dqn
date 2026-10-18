@@ -58,15 +58,53 @@ def _bound_json(path_text: str, expected: str, *, required_status: str) -> dict[
     return value
 
 
+def _receipt_from_archive(archive: Path, sidecar: Path) -> dict[str, Any]:
+    """Read a queue-produced receipt without trusting an unverified Drive copy."""
+    if not archive.is_file() or not sidecar.is_file():
+        raise RuntimeError(f"missing queue dependency archive or sidecar: {archive}")
+    fields = sidecar.read_text().split()
+    if not fields or not re.fullmatch(r"[0-9a-f]{64}", fields[0]) or sha256_file(archive) != fields[0]:
+        raise RuntimeError(f"queue dependency archive digest mismatch: {archive}")
+    with tarfile.open(archive, "r:gz") as tar:
+        member = tar.getmember("attempt/receipt.json")
+        stream = tar.extractfile(member)
+        if stream is None:
+            raise RuntimeError(f"queue dependency receipt missing: {archive}")
+        value = json.load(stream)
+    if not isinstance(value, dict):
+        raise RuntimeError(f"queue dependency receipt is not an object: {archive}")
+    return value
+
+
+def q0_admission_checks(env: Mapping[str, str]) -> None:
+    root = Path(env["QUEUE_DRIVE_ROOT"]) / "q0q1-20261017/q0"
+    required = {
+        "q0-t23-mass-audit/v1": root / "audit-t23-mass/result.tar.gz",
+        "q0-b8-init-fidelity/v1": root / "audit-b8-init/result.tar.gz",
+    }
+    for schema, archive in required.items():
+        receipt = _receipt_from_archive(archive, archive.with_name("result.tar.gz.sha256"))
+        if receipt.get("schema") != schema or receipt.get("status") != "COMPLETE":
+            raise RuntimeError(f"Q1 training requires a completed passing Q0 receipt: {schema}")
+
+
 def admission_checks(env: Mapping[str, str]) -> None:
     kind = env.get("Q0Q1_JOB_KIND")
     if kind == "q1_train":
         packet = _bound_json_bytes(env["Q0Q1_Q0B_L4_RECEIPT"], env["Q0Q1_Q0B_L4_RECEIPT_SHA256"])
-        from research.q0q1_20261017.qualification import validate_packet
+        plan = _bound_json_bytes(env["Q0Q1_STUDY_PLAN"], env["Q0Q1_STUDY_PLAN_SHA256"])
+        from research.q0q1_20261017.qualification import validate_admission
 
-        qualification = validate_packet(packet)
-        if qualification.get("status") != "QUALIFIED" or packet.get("hardware") != "L4":
-            raise RuntimeError("Q1 training requires a hash-bound qualified L4 Q0b packet")
+        admission = validate_admission(packet, plan)
+        if admission.get("status") != "ADMITTED_FOR_OWNER_REVIEW" or packet.get("hardware") != "L4":
+            raise RuntimeError("Q1 training requires full hash-bound L4 budget admission")
+        q0_admission_checks(env)
+        collector = "n1" if env["Q1_ARM"] in ("C", "D") else "n3"
+        cells = packet.get("cells", [])
+        matches = [cell for cell in cells if cell.get("collector") == collector]
+        actor_counts = {cell.get("actor_count") for cell in matches}
+        if len(actor_counts) != 1 or not isinstance(next(iter(actor_counts)), int):
+            raise RuntimeError("qualified packet lacks one explicit actor count for this Q1 collector")
     elif kind == "q1_eval":
         _bound_json(env["Q0Q1_PARITY_OWNER_ADMISSION"], env["Q0Q1_PARITY_OWNER_ADMISSION_SHA256"], required_status="OWNER_ADMITTED")
 
@@ -105,12 +143,16 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
         return [py, "-m", "research.q0q1_20261017.audit_b8_init", "--b8", str(inputs / "init/B8_s3_final.pth"),
                 "--t23-root", env["Q0Q1_T23_ROOT"], "--out", str(local_root / "receipt.json"), "--run-observations"]
     if kind == "q1_train":
+        actors = env["Q1_ACTORS"]
         return [py, "-m", "research.redesign_m3c_20261008.train_m3c", "--seed", env["Q1_SEED"],
                 "--init", str(inputs / "init/B8_s3_final.pth"), "--demo-data", str(inputs / "demo"),
                 "--out", str(local_root / "run"), "--transitions", env["Q1_TRANSITIONS"], "--device", "cuda",
-                "--actor-device", "cuda", "--schedule-package", "mature" if env["Q1_ARM"] in ("B", "D") else "restart",
-                "--collection-profile", "q1-task-aligned" if env["Q1_ARM"] in ("C", "D") else "t23-n3",
-                "--namespace", f"q1-{env['Q1_ARM'].lower()}-{env['Q1_SEED']}/v1"]
+                "--actor-device", "cuda", "--actors", actors, "--schedule-package", "mature" if env["Q1_ARM"] in ("B", "D") else "restart",
+                "--collection-profile", "task-aligned-n1" if env["Q1_ARM"] in ("C", "D") else "legacy",
+                "--learner-seats", "1" if env["Q1_ARM"] in ("C", "D") else "3",
+                "--namespace", (f"q1-task-aligned-n1-20261017/{env['Q1_ARM'].lower()}-{env['Q1_SEED']}/v1"
+                                  if env["Q1_ARM"] in ("C", "D")
+                                  else f"q1-t23-n3/{env['Q1_ARM'].lower()}-{env['Q1_SEED']}/v1")]
     if kind == "q1_eval":
         checkpoint = env["Q1_TRAINING_FINAL"]
         return [py, "-m", "research.q0q1_20261017.q1_evaluate", "--root", str(local_root),
@@ -156,6 +198,10 @@ def run(env: Mapping[str, str] | None = None) -> int:
         local = Path(temporary)
         child_env = {**env, "PYTHONPATH": f"/content/t16-snake-dqn:{env.get('PYTHONPATH', '')}"}
         run_env = dict(env)
+        if env["Q0Q1_JOB_KIND"] == "q1_train":
+            packet = _bound_json_bytes(env["Q0Q1_Q0B_L4_RECEIPT"], env["Q0Q1_Q0B_L4_RECEIPT_SHA256"])
+            collector = "n1" if env["Q1_ARM"] in ("C", "D") else "n3"
+            run_env["Q1_ACTORS"] = str(next(cell["actor_count"] for cell in packet["cells"] if cell["collector"] == collector))
         if env["Q0Q1_JOB_KIND"] == "q1_eval":
             run_env["Q1_TRAINING_FINAL"] = stage_training_final(env, local)
         completed = subprocess.run(command(run_env, local), cwd="/content/t16-snake-dqn", env=child_env)

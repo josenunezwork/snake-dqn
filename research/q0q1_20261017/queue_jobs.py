@@ -26,20 +26,24 @@ DRIVE_ROOT = "/content/drive/MyDrive/t16_colab"
 
 @dataclass(frozen=True)
 class Bindings:
-    """External evidence which must exist before a job is materialized."""
+    """Future evidence pins; intentionally empty fields describe an honest draft."""
 
-    q0b_l4_receipt: str
-    q0b_l4_receipt_sha256: str
-    parity_owner_admission: str
-    parity_owner_admission_sha256: str
+    q0b_l4_receipt: str = ""
+    q0b_l4_receipt_sha256: str = ""
+    study_plan: str = ""
+    study_plan_sha256: str = ""
+    parity_owner_admission: str = ""
+    parity_owner_admission_sha256: str = ""
 
     def validate(self) -> None:
-        for name, value in self.__dict__.items():
-            if name.endswith("sha256"):
-                if not SHA256_RE.fullmatch(value) or set(value) == {"0"}:
-                    raise ValueError(f"{name} must be a non-placeholder SHA-256")
-            elif not value.startswith("/"):
-                raise ValueError(f"{name} must be an absolute Colab Drive path")
+        for path_name, hash_name in (("q0b_l4_receipt", "q0b_l4_receipt_sha256"),
+                                     ("study_plan", "study_plan_sha256"),
+                                     ("parity_owner_admission", "parity_owner_admission_sha256")):
+            path, digest = getattr(self, path_name), getattr(self, hash_name)
+            if bool(path) != bool(digest):
+                raise ValueError(f"{path_name} and {hash_name} must be supplied together")
+            if path and (not path.startswith("/") or not SHA256_RE.fullmatch(digest) or set(digest) == {"0"}):
+                raise ValueError(f"{path_name} must have a non-placeholder absolute-path SHA-256 binding")
 
 
 def _validate_commit(commit: str) -> None:
@@ -86,12 +90,14 @@ def build_jobs(commit: str, bindings: Bindings, *, eval_shards: int = 4) -> list
     bindings.validate()
     if eval_shards < 1:
         raise ValueError("eval_shards must be positive")
-    common = {
-        "Q0Q1_Q0B_L4_RECEIPT": bindings.q0b_l4_receipt,
-        "Q0Q1_Q0B_L4_RECEIPT_SHA256": bindings.q0b_l4_receipt_sha256,
-        "Q0Q1_PARITY_OWNER_ADMISSION": bindings.parity_owner_admission,
-        "Q0Q1_PARITY_OWNER_ADMISSION_SHA256": bindings.parity_owner_admission_sha256,
-    }
+    common = {}
+    for env_path, env_hash, value_path, value_hash in (
+        ("Q0Q1_Q0B_L4_RECEIPT", "Q0Q1_Q0B_L4_RECEIPT_SHA256", bindings.q0b_l4_receipt, bindings.q0b_l4_receipt_sha256),
+        ("Q0Q1_STUDY_PLAN", "Q0Q1_STUDY_PLAN_SHA256", bindings.study_plan, bindings.study_plan_sha256),
+        ("Q0Q1_PARITY_OWNER_ADMISSION", "Q0Q1_PARITY_OWNER_ADMISSION_SHA256", bindings.parity_owner_admission, bindings.parity_owner_admission_sha256),
+    ):
+        if value_path:
+            common[env_path], common[env_hash] = value_path, value_hash
     jobs: list[dict[str, Any]] = []
     q0_mass = "q0-audit-t23-mass"
     q0_init = "q0-audit-b8-init"
@@ -147,15 +153,18 @@ def build_jobs(commit: str, bindings: Bindings, *, eval_shards: int = 4) -> list
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit", required=True)
-    parser.add_argument("--q0b-l4-receipt", required=True)
-    parser.add_argument("--q0b-l4-receipt-sha256", required=True)
-    parser.add_argument("--parity-owner-admission", required=True)
-    parser.add_argument("--parity-owner-admission-sha256", required=True)
+    parser.add_argument("--q0b-l4-receipt")
+    parser.add_argument("--q0b-l4-receipt-sha256")
+    parser.add_argument("--study-plan")
+    parser.add_argument("--study-plan-sha256")
+    parser.add_argument("--parity-owner-admission")
+    parser.add_argument("--parity-owner-admission-sha256")
     parser.add_argument("--eval-shards", type=int, default=4)
     parser.add_argument("--out", type=Path, help="optional one JSON array; never enqueues")
     args = parser.parse_args(argv)
-    jobs = build_jobs(args.commit, Bindings(args.q0b_l4_receipt, args.q0b_l4_receipt_sha256,
-                                           args.parity_owner_admission, args.parity_owner_admission_sha256),
+    jobs = build_jobs(args.commit, Bindings(args.q0b_l4_receipt or "", args.q0b_l4_receipt_sha256 or "",
+                                           args.study_plan or "", args.study_plan_sha256 or "",
+                                           args.parity_owner_admission or "", args.parity_owner_admission_sha256 or ""),
                       eval_shards=args.eval_shards)
     text = json.dumps(jobs, indent=2, sort_keys=True) + "\n"
     if args.out:
