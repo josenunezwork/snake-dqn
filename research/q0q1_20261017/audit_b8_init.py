@@ -110,6 +110,18 @@ def build_report(b8: Path, t23_root: Path) -> dict[str, Any]:
     }
 
 
+def prerequisites_pass(report: dict[str, Any]) -> bool:
+    """All released bytes and five T23 final/init bindings are mandatory."""
+    if not report["b8"]["sha256_matches_release"]:
+        return False
+    inventory = report["t23_final_inventory"]
+    bindings = report["t23_initializer_bindings"]
+    return all(
+        inventory[str(seed)]["available"] and bindings[str(seed)]["matches_released_b8"]
+        for seed in T23_SEEDS
+    )
+
+
 def assess_observations(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Validate a bounded captured corpus; all required support is mandatory."""
     if len(rows) > OBSERVATION_CAP:
@@ -117,6 +129,8 @@ def assess_observations(rows: list[dict[str, Any]]) -> dict[str, Any]:
     coverage = {name: 0 for name in REQUIRED_COVERAGE}
     disagreements = 0
     for row in rows:
+        if row.get("fixture") and row.get("fixture") != "exact-q-tie-first-legal":
+            raise ValueError("unknown Q0 fidelity fixture")
         for name in (
             "short_lt700",
             "long_ge800",
@@ -159,8 +173,11 @@ def run_observations(b8: Path) -> dict[str, Any]:
     """
     if not b8.is_file() or sha256_file(b8) != B8_SHA256:
         raise ValueError("Q0 observation packet requires released B8 bytes")
+    from types import SimpleNamespace
+
     import numpy as np
 
+    from research.redesign_m3c_20261008 import train_m3c
     from research.redesign_scope_20261007 import grid_h5000_identity as gid
     from src.simd_env import ego2s_policy, eval_engine
 
@@ -174,20 +191,26 @@ def run_observations(b8: Path) -> dict[str, Any]:
     class ObservedPolicy(original):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
-            self.shadow = ego2s_policy.load_ego2s_checkpoint(str(b8), "cpu")
+            # Route B through the trainer's actual zero-update initializer,
+            # not a second evaluator loader.  This catches widening/loader drift.
+            self.shadow = train_m3c.load_init(
+                SimpleNamespace(init=str(b8), obs_version="bv8"), "cpu"
+            ).eval()
 
         def actions(self, masks, sim, slots):
             q_a = ego2s_policy.student_q(self.net, sim, slots, self.forward).numpy()
             q_b = ego2s_policy.student_q(self.shadow, sim, slots, self.forward).numpy()
             rows = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
             advisory = sim.get_advisory_action_mask()[rows[:, 0], rows[:, 1]].astype(bool)
+            trainer_mask = train_m3c.hero_selection_mask(sim, rows)
             safe = advisory.copy()
             fallback = ~safe.any(axis=1)
             safe[fallback, :3] = True
             actions_a = np.where(safe, q_a.astype(np.float64), -np.inf).argmax(axis=1)
             actions_b = np.where(safe, q_b.astype(np.float64), -np.inf).argmax(axis=1)
             for index, (env, _slot) in enumerate(rows):
-                if len(captured) >= OBSERVATION_CAP - 1:
+                mix_rows = sum(1 for row in captured if row["mix"] == current_mix[0])
+                if mix_rows >= OBSERVATION_CAP // 3:
                     break
                 length = int(sim.get_lengths()[env, 0])
                 captured.append(
@@ -202,8 +225,9 @@ def run_observations(b8: Path) -> dict[str, Any]:
                         "action_a": int(actions_a[index]),
                         "action_b": int(actions_b[index]),
                         "fallback_used": bool(fallback[index]),
-                        "mask_disagreement": not np.array_equal(advisory[index], safe[index])
-                        and not bool(fallback[index]),
+                        "mask_disagreement": not np.array_equal(
+                            advisory[index], trainer_mask[index]
+                        ),
                         "wrapper_disagreement": not np.array_equal(q_a[index], q_b[index]),
                     }
                 )
@@ -216,8 +240,6 @@ def run_observations(b8: Path) -> dict[str, Any]:
     try:
         for seed in T23_SEEDS:
             for world in bank["worlds"][str(seed)]:
-                if len(captured) >= OBSERVATION_CAP - 1:
-                    break
                 current_mix[0] = str(world["mix"])
                 roster = [context["lookup"][x[1]] for x in world["opponents"]]
                 eval_engine.run_simd_eval(
@@ -239,14 +261,15 @@ def run_observations(b8: Path) -> dict[str, Any]:
                 )
     finally:
         ego2s_policy.Ego2sSimdPolicy = original
-    # Exact Q ties are a deterministic policy-rule fixture, kept distinct from
-    # natural coverage and required to select first legal action.
+    # Exact-Q ties need an independently executable selection fixture. It
+    # contributes *only* tie coverage; natural rows must establish every state
+    # stratum and mix.
     fixture = {
         "mix": "scripted",
-        "short_lt700": True,
-        "long_ge800": True,
-        "crowded": True,
-        "open": True,
+        "short_lt700": False,
+        "long_ge800": False,
+        "crowded": False,
+        "open": False,
         "exact_q_tie": True,
         "boost_eligible": True,
         "action_a": 0,
@@ -254,9 +277,9 @@ def run_observations(b8: Path) -> dict[str, Any]:
         "fallback_used": False,
         "mask_disagreement": False,
         "wrapper_disagreement": False,
-        "fixture": "all-zero-q-first-legal",
+        "fixture": "exact-q-tie-first-legal",
     }
-    if len(captured) < OBSERVATION_CAP:
+    if len(captured) == OBSERVATION_CAP - 1:
         captured.append(fixture)
     outcome = assess_observations(captured)
     outcome.update(
@@ -266,7 +289,7 @@ def run_observations(b8: Path) -> dict[str, Any]:
                 "digest": bank["allocation_semantic_sha256"],
                 "audit": audit,
             },
-            "natural_observations": len(captured) - 1,
+            "natural_observations": sum(1 for row in captured if not row.get("fixture")),
             "tie_fixture": fixture,
         }
     )
@@ -283,7 +306,12 @@ def main(argv: list[str] | None = None) -> int:
     report = build_report(args.b8, args.t23_root)
     if args.run_observations:
         report["fresh_observation_packet"] = run_observations(args.b8)
-        report["status"] = report["fresh_observation_packet"]["status"]
+        report["status"] = (
+            "COMPLETE"
+            if prerequisites_pass(report)
+            and report["fresh_observation_packet"]["status"] == "COMPLETE"
+            else "INCOMPLETE"
+        )
     write_json(args.out, report)
     print(f"{report['schema']} {report['status']} -> {args.out}")
     return 0
