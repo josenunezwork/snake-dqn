@@ -15,6 +15,28 @@ from typing import Any, Mapping
 import numpy as np
 
 
+def locally_open(sim: Any, env: int, hero: int, *, config=None) -> bool:
+    """No other living snake owns a cell in the model's actual local ego crop.
+
+    The default ego2s-bv8 geometry is 31 by 31, with the hero at (23, 15):
+    23 cells ahead, 7 behind, and 15 on either side, inclusive. Use the
+    featurizer's own offset table and owner grid rather than a radial proxy.
+    """
+    from src.simd_env.ego_raster import EgoRasterConfig, _offset_table
+
+    cfg = config if config is not None else EgoRasterConfig(version="bv8")
+    view = sim.ego_view()
+    if not view.alive[env, hero]:
+        return False
+    stride = view.owner_pad.shape[2]
+    table = _offset_table(cfg.local_size, cfg.local_head_row, cfg.local_head_col, stride)
+    col, row = view.heads[env, hero]
+    center = (int(row) + view.pad) * stride + int(col) + view.pad
+    indices = center + table[int(view.direction[env, hero])]
+    owners = view.owner_pad[env].reshape(-1)[indices]
+    return not bool(np.any((owners >= 0) & (owners != hero)))
+
+
 def length_stratum(length: float) -> str:
     """Return the preregistered coarse length band for a pre-action state."""
     if length < 700:
@@ -413,7 +435,13 @@ class PolicyProbe:
                             "short_lt700": length < 700,
                             "long_ge800": length >= 800,
                             "crowded": int(sim.get_alive()[env].sum()) >= 5,
-                            "open": int(sim.get_alive()[env].sum()) <= 3,
+                            "open": locally_open(
+                                sim,
+                                int(env),
+                                int(slot),
+                                config=ego2s_policy.ego_config_for(policy.net),
+                            ),
+                            "open_definition": "ego2s-local-no-other-snake-cell/a2",
                             "exact_q_tie": bool((bq[i, safe[i]] == bq[i, safe[i]].max()).sum() > 1),
                             "boost_eligible": bool(legal[i, 3:].any()),
                             "action_a": int(executed[i]),

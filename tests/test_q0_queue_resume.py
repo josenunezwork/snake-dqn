@@ -90,3 +90,50 @@ def test_run_uses_unbuffered_child_python(monkeypatch, tmp_path) -> None:
     assert captured["argv"][captured["argv"].index("--partials-dir") + 1] == str(
         output.resolve() / "mass-partials"
     )
+
+
+def test_init_fill_command_preserves_caps_workers_and_durable_output(tmp_path) -> None:
+    output = tmp_path / "fresh-output"
+    output.mkdir()
+    command = runner.command(
+        {
+            "Q0Q1_JOB_KIND": "q0_b8_init",
+            "Q0Q1_INPUT_ROOT": "/inputs",
+            "Q0Q1_T23_ROOT": "/t23",
+            "Q0Q1_MASS_OBSERVATION_RECEIPT": "/mass.json",
+            "QUEUE_OUTPUT_DIR": str(output),
+            "Q0Q1_INIT_FILL_EPISODES": "12",
+            "Q0Q1_INIT_FILL_WORKERS": "2",
+            "Q0Q1_INIT_FILL_MAX_SECONDS": "900",
+        },
+        tmp_path / "local",
+    )
+    for flag, value in (
+        ("--supplemental-episodes", "12"),
+        ("--supplemental-workers", "2"),
+        ("--supplemental-max-seconds", "900"),
+        ("--supplemental-partials-dir", str(output / "init-fill-partials")),
+    ):
+        assert command[command.index(flag) + 1] == value
+
+
+@pytest.mark.parametrize(
+    "bindings, error",
+    [
+        ({"Q0Q1_INIT_FILL_RESUME_INDEX": "/prior/index.json"}, "must be paired"),
+        ({"Q0Q1_INIT_FILL_RESUME_INDEX_SHA256": "a" * 64}, "must be paired"),
+    ],
+)
+def test_init_resume_requires_paired_binding(tmp_path, bindings, error) -> None:
+    with pytest.raises(RuntimeError, match=error):
+        runner.command(
+            {
+                "Q0Q1_JOB_KIND": "q0_b8_init",
+                "Q0Q1_INPUT_ROOT": "/inputs",
+                "Q0Q1_T23_ROOT": "/t23",
+                "Q0Q1_MASS_OBSERVATION_RECEIPT": "/mass.json",
+                "QUEUE_OUTPUT_DIR": str(tmp_path),
+                **bindings,
+            },
+            tmp_path / "local",
+        )

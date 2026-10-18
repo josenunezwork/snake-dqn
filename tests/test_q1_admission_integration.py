@@ -163,7 +163,15 @@ def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
             }
         )
     )
-    owner = Path("research/q0q1_20261017/OWNER_ADMISSION_20261018.json").resolve()
+    # A2 appends to the registration. The immutable production A1 admission
+    # deliberately becomes stale; bind a test-only copy to the current bytes.
+    original_owner = Path("research/q0q1_20261017/OWNER_ADMISSION_20261018.json").resolve()
+    owner_value = json.loads(original_owner.read_text())
+    owner_value["registration_sha256"] = run_queue_job.sha256_file(
+        Path("research/q0q1_20261017/PREREGISTRATION.md")
+    )
+    owner = tmp_path / "test-owner-admission.json"
+    owner.write_text(json.dumps(owner_value, sort_keys=True) + "\n")
     # Retain the real producer/consumer binding logic while substituting only
     # the Mac-only inventory scans with passing synthetic audit outcomes.
     q0_bank = inventory_receipt.audit_q0_bank.build_world_bank()

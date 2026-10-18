@@ -297,7 +297,7 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
             )
         return command
     if kind == "q0_b8_init":
-        return [
+        result = [
             py,
             "-m",
             "research.q0q1_20261017.audit_b8_init",
@@ -311,6 +311,36 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
             "--observation-receipt",
             env["Q0Q1_MASS_OBSERVATION_RECEIPT"],
         ]
+        for key, flag in (
+            ("Q0Q1_INIT_FILL_EPISODES", "--supplemental-episodes"),
+            ("Q0Q1_INIT_FILL_WORKERS", "--supplemental-workers"),
+            ("Q0Q1_INIT_FILL_MAX_SECONDS", "--supplemental-max-seconds"),
+        ):
+            if key in env:
+                result.extend([flag, env[key]])
+        if int(env.get("Q0Q1_INIT_FILL_EPISODES", "0")):
+            result.extend(
+                [
+                    "--supplemental-partials-dir",
+                    str(Path(env["QUEUE_OUTPUT_DIR"]).resolve() / "init-fill-partials"),
+                ]
+            )
+        resume_index = env.get("Q0Q1_INIT_FILL_RESUME_INDEX")
+        resume_sha = env.get("Q0Q1_INIT_FILL_RESUME_INDEX_SHA256")
+        if bool(resume_index) != bool(resume_sha):
+            raise RuntimeError("Q0Q1_INIT_FILL_RESUME_INDEX and SHA256 must be paired")
+        if resume_index:
+            if Path(resume_index).resolve().is_relative_to(Path(env["QUEUE_OUTPUT_DIR"]).resolve()):
+                raise RuntimeError("Q0 init fill resume index must not be inside QUEUE_OUTPUT_DIR")
+            result.extend(
+                [
+                    "--supplemental-resume-index",
+                    resume_index,
+                    "--supplemental-resume-index-sha256",
+                    resume_sha,
+                ]
+            )
+        return result
     if kind == "q1_train":
         actors = env["Q1_ACTORS"]
         return [
@@ -667,10 +697,11 @@ def run(env: Mapping[str, str] | None = None) -> int:
     local = Path(tempfile.mkdtemp(prefix="q0q1-", dir=local_parent))
     failure: Exception | None = None
     run_env = dict(env)
+    repo = str(Path(__file__).resolve().parents[2])
     try:
         child_env = {
             **env,
-            "PYTHONPATH": f"/content/t16-snake-dqn:{env.get('PYTHONPATH', '')}",
+            "PYTHONPATH": f"{repo}:{env.get('PYTHONPATH', '')}",
             "PYTHONUNBUFFERED": "1",
         }
         if env["Q0Q1_JOB_KIND"] == "q0_b8_init":
@@ -705,7 +736,7 @@ def run(env: Mapping[str, str] | None = None) -> int:
                         "--out",
                         str(local / f"{fixture}-cuda.json"),
                     ],
-                    cwd="/content/t16-snake-dqn",
+                    cwd=repo,
                     env=child_env,
                     timeout=240,
                 )
@@ -728,7 +759,7 @@ def run(env: Mapping[str, str] | None = None) -> int:
                     "--out",
                     str(local / "runtime-parity.json"),
                 ],
-                cwd="/content/t16-snake-dqn",
+                cwd=repo,
                 env=child_env,
             )
             if parity.returncode != 0:
@@ -736,9 +767,7 @@ def run(env: Mapping[str, str] | None = None) -> int:
             run_env["Q1_EVAL_PARITY_RECEIPT"] = str(local / "runtime-parity.json")
             run_env["Q1_RUNTIME_PARITY_RECEIPT"] = str(local / "runtime-parity.json")
             run_env["Q1_RUNTIME_PARITY_RECEIPT_SHA256"] = sha256_file(local / "runtime-parity.json")
-        completed = subprocess.run(
-            command(run_env, local), cwd="/content/t16-snake-dqn", env=child_env
-        )
+        completed = subprocess.run(command(run_env, local), cwd=repo, env=child_env)
         if completed.returncode != 0:
             raise RuntimeError(f"child exited {completed.returncode}")
         _scientific_done(env["Q0Q1_JOB_KIND"], local, run_env)

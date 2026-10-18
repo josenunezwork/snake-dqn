@@ -48,12 +48,28 @@ def test_study_plan_requires_observed_nonzero_cpu_debit_and_matches_packets() ->
         subject._study_plan(l4, a100, accounting)
 
 
-def test_owner_admission_binds_current_registration_bytes() -> None:
-    admission = subject._validate_owner_admission(
-        Path("research/q0q1_20261017/OWNER_ADMISSION_20261018.json")
+def _current_test_owner(tmp_path: Path) -> Path:
+    """Bind test evidence without mutating the now-stale production A1 packet."""
+    value = json.loads(Path("research/q0q1_20261017/OWNER_ADMISSION_20261018.json").read_text())
+    value["registration_sha256"] = subject.sha256_file(
+        Path("research/q0q1_20261017/PREREGISTRATION.md")
     )
+    path = tmp_path / "test-owner-admission.json"
+    path.write_text(json.dumps(value, sort_keys=True) + "\n")
+    return path
+
+
+def test_owner_admission_binds_current_registration_bytes(tmp_path) -> None:
+    admission = subject._validate_owner_admission(_current_test_owner(tmp_path))
     assert admission["status"] == "OWNER_ADMITTED"
     assert admission["owner_release"] == subject.OWNER_RELEASE
+
+
+def test_a2_rejects_the_immutable_pre_a2_production_owner_admission() -> None:
+    with pytest.raises(ValueError, match="does not bind"):
+        subject._validate_owner_admission(
+            Path("research/q0q1_20261017/OWNER_ADMISSION_20261018.json")
+        )
 
 
 def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch, tmp_path) -> None:
@@ -64,7 +80,7 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
     accounting = tmp_path / "accounting.json"
     inventory = tmp_path / "inventory.json"
     inventory.write_text("{}")
-    owner = Path("research/q0q1_20261017/OWNER_ADMISSION_20261018.json")
+    owner = _current_test_owner(tmp_path)
     for path, value in ((l4, {}), (a100, {}), (runtime, {}), (mac, {})):
         path.write_text(json.dumps(value))
     accounting.write_text(
