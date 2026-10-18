@@ -1,0 +1,89 @@
+{
+  "bank_allocation_semantic_sha256": "88e63bd932c797b315ff3b6b5dcd6d69e02294d33e5ab77a7944c9a124b76ac7",
+  "bank_audit_pass": true,
+  "checkpoint": {
+    "bytes": 6562005,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+    "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+  },
+  "context_seconds": 0.024299542004882824,
+  "episodes": [
+    {
+      "death_frame": null,
+      "mass_integral": 776.0042,
+      "mix": "scripted",
+      "timing": {
+        "evaluate_world_seconds": 13.000770833001297,
+        "observer_result_seconds": 2.8792004741262645e-05,
+        "probe_context_seconds": 0.03736016699986067,
+        "probe_teardown_seconds": 9.20799357118085e-06,
+        "wall_seconds_total": 13.038151707994984
+      },
+      "world_seed": 3531715465
+    },
+    {
+      "death_frame": 353,
+      "mass_integral": 2.7164,
+      "mix": "frozen",
+      "timing": {
+        "evaluate_world_seconds": 4.130520791004528,
+        "observer_result_seconds": 3.3792006433941424e-05,
+        "probe_context_seconds": 0.0038004580055712722,
+        "probe_teardown_seconds": 1.0291994840372354e-05,
+        "wall_seconds_total": 4.134333291993244
+      },
+      "world_seed": 3214373914
+    },
+    {
+      "death_frame": null,
+      "mass_integral": 599.8342,
+      "mix": "mixed",
+      "timing": {
+        "evaluate_world_seconds": 14.587350499998138,
+        "observer_result_seconds": 1.9416002032812685e-05,
+        "probe_context_seconds": 0.0034989580017281696,
+        "probe_teardown_seconds": 8.249997335951775e-06,
+        "wall_seconds_total": 14.59085895899625
+      },
+      "world_seed": 808428031
+    }
+  ],
+  "horizon": 5000,
+  "machine": {
+    "cpu_count": 18,
+    "env_threads": {
+      "MKL_NUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1"
+    },
+    "machine": "arm64",
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "processor": "arm",
+    "python": "3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]"
+  },
+  "repo_head": "bdeb0dcae535371c3172562b5fd7d60dce429899",
+  "rows_canonical_sha256": "a14c3458268b975cfc09578df450005986e7b366a3118b661031882a7e1caf0e",
+  "schema": "q0-local-timing/v1",
+  "scope": "Three B8-only Mac episodes; timing projection, not CUDA throughput or Q0 scientific completion.",
+  "selected_worlds": [
+    {
+      "mix": "scripted",
+      "roster_semantic_sha256": "dcf2fec1c64cd3c4f26b1a0ef158728d5935cf6f01d4cc193d4c45904138be7b",
+      "world_seed": 3531715465,
+      "world_semantic_sha256": "28f6cc96c7806a23979743209a8b1565c59ae280b9441d0baa8bae8bd89e2608"
+    },
+    {
+      "mix": "frozen",
+      "roster_semantic_sha256": "5f45ab7fbe3eac4d6f1358ef8d4c1040aa8860fbfce699d0d8b7f2d824304170",
+      "world_seed": 3214373914,
+      "world_semantic_sha256": "977e30fd46a21ca05f78ff234ba57d6ac98b103b8c14abc2002db92d7456d582"
+    },
+    {
+      "mix": "mixed",
+      "roster_semantic_sha256": "7ec4c2299cecf18b05337ee8578a9d91703e6c27bc0897ef6c08fc38b7378225",
+      "world_seed": 808428031,
+      "world_semantic_sha256": "3026f049c2e453069515799c5b3f0d04ff4d4da0432666eb3aca35b15ac6be20"
+    }
+  ]
+}

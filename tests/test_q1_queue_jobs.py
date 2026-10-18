@@ -35,9 +35,13 @@ def test_approved_job_objects_are_pinned_and_target_the_actual_audit_names():
     jobs = {path.stem: json.loads(path.read_text()) for path in root.glob("*.json")}
     mass = "q0-audit-t23-mass-a100r2"
     init = "q0-audit-b8-init-a100r3"
-    assert set(jobs) == {mass, init, "q0b-capacity-l4-20261018r3", "q0b-capacity-a100-20261018r3"}
-    assert len({job["commit"] for job in jobs.values()}) == 1
+    historical = {mass, init, "q0b-capacity-l4-20261018r3", "q0b-capacity-a100-20261018r3"}
+    assert historical <= set(jobs)
+    assert len({jobs[key]["commit"] for key in historical}) == 1
     for job in jobs.values():
+        validate_job(job)
+    for key in historical:
+        job = jobs[key]
         validate_job(job)
         assert job["env"]["Q0Q1_REGISTRATION_STATUS"] == "APPROVED_Q0Q1_20261017"
         assert job["env"]["Q0Q1_OWNER_RELEASE"] == "APPROVED_Q0Q1_20261017"

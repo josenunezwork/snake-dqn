@@ -176,3 +176,26 @@ def test_progress_while_serial_episode_runs(tmp_path: Path, capsys) -> None:
     output = capsys.readouterr().out
     assert output.count("episodes 0/1 done") >= 2
     assert "episodes 1/1 done" in output and "elapsed=" in output and "ETA=" in output
+
+
+def test_parent_checks_opponent_and_profile_pins_before_resumed_dispatch(tmp_path, monkeypatch):
+    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+
+    b8 = tmp_path / "b8.pth"
+    b8.write_bytes(b"fixture")
+    monkeypatch.setattr(audit_t23_mass, "sha256_file", lambda _: audit_t23_mass.B8_SHA256)
+    monkeypatch.setattr(audit_t23_mass.audit_q0_bank, "build_world_bank", lambda: {})
+    monkeypatch.setattr(audit_t23_mass.audit_q0_bank, "audit_world_bank", lambda: {"pass": True})
+
+    def reject_context(_: int) -> None:
+        raise ValueError("opponent/config bytes changed")
+
+    monkeypatch.setattr(gid, "_context", reject_context)
+    with pytest.raises(ValueError, match="opponent/config bytes changed"):
+        audit_t23_mass.run_development(
+            tmp_path,
+            b8,
+            workers=2,
+            resume_partials=tmp_path / "old/manifest.json",
+            resume_partials_sha256="0" * 64,
+        )

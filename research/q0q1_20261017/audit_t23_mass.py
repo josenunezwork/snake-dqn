@@ -444,12 +444,13 @@ def partial_binding(
     b8: Path, bank: dict[str, Any], audit: dict[str, Any], tasks: list[dict[str, Any]]
 ) -> dict[str, Any]:
     """Bind resume to all executable sources, inputs, bank admission and runtime."""
-    from research.q0q1_20261017.mass_execution import digest
-    from research.t23_r0_screen_20261017 import evaluate as t23_eval
     import llvmlite
     import numba
     import numpy
     import torch
+
+    from research.q0q1_20261017.mass_execution import digest
+    from research.t23_r0_screen_20261017 import evaluate as t23_eval
 
     sources = t23_eval.source_manifest()
     # Probe/shadow-loader imports extend the evaluator's own source boundary.
@@ -499,6 +500,10 @@ def run_development(
             f"Q0 fresh-bank collision audit failed: {audit['registered_collision_seeds']}"
         )
     deadline = time.monotonic() + 8 * 3600
+    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+
+    # Validate deployment/profile/opponent pins even when every world is resumed.
+    gid._context(1)
     discovered = discover(artifact_root)["snapshots"]
     if any(not discovered[str(seed)]["final"] for seed in T23_SEEDS):
         raise ValueError("Q0 development requires all five hash-pinned T23 finals")
