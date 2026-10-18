@@ -1473,6 +1473,9 @@ def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False)
     if learner_seats(args) == 3:
         controlled[~learner_seat_mask(args.seed, segment, E, 3)] = True
     runtime.bind(sim, controlled)
+    if getattr(args, "collection_profile", "legacy") == "task-aligned-n1":
+        sim._task_mixes = np.asarray(mix_of, dtype=object)
+        sim._task_reset_ordinals = np.zeros(E, dtype=np.int64)
     groups_arr = {k: np.array(v, dtype=np.int64) for k, v in groups.items()}
     # T4 is deliberately entirely default-off: do not allocate, import, or draw a
     # restart RNG in the ordinary M3-C path.
@@ -1520,6 +1523,45 @@ def learner_seats(args) -> int:
     if requested is None:
         return 6 if getattr(args, "all_snakes_learner", False) else 1
     return int(requested)
+
+
+def refresh_task_aligned_rosters(args, ctx, sim, runtime, policies, groups, mixes) -> None:
+    """Rebuild N=1's exact gate seats after one or more terminal-world resets.
+
+    Every environment keeps its own current seed and sampled mix.  Rebuilding
+    from ``dev_screen._design_rows`` is intentionally less clever than caching
+    a synthetic training pool: it preserves the historical frozen/scripted/
+    mixed construction, including its wrappers and slot rules.
+    """
+    from research.apex_safety_20260926 import dev_screen
+    from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
+    from src.simd_env.vector61_policy import Vector61SimdPolicy
+
+    rows = {(int(r["world_seed"]), r["mix"]): r for r in dev_screen._design_rows(sim._seeds)}
+    cells_by_spec: Dict[Any, List[tuple]] = {}
+    for e, seed in enumerate(sim._seeds):
+        for slot, member in enumerate(rows[(int(seed), str(mixes[e]))]["slots"], start=1):
+            spec = ctx["lookup"][member["member_sha256"]]
+            cells_by_spec.setdefault(spec, []).append((e, slot))
+    for spec in cells_by_spec:
+        if spec in policies:
+            continue
+        if spec[0] == "scripted":
+            policies[spec] = FastProfileAnchorSimdPolicy(spec[1], sim._seeds)
+        else:
+            policies[spec] = Vector61SimdPolicy(spec[1], runtime, forward="batched")
+    # Random-safe depends on the current world identity.  Its policy is otherwise
+    # stateless, so rebinding this tuple cannot carry a prior episode into a new one.
+    for policy in policies.values():
+        if isinstance(policy, FastProfileAnchorSimdPolicy):
+            policy._world_seeds = tuple(int(seed) for seed in sim._seeds)
+    groups.clear()
+    groups.update({spec: np.asarray(cells, dtype=np.int64) for spec, cells in cells_by_spec.items()})
+    controlled = np.zeros((sim.E, sim.S), dtype=bool)
+    for spec, cells in groups.items():
+        if spec[0] != "scripted":
+            controlled[cells[:, 0], cells[:, 1]] = True
+    runtime.controlled[...] = controlled
 
 
 def mixed_stream_ids(rows: np.ndarray, live_seats: np.ndarray, seats: int = 3) -> np.ndarray:
@@ -2293,6 +2335,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         if args.segment_frames != HORIZON:
             raise SystemExit("task-aligned-n1 needs --segment-frames 5000 (registered H5000 horizon)")
+        if args.opp_forward not in (None, "per-group"):
+            raise SystemExit("task-aligned-n1 needs --opp-forward per-group for reset roster refresh")
     if args.gather_threads < 0:
         raise SystemExit("--gather-threads must be >= 0")
     if args.max_wall_seconds < 0.0 or not math.isfinite(args.max_wall_seconds):
@@ -3606,7 +3650,38 @@ def actor_main(
                         sim.frame >= 5_000, dtype=bool
                     )
                     if reset_worlds.any():
-                        sim.reset_envs(reset_worlds)
+                        from research.redesign_m3c_20261008.task_collection import (
+                            mix_for_reset,
+                            reset_seed,
+                        )
+
+                        selected = np.flatnonzero(reset_worlds)
+                        sim._task_reset_ordinals[selected] += 1
+                        replacement_seeds = [
+                            reset_seed(
+                                args.namespace,
+                                args.seed,
+                                segment,
+                                int(e),
+                                int(sim._task_reset_ordinals[e]),
+                            )
+                            for e in selected
+                        ]
+                        for e in selected:
+                            sim._task_mixes[e] = mix_for_reset(
+                                args.seed,
+                                segment,
+                                int(e),
+                                int(sim._task_reset_ordinals[e]),
+                            )
+                        sim.reset_envs(reset_worlds, seeds=replacement_seeds)
+                        reset_rows = np.repeat(reset_worlds[:, None], sim.S, axis=1)
+                        runtime.memory.reset_where(reset_rows)
+                        runtime._carry_valid[reset_worlds] = False
+                        runtime._alive_post[reset_worlds] = False
+                        refresh_task_aligned_rosters(
+                            args, ctx, sim, runtime, policies, groups, sim._task_mixes
+                        )
                 # A FIFO marker is emitted *after* the ordinary frame message.  The learner
                 # drains through one marker from every actor before copying shared rings,
                 # so replay ids and actor n-step state describe the same boundary.

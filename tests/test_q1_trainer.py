@@ -45,6 +45,8 @@ def test_task_collection_mix_draws_are_stable_isolated_and_uniform_by_probabilit
     for count in counts.values():
         assert abs(count / len(first) - 1 / 3) < 0.03
     assert C.fresh_namespace("C", 23).startswith(C.NAMESPACE_PREFIX)
+    assert C.mix_for_reset(23, 1, 2, 3) == C.mix_for_reset(23, 1, 2, 3)
+    assert C.reset_seed("q1/x", 23, 1, 2, 3) != C.reset_seed("q1/x", 23, 1, 2, 4)
 
 
 def test_task_collection_terminal_and_horizon_boundaries_are_distinct():
