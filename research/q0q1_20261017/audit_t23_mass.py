@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import platform
 import sys
 import time
 from pathlib import Path
@@ -357,12 +358,139 @@ def _single(paths: list[str], label: str) -> Path | None:
     return Path(paths[0])
 
 
-def run_development(artifact_root: Path, b8: Path) -> dict[str, Any]:
+class CandidateStream:
+    """Retain the exact per-world candidate stream for ordered reservoir replay."""
+
+    def __init__(self) -> None:
+        self.rows: list[dict[str, Any]] = []
+        self.excluded_trapped = 0
+
+    def add(self, row: dict[str, Any]) -> None:
+        # Validate every candidate now, including those the final reservoir drops.
+        if any(
+            row.get(key) for key in ("fallback_used", "mask_disagreement", "wrapper_disagreement")
+        ):
+            raise ValueError("Q0 fidelity fail-closed candidate wrapper/mask/fallback failure")
+        if row["action_a"] != row["action_b"]:
+            raise ValueError("Q0 zero-update candidate action disagreement")
+        self.rows.append(row)
+
+
+_EPISODE_CONTEXT: dict[str, Any] = {}
+
+
+def initialize_episode_worker(b8: str, deadline: float) -> None:
+    """Each process owns a one-thread context and its scoped policy hooks."""
+    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+
+    _EPISODE_CONTEXT.update(b8=b8, deadline=deadline, context=gid._context(1))
+
+
+def evaluate_episode(task: dict[str, Any]) -> dict[str, Any]:
+    """Execute the original one-world evaluator and event probes unchanged."""
+    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+    from research.t23_r0_screen_20261017 import evaluate as t23_eval
+
+    b8 = _EPISODE_CONTEXT["b8"]
+    deadline = _EPISODE_CONTEXT["deadline"]
+    if time.monotonic() >= deadline:
+        raise TimeoutError("Q0 CPU runtime cap exhausted")
+    context = _EPISODE_CONTEXT["context"]
+    world = task["world"]
+    candidates = CandidateStream()
+    with PolicyProbe(
+        b8, reservoir=candidates if task["arm"] == "b8" else None, mix=str(world["mix"])
+    ) as probe:
+        observer = FrameObserver(horizon=HORIZON, policy_probe=probe, deadline=deadline)
+        row = t23_eval.evaluate_world(
+            world,
+            Path(task["checkpoint"]),
+            context["lookup"][gid.FRP3_S12[1]],
+            context,
+            observer_factory=lambda _seeds: observer,
+        )
+    metrics = observer.result()
+    episode = metrics["episodes"].get(str(int(world["world_seed"])))
+    if episode is None or not metrics["complete_horizon"]:
+        raise RuntimeError("Q0 frame observer did not complete its H5000 world")
+    return {
+        "row": {
+            "arm": task["arm"],
+            "checkpoint_label": task["label"],
+            "training_seed": task["seed"],
+            **row,
+            "q0_metrics": episode,
+        },
+        "candidates": candidates.rows,
+        "excluded_trapped": candidates.excluded_trapped,
+    }
+
+
+def merge_episodes(results: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], Any]:
+    """Replay candidates in legacy serial order, preserving reservoir RNG draws."""
+    from research.q0q1_20261017.audit_b8_init import CoverageReservoir
+
+    reservoir = CoverageReservoir()
+    rows = []
+    for result in results:
+        rows.append(result["row"])
+        reservoir.excluded_trapped += result["excluded_trapped"]
+        for candidate in result["candidates"]:
+            reservoir.add(candidate)
+    return rows, reservoir
+
+
+def partial_binding(
+    b8: Path, bank: dict[str, Any], audit: dict[str, Any], tasks: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Bind resume to all executable sources, inputs, bank admission and runtime."""
+    from research.q0q1_20261017.mass_execution import digest
+    from research.t23_r0_screen_20261017 import evaluate as t23_eval
+    import llvmlite
+    import numba
+    import numpy
+    import torch
+
+    sources = t23_eval.source_manifest()
+    # Probe/shadow-loader imports extend the evaluator's own source boundary.
+    for folder in ("research/q0q1_20261017", "research/redesign_m3c_20261008"):
+        for path in sorted((REPO / folder).glob("*.py")):
+            sources[str(path.relative_to(REPO))] = sha256_file(path)
+    checkpoints = {str(b8)} | {task["checkpoint"] for task in tasks}
+    return {
+        "schema": SCHEMA,
+        "horizon": HORIZON,
+        "episode_cap": MAX_EPISODES,
+        "bank_sha256": digest(bank),
+        "bank_audit": audit,
+        "checkpoints": {name: sha256_file(Path(name)) for name in sorted(checkpoints)},
+        "sources": sources,
+        "runtime": {
+            "python": platform.python_version(),
+            "machine": platform.machine(),
+            "system": platform.system(),
+            "torch": str(torch.__version__),
+            "numpy": numpy.__version__,
+            "numba": numba.__version__,
+            "llvmlite": llvmlite.__version__,
+            "threads": 1,
+        },
+    }
+
+
+def run_development(
+    artifact_root: Path,
+    b8: Path,
+    *,
+    workers: int | None = None,
+    partials_dir: Path | None = None,
+    resume_partials: Path | None = None,
+    resume_partials_sha256: str | None = None,
+) -> dict[str, Any]:
     """Run at most 480 registered H5000 diagnostic episodes on a fresh Q0 bank."""
     if not b8.is_file() or sha256_file(b8) != B8_SHA256:
         raise ValueError("Q0 development requires the released B8 bytes")
-    from research.redesign_scope_20261007 import grid_h5000_identity as gid
-    from research.t23_r0_screen_20261017 import evaluate as t23_eval
+    from research.q0q1_20261017.mass_execution import default_workers, execute
 
     bank = audit_q0_bank.build_world_bank()
     audit = audit_q0_bank.audit_world_bank()
@@ -371,8 +499,6 @@ def run_development(artifact_root: Path, b8: Path) -> dict[str, Any]:
             f"Q0 fresh-bank collision audit failed: {audit['registered_collision_seeds']}"
         )
     deadline = time.monotonic() + 8 * 3600
-    context = gid._context(1)
-    carrier = context["lookup"][gid.FRP3_S12[1]]
     discovered = discover(artifact_root)["snapshots"]
     if any(not discovered[str(seed)]["final"] for seed in T23_SEEDS):
         raise ValueError("Q0 development requires all five hash-pinned T23 finals")
@@ -384,42 +510,46 @@ def run_development(artifact_root: Path, b8: Path) -> dict[str, Any]:
         }
     # B8 is intentionally evaluated once per fresh world and reused against both
     # snapshot identities: 5 * 32 * (B8 + 2M + 4M) == 480 maximum.
-    rows: list[dict[str, Any]] = []
-    from research.q0q1_20261017.audit_b8_init import CoverageReservoir, exact_tie_fixture
+    from research.q0q1_20261017.audit_b8_init import exact_tie_fixture
 
-    reservoir = CoverageReservoir()
-
-    def observed(world, checkpoint, arm, label, seed):
-        if time.monotonic() >= deadline:
-            raise TimeoutError("Q0 CPU runtime cap exhausted")
-        with PolicyProbe(
-            str(b8), reservoir=reservoir if arm == "b8" else None, mix=str(world["mix"])
-        ) as probe:
-            observer = FrameObserver(horizon=HORIZON, policy_probe=probe, deadline=deadline)
-            row = t23_eval.evaluate_world(
-                world, checkpoint, carrier, context, observer_factory=lambda _seeds: observer
-            )
-        metrics = observer.result()
-        episode = metrics["episodes"].get(str(int(world["world_seed"])))
-        if episode is None or not metrics["complete_horizon"]:
-            raise RuntimeError("Q0 frame observer did not complete its H5000 world")
-        return {
-            "arm": arm,
-            "checkpoint_label": label,
-            "training_seed": seed,
-            **row,
-            "q0_metrics": episode,
-        }
-
+    tasks = []
     for seed in T23_SEEDS:
         worlds = bank["worlds"][str(seed)]
-        for world in worlds:
-            rows.append(observed(world, b8, "b8", "b8", seed))
-        for label, checkpoint in available[str(seed)].items():
-            if checkpoint is None:
-                continue
+        for arm, label, checkpoint in [("b8", "b8", b8)] + [
+            ("t23", label, checkpoint)
+            for label, checkpoint in available[str(seed)].items()
+            if checkpoint is not None
+        ]:
             for world in worlds:
-                rows.append(observed(world, checkpoint, "t23", label, seed))
+                tasks.append(
+                    {
+                        "world": world,
+                        "checkpoint": str(checkpoint),
+                        "arm": arm,
+                        "label": label,
+                        "seed": seed,
+                    }
+                )
+    if len(tasks) > MAX_EPISODES:
+        raise RuntimeError("Q0 episode cap exceeded before dispatch")
+    binding = partial_binding(b8, bank, audit, tasks)
+    binding["final_checkpoints"] = {
+        str(seed): {path: sha256_file(Path(path)) for path in discovered[str(seed)]["final"]}
+        for seed in T23_SEEDS
+    }
+    results = execute(
+        tasks,
+        worker=evaluate_episode,
+        initializer=initialize_episode_worker,
+        initargs=(str(b8), deadline),
+        binding=binding,
+        workers=default_workers() if workers is None else workers,
+        deadline=deadline,
+        partials_dir=partials_dir,
+        resume_partials=resume_partials,
+        resume_sha256=resume_partials_sha256,
+    )
+    rows, reservoir = merge_episodes(results)
     if len(rows) > MAX_EPISODES:
         raise RuntimeError(f"Q0 episode cap exceeded: {len(rows)} > {MAX_EPISODES}")
     expected = MAX_EPISODES
@@ -453,12 +583,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--b8", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--run-development", action="store_true")
+    from research.q0q1_20261017.mass_execution import default_workers
+
+    parser.add_argument("--workers", type=int, default=default_workers())
+    parser.add_argument("--partials-dir", type=Path)
+    parser.add_argument(
+        "--resume-partials", type=Path, help="prior manifest.json in a different attempt"
+    )
+    parser.add_argument("--resume-partials-sha256")
     args = parser.parse_args(argv)
+    if args.workers < 1:
+        parser.error("--workers must be positive")
+    print(f"Q0 mass inventory starting; workers={args.workers}", flush=True)
     report = build_report(args.artifact_root, args.b8)
     if args.run_development:
         if args.b8 is None:
             raise ValueError("--run-development requires --b8")
-        report["development_packet"] = run_development(args.artifact_root, args.b8)
+        report["development_packet"] = run_development(
+            args.artifact_root,
+            args.b8,
+            workers=args.workers,
+            partials_dir=args.partials_dir,
+            resume_partials=args.resume_partials,
+            resume_partials_sha256=args.resume_partials_sha256,
+        )
         report["status"] = report["development_packet"]["status"]
     write_json(args.out, report)
     print(f"{report['schema']} {report['development_packet']['status']} -> {args.out}")
