@@ -385,3 +385,64 @@ bounds a whole attempt to the additive two-hour RL-advice limit. CPU pricing,
 100 per-job four-world parity probes, startup, copies and analysis enter the
 measured global forecast before admission; they are not free work. Q1 evaluation
 uses one CPU thread per world, with parallelism across immutable shards.
+
+## Amendment A2 — local open-state fidelity coverage (2026-10-18)
+
+**Owner authorization:** the owner's 2026-10-18 chat task explicitly requests
+this amendment and bounded supplemental collection, under the standing approval
+"everything approved for today dont ask me again". This amendment is committed
+and pushed before any supplemental fidelity observations under A2 are collected.
+It is a disclosed post-diagnostic repair of a zero-update implementation check,
+not a prospective change to a gameplay efficacy endpoint.
+
+The r5 initializer receipt is preserved as INCOMPLETE. Its only missing required
+stratum was `open`: 0 of 684,993 candidate observations. The original registration
+required "crowded and open states" but specified no population threshold. The
+implementation operationalized open as at most three living snakes in the entire
+world. Fixed-opponent worlds remain populated; global population therefore does
+not describe whether another snake is visible near the hero. This operational
+definition is superseded only for the initializer fidelity check.
+
+**Fixed geometry definition:** a living hero is locally open if **no cell owned
+by another living snake lies inside its actual local ego2s-bv8 raster crop**.
+The model's `EgoRasterConfig` fixes a 31 by 31 crop with the head at row 23,
+column 15. In head-relative grid coordinates this is the inclusive rectangle
+`-7 <= ahead <= 23` and `-15 <= right <= 15`, rotated with the hero's heading.
+Heads and body cells both count; the hero's own cells and walls do not count as
+other snakes. No radial or nearest-distance cutoff is fitted to observed counts.
+The implementation uses the featurizer's own offset table and owner grid.
+`crowded` remains the existing global alive-snake-count rule (`>= 5`), so the two
+strata may overlap. No efficacy endpoint, N, threshold, arm, training seed,
+checkpoint identity, gameplay gate, or serving behavior changes.
+
+The existing COMPLETE mass-audit receipt and its other fidelity strata are reused;
+the 480-episode mass audit is not rerun or rescored. Legacy stored `open` flags
+are not credited under A2 because they lack local geometry. Only newly collected
+observations carrying the A2 definition can witness locally open coverage.
+
+If required coverage is missing, collect at most **12 additional B8-only H5000
+terminal-hero episodes**, in fixed batches of three, one world per mix, using
+namespace `q0-b8-init-fidelity-fill/20261018/a2/v1`. Seeds and the unchanged
+historical opponent rosters are deterministic, separately audited on the Mac
+against the mass bank, Q1 bank, and historical strict/development inventories,
+and shipped as a hash-bound receipt to Colab. Stop after the first fixed batch
+that supplies all missing strata, regardless of worker count. Parallel workers
+use one CPU thread each; results merge in allocation order. Every candidate
+passes the same fail-closed action, wrapper and mask checks and the same
+CoverageReservoir. Retain at most 4,096 observations, including the established
+exact-tie fixture. No optimizer update or training occurs.
+
+The fill has a **900-second hard runtime cap**, within the unchanged aggregate
+unit/runtime budgets, and separate `additional_episodes`, candidate, trapped-row,
+seed, and partial-artifact accounting. Persist completed units and stream progress.
+Exhausted coverage or operational caps remain INCOMPLETE; any action, wrapper,
+mask, checkpoint, frozen-control or source disagreement fails closed. No second
+fill allocation or automatic retry is authorized by A2. COMPLETE still requires
+all prior B8/T23 initializer bindings, 4,096 retained observations, every required
+stratum, zero action disagreements and all fail-closed checks.
+
+This requested appendix changes the registration digest. Its pre-A2 SHA-256 was
+`36cf83450e84683e18dfa0a5ca74c7f734f5cc96a9798bcc4d9397b7e3df4d8a`.
+Old hash-bound A1 owner-admission packets stay immutable and cannot admit Q1
+against these new registration bytes. Q0b can proceed only after the new init
+receipt is COMPLETE; Q1 still needs its separately refreshed bound admission.
