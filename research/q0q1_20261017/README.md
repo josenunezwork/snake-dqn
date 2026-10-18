@@ -8,8 +8,10 @@ varied independently?
 The intended users are the study owner and an operator already familiar with the
 M3-C trainer, immutable queue manifests, and T23's terminal-hero evaluator.  Read
 [PREREGISTRATION.md](PREREGISTRATION.md) before creating, queuing, or interpreting
-an artifact. The owner approved `APPROVED_Q0Q1_20261017` and Amendment A1 on
-2026-10-18. The approved queue path still requires passing Q0 audits, both measured
+an artifact. The owner approved `APPROVED_Q0Q1_20261017` and the A1 envelope on
+2026-10-18. Claude made A2 as a planner amendment under the standing approval
+"everything approved for today dont ask me again"; the appended erratum corrects
+the earlier attribution of an explicit owner request. The approved queue path still requires passing Q0 audits, both measured
 Q0b packets, parity and a complete budget forecast. Implementation tests do not
 qualify a GPU or claim a scientific result. The older `jobs/` manifests remain
 draft historical examples; use `jobs_approved/` and the generator below.
@@ -18,7 +20,7 @@ draft historical examples; use `jobs_approved/` and the generator below.
 
 | Item | Purpose | Status |
 |---|---|---|
-| `PREREGISTRATION.md` | Frozen-before-data Q0/Q1 hypothesis, qualification gates, factorial, evaluation and decision rules | Owner approved, Amendment A1 |
+| `PREREGISTRATION.md` | Frozen-before-data Q0/Q1 hypothesis, qualification gates, factorial, evaluation and decision rules | A2 with attribution erratum; A1 envelope unchanged |
 | `q1_bank.py` | Creates Q1's five fresh 64/32/32 H5000 terminal-hero banks and their pre-data collision audit | Committed allocation/audit; no runtime or evaluation has run |
 | `q1_evaluate.py` | CPU shard evaluator for A--D and the one reusable B8 identity on the same registered bank | Implementation; development only |
 | `q1_parity.py` | Four-world Mac/Colab diagnostic parity comparison | Implementation; a passing probe would not be a strict gate |
@@ -93,177 +95,113 @@ Do not repair these by rerunning or silently changing the workload:
 For the complete outcome order, preservation rule, and deterministic selection
 tie-break, use [PREREGISTRATION.md](PREREGISTRATION.md#q1-analysis-and-ordered-decisions).
 
-## Approved operator sequence (2026-10-18)
+## Non-interactive Q1 operator sequence (2026-10-18)
 
-These commands are for the owner to run. Preparing this implementation does not
-enqueue work, restart a worker, access a Colab session or touch tmux. Keep at most
-three runtimes, initially two L4 learners and one CPU worker. Q1 remains an L4
-cohort; the A100 packet measures the registered comparison only.
+Q0 mass uses `q0/audit-t23-mass-a100r5/result.tar.gz`; Q0 init uses
+`q0/audit-b8-init-a100r6/result.tar.gz`. The init r6 audit is COMPLETE.
+The capacity attempts are `q0b-capacity-a100-20261018r6` and
+`q0b-capacity-l4-20261018r6`; wait for **both** packets to be QUALIFIED.
+The L4 runtime still needs the owner's Drive authorization click. Do not enqueue
+old r2/r3/r4/r5 replacements or rerun an audit already COMPLETE.
 
-From the Mac checkout, establish paths and create the source/bank-bound reference:
+The admission directory already holds the hash-bound `inventory-receipt.json`,
+`mac-parity-reference.json`, and `observed-pricing.json`. Keep them immutable.
+The inventory receipt SHA-256 is
+`2f9d74980fc8ed6a683deb52c4933eaf0516bdbcb3dea072d1b27d03ced542aa`.
+A2's admission is `OWNER_ADMISSION_20261018_A2.json`, bound to the complete
+registration including its append-only authorization erratum. The original A1
+admission remains unchanged and deliberately fails current-binding validation.
+Both the generator and runtime validate the latest registration amendment and
+its digest. A2 retains A1's 40-unit Q0 and 175-unit combined envelope, 20% reserve,
+and every other cap.
+
+Run this sequence from the clean published checkout after both packets qualify.
+It has no prompts. `q0_accounting` reads every Q0/Q0b claim and attempt receipt
+since the study date (including attempts after UTC midnight), including failed
+generations, and prints the charged seconds,
+hardware, price, and evidence behind each contribution. Pending jobs carry no
+attempt debit; active or unaccountable claims block final accounting. Setup,
+execution, copy/export and cleanup inside an attempt are included in its inclusive
+queue elapsed time. Missing terminal evidence is never silently treated as zero.
+The measured CPU overhead receipt records three real Mac runs of the empty
+evaluator shard, with staging, archive publication and cleanup; no selection
+world is scored. The budget uses three times the slowest Mac run for projected
+x86 work, plus the largest receipt-backed queue setup/prelude (an A100 proxy),
+plus the registered 60-second export/analysis/cleanup reserve. These forecast
+components are disclosed separately from direct measurements. Per-episode
+gameplay/parity cost still comes from the qualifying runtime receipt.
+The abandoned CPU claim is conservatively bounded by its worker's explicit idle
+heartbeat; mass r2 generation 0 is bounded by the operator's recorded verified
+runtime disconnection. Neither is presented as an exact terminal measurement.
+The current pricing file describes A100 5.3 units/hour as observed, L4 2.0 as an
+owner-supplied planning rate, and CPU 0.5 as a conservative estimate. Those
+provenance limits and all conservative bounds remain disclosed in the accounting
+artifact; rates in a file named "observed" do not become observations
+by virtue of that filename.
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-adv-league
+set -euo pipefail
+cd /Users/josenunez/Projects/ml/snake-dqn-q1-admission
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 DRIVE='/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/t16_colab'
+ADMISSION="$DRIVE/q0q1-20261017/admission"
+JOBS="$DRIVE/q0q1-20261017/q1/jobs_approved"
 export SNAKE_CKPT_DIR=/Users/josenunez/Projects/ml/snake-dqn/saved_snakes
 export SNAKE_DQN_DEVICE=cpu
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1
-ADMISSION="$DRIVE/q0q1-20261017/admission"
-"$PY" -m research.q0q1_20261017.make_q1_mac_parity_reference \
-  --b8 "$SNAKE_CKPT_DIR/b8_s3_t7_20261016.pth" \
-  --out "$ADMISSION/mac-parity-reference.json"
-```
+export VECLIB_MAXIMUM_THREADS=1
 
-Record actual observed debit rates. These are data inputs, not another owner
-approval. Never substitute zero for an unknown CPU price or treat a catalog
-projection as an observation. The following prompts produce the synchronized
-pricing input and SHA sidecars for it and the Mac reference:
+"$PY" -m research.q0q1_20261017.q0_accounting \
+  --drive-root "$DRIVE" \
+  --pricing "$ADMISSION/observed-pricing.json" \
+  --out "$ADMISSION/observed-q0-accounting.json"
 
-```bash
-printf 'Observed L4 units/hour: '; read -r L4_RATE
-printf 'Observed A100 units/hour: '; read -r A100_RATE
-printf 'Observed CPU units/hour: '; read -r CPU_RATE
-printf 'Observation source/date: '; read -r RATE_EVIDENCE
-"$PY" -m research.q0q1_20261017.prepare_q0b_inputs \
-  --l4-units-per-hour "$L4_RATE" --a100-units-per-hour "$A100_RATE" \
-  --cpu-units-per-hour "$CPU_RATE" --evidence "$RATE_EVIDENCE" \
-  --mac-reference "$ADMISSION/mac-parity-reference.json" \
-  --out "$ADMISSION/observed-pricing.json"
-```
-
-The historical strict inventories are Mac-only. Before enqueueing, create the
-hash-bound admission receipt with the full inventory audits on this Mac:
-
-```bash
-"$PY" -m research.q0q1_20261017.inventory_receipt \
-  --repo "$PWD" --artifacts /Users/josenunez/Projects/ml/snake-dqn-artifacts \
-  --out "$ADMISSION/inventory-receipt.json"
-```
-
-The approved jobs pin this receipt's SHA-256 in
-`Q0Q1_BANK_INVENTORY_RECEIPT_SHA256` and its Colab-visible path in
-`Q0Q1_BANK_INVENTORY_RECEIPT`. Missing files, changed bytes, changed audit sources,
-changed banks, or nonpassing audits fail closed. Q0's development audit uses the
-receipt in place of rescanning Mac-only files. Q1 admission checks the receipt's
-evaluation-world and training-seed exclusions alongside its committed bank audit.
-The existing Mac parity reference stays bound to the unchanged evaluator sources.
-Never replace a receipt already bound by an enqueued job; generate a new filename
-and new job IDs for a subsequent audit.
-
-The Mac execution on 2026-10-18 produced receipt SHA-256
-`2f9d74980fc8ed6a683deb52c4933eaf0516bdbcb3dea072d1b27d03ced542aa`.
-Q0 passed for 160 development worlds against 29,216 historical identities; Q1
-passed for 644 evaluation/parity worlds plus five training seeds. Both reported
-zero collisions and retained 23 mandatory evidence bindings. The approved JSONs
-pin these bytes and implementation commit `2ef0e3b8`. This records the Mac audit
-only; it does not establish Drive synchronization on a Colab worker or execution
-of any replacement job.
-
-After Drive has synchronized these files, enqueue the new mass audit, the
-fidelity audit, then both hardware packets. The previous init `r2` and capacity
-IDs were already enqueued; their replacement `r3` specs use new output directories.
-Dependencies hold the packets until the named audits complete, and
-scientific COMPLETE checks hold qualification/admission closed on a failed audit.
-
-```bash
-q() { "$PY" research/colab_queue/q.py --drive-root "$DRIVE" "$@"; }
-q enqueue research/q0q1_20261017/jobs_approved/q0-audit-t23-mass-a100r2.json
-q enqueue research/q0q1_20261017/jobs_approved/q0-audit-b8-init-a100r3.json
-q enqueue research/q0q1_20261017/jobs_approved/q0b-capacity-l4-20261018r3.json
-q enqueue research/q0q1_20261017/jobs_approved/q0b-capacity-a100-20261018r3.json
-```
-
-Each hardware packet has one attempt, four real learner cells, at least 120 seconds
-warm-up per cell after all actors/replay/compilation are ready, and two complete
-scored windows of at least 180 seconds each. Observed boundary delays are included
-in throughput denominators. The inclusive 60-minute cap conservatively counts
-queue arbitration and setup and leaves 60 seconds for export. Timeout, stale ring
-rows, drops, nonfinite updates, nonzero actor exits, parity failure or a missing
-measurement exports INCOMPLETE; it does not retry or shorten a window. CUDA B8
-inference is compared against the retained old pool; vector61 and v8 kernels
-remain on CPU as in the actual actor stack.
-
-The unchanged n-step builder omits the newest successorless decision at a
-registered segment boundary. That tail count is reported separately from
-operational replay/transport loss. Every Q0b endpoint must reconcile exactly:
-accepted decisions minus emitted rows equals registered truncation tails plus
-pending n-step rows. Operational dropped replay transitions and ring overruns
-must still be zero. This implements the registration's existing counter and
-segment semantics; it does not waive the no-loss guard.
-
-After both packet archives and their SHA sidecars have synchronized, record the
-actual complete Q0 debit (audits, packets, setup, failures, copies and cleanup)
-and measured per-evaluation-job CPU startup/copy/export overhead. Include any
-remaining analysis/cleanup allowance in that overhead. Values may be entered from
-the queue attempt receipts and runtime debit observations; hours for an unused
-allocation class may be zero, but the observed CPU price must be positive.
-
-```bash
-"$PY" - "$ADMISSION/observed-q0-accounting.json" <<'PY'
-import datetime, json, pathlib, sys
-path = pathlib.Path(sys.argv[1])
-if path.exists():
-    raise SystemExit(f'refusing to replace {path}')
-fields = {
-    'q0_units': 'Total observed Q0 units including failed attempts/setup/cleanup: ',
-    'q0_gpu_hours': 'Total observed Q0 GPU allocation hours: ',
-    'q0_cpu_hours': 'Total observed Q0 CPU allocation hours: ',
-    'cpu_unit_rate_per_hour': 'Observed CPU units/hour (same observation as packets): ',
-    'cpu_eval_job_overhead_seconds': 'Measured CPU overhead seconds per eval job, including reserves: ',
-}
-# /dev/tty remains interactive when Python source is supplied through stdin.
-value = {}
-with open('/dev/tty', 'r+') as tty:
-    for key, prompt in fields.items():
-        tty.write(prompt); tty.flush()
-        value[key] = float(tty.readline().strip())
-value['observed_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-with path.open('x') as stream:
-    json.dump(value, stream, sort_keys=True, indent=2)
-    stream.write('\n')
-PY
-```
-
-Generate the complete study packet with all evidence hashes. This checks both Q0
-scientific receipts, both four-cell qualification packets, identical measured
-sources/recipes, Mac/runtime parity, owner admission and the A1 forecast. It
-requires clean immutable HEAD. It writes one study plan, copied evidence and
-exactly 120 individual job JSONs; it never enqueues them. The output directory
-must be new.
-
-```bash
-JOBS="$DRIVE/q0q1-20261017/q1/jobs_approved"
 "$PY" -m research.q0q1_20261017.make_q1_jobs \
   --commit "$(git rev-parse HEAD)" \
   --inventory-receipt "$ADMISSION/inventory-receipt.json" \
-  --q0-mass-archive "$DRIVE/q0q1-20261017/q0/audit-t23-mass-a100r2/result.tar.gz" \
-  --q0-init-archive "$DRIVE/q0q1-20261017/q0/audit-b8-init-a100r3/result.tar.gz" \
-  --q0b-l4-receipt "$DRIVE/q0q1-20261017/q0b/capacity-l4-20261018r3/result.tar.gz" \
-  --q0b-a100-receipt "$DRIVE/q0q1-20261017/q0b/capacity-a100-20261018r3/result.tar.gz" \
+  --q0-mass-archive "$DRIVE/q0q1-20261017/q0/audit-t23-mass-a100r5/result.tar.gz" \
+  --q0-init-archive "$DRIVE/q0q1-20261017/q0/audit-b8-init-a100r6/result.tar.gz" \
+  --q0b-l4-receipt "$DRIVE/q0q1-20261017/q0b/capacity-l4-20261018r6/result.tar.gz" \
+  --q0b-a100-receipt "$DRIVE/q0q1-20261017/q0b/capacity-a100-20261018r6/result.tar.gz" \
   --mac-parity-reference "$ADMISSION/mac-parity-reference.json" \
   --q0-accounting "$ADMISSION/observed-q0-accounting.json" \
-  --q0b-l4-job-id q0b-capacity-l4-20261018r3 \
-  --q0b-a100-job-id q0b-capacity-a100-20261018r3 \
+  --q0b-l4-job-id q0b-capacity-l4-20261018r6 \
+  --q0b-a100-job-id q0b-capacity-a100-20261018r6 \
   --out-dir "$JOBS"
 ```
 
-Wait for the generated evidence and study plan to synchronize before enqueueing.
-Publish training, reusable B8 shards, then candidate shards in that order:
+Both tools refuse to overwrite existing outputs. The generator verifies both Q0
+COMPLETE receipts, both qualified four-cell packets, identical source/recipe
+bindings, inventory exclusions, Mac/runtime parity, current A2 owner admission,
+and the complete A1-envelope forecast. It writes exactly 20 training and 100
+evaluation manifests, copied evidence and the study plan. An INCOMPLETE packet,
+unaccountable attempt, failed parity, or over-cap forecast stops the sequence.
+Preserve such evidence; do not fill missing numbers, retry, replace seeds, change
+actors, or substitute a checkpoint to make admission pass.
+
+Wait for the generated evidence and study plan to synchronize to Drive before
+running this separate enqueue block. The sequence stops on the first error:
 
 ```bash
-for job in "$JOBS"/q1-train-*.json; do q enqueue "$job" || break; done
-for job in "$JOBS"/q1-eval-b8-*.json; do q enqueue "$job" || break; done
+q() { "$PY" research/colab_queue/q.py --drive-root "$DRIVE" "$@"; }
+for job in "$JOBS"/q1-train-*.json; do q enqueue "$job"; done
+for job in "$JOBS"/q1-eval-b8-*.json; do q enqueue "$job"; done
 for arm in a b c d; do
-  for job in "$JOBS"/q1-eval-"$arm"-*.json; do q enqueue "$job" || break; done
+  for job in "$JOBS"/q1-eval-"$arm"-*.json; do q enqueue "$job"; done
 done
 ```
 
-The generator does not fill missing measured values. An INCOMPLETE packet or an
-over-budget forecast blocks Q1. Preserve the attempt; do not requeue automatically,
-replace seeds, adjust one arm's actor count or substitute a checkpoint. A1 sets
-Q0 to 40 units and the combined envelope to 175 units, with 20% reserved (140
-usable); the 24 GPU-hour, 40 CPU-hour and Q1 60-unit training caps remain in force.
+Keep at most three runtimes, initially two qualified L4 learners and one CPU
+worker. Q1 remains one L4 cohort; A100 measures the registered comparison only.
+Each evaluation job uses one CPU thread per world, with parallelism across the
+100 immutable shards. A passing four-world parity probe is development evidence.
+No command here promotes a checkpoint or changes serving.
+
+**Budget evidence at this repair:** closed attempt receipts plus the two explicit
+closure bounds already charge approximately **63.59 units** before A100 r6 and
+L4 r6. This exceeds the unchanged **40-unit Q0 cap**. Qualification alone does
+not clear that cap. The commands above preserve that refusal; no budget change
+or dispatch is authorized by this tooling repair.
 
 ## Historical draft manifests and local verification
 

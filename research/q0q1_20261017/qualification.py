@@ -355,8 +355,8 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
     elif approved_a1:
         if plan.get("owner_release") != APPROVED_OWNER_RELEASE:
             errors.append("approved A1 plan must bind the exact owner release")
-        if plan.get("amendment") != A1_AMENDMENT:
-            errors.append("approved plan must bind Amendment A1")
+        if plan.get("amendment") not in {A1_AMENDMENT, "A2"}:
+            errors.append("approved plan must bind Amendment A1 or A2 (unchanged A1 envelope)")
         if plan.get("dispatch") is not True:
             errors.append("approved A1 admission must explicitly authorize dispatch")
         envelope = _mapping(plan.get("a1_envelope"), "a1_envelope", errors)

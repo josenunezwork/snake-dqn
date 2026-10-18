@@ -446,3 +446,13 @@ This requested appendix changes the registration digest. Its pre-A2 SHA-256 was
 Old hash-bound A1 owner-admission packets stay immutable and cannot admit Q1
 against these new registration bytes. Q0b can proceed only after the new init
 receipt is COMPLETE; Q1 still needs its separately refreshed bound admission.
+
+## Erratum to Amendment A2 - authorization attribution (2026-10-18)
+
+The A2 "Owner authorization" paragraph and its later "requested appendix"
+wording incorrectly attribute an explicit amendment request to the owner.
+Claude, the planner, made A2 on its own judgment under the owner's standing
+approval in chat on 2026-10-18: "everything approved for today dont ask me again".
+The owner did not explicitly request A2 in that chat task. This erratum corrects
+only the authorization attribution; every other A2 provision and the A1 envelope
+and caps remain unchanged. All pre-erratum bytes above are preserved.

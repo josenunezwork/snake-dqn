@@ -1,0 +1,17 @@
+{
+  "amendment": "A2",
+  "authorization_source": "Owner standing approval in chat on 2026-10-18: \"everything approved for today dont ask me again\". Claude, the planner, made Amendment A2 on its own judgment under that standing approval; the owner did not explicitly request A2. The authorization attribution is corrected by the appended A2 erratum; the A1 envelope and caps remain unchanged.",
+  "authorized_at": "2026-10-18",
+  "binding_requirements": {
+    "q0b_a100_receipt": "required qualified, hash-bound receipt",
+    "q0b_l4_receipt": "required qualified, hash-bound receipt",
+    "runtime_parity_receipt": "required passing, hash-bound receipt",
+    "study_plan": "required A1-envelope, hash-bound forecast"
+  },
+  "owner_release": "APPROVED_Q0Q1_20261017",
+  "q1_dispatch_is_conditional_on": "Q0 receipts, both qualified Q0b packets, bound Mac and runtime parity, and an A1-envelope forecast",
+  "registration_path": "research/q0q1_20261017/PREREGISTRATION.md",
+  "registration_sha256": "efbdd47c2b365ccd5f5d8a6c3086f4352ed65215957a94378cf452cce0e70aa1",
+  "schema": "q0q1-owner-admission/v1",
+  "status": "OWNER_ADMITTED"
+}

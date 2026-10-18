@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
-from research.q0q1_20261017 import q1_bank
+from research.q0q1_20261017 import owner_admission, q1_bank
 from research.q0q1_20261017.queue_jobs import REGISTRATION_STATUS
 
 
@@ -158,18 +158,14 @@ def admission_checks(env: Mapping[str, str]) -> None:
             env["Q0Q1_PARITY_OWNER_ADMISSION_SHA256"],
             required_status="OWNER_ADMITTED",
         )
-        if (
-            owner.get("schema") != "q0q1-owner-admission/v1"
-            or owner.get("owner_release") != "APPROVED_Q0Q1_20261017"
-            or owner.get("amendment") != "A1"
-            or owner.get("registration_sha256")
-            != sha256_file(Path("research/q0q1_20261017/PREREGISTRATION.md"))
-        ):
-            raise RuntimeError("owner admission does not bind the approved A1 registration")
+        owner_admission.validate(owner)
         packet = _bound_json_bytes(env["Q0Q1_Q0B_L4_RECEIPT"], env["Q0Q1_Q0B_L4_RECEIPT_SHA256"])
         a100 = _bound_json_bytes(env["Q0Q1_Q0B_A100_RECEIPT"], env["Q0Q1_Q0B_A100_RECEIPT_SHA256"])
         plan = _bound_json_bytes(env["Q0Q1_STUDY_PLAN"], env["Q0Q1_STUDY_PLAN_SHA256"])
         from research.q0q1_20261017.qualification import validate_admission, validate_packet
+
+        if plan.get("amendment") != owner["amendment"]:
+            raise RuntimeError("study plan does not bind the current owner-admitted amendment")
 
         admission = validate_admission(packet, plan)
         if admission.get("status") != "ADMITTED_FOR_DISPATCH" or packet.get("hardware") != "L4":

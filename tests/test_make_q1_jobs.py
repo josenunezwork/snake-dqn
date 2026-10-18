@@ -34,7 +34,7 @@ def test_study_plan_requires_observed_nonzero_cpu_debit_and_matches_packets() ->
     }
     plan = subject._study_plan(l4, a100, accounting)
     assert plan["owner_release"] == subject.OWNER_RELEASE
-    assert plan["amendment"] == "A1"
+    assert plan["amendment"] == "A2"
     assert plan["a1_envelope"] == {
         "q0_units_cap": 40.0,
         "combined_units_cap": 175.0,
@@ -49,18 +49,15 @@ def test_study_plan_requires_observed_nonzero_cpu_debit_and_matches_packets() ->
 
 
 def _current_test_owner(tmp_path: Path) -> Path:
-    """Bind test evidence without mutating the now-stale production A1 packet."""
-    value = json.loads(Path("research/q0q1_20261017/OWNER_ADMISSION_20261018.json").read_text())
-    value["registration_sha256"] = subject.sha256_file(
-        Path("research/q0q1_20261017/PREREGISTRATION.md")
-    )
+    """Copy the production A2 admission without repairing its binding in tests."""
     path = tmp_path / "test-owner-admission.json"
-    path.write_text(json.dumps(value, sort_keys=True) + "\n")
+    path.write_bytes(subject.owner_admission.DEFAULT_ADMISSION.read_bytes())
     return path
 
 
 def test_owner_admission_binds_current_registration_bytes(tmp_path) -> None:
     admission = subject._validate_owner_admission(_current_test_owner(tmp_path))
+    assert admission["amendment"] == "A2"
     assert admission["status"] == "OWNER_ADMITTED"
     assert admission["owner_release"] == subject.OWNER_RELEASE
 
@@ -169,3 +166,24 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
         jobs[0]["env"]["Q0Q1_STUDY_PLAN_SHA256"]
         == hashlib.sha256(subject.pretty_json(plan)).hexdigest()
     )
+
+
+@pytest.mark.parametrize("field,value", [("amendment", "A1"), ("registration_sha256", "0" * 64)])
+def test_current_digest_does_not_rescue_stale_amendment(tmp_path, field, value):
+    path = _current_test_owner(tmp_path)
+    admission = json.loads(path.read_text())
+    admission[field] = value
+    path.write_text(json.dumps(admission))
+    with pytest.raises(ValueError, match="does not bind"):
+        subject._validate_owner_admission(path)
+
+
+def test_new_registration_amendment_invalidates_old_admission(tmp_path):
+    registration = tmp_path / "registration.md"
+    registration.write_bytes(subject.owner_admission.REGISTRATION.read_bytes())
+    with registration.open("a") as stream:
+        stream.write("\n## Amendment A3 - test only\n")
+    admission = json.loads(subject.owner_admission.DEFAULT_ADMISSION.read_text())
+    admission["registration_sha256"] = subject.sha256_file(registration)
+    with pytest.raises(ValueError, match="approved A3"):
+        subject.owner_admission.validate(admission, registration)

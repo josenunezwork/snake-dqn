@@ -91,11 +91,11 @@ def _config_bindings(packet: dict, tmp_path: Path) -> None:
 def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
     drive = tmp_path / "drive"
     mass = _write_archive(
-        drive / "q0q1-20261017/q0/audit-t23-mass-a100r2",
+        drive / "q0q1-20261017/q0/audit-t23-mass-a100r5",
         {"schema": "q0-t23-mass-audit/v1", "status": "COMPLETE"},
     )
     init = _write_archive(
-        drive / "q0q1-20261017/q0/audit-b8-init-a100r3",
+        drive / "q0q1-20261017/q0/audit-b8-init-a100r6",
         {"schema": "q0-b8-init-fidelity/v1", "status": "COMPLETE"},
     )
 
@@ -163,15 +163,8 @@ def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
             }
         )
     )
-    # A2 appends to the registration. The immutable production A1 admission
-    # deliberately becomes stale; bind a test-only copy to the current bytes.
-    original_owner = Path("research/q0q1_20261017/OWNER_ADMISSION_20261018.json").resolve()
-    owner_value = json.loads(original_owner.read_text())
-    owner_value["registration_sha256"] = run_queue_job.sha256_file(
-        Path("research/q0q1_20261017/PREREGISTRATION.md")
-    )
-    owner = tmp_path / "test-owner-admission.json"
-    owner.write_text(json.dumps(owner_value, sort_keys=True) + "\n")
+    # Use the immutable production A2 admission, including its real binding.
+    owner = generator.owner_admission.DEFAULT_ADMISSION.resolve()
     # Retain the real producer/consumer binding logic while substituting only
     # the Mac-only inventory scans with passing synthetic audit outcomes.
     q0_bank = inventory_receipt.audit_q0_bank.build_world_bank()
@@ -224,8 +217,6 @@ def _cli_args(evidence: dict[str, Path | dict], out: Path, drive_output_dir: Pat
         str(evidence["inventory"]),
         "--q0-accounting",
         str(evidence["accounting"]),
-        "--owner-admission",
-        str(evidence["owner"]),
         "--q0b-l4-job-id",
         "q0b-measure-l4",
         "--q0b-a100-job-id",
@@ -299,7 +290,20 @@ def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, 
         run_queue_job.admission_checks(env)
 
 
-@pytest.mark.parametrize("mutation", ["study-plan", "mac", "source", "packet", "q0", "inventory"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "study-plan",
+        "mac",
+        "source",
+        "packet",
+        "q0",
+        "inventory",
+        "owner",
+        "amendment",
+        "plan-amendment",
+    ],
+)
 def test_admission_rejects_mutated_bound_evidence(monkeypatch, tmp_path, mutation):
     evidence = _evidence(tmp_path)
     out = tmp_path / "jobs"
@@ -315,16 +319,29 @@ def test_admission_rejects_mutated_bound_evidence(monkeypatch, tmp_path, mutatio
     env = _job_env(train_path, evidence["drive"])
 
     targets = {
+        "owner": Path(env["Q0Q1_PARITY_OWNER_ADMISSION"]),
+        "amendment": Path(env["Q0Q1_PARITY_OWNER_ADMISSION"]),
+        "plan-amendment": Path(env["Q0Q1_STUDY_PLAN"]),
         "inventory": Path(env["Q0Q1_BANK_INVENTORY_RECEIPT"]),
         "study-plan": Path(env["Q0Q1_STUDY_PLAN"]),
         "mac": Path(env["Q1_MAC_PARITY_REFERENCE"]),
         "source": Path(env["Q0Q1_Q0B_L4_RECEIPT"]),
         "packet": Path(env["Q0Q1_Q0B_L4_RECEIPT"]),
-        "q0": evidence["drive"] / "q0q1-20261017/q0/audit-t23-mass-a100r2/result.tar.gz",
+        "q0": evidence["drive"] / "q0q1-20261017/q0/audit-t23-mass-a100r5/result.tar.gz",
     }
     target = targets[mutation]
     if mutation == "q0":
         target.write_bytes(b"changed archive")
+    elif mutation == "plan-amendment":
+        plan = json.loads(target.read_text())
+        plan["amendment"] = "A1"
+        target.write_text(json.dumps(plan))
+        env["Q0Q1_STUDY_PLAN_SHA256"] = _sha(target)
+    elif mutation == "amendment":
+        owner = json.loads(target.read_text())
+        owner["amendment"] = "A1"
+        target.write_text(json.dumps(owner))
+        env["Q0Q1_PARITY_OWNER_ADMISSION_SHA256"] = _sha(target)
     elif mutation == "source":
         source_packet = json.loads(target.read_text())
         source_packet["source"]["train_m3c"] = "0" * 64

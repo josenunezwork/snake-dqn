@@ -19,17 +19,24 @@ import tempfile
 from pathlib import Path
 from typing import Any, Mapping
 
-from research.q0q1_20261017 import inventory_receipt, q1_bank, q1_evaluate, q1_parity, queue_jobs
+from research.q0q1_20261017 import (
+    inventory_receipt,
+    owner_admission,
+    q1_bank,
+    q1_evaluate,
+    q1_parity,
+    queue_jobs,
+)
 from research.q0q1_20261017.qualification import PACKET_SCHEMA, validate_packet
 
 OWNER_RELEASE = "APPROVED_Q0Q1_20261017"
-AMENDMENT = "A1"
+AMENDMENT = "A2"
 OWNER_ADMISSION_SCHEMA = "q0q1-owner-admission/v1"
 DRIVE_ROOT = "/content/drive/MyDrive/t16_colab"
-Q0_MASS_JOB_ID = "q0-audit-t23-mass-a100r2"
-Q0_INIT_JOB_ID = "q0-audit-b8-init-a100r3"
-Q0_MASS_ARCHIVE_DIR = "q0q1-20261017/q0/audit-t23-mass-a100r2"
-Q0_INIT_ARCHIVE_DIR = "q0q1-20261017/q0/audit-b8-init-a100r3"
+Q0_MASS_JOB_ID = "q0-audit-t23-mass-a100r5"
+Q0_INIT_JOB_ID = "q0-audit-b8-init-a100r6"
+Q0_MASS_ARCHIVE_DIR = "q0q1-20261017/q0/audit-t23-mass-a100r5"
+Q0_INIT_ARCHIVE_DIR = "q0q1-20261017/q0/audit-b8-init-a100r6"
 
 
 def canonical(value: Any) -> str:
@@ -121,17 +128,7 @@ def _validate_runtime_receipt(path: Path) -> dict[str, Any]:
 
 def _validate_owner_admission(path: Path) -> dict[str, Any]:
     admission = _json_object(path, "owner admission")
-    registration = Path(__file__).with_name("PREREGISTRATION.md")
-    required = {
-        "schema": OWNER_ADMISSION_SCHEMA,
-        "status": "OWNER_ADMITTED",
-        "owner_release": OWNER_RELEASE,
-        "amendment": AMENDMENT,
-        "registration_path": "research/q0q1_20261017/PREREGISTRATION.md",
-        "registration_sha256": sha256_file(registration),
-    }
-    if any(admission.get(name) != value for name, value in required.items()):
-        raise ValueError("owner admission does not bind the approved A1 registration")
+    owner_admission.validate(admission)
     return admission
 
 
@@ -423,7 +420,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--owner-admission",
         type=Path,
-        default=Path(__file__).with_name("OWNER_ADMISSION_20261018.json"),
+        default=owner_admission.DEFAULT_ADMISSION,
     )
     parser.add_argument("--q0b-l4-job-id", required=True)
     parser.add_argument("--q0b-a100-job-id", required=True)
@@ -467,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
     inventory = _stage_evidence(args.inventory_receipt, evidence / "inventory-receipt.json")
     mac = _stage_evidence(args.mac_parity_reference, evidence / "mac-parity-reference.json")
     owner = _stage_evidence(args.owner_admission, evidence / "owner-admission.json")
+    accounting = _stage_evidence(args.q0_accounting, evidence / "observed-q0-accounting.json")
     jobs, plan = make_jobs(
         commit=args.commit,
         l4_receipt_path=l4,
@@ -474,7 +472,7 @@ def main(argv: list[str] | None = None) -> int:
         runtime_receipt_path=runtime,
         mac_reference_path=mac,
         owner_admission_path=owner,
-        q0_accounting_path=args.q0_accounting,
+        q0_accounting_path=accounting,
         inventory_receipt_path=inventory,
         q0b_l4_job_id=args.q0b_l4_job_id,
         q0b_a100_job_id=args.q0b_a100_job_id,
