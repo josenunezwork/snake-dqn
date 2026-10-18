@@ -89,15 +89,28 @@ def run(
     worlds = shard_worlds(q1_bank.worlds_for_seed(bank, seed), index, count)
     context = t23._context(max(1, workers))
     profile = str(context["profile"].digest)
+    if bank["profile"].get("base_profile_digest") != profile:
+        raise ValueError("Q1 bank profile differs from active evaluation profile")
+    audit_path = bank_path.with_name("Q1_SEED_AUDIT.json")
+    audit = json.loads(audit_path.read_text())
+    if (
+        audit.get("pass") is not True
+        or audit.get("world_bank_semantic_sha256") != bank["allocation_semantic_sha256"]
+        or audit.get("world_bank_file", {}).get("sha256") != sha256(bank_path)
+    ):
+        raise ValueError("Q1 collision audit is missing or does not bind the supplied bank")
     q1_bank_digest = hashlib.sha256(canonical(bank).encode()).hexdigest()
     checkpoint_sha = sha256(checkpoint)
-    if arm == "B8" and checkpoint_sha != sha256(b8):
+    b8_sha = sha256(b8)
+    if b8_sha != B8_SHA256:
+        raise ValueError("B8 checkpoint does not match the released B8 SHA")
+    if arm == "B8" and checkpoint_sha != b8_sha:
         raise ValueError("B8 identity must use the pinned B8 checkpoint bytes")
     identity = {
         "training_seed": seed,
         "arm": arm,
         "checkpoint_sha256": checkpoint_sha,
-        "b8_sha256": sha256(b8),
+        "b8_sha256": b8_sha,
         "endpoint": 8_000_000,
         "shard": index,
         "shards": count,

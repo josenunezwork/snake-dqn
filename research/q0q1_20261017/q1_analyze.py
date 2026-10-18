@@ -88,15 +88,21 @@ def _decision(
         + (["scripted per-seed alive"] if min_scripted_seed < -0.15 else [])
         + [m + " no-death" for m in MIX_COUNTS if nodeath[m] < 0.5]
     )
+    preserve = not guards and float(g["lower90"]) > -10 and scripted >= -10
     if tripwire:
         return "KILL", ["training tripwire"], False
     if guards or float(g["upper90"]) <= 0:
-        return "KILL", guards + (["upper90(G) <= 0"] if float(g["upper90"]) <= 0 else []), False
-    go = float(g["lower90"]) > 0 and float(g["mean"]) >= 20 and scripted >= 0
+        return "KILL", guards + (["upper90(G) <= 0"] if float(g["upper90"]) <= 0 else []), preserve
+    go = (
+        float(g["lower90"]) > 0
+        and float(g["mean"]) >= 20
+        and scripted >= 0
+        and sum(value > 0 for value in g.get("seed_effects", [])) >= 4
+    )
     return (
         ("GO" if go else "INCONCLUSIVE"),
         [],
-        not guards and float(g["lower90"]) > -10 and scripted >= -10,
+        preserve,
     )
 
 
@@ -190,6 +196,7 @@ def analyze(manifest: dict[str, Any], bootstrap_draws: int = 2000) -> dict[str, 
             s: mean(mean(effects[arm][s][m]) for m in MIX_COUNTS) for s in q1_bank.TRAINING_SEEDS
         }
         g = t90(list(seedg.values()))
+        g["seed_effects"] = list(seedg.values())
         av = {m: mean(alive[arm][m]) for m in MIX_COUNTS}
         nd = {m: mean(death[arm][m]) for m in MIX_COUNTS}
         verdict, reasons, preserve = _decision(
@@ -197,7 +204,20 @@ def analyze(manifest: dict[str, Any], bootstrap_draws: int = 2000) -> dict[str, 
             mix_mass["scripted"],
             av,
             nd,
-            min(mean(effects[arm][s]["scripted"]) for s in q1_bank.TRAINING_SEEDS),
+            min(
+                mean(
+                    [
+                        value
+                        for (s0, mix, _), identities in by.items()
+                        if s0 == s and mix == "scripted"
+                        for value in [
+                            float(identities[arm]["alive_frame_fraction"])
+                            - float(identities[B8]["alive_frame_fraction"])
+                        ]
+                    ]
+                )
+                for s in q1_bank.TRAINING_SEEDS
+            ),
             bool(trip.get(arm)),
         )
         arms[arm] = {
@@ -224,14 +244,13 @@ def analyze(manifest: dict[str, Any], bootstrap_draws: int = 2000) -> dict[str, 
             ("D-B", "B", "D"),
         )
     }
-    contrasts["interaction"] = {
-        k: (
-            contrasts["D-C"][k] - contrasts["B-A"][k]
-            if isinstance(contrasts["D-C"][k], float)
-            else contrasts["D-C"][k]
-        )
-        for k in contrasts["D-C"]
-    }
+    contrasts["interaction"] = t90(
+        [
+            (arms["D"]["seed_effects"][s] - arms["C"]["seed_effects"][s])
+            - (arms["B"]["seed_effects"][s] - arms["A"]["seed_effects"][s])
+            for s in q1_bank.TRAINING_SEEDS
+        ]
+    )
     eligible = [a for a in ARMS if arms[a]["verdict"] == "GO"]
     purpose = (
         "GO_TO_MAC_PHASE_R"
