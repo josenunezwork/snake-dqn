@@ -69,6 +69,7 @@ def _job(
     output_dir: str,
     env: dict[str, str],
     priority: int,
+    timeout_minutes: int | None = None,
 ) -> dict[str, Any]:
     return {
         "id": job_id,
@@ -86,7 +87,7 @@ def _job(
         "depends_on": list(depends_on),
         "output_dir": output_dir,
         "priority": priority,
-        "timeout_minutes": est_minutes * 2,
+        "timeout_minutes": timeout_minutes if timeout_minutes is not None else est_minutes * 2,
     }
 
 
@@ -125,7 +126,7 @@ def build_jobs(commit: str, bindings: Bindings, *, eval_shards: int = 4) -> list
             train_ids[arm, seed] = job_id
             jobs.append(_job(
                 job_id=job_id, commit=commit, kind="q1_train", gpu="L4", min_vcpu=12,
-                est_minutes=180, depends_on=q0_dependencies,
+                est_minutes=90, timeout_minutes=90, depends_on=q0_dependencies,
                 output_dir=f"q0q1-20261017/q1/training/arm-{arm}/seed-{seed}", priority=90,
                 env={"Q1_ARM": arm, "Q1_SEED": str(seed), "Q1_TRANSITIONS": "8000000", **common},
             ))
@@ -172,7 +173,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--parity-owner-admission")
     parser.add_argument("--parity-owner-admission-sha256")
     parser.add_argument("--eval-shards", type=int, default=4)
-    parser.add_argument("--out", type=Path, help="optional one JSON array; never enqueues")
+    parser.add_argument("--out", type=Path, help="optional one JSON-array review artifact; never enqueues")
+    parser.add_argument("--out-dir", type=Path, help="write one queue-ready object per job ID; never enqueues")
     args = parser.parse_args(argv)
     jobs = build_jobs(args.commit, Bindings(args.q0b_l4_receipt or "", args.q0b_l4_receipt_sha256 or "",
                                            args.study_plan or "", args.study_plan_sha256 or "",
@@ -181,8 +183,17 @@ def main(argv: list[str] | None = None) -> int:
                                            args.parity_owner_admission or "", args.parity_owner_admission_sha256 or ""),
                       eval_shards=args.eval_shards)
     text = json.dumps(jobs, indent=2, sort_keys=True) + "\n"
+    if args.out and args.out_dir:
+        parser.error("--out and --out-dir are mutually exclusive")
     if args.out:
         args.out.write_text(text)
+    elif args.out_dir:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        for job in jobs:
+            target = args.out_dir / f"{job['id']}.json"
+            if target.exists():
+                raise SystemExit(f"refusing to replace existing draft job: {target}")
+            target.write_text(json.dumps(job, indent=2, sort_keys=True) + "\n")
     else:
         print(text, end="")
     return 0

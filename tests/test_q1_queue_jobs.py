@@ -1,6 +1,8 @@
 """Queue graph and hard-admission contracts for the Q0/Q1 registration."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from research.q0q1_20261017 import queue_jobs as q
@@ -31,6 +33,7 @@ def test_q1_graph_uses_final_pin_shared_b8_and_all_required_dependencies():
     assert set(candidate["depends_on"]) == {"q0-audit-t23-mass", "q0-audit-b8-init", "q1-train-d-261701", b8["id"]}
     assert candidate["env"]["Q0Q1_PARITY_OWNER_ADMISSION"] == BINDS.parity_owner_admission
     assert all(job["requirements"]["gpu"] == "L4" for job in jobs if job["id"].startswith("q1-train"))
+    assert {job["timeout_minutes"] for job in jobs if job["id"].startswith("q1-train")} == {90}
 
 
 def test_generator_rejects_placeholder_or_unbound_evidence():
@@ -45,6 +48,14 @@ def test_draft_graph_can_be_materialized_without_future_evidence_pins():
     assert len(jobs) == 122
     assert "Q0Q1_Q0B_L4_RECEIPT" not in jobs[2]["env"]
     assert jobs[2]["env"]["Q0Q1_REGISTRATION_STATUS"] == q.REGISTRATION_STATUS
+
+
+def test_out_dir_writes_one_queue_schema_object_per_job(tmp_path):
+    assert q.main(["--commit", PIN, "--out-dir", str(tmp_path)]) == 0
+    paths = sorted(tmp_path.glob("*.json"))
+    assert len(paths) == 122
+    value = json.loads(paths[0].read_text())
+    assert isinstance(value, dict) and value["id"] == paths[0].stem
 
 
 def test_train_command_pins_the_registered_t23_control_and_q1_treatments(tmp_path):
@@ -62,7 +73,7 @@ def test_train_command_pins_the_registered_t23_control_and_q1_treatments(tmp_pat
     assert "--onpolicy-labels" in command and "--learner-fast" in command
     from research.redesign_m3c_20261008 import train_m3c
     parsed = train_m3c.build_parser().parse_args(command[3:])
-    assert parsed.max_wall_seconds == 7200
+    assert parsed.max_wall_seconds == 5100
     assert parsed.namespace == q.q1_bank.training_namespace("D")
 
 

@@ -193,7 +193,7 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
         return [py, "-m", "research.redesign_m3c_20261008.train_m3c", "--seed", env["Q1_SEED"],
                 "--init", str(inputs / "init/B8_s3_final.pth"), "--demo-data", str(inputs / "demo"),
                 "--out", str(local_root / "run"), "--transitions", env["Q1_TRANSITIONS"], "--device", "cuda",
-                "--max-wall-seconds", "7200",
+                "--max-wall-seconds", "5100",
                 "--actor-device", "cuda", "--worlds", "128", "--actors", actors,
                 "--checkpoint-every", "500000", "--reward", "mass", "--mass-kappa", "1.0",
                 "--kill-scale", "0", "--gamma-end", "0.998", "--gamma-anneal-end", "8000000",
