@@ -1,0 +1,54 @@
+{
+  "b8_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "bank_digest": "88e63bd932c797b315ff3b6b5dcd6d69e02294d33e5ab77a7944c9a124b76ac7",
+  "note": "Legacy retained reservoir is compared with merged retained reservoir; complete candidate streams are compared only between new serial and parallel paths.",
+  "original_serial_excluded_trapped": 1,
+  "original_serial_vs_worker_serial_reservoir_rows": true,
+  "original_serial_vs_worker_serial_rows": [
+    true,
+    true,
+    true
+  ],
+  "parallel_candidates_sha256": "7cf246ed7bf0888d8e37d0a883b614b4d9078f5cabdfb294b5e6fed2cf67b67e",
+  "parallel_excluded_trapped": 1,
+  "parallel_rows_sha256": "9c64bd27b40e920b5a17aaf2cd807fa509b3f2d02b40f3ad29fc6eba9f549cbf",
+  "partial_episode_files": [
+    "episode-0000.json",
+    "episode-0001.json",
+    "episode-0002.json"
+  ],
+  "partial_manifest": "/tmp/q0_worker_parity_seed7101_rerun3/partials/manifest.json",
+  "partial_manifest_sha256": "bef7b198c3d71effdb9f9e37769b1e603db4a30aec239b729143afc625372ce3",
+  "reservoir_rows_equal": true,
+  "reservoir_rows_sha256": "6462f136e5a7b0388169fc72b89a654ee43e765c8c7c528b270ac8e221e49f84",
+  "schema": "q0-worker-parity/v1",
+  "scope": "Three actual B8 H5000 worlds on this Mac; original serial vs worker serial vs 2 spawned workers. Not cross-host or CUDA qualification.",
+  "source_evidence_sha256": "b3a4eb006c511257b286346e7ac272f9fbbae4211307ec2e118baf9ea4a3ac36",
+  "status": "PASS",
+  "worker_serial_candidates_sha256": "7cf246ed7bf0888d8e37d0a883b614b4d9078f5cabdfb294b5e6fed2cf67b67e",
+  "worker_serial_excluded_trapped": 1,
+  "worker_serial_rows_sha256": "9c64bd27b40e920b5a17aaf2cd807fa509b3f2d02b40f3ad29fc6eba9f549cbf",
+  "worker_serial_vs_parallel_candidate_stream": true,
+  "worker_serial_vs_parallel_rows": [
+    true,
+    true,
+    true
+  ],
+  "worlds": [
+    {
+      "mix": "scripted",
+      "world_seed": 3531715465,
+      "world_semantic_sha256": "28f6cc96c7806a23979743209a8b1565c59ae280b9441d0baa8bae8bd89e2608"
+    },
+    {
+      "mix": "frozen",
+      "world_seed": 3214373914,
+      "world_semantic_sha256": "977e30fd46a21ca05f78ff234ba57d6ac98b103b8c14abc2002db92d7456d582"
+    },
+    {
+      "mix": "mixed",
+      "world_seed": 808428031,
+      "world_semantic_sha256": "3026f049c2e453069515799c5b3f0d04ff4d4da0432666eb3aca35b15ac6be20"
+    }
+  ]
+}

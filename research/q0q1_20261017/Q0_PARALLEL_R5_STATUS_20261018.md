@@ -48,7 +48,7 @@ manifests do not preselect a resume source because the timed-out r4 code wrote n
 
 ## Mac measurements and queue budgets
 
-[MAC_MASS_TIMING_20261018.json](MAC_MASS_TIMING_20261018.json) records three actual
+[Mac timing evidence](../../docs/research/q0_mass_mac_timing_20261018.json) records three actual
 H5000 B8 episodes on the 18-logical-CPU arm64 Mac, Python 3.12.3 / Torch 2.9.1,
 with all numerical thread limits set to one. The fresh-bank collision audit and
 released B8 checksum passed. Context initialization took 0.0243 seconds.
@@ -94,3 +94,20 @@ changed manifests/shards/tasks/plans/input bindings, fresh destinations, parent 
 guards, and live progress during a long serial world. Queue and Q0b tests cover
 argument wiring, strict fresh-output admission and preserved captured subprocess
 bytes. The full relevant Q0/Q1/queue suite is run before publication.
+
+The engineering timing JSON lives under `docs/research/`: the historical collision
+scanner treats numeric world IDs in `research/**/*.json` as prior study receipts.
+Keeping descriptive timing evidence with documentation preserves the existing
+scanner and avoids misclassifying this same-bank local check as a foreign study.
+The full Mac collision audit is rechecked after recording this evidence.
+
+A separate [real-world parity record](../../docs/research/q0_mass_worker_parity_20261018.json)
+compares the old serial closure, new serial worker and two spawned workers on the
+three measured H5000 worlds: all episode rows match, the old and merged retained
+reservoirs match, the new serial/pool candidate streams match, and all paths count
+one excluded trapped state. Canonical scientific row SHA-256 is
+`9c64bd27b40e920b5a17aaf2cd807fa509b3f2d02b40f3ad29fc6eba9f549cbf`.
+The full Mac Q0 collision audit passes after evidence recording: 160 candidate
+worlds, zero collisions, 29,216 registered historical identities. The final relevant
+Q0/Q1/queue suite passed **213 tests**; Black, isort, flake8 and diff checks passed.
+No CUDA/cloud qualification or full 480-episode scientific packet was run.
