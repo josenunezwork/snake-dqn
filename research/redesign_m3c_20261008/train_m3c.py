@@ -4873,6 +4873,7 @@ def main_multi(args) -> int:
         # decisions, and records bounded actor-message overshoot explicitly.
         "emitted_replay_rows": st["replay_rows"],
         "learner_decisions_accounted": st["decisions"],
+        "pending_update_debt": int(st["since_update"]),
         "decision_replay_delta": int(st["decisions"] - st["replay_rows"]),
         "transition_budget_overshoot": max(0, int(st["transitions"] - args.transitions)),
         "task_collection": (
