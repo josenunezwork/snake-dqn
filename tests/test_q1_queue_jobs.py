@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import json
+import tarfile
 
 import pytest
 
@@ -141,3 +143,55 @@ def test_current_worker_log_is_allowed_but_prior_results_are_refused(tmp_path):
     (tmp_path / "result.tar.gz").write_bytes(b"prior attempt")
     with pytest.raises(RuntimeError, match="prior or foreign"):
         runner.validate_output_directory(tmp_path, env)
+
+
+def _audit_archive(directory, schema="q0-t23-mass-audit/v1", status="COMPLETE"):
+    directory.mkdir(parents=True)
+    archive = directory / "result.tar.gz"
+    raw = json.dumps({"schema": schema, "status": status, "observations": [1]}).encode()
+    with tarfile.open(archive, "w:gz") as tar:
+        member = tarfile.TarInfo("attempt/receipt.json")
+        member.size = len(raw)
+        tar.addfile(member, io.BytesIO(raw))
+    archive.with_name("result.tar.gz.sha256").write_text(runner.sha256_file(archive))
+    return archive
+
+
+@pytest.mark.parametrize("configured", [None, "q0q1-20261017/q0/audit-t23-mass-a100r", "absolute"])
+def test_mass_receipt_staging_uses_verified_configured_archive(tmp_path, configured):
+    drive, local = tmp_path / "drive", tmp_path / "local"
+    local.mkdir()
+    relative = configured or "q0q1-20261017/q0/audit-t23-mass"
+    directory = drive / relative
+    _audit_archive(directory)
+    env = {"QUEUE_DRIVE_ROOT": str(drive)}
+    if configured:
+        env["Q0Q1_MASS_ARCHIVE_DIR"] = str(directory) if configured == "absolute" else configured
+    staged = runner.stage_q0_mass_receipt(env, local)
+    assert json.loads(staged.read_text())["observations"] == [1]
+    # A changed dependency cannot be staged even when a receipt was already written.
+    (directory / "result.tar.gz").write_bytes(b"corrupt")
+    with pytest.raises(RuntimeError, match="digest mismatch"):
+        runner.stage_q0_mass_receipt(env, local)
+
+
+def test_mass_receipt_staging_refuses_incomplete_receipts_and_path_escape(tmp_path):
+    _audit_archive(tmp_path / "mass", status="INCOMPLETE")
+    env = {"QUEUE_DRIVE_ROOT": str(tmp_path), "Q0Q1_MASS_ARCHIVE_DIR": "mass"}
+    with pytest.raises(RuntimeError, match="completed corpus"):
+        runner.stage_q0_mass_receipt(env, tmp_path)
+    env["Q0Q1_MASS_ARCHIVE_DIR"] = "../elsewhere"
+    with pytest.raises(RuntimeError, match="beneath"):
+        runner.stage_q0_mass_receipt(env, tmp_path)
+
+
+def test_q0_admission_reads_renamed_mass_and_fidelity_archives(tmp_path):
+    _audit_archive(tmp_path / "mass-a100r")
+    _audit_archive(tmp_path / "init-a100r2", schema="q0-b8-init-fidelity/v1")
+    runner.q0_admission_checks(
+        {
+            "QUEUE_DRIVE_ROOT": str(tmp_path),
+            "Q0Q1_MASS_ARCHIVE_DIR": "mass-a100r",
+            "Q0Q1_INIT_ARCHIVE_DIR": "init-a100r2",
+        }
+    )

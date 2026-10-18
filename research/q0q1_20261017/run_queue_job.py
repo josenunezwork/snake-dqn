@@ -84,10 +84,9 @@ def _receipt_from_archive(archive: Path, sidecar: Path) -> dict[str, Any]:
 
 
 def q0_admission_checks(env: Mapping[str, str]) -> None:
-    root = Path(env["QUEUE_DRIVE_ROOT"]) / "q0q1-20261017/q0"
     required = {
-        "q0-t23-mass-audit/v1": root / "audit-t23-mass/result.tar.gz",
-        "q0-b8-init-fidelity/v1": root / "audit-b8-init/result.tar.gz",
+        "q0-t23-mass-audit/v1": q0_archive_directory(env, "MASS") / "result.tar.gz",
+        "q0-b8-init-fidelity/v1": q0_archive_directory(env, "INIT") / "result.tar.gz",
     }
     for schema, archive in required.items():
         receipt = _receipt_from_archive(archive, archive.with_name("result.tar.gz.sha256"))
@@ -95,9 +94,20 @@ def q0_admission_checks(env: Mapping[str, str]) -> None:
             raise RuntimeError(f"Q1 training requires a completed passing Q0 receipt: {schema}")
 
 
+def q0_archive_directory(env: Mapping[str, str], audit: str) -> Path:
+    """Resolve a renamed audit output beneath the queue's Drive root."""
+    default = "audit-t23-mass" if audit == "MASS" else "audit-b8-init"
+    root = Path(env["QUEUE_DRIVE_ROOT"]).resolve()
+    configured = Path(env.get(f"Q0Q1_{audit}_ARCHIVE_DIR", f"q0q1-20261017/q0/{default}"))
+    directory = (root / configured).resolve()
+    if not directory.is_relative_to(root) or directory == root:
+        raise RuntimeError(f"Q0 {audit} archive directory must be beneath QUEUE_DRIVE_ROOT")
+    return directory
+
+
 def stage_q0_mass_receipt(env: Mapping[str, str], local_root: Path) -> Path:
     """Stage the verified Q0 mass receipt for B8 fidelity without new worlds."""
-    archive = Path(env["QUEUE_DRIVE_ROOT"]) / "q0q1-20261017/q0/audit-t23-mass/result.tar.gz"
+    archive = q0_archive_directory(env, "MASS") / "result.tar.gz"
     _receipt_from_archive(archive, archive.with_name("result.tar.gz.sha256"))
     with tarfile.open(archive, "r:gz") as tar:
         stream = tar.extractfile("attempt/receipt.json")
