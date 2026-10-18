@@ -39,6 +39,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--mac-reference must be a completed Q1 Mac reference")
     if args.out.exists():
         parser.error(f"refusing to overwrite observed rates: {args.out}")
+    if any(
+        path.with_name(path.name + ".sha256").exists() for path in (args.out, args.mac_reference)
+    ):
+        parser.error("refusing to overwrite an existing input SHA-256 sidecar")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     value = {
         "schema": "q0q1-observed-pricing/v1",

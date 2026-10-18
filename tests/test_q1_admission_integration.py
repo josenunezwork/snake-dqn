@@ -22,7 +22,6 @@ from research.q0q1_20261017 import q0b_measure, queue_jobs, run_queue_job
 from tests.test_q1_parity import _receipt as parity_receipt
 from tests.test_q1_qualification import _packet as qualification_packet
 
-
 COMMIT = "a" * 40
 APPROVED = "APPROVED_Q0Q1_20261017"
 
@@ -155,7 +154,7 @@ def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
         json.dumps(
             {
                 "q0_units": 20.0,
-                "q0_gpu_hours": 1.0,
+                "q0_gpu_hours": 2.0,
                 "q0_cpu_hours": 2.0,
                 "cpu_unit_rate_per_hour": 0.5,
                 "cpu_eval_job_overhead_seconds": 2.0,
@@ -311,4 +310,3 @@ def test_admission_rejects_mutated_bound_evidence(monkeypatch, tmp_path, mutatio
     else:
         with pytest.raises((RuntimeError, ValueError)):
             run_queue_job.admission_checks(env)
-

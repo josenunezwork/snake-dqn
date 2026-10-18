@@ -1,6 +1,8 @@
 """Queue prelude tests without CUDA, Drive writes, or a learner launch."""
 
 import json
+import tarfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -68,3 +70,41 @@ def test_prepare_inputs_preserves_observed_values_and_binds_mac_reference(tmp_pa
 def test_bounded_prelude_rejects_an_exhausted_packet_before_launch():
     with pytest.raises(RuntimeError, match="exhausted"):
         q0b_queue.run_bounded(["must-not-run"], seconds=0, env={})
+
+
+def test_slow_export_cannot_leave_a_qualified_packet(monkeypatch, tmp_path):
+    from research.q0q1_20261017 import run_queue_job as runner
+
+    output = tmp_path / "output"
+    output.mkdir()
+
+    def fake_child(command, **kwargs):
+        local = Path(command[command.index("--out") + 1])
+        (local / "receipt.json").write_text(json.dumps({"qualification": {"status": "QUALIFIED"}}))
+        return SimpleNamespace(returncode=0)
+
+    from pathlib import Path
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_child)
+    monkeypatch.setattr(runner, "_scientific_done", lambda *args: None)
+    monkeypatch.setattr(q0b_queue, "attempt_age", lambda env, now: 3601.0)
+    env = {
+        "Q0Q1_REGISTRATION_STATUS": "APPROVED_Q0Q1_20261017",
+        "Q0Q1_OWNER_RELEASE": "APPROVED_Q0Q1_20261017",
+        "Q0Q1_JOB_KIND": "q0b_measure",
+        "Q0Q1_HARDWARE": "L4",
+        "Q0Q1_INPUT_ROOT": "/inputs",
+        "QUEUE_OUTPUT_DIR": str(output),
+    }
+    with pytest.raises(RuntimeError, match="export exceeded"):
+        runner.run(env)
+    assert (output / "over-budget-result.tar.gz").is_file()
+    archive = output / "result.tar.gz"
+    assert archive.with_name(archive.name + ".sha256").read_text().split()[0] == sha256_file(
+        archive
+    )
+    with tarfile.open(archive) as tar:
+        value = json.load(tar.extractfile("attempt/receipt.json"))
+        attempt = json.load(tar.extractfile("attempt/queue-attempt-receipt.json"))
+    assert value["qualification"]["status"] == attempt["status"] == "INCOMPLETE"
+    assert value["packet_seconds"] == 3601

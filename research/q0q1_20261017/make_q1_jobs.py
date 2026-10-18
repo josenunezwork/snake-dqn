@@ -14,8 +14,8 @@ import hashlib
 import json
 import math
 import subprocess
-import tempfile
 import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -137,11 +137,22 @@ def _study_plan(
     """Build the A1 forecast only from observed Q0b metadata, never defaults."""
     metadata = (l4, a100)
     q0_units = _number(q0_accounting.get("q0_units"), "Q0 accounting q0_units")
-    q0_gpu = _number(q0_accounting.get("q0_gpu_hours"), "Q0 accounting q0_gpu_hours", positive=False)
-    q0_cpu = _number(q0_accounting.get("q0_cpu_hours"), "Q0 accounting q0_cpu_hours", positive=False)
+    q0_gpu = _number(
+        q0_accounting.get("q0_gpu_hours"), "Q0 accounting q0_gpu_hours", positive=False
+    )
+    q0_cpu = _number(
+        q0_accounting.get("q0_cpu_hours"), "Q0 accounting q0_cpu_hours", positive=False
+    )
     cpu_rate = _number(
         q0_accounting.get("cpu_unit_rate_per_hour"), "Q0 accounting cpu_unit_rate_per_hour"
     )
+    for total, field in (
+        (q0_units, "observed_units"),
+        (q0_gpu, "observed_gpu_hours"),
+        (q0_cpu, "observed_cpu_hours"),
+    ):
+        if total < sum(_number(row[field], f"Q0b {field}", positive=False) for row in metadata):
+            raise ValueError(f"Q0 accounting undercounts completed packets' {field}")
     cpu_rates = {
         _number(row["observed_cpu_unit_rate_per_hour"], "Q0b CPU debit rate") for row in metadata
     }
@@ -154,16 +165,7 @@ def _study_plan(
     if efficiency > 1:
         raise ValueError("L4 cpu_worker_efficiency cannot exceed 1")
     attempt_overhead = l4.get("q1_attempt_overhead_seconds")
-    if attempt_overhead is None:  # Compatibility only for pre-overhead receipts in unit tests.
-        stages = l4.get("stages")
-        if not isinstance(stages, Mapping):
-            raise ValueError("L4 Q0b receipt lacks measured setup and cleanup stages")
-        setup = _number(stages.get("setup_seconds"), "L4 setup_seconds", positive=False)
-        cleanup = _number(stages.get("cleanup_seconds"), "L4 cleanup_seconds", positive=False)
-        attempt_overhead = (setup + cleanup) / 4
-    attempt_overhead = _number(
-        attempt_overhead, "L4 q1_attempt_overhead_seconds", positive=True
-    )
+    attempt_overhead = _number(attempt_overhead, "L4 q1_attempt_overhead_seconds", positive=True)
     q1_gpu_overhead_hours = 20 * attempt_overhead / 3600
     eval_job_overhead = _number(
         q0_accounting.get("cpu_eval_job_overhead_seconds"),
@@ -177,7 +179,11 @@ def _study_plan(
         "owner_release": OWNER_RELEASE,
         "amendment": AMENDMENT,
         "dispatch": True,
-        "a1_envelope": {"q0_units_cap": 40.0, "combined_units_cap": 175.0, "reserve_fraction": 0.20},
+        "a1_envelope": {
+            "q0_units_cap": 40.0,
+            "combined_units_cap": 175.0,
+            "reserve_fraction": 0.20,
+        },
         "q1_training_hardware": "L4",
         "q0_units": q0_units,
         "q0_gpu_hours": q0_gpu,
@@ -203,9 +209,7 @@ def _clean_head(commit: str, root: Path) -> None:
     )
     if actual.returncode or actual.stdout.strip() != commit:
         raise ValueError("--commit must equal the current immutable HEAD")
-    dirty = subprocess.run(
-        ["git", "diff", "--quiet", "HEAD", "--"], cwd=root, check=False
-    )
+    dirty = subprocess.run(["git", "diff", "--quiet", "HEAD", "--"], cwd=root, check=False)
     if dirty.returncode:
         raise ValueError("refusing to bind jobs while the checkout has uncommitted source changes")
 
@@ -226,11 +230,24 @@ def _stage_evidence(
         if member_name is not None:
             members = [member for member in archive.getmembers() if member.name == member_name]
             if not members and member_suffix is not None:
-                members = [member for member in archive.getmembers() if member.name.endswith(member_suffix)]
+                members = [
+                    member for member in archive.getmembers() if member.name.endswith(member_suffix)
+                ]
         else:
-            members = [member for member in archive.getmembers() if member.name.endswith(member_suffix or "receipt.json")]
-        if len(members) != 1 or members[0].name.startswith("/") or ".." in Path(members[0].name).parts:
-            raise ValueError(f"queue archive lacks one safe {member_name or member_suffix or 'receipt.json'} member")
+            members = [
+                member
+                for member in archive.getmembers()
+                if member.name.endswith(member_suffix or "receipt.json")
+            ]
+        if (
+            len(members) != 1
+            or members[0].name.startswith("/")
+            or ".." in Path(members[0].name).parts
+        ):
+            raise ValueError(
+                "queue archive lacks one safe "
+                f"{member_name or member_suffix or 'receipt.json'} member"
+            )
         stream = archive.extractfile(members[0])
         if stream is None:
             raise ValueError("queue archive evidence member cannot be read")
@@ -266,7 +283,11 @@ def make_jobs(
     drive_root: str = DRIVE_ROOT,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     l4, l4_packet = _qualified_receipt(l4_receipt_path, "L4")
-    a100, _ = _qualified_receipt(a100_receipt_path, "A100")
+    a100, a100_packet = _qualified_receipt(a100_receipt_path, "A100")
+    if a100_packet.get("source") != l4_packet.get("source") or a100_packet.get(
+        "config"
+    ) != l4_packet.get("config"):
+        raise ValueError("Q0b hardware comparison must bind identical sources and recipes")
     runtime_receipt = _validate_runtime_receipt(runtime_receipt_path)
     mac_reference = _validate_mac_reference(mac_reference_path)
     if runtime_receipt.get("reference") != mac_reference:
@@ -279,13 +300,18 @@ def make_jobs(
     from research.q0q1_20261017.qualification import validate_admission
 
     result = validate_admission(l4_packet, plan)
-    if result.get("status") != "ADMITTED_FOR_DISPATCH" or result.get("dispatch_authorized") is not True:
+    if (
+        result.get("status") != "ADMITTED_FOR_DISPATCH"
+        or result.get("dispatch_authorized") is not True
+    ):
         raise ValueError(f"A1 forecast is not admitted for dispatch: {result.get('errors')}")
     measured = validate_packet(l4_packet).get("measured_cells", {})
     for cell in ("restart/n3", "mature/n3", "restart/n1", "mature/n1"):
         speed = measured.get(cell, {}).get("decisions_per_second")
         if not isinstance(speed, (int, float)) or speed <= 0 or 8_000_000 / speed > 5100:
-            raise ValueError(f"L4 qualification cannot complete Q1 {cell} within the 5,100-second cap")
+            raise ValueError(
+                f"L4 qualification cannot complete Q1 {cell} within the 5,100-second cap"
+            )
     bindings = queue_jobs.Bindings(
         q0b_l4_receipt=str(l4_receipt_path),
         q0b_l4_receipt_sha256=sha256_file(l4_receipt_path),
@@ -319,10 +345,17 @@ def make_jobs(
             )
         )
         if job["id"].startswith("q1-train-"):
-            job["timeout_minutes"] = math.ceil((5100 + plan["q1_training_attempt_overhead_seconds"] + 60) / 60)
+            job["timeout_minutes"] = math.ceil(
+                (5100 + plan["q1_training_attempt_overhead_seconds"] + 60) / 60
+            )
     runtime = l4_packet.get("runtime", {})
     cores = runtime.get("cpu_cores") if isinstance(runtime, Mapping) else None
-    if isinstance(cores, bool) or not isinstance(cores, (int, float)) or int(cores) != cores or cores < 1:
+    if (
+        isinstance(cores, bool)
+        or not isinstance(cores, (int, float))
+        or int(cores) != cores
+        or cores < 1
+    ):
         raise ValueError("L4 packet lacks an integer observed CPU-core capacity")
     cores = int(cores)
     for job in jobs:
@@ -333,7 +366,11 @@ def make_jobs(
                 for cell in l4_packet.get("cells", [])
                 if cell.get("collector") == collector
             }
-            if len(actors) != 1 or not isinstance(next(iter(actors)), int) or cores < next(iter(actors)):
+            if (
+                len(actors) != 1
+                or not isinstance(next(iter(actors)), int)
+                or cores < next(iter(actors))
+            ):
                 raise ValueError("L4 packet cannot hold the registered actor configuration")
             job["requirements"]["min_vcpu"] = cores
             # Verify the exact normalized source/config identity before an arm
@@ -344,9 +381,13 @@ def make_jobs(
             with tempfile.TemporaryDirectory(prefix="q1-binding-") as temporary:
                 env = dict(job["env"])
                 env["Q1_ACTORS"] = str(next(iter(actors)))
-                run_queue_job.qualified_recipe_binding(l4_packet, run_queue_job.command(env, Path(temporary)))
+                run_queue_job.qualified_recipe_binding(
+                    l4_packet, run_queue_job.command(env, Path(temporary))
+                )
     if len(jobs) != 120 or sum(job["id"].startswith("q1-train-") for job in jobs) != 20:
-        raise AssertionError("Q1 generator did not make exactly 20 training and 100 evaluation jobs")
+        raise AssertionError(
+            "Q1 generator did not make exactly 20 training and 100 evaluation jobs"
+        )
     return jobs, plan
 
 
@@ -387,15 +428,21 @@ def main(argv: list[str] | None = None) -> int:
     args.out_dir.mkdir(parents=True)
     evidence = args.out_dir / "evidence"
     evidence.mkdir()
-    mass = _stage_evidence(args.q0_mass_archive, evidence / "q0-mass-receipt.json", member_name="attempt/receipt.json")
-    init = _stage_evidence(args.q0_init_archive, evidence / "q0-init-receipt.json", member_name="attempt/receipt.json")
+    mass = _stage_evidence(
+        args.q0_mass_archive, evidence / "q0-mass-receipt.json", member_name="attempt/receipt.json"
+    )
+    init = _stage_evidence(
+        args.q0_init_archive, evidence / "q0-init-receipt.json", member_name="attempt/receipt.json"
+    )
     _completed_q0_receipt(mass, "q0-t23-mass-audit/v1")
     _completed_q0_receipt(init, "q0-b8-init-fidelity/v1")
     l4 = _stage_evidence(
         args.q0b_l4_receipt, evidence / "q0b-l4-receipt.json", member_name="attempt/receipt.json"
     )
     a100 = _stage_evidence(
-        args.q0b_a100_receipt, evidence / "q0b-a100-receipt.json", member_name="attempt/receipt.json"
+        args.q0b_a100_receipt,
+        evidence / "q0b-a100-receipt.json",
+        member_name="attempt/receipt.json",
     )
     runtime = _stage_evidence(
         args.runtime_parity_receipt or args.q0b_l4_receipt,
@@ -432,7 +479,9 @@ def main(argv: list[str] | None = None) -> int:
                 job["env"][key] = replacement[value]
     (args.out_dir / "study-plan.json").write_bytes(pretty_json(plan))
     for job in jobs:
-        (args.out_dir / f"{job['id']}.json").write_text(json.dumps(job, indent=2, sort_keys=True) + "\n")
+        (args.out_dir / f"{job['id']}.json").write_text(
+            json.dumps(job, indent=2, sort_keys=True) + "\n"
+        )
     return 0
 
 

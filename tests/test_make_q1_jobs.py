@@ -19,6 +19,7 @@ def _receipt(*, rate: float = 0.5) -> dict:
         "cpu_seconds_per_episode": 2.0,
         "cpu_worker_efficiency": 0.8,
         "stages": {"setup_seconds": 120.0, "cleanup_seconds": 60.0},
+        "q1_attempt_overhead_seconds": 45.0,
     }
 
 
@@ -66,8 +67,13 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
         path.write_text(json.dumps(value))
     accounting.write_text(
         json.dumps(
-            {"q0_units": 20.0, "q0_gpu_hours": 1.0, "q0_cpu_hours": 2.0,
-             "cpu_unit_rate_per_hour": 0.5, "cpu_eval_job_overhead_seconds": 3.0}
+            {
+                "q0_units": 20.0,
+                "q0_gpu_hours": 1.0,
+                "q0_cpu_hours": 2.0,
+                "cpu_unit_rate_per_hour": 0.5,
+                "cpu_eval_job_overhead_seconds": 3.0,
+            }
         )
     )
     packet = {
@@ -103,7 +109,8 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
         lambda packet, plan: {"status": "ADMITTED_FOR_DISPATCH", "dispatch_authorized": True},
     )
     monkeypatch.setattr(
-        "research.q0q1_20261017.run_queue_job.qualified_recipe_binding", lambda packet, command: None
+        "research.q0q1_20261017.run_queue_job.qualified_recipe_binding",
+        lambda packet, command: None,
     )
     jobs, plan = subject.make_jobs(
         commit="a" * 40,
@@ -115,7 +122,9 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
         q0_accounting_path=accounting,
         q0b_l4_job_id="q0b-l4",
         q0b_a100_job_id="q0b-a100",
-        study_plan_drive_path="/content/drive/MyDrive/t16_colab/q0q1-20261017/q1/jobs/study-plan.json",
+        study_plan_drive_path=(
+            "/content/drive/MyDrive/t16_colab/q0q1-20261017/q1/jobs/study-plan.json"
+        ),
     )
     assert len(jobs) == 120
     assert sum(job["id"].startswith("q1-train-") for job in jobs) == 20
@@ -123,11 +132,14 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
     assert all({"q0b-l4", "q0b-a100"} <= set(job["depends_on"]) for job in jobs)
     assert all("q0-audit-t23-mass-a100r" in job["depends_on"] for job in jobs)
     assert all(job["env"]["Q0Q1_Q0B_A100_RECEIPT_SHA256"] for job in jobs)
-    assert {job["requirements"]["min_vcpu"] for job in jobs if job["id"].startswith("q1-train-")} == {12}
+    assert {
+        job["requirements"]["min_vcpu"] for job in jobs if job["id"].startswith("q1-train-")
+    } == {12}
     assert plan["q0_units"] == 20.0
     assert plan["q1_cpu_overhead_hours"] == 100 * (4 * 2 + 3) / (3600 * 0.8)
     import hashlib
 
-    assert jobs[0]["env"]["Q0Q1_STUDY_PLAN_SHA256"] == hashlib.sha256(
-        subject.pretty_json(plan)
-    ).hexdigest()
+    assert (
+        jobs[0]["env"]["Q0Q1_STUDY_PLAN_SHA256"]
+        == hashlib.sha256(subject.pretty_json(plan)).hexdigest()
+    )

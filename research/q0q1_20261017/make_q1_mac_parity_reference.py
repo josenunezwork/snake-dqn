@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 from research.q0q1_20261017.q1_evaluate import B8_SHA256, sha256
 

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -135,12 +136,13 @@ def normalized_command_sha(train_command: list[str]) -> str:
 
 def qualified_recipe_binding(packet: Mapping[str, Any], train_command: list[str]) -> None:
     """Bind the actual recipe to Q0b's source and four measured package hashes."""
-    source_digest = sha256_file(Path("research/redesign_m3c_20261008/train_m3c.py"))
+    from research.q0q1_20261017.q0b_measure import measurement_source_manifest
+
     config_digest = normalized_command_sha(train_command)
     source = packet.get("source", {})
     config = packet.get("config", {})
-    if not isinstance(source, Mapping) or source_digest not in source.values():
-        raise RuntimeError("Q0b source binding does not match the queued trainer bytes")
+    if source != measurement_source_manifest():
+        raise RuntimeError("Q0b source binding does not match the complete queued trainer sources")
     if not isinstance(config, Mapping) or config_digest not in config.values():
         raise RuntimeError("Q0b config binding does not match the queued trainer arguments")
 
@@ -171,6 +173,10 @@ def admission_checks(env: Mapping[str, str]) -> None:
             raise RuntimeError("Q1 training requires full hash-bound L4 budget admission")
         if a100.get("hardware") != "A100" or validate_packet(a100)["status"] != "QUALIFIED":
             raise RuntimeError("Q1 requires the complete qualified A100 comparison packet")
+        if a100.get("source") != packet.get("source") or a100.get("config") != packet.get("config"):
+            raise RuntimeError(
+                "Q0b hardware comparison does not bind identical sources and recipes"
+            )
         q0_admission_checks(env)
         from research.q0q1_20261017 import q1_evaluate, q1_parity
 
@@ -651,6 +657,23 @@ def run(env: Mapping[str, str] | None = None) -> int:
             runtime_check = validate_current_runtime(packet, expected_hardware="L4")
             if runtime_check.get("pass") is not True:
                 raise RuntimeError(f"current training runtime is not qualified: {runtime_check}")
+            for fixture in ("t22", "t24"):
+                checked = subprocess.run(
+                    [
+                        run_env.get("Q0Q1_PYTHON", "/content/t16-colab-venv/bin/python"),
+                        "-m",
+                        "research.q0q1_20261017.q0b_cuda_fixtures",
+                        "--fixture",
+                        fixture,
+                        "--out",
+                        str(local / f"{fixture}-cuda.json"),
+                    ],
+                    cwd="/content/t16-snake-dqn",
+                    env=child_env,
+                    timeout=240,
+                )
+                if checked.returncode:
+                    raise RuntimeError(f"current training CUDA {fixture} fixture failed")
         if env["Q0Q1_JOB_KIND"] == "q1_eval":
             run_env["Q1_TRAINING_FINAL"] = stage_training_final(run_env, local)
         if env["Q0Q1_JOB_KIND"] in {"q1_train", "q1_eval"}:
@@ -696,6 +719,31 @@ def run(env: Mapping[str, str] | None = None) -> int:
             status="COMPLETED" if failure is None else "INCOMPLETE",
             error=None if failure is None else str(failure),
         )
+        if env.get("Q0Q1_JOB_KIND") == "q0b_measure" and failure is None:
+            from research.q0q1_20261017.q0b_queue import attempt_age
+
+            elapsed = attempt_age(env, time.time())
+            if elapsed > 3600:
+                # Export is part of the packet. A slow Drive copy cannot leave a
+                # scientifically qualified result after the inclusive cap.
+                failure = RuntimeError(f"Q0b export exceeded inclusive cap: {elapsed:g} seconds")
+                archive = output / "result.tar.gz"
+                archive.rename(output / "over-budget-result.tar.gz")
+                archive.with_name("result.tar.gz.sha256").rename(
+                    output / "over-budget-result.tar.gz.sha256"
+                )
+                receipt_path = local / "receipt.json"
+                value = json.loads(receipt_path.read_text())
+                value.update(status="INCOMPLETE", packet_seconds=elapsed, error=str(failure))
+                value["qualification"] = {"status": "INCOMPLETE", "errors": [str(failure)]}
+                receipt_path.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n")
+                _publish_attempt(
+                    output,
+                    local,
+                    job_id=env.get("Q0Q1_JOB_ID"),
+                    status="INCOMPLETE",
+                    error=str(failure),
+                )
         shutil.rmtree(local, ignore_errors=True)
     if failure is not None:
         raise failure

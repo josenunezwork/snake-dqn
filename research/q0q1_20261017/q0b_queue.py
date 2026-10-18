@@ -181,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
             "--n3-actors",
             os.environ.get("Q0Q1_N3_ACTORS", "6"),
         ]
+        prelude_seconds = time.monotonic() - began + claim_age
         run_bounded(command, seconds=deadline - time.monotonic(), env=child_env)
         receipt = json.loads((measurement / "receipt.json").read_text())
         if receipt.get("qualification", {}).get("status") != "QUALIFIED":
@@ -196,6 +197,22 @@ def main(argv: list[str] | None = None) -> int:
         receipt["hashes"]["observed_pricing"] = sha256_file(pricing_path)
         receipt["hashes"]["mac_reference"] = sha256_file(reference)
         receipt["queue_setup_includes_arbitration"] = True
+        cell_overheads = [
+            max(
+                0.0,
+                cell["observed_launcher_seconds"]
+                - cell["warmup_seconds"]
+                - sum(window["seconds"] for window in cell["scored_windows"]),
+            )
+            for cell in receipt["cells"]
+        ]
+        receipt["q1_attempt_overhead_seconds"] = (
+            prelude_seconds + 4 * receipt["cpu_seconds_per_episode"] + max(cell_overheads) + 60
+        )
+        receipt["stages"]["export_reserve_seconds"] = 60.0
+        receipt["packet_seconds"] += 60.0
+        receipt["stages"]["cleanup_seconds"] += 60.0
+        receipt["packet_seconds_includes_export_reserve"] = True
         from research.q0q1_20261017.qualification import validate_packet
 
         receipt["qualification"] = validate_packet(receipt)
