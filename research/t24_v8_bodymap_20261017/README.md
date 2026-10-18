@@ -10,12 +10,15 @@ bodies. Construction, injection, Numba warmup, and profiling are excluded from
 each timed sample. The benchmark retains every unprofiled `perf_counter` sample
 and hashes the v8, bv8, pool, and actor sources it executes.
 
-The fixed-state report measures three directly comparable host feature fields:
+The fixed-state report measures four directly comparable host feature fields:
 
 - `learner_v8_direct_baseline` is the direct learner-only v8 invocation;
   `learner_plus_b8_v8_shared_candidate` is the actor candidate call that also
   primes the B8 slice. They are host feature work, not B8 forward time.
 - `b8_v8_direct_baseline` is the B8-only v8 call under its advisory mask.
+- `b8_policy_standalone` is the unprimed B8 CPU policy total: raster, v8,
+  forward, and action selection. It is reported separately because forward
+  cost dominates this CPU-only value.
 - `learner_plus_b8_v8_shared_candidate` is either the old pair of independent
   calls in the pinned baseline or the candidate's one shared call. It is the
   primary comparable combined-v8 field.
@@ -27,11 +30,29 @@ and six-policy frozen dispatch. It excludes learner updates and queue pressure.
 An outer, temporary `build_segment` wrapper injects the body fixture before the
 first decision and is restored after every sample.
 
-The retained `baseline_23c1ba73_t22_short.json` is an exploratory main-23c1
-receipt, recorded before the candidate harness. It is host-noisy and is not an
-A/B comparison or performance claim. Final before/after rows must be paired in
-alternating order on one host session and preserve both raw samples and source
-hashes.
+## Final paired receipt
+
+The final receipt alternated baseline/candidate/candidate/baseline (ABBA), with
+three unprofiled repetitions per leg, `warm=4`, and `frames=8`. It ran only
+after the qualification suite completed and other CPU test work stopped. The
+pinned baseline production source is `23c1ba73`; the candidate production
+source is `4b4723f`. Both receipts retain their leg files, raw samples, source
+hashes, and the common benchmark-script SHA-256:
+
+- [Before receipt](before_23c1ba73.json) and its two named leg files.
+- [After receipt](after_4b4723f.json) and its two named leg files.
+
+Across the six raw fixed-state samples, combined learner+B8 v8 work was
+0.720 ms before and 0.694 ms after at length 5; it was 22.155 ms before and
+16.280 ms after at length 1200, a 26.5% long-body reduction. The actual
+whole-actor long-body median was 246.738 ms/frame before and 234.482 ms/frame
+after. Its end-of-window median body length was 1201 in both receipts (initial
+length 1200; end mean 1179--1188 in the exploratory retention check), so the
+long row did not devolve into a short-body respawn measurement.
+
+These are single-host CPU microbenchmark results, not A100 throughput or
+training performance evidence. The projection document applies its own
+conservative accounting to the recorded components.
 
 Run from this checkout with the project venv:
 

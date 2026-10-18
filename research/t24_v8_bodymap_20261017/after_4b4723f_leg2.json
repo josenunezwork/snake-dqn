@@ -1,0 +1,623 @@
+{
+  "argv": {
+    "actor_frames": 8,
+    "actor_warm": 4,
+    "checkpoint_dir": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes",
+    "out": "research/t24_v8_bodymap_20261017/after_4b4723f_leg2.json",
+    "repeats": 3,
+    "seed": 314159,
+    "without_whole_actor": false,
+    "worlds": 128
+  },
+  "authority": "CPU fixed-state microbenchmark; not a training, GPU, or throughput result",
+  "cases": [
+    {
+      "action_stream_sha256": "e597b99bb2caf74ed4da5eef79b1784e3be4a787bd829efbe3d3bdd7f430fe95",
+      "b8_rows": 64,
+      "body_length": 5,
+      "checks": {
+        "decision_frame_actions_identical": true,
+        "frozen_dispatch_actions_identical": true,
+        "learner_v8_bytes_identical": true
+      },
+      "forward": {
+        "b8_device": "cpu",
+        "scope": "CPU synthetic frozen B8 forward is included in dispatch/frame timings"
+      },
+      "frozen_rows": 384,
+      "learner_rows": 384,
+      "pool_identities": [
+        {
+          "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+          "kind": "bv8",
+          "mask_config": "resolved",
+          "obs_spec": "ego2s-bv8",
+          "policy_id": "b8-s3",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_pool.py": "116ba9082a15fe4bf0115dee1bed78392cd60d2521a402812dcf96218ffc05be",
+            "src/model/ego2s_network.py": "06b262b7ad4bc89ff4d46caff37090635fe32b81008fa91d5956b34d940345a9",
+            "src/simd_env/ego_raster.py": "0a9dea5a3128435656dec4beeab5c8b4a6f6b600a5f4b63c82beb635dfaf10ad",
+            "src/simd_env/ego_raster_bv8.py": "7dc4068101563b7a6a84614d82a4b18310e88aa7a2afaca70cc689dafc48c017",
+            "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0"
+          },
+          "wrapper": "none"
+        },
+        {
+          "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
+          "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+          "kind": "vector61",
+          "mask_config": "advisory",
+          "obs_spec": "vector61",
+          "policy_id": "frp3-s12",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_pool.py": "116ba9082a15fe4bf0115dee1bed78392cd60d2521a402812dcf96218ffc05be",
+            "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0",
+            "src/simd_env/vector61_featurizer.py": "c1cbdd6373b52ad72dc707ab0f68208402e592638206a0ace56a77e2d035efbe",
+            "src/simd_env/vector61_nb.py": "ffc1aa4c3c929922c0556f6d76a7774f84efb7c90b8020271014bcafa8877013",
+            "src/simd_env/vector61_policy.py": "d7c3087db2a76e6cb62bcc5cda541e9810969a59014aee3ba7040f14da27ca23"
+          },
+          "wrapper": "none"
+        },
+        {
+          "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
+          "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+          "kind": "vector61",
+          "mask_config": "advisory",
+          "obs_spec": "vector61",
+          "policy_id": "frp3-s12-v8",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_pool.py": "116ba9082a15fe4bf0115dee1bed78392cd60d2521a402812dcf96218ffc05be",
+            "src/evaluation/safety_veto.py": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+            "src/evaluation/safety_veto_v3.py": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+            "src/evaluation/safety_veto_v4.py": "3f0881afb7ff8ff980c9b425ef40134f127cc90f1f40260aac39f2264ed44578",
+            "src/evaluation/safety_veto_v5.py": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+            "src/evaluation/safety_veto_v6.py": "a6117cb98383f9f28bf8ebcf22d2ef63d7a03995734a36fb96bb1bf8bb1757d5",
+            "src/evaluation/safety_veto_v7.py": "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980",
+            "src/evaluation/safety_veto_v8.py": "faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05",
+            "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0",
+            "src/simd_env/vector61_featurizer.py": "c1cbdd6373b52ad72dc707ab0f68208402e592638206a0ace56a77e2d035efbe",
+            "src/simd_env/vector61_nb.py": "ffc1aa4c3c929922c0556f6d76a7774f84efb7c90b8020271014bcafa8877013",
+            "src/simd_env/vector61_policy.py": "d7c3087db2a76e6cb62bcc5cda541e9810969a59014aee3ba7040f14da27ca23"
+          },
+          "wrapper": "free-space-veto/v8-space-and-head(lambda=8.0)"
+        },
+        {
+          "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+          "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "kind": "vector61",
+          "mask_config": "advisory",
+          "obs_spec": "vector61",
+          "policy_id": "champion-v8",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_pool.py": "116ba9082a15fe4bf0115dee1bed78392cd60d2521a402812dcf96218ffc05be",
+            "src/evaluation/safety_veto.py": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+            "src/evaluation/safety_veto_v3.py": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+            "src/evaluation/safety_veto_v4.py": "3f0881afb7ff8ff980c9b425ef40134f127cc90f1f40260aac39f2264ed44578",
+            "src/evaluation/safety_veto_v5.py": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+            "src/evaluation/safety_veto_v6.py": "a6117cb98383f9f28bf8ebcf22d2ef63d7a03995734a36fb96bb1bf8bb1757d5",
+            "src/evaluation/safety_veto_v7.py": "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980",
+            "src/evaluation/safety_veto_v8.py": "faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05",
+            "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0",
+            "src/simd_env/vector61_featurizer.py": "c1cbdd6373b52ad72dc707ab0f68208402e592638206a0ace56a77e2d035efbe",
+            "src/simd_env/vector61_nb.py": "ffc1aa4c3c929922c0556f6d76a7774f84efb7c90b8020271014bcafa8877013",
+            "src/simd_env/vector61_policy.py": "d7c3087db2a76e6cb62bcc5cda541e9810969a59014aee3ba7040f14da27ca23"
+          },
+          "wrapper": "free-space-veto/v8-space-and-head(lambda=8.0)"
+        },
+        {
+          "checkpoint_path": null,
+          "checkpoint_sha256": null,
+          "kind": "scripted",
+          "mask_config": "resolved",
+          "obs_spec": "scripted",
+          "policy_id": "scripted:greedy_food",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_random_safe.py": "7072e5b52d4f6000aaa18af22580aecfd1e03dc9ca492e8493b1f4bdc3ea0d43",
+            "src/evaluation/anchors.py": "f013a8691a045d49f7b4c1fdd3f66372bf174d7fe8d789cdf31540dec2c556be",
+            "src/simd_env/fast_anchors.py": "7146a76dc978c6b7c29dac0dff771f05b44de39603945b580f8eb9555eecaafc"
+          },
+          "wrapper": "none"
+        },
+        {
+          "checkpoint_path": null,
+          "checkpoint_sha256": null,
+          "kind": "scripted",
+          "mask_config": "resolved",
+          "obs_spec": "scripted",
+          "policy_id": "scripted:random_safe",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_random_safe.py": "7072e5b52d4f6000aaa18af22580aecfd1e03dc9ca492e8493b1f4bdc3ea0d43",
+            "src/evaluation/anchors.py": "f013a8691a045d49f7b4c1fdd3f66372bf174d7fe8d789cdf31540dec2c556be",
+            "src/simd_env/fast_anchors.py": "7146a76dc978c6b7c29dac0dff771f05b44de39603945b580f8eb9555eecaafc"
+          },
+          "wrapper": "none"
+        }
+      ],
+      "shared_v8_implementation": "one learner+B8 call",
+      "timing": {
+        "b8_policy_standalone": {
+          "median_ms": 28.525458183139563,
+          "samples_ms": [
+            28.525458183139563,
+            28.71870808303356,
+            28.41308293864131
+          ]
+        },
+        "b8_v8_direct_baseline": {
+          "median_ms": 0.11237524449825287,
+          "samples_ms": [
+            0.11462485417723656,
+            0.11237524449825287,
+            0.11154217645525932
+          ]
+        },
+        "learner_plus_b8_v8_shared_candidate": {
+          "median_ms": 0.6968746893107891,
+          "samples_ms": [
+            0.6885826587677002,
+            0.8679996244609356,
+            0.6968746893107891
+          ]
+        },
+        "learner_v8_direct_baseline": {
+          "median_ms": 0.4886658862233162,
+          "samples_ms": [
+            0.4931250587105751,
+            0.4886658862233162,
+            0.4848754033446312
+          ]
+        }
+      },
+      "whole_actor": {
+        "fixture_before_first_decision": [
+          {
+            "live_rows": 768,
+            "max_segments": 5,
+            "min_segments": 5
+          },
+          {
+            "live_rows": 768,
+            "max_segments": 5,
+            "min_segments": 5
+          },
+          {
+            "live_rows": 768,
+            "max_segments": 5,
+            "min_segments": 5
+          }
+        ],
+        "frames_per_sample": 8,
+        "median_env_ms_per_frame": 204.32835444808006,
+        "median_ms_per_frame": 204.33623960707337,
+        "samples": [
+          {
+            "actor_impl": "vectorized",
+            "body_segments_end": {
+              "max": 10,
+              "mean": 6.484375,
+              "p50": 6.0
+            },
+            "compile_actor": "off",
+            "config": "numba",
+            "device": "cpu",
+            "emitted_transitions": 2688,
+            "env_ms_per_frame": 204.21858300687745,
+            "extra": "",
+            "frames": 8,
+            "frames_per_s": 4.896517207507423,
+            "frozen_frac": 0.0,
+            "grow_to": 0,
+            "hero_transitions_per_s": 1880.2626076828503,
+            "ms_per_frame": 204.22679174225777,
+            "opp_forward": "per-group",
+            "timing_ms_per_frame": {
+              "featurizer_s": 4.225619544740766,
+              "forward_s": 167.9937398293987,
+              "frozen_forward_gpu_s": 0.0,
+              "frozen_forward_s": 26.24384837690741,
+              "opponents_s": 0.0,
+              "v8_s": 1.0389117524027824
+            },
+            "train_args": "",
+            "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+            "v61_backend": "numba",
+            "wall_s": 1.6338143339380622,
+            "warm": 4,
+            "worlds": 128
+          },
+          {
+            "actor_impl": "vectorized",
+            "body_segments_end": {
+              "max": 10,
+              "mean": 6.4140625,
+              "p50": 6.0
+            },
+            "compile_actor": "off",
+            "config": "numba",
+            "device": "cpu",
+            "emitted_transitions": 2688,
+            "env_ms_per_frame": 204.32835444808006,
+            "extra": "",
+            "frames": 8,
+            "frames_per_s": 4.893894504092575,
+            "frozen_frac": 0.0,
+            "grow_to": 0,
+            "hero_transitions_per_s": 1879.255489571549,
+            "ms_per_frame": 204.33623960707337,
+            "opp_forward": "per-group",
+            "timing_ms_per_frame": {
+              "featurizer_s": 4.286265699192882,
+              "forward_s": 167.26059379288927,
+              "frozen_forward_gpu_s": 0.0,
+              "frozen_forward_s": 27.044177055358887,
+              "opponents_s": 0.0,
+              "v8_s": 1.054026244673878
+            },
+            "train_args": "",
+            "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+            "v61_backend": "numba",
+            "wall_s": 1.634689916856587,
+            "warm": 4,
+            "worlds": 128
+          },
+          {
+            "actor_impl": "vectorized",
+            "body_segments_end": {
+              "max": 10,
+              "mean": 6.438802083333333,
+              "p50": 6.0
+            },
+            "compile_actor": "off",
+            "config": "numba",
+            "device": "cpu",
+            "emitted_transitions": 2688,
+            "env_ms_per_frame": 206.88092173077166,
+            "extra": "",
+            "frames": 8,
+            "frames_per_s": 4.833505499439846,
+            "frozen_frac": 0.0,
+            "grow_to": 0,
+            "hero_transitions_per_s": 1856.0661117849006,
+            "ms_per_frame": 206.88918221276253,
+            "opp_forward": "per-group",
+            "timing_ms_per_frame": {
+              "featurizer_s": 4.283114161808044,
+              "forward_s": 168.18080737721175,
+              "frozen_forward_gpu_s": 0.0,
+              "frozen_forward_s": 28.609593980945647,
+              "opponents_s": 0.0,
+              "v8_s": 1.0232864296995103
+            },
+            "train_args": "",
+            "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+            "v61_backend": "numba",
+            "wall_s": 1.6551134577021003,
+            "warm": 4,
+            "worlds": 128
+          }
+        ],
+        "scope": "real actor_main: step, runtime carry, replay/n-step ring writes; no learner updates",
+        "warm_frames_excluded": 4
+      },
+      "worlds": 128
+    },
+    {
+      "action_stream_sha256": "e9605d1706374639089850d7184ba0e1c3ef20a3f2e5f63a5925e11344bc7f7b",
+      "b8_rows": 64,
+      "body_length": 1200,
+      "checks": {
+        "decision_frame_actions_identical": true,
+        "frozen_dispatch_actions_identical": true,
+        "learner_v8_bytes_identical": true
+      },
+      "forward": {
+        "b8_device": "cpu",
+        "scope": "CPU synthetic frozen B8 forward is included in dispatch/frame timings"
+      },
+      "frozen_rows": 384,
+      "learner_rows": 384,
+      "pool_identities": [
+        {
+          "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+          "kind": "bv8",
+          "mask_config": "resolved",
+          "obs_spec": "ego2s-bv8",
+          "policy_id": "b8-s3",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_pool.py": "116ba9082a15fe4bf0115dee1bed78392cd60d2521a402812dcf96218ffc05be",
+            "src/model/ego2s_network.py": "06b262b7ad4bc89ff4d46caff37090635fe32b81008fa91d5956b34d940345a9",
+            "src/simd_env/ego_raster.py": "0a9dea5a3128435656dec4beeab5c8b4a6f6b600a5f4b63c82beb635dfaf10ad",
+            "src/simd_env/ego_raster_bv8.py": "7dc4068101563b7a6a84614d82a4b18310e88aa7a2afaca70cc689dafc48c017",
+            "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0"
+          },
+          "wrapper": "none"
+        },
+        {
+          "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
+          "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+          "kind": "vector61",
+          "mask_config": "advisory",
+          "obs_spec": "vector61",
+          "policy_id": "frp3-s12",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_pool.py": "116ba9082a15fe4bf0115dee1bed78392cd60d2521a402812dcf96218ffc05be",
+            "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0",
+            "src/simd_env/vector61_featurizer.py": "c1cbdd6373b52ad72dc707ab0f68208402e592638206a0ace56a77e2d035efbe",
+            "src/simd_env/vector61_nb.py": "ffc1aa4c3c929922c0556f6d76a7774f84efb7c90b8020271014bcafa8877013",
+            "src/simd_env/vector61_policy.py": "d7c3087db2a76e6cb62bcc5cda541e9810969a59014aee3ba7040f14da27ca23"
+          },
+          "wrapper": "none"
+        },
+        {
+          "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
+          "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+          "kind": "vector61",
+          "mask_config": "advisory",
+          "obs_spec": "vector61",
+          "policy_id": "frp3-s12-v8",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_pool.py": "116ba9082a15fe4bf0115dee1bed78392cd60d2521a402812dcf96218ffc05be",
+            "src/evaluation/safety_veto.py": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+            "src/evaluation/safety_veto_v3.py": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+            "src/evaluation/safety_veto_v4.py": "3f0881afb7ff8ff980c9b425ef40134f127cc90f1f40260aac39f2264ed44578",
+            "src/evaluation/safety_veto_v5.py": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+            "src/evaluation/safety_veto_v6.py": "a6117cb98383f9f28bf8ebcf22d2ef63d7a03995734a36fb96bb1bf8bb1757d5",
+            "src/evaluation/safety_veto_v7.py": "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980",
+            "src/evaluation/safety_veto_v8.py": "faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05",
+            "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0",
+            "src/simd_env/vector61_featurizer.py": "c1cbdd6373b52ad72dc707ab0f68208402e592638206a0ace56a77e2d035efbe",
+            "src/simd_env/vector61_nb.py": "ffc1aa4c3c929922c0556f6d76a7774f84efb7c90b8020271014bcafa8877013",
+            "src/simd_env/vector61_policy.py": "d7c3087db2a76e6cb62bcc5cda541e9810969a59014aee3ba7040f14da27ca23"
+          },
+          "wrapper": "free-space-veto/v8-space-and-head(lambda=8.0)"
+        },
+        {
+          "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+          "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "kind": "vector61",
+          "mask_config": "advisory",
+          "obs_spec": "vector61",
+          "policy_id": "champion-v8",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_pool.py": "116ba9082a15fe4bf0115dee1bed78392cd60d2521a402812dcf96218ffc05be",
+            "src/evaluation/safety_veto.py": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+            "src/evaluation/safety_veto_v3.py": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+            "src/evaluation/safety_veto_v4.py": "3f0881afb7ff8ff980c9b425ef40134f127cc90f1f40260aac39f2264ed44578",
+            "src/evaluation/safety_veto_v5.py": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+            "src/evaluation/safety_veto_v6.py": "a6117cb98383f9f28bf8ebcf22d2ef63d7a03995734a36fb96bb1bf8bb1757d5",
+            "src/evaluation/safety_veto_v7.py": "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980",
+            "src/evaluation/safety_veto_v8.py": "faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05",
+            "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0",
+            "src/simd_env/vector61_featurizer.py": "c1cbdd6373b52ad72dc707ab0f68208402e592638206a0ace56a77e2d035efbe",
+            "src/simd_env/vector61_nb.py": "ffc1aa4c3c929922c0556f6d76a7774f84efb7c90b8020271014bcafa8877013",
+            "src/simd_env/vector61_policy.py": "d7c3087db2a76e6cb62bcc5cda541e9810969a59014aee3ba7040f14da27ca23"
+          },
+          "wrapper": "free-space-veto/v8-space-and-head(lambda=8.0)"
+        },
+        {
+          "checkpoint_path": null,
+          "checkpoint_sha256": null,
+          "kind": "scripted",
+          "mask_config": "resolved",
+          "obs_spec": "scripted",
+          "policy_id": "scripted:greedy_food",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_random_safe.py": "7072e5b52d4f6000aaa18af22580aecfd1e03dc9ca492e8493b1f4bdc3ea0d43",
+            "src/evaluation/anchors.py": "f013a8691a045d49f7b4c1fdd3f66372bf174d7fe8d789cdf31540dec2c556be",
+            "src/simd_env/fast_anchors.py": "7146a76dc978c6b7c29dac0dff771f05b44de39603945b580f8eb9555eecaafc"
+          },
+          "wrapper": "none"
+        },
+        {
+          "checkpoint_path": null,
+          "checkpoint_sha256": null,
+          "kind": "scripted",
+          "mask_config": "resolved",
+          "obs_spec": "scripted",
+          "policy_id": "scripted:random_safe",
+          "source_sha256s": {
+            "research/redesign_m3c_20261008/league_random_safe.py": "7072e5b52d4f6000aaa18af22580aecfd1e03dc9ca492e8493b1f4bdc3ea0d43",
+            "src/evaluation/anchors.py": "f013a8691a045d49f7b4c1fdd3f66372bf174d7fe8d789cdf31540dec2c556be",
+            "src/simd_env/fast_anchors.py": "7146a76dc978c6b7c29dac0dff771f05b44de39603945b580f8eb9555eecaafc"
+          },
+          "wrapper": "none"
+        }
+      ],
+      "shared_v8_implementation": "one learner+B8 call",
+      "timing": {
+        "b8_policy_standalone": {
+          "median_ms": 32.356500159949064,
+          "samples_ms": [
+            32.356500159949064,
+            32.4047920294106,
+            32.29199955239892
+          ]
+        },
+        "b8_v8_direct_baseline": {
+          "median_ms": 2.859957981854677,
+          "samples_ms": [
+            2.869333140552044,
+            2.859957981854677,
+            2.8528752736747265
+          ]
+        },
+        "learner_plus_b8_v8_shared_candidate": {
+          "median_ms": 16.11375017091632,
+          "samples_ms": [
+            16.11375017091632,
+            16.01383276283741,
+            16.42824988812208
+          ]
+        },
+        "learner_v8_direct_baseline": {
+          "median_ms": 13.88587523251772,
+          "samples_ms": [
+            13.88587523251772,
+            13.821875210851431,
+            13.902875129133463
+          ]
+        }
+      },
+      "whole_actor": {
+        "fixture_before_first_decision": [
+          {
+            "live_rows": 768,
+            "max_segments": 1200,
+            "min_segments": 1200
+          },
+          {
+            "live_rows": 768,
+            "max_segments": 1200,
+            "min_segments": 1200
+          },
+          {
+            "live_rows": 768,
+            "max_segments": 1200,
+            "min_segments": 1200
+          }
+        ],
+        "frames_per_sample": 8,
+        "median_env_ms_per_frame": 234.49945845641196,
+        "median_ms_per_frame": 234.50739588588476,
+        "samples": [
+          {
+            "actor_impl": "vectorized",
+            "body_segments_end": {
+              "max": 1205,
+              "mean": 1179.142670157068,
+              "p50": 1201.0
+            },
+            "compile_actor": "off",
+            "config": "numba",
+            "device": "cpu",
+            "emitted_transitions": 2688,
+            "env_ms_per_frame": 234.85840624198318,
+            "extra": "",
+            "frames": 8,
+            "frames_per_s": 4.257725726941621,
+            "frozen_frac": 0.0,
+            "grow_to": 0,
+            "hero_transitions_per_s": 1634.9666791455825,
+            "ms_per_frame": 234.86717185005546,
+            "opp_forward": "per-group",
+            "timing_ms_per_frame": {
+              "featurizer_s": 4.471401276532561,
+              "forward_s": 167.4091768800281,
+              "frozen_forward_gpu_s": 0.0,
+              "frozen_forward_s": 28.852109448052943,
+              "opponents_s": 0.0,
+              "v8_s": 16.614213527645916
+            },
+            "train_args": "",
+            "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+            "v61_backend": "numba",
+            "wall_s": 1.8789373748004436,
+            "warm": 4,
+            "worlds": 128
+          },
+          {
+            "actor_impl": "vectorized",
+            "body_segments_end": {
+              "max": 1207,
+              "mean": 1180.6814621409922,
+              "p50": 1201.0
+            },
+            "compile_actor": "off",
+            "config": "numba",
+            "device": "cpu",
+            "emitted_transitions": 2688,
+            "env_ms_per_frame": 234.23187516164035,
+            "extra": "",
+            "frames": 8,
+            "frames_per_s": 4.269113914613291,
+            "frozen_frac": 0.0,
+            "grow_to": 0,
+            "hero_transitions_per_s": 1639.3397432115037,
+            "ms_per_frame": 234.2406457173638,
+            "opp_forward": "per-group",
+            "timing_ms_per_frame": {
+              "featurizer_s": 4.461828211788088,
+              "forward_s": 167.9904061020352,
+              "frozen_forward_gpu_s": 0.0,
+              "frozen_forward_s": 29.473213362507522,
+              "opponents_s": 0.0,
+              "v8_s": 16.38602081220597
+            },
+            "train_args": "",
+            "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+            "v61_backend": "numba",
+            "wall_s": 1.8739251657389104,
+            "warm": 4,
+            "worlds": 128
+          },
+          {
+            "actor_impl": "vectorized",
+            "body_segments_end": {
+              "max": 1205,
+              "mean": 1188.4875816993465,
+              "p50": 1201.0
+            },
+            "compile_actor": "off",
+            "config": "numba",
+            "device": "cpu",
+            "emitted_transitions": 2688,
+            "env_ms_per_frame": 234.49945845641196,
+            "extra": "",
+            "frames": 8,
+            "frames_per_s": 4.264257833840843,
+            "frozen_frac": 0.0,
+            "grow_to": 0,
+            "hero_transitions_per_s": 1637.4750081948837,
+            "ms_per_frame": 234.50739588588476,
+            "opp_forward": "per-group",
+            "timing_ms_per_frame": {
+              "featurizer_s": 4.408244625665247,
+              "forward_s": 168.25297923060134,
+              "frozen_forward_gpu_s": 0.0,
+              "frozen_forward_s": 31.289005128201097,
+              "opponents_s": 0.0,
+              "v8_s": 16.28591143526137
+            },
+            "train_args": "",
+            "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+            "v61_backend": "numba",
+            "wall_s": 1.876059167087078,
+            "warm": 4,
+            "worlds": 128
+          }
+        ],
+        "scope": "real actor_main: step, runtime carry, replay/n-step ring writes; no learner updates",
+        "warm_frames_excluded": 4
+      },
+      "worlds": 128
+    }
+  ],
+  "git_head": "588c3836e75e29a4689d263e4a972c22189f45f2",
+  "host": {
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "python": "3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]"
+  },
+  "method": {
+    "long_length": 1200,
+    "short_length": 5,
+    "state": "same injected prepared state for every timed repetition",
+    "thread_count": 1,
+    "timing": "unprofiled perf_counter samples after one warmup each",
+    "whole_frame_scope": "runtime prepare plus learner/B8 features and frozen dispatch; no sim.step mutation"
+  },
+  "schema": "t24-v8-bodymap-fixed-state-bench/v1",
+  "source_sha256": {
+    "research/redesign_m3c_20261008/league_pool.py": "116ba9082a15fe4bf0115dee1bed78392cd60d2521a402812dcf96218ffc05be",
+    "research/redesign_m3c_20261008/train_m3c.py": "92459ce71c5d2be7955ce75dd8670d0cc062b63b7bba9b97105c7b39d676b693",
+    "research/t24_v8_bodymap_20261017/bench_bodymap.py": "855b93d34fbdfe568bff93e9a8fac73034a9d7336d120d63b5000b271aa21fa2",
+    "src/simd_env/ego_raster_bv8.py": "7dc4068101563b7a6a84614d82a4b18310e88aa7a2afaca70cc689dafc48c017",
+    "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0"
+  },
+  "versions": {
+    "numba": "0.68.0",
+    "numpy": "1.26.4",
+    "torch": "2.9.1"
+  }
+}

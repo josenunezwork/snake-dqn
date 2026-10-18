@@ -1,0 +1,622 @@
+{
+  "cases": [
+    {
+      "action_stream_sha256": [
+        "e597b99bb2caf74ed4da5eef79b1784e3be4a787bd829efbe3d3bdd7f430fe95",
+        "e597b99bb2caf74ed4da5eef79b1784e3be4a787bd829efbe3d3bdd7f430fe95"
+      ],
+      "body_length": 5,
+      "checks": {
+        "decision_frame_actions_identical": true,
+        "frozen_dispatch_actions_identical": true,
+        "learner_v8_bytes_identical": true
+      },
+      "fixture_before_first_decision": [
+        {
+          "live_rows": 768,
+          "max_segments": 5,
+          "min_segments": 5
+        },
+        {
+          "live_rows": 768,
+          "max_segments": 5,
+          "min_segments": 5
+        },
+        {
+          "live_rows": 768,
+          "max_segments": 5,
+          "min_segments": 5
+        },
+        {
+          "live_rows": 768,
+          "max_segments": 5,
+          "min_segments": 5
+        },
+        {
+          "live_rows": 768,
+          "max_segments": 5,
+          "min_segments": 5
+        },
+        {
+          "live_rows": 768,
+          "max_segments": 5,
+          "min_segments": 5
+        }
+      ],
+      "timing_samples_ms": {
+        "b8_policy_standalone": [
+          29.36029201373458,
+          29.649542178958654,
+          29.17470782995224,
+          28.525458183139563,
+          28.71870808303356,
+          28.41308293864131
+        ],
+        "b8_v8_direct_baseline": [
+          0.11725025251507759,
+          0.11700019240379333,
+          0.11504208669066429,
+          0.11462485417723656,
+          0.11237524449825287,
+          0.11154217645525932
+        ],
+        "learner_plus_b8_v8_shared_candidate": [
+          0.6995000876486301,
+          0.6911670789122581,
+          0.6903749890625477,
+          0.6885826587677002,
+          0.8679996244609356,
+          0.6968746893107891
+        ],
+        "learner_v8_direct_baseline": [
+          0.5009160377085209,
+          0.5010832101106644,
+          0.4996657371520996,
+          0.4931250587105751,
+          0.4886658862233162,
+          0.4848754033446312
+        ]
+      },
+      "whole_actor_samples": [
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 10,
+            "mean": 6.484375,
+            "p50": 6.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 206.54447929700837,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.841359736670295,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1859.0821388813936,
+          "ms_per_frame": 206.55354164773598,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.433890804648399,
+            "forward_s": 169.62263046298176,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 26.587067812215537,
+            "opponents_s": 0.0,
+            "v8_s": 1.0899687767960131
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.6524283331818879,
+          "warm": 4,
+          "worlds": 128
+        },
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 10,
+            "mean": 6.4140625,
+            "p50": 6.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 206.58521860605106,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.840418341417677,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1858.7206431043878,
+          "ms_per_frame": 206.59371349029243,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.3669166043400764,
+            "forward_s": 168.8782917917706,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 27.498369570821524,
+            "opponents_s": 0.0,
+            "v8_s": 1.0389585513621569
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.6527497079223394,
+          "warm": 4,
+          "worlds": 128
+        },
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 10,
+            "mean": 6.438802083333333,
+            "p50": 6.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 209.069671749603,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.782899578170964,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1836.6334380176502,
+          "ms_per_frame": 209.07819276908413,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.412687092553824,
+            "forward_s": 169.84653659164906,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 28.824625071138144,
+            "opponents_s": 0.0,
+            "v8_s": 1.1014376068487763
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.672625542152673,
+          "warm": 4,
+          "worlds": 128
+        },
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 10,
+            "mean": 6.484375,
+            "p50": 6.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 204.21858300687745,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.896517207507423,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1880.2626076828503,
+          "ms_per_frame": 204.22679174225777,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.225619544740766,
+            "forward_s": 167.9937398293987,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 26.24384837690741,
+            "opponents_s": 0.0,
+            "v8_s": 1.0389117524027824
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.6338143339380622,
+          "warm": 4,
+          "worlds": 128
+        },
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 10,
+            "mean": 6.4140625,
+            "p50": 6.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 204.32835444808006,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.893894504092575,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1879.255489571549,
+          "ms_per_frame": 204.33623960707337,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.286265699192882,
+            "forward_s": 167.26059379288927,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 27.044177055358887,
+            "opponents_s": 0.0,
+            "v8_s": 1.054026244673878
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.634689916856587,
+          "warm": 4,
+          "worlds": 128
+        },
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 10,
+            "mean": 6.438802083333333,
+            "p50": 6.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 206.88092173077166,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.833505499439846,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1856.0661117849006,
+          "ms_per_frame": 206.88918221276253,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.283114161808044,
+            "forward_s": 168.18080737721175,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 28.609593980945647,
+            "opponents_s": 0.0,
+            "v8_s": 1.0232864296995103
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.6551134577021003,
+          "warm": 4,
+          "worlds": 128
+        }
+      ]
+    },
+    {
+      "action_stream_sha256": [
+        "e9605d1706374639089850d7184ba0e1c3ef20a3f2e5f63a5925e11344bc7f7b",
+        "e9605d1706374639089850d7184ba0e1c3ef20a3f2e5f63a5925e11344bc7f7b"
+      ],
+      "body_length": 1200,
+      "checks": {
+        "decision_frame_actions_identical": true,
+        "frozen_dispatch_actions_identical": true,
+        "learner_v8_bytes_identical": true
+      },
+      "fixture_before_first_decision": [
+        {
+          "live_rows": 768,
+          "max_segments": 1200,
+          "min_segments": 1200
+        },
+        {
+          "live_rows": 768,
+          "max_segments": 1200,
+          "min_segments": 1200
+        },
+        {
+          "live_rows": 768,
+          "max_segments": 1200,
+          "min_segments": 1200
+        },
+        {
+          "live_rows": 768,
+          "max_segments": 1200,
+          "min_segments": 1200
+        },
+        {
+          "live_rows": 768,
+          "max_segments": 1200,
+          "min_segments": 1200
+        },
+        {
+          "live_rows": 768,
+          "max_segments": 1200,
+          "min_segments": 1200
+        }
+      ],
+      "timing_samples_ms": {
+        "b8_policy_standalone": [
+          38.37454179301858,
+          33.22066692635417,
+          32.97737520188093,
+          32.356500159949064,
+          32.4047920294106,
+          32.29199955239892
+        ],
+        "b8_v8_direct_baseline": [
+          3.0994173139333725,
+          3.704541828483343,
+          3.26187489554286,
+          2.869333140552044,
+          2.859957981854677,
+          2.8528752736747265
+        ],
+        "learner_plus_b8_v8_shared_candidate": [
+          16.521790996193886,
+          16.30954211577773,
+          16.250833868980408,
+          16.11375017091632,
+          16.01383276283741,
+          16.42824988812208
+        ],
+        "learner_v8_direct_baseline": [
+          14.647208154201508,
+          14.319916721433401,
+          15.044291969388723,
+          13.88587523251772,
+          13.821875210851431,
+          13.902875129133463
+        ]
+      },
+      "whole_actor_samples": [
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 1205,
+            "mean": 1179.142670157068,
+            "p50": 1201.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 234.44829165237024,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.265175657153781,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1637.827452347052,
+          "ms_per_frame": 234.45693223038688,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.42413572454825,
+            "forward_s": 167.43254172615707,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 29.070843826048076,
+            "opponents_s": 0.0,
+            "v8_s": 16.391057230066508
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.875655457843095,
+          "warm": 4,
+          "worlds": 128
+        },
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 1207,
+            "mean": 1180.6814621409922,
+            "p50": 1201.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 232.98688017530367,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.291933853720702,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1648.1025998287496,
+          "ms_per_frame": 232.9952031141147,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.4127810397185385,
+            "forward_s": 167.1162759885192,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 29.394687619060278,
+            "opponents_s": 0.0,
+            "v8_s": 16.211843525525182
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.8639616249129176,
+          "warm": 4,
+          "worlds": 128
+        },
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 1205,
+            "mean": 1188.4875816993465,
+            "p50": 1201.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 234.87919790204614,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.25735450872641,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1634.8241313509413,
+          "ms_per_frame": 234.88765099318698,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.416421870701015,
+            "forward_s": 168.4733644942753,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 31.414390658028424,
+            "opponents_s": 0.0,
+            "v8_s": 16.532473789993674
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.8791012079454958,
+          "warm": 4,
+          "worlds": 128
+        },
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 1205,
+            "mean": 1179.142670157068,
+            "p50": 1201.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 234.85840624198318,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.257725726941621,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1634.9666791455825,
+          "ms_per_frame": 234.86717185005546,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.471401276532561,
+            "forward_s": 167.4091768800281,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 28.852109448052943,
+            "opponents_s": 0.0,
+            "v8_s": 16.614213527645916
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.8789373748004436,
+          "warm": 4,
+          "worlds": 128
+        },
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 1207,
+            "mean": 1180.6814621409922,
+            "p50": 1201.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 234.23187516164035,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.269113914613291,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1639.3397432115037,
+          "ms_per_frame": 234.2406457173638,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.461828211788088,
+            "forward_s": 167.9904061020352,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 29.473213362507522,
+            "opponents_s": 0.0,
+            "v8_s": 16.38602081220597
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.8739251657389104,
+          "warm": 4,
+          "worlds": 128
+        },
+        {
+          "actor_impl": "vectorized",
+          "body_segments_end": {
+            "max": 1205,
+            "mean": 1188.4875816993465,
+            "p50": 1201.0
+          },
+          "compile_actor": "off",
+          "config": "numba",
+          "device": "cpu",
+          "emitted_transitions": 2688,
+          "env_ms_per_frame": 234.49945845641196,
+          "extra": "",
+          "frames": 8,
+          "frames_per_s": 4.264257833840843,
+          "frozen_frac": 0.0,
+          "grow_to": 0,
+          "hero_transitions_per_s": 1637.4750081948837,
+          "ms_per_frame": 234.50739588588476,
+          "opp_forward": "per-group",
+          "timing_ms_per_frame": {
+            "featurizer_s": 4.408244625665247,
+            "forward_s": 168.25297923060134,
+            "frozen_forward_gpu_s": 0.0,
+            "frozen_forward_s": 31.289005128201097,
+            "opponents_s": 0.0,
+            "v8_s": 16.28591143526137
+          },
+          "train_args": "",
+          "trainer_args": "--learner-seats 3 --obs-version bv8 --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin --shield v8 --reward mass --league-checkpoint-dir /Users/josenunez/Projects/ml/snake-dqn/saved_snakes --league-b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+          "v61_backend": "numba",
+          "wall_s": 1.876059167087078,
+          "warm": 4,
+          "worlds": 128
+        }
+      ]
+    }
+  ],
+  "git_head_by_leg": [
+    "588c3836e75e29a4689d263e4a972c22189f45f2",
+    "588c3836e75e29a4689d263e4a972c22189f45f2"
+  ],
+  "harness_sha256": "855b93d34fbdfe568bff93e9a8fac73034a9d7336d120d63b5000b271aa21fa2",
+  "leg_sha256": {
+    "after_4b4723f_leg1.json": "7c93eff68fce9f84d080c918058d1855ef192d631b90c8ef6e089f5d81dc98ce",
+    "after_4b4723f_leg2.json": "e735e1598ad7dc063dce55797a958a210723218e38a345794a6d5b80d68e2e8c"
+  },
+  "legs": [
+    "after_4b4723f_leg1.json",
+    "after_4b4723f_leg2.json"
+  ],
+  "method": {
+    "long_length": 1200,
+    "short_length": 5,
+    "state": "same injected prepared state for every timed repetition",
+    "thread_count": 1,
+    "timing": "unprofiled perf_counter samples after one warmup each",
+    "whole_frame_scope": "runtime prepare plus learner/B8 features and frozen dispatch; no sim.step mutation"
+  },
+  "schema": "t24-v8-bodymap-abba/v1",
+  "source_sha256_by_leg": [
+    {
+      "research/redesign_m3c_20261008/league_pool.py": "116ba9082a15fe4bf0115dee1bed78392cd60d2521a402812dcf96218ffc05be",
+      "research/redesign_m3c_20261008/train_m3c.py": "92459ce71c5d2be7955ce75dd8670d0cc062b63b7bba9b97105c7b39d676b693",
+      "research/t24_v8_bodymap_20261017/bench_bodymap.py": "855b93d34fbdfe568bff93e9a8fac73034a9d7336d120d63b5000b271aa21fa2",
+      "src/simd_env/ego_raster_bv8.py": "7dc4068101563b7a6a84614d82a4b18310e88aa7a2afaca70cc689dafc48c017",
+      "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0"
+    },
+    {
+      "research/redesign_m3c_20261008/league_pool.py": "116ba9082a15fe4bf0115dee1bed78392cd60d2521a402812dcf96218ffc05be",
+      "research/redesign_m3c_20261008/train_m3c.py": "92459ce71c5d2be7955ce75dd8670d0cc062b63b7bba9b97105c7b39d676b693",
+      "research/t24_v8_bodymap_20261017/bench_bodymap.py": "855b93d34fbdfe568bff93e9a8fac73034a9d7336d120d63b5000b271aa21fa2",
+      "src/simd_env/ego_raster_bv8.py": "7dc4068101563b7a6a84614d82a4b18310e88aa7a2afaca70cc689dafc48c017",
+      "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0"
+    }
+  ]
+}
