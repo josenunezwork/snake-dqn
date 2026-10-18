@@ -18,7 +18,7 @@ draft historical examples; use `jobs_approved/` and the generator below.
 
 | Item | Purpose | Status |
 |---|---|---|
-| `PREREGISTRATION.md` | Frozen-before-data Q0/Q1 hypothesis, qualification gates, factorial, evaluation and decision rules | Draft pending owner review |
+| `PREREGISTRATION.md` | Frozen-before-data Q0/Q1 hypothesis, qualification gates, factorial, evaluation and decision rules | Owner approved, Amendment A1 |
 | `q1_bank.py` | Creates Q1's five fresh 64/32/32 H5000 terminal-hero banks and their pre-data collision audit | Committed allocation/audit; no runtime or evaluation has run |
 | `q1_evaluate.py` | CPU shard evaluator for A--D and the one reusable B8 identity on the same registered bank | Implementation; development only |
 | `q1_parity.py` | Four-world Mac/Colab diagnostic parity comparison | Implementation; a passing probe would not be a strict gate |
@@ -226,7 +226,7 @@ replace seeds, adjust one arm's actor count or substitute a checkpoint. A1 sets
 Q0 to 40 units and the combined envelope to 175 units, with 20% reserved (140
 usable); the 24 GPU-hour, 40 CPU-hour and Q1 60-unit training caps remain in force.
 
-## Local verification and future operator commands
+## Historical draft manifests and local verification
 
 The checked-in `jobs/` directory contains 122 individual queue JSON objects:
 2 dependent Q0 CPU audits, 20 L4 arm/seed trainers, 20 B8 CPU shards, and 80

@@ -16,6 +16,7 @@ from typing import Any, Mapping
 
 from research.q0q1_20261017.run_queue_job import (
     _bound_json_bytes,
+    q0_admission_checks,
     require_owner_release,
     sha256_file,
 )
@@ -104,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     began = time.monotonic()
     error = None
     try:
+        q0_admission_checks(os.environ)
         import torch
 
         root = Path(os.environ["QUEUE_DRIVE_ROOT"])
