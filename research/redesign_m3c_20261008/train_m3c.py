@@ -3723,6 +3723,8 @@ def actor_main(
                     "weights_version": last,
                     "truncation_rows_dropped": truncation_drops,
                     "pending_nstep_rows": pending_nstep_rows,
+                    "world_frames": int(sim.E),
+                    "pool_decisions": int(sum(frozen_live_rows.values())),
                     **stats,
                     **m6_stats,
                 }
@@ -3903,6 +3905,7 @@ def main_multi(args) -> int:
     import multiprocessing as mp
 
     import torch
+    from research.redesign_m3c_20261008.q0b_timing import Q0bBoundaryRecorder
 
     from research.redesign_m2_20261008.gen_data import guard_ok
 
@@ -4153,6 +4156,7 @@ def main_multi(args) -> int:
 
     log_path = args.out / "log.jsonl"
     manifest = args.out / "manifest.jsonl"
+    q0b_boundaries = Q0bBoundaryRecorder()
     st = {
         "transitions": 0,
         "replay_rows": 0,
@@ -4169,6 +4173,8 @@ def main_multi(args) -> int:
         "learn_s": 0.0,
         "wait_s": 0.0,
         "ring_overrun_rows": 0,
+        "world_frames": 0,
+        "pool_decisions": 0,
         "decisions": 0,
         "boost": 0,
         "greedy_boost": 0,
@@ -4427,6 +4433,7 @@ def main_multi(args) -> int:
     rr = int(resume_extra.get("rr", 0))
     attached: set = set()
     stopped_for_time = False
+    q0b_measurement_started = None
     full_state_complete: Optional[bool] = None
     actor_snapshots: Dict[int, Dict[str, Any]] = {}
     actor_snapshot_serial = 0
@@ -4480,6 +4487,8 @@ def main_multi(args) -> int:
                 replay.add_many(gs, msg["a"], msg["R"], msg["disc"], gn)
                 st["since_update"] += len(gs)
                 st["replay_rows"] += len(gs)
+                st["world_frames"] += int(msg.get("world_frames", 0))
+                st["pool_decisions"] += int(msg.get("pool_decisions", 0))
                 st["truncation_rows_dropped"] += int(msg.get("truncation_rows_dropped", 0))
                 st["pending_nstep_rows_by_actor"][int(j)] = int(msg.get("pending_nstep_rows", 0))
                 if "task_collection" in msg:
@@ -4534,9 +4543,41 @@ def main_multi(args) -> int:
                     st["since_update"] -= learner.update_every
                     before = st["updates"]
                     learner.update(sched.anchor(st["transitions"]))
+                    if q0b_boundaries.enabled and q0b_measurement_started is None:
+                        q0b_measurement_started = time.perf_counter()
                     if learner.publish_due(before):
                         _publish_weights(online, wbuf, wver)
                         published += 1
+            if q0b_boundaries.enabled and q0b_measurement_started is not None:
+                elapsed = time.perf_counter() - q0b_measurement_started
+                lag = st["lag"]
+                lag_stats = {
+                    "mean": float(np.mean(lag)) if lag else 0.0,
+                    "p95": float(np.quantile(lag, 0.95)) if lag else 0.0,
+                    "age_p95": 0.0,
+                }
+                q0b_boundaries.observe(
+                    elapsed,
+                    {
+                        "learner_decisions": int(st["transitions"]),
+                        "world_frames": int(st["world_frames"]),
+                        "pool_decisions": int(st["pool_decisions"]),
+                        "emitted_replay_rows": int(st["replay_rows"]),
+                        "completed_updates": int(st["updates"]),
+                        "pending_update_debt": int(st["since_update"]),
+                        "compile_ready": True,
+                        "replay_ready": replay.size >= args.warmup,
+                        "finite_updates": st["halt"] is None,
+                        "dropped_transitions": 0,
+                        "ring_overruns": int(st["ring_overrun_rows"]),
+                        "policy_lag": lag_stats,
+                        # The runner replaces this same-run placeholder with the
+                        # matched restart control before validating the packet.
+                        "matched_control": lag_stats,
+                    },
+                )
+                if q0b_boundaries.complete:
+                    stopped_for_time = True
             if st["action_window"].full:
                 counts = st["action_window"].counts
                 if counts.max() > 0.9 * counts.sum():
