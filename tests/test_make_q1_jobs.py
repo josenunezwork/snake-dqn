@@ -76,7 +76,13 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
             {"collector": "n3", "actor_count": 6},
         ],
     }
-    monkeypatch.setattr(subject, "_qualified_receipt", lambda path, hardware: (_receipt(), packet))
+    l4_receipt = _receipt()
+    l4_receipt["runtime_parity_receipt_sha256"] = subject.sha256_file(runtime)
+    monkeypatch.setattr(
+        subject,
+        "_qualified_receipt",
+        lambda path, hardware: (l4_receipt if hardware == "L4" else _receipt(), packet),
+    )
     monkeypatch.setattr(
         subject,
         "validate_packet",
@@ -89,7 +95,7 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
             }
         },
     )
-    monkeypatch.setattr(subject, "_validate_runtime_receipt", lambda path: {})
+    monkeypatch.setattr(subject, "_validate_runtime_receipt", lambda path: {"reference": {}})
     monkeypatch.setattr(subject, "_validate_mac_reference", lambda path: {})
     monkeypatch.setattr(
         "research.q0q1_20261017.qualification.validate_admission",
@@ -114,6 +120,12 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
     assert sum(job["id"].startswith("q1-train-") for job in jobs) == 20
     assert all(job["env"]["Q0Q1_OWNER_RELEASE"] == subject.OWNER_RELEASE for job in jobs)
     assert all({"q0b-l4", "q0b-a100"} <= set(job["depends_on"]) for job in jobs)
+    assert all("q0-audit-t23-mass-a100r" in job["depends_on"] for job in jobs)
     assert all(job["env"]["Q0Q1_Q0B_A100_RECEIPT_SHA256"] for job in jobs)
     assert {job["requirements"]["min_vcpu"] for job in jobs if job["id"].startswith("q1-train-")} == {12}
     assert plan["q0_units"] == 20.0
+    import hashlib
+
+    assert jobs[0]["env"]["Q0Q1_STUDY_PLAN_SHA256"] == hashlib.sha256(
+        subject.pretty_json(plan)
+    ).hexdigest()

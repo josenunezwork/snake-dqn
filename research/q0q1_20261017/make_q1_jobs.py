@@ -32,6 +32,10 @@ def canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+def pretty_json(value: Any) -> bytes:
+    return (json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -243,8 +247,12 @@ def make_jobs(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     l4, l4_packet = _qualified_receipt(l4_receipt_path, "L4")
     a100, _ = _qualified_receipt(a100_receipt_path, "A100")
-    _validate_runtime_receipt(runtime_receipt_path)
-    _validate_mac_reference(mac_reference_path)
+    runtime_receipt = _validate_runtime_receipt(runtime_receipt_path)
+    mac_reference = _validate_mac_reference(mac_reference_path)
+    if runtime_receipt.get("reference") != mac_reference:
+        raise ValueError("runtime parity receipt does not embed the supplied Mac reference")
+    if l4.get("runtime_parity_receipt_sha256") != sha256_file(runtime_receipt_path):
+        raise ValueError("L4 packet does not bind the supplied runtime parity receipt")
     _validate_owner_admission(owner_admission_path)
     accounting = _json_object(q0_accounting_path, "Q0 observed accounting")
     plan = _study_plan(l4, a100, accounting)
@@ -262,7 +270,7 @@ def make_jobs(
         q0b_l4_receipt=str(l4_receipt_path),
         q0b_l4_receipt_sha256=sha256_file(l4_receipt_path),
         study_plan=study_plan_drive_path,
-        study_plan_sha256=hashlib.sha256(canonical(plan).encode()).hexdigest(),
+        study_plan_sha256=hashlib.sha256(pretty_json(plan)).hexdigest(),
         runtime_parity_receipt=str(runtime_receipt_path),
         runtime_parity_receipt_sha256=sha256_file(runtime_receipt_path),
         mac_parity_reference=str(mac_reference_path),
@@ -276,11 +284,25 @@ def make_jobs(
         job["env"]["Q0Q1_OWNER_RELEASE"] = OWNER_RELEASE
         job["env"]["Q0Q1_Q0B_A100_RECEIPT"] = str(a100_receipt_path)
         job["env"]["Q0Q1_Q0B_A100_RECEIPT_SHA256"] = sha256_file(a100_receipt_path)
-        job["depends_on"] = list(dict.fromkeys([*job["depends_on"], q0b_l4_job_id, q0b_a100_job_id]))
+        job["env"]["Q0Q1_MASS_ARCHIVE_DIR"] = "q0q1-20261017/q0/audit-t23-mass-a100r"
+        job["env"]["Q0Q1_INIT_ARCHIVE_DIR"] = "q0q1-20261017/q0/audit-b8-init-a100r2"
+        preserved = [item for item in job["depends_on"] if not item.startswith("q0-audit-")]
+        job["depends_on"] = list(
+            dict.fromkeys(
+                [
+                    "q0-audit-t23-mass-a100r",
+                    "q0-audit-b8-init-a100r2",
+                    *preserved,
+                    q0b_l4_job_id,
+                    q0b_a100_job_id,
+                ]
+            )
+        )
     runtime = l4_packet.get("runtime", {})
     cores = runtime.get("cpu_cores") if isinstance(runtime, Mapping) else None
-    if isinstance(cores, bool) or not isinstance(cores, int) or cores < 1:
+    if isinstance(cores, bool) or not isinstance(cores, (int, float)) or int(cores) != cores or cores < 1:
         raise ValueError("L4 packet lacks an integer observed CPU-core capacity")
+    cores = int(cores)
     for job in jobs:
         if job["id"].startswith("q1-train-"):
             collector = "n1" if job["env"]["Q1_ARM"] in ("C", "D") else "n3"
@@ -311,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--q0b-l4-receipt", type=Path, required=True)
     parser.add_argument("--q0b-a100-receipt", type=Path, required=True)
-    parser.add_argument("--runtime-parity-receipt", type=Path, required=True)
+    parser.add_argument("--runtime-parity-receipt", type=Path)
     parser.add_argument("--mac-parity-reference", type=Path, required=True)
     parser.add_argument(
         "--q0-accounting",
@@ -344,7 +366,9 @@ def main(argv: list[str] | None = None) -> int:
     l4 = _stage_evidence(args.q0b_l4_receipt, evidence / "q0b-l4-receipt.json")
     a100 = _stage_evidence(args.q0b_a100_receipt, evidence / "q0b-a100-receipt.json")
     runtime = _stage_evidence(
-        args.runtime_parity_receipt, evidence / "runtime-parity.json", member_suffix="runtime-parity.json"
+        args.runtime_parity_receipt or args.q0b_l4_receipt,
+        evidence / "runtime-parity.json",
+        member_suffix="runtime-parity.json",
     )
     mac = _stage_evidence(args.mac_parity_reference, evidence / "mac-parity-reference.json")
     owner = _stage_evidence(args.owner_admission, evidence / "owner-admission.json")
@@ -373,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
         for key, value in tuple(job["env"].items()):
             if value in replacement:
                 job["env"][key] = replacement[value]
-    (args.out_dir / "study-plan.json").write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
+    (args.out_dir / "study-plan.json").write_bytes(pretty_json(plan))
     for job in jobs:
         (args.out_dir / f"{job['id']}.json").write_text(json.dumps(job, indent=2, sort_keys=True) + "\n")
     return 0
