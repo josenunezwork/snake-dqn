@@ -53,3 +53,9 @@ seed effects (df 4).
    then INCONCLUSIVE if still neither.
 
 No extra training, no best-checkpoint swap, no seed replacement after data.
+
+## Amendment 1 (2026-10-17, before seeds 7104/7105 started; no evaluation data exists)
+
+Execution only: seeds may run on two concurrent Colab runtimes of the SAME GPU type (A100-SXM4-80GB),
+same commit a049e92, same flags. Runtime 1 runs 7101-7104, runtime 2 runs 7105 (`notebooks/colab_worker.ipynb`).
+Each seed's run.log line records the GPU. A seed on a different GPU type is INVALID for this screen.

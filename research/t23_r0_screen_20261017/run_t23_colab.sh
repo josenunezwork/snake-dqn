@@ -2,6 +2,8 @@
 # T23 R0 screen launcher for the owner's Colab runtime (PREREGISTRATION_T23.md). Runs the five seeds in
 # sequence with the trainer checked out at /content/t16-snake-dqn (T16 notebook setup), copies each seed to
 # Drive, and skips seeds whose summary.json is already on Drive (safe to re-launch after a disconnect).
+# Several runtimes may share the work: T23_SEEDS picks the order, and a seed-<s>/CLAIMED marker on Drive
+# (written before training) makes other runtimes skip it.
 set -u
 cd /content/t16-snake-dqn
 export SNAKE_CKPT_DIR=/content/t16-colab-extracted/t16-colab-inputs/checkpoints PYTHONPATH=/content/t16-snake-dqn
@@ -9,9 +11,11 @@ IN=/content/t16-colab-extracted/t16-colab-inputs
 DR=/content/drive/MyDrive/t16_colab/t23-r0
 mkdir -p "$DR" /content/t23
 echo "commit $(git rev-parse HEAD) gpu $(nvidia-smi --query-gpu=name --format=csv,noheader) start $(date -u +%FT%TZ)" >> "$DR/run.log"
-for S in 7101 7102 7103 7104 7105; do
+for S in ${T23_SEEDS:-7101 7102 7103 7104 7105}; do
   O=/content/t23/seed-$S
   if [ -f "$DR/seed-$S/summary.json" ]; then echo "skip $S (on Drive)" >> "$DR/run.log"; continue; fi
+  if [ -f "$DR/seed-$S/CLAIMED" ]; then echo "skip $S (claimed: $(cat "$DR/seed-$S/CLAIMED"))" >> "$DR/run.log"; continue; fi
+  mkdir -p "$DR/seed-$S" && echo "$(hostname) $(date -u +%FT%TZ)" > "$DR/seed-$S/CLAIMED"
   rm -rf "$O"
   echo "seed $S start $(date -u +%FT%TZ)" >> "$DR/run.log"
   /content/t16-colab-venv/bin/python research/redesign_m3c_20261008/train_m3c.py \
