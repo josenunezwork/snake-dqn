@@ -10,6 +10,7 @@ import argparse, hashlib, json, os, platform
 from pathlib import Path
 from typing import Any, Sequence
 from research.q0q1_20261017 import q1_bank
+from research.q0q1_20261017 import q1_parity
 from research.t23_r0_screen_20261017 import evaluate as t23
 
 SCHEMA = "q1-eval-shard/v1"
@@ -124,6 +125,7 @@ def run(
     shard: str,
     workers: int = 1,
     provenance_path: Path | None = None,
+    parity_path: Path | None = None,
 ) -> Path:
     if arm not in ARMS or seed not in q1_bank.TRAINING_SEEDS:
         raise ValueError("unregistered Q1 arm or seed")
@@ -149,6 +151,12 @@ def run(
         raise ValueError("B8 checkpoint does not match the released B8 SHA")
     if arm == "B8" and checkpoint_sha != b8_sha:
         raise ValueError("B8 identity must use the pinned B8 checkpoint bytes")
+    if parity_path is None:
+        raise ValueError("every Q1 evaluation identity requires --parity-receipt")
+    parity = json.loads(parity_path.read_text())
+    q1_parity.validate_runtime_receipt(
+        parity, bank_sha256=sha256(bank_path), b8_sha256=b8_sha, source_manifest=source_manifest()
+    )
     provenance = (
         None
         if arm == "B8"
@@ -168,10 +176,9 @@ def run(
         "profile_digest": profile,
         "evaluator_source_sha256": sha256(Path(__file__)),
         "evaluator_source_manifest": source_manifest(),
-        "environment_sha256": None if provenance is None else provenance["environment_sha256"],
-        "runtime_parity_receipt_sha256": (
-            None if provenance is None else provenance["runtime_parity_receipt_sha256"]
-        ),
+        "runtime_parity_receipt_sha256": sha256(parity_path),
+        "environment_sha256": parity["environment"]["sha256"],
+        "training_provenance_sha256": None if provenance is None else sha256(provenance_path),
     }
     path = receipt_path(root, seed, arm, index, count)
     if valid_completed_shard(path, identity):
@@ -209,6 +216,8 @@ def run(
             "status": "completed",
             "clean_exit": True,
             "identity": identity,
+            "runtime_parity": parity,
+            "training_provenance": provenance,
             "rows": rows,
             "rows_sha256": hashlib.sha256(canonical(rows).encode()).hexdigest(),
             "engine": {"cpu_only": True, "horizon": 5000, "terminal_hero": True},
@@ -229,6 +238,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--shard", required=True)
     p.add_argument("--workers", type=int, default=1)
     p.add_argument("--provenance", type=Path)
+    p.add_argument("--parity-receipt", type=Path, required=True)
     a = p.parse_args(argv)
     os.environ["SNAKE_DQN_DEVICE"] = "cpu"
     print(
@@ -242,6 +252,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             shard=a.shard,
             workers=a.workers,
             provenance_path=a.provenance,
+            parity_path=a.parity_receipt,
         )
     )
     return 0

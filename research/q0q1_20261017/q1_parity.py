@@ -58,6 +58,61 @@ def compare_artifacts(mac: Mapping[str, Any], colab: Mapping[str, Any]) -> dict[
     return result
 
 
+def run_sample(bank_path: Path, b8_path: Path, out: Path) -> dict[str, Any]:
+    """Materialize Q1's four reserved worlds with T23's frame/action oracle."""
+    if t23.sha256_file(b8_path) != t23.B8_SHA256:
+        raise ValueError("released B8 SHA mismatch")
+    bank = q1_bank.load_world_bank(bank_path)
+    worlds = list(bank["parity_worlds"])
+    if {m: sum(w["mix"] == m for w in worlds) for m in MIX_COUNTS} != MIX_COUNTS:
+        raise ValueError("Q1 parity allocation is not 2/1/1")
+    from research.t23_r0_screen_20261017 import evaluate
+    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+
+    context = evaluate._context(1)
+    actions_worlds = []
+    with t23.single_cpu_threads():
+        for world in worlds:
+            actions, frames = [], []
+            with t23._record_decisions(actions, frames):
+                result = evaluate.evaluate_world(
+                    world, b8_path, context["lookup"][gid.FRP3_S12[1]], context
+                )
+            actions_worlds.append(
+                {
+                    "world_id": str(world.get("world_id", world["world_seed"])),
+                    "world_seed": world["world_seed"],
+                    "mix": world["mix"],
+                    "roster_digest": world["roster_semantic_sha256"],
+                    "world_digest": t23._digest(frames),
+                    "frame_digests": frames,
+                    "actions": actions,
+                    "record": t23._comparable_record(result),
+                }
+            )
+    artifact = {
+        "schema": SCHEMA,
+        "bank_namespace": q1_bank.NAMESPACE,
+        "horizon": HORIZON,
+        "bank_sha256": hashlib.sha256(bank_path.read_bytes()).hexdigest(),
+        "b8_sha256": t23.B8_SHA256,
+        "profile_digest": bank["profile_semantic_sha256"],
+        "source_sha256": hashlib.sha256(
+            canonical(
+                {"q1_parity": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+            ).encode()
+        ).hexdigest(),
+        "worlds": actions_worlds,
+        "runtime": {
+            "python": __import__("sys").version.split()[0],
+            "platform": __import__("platform").platform(),
+            "cpu_threads": 1,
+        },
+    }
+    out.write_text(json.dumps(artifact, sort_keys=True, indent=2) + "\n")
+    return artifact
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -72,9 +127,7 @@ def main() -> int:
     # The historical runner supplies the action/frame oracle; Q1 wraps the
     # resulting artifact with its own namespace so it cannot be confused with
     # a T23 reference.
-    artifact = t23.run_sample(str(args.bank), str(args.b8), str(args.out))
-    artifact.update({"schema": SCHEMA, "bank_namespace": q1_bank.NAMESPACE})
-    args.out.write_text(json.dumps(artifact, sort_keys=True, indent=2) + "\n")
+    run_sample(args.bank, args.b8, args.out)
     return 0
 
 
