@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -152,6 +153,7 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
         return [py, "-m", "research.redesign_m3c_20261008.train_m3c", "--seed", env["Q1_SEED"],
                 "--init", str(inputs / "init/B8_s3_final.pth"), "--demo-data", str(inputs / "demo"),
                 "--out", str(local_root / "run"), "--transitions", env["Q1_TRANSITIONS"], "--device", "cuda",
+                "--max-wall-seconds", "7200",
                 "--actor-device", "cuda", "--worlds", "128", "--actors", actors,
                 "--checkpoint-every", "500000", "--reward", "mass", "--mass-kappa", "1.0",
                 "--kill-scale", "0", "--gamma-end", "0.998", "--gamma-anneal-end", "8000000",
@@ -198,6 +200,11 @@ def _scientific_done(kind: str, local_root: Path) -> None:
         raise RuntimeError("training did not reach scientificdone")
     if int(value.get("transitions", value.get("learner_transitions", 0))) < 8_000_000:
         raise RuntimeError("training did not reach the registered 8M learner decisions")
+    actors = int(value.get("actors", 0)); seats = int(value.get("m3c", {}).get("learner_seats", 0))
+    overshoot = int(value.get("transition_budget_overshoot", -1))
+    bound = actors * 128 * seats - 1
+    if actors < 1 or seats < 1 or overshoot < 0 or overshoot > bound:
+        raise RuntimeError("training exceeded the registered actor-packet overshoot bound")
 
 
 def _write_training_provenance(env: Mapping[str, str], local_root: Path) -> None:
@@ -210,11 +217,30 @@ def _write_training_provenance(env: Mapping[str, str], local_root: Path) -> None
     final = local_root / "run/final.pth"
     if not final.is_file():
         raise RuntimeError("scientifically complete training lacks final.pth")
+    import numpy as np
+    import torch
+
+    runtime = {
+        "platform": platform.platform(), "python": sys.version,
+        "torch": torch.__version__, "numpy": np.__version__,
+        "cuda_available": bool(torch.cuda.is_available()),
+        "cuda_device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+    }
+    counters = {
+        key: summary.get(key)
+        for key in ("transitions", "learner_decisions", "transition_budget_overshoot", "emitted_replay_rows", "updates", "replay_rows")
+    }
+    args = summary.get("args", {})
+    source = Path("research/redesign_m3c_20261008/train_m3c.py")
     payload = {
         "schema": "q1-training-provenance/v1", "arm": env["Q1_ARM"],
         "training_seed": int(env["Q1_SEED"]), "endpoint": 8_000_000, "clean_exit": True,
         "checkpoint_sha256": sha256_file(final), "parity_pass": True, "tripwire_triggered": False,
-        "environment_sha256": hashlib.sha256(json.dumps(summary.get("args", {}), sort_keys=True).encode()).hexdigest(),
+        "environment": runtime,
+        "environment_sha256": hashlib.sha256(json.dumps(runtime, sort_keys=True).encode()).hexdigest(),
+        "source_sha256": sha256_file(source),
+        "config_sha256": hashlib.sha256(json.dumps(args, sort_keys=True).encode()).hexdigest(),
+        "counters": counters,
         "runtime_parity_receipt_sha256": expected,
     }
     (local_root / "run/training-provenance.json").write_text(json.dumps(payload, sort_keys=True) + "\n")
