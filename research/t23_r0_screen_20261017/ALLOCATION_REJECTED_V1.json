@@ -1,0 +1,20 @@
+{
+  "schema": "t23-r0-allocation-rejected/v1",
+  "status": "REJECTED_BEFORE_GAMEPLAY",
+  "rejected_namespace": "t23-r0-h5000-terminal-hero/v1",
+  "replacement_namespace": "t23-r0-h5000-terminal-hero/v2",
+  "reason": "The corrected visible JSON/JSONL collision scanner found two world identities already recorded in external artifact receipts. The original scanner omitted --no-filename and discarded file-prefixed hits; no T23 evaluation or training gameplay was started before this correction.",
+  "collision_world_seeds": [
+    108499456,
+    634619041
+  ],
+  "visible_collision_sources": [
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m5-mac-20261013/L60_s0/telemetry.jsonl",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-autonomous-20261010/student-v8-components-v1/run00/watchdog-rss.jsonl"
+  ],
+  "v2_reaudit_required_and_completed": true,
+  "notes": [
+    "The rejected v1 allocation is never used by WORLD_BANK.json.",
+    "The v2 bank is collision-audited independently and is the only T23 allocation authorized for evaluator input."
+  ]
+}

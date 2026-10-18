@@ -1,0 +1,112 @@
+{
+  "candidate_count": 1284,
+  "generated_utc": "2026-10-18T00:40:21.893632+00:00",
+  "internal_unique": true,
+  "limitations": [
+    "Visible JSON strict-bank receipts plus bound T7 allocation; opaque binaries are outside this audit."
+  ],
+  "mandatory_evidence": {
+    "artifact_root": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts",
+      "sha256": null
+    },
+    "b8_release": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-adv-rl/docs/research/b8_s3_release_2026-10-17.md",
+      "sha256": "29b7d71b7eddbad252e6e3b30d9f402b888f47aee33349a34c0b805e446bc1c1"
+    },
+    "frp3_strict": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-adv-rl/docs/research/frp3_strict_result_2026-10-06.md",
+      "sha256": "a709a17110b57170eb6b57dddc495612046dfca0aa8d7ad6d748ae90622bd6f0"
+    },
+    "frp_exclusion_0": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v2-20261004/namespaces/training_exclusions.json",
+      "sha256": "09e4cb22e569ceea6b8af7d3fb335f2e59e791a749b07d0151108c28548d3b72"
+    },
+    "frp_exclusion_1": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005/namespaces/training_exclusions.json",
+      "sha256": "4b0f33775544e36e2ccbe6a5d8ab35b81de40565c4328dc8abddd3cea4bc1edf"
+    },
+    "frp_exclusion_2": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v4-20261007/namespaces/training_exclusions.json",
+      "sha256": "d6223bf5c0bd03cb30bdbc2c455208800e30e880ba395bf0cb5d2f6c433f6d2a"
+    },
+    "frp_exclusion_3": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/namespaces/training_exclusions.json",
+      "sha256": "8a06d278ae51a71c3f71eff8afa120b1b9fc57f22ff2cac138302be29cf68cd4"
+    },
+    "frp_exclusion_4": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/namespaces-r2/training_exclusions.json",
+      "sha256": "04dc76fc95458e212a595772de86c8a8addfa0499ec480b83a0f8ac80e5ecf96"
+    },
+    "frp_exclusion_5": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5s-20261009/namespaces/training_exclusions.json",
+      "sha256": "76b3b1fbb601115056d42e7198048b650ed7350ff8042a266cc830d97b9ddd88"
+    },
+    "frp_exclusion_6": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5s2-20261009/namespaces/training_exclusions.json",
+      "sha256": "30726df2c26da9eb26a37659c3f525ec63bf3618495de5b380bc8e426edbd885"
+    },
+    "m3_phase_r": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/plan.json",
+      "sha256": "64ee770b377a8fe545e4736812eb4f0026c8122be5bbaeaedbefd365bb64e1cf"
+    },
+    "m4_phase_r": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4-phase-r-nv-20261013/plan.json",
+      "sha256": "5e92bcdefd0a2fd6aa3d8e8b44d091d63b2a45b5a7c3898d60bacfac6747dbed"
+    },
+    "t3_manifest": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/manifest.json",
+      "sha256": "0b216da882b634e79ac640a9970a58157828da96e93ec4dbe68e6924c8141391"
+    },
+    "t3_namespace": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/namespace.json",
+      "sha256": "402e2ad8755ae3786d1c7906e44039fd6498ef00bc7190d624ea1d1525955a1b"
+    },
+    "t4_snapshot": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4b-snapshot-restart-20261016/full/manifest.json",
+      "sha256": "33a8abdbc540046a5f805fe107d1d4082fa729b4ef065fac6afee7d8f0e71eaa"
+    },
+    "t4c_bank": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-data-20261016/bank-v3/manifest.json",
+      "sha256": "4b1ea37d8c24b550e3038a16da1c025bc00198cba83fa7c7c157953e927d406c"
+    },
+    "t4c_outside": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-data-20261016/outside-bank/manifest.json",
+      "sha256": "bb8be65c31a61242dbb30d7462ac3e85e7a83a325a8d4860d536ac812ee9dd44"
+    },
+    "t4e_holdout": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/manifest.json",
+      "sha256": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c"
+    },
+    "t4e_train": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/manifest.json",
+      "sha256": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d"
+    },
+    "t4f_manifest_holdout": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-v3-20261016/banks/holdout/manifest.json",
+      "sha256": "3dce986a91e87418224eed32a46e206b9f2bcc70b4064ad1fe8719976ab7081f"
+    },
+    "t4f_manifest_train": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-v3-20261016/banks/train/manifest.json",
+      "sha256": "11f6f97be098f220f63342a7cea43dfd6c5f278179933549bc21c8829ff396bf"
+    },
+    "t7_plan": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-adv-rl/research/redesign_t7_phase_r_20261016/results/plan.json",
+      "sha256": "76731e5f25d6327e6e4e21cd084151333c6889b1e26936e3f00d065982275327"
+    },
+    "t7_seed_audit": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-adv-rl/research/redesign_t7_phase_r_20261016/SEED_AUDIT_T7.json",
+      "sha256": "0d1cee86786fe9f8b6cc3134722c95e09c73aa416ff90398717371163f41f3c5"
+    }
+  },
+  "namespace": "t23-r0-h5000-terminal-hero/v2",
+  "pass": true,
+  "registered_collision_seeds": [],
+  "registered_strict_count": 29216,
+  "schema": "t23-r0-seed-audit/v1",
+  "world_bank_file": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-adv-rl/research/t23_r0_screen_20261017/WORLD_BANK.json",
+    "sha256": "4682750aa0abaa2c4cc5be7d96e3e5cb489e4e8e076ed6a87e2d5852515bc72e"
+  },
+  "world_bank_semantic_sha256": "cf837b061fe8e37abde4830195e78abb440da8825b02ffb09c14176073a9659d"
+}

@@ -1,0 +1,50 @@
+{
+  "bank": {
+    "audit": "PASS",
+    "collisions": [],
+    "initial_worlds": 640,
+    "mandatory_evidence_count": 23,
+    "parity_worlds": 4,
+    "reserved_extension_worlds": 640
+  },
+  "colab_parity": "PENDING; launcher compares actual Colab output against the Mac artifact and fails closed",
+  "created_utc": "2026-10-18T00:42:29.097693+00:00",
+  "mac_sample": {
+    "frames": 20000,
+    "local_repeat_metrics_actions_frames_identical": true,
+    "policy_decisions": 58026,
+    "runtime": {
+      "cpu_threads": 1,
+      "gpu_used": false,
+      "platform": "macOS-27.0-arm64-arm-64bit",
+      "python": "3.12.3",
+      "vector61_forward": "rowwise"
+    },
+    "worlds": 4
+  },
+  "running_tmux_and_colab_jobs": "untouched",
+  "schema": "t23-evaluator-validation/v1",
+  "scientific_screen": "NOT RUN; no T23 candidate gameplay verdict produced",
+  "sha256": {
+    "PREREGISTRATION_T23.md": "7ce612b8a35ef3b3c498112fccde819cd56c9d74f823c58148b6f0a30d23fbe4",
+    "SEED_AUDIT.json": "4b2030627380c856fe10f5e65ccdae5b8b0f6fe571c16881777f9c6e38e93a3f",
+    "WORLD_BANK.json": "4682750aa0abaa2c4cc5be7d96e3e5cb489e4e8e076ed6a87e2d5852515bc72e",
+    "analyze.py": "158fb1f4c8688f270034a92f552f57bf6967f620636b03ed54481379ad2fd3e6",
+    "bank.py": "3547fb9c7130a48439da3651604db608f22b79f32b98027bb929ef52df42e296",
+    "evaluate.py": "d7ced94a949243b8b8d9e8153911b74551f0ee87858a9273d1bee1afc8923b80",
+    "parity.py": "dc580e4e14d3d8d54f9af4bd70f5e02982b033bed473cb0056bc97a17f60715c",
+    "parity/mac.json.gz": "e2920e2c53e3d3e685de138db72df3198ae6ed39f806481ac5fa174db576b8a4",
+    "run_t23_eval_colab.sh": "1d455300f2998be10f30e6f56d9881dbf58649a2fd781819fd4bc085e44ddd25"
+  },
+  "style": {
+    "bash_syntax": "PASS",
+    "black": "PASS",
+    "flake8": "PASS",
+    "isort": "PASS"
+  },
+  "tests": {
+    "command": "../snake-dqn/venv/bin/python -m pytest -q tests/test_t23_analysis.py tests/test_t23_decisions.py tests/test_t23_bank.py tests/test_t23_evaluate.py tests/test_t23_parity.py tests/test_t2_screen.py tests/test_eval_v61_backend_identity.py tests/test_grid_eval_engine.py",
+    "passed": 77,
+    "seconds": 89.21
+  }
+}
