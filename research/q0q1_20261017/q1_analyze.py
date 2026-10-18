@@ -11,6 +11,7 @@ from research.q0q1_20261017 import q1_bank
 
 ARMS = ("A", "B", "C", "D")
 B8 = "B8"
+B8_SHA256 = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 MIX_COUNTS = q1_bank.MIX_COUNTS
 
 
@@ -102,13 +103,21 @@ def _decision(
 def analyze(manifest: dict[str, Any], bootstrap_draws: int = 2000) -> dict[str, Any]:
     errors = []
     rows = manifest.get("rows", [])
+    bank = manifest.get("bank")
     if not isinstance(rows, list):
         return {"verdict": "INVALID", "validation_errors": ["rows must be a list"]}
+    if not isinstance(bank, dict) or bank.get("schema") != q1_bank.SCHEMA:
+        return {"verdict": "INVALID", "validation_errors": ["missing Q1 bank manifest"]}
+    if bank.get("allocation_semantic_sha256") != q1_bank.canonical_sha(
+        {"worlds": bank.get("worlds"), "parity_worlds": bank.get("parity_worlds")}
+    ):
+        return {"verdict": "INVALID", "validation_errors": ["Q1 bank semantic identity mismatch"]}
+    bank_sha = hashlib.sha256(canonical(bank).encode()).hexdigest()
     expected = {
         (seed, mix, world["world_semantic_sha256"])
         for seed in q1_bank.TRAINING_SEEDS
         for mix in MIX_COUNTS
-        for world in manifest.get("bank", {}).get("worlds", {}).get(str(seed), [])
+        for world in bank.get("worlds", {}).get(str(seed), [])
         if world.get("mix") == mix
     }
     by = defaultdict(dict)
@@ -136,6 +145,10 @@ def analyze(manifest: dict[str, Any], bootstrap_draws: int = 2000) -> dict[str, 
             or not row.get("clean_exit")
         ):
             errors.append("invalid H5000/clean receipt")
+        if row.get("world_bank_sha256") != bank_sha:
+            errors.append("row is not bound to supplied Q1 bank")
+        if row.get("b8_checkpoint_sha256") not in (None, B8_SHA256):
+            errors.append("row uses unpinned B8 comparator")
     for base in expected:
         names = by.get(base, {})
         if set(names) != {*ARMS, B8}:

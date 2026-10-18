@@ -1,4 +1,5 @@
 import hashlib
+import json
 from research.q0q1_20261017 import q1_analyze, q1_bank
 
 
@@ -8,6 +9,9 @@ def _h(value: str) -> str:
 
 def _manifest(delta: float = 25.0) -> dict:
     bank = q1_bank.build_world_bank()
+    bank_sha = hashlib.sha256(
+        json.dumps(bank, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
     rows = []
     for seed in q1_bank.TRAINING_SEEDS:
         for world in q1_bank.worlds_for_seed(bank, seed):
@@ -18,7 +22,7 @@ def _manifest(delta: float = 25.0) -> dict:
                 "horizon": 5000,
                 "frames_stepped": 5000,
                 "clean_exit": True,
-                "world_bank_sha256": _h("bank"),
+                "world_bank_sha256": bank_sha,
                 "initial_world_sha256": world["initial_world_sha256"],
                 "alive_frame_fraction": 1.0,
                 "no_death_episode": True,
