@@ -75,7 +75,10 @@ observations spanning short and long bodies, crowded and open states, exact Q
 ties, boost eligibility, and all scripted/frozen/mixed contexts.
 
 Fail closed on checkpoint fallback, wrong wrapper identity, mask disagreement,
-or frozen-seat replay contamination.  Frozen controls must accumulate neither
+or frozen-seat replay contamination. The ordinary all-false advisory mask
+uses the established normal-only fallback; test agreement explicitly and
+count/exclude trapped rows from the retained natural fidelity corpus. This
+is distinct from prohibited checkpoint substitution.  Frozen controls must accumulate neither
 gradients nor optimizer state.  The audit must also independently verify current
 collector/five-step target semantics, death versus segment truncation, and no
 cross-respawn bootstrap with scalar fixtures.
@@ -345,3 +348,29 @@ route for this budget.  No result opens a sequence of LR or anchor sweeps.
 
 Fresh Mac evidence remains required before any strict conclusion.  Q1 does not
 change the released B8 checkpoint or serving behavior.
+
+
+## Executable packet and receipt accounting clarification
+
+Q0's fidelity observations are captured during its 160 B8 development worlds,
+then consumed by the dependent initialization audit; no additional gameplay
+worlds are collected for that audit. The 4,096 retained natural observations
+must cover all registered strata; executable exact-tie and normal-only fallback
+fixtures are separately reported. Missing natural coverage is INCOMPLETE.
+
+For Q1, accepted learner decisions D and emitted replay rows R reconcile exactly
+as `D - R = dropped_truncation_rows + pending_nstep_rows`, using each actor's last
+accepted FIFO prefix. Optimizer updates U and debt reconcile as `R = 256*U + debt`.
+An identity, counter, operational cap, or parity failure precedes efficacy.
+Each arm requires all five complete seed blocks; a documented scientific
+tripwire ends that arm without a replacement or a requirement to produce its
+absent final. Unaffected complete arms retain their own decisions; contrasts
+with an unavailable arm are reported unavailable. Operational failures remain
+INCOMPLETE, including attempts retained without a final checkpoint.
+
+Each L4 job has a 90-minute script timeout and a 5,100-second trainer cap,
+allowing five minutes for export; queue setup is capped at 30 minutes. This
+bounds a whole attempt to the additive two-hour RL-advice limit. CPU pricing,
+100 per-job four-world parity probes, startup, copies and analysis enter the
+measured global forecast before admission; they are not free work. Q1 evaluation
+uses one CPU thread per world, with parallelism across immutable shards.

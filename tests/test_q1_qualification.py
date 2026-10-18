@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from research.q0q1_20261017 import qualification as subject
 
-
 HASH = "a" * 64
 
 
@@ -47,7 +46,15 @@ def _packet() -> dict:
         "hardware": "L4",
         "packet_seconds": 3590,
         "unit_rate_per_hour": 2.0,
-        "runtime": {"precision": "fp32", "batch_scale": 2, "raw_local_rings": True, "queue_depth": 2, "emitted_rows_per_update": 256, "ram_gb": 24, "cpu_cores": 4},
+        "runtime": {
+            "precision": "fp32",
+            "batch_scale": 2,
+            "raw_local_rings": True,
+            "queue_depth": 2,
+            "emitted_rows_per_update": 256,
+            "ram_gb": 24,
+            "cpu_cores": 4,
+        },
         "stages": {"setup_seconds": 100, "cleanup_seconds": 100},
         "source": {"commit": HASH},
         "config": {"trainer": HASH},
@@ -59,7 +66,13 @@ def _packet() -> dict:
             _cell("restart", "n3"),
             _cell("mature", "n3"),
         ],
-        "parity": {"target_runtime": "cuda", "short_body": True, "long_body": True, "t22": "PASS", "t24": "PASS"},
+        "parity": {
+            "target_runtime": "cuda",
+            "short_body": True,
+            "long_body": True,
+            "t22": "PASS",
+            "t24": "PASS",
+        },
     }
 
 
@@ -127,7 +140,9 @@ def test_packet_rejects_rate_decline_and_lag_regression() -> None:
 
 def test_packet_rejects_wall_time_that_cannot_cover_all_four_cells() -> None:
     packet = _packet()
-    packet["packet_seconds"] = 2100  # Four 120-second warm-ups, eight 180-second windows, setup and cleanup need 2,120.
+    packet["packet_seconds"] = (
+        2100  # Four 120-second warm-ups, eight 180-second windows, setup and cleanup need 2,120.
+    )
     outcome = subject.validate_packet(packet)
     assert outcome["status"] == "INCOMPLETE"
     assert any("wall time" in error for error in outcome["errors"])
@@ -192,7 +207,20 @@ def test_packet_rejects_zero_negative_nan_and_boolean_counters() -> None:
     outcome = subject.validate_packet(packet)
     assert outcome["status"] == "INCOMPLETE"
     assert any("actor_count" in error for error in outcome["errors"])
-    assert sum("must be > 0" in error or "positive integer count" in error for error in outcome["errors"]) >= 4
+    for field in (
+        "emitted_replay_rows",
+        "completed_updates",
+        "pending_update_debt",
+        "pool_decisions",
+    ):
+        assert any(field in error for error in outcome["errors"])
+
+
+def test_packet_accepts_zero_pending_update_debt() -> None:
+    packet = _packet()
+    for cell in packet["cells"]:
+        cell["counters"].update(emitted_replay_rows=256_000, pending_update_debt=0)
+    assert subject.validate_packet(packet)["status"] == "QUALIFIED"
 
 
 def test_admission_requires_explicit_nonzero_overhead_and_one_worker() -> None:

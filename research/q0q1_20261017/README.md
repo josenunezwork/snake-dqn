@@ -89,3 +89,31 @@ Do not repair these by rerunning or silently changing the workload:
 
 For the complete outcome order, preservation rule, and deterministic selection
 tie-break, use [PREREGISTRATION.md](PREREGISTRATION.md#q1-analysis-and-ordered-decisions).
+
+## Local verification and future operator commands
+
+The checked-in `jobs/` directory contains 122 individual queue JSON objects:
+2 dependent Q0 CPU audits, 20 L4 arm/seed trainers, 20 B8 CPU shards, and 80
+candidate CPU shards. They pin a real implementation commit and remain
+`DRAFT_PENDING_OWNER_REVIEW`. No job has been enqueued. Measured Q0b, budget,
+training-runtime parity, Mac reference, and owner-admission bindings are absent
+until those artifacts exist; the adapter refuses draft execution.
+
+Q0 mass and fidelity jobs allow respectively 240 and 120 script minutes. With
+up to 30 setup minutes per job, their combined attempt cap fits the eight-hour
+Q0 CPU envelope. Each L4 attempt permits 90 script minutes, including the trainer's
+5,100-second cap and five-minute export reserve, plus the queue's at-most-30-minute
+setup. Global caps still apply first; these per-job maxima are not additional budget.
+
+After a later owner-authorized run, extract the validated immutable job archives
+into one local evidence directory and analyze all receipts with:
+
+```bash
+python -m research.q0q1_20261017.q1_analyze --shard-root /path/to/extracted/evidence --out q1-analysis.json
+```
+
+The analyzer reads shard receipts and retained `training-outcome.json` files.
+It validates each arm separately. Missing or corrupt evidence makes that arm
+`INVALID/INCOMPLETE`; a verified scientific tripwire makes it `KILL`. No subset
+of surviving seeds supplies an arm interval. Contrasts requiring an incomplete
+arm are unavailable. Shared B8 failures invalidate every dependent arm.

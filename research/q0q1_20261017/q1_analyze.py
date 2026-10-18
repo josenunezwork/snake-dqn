@@ -127,7 +127,9 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
-def validate_input(manifest: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+def validate_input(
+    manifest: dict[str, Any], required_arms: tuple[str, ...] = ARMS
+) -> tuple[list[dict[str, Any]], list[str]]:
     """Require immutable complete shard receipts, never an unbound list of rows."""
     errors: list[str] = []
     if manifest.get("schema") != "q1-analysis-input/v1":
@@ -259,7 +261,7 @@ def validate_input(manifest: dict[str, Any]) -> tuple[list[dict[str, Any]], list
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
             errors.append(str(exc))
     for seed in q1_bank.TRAINING_SEEDS:
-        for arm in (*ARMS, B8):
+        for arm in (*required_arms, B8):
             items = by_identity[seed, arm]
             if not items:
                 errors.append(f"missing identity coverage: {arm}/{seed}")
@@ -275,131 +277,219 @@ def validate_input(manifest: dict[str, Any]) -> tuple[list[dict[str, Any]], list
     return all_rows, sorted(set(errors))
 
 
+def _failure_errors(outcome: dict[str, Any], arm: str) -> list[str]:
+    from research.q0q1_20261017.run_queue_job import classify_training_outcome
+
+    summary = outcome.get("summary", {})
+    seed = outcome.get("training_seed")
+    errors = []
+    if (
+        outcome.get("schema") != "q1-training-outcome/v1"
+        or outcome.get("arm") != arm
+        or seed not in q1_bank.TRAINING_SEEDS
+        or not isinstance(summary, dict)
+        or outcome.get("summary_sha256") != _digest(summary)
+        or outcome.get("source_sha256")
+        != q1_evaluate.sha256(q1_bank.ROOT / "research/redesign_m3c_20261008/train_m3c.py")
+    ):
+        return ["invalid training outcome identity"]
+    args = summary.get("args", {})
+    if str(args.get("seed")) != str(seed) or args.get("namespace") != q1_bank.training_namespace(
+        arm
+    ):
+        errors.append("training outcome seed/namespace mismatch")
+    if outcome.get("status") != classify_training_outcome(summary):
+        errors.append("training outcome classification mismatch")
+    return errors
+
+
+def _arm_statistics(
+    rows: list[dict[str, Any]], arm: str
+) -> tuple[dict[str, Any], dict[int, dict[str, list[float]]]]:
+    by = defaultdict(dict)
+    for row in sorted(rows, key=lambda r: (r["training_seed"], r["mix"], r["world_seed"])):
+        by[row["training_seed"], row["mix"], row["world_seed"]][row["arm"]] = row
+    effects = {s: {m: [] for m in MIX_COUNTS} for s in q1_bank.TRAINING_SEEDS}
+    alive = {s: {m: [] for m in MIX_COUNTS} for s in q1_bank.TRAINING_SEEDS}
+    nodeath = {m: [] for m in MIX_COUNTS}
+    for (seed, mix, _), identities in by.items():
+        candidate, base = identities[arm], identities[B8]
+        effects[seed][mix].append(candidate["mass_integral"] - base["mass_integral"])
+        alive[seed][mix].append(candidate["alive_frame_fraction"] - base["alive_frame_fraction"])
+        nodeath[mix].append(float(candidate["no_death_episode"]))
+    mix_mass = {m: mean(mean(effects[s][m]) for s in q1_bank.TRAINING_SEEDS) for m in MIX_COUNTS}
+    seedg = {s: mean(mean(effects[s][m]) for m in MIX_COUNTS) for s in q1_bank.TRAINING_SEEDS}
+    g = {**t90(list(seedg.values())), "seed_effects": list(seedg.values())}
+    av = {m: mean(mean(alive[s][m]) for s in q1_bank.TRAINING_SEEDS) for m in MIX_COUNTS}
+    nd = {m: mean(nodeath[m]) for m in MIX_COUNTS}
+    verdict, reasons, preserve = _decision(
+        g,
+        mix_mass["scripted"],
+        av,
+        nd,
+        min(mean(alive[s]["scripted"]) for s in q1_bank.TRAINING_SEEDS),
+        False,
+    )
+    return {
+        "verdict": verdict,
+        "kill_reasons": reasons,
+        "G": g,
+        "seed_effects": seedg,
+        "mix_mass_differences": mix_mass,
+        "per_seed_mix_effects": {
+            str(s): {m: mean(effects[s][m]) for m in MIX_COUNTS} for s in q1_bank.TRAINING_SEEDS
+        },
+        "alive_fraction_differences": av,
+        "no_death_episode_fraction": nd,
+        "preservation_certificate": preserve,
+    }, effects
+
+
 def analyze(manifest: dict[str, Any], bootstrap_draws: int = 2000) -> dict[str, Any]:
+    """Apply validity, tripwires, efficacy and preservation separately per arm."""
     if type(bootstrap_draws) is not int or bootstrap_draws <= 0:
         raise ValueError("bootstrap draws must be a positive integer")
-    rows, errors = validate_input(manifest)
-    if errors:
-        return {"schema": "q1-analysis/v1", "verdict": "INVALID", "validation_errors": errors}
-    by = defaultdict(dict)
-    for row in sorted(
-        rows, key=lambda r: (r["training_seed"], r["mix"], r["world_seed"], r["arm"])
-    ):
-        by[row["training_seed"], row["mix"], row["world_semantic_sha256"]][row["arm"]] = row
-    effects = {a: {s: {m: [] for m in MIX_COUNTS} for s in q1_bank.TRAINING_SEEDS} for a in ARMS}
-    alive = {a: {m: [] for m in MIX_COUNTS} for a in ARMS}
-    death = {a: {m: [] for m in MIX_COUNTS} for a in ARMS}
-    for (_, mix, _), identities in by.items():
-        seed = int(next(iter(identities.values()))["training_seed"])
-        base = identities[B8]
-        for arm in ARMS:
-            candidate = identities[arm]
-            effects[arm][seed][mix].append(
-                float(candidate["mass_integral"]) - float(base["mass_integral"])
-            )
-            alive[arm][mix].append(
-                float(candidate["alive_frame_fraction"]) - float(base["alive_frame_fraction"])
-            )
-            death[arm][mix].append(float(bool(candidate["no_death_episode"])))
-    arms = {}
-    trip = {}  # Every accepted candidate has a complete, tripwire-free training receipt.
+    shards = manifest.get("shards", [])
+    if not isinstance(shards, list):
+        return {
+            "schema": "q1-analysis/v1",
+            "verdict": "INVALID",
+            "validation_errors": ["shards must be a list"],
+        }
+    unknown = any(
+        not isinstance(s, dict) or s.get("identity", {}).get("arm") not in (*ARMS, B8)
+        for s in shards
+    )
+    outcomes = manifest.get("training_outcomes", [])
+    if not isinstance(outcomes, list):
+        outcomes = [{"arm": arm} for arm in ARMS]
+    arms, effects, all_errors = {}, {}, []
     for arm in ARMS:
-        mix_mass = {
-            m: mean([x for s in q1_bank.TRAINING_SEEDS for x in effects[arm][s][m]])
-            for m in MIX_COUNTS
-        }
-        seedg = {
-            s: mean(mean(effects[arm][s][m]) for m in MIX_COUNTS) for s in q1_bank.TRAINING_SEEDS
-        }
-        g = t90(list(seedg.values()))
-        g["seed_effects"] = list(seedg.values())
-        av = {m: mean(alive[arm][m]) for m in MIX_COUNTS}
-        nd = {m: mean(death[arm][m]) for m in MIX_COUNTS}
-        verdict, reasons, preserve = _decision(
-            g,
-            mix_mass["scripted"],
-            av,
-            nd,
-            min(
-                mean(
-                    [
-                        value
-                        for (s0, mix, _), identities in by.items()
-                        if s0 == s and mix == "scripted"
-                        for value in [
-                            float(identities[arm]["alive_frame_fraction"])
-                            - float(identities[B8]["alive_frame_fraction"])
-                        ]
-                    ]
-                )
-                for s in q1_bank.TRAINING_SEEDS
-            ),
-            bool(trip.get(arm)),
+        selected = [
+            s
+            for s in shards
+            if isinstance(s, dict) and s.get("identity", {}).get("arm") in (arm, B8)
+        ]
+        rows, errors = validate_input({**manifest, "shards": selected}, (arm,))
+        if unknown:
+            errors.append("unregistered shard identity")
+        arm_outcomes = [o for o in outcomes if isinstance(o, dict) and o.get("arm") == arm]
+        for outcome in arm_outcomes:
+            errors.extend(_failure_errors(outcome, arm))
+        if any(o.get("status") == "INCOMPLETE" for o in arm_outcomes):
+            errors.append("recorded operationally incomplete training attempt")
+        killed = any(o.get("status") == "KILL" for o in arm_outcomes)
+        if killed:
+            # A recorded scientific tripwire ends the arm without requiring absent finals.
+            errors = [
+                err
+                for err in errors
+                if not err.startswith("missing identity coverage")
+                and err != "missing immutable evaluation shards"
+            ]
+        if errors:
+            arms[arm] = {
+                "verdict": "INVALID/INCOMPLETE",
+                "preservation_certificate": False,
+                "validation_errors": sorted(set(errors)),
+            }
+            all_errors.extend(f"{arm}: {err}" for err in errors)
+        elif killed:
+            arms[arm] = {
+                "verdict": "KILL",
+                "preservation_certificate": False,
+                "kill_reasons": [
+                    o.get("reason", "training tripwire")
+                    for o in arm_outcomes
+                    if o.get("status") == "KILL"
+                ],
+            }
+        elif arm_outcomes:
+            arms[arm] = {
+                "verdict": "INVALID/INCOMPLETE",
+                "preservation_certificate": False,
+                "validation_errors": ["recorded operationally incomplete training attempt"],
+            }
+        else:
+            arms[arm], effects[arm] = _arm_statistics(rows, arm)
+    contrasts = {}
+    for name, left, right in (
+        ("B-A", "A", "B"),
+        ("D-C", "C", "D"),
+        ("C-A", "A", "C"),
+        ("D-B", "B", "D"),
+    ):
+        contrasts[name] = (
+            t90(
+                [
+                    arms[right]["seed_effects"][s] - arms[left]["seed_effects"][s]
+                    for s in q1_bank.TRAINING_SEEDS
+                ]
+            )
+            if left in effects and right in effects
+            else {"status": "UNAVAILABLE", "reason": "requires both complete five-seed arms"}
         )
-        arms[arm] = {
-            "verdict": verdict,
-            "kill_reasons": reasons,
-            "G": g,
-            "seed_effects": seedg,
-            "mix_mass_differences": mix_mass,
-            "per_seed_mix_effects": {
-                str(s): {m: mean(effects[arm][s][m]) for m in MIX_COUNTS}
-                for s in q1_bank.TRAINING_SEEDS
-            },
-            "alive_fraction_differences": av,
-            "no_death_episode_fraction": nd,
-            "preservation_certificate": preserve,
-        }
-    contrasts = {
-        name: t90(
+    contrasts["interaction"] = (
+        t90(
             [
-                arms[right]["seed_effects"][s] - arms[left]["seed_effects"][s]
+                (arms["D"]["seed_effects"][s] - arms["C"]["seed_effects"][s])
+                - (arms["B"]["seed_effects"][s] - arms["A"]["seed_effects"][s])
                 for s in q1_bank.TRAINING_SEEDS
             ]
         )
-        for name, left, right in (
-            ("B-A", "A", "B"),
-            ("D-C", "C", "D"),
-            ("C-A", "A", "C"),
-            ("D-B", "B", "D"),
-        )
-    }
-    contrasts["interaction"] = t90(
-        [
-            (arms["D"]["seed_effects"][s] - arms["C"]["seed_effects"][s])
-            - (arms["B"]["seed_effects"][s] - arms["A"]["seed_effects"][s])
-            for s in q1_bank.TRAINING_SEEDS
-        ]
+        if len(effects) == 4
+        else {"status": "UNAVAILABLE", "reason": "requires all four complete five-seed arms"}
     )
-    eligible = [a for a in ARMS if arms[a]["verdict"] == "GO"]
-    purpose = (
-        "GO_TO_MAC_PHASE_R"
-        if eligible
-        else (
-            "Q2_PARENT" if any(arms[a]["preservation_certificate"] for a in ARMS) else "CLOSE_ROUTE"
-        )
-    )
-    candidates = eligible or [a for a in ARMS if arms[a]["preservation_certificate"]]
+    eligible = [arm for arm in ARMS if arms[arm]["verdict"] == "GO"]
+    candidates = eligible or [arm for arm in ARMS if arms[arm]["preservation_certificate"]]
     selected = (
         sorted(
             candidates,
-            key=lambda a: (
-                -float(arms[a]["G"]["lower90"]),
-                -float(arms[a]["G"]["mean"]),
-                "DCBA".index(a),
+            key=lambda arm: (
+                -arms[arm]["G"]["lower90"],
+                -arms[arm]["G"]["mean"],
+                "DCBA".index(arm),
             ),
         )[0]
         if candidates
         else None
     )
+    verdict = (
+        "GO_TO_MAC_PHASE_R"
+        if eligible
+        else (
+            "Q2_PARENT"
+            if candidates
+            else (
+                "INVALID"
+                if all(v["verdict"] == "INVALID/INCOMPLETE" for v in arms.values())
+                else "CLOSE_ROUTE"
+            )
+        )
+    )
+    # Partial arms do not acquire an interval from the surviving seeds. All five are required.
+    bootstrap = (
+        _bootstrap(effects, bootstrap_draws)
+        if len(effects) == 4
+        else {
+            "status": "PARTIAL",
+            "arms": {
+                arm: _bootstrap({key: effects[arm] for key in ARMS}, bootstrap_draws)["central90"][
+                    "A"
+                ]
+                for arm in effects
+            },
+            "contrasts": "UNAVAILABLE without all four complete arms",
+        }
+    )
     return {
         "schema": "q1-analysis/v1",
-        "verdict": purpose,
+        "verdict": verdict,
         "selected_recipe": selected,
         "arms": arms,
         "contrasts": contrasts,
-        "hierarchical_world_within_seed_bootstrap": _bootstrap(effects, bootstrap_draws),
-        "validation_errors": [],
+        "hierarchical_world_within_seed_bootstrap": bootstrap,
+        "validation_errors": sorted(set(all_errors)),
     }
 
 
@@ -417,6 +507,10 @@ def main() -> int:
             "schema": "q1-analysis-input/v1",
             "bank": q1_bank.load_world_bank(),
             "bank_audit": json.loads(q1_bank.AUDIT_OUTPUT.read_text()),
+            "training_outcomes": [
+                json.loads(path.read_text())
+                for path in sorted(a.shard_root.rglob("training-outcome.json"))
+            ],
             "shards": [
                 json.loads(path.read_text())
                 for path in sorted(a.shard_root.rglob("shard-*-of-*.json"))

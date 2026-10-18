@@ -10,12 +10,11 @@ historical gate's wrappers or mixed-slot rules.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
+from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
-
 
 PROFILE = "task-aligned-n1"
 MIXES = ("scripted", "frozen", "mixed")
@@ -74,16 +73,22 @@ def reset_mask_after_step(hero_done: np.ndarray, frame: np.ndarray) -> np.ndarra
     return done | (frames >= HORIZON)
 
 
-def reset_seed(namespace: str, training_seed: int, actor_segment: int, env: int, ordinal: int) -> int:
+def reset_seed(
+    namespace: str, training_seed: int, actor_segment: int, env: int, ordinal: int
+) -> int:
     """Return a fresh, order-independent uint32 seed for one terminal reset."""
-    key = f"{namespace}|seed{int(training_seed)}|actor{int(actor_segment)}|env{int(env)}|reset{int(ordinal)}"
+    key = (
+        f"{namespace}|seed{int(training_seed)}|actor{int(actor_segment)}"
+        f"|env{int(env)}|reset{int(ordinal)}"
+    )
     return int.from_bytes(hashlib.sha256(key.encode("utf-8")).digest()[:4], "big")
 
 
 def mix_for_reset(training_seed: int, actor_segment: int, env: int, ordinal: int) -> str:
     """Independently sample one of the three gate mixes for a reset."""
     rng = np.random.default_rng(
-        np.random.SeedSequence([int(training_seed), 20_261_017, int(actor_segment), int(env), int(ordinal)])
+        np.random.SeedSequence(
+            [int(training_seed), 20_261_017, int(actor_segment), int(env), int(ordinal)]
+        )
     )
     return MIXES[int(rng.integers(len(MIXES)))]
-

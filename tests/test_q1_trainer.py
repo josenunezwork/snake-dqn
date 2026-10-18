@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import numpy as np
 import pytest
 
@@ -184,3 +185,20 @@ def test_task_aligned_profile_requires_explicit_n1_and_fresh_namespace():
                 C.PROFILE,
             ]
         )
+
+
+def test_q1_restarted_package_boundaries_include_reward_and_discount():
+    args = _args("--gamma-end", ".998", "--gamma-anneal-end", "8000000")
+    schedule = T.schedules_from_args(args)
+    for step, gamma, epsilon in (
+        (0, 0.99, 0.05),
+        (2_000_000, 0.99, 0.034),
+        (8_000_000, 0.998, 0.01),
+    ):
+        assert schedule.gamma(step) == pytest.approx(gamma)
+        assert schedule.eps(step) == pytest.approx(epsilon)
+        assert schedule.anchor(step) == 1.0
+        assert T.mass_term(np.array([100]), np.array([True]), schedule.gamma(step), 1.0)[
+            0
+        ] == pytest.approx(10 * (1 - gamma))
+        assert schedule.gamma(step) ** T.N_STEP == pytest.approx(gamma**5)

@@ -248,7 +248,8 @@ def audit_world_bank(repo: Path = ROOT, artifacts: Path | None = None) -> dict[s
         "mandatory_evidence": bindings,
         "pass": len(world_seeds) == 644 and not collisions,
         "limitations": [
-            "Visible receipts and bound strict inventories; opaque binary payloads are outside this audit."
+            "Visible receipts and bound strict inventories; "
+            "opaque binary payloads are outside this audit."
         ],
     }
 

@@ -1,5 +1,7 @@
-import hashlib, json
+import hashlib
+import json
 from pathlib import Path
+
 from research.q0q1_20261017 import q1_evaluate
 
 

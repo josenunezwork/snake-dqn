@@ -45,6 +45,11 @@ def _manifest(delta=25.0):
                         "actual_learner_decisions": 8_000_000,
                         "transition_budget_overshoot": 0,
                         "registered_overshoot_bound": 2303,
+                        "emitted_replay_rows": 8_000_000,
+                        "completed_updates": 31250,
+                        "pending_update_debt": 0,
+                        "truncation_rows_dropped": 0,
+                        "pending_nstep_rows": 0,
                     },
                 }
             )
@@ -201,7 +206,12 @@ def test_receipt_corruption_is_invalid(corruption):
     elif corruption == "nonfinite":
         shard["rows"][0]["mass_integral"] = -1
     shard["rows_sha256"] = a._digest(shard["rows"])
-    assert a.analyze(data, 10)["verdict"] == "INVALID"
+    result = a.analyze(data, 10)
+    invalid = [
+        arm for arm, value in result["arms"].items() if value["verdict"] == "INVALID/INCOMPLETE"
+    ]
+    assert invalid
+    assert result.get("selected_recipe") not in invalid
 
 
 def test_unbound_rows_cannot_advance():
@@ -303,3 +313,81 @@ def test_serialized_evaluator_shards_are_accepted_without_rehashing_file_whitesp
     result = a.analyze(template, 10)
     assert result["validation_errors"] == []
     assert result["selected_recipe"] == "D"
+
+
+def test_training_tripwire_kills_only_its_arm():
+    data = _manifest()
+    data["shards"] = [s for s in data["shards"] if s["identity"]["arm"] != "A"]
+    seed = b.TRAINING_SEEDS[0]
+    summary = {
+        "halt": "action collapse [100000, 0, 0, 0, 0, 0]",
+        "args": {"seed": str(seed), "namespace": b.training_namespace("A")},
+    }
+    outcome = {
+        "schema": "q1-training-outcome/v1",
+        "arm": "A",
+        "training_seed": seed,
+        "status": "KILL",
+        "reason": summary["halt"],
+        "summary": summary,
+        "summary_sha256": a._digest(summary),
+        "source_sha256": e.sha256(b.ROOT / "research/redesign_m3c_20261008/train_m3c.py"),
+    }
+    data["training_outcomes"] = [outcome]
+    result = a.analyze(data, 10)
+    assert result["arms"]["A"]["verdict"] == "KILL"
+    assert result["arms"]["D"]["verdict"] == "GO"
+    assert result["selected_recipe"] == "D"
+    assert result["contrasts"]["B-A"]["status"] == "UNAVAILABLE"
+    assert result["contrasts"]["D-C"]["mean"] == 0
+
+
+def test_incomplete_arm_cannot_replace_missing_seed_with_remaining_four():
+    data = _manifest()
+    data["shards"] = [
+        s
+        for s in data["shards"]
+        if not (
+            s["identity"]["arm"] == "D" and s["identity"]["training_seed"] == b.TRAINING_SEEDS[0]
+        )
+    ]
+    result = a.analyze(data, 10)
+    assert result["arms"]["D"]["verdict"] == "INVALID/INCOMPLETE"
+    assert result["selected_recipe"] == "C"
+
+
+def test_operational_incomplete_precedes_tripwire_within_same_arm():
+    data = _manifest()
+    data["shards"] = [s for s in data["shards"] if s["identity"]["arm"] != "A"]
+    outcomes = []
+    for seed, halt, status in (
+        (b.TRAINING_SEEDS[0], "action collapse [100000, 0]", "KILL"),
+        (b.TRAINING_SEEDS[1], "RuntimeError: Drive disconnected", "INCOMPLETE"),
+    ):
+        summary = {
+            "halt": halt,
+            "args": {"seed": str(seed), "namespace": b.training_namespace("A")},
+        }
+        outcomes.append(
+            {
+                "schema": "q1-training-outcome/v1",
+                "arm": "A",
+                "training_seed": seed,
+                "status": status,
+                "reason": halt,
+                "summary": summary,
+                "summary_sha256": a._digest(summary),
+                "source_sha256": e.sha256(b.ROOT / "research/redesign_m3c_20261008/train_m3c.py"),
+            }
+        )
+    data["training_outcomes"] = outcomes
+    result = a.analyze(data, 10)
+    assert result["arms"]["A"]["verdict"] == "INVALID/INCOMPLETE"
+    assert result["selected_recipe"] == "D"
+
+
+def test_pending_update_debt_cannot_hide_absent_optimizer_work():
+    provenance = _manifest()["shards"][0]["training_provenance"]
+    provenance["counters"].update(completed_updates=1, pending_update_debt=8_000_000 - 256)
+    with pytest.raises(ValueError, match="accounting"):
+        e.validate_provenance(provenance, "A", b.TRAINING_SEEDS[0], provenance["checkpoint_sha256"])

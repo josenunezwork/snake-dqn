@@ -5,6 +5,7 @@ qualification and owner-admitted parity receipts.  Keeping those bindings as
 required arguments prevents a draft registration from becoming runnable by
 accidentally substituting a placeholder digest.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -40,16 +41,22 @@ class Bindings:
     parity_owner_admission_sha256: str = ""
 
     def validate(self) -> None:
-        for path_name, hash_name in (("q0b_l4_receipt", "q0b_l4_receipt_sha256"),
-                                     ("study_plan", "study_plan_sha256"),
-                                     ("runtime_parity_receipt", "runtime_parity_receipt_sha256"),
-                                     ("mac_parity_reference", "mac_parity_reference_sha256"),
-                                     ("parity_owner_admission", "parity_owner_admission_sha256")):
+        for path_name, hash_name in (
+            ("q0b_l4_receipt", "q0b_l4_receipt_sha256"),
+            ("study_plan", "study_plan_sha256"),
+            ("runtime_parity_receipt", "runtime_parity_receipt_sha256"),
+            ("mac_parity_reference", "mac_parity_reference_sha256"),
+            ("parity_owner_admission", "parity_owner_admission_sha256"),
+        ):
             path, digest = getattr(self, path_name), getattr(self, hash_name)
             if bool(path) != bool(digest):
                 raise ValueError(f"{path_name} and {hash_name} must be supplied together")
-            if path and (not path.startswith("/") or not SHA256_RE.fullmatch(digest) or set(digest) == {"0"}):
-                raise ValueError(f"{path_name} must have a non-placeholder absolute-path SHA-256 binding")
+            if path and (
+                not path.startswith("/") or not SHA256_RE.fullmatch(digest) or set(digest) == {"0"}
+            ):
+                raise ValueError(
+                    f"{path_name} must have a non-placeholder absolute-path SHA-256 binding"
+                )
 
 
 def _validate_commit(commit: str) -> None:
@@ -99,37 +106,98 @@ def build_jobs(commit: str, bindings: Bindings, *, eval_shards: int = 4) -> list
         raise ValueError("eval_shards must be positive")
     common = {}
     for env_path, env_hash, value_path, value_hash in (
-        ("Q0Q1_Q0B_L4_RECEIPT", "Q0Q1_Q0B_L4_RECEIPT_SHA256", bindings.q0b_l4_receipt, bindings.q0b_l4_receipt_sha256),
-        ("Q0Q1_STUDY_PLAN", "Q0Q1_STUDY_PLAN_SHA256", bindings.study_plan, bindings.study_plan_sha256),
-        ("Q1_RUNTIME_PARITY_RECEIPT", "Q1_RUNTIME_PARITY_RECEIPT_SHA256", bindings.runtime_parity_receipt, bindings.runtime_parity_receipt_sha256),
-        ("Q1_MAC_PARITY_REFERENCE", "Q1_MAC_PARITY_REFERENCE_SHA256", bindings.mac_parity_reference, bindings.mac_parity_reference_sha256),
-        ("Q0Q1_PARITY_OWNER_ADMISSION", "Q0Q1_PARITY_OWNER_ADMISSION_SHA256", bindings.parity_owner_admission, bindings.parity_owner_admission_sha256),
+        (
+            "Q0Q1_Q0B_L4_RECEIPT",
+            "Q0Q1_Q0B_L4_RECEIPT_SHA256",
+            bindings.q0b_l4_receipt,
+            bindings.q0b_l4_receipt_sha256,
+        ),
+        (
+            "Q0Q1_STUDY_PLAN",
+            "Q0Q1_STUDY_PLAN_SHA256",
+            bindings.study_plan,
+            bindings.study_plan_sha256,
+        ),
+        (
+            "Q1_RUNTIME_PARITY_RECEIPT",
+            "Q1_RUNTIME_PARITY_RECEIPT_SHA256",
+            bindings.runtime_parity_receipt,
+            bindings.runtime_parity_receipt_sha256,
+        ),
+        (
+            "Q1_MAC_PARITY_REFERENCE",
+            "Q1_MAC_PARITY_REFERENCE_SHA256",
+            bindings.mac_parity_reference,
+            bindings.mac_parity_reference_sha256,
+        ),
+        (
+            "Q0Q1_PARITY_OWNER_ADMISSION",
+            "Q0Q1_PARITY_OWNER_ADMISSION_SHA256",
+            bindings.parity_owner_admission,
+            bindings.parity_owner_admission_sha256,
+        ),
     ):
         if value_path:
             common[env_path], common[env_hash] = value_path, value_hash
     jobs: list[dict[str, Any]] = []
     q0_mass = "q0-audit-t23-mass"
     q0_init = "q0-audit-b8-init"
-    jobs.extend((
-        _job(job_id=q0_mass, commit=commit, kind="q0_t23_mass", gpu="cpu", min_vcpu=2,
-             est_minutes=240, depends_on=(), output_dir="q0q1-20261017/q0/audit-t23-mass",
-             env={"Q0Q1_T23_ROOT": f"{DRIVE_ROOT}/t23-r0", **common}, priority=100),
-        _job(job_id=q0_init, commit=commit, kind="q0_b8_init", gpu="cpu", min_vcpu=2,
-             est_minutes=120, depends_on=(q0_mass,), output_dir="q0q1-20261017/q0/audit-b8-init",
-             env={"Q0Q1_T23_ROOT": f"{DRIVE_ROOT}/t23-r0", **common}, priority=100),
-    ))
+    jobs.extend(
+        (
+            _job(
+                job_id=q0_mass,
+                commit=commit,
+                kind="q0_t23_mass",
+                gpu="cpu",
+                min_vcpu=2,
+                est_minutes=240,
+                timeout_minutes=240,
+                depends_on=(),
+                output_dir="q0q1-20261017/q0/audit-t23-mass",
+                env={"Q0Q1_T23_ROOT": f"{DRIVE_ROOT}/t23-r0", **common},
+                priority=100,
+            ),
+            _job(
+                job_id=q0_init,
+                commit=commit,
+                kind="q0_b8_init",
+                gpu="cpu",
+                min_vcpu=2,
+                est_minutes=120,
+                timeout_minutes=120,
+                depends_on=(q0_mass,),
+                output_dir="q0q1-20261017/q0/audit-b8-init",
+                env={"Q0Q1_T23_ROOT": f"{DRIVE_ROOT}/t23-r0", **common},
+                priority=100,
+            ),
+        )
+    )
     q0_dependencies = (q0_mass, q0_init)
     train_ids: dict[tuple[str, int], str] = {}
     for arm in ARMS:
         for seed in q1_bank.TRAINING_SEEDS:
             job_id = f"q1-train-{arm.lower()}-{seed}"
             train_ids[arm, seed] = job_id
-            jobs.append(_job(
-                job_id=job_id, commit=commit, kind="q1_train", gpu="L4", min_vcpu=12,
-                est_minutes=90, timeout_minutes=90, depends_on=q0_dependencies,
-                output_dir=f"q0q1-20261017/q1/training/arm-{arm}/seed-{seed}", priority=90,
-                env={"Q1_ARM": arm, "Q1_SEED": str(seed), "Q1_TRANSITIONS": "8000000", **common},
-            ))
+            jobs.append(
+                _job(
+                    job_id=job_id,
+                    commit=commit,
+                    kind="q1_train",
+                    gpu="L4",
+                    min_vcpu=12,
+                    est_minutes=90,
+                    timeout_minutes=90,
+                    depends_on=q0_dependencies,
+                    output_dir=f"q0q1-20261017/q1/training/arm-{arm}/seed-{seed}",
+                    priority=90,
+                    env={
+                        "Q1_ARM": arm,
+                        "Q1_SEED": str(seed),
+                        "Q1_TRANSITIONS": "8000000",
+                        **common,
+                    },
+                )
+            )
     # B8 is evaluated once for each fresh seed bank.  Candidate shards consume the
     # matching B8 shard, never recomputing it for each arm.
     for seed in q1_bank.TRAINING_SEEDS:
@@ -137,22 +205,48 @@ def build_jobs(commit: str, bindings: Bindings, *, eval_shards: int = 4) -> list
             selector = f"{shard_index}/{eval_shards}"
             b8_id = f"q1-eval-b8-{seed}-s{shard_index}of{eval_shards}"
             base_env = {"Q1_SEED": str(seed), "Q1_SHARD": selector, **common}
-            jobs.append(_job(
-                job_id=b8_id, commit=commit, kind="q1_eval", gpu="cpu", min_vcpu=2,
-                est_minutes=120, depends_on=q0_dependencies,
-                output_dir=f"q0q1-20261017/q1/evaluation/seed-{seed}/B8/shard-{shard_index}-of-{eval_shards}",
-                env={"Q1_ARM": "B8", **base_env}, priority=70,
-            ))
+            jobs.append(
+                _job(
+                    job_id=b8_id,
+                    commit=commit,
+                    kind="q1_eval",
+                    gpu="cpu",
+                    min_vcpu=2,
+                    est_minutes=120,
+                    depends_on=q0_dependencies,
+                    output_dir=(
+                        f"q0q1-20261017/q1/evaluation/seed-{seed}/B8/"
+                        f"shard-{shard_index}-of-{eval_shards}"
+                    ),
+                    env={"Q1_ARM": "B8", **base_env},
+                    priority=70,
+                )
+            )
             for arm in ARMS:
                 candidate_id = f"q1-eval-{arm.lower()}-{seed}-s{shard_index}of{eval_shards}"
                 train_output = f"{DRIVE_ROOT}/q0q1-20261017/q1/training/arm-{arm}/seed-{seed}"
-                jobs.append(_job(
-                    job_id=candidate_id, commit=commit, kind="q1_eval", gpu="cpu", min_vcpu=2,
-                    est_minutes=120, depends_on=(*q0_dependencies, train_ids[arm, seed], b8_id),
-                    output_dir=f"q0q1-20261017/q1/evaluation/seed-{seed}/{arm}/shard-{shard_index}-of-{eval_shards}",
-                    env={"Q1_ARM": arm, "Q1_TRAINING_ARCHIVE": f"{train_output}/result.tar.gz",
-                         "Q1_TRAINING_ARCHIVE_SHA256": f"{train_output}/result.tar.gz.sha256", **base_env}, priority=60,
-                ))
+                jobs.append(
+                    _job(
+                        job_id=candidate_id,
+                        commit=commit,
+                        kind="q1_eval",
+                        gpu="cpu",
+                        min_vcpu=2,
+                        est_minutes=120,
+                        depends_on=(*q0_dependencies, train_ids[arm, seed], b8_id),
+                        output_dir=(
+                            f"q0q1-20261017/q1/evaluation/seed-{seed}/{arm}/"
+                            f"shard-{shard_index}-of-{eval_shards}"
+                        ),
+                        env={
+                            "Q1_ARM": arm,
+                            "Q1_TRAINING_ARCHIVE": f"{train_output}/result.tar.gz",
+                            "Q1_TRAINING_ARCHIVE_SHA256": f"{train_output}/result.tar.gz.sha256",
+                            **base_env,
+                        },
+                        priority=60,
+                    )
+                )
     ids = [job["id"] for job in jobs]
     if len(ids) != len(set(ids)):
         raise AssertionError("Q0/Q1 generator made duplicate IDs")
@@ -173,15 +267,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--parity-owner-admission")
     parser.add_argument("--parity-owner-admission-sha256")
     parser.add_argument("--eval-shards", type=int, default=4)
-    parser.add_argument("--out", type=Path, help="optional one JSON-array review artifact; never enqueues")
-    parser.add_argument("--out-dir", type=Path, help="write one queue-ready object per job ID; never enqueues")
+    parser.add_argument(
+        "--out", type=Path, help="optional one JSON-array review artifact; never enqueues"
+    )
+    parser.add_argument(
+        "--out-dir", type=Path, help="write one queue-ready object per job ID; never enqueues"
+    )
     args = parser.parse_args(argv)
-    jobs = build_jobs(args.commit, Bindings(args.q0b_l4_receipt or "", args.q0b_l4_receipt_sha256 or "",
-                                           args.study_plan or "", args.study_plan_sha256 or "",
-                                           args.runtime_parity_receipt or "", args.runtime_parity_receipt_sha256 or "",
-                                           args.mac_parity_reference or "", args.mac_parity_reference_sha256 or "",
-                                           args.parity_owner_admission or "", args.parity_owner_admission_sha256 or ""),
-                      eval_shards=args.eval_shards)
+    jobs = build_jobs(
+        args.commit,
+        Bindings(
+            args.q0b_l4_receipt or "",
+            args.q0b_l4_receipt_sha256 or "",
+            args.study_plan or "",
+            args.study_plan_sha256 or "",
+            args.runtime_parity_receipt or "",
+            args.runtime_parity_receipt_sha256 or "",
+            args.mac_parity_reference or "",
+            args.mac_parity_reference_sha256 or "",
+            args.parity_owner_admission or "",
+            args.parity_owner_admission_sha256 or "",
+        ),
+        eval_shards=args.eval_shards,
+    )
     text = json.dumps(jobs, indent=2, sort_keys=True) + "\n"
     if args.out and args.out_dir:
         parser.error("--out and --out-dir are mutually exclusive")

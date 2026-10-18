@@ -87,6 +87,24 @@ def validate_provenance(value: dict[str, Any], arm: str, seed: int, checkpoint_s
         or bound != actors * worlds * seats - 1
     ):
         raise ValueError("candidate overshoot bound differs from registered actor packet")
+    accounting_keys = (
+        "emitted_replay_rows",
+        "completed_updates",
+        "pending_update_debt",
+        "truncation_rows_dropped",
+        "pending_nstep_rows",
+    )
+    if any(type(counters.get(k)) is not int or counters[k] < 0 for k in accounting_keys):
+        raise ValueError("candidate replay/update/tail counters are missing or invalid")
+    emitted, updates, debt, dropped, pending = (counters[k] for k in accounting_keys)
+    if (
+        updates == 0
+        or debt >= 256
+        or pending > actors * worlds * seats * 5
+        or emitted != 256 * updates + debt
+        or decisions - emitted != dropped + pending
+    ):
+        raise ValueError("candidate decision/replay/update/tail accounting does not reconcile")
     for name in ("environment", "config"):
         content = value.get(name)
         if (
