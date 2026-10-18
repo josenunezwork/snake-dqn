@@ -1,0 +1,48 @@
+Sat Oct 17 23:52:32 UTC 2026
+/Users/josenunez/Projects/ml/snake-dqn-pactor
+/Users/josenunez/Projects/ml/snake-dqn-pactor
+588c3836e75e29a4689d263e4a972c22189f45f2
+Python 3.12.3
+numpy 1.26.4
+numba 0.68.0
+torch 2.9.1
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-pactor
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 382 items
+
+tests/test_v8_nb.py ....                                                 [  1%]
+tests/test_ego_raster.py .........................................       [ 11%]
+tests/test_ego_raster_bv8.py ............                                [ 14%]
+tests/test_ego_live_identity.py .....                                    [ 16%]
+tests/test_ego_live_bv8.py ......                                        [ 17%]
+tests/test_grid_sim_parity.py .......................................... [ 28%]
+......................................................                   [ 42%]
+tests/test_grid_sim_nb.py .....                                          [ 44%]
+tests/test_perf_actor.py ........................                        [ 50%]
+tests/test_m3c_trainer.py .................                              [ 54%]
+tests/test_t16_colab_bundle.py .....                                     [ 56%]
+tests/test_t16_colab_compare.py .........                                [ 58%]
+tests/test_t16_colab_environment.py ..............                       [ 62%]
+tests/test_t16_colab_notebook.py ...                                     [ 63%]
+tests/test_t16_colab_sampler.py ..                                       [ 63%]
+tests/test_t16_colab_smoke.py ...........................                [ 70%]
+tests/test_t19_compare.py ............                                   [ 73%]
+tests/test_t19_league_pool.py ..........                                 [ 76%]
+tests/test_t19_mixed_collector.py .......                                [ 78%]
+tests/test_t21_actor_control.py ..                                       [ 78%]
+tests/test_t21_actor_snapshot.py ...                                     [ 79%]
+tests/test_t21_colab_long_run.py .......                                 [ 81%]
+tests/test_t21_demo_snapshot.py ....                                     [ 82%]
+tests/test_t21_execution_snapshot.py .......                             [ 84%]
+tests/test_t21_full_state.py .................                           [ 88%]
+tests/test_t21_multi_integration.py ..                                   [ 89%]
+tests/test_t21_sync_integration.py ..                                    [ 89%]
+tests/test_t22_frozen_pool.py ..........                                 [ 92%]
+tests/test_t22_random_safe.py ...............                            [ 96%]
+tests/test_t24_v8_bodymap.py ..............                              [100%]
+
+------------- generated xml file: /tmp/t24-core-qualification.xml --------------
+======================= 382 passed in 414.03s (0:06:54) ========================

@@ -361,8 +361,8 @@ fixtures; these are regression checks, not research training results.
 
 The eager v8 path paints retained old-body release times once per movement
 speed, rather than for each of six actions. Boost static blockers use the same
-retained-cell traversal. Each action temporarily overlays its intermediate
-cell and removes/restores the landing head's release restriction. Static boost
+retained-cell traversal. Each boost action temporarily overlays its intermediate
+cell; every action removes/restores the landing head's release restriction. Static boost
 blocking deliberately keeps any old-body overlap at the landing head. Duplicate
 old cells retain their maximum release time. Impossible boosts retain their
 landing sentinel and reuse the corresponding normal area.
@@ -410,3 +410,11 @@ thread isolation, and stamp rollover. The active membership BFS's full queue
 coordinates/distances and seen stamps are compared with the frozen stamped
 BFS, not merely its final count. The existing Python/live-reference long-body
 v8 test also runs, including its slow marker and real pinned checkpoints.
+
+The final bounded CPU qualification is **410 passed, zero skipped**: 382 core,
+parity, actor/trainer and lifecycle cases plus 28 compile cases. A stale local
+Inductor library initially failed to load; Apple clang with a fresh process-local
+cache passed all compile tests. The scripted-only pool test double was updated
+to implement the new feature interface. No production workaround, tolerance
+relaxation, or test deselection was used. Exact commands and clean text/JUnit
+receipts are in [T24 verification](../../research/t24_v8_bodymap_20261017/VERIFICATION.md).

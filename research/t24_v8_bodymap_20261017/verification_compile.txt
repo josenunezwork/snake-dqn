@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-pactor
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 28 items
+
+tests/test_perf_compile.py ............................                  [100%]
+
+------------ generated xml file: /tmp/t24-compile-qualification.xml ------------
+======================== 28 passed in 151.23s (0:02:31) ========================
