@@ -216,6 +216,42 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
     raise RuntimeError(f"unknown Q0/Q1 job kind: {kind!r}")
 
 
+def classify_training_outcome(summary: Mapping[str, Any]) -> str:
+    """Classify only the registered online tripwires as scientific KILLs."""
+    halt = str(summary.get("halt") or "").lower()
+    registered = ("non-finite loss", "nonfinite loss", "non-finite q", "nonfinite q",
+                  "non-finite gradient", "nonfinite gradient", "action collapse",
+                  "greedy boost rate")
+    return "KILL" if any(marker in halt for marker in registered) else "INCOMPLETE"
+
+
+def _canonical_sha(value: Mapping[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def _write_training_outcome(env: Mapping[str, str], local_root: Path, reason: str) -> None:
+    """Retain an arm-level KILL/INCOMPLETE classification for failed attempts."""
+    path = local_root / "run/summary.json"
+    if not path.is_file():
+        return
+    try:
+        summary = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return
+    if not isinstance(summary, dict):
+        return
+    outcome = {
+        "schema": "q1-training-outcome/v1", "arm": env["Q1_ARM"],
+        "training_seed": int(env["Q1_SEED"]), "status": classify_training_outcome(summary),
+        "reason": str(summary.get("halt") or reason), "summary": summary,
+        "summary_sha256": _canonical_sha(summary),
+        "source_sha256": sha256_file(Path("research/redesign_m3c_20261008/train_m3c.py")),
+    }
+    (local_root / "run/training-outcome.json").write_text(
+        json.dumps(outcome, sort_keys=True, separators=(",", ":")) + "\n"
+    )
+
+
 def _scientific_done(kind: str, local_root: Path, env: Mapping[str, str] | None = None) -> None:
     receipt = local_root / "receipt.json"
     if kind == "q1_eval":
@@ -241,6 +277,16 @@ def _scientific_done(kind: str, local_root: Path, env: Mapping[str, str] | None 
         raise RuntimeError("training actors did not all exit cleanly")
     if value.get("ring_overrun_rows") != 0:
         raise RuntimeError("training recorded ring overruns")
+    def count(name: str) -> int:
+        item = value.get(name)
+        if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+            raise RuntimeError(f"training summary lacks nonnegative integer {name}")
+        return item
+    rows, updates, debt = count("emitted_replay_rows"), count("updates"), count("pending_update_debt")
+    decisions, accounted = count("learner_decisions"), count("learner_decisions_accounted")
+    delta = value.get("decision_replay_delta")
+    if updates == 0 or rows != 256 * updates + debt or delta != accounted - rows:
+        raise RuntimeError("training replay/update/debt accounting does not reconcile")
     if int(value.get("transitions", value.get("learner_transitions", 0))) < 8_000_000:
         raise RuntimeError("training did not reach the registered 8M learner decisions")
     actors = int(value.get("actors", 0)); seats = int(value.get("m3c", {}).get("learner_seats", 0))
@@ -331,9 +377,9 @@ def run(env: Mapping[str, str] | None = None) -> int:
     local_parent = Path("/content") if Path("/content").is_dir() else Path(tempfile.gettempdir())
     local = Path(tempfile.mkdtemp(prefix="q0q1-", dir=local_parent))
     failure: Exception | None = None
+    run_env = dict(env)
     try:
         child_env = {**env, "PYTHONPATH": f"/content/t16-snake-dqn:{env.get('PYTHONPATH', '')}"}
-        run_env = dict(env)
         if env["Q0Q1_JOB_KIND"] == "q0_b8_init":
             run_env["Q0Q1_MASS_OBSERVATION_RECEIPT"] = str(stage_q0_mass_receipt(env, local))
         if env["Q0Q1_JOB_KIND"] == "q1_train":
@@ -362,6 +408,8 @@ def run(env: Mapping[str, str] | None = None) -> int:
     except Exception as exc:  # retain every failed scientific attempt for audit
         failure = exc
     finally:
+        if env.get("Q0Q1_JOB_KIND") == "q1_train" and failure is not None:
+            _write_training_outcome(run_env, local, str(failure))
         _publish_attempt(output, local, job_id=env.get("Q0Q1_JOB_ID"), status="COMPLETED" if failure is None else "INCOMPLETE", error=None if failure is None else str(failure))
         shutil.rmtree(local, ignore_errors=True)
     if failure is not None:

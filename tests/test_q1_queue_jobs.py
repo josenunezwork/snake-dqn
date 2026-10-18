@@ -83,6 +83,12 @@ def test_b8_fidelity_command_consumes_the_mass_observation_receipt(tmp_path):
     assert command[command.index("--observation-receipt") + 1] == "/mass.json"
 
 
+def test_training_outcome_only_kills_registered_scientific_tripwires():
+    assert runner.classify_training_outcome({"halt": "non-finite loss"}) == "KILL"
+    assert runner.classify_training_outcome({"halt": "action collapse [99, 0]"}) == "KILL"
+    assert runner.classify_training_outcome({"halt": "RuntimeError: Drive disconnected"}) == "INCOMPLETE"
+
+
 def test_draft_guard_runs_before_job_admission_or_output_access():
     with pytest.raises(RuntimeError, match=q.REGISTRATION_STATUS):
         runner.require_owner_release({"Q0Q1_REGISTRATION_STATUS": q.REGISTRATION_STATUS})
