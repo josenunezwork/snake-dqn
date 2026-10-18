@@ -12,7 +12,7 @@ LOG=/content/eval_start.log
     curl -fsSL "$RAW/research/t16_colab/setup_runtime.sh" -o /content/setup_eval.sh
     bash /content/setup_eval.sh "$EVAL_COMMIT" | tail -3
   fi
-  curl -fsSL "$RAW/research/t23_r0_screen_20261017/run_t23_eval_colab.sh" -o /content/eval.sh
+  curl -fsSL "https://raw.githubusercontent.com/josenunezwork/snake-dqn/${SCRIPTS_REF:-main}/research/t23_r0_screen_20261017/run_t23_eval_colab.sh" -o /content/eval.sh
   echo "launching eval at $(git -C /content/t16-snake-dqn rev-parse --short HEAD)"
 } >> "$LOG" 2>&1
 nohup bash /content/eval.sh > /content/eval.out 2>&1 &
