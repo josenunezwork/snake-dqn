@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import numpy as np
 import pytest
 
@@ -74,6 +75,52 @@ def test_horizon_truncation_keeps_the_registered_bootstrap_not_a_terminal_discou
     assert row[0].tolist() == [30]
     assert row[2].tolist() == pytest.approx([3.0])
     assert row[3].tolist() == pytest.approx([0.998]) and row[4].tolist() == [31]
+
+
+@dataclass(frozen=True)
+class _Cfg:
+    gamma: float
+
+
+def test_task_reward_gamma_changes_the_live_simulator_contract_at_schedule_boundaries():
+    class Sim:
+        cfg = _Cfg(0.99)
+
+    sim = Sim()
+    for progress in (0, 2_000_000, 8_000_000):
+        schedule = T.schedules_from_args(_args())
+        T.apply_task_reward_gamma(sim, schedule.gamma(progress))
+        assert sim.cfg.gamma == pytest.approx(schedule.gamma(progress))
+
+
+def test_task_reset_replays_constructor_food_draw_path_for_fresh_gate_seed():
+    class Sim:
+        E = 2
+        _seeds = [1, 2]
+        _rngs = [None, None]
+
+        def __init__(self):
+            self.calls = []
+
+        def _normalize_reset_env_mask(self, mask):
+            return np.asarray(mask, dtype=bool)
+
+        def _validated_reset_rngs(self, selected, seeds):
+            return [(seed, f"rng-{seed}") for seed in seeds]
+
+        def _reset_env(self, env, *, constructor_food_draws):
+            self.calls.append(("reset", env, constructor_food_draws))
+
+        def _rebuild_traversed_from_heads(self, mask):
+            self.calls.append(("traversed", mask.tolist()))
+
+        def _refresh_action_masks(self, mask):
+            self.calls.append(("masks", mask.tolist()))
+
+    sim = Sim()
+    T.reset_task_worlds(sim, np.array([False, True]), [99])
+    assert sim._seeds == [1, 99] and sim._rngs == [None, "rng-99"]
+    assert sim.calls == [("reset", 1, True), ("traversed", [False, True]), ("masks", [False, True])]
 
 
 def test_task_aligned_profile_requires_explicit_n1_and_fresh_namespace():

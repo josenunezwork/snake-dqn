@@ -262,6 +262,40 @@ def apply_schedule_package(args) -> None:
     args.anchor_start = args.anchor_floor = 0.1
 
 
+def apply_task_reward_gamma(sim, gamma: float) -> None:
+    """Set the Q1 task collector's current reward gamma on its live simulator.
+
+    Legacy actors bind one segment gamma as before.  Task-aligned N=1 has
+    independent episode clocks and cannot let an implementation segment freeze
+    the reward/PBRS gamma while its target schedule advances.
+    """
+    sim.cfg = replace(sim.cfg, gamma=float(gamma))
+
+
+def reset_task_worlds(sim, mask: np.ndarray, seeds: Sequence[int]) -> None:
+    """Reset terminal task worlds with constructor-identical seed initialization.
+
+    ``BatchSim.reset_envs`` intentionally skips the constructor-only discarded
+    food draws.  That is correct for respawns, but Q1 samples a *fresh gate
+    world* at each terminal hero reset, so it must replay those initial draws.
+    The simulator exposes the validated reset-RNG construction; this small
+    adapter preserves its validation while selecting the constructor reset path.
+    """
+    selected = np.flatnonzero(sim._normalize_reset_env_mask(mask))
+    replacements = sim._validated_reset_rngs(selected, seeds)
+    if replacements is None:
+        raise ValueError("task-world reset requires replacement seeds")
+    for e, (seed, rng) in zip(selected, replacements):
+        sim._seeds[int(e)] = seed
+        sim._rngs[int(e)] = rng
+    for e in selected:
+        sim._reset_env(int(e), constructor_food_draws=True)
+    task_mask = np.zeros(sim.E, dtype=bool)
+    task_mask[selected] = True
+    sim._rebuild_traversed_from_heads(task_mask)
+    sim._refresh_action_masks(task_mask)
+
+
 # ----------------------------------------------------------------------------- reward
 def nscal_for(args) -> int:
     """The run's scalar width (30 for ``--obs-version b``, 60 for ``bv8``)."""
@@ -1464,7 +1498,15 @@ def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False)
             if spec[0] == "scripted":
                 policies[spec] = FastProfileAnchorSimdPolicy(spec[1], seeds)
             else:
-                policies[spec] = Vector61SimdPolicy(spec[1], runtime, forward="batched")
+                policies[spec] = Vector61SimdPolicy(
+                    spec[1],
+                    runtime,
+                    forward=(
+                        "rowwise"
+                        if getattr(args, "collection_profile", "legacy") == "task-aligned-n1"
+                        else "batched"
+                    ),
+                )
                 for e, s in cells:
                     controlled[e, s] = True
     # The N=3 pool can place a vector61 policy in any non-learner seat, including
@@ -1549,7 +1591,7 @@ def refresh_task_aligned_rosters(args, ctx, sim, runtime, policies, groups, mixe
         if spec[0] == "scripted":
             policies[spec] = FastProfileAnchorSimdPolicy(spec[1], sim._seeds)
         else:
-            policies[spec] = Vector61SimdPolicy(spec[1], runtime, forward="batched")
+            policies[spec] = Vector61SimdPolicy(spec[1], runtime, forward="rowwise")
     # Random-safe depends on the current world identity.  Its policy is otherwise
     # stateless, so rebinding this tuple cannot carry a prior episode into a new one.
     for policy in policies.values():
@@ -3347,6 +3389,8 @@ def actor_main(
                     break
                 t_glob = int(progress[0])
                 eps, gamma_now = sched.eps(t_glob), sched.gamma(t_glob)
+                if task_aligned_n1:
+                    apply_task_reward_gamma(sim, gamma_now)
                 chosen: Dict[str, Any] = {}
                 timing = {"featurizer_s": 0.0, "forward_s": 0.0, "opponents_s": 0.0, "v8_s": 0.0}
                 frozen_live_rows: Dict[str, int] = {}
@@ -3512,7 +3556,10 @@ def actor_main(
                 if mass:
                     alive_after = sim.get_alive() & ~done
                     reward = reward + mass_term(
-                        sim.get_lengths(), alive_after, gamma_seg, args.mass_kappa
+                        sim.get_lengths(),
+                        alive_after,
+                        gamma_now if task_aligned_n1 else gamma_seg,
+                        args.mass_kappa,
                     )
                 m6_stats: Dict[str, int] = {}
                 if m6 is not None:
@@ -3674,7 +3721,7 @@ def actor_main(
                                 int(e),
                                 int(sim._task_reset_ordinals[e]),
                             )
-                        sim.reset_envs(reset_worlds, seeds=replacement_seeds)
+                        reset_task_worlds(sim, reset_worlds, replacement_seeds)
                         reset_rows = np.repeat(reset_worlds[:, None], sim.S, axis=1)
                         runtime.memory.reset_where(reset_rows)
                         runtime._carry_valid[reset_worlds] = False
