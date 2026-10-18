@@ -1,0 +1,31 @@
+{
+  "commit": "6e0f852c51bb6dfa996b5b6487601db27740ca21",
+  "depends_on": [
+    "q0-audit-t23-mass",
+    "q0-audit-b8-init",
+    "q1-train-d-261704",
+    "q1-eval-b8-261704-s0of4"
+  ],
+  "env": {
+    "Q0Q1_INPUT_ROOT": "/content/t16-colab-extracted/t16-colab-inputs",
+    "Q0Q1_JOB_ID": "q1-eval-d-261704-s0of4",
+    "Q0Q1_JOB_KIND": "q1_eval",
+    "Q0Q1_REGISTRATION_STATUS": "DRAFT_PENDING_OWNER_REVIEW",
+    "Q1_ARM": "D",
+    "Q1_SEED": "261704",
+    "Q1_SHARD": "0/4",
+    "Q1_TRAINING_ARCHIVE": "/content/drive/MyDrive/t16_colab/q0q1-20261017/q1/training/arm-D/seed-261704/result.tar.gz",
+    "Q1_TRAINING_ARCHIVE_SHA256": "/content/drive/MyDrive/t16_colab/q0q1-20261017/q1/training/arm-D/seed-261704/result.tar.gz.sha256",
+    "QUEUE_DRIVE_ROOT": "/content/drive/MyDrive/t16_colab"
+  },
+  "id": "q1-eval-d-261704-s0of4",
+  "output_dir": "q0q1-20261017/q1/evaluation/seed-261704/D/shard-0-of-4",
+  "priority": 60,
+  "requirements": {
+    "est_minutes": 120,
+    "gpu": "cpu",
+    "min_vcpu": 2
+  },
+  "script": "research/q0q1_20261017/run_queue_job.sh",
+  "timeout_minutes": 240
+}
