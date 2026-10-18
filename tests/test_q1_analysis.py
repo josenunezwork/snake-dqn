@@ -26,6 +26,8 @@ def _manifest(delta: float = 25.0) -> dict:
                 "initial_world_sha256": world["initial_world_sha256"],
                 "alive_frame_fraction": 1.0,
                 "no_death_episode": True,
+                "b8_checkpoint_sha256": q1_analyze.B8_SHA256,
+                "evaluator_source_sha256": _h("source"),
             }
             for arm in (*q1_analyze.ARMS, "B8"):
                 rows.append(

@@ -153,8 +153,10 @@ def analyze(manifest: dict[str, Any], bootstrap_draws: int = 2000) -> dict[str, 
             errors.append("invalid H5000/clean receipt")
         if row.get("world_bank_sha256") != bank_sha:
             errors.append("row is not bound to supplied Q1 bank")
-        if row.get("b8_checkpoint_sha256") not in (None, B8_SHA256):
+        if row.get("b8_checkpoint_sha256") != B8_SHA256:
             errors.append("row uses unpinned B8 comparator")
+        if not isinstance(row.get("evaluator_source_sha256"), str):
+            errors.append("row lacks evaluator source identity")
     for base in expected:
         names = by.get(base, {})
         if set(names) != {*ARMS, B8}:

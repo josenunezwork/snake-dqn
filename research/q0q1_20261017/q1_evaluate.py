@@ -26,6 +26,44 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def source_manifest() -> dict[str, str]:
+    root = Path(__file__).resolve().parents[2]
+    names = (
+        "research/q0q1_20261017/q1_bank.py",
+        "research/q0q1_20261017/q1_evaluate.py",
+        "research/t23_r0_screen_20261017/evaluate.py",
+        "research/apex_safety_20260926/dev_screen.py",
+        "research/redesign_scope_20261007/grid_h5000_identity.py",
+    )
+    return {name: sha256(root / name) for name in names}
+
+
+def validate_candidate_provenance(
+    path: Path, arm: str, seed: int, checkpoint: Path
+) -> dict[str, Any]:
+    value = json.loads(path.read_text())
+    required = {
+        "schema": "q1-training-provenance/v1",
+        "arm": arm,
+        "training_seed": seed,
+        "endpoint": 8_000_000,
+        "clean_exit": True,
+        "checkpoint_sha256": sha256(checkpoint),
+        "parity_pass": True,
+    }
+    if any(value.get(key) != expected for key, expected in required.items()):
+        raise ValueError("candidate provenance lacks Q1 arm/seed/8M/clean/parity binding")
+    if (
+        value.get("tripwire_triggered") is True
+        or not isinstance(value.get("environment_sha256"), str)
+        or not isinstance(value.get("runtime_parity_receipt_sha256"), str)
+    ):
+        raise ValueError(
+            "candidate provenance has tripwire or missing environment/runtime parity binding"
+        )
+    return value
+
+
 def _write(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -81,6 +119,7 @@ def run(
     seed: int,
     shard: str,
     workers: int = 1,
+    provenance_path: Path | None = None,
 ) -> Path:
     if arm not in ARMS or seed not in q1_bank.TRAINING_SEEDS:
         raise ValueError("unregistered Q1 arm or seed")
@@ -106,6 +145,11 @@ def run(
         raise ValueError("B8 checkpoint does not match the released B8 SHA")
     if arm == "B8" and checkpoint_sha != b8_sha:
         raise ValueError("B8 identity must use the pinned B8 checkpoint bytes")
+    provenance = (
+        None
+        if arm == "B8"
+        else validate_candidate_provenance(Path(provenance_path or ""), arm, seed, checkpoint)
+    )
     identity = {
         "training_seed": seed,
         "arm": arm,
@@ -119,6 +163,11 @@ def run(
         "bank_sha256": q1_bank_digest,
         "profile_digest": profile,
         "evaluator_source_sha256": sha256(Path(__file__)),
+        "evaluator_source_manifest": source_manifest(),
+        "environment_sha256": None if provenance is None else provenance["environment_sha256"],
+        "runtime_parity_receipt_sha256": (
+            None if provenance is None else provenance["runtime_parity_receipt_sha256"]
+        ),
     }
     path = receipt_path(root, seed, arm, index, count)
     if valid_completed_shard(path, identity):
@@ -175,6 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--shard", required=True)
     p.add_argument("--workers", type=int, default=1)
+    p.add_argument("--provenance", type=Path)
     a = p.parse_args(argv)
     os.environ["SNAKE_DQN_DEVICE"] = "cpu"
     print(
@@ -187,6 +237,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             seed=a.seed,
             shard=a.shard,
             workers=a.workers,
+            provenance_path=a.provenance,
         )
     )
     return 0
