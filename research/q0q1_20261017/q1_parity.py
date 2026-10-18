@@ -38,6 +38,15 @@ def validate_runtime_receipt(
     environment = value.get("environment")
     if not isinstance(environment, Mapping) or not isinstance(environment.get("sha256"), str):
         raise ValueError("runtime parity receipt lacks evaluation-runtime environment identity")
+    reference, runtime = value.get("reference"), value.get("runtime_artifact")
+    if not isinstance(reference, Mapping) or not isinstance(runtime, Mapping):
+        raise ValueError("runtime parity receipt lacks embedded artifacts")
+    compared = compare_artifacts(reference, runtime)
+    if not compared.get("pass") or value.get("comparison") != compared:
+        raise ValueError("runtime parity receipt comparison is forged or stale")
+    runtime_environment = hashlib.sha256(canonical(runtime.get("runtime")).encode()).hexdigest()
+    if environment.get("sha256") != runtime_environment:
+        raise ValueError("runtime parity environment hash does not bind runtime artifact")
 
 
 def compare_artifacts(mac: Mapping[str, Any], colab: Mapping[str, Any]) -> dict[str, Any]:
@@ -94,7 +103,7 @@ def run_sample(bank_path: Path, b8_path: Path, out: Path) -> dict[str, Any]:
         "schema": SCHEMA,
         "bank_namespace": q1_bank.NAMESPACE,
         "horizon": HORIZON,
-        "bank_sha256": hashlib.sha256(bank_path.read_bytes()).hexdigest(),
+        "bank_sha256": hashlib.sha256(canonical(bank).encode()).hexdigest(),
         "b8_sha256": t23.B8_SHA256,
         "profile_digest": bank["profile_semantic_sha256"],
         "source_sha256": hashlib.sha256(
@@ -138,7 +147,9 @@ def main() -> int:
     receipt = {
         "schema": "q1-runtime-parity-receipt/v1",
         "pass": compared["pass"],
-        "bank_sha256": hashlib.sha256(args.bank.read_bytes()).hexdigest(),
+        "bank_sha256": hashlib.sha256(
+            canonical(q1_bank.load_world_bank(args.bank)).encode()
+        ).hexdigest(),
         "b8_sha256": t23.B8_SHA256,
         "source_manifest": source_manifest(),
         "environment": {

@@ -51,10 +51,9 @@ def validate_provenance(value: dict[str, Any], arm: str, seed: int, checkpoint_s
     }
     if any(value.get(key) != expected for key, expected in required.items()):
         raise ValueError("candidate provenance lacks Q1 arm/seed/8M/clean/parity binding")
-    if (
-        value.get("tripwire_triggered") is True
-        or not isinstance(value.get("environment_sha256"), str)
-        or not isinstance(value.get("runtime_parity_receipt_sha256"), str)
+    hashes = ("checkpoint_sha256", "environment_sha256", "runtime_parity_receipt_sha256")
+    if value.get("tripwire_triggered") is not False or any(
+        not isinstance(value.get(key), str) or len(value[key]) != 64 for key in hashes
     ):
         raise ValueError(
             "candidate provenance has tripwire or missing environment/runtime parity binding"
@@ -155,7 +154,7 @@ def run(
         raise ValueError("every Q1 evaluation identity requires --parity-receipt")
     parity = json.loads(parity_path.read_text())
     q1_parity.validate_runtime_receipt(
-        parity, bank_sha256=sha256(bank_path), b8_sha256=b8_sha, source_manifest=source_manifest()
+        parity, bank_sha256=q1_bank_digest, b8_sha256=b8_sha, source_manifest=source_manifest()
     )
     provenance = (
         None
@@ -176,9 +175,13 @@ def run(
         "profile_digest": profile,
         "evaluator_source_sha256": sha256(Path(__file__)),
         "evaluator_source_manifest": source_manifest(),
-        "runtime_parity_receipt_sha256": sha256(parity_path),
+        "runtime_parity_receipt_sha256": hashlib.sha256(canonical(parity).encode()).hexdigest(),
         "environment_sha256": parity["environment"]["sha256"],
-        "training_provenance_sha256": None if provenance is None else sha256(provenance_path),
+        "training_provenance_sha256": (
+            None
+            if provenance is None
+            else hashlib.sha256(canonical(provenance).encode()).hexdigest()
+        ),
     }
     path = receipt_path(root, seed, arm, index, count)
     if valid_completed_shard(path, identity):
