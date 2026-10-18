@@ -132,16 +132,46 @@ printf 'Observation source/date: '; read -r RATE_EVIDENCE
   --out "$ADMISSION/observed-pricing.json"
 ```
 
-After Drive has synchronized these files, enqueue the fidelity audit first,
-then the two hardware packets. The mass job already exists; do not enqueue it
-again. Dependencies hold the packets until the named audits complete, and
+The historical strict inventories are Mac-only. Before enqueueing, create the
+hash-bound admission receipt with the full inventory audits on this Mac:
+
+```bash
+"$PY" -m research.q0q1_20261017.inventory_receipt \
+  --repo "$PWD" --artifacts /Users/josenunez/Projects/ml/snake-dqn-artifacts \
+  --out "$ADMISSION/inventory-receipt.json"
+```
+
+The approved jobs pin this receipt's SHA-256 in
+`Q0Q1_BANK_INVENTORY_RECEIPT_SHA256` and its Colab-visible path in
+`Q0Q1_BANK_INVENTORY_RECEIPT`. Missing files, changed bytes, changed audit sources,
+changed banks, or nonpassing audits fail closed. Q0's development audit uses the
+receipt in place of rescanning Mac-only files. Q1 admission checks the receipt's
+evaluation-world and training-seed exclusions alongside its committed bank audit.
+The existing Mac parity reference stays bound to the unchanged evaluator sources.
+Never replace a receipt already bound by an enqueued job; generate a new filename
+and new job IDs for a subsequent audit.
+
+The Mac execution on 2026-10-18 produced receipt SHA-256
+`2f9d74980fc8ed6a683deb52c4933eaf0516bdbcb3dea072d1b27d03ced542aa`.
+Q0 passed for 160 development worlds against 29,216 historical identities; Q1
+passed for 644 evaluation/parity worlds plus five training seeds. Both reported
+zero collisions and retained 23 mandatory evidence bindings. The approved JSONs
+pin these bytes and implementation commit `2ef0e3b8`. This records the Mac audit
+only; it does not establish Drive synchronization on a Colab worker or execution
+of any replacement job.
+
+After Drive has synchronized these files, enqueue the new mass audit, the
+fidelity audit, then both hardware packets. The previous init `r2` and capacity
+IDs were already enqueued; their replacement `r3` specs use new output directories.
+Dependencies hold the packets until the named audits complete, and
 scientific COMPLETE checks hold qualification/admission closed on a failed audit.
 
 ```bash
 q() { "$PY" research/colab_queue/q.py --drive-root "$DRIVE" "$@"; }
-q enqueue research/q0q1_20261017/jobs_approved/q0-audit-b8-init-a100r2.json
-q enqueue research/q0q1_20261017/jobs_approved/q0b-capacity-l4-20261018.json
-q enqueue research/q0q1_20261017/jobs_approved/q0b-capacity-a100-20261018.json
+q enqueue research/q0q1_20261017/jobs_approved/q0-audit-t23-mass-a100r2.json
+q enqueue research/q0q1_20261017/jobs_approved/q0-audit-b8-init-a100r3.json
+q enqueue research/q0q1_20261017/jobs_approved/q0b-capacity-l4-20261018r3.json
+q enqueue research/q0q1_20261017/jobs_approved/q0b-capacity-a100-20261018r3.json
 ```
 
 Each hardware packet has one attempt, four real learner cells, at least 120 seconds
@@ -206,14 +236,15 @@ must be new.
 JOBS="$DRIVE/q0q1-20261017/q1/jobs_approved"
 "$PY" -m research.q0q1_20261017.make_q1_jobs \
   --commit "$(git rev-parse HEAD)" \
-  --q0-mass-archive "$DRIVE/q0q1-20261017/q0/audit-t23-mass-a100r/result.tar.gz" \
-  --q0-init-archive "$DRIVE/q0q1-20261017/q0/audit-b8-init-a100r2/result.tar.gz" \
-  --q0b-l4-receipt "$DRIVE/q0q1-20261017/q0b/capacity-l4-20261018/result.tar.gz" \
-  --q0b-a100-receipt "$DRIVE/q0q1-20261017/q0b/capacity-a100-20261018/result.tar.gz" \
+  --inventory-receipt "$ADMISSION/inventory-receipt.json" \
+  --q0-mass-archive "$DRIVE/q0q1-20261017/q0/audit-t23-mass-a100r2/result.tar.gz" \
+  --q0-init-archive "$DRIVE/q0q1-20261017/q0/audit-b8-init-a100r3/result.tar.gz" \
+  --q0b-l4-receipt "$DRIVE/q0q1-20261017/q0b/capacity-l4-20261018r3/result.tar.gz" \
+  --q0b-a100-receipt "$DRIVE/q0q1-20261017/q0b/capacity-a100-20261018r3/result.tar.gz" \
   --mac-parity-reference "$ADMISSION/mac-parity-reference.json" \
   --q0-accounting "$ADMISSION/observed-q0-accounting.json" \
-  --q0b-l4-job-id q0b-capacity-l4-20261018 \
-  --q0b-a100-job-id q0b-capacity-a100-20261018 \
+  --q0b-l4-job-id q0b-capacity-l4-20261018r3 \
+  --q0b-a100-job-id q0b-capacity-a100-20261018r3 \
   --out-dir "$JOBS"
 ```
 
