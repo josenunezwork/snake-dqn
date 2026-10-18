@@ -26,6 +26,8 @@ def _cell(schedule: str, collector: str) -> dict:
         "ring_overruns": 0,
         "counters": {
             "actual_learner_decisions": 3_582_000,
+            "world_frames": 4_000_000,
+            "pool_decisions": 2_000_000,
             "emitted_replay_rows": 256_100,
             "completed_updates": 1000,
             "pending_update_debt": 100,
@@ -45,6 +47,8 @@ def _packet() -> dict:
         "hardware": "L4",
         "packet_seconds": 3590,
         "unit_rate_per_hour": 2.0,
+        "runtime": {"precision": "fp32", "batch_scale": 2, "raw_local_rings": True, "queue_depth": 2, "emitted_rows_per_update": 256, "ram_gb": 24, "cpu_cores": 4},
+        "stages": {"setup_seconds": 100, "cleanup_seconds": 100},
         "source": {"commit": HASH},
         "config": {"trainer": HASH},
         "environment": {"lock": HASH},
@@ -66,6 +70,8 @@ def _plan() -> dict:
         "dispatch": False,
         "q1_training_hardware": "L4",
         "q0_units": 10,
+        "q0_gpu_hours": 1,
+        "q0_cpu_hours": 1,
         "cpu_unit_rate_per_hour": 0.5,
         "cpu_seconds_per_episode": 10,
         "cpu_workers": 2,
@@ -117,7 +123,7 @@ def test_packet_rejects_rate_decline_and_lag_regression() -> None:
 
 def test_packet_rejects_wall_time_that_cannot_cover_all_four_cells() -> None:
     packet = _packet()
-    packet["packet_seconds"] = 1900  # Four 120-second warm-ups and eight 180-second windows need 1,920.
+    packet["packet_seconds"] = 2100  # Four 120-second warm-ups, eight 180-second windows, setup and cleanup need 2,120.
     outcome = subject.validate_packet(packet)
     assert outcome["status"] == "INCOMPLETE"
     assert any("wall time" in error for error in outcome["errors"])
@@ -158,3 +164,15 @@ def test_admission_requires_a_single_l4_training_cohort() -> None:
     outcome = subject.validate_admission(packet, plan)
     assert outcome["status"] == "REFUSED"
     assert any("exact qualified L4 cohort" in error for error in outcome["errors"])
+
+
+def test_admission_counts_q0_hours_against_global_reserve() -> None:
+    packet = _packet()
+    for cell in packet["cells"]:
+        for window in cell["scored_windows"]:
+            window["learner_decisions"] = 500_000
+    plan = _plan()
+    plan["q0_gpu_hours"] = 18.5
+    outcome = subject.validate_admission(packet, plan)
+    assert outcome["status"] == "REFUSED"
+    assert any("GPU forecast" in error for error in outcome["errors"])

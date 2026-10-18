@@ -104,6 +104,8 @@ def _check_cell(cell: Mapping[str, Any], errors: list[str], checks: dict[str, bo
         updates = _finite_number(counters.get("completed_updates"), f"cell {name}.counters.completed_updates", errors)
         debt = _finite_number(counters.get("pending_update_debt"), f"cell {name}.counters.pending_update_debt", errors)
         decisions = _finite_number(counters.get("actual_learner_decisions"), f"cell {name}.counters.actual_learner_decisions", errors)
+        world_frames = _finite_number(counters.get("world_frames"), f"cell {name}.counters.world_frames", errors)
+        _finite_number(counters.get("pool_decisions"), f"cell {name}.counters.pool_decisions", errors)
         if rows is not None and updates is not None and debt is not None and rows > 0:
             reconciliation = abs(rows - (ROWS_PER_UPDATE * updates + debt)) / rows
             if reconciliation > 0.02:
@@ -111,6 +113,8 @@ def _check_cell(cell: Mapping[str, Any], errors: list[str], checks: dict[str, bo
             result["cadence_error"] = reconciliation
         if decisions is not None and decisions <= 0:
             errors.append(f"cell {name} must record actual learner decisions")
+        if world_frames is not None and world_frames <= 0:
+            errors.append(f"cell {name} must record positive world frames")
     lag = _mapping(cell.get("policy_lag"), f"cell {name}.policy_lag", errors)
     if lag is not None:
         control = _mapping(lag.get("matched_control"), f"cell {name}.policy_lag.matched_control", errors)
@@ -147,6 +151,20 @@ def validate_packet(packet: Any) -> dict[str, Any]:
     if elapsed is not None and elapsed > PACKET_SECONDS:
         errors.append("packet exceeds the 3600-second Q0b cap")
     rate = _finite_number(packet.get("unit_rate_per_hour"), "unit_rate_per_hour", errors, positive=True)
+    runtime = _mapping(packet.get("runtime"), "runtime", errors)
+    if runtime is not None:
+        if runtime.get("precision") != "fp32":
+            errors.append("runtime precision must be fp32")
+        if runtime.get("batch_scale") != 2:
+            errors.append("runtime batch_scale must be 2")
+        if runtime.get("raw_local_rings") is not True:
+            errors.append("qualified packet must use raw local rings")
+        if runtime.get("queue_depth") != 2:
+            errors.append("runtime queue_depth must be 2")
+        if runtime.get("emitted_rows_per_update") != ROWS_PER_UPDATE:
+            errors.append("runtime emitted_rows_per_update must be 256")
+        _finite_number(runtime.get("ram_gb"), "runtime.ram_gb", errors, positive=True)
+        _finite_number(runtime.get("cpu_cores"), "runtime.cpu_cores", errors, positive=True)
     cells = packet.get("cells")
     results: dict[str, dict[str, float]] = {}
     if not isinstance(cells, list) or len(cells) != 4:
@@ -181,6 +199,17 @@ def validate_packet(packet: Any) -> dict[str, Any]:
         for collector, counts in actors.items():
             if len(counts) != 1:
                 errors.append(f"{collector} must use one predeclared actor count across restart and mature")
+        stages = _mapping(packet.get("stages"), "stages", errors)
+        setup = _finite_number(stages.get("setup_seconds") if stages else None, "stages.setup_seconds", errors)
+        cleanup = _finite_number(stages.get("cleanup_seconds") if stages else None, "stages.cleanup_seconds", errors)
+        if setup is not None and setup < 0:
+            errors.append("stages.setup_seconds cannot be negative")
+        if cleanup is not None and cleanup < 0:
+            errors.append("stages.cleanup_seconds cannot be negative")
+        if setup is not None:
+            accounted_seconds += setup
+        if cleanup is not None:
+            accounted_seconds += cleanup
         if elapsed is not None and accounted_seconds > elapsed:
             errors.append("packet_seconds cannot cover its declared warm-up and scored-window wall time")
     parity = _mapping(packet.get("parity"), "parity", errors)
@@ -220,6 +249,12 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
     if packet.get("hardware") != "L4" or plan.get("q1_training_hardware") != "L4":
         errors.append("Q1 training admission requires one exact qualified L4 cohort")
     q0_units = _finite_number(plan.get("q0_units"), "q0_units", errors, positive=True)
+    q0_gpu_hours = _finite_number(plan.get("q0_gpu_hours"), "q0_gpu_hours", errors)
+    q0_cpu_hours = _finite_number(plan.get("q0_cpu_hours"), "q0_cpu_hours", errors)
+    if q0_gpu_hours is not None and q0_gpu_hours < 0:
+        errors.append("q0_gpu_hours cannot be negative")
+    if q0_cpu_hours is not None and q0_cpu_hours < 0:
+        errors.append("q0_cpu_hours cannot be negative")
     if q0_units is not None and q0_units > 15:
         errors.append("Q0 exceeds its 15-unit cap")
     cpu_rate = _finite_number(plan.get("cpu_unit_rate_per_hour"), "cpu_unit_rate_per_hour", errors, positive=True)
@@ -254,9 +289,11 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         cpu_hours = 3200 * float(cpu_seconds) / (3600 * float(workers) * float(efficiency))
     cpu_units = cpu_hours * float(cpu_rate) if cpu_rate is not None else None
     total_units = (float(q0_units) if q0_units is not None else 0.0) + (training_units or 0.0) + (cpu_units or 0.0)
-    if train_hours > 24 * 0.8:
+    total_gpu_hours = train_hours + (float(q0_gpu_hours) if q0_gpu_hours is not None else 0.0)
+    total_cpu_hours = cpu_hours + (float(q0_cpu_hours) if q0_cpu_hours is not None else 0.0)
+    if total_gpu_hours > 24 * 0.8:
         errors.append("GPU forecast consumes more than the 80% usable 24 GPU-hour envelope")
-    if cpu_hours > 40 * 0.8:
+    if total_cpu_hours > 40 * 0.8:
         errors.append("CPU forecast consumes more than the 80% usable 40 CPU-hour envelope")
     if total_units > 150 * 0.8:
         errors.append("total forecast consumes more than the 80% usable 150-unit envelope")
@@ -269,6 +306,10 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
             "q1_training_units": training_units,
             "q1_evaluation_cpu_hours": cpu_hours,
             "q1_evaluation_units": cpu_units,
+            "q0_gpu_hours": q0_gpu_hours,
+            "q0_cpu_hours": q0_cpu_hours,
+            "total_gpu_hours_including_q0": total_gpu_hours,
+            "total_cpu_hours_including_q0": total_cpu_hours,
             "total_units_including_q0": total_units,
             "reserve_fraction": 0.20,
         },
