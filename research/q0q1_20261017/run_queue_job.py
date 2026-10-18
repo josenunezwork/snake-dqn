@@ -39,6 +39,8 @@ def require_owner_release(env: Mapping[str, str]) -> None:
         raise RuntimeError("DRAFT_PENDING_OWNER_REVIEW: Q0/Q1 queue dispatch is hard-blocked")
     if env.get("Q0Q1_OWNER_RELEASE") != "APPROVED_Q0Q1_20261017":
         raise RuntimeError("missing explicit Q0/Q1 owner release")
+    if env.get("Q0Q1_REGISTRATION_STATUS") != "APPROVED_Q0Q1_20261017":
+        raise RuntimeError("registration status does not match explicit owner release")
 
 
 def _bound_json_bytes(path_text: str, expected: str) -> dict[str, Any]:
@@ -146,16 +148,48 @@ def qualified_recipe_binding(packet: Mapping[str, Any], train_command: list[str]
 
 def admission_checks(env: Mapping[str, str]) -> None:
     kind = env.get("Q0Q1_JOB_KIND")
-    if kind == "q1_train":
+    if kind in {"q1_train", "q1_eval"}:
+        owner = _bound_json(
+            env["Q0Q1_PARITY_OWNER_ADMISSION"],
+            env["Q0Q1_PARITY_OWNER_ADMISSION_SHA256"],
+            required_status="OWNER_ADMITTED",
+        )
+        if (
+            owner.get("schema") != "q0q1-owner-admission/v1"
+            or owner.get("owner_release") != "APPROVED_Q0Q1_20261017"
+            or owner.get("amendment") != "A1"
+            or owner.get("registration_sha256")
+            != sha256_file(Path("research/q0q1_20261017/PREREGISTRATION.md"))
+        ):
+            raise RuntimeError("owner admission does not bind the approved A1 registration")
         packet = _bound_json_bytes(env["Q0Q1_Q0B_L4_RECEIPT"], env["Q0Q1_Q0B_L4_RECEIPT_SHA256"])
+        a100 = _bound_json_bytes(env["Q0Q1_Q0B_A100_RECEIPT"], env["Q0Q1_Q0B_A100_RECEIPT_SHA256"])
         plan = _bound_json_bytes(env["Q0Q1_STUDY_PLAN"], env["Q0Q1_STUDY_PLAN_SHA256"])
-        from research.q0q1_20261017.qualification import validate_admission
+        from research.q0q1_20261017.qualification import validate_admission, validate_packet
 
         admission = validate_admission(packet, plan)
-        if admission.get("status") != "ADMITTED_FOR_OWNER_REVIEW" or packet.get("hardware") != "L4":
+        if admission.get("status") != "ADMITTED_FOR_DISPATCH" or packet.get("hardware") != "L4":
             raise RuntimeError("Q1 training requires full hash-bound L4 budget admission")
+        if a100.get("hardware") != "A100" or validate_packet(a100)["status"] != "QUALIFIED":
+            raise RuntimeError("Q1 requires the complete qualified A100 comparison packet")
         q0_admission_checks(env)
-        _bound_json_bytes(env["Q1_RUNTIME_PARITY_RECEIPT"], env["Q1_RUNTIME_PARITY_RECEIPT_SHA256"])
+        from research.q0q1_20261017 import q1_evaluate, q1_parity
+
+        runtime = _bound_json_bytes(
+            env["Q1_RUNTIME_PARITY_RECEIPT"], env["Q1_RUNTIME_PARITY_RECEIPT_SHA256"]
+        )
+        q1_parity.validate_runtime_receipt(
+            runtime,
+            bank_sha256=_canonical_sha(q1_bank.load_world_bank()),
+            b8_sha256=q1_evaluate.B8_SHA256,
+            source_manifest=q1_evaluate.source_manifest(),
+        )
+        reference = _bound_json_bytes(
+            env["Q1_MAC_PARITY_REFERENCE"], env["Q1_MAC_PARITY_REFERENCE_SHA256"]
+        )
+        if runtime.get("reference") != reference:
+            raise RuntimeError("runtime parity does not bind the supplied Mac reference")
+    if kind == "q1_train":
         collector = "n1" if env["Q1_ARM"] in ("C", "D") else "n3"
         cells = packet.get("cells", [])
         matches = [cell for cell in cells if cell.get("collector") == collector]
@@ -164,13 +198,6 @@ def admission_checks(env: Mapping[str, str]) -> None:
             raise RuntimeError(
                 "qualified packet lacks one explicit actor count for this Q1 collector"
             )
-    elif kind == "q1_eval":
-        _bound_json(
-            env["Q0Q1_PARITY_OWNER_ADMISSION"],
-            env["Q0Q1_PARITY_OWNER_ADMISSION_SHA256"],
-            required_status="OWNER_ADMITTED",
-        )
-        _bound_json_bytes(env["Q1_MAC_PARITY_REFERENCE"], env["Q1_MAC_PARITY_REFERENCE_SHA256"])
 
 
 def stage_training_final(env: Mapping[str, str], local_root: Path) -> str:
@@ -598,8 +625,15 @@ def run(env: Mapping[str, str] | None = None) -> int:
                 )
             )
             qualified_recipe_binding(packet, command(run_env, local))
+        if env["Q0Q1_JOB_KIND"] == "q1_train":
+            from research.q0q1_20261017.q0b_measure import validate_current_runtime
+
+            runtime_check = validate_current_runtime(packet, expected_hardware="L4")
+            if runtime_check.get("pass") is not True:
+                raise RuntimeError(f"current training runtime is not qualified: {runtime_check}")
         if env["Q0Q1_JOB_KIND"] == "q1_eval":
             run_env["Q1_TRAINING_FINAL"] = stage_training_final(run_env, local)
+        if env["Q0Q1_JOB_KIND"] in {"q1_train", "q1_eval"}:
             parity = subprocess.run(
                 [
                     run_env.get("Q0Q1_PYTHON", "/content/t16-colab-venv/bin/python"),
@@ -620,6 +654,8 @@ def run(env: Mapping[str, str] | None = None) -> int:
             if parity.returncode != 0:
                 raise RuntimeError(f"per-runtime parity verification exited {parity.returncode}")
             run_env["Q1_EVAL_PARITY_RECEIPT"] = str(local / "runtime-parity.json")
+            run_env["Q1_RUNTIME_PARITY_RECEIPT"] = str(local / "runtime-parity.json")
+            run_env["Q1_RUNTIME_PARITY_RECEIPT_SHA256"] = sha256_file(local / "runtime-parity.json")
         completed = subprocess.run(
             command(run_env, local), cwd="/content/t16-snake-dqn", env=child_env
         )

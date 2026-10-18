@@ -361,8 +361,8 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
     if packet.get("hardware") != "L4" or plan.get("q1_training_hardware") != "L4":
         errors.append("Q1 training admission requires one exact qualified L4 cohort")
     q0_units = _finite_number(plan.get("q0_units"), "q0_units", errors, positive=True)
-    q0_gpu_hours = _finite_number(plan.get("q0_gpu_hours"), "q0_gpu_hours", errors, positive=True)
-    q0_cpu_hours = _finite_number(plan.get("q0_cpu_hours"), "q0_cpu_hours", errors, positive=True)
+    q0_gpu_hours = _finite_number(plan.get("q0_gpu_hours"), "q0_gpu_hours", errors)
+    q0_cpu_hours = _finite_number(plan.get("q0_cpu_hours"), "q0_cpu_hours", errors)
     if q0_gpu_hours is not None and q0_gpu_hours < 0:
         errors.append("q0_gpu_hours cannot be negative")
     if q0_cpu_hours is not None and q0_cpu_hours < 0:
