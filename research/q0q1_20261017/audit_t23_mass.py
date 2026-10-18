@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import json
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -138,7 +139,36 @@ def discover(artifact_root: Path) -> dict[str, Any]:
             rows.extend(x for x in payload["rows"] if isinstance(x, Mapping))
         elif "mass_integral" in _record(payload):
             rows.append(payload)
-    return {"snapshots": found, "saved_rows": rows}
+    telemetry = {}
+    for seed in T23_SEEDS:
+        path = artifact_root / f"seed-{seed}" / "log.jsonl"
+        samples = []
+        if path.is_file():
+            for line in path.read_text(errors="replace").splitlines():
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(row, dict) and isinstance(row.get("transitions"), (int, float)):
+                    samples.append(
+                        {
+                            key: row.get(key)
+                            for key in (
+                                "transitions",
+                                "eps",
+                                "gamma",
+                                "lambda",
+                                "td",
+                                "anchor",
+                                "qmax",
+                                "boost_rate",
+                                "greedy_boost_rate",
+                                "greedy_boost_rate_by_length",
+                            )
+                        }
+                    )
+        telemetry[str(seed)] = {"available": path.is_file(), "path": str(path), "samples": samples}
+    return {"snapshots": found, "saved_rows": rows, "telemetry": telemetry}
 
 
 def build_report(artifact_root: Path, b8: Path | None) -> dict[str, Any]:
@@ -164,6 +194,7 @@ def build_report(artifact_root: Path, b8: Path | None) -> dict[str, Any]:
         "b8": b8_info,
         "saved_artifact_availability": snapshot_status,
         "saved_evidence": summarize_rows(discovered["saved_rows"]),
+        "saved_training_telemetry": discovered["telemetry"],
         "development_packet": {
             "status": "NOT_RUN",
             "reason": "pass --run-development only after checkpoints and a fresh Q0 bank are bound",
