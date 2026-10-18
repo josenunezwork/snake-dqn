@@ -254,7 +254,8 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
             env["Q0Q1_HARDWARE"],
         ]
     if kind == "q0_t23_mass":
-        return [
+        output = Path(env["QUEUE_OUTPUT_DIR"]).resolve()
+        command = [
             py,
             "-m",
             "research.q0q1_20261017.audit_t23_mass",
@@ -265,7 +266,36 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
             "--out",
             str(local_root / "receipt.json"),
             "--run-development",
+            "--partials-dir",
+            str(output / "mass-partials"),
         ]
+        workers = env.get("Q0Q1_MASS_WORKERS")
+        if workers is not None:
+            try:
+                if int(workers) < 1:
+                    raise ValueError
+            except ValueError as exc:
+                raise RuntimeError("Q0Q1_MASS_WORKERS must be a positive integer") from exc
+            command.extend(["--workers", workers])
+        resume_partials = env.get("Q0Q1_MASS_RESUME_PARTIALS")
+        resume_sha256 = env.get("Q0Q1_MASS_RESUME_PARTIALS_SHA256")
+        if bool(resume_partials) != bool(resume_sha256):
+            raise RuntimeError(
+                "Q0Q1_MASS_RESUME_PARTIALS and Q0Q1_MASS_RESUME_PARTIALS_SHA256 must be paired"
+            )
+        if resume_partials:
+            resume_path = Path(resume_partials).resolve()
+            if resume_path.is_relative_to(output):
+                raise RuntimeError("Q0 mass resume partials must not be inside QUEUE_OUTPUT_DIR")
+            command.extend(
+                [
+                    "--resume-partials",
+                    str(resume_path),
+                    "--resume-partials-sha256",
+                    str(resume_sha256),
+                ]
+            )
+        return command
     if kind == "q0_b8_init":
         return [
             py,
@@ -638,7 +668,11 @@ def run(env: Mapping[str, str] | None = None) -> int:
     failure: Exception | None = None
     run_env = dict(env)
     try:
-        child_env = {**env, "PYTHONPATH": f"/content/t16-snake-dqn:{env.get('PYTHONPATH', '')}"}
+        child_env = {
+            **env,
+            "PYTHONPATH": f"/content/t16-snake-dqn:{env.get('PYTHONPATH', '')}",
+            "PYTHONUNBUFFERED": "1",
+        }
         if env["Q0Q1_JOB_KIND"] == "q0_b8_init":
             run_env["Q0Q1_MASS_OBSERVATION_RECEIPT"] = str(stage_q0_mass_receipt(env, local))
         if env["Q0Q1_JOB_KIND"] == "q1_train":
