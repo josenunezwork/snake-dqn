@@ -166,6 +166,7 @@ class CoverageReservoir:
         self.protected: set[int] = set()
         self.covered: set[str] = set()
         self.seen = 0
+        self.excluded_trapped = 0
         self.rng = random.Random(20261017)
 
     def add(self, row: dict[str, Any]) -> None:
@@ -198,7 +199,7 @@ class CoverageReservoir:
             self.covered |= support
 
 
-def exact_tie_fixture() -> dict[str, Any]:
+def exact_tie_fixture(*, fallback: bool = False) -> dict[str, Any]:
     """Execute evaluator selection and the independent trainer Torch expression."""
     from types import SimpleNamespace
     from unittest.mock import patch
@@ -210,6 +211,9 @@ def exact_tie_fixture() -> dict[str, Any]:
 
     q = torch.zeros((1, 6), dtype=torch.float32)
     mask = np.array([[False, True, True, False, True, False]])
+    if fallback:
+        mask[:] = False
+        q[:, 3:] = 10.0
     policy = object.__new__(ego2s_policy.Ego2sSimdPolicy)
     policy.net, policy.forward, policy.mask_mode = None, "rowwise", "advisory"
     sim = SimpleNamespace(get_advisory_action_mask=lambda: mask[:, None, :])
@@ -217,13 +221,16 @@ def exact_tie_fixture() -> dict[str, Any]:
         action_a = policy.actions(mask, sim, np.array([[0, 0]]))[0]
     # This is the trainer's torch.where(...,-1e9).argmax operation, independent
     # of evaluator float64/numpy selection and including a masked first action.
-    action_b = torch.where(torch.from_numpy(mask), q, torch.full_like(q, -1e9)).argmax(1)[0]
+    trainer_mask = mask.copy()
+    if not trainer_mask.any():
+        trainer_mask[:, :3] = True
+    action_b = torch.where(torch.from_numpy(trainer_mask), q, torch.full_like(q, -1e9)).argmax(1)[0]
     return {
         "mix": "scripted",
         "exact_q_tie": True,
         "action_a": int(action_a),
         "action_b": int(action_b),
-        "fixture": "exact-q-tie-first-legal",
+        "fixture": "normal-only-fallback" if fallback else "exact-q-tie-first-legal",
         "fallback_used": False,
         "mask_disagreement": False,
         "wrapper_disagreement": False,
@@ -242,6 +249,10 @@ def run_observations(b8: Path, observation_receipt: Path) -> dict[str, Any]:
     if not rows or corpus.get("bank_audit_pass") is not True:
         raise ValueError("Q0 mass audit has no collision-audited fidelity corpus")
     outcome = assess_observations(rows)
+    fallback = exact_tie_fixture(fallback=True)
+    if fallback["action_a"] != fallback["action_b"] or fallback["action_a"] != 0:
+        raise ValueError("legitimate normal-only fallback selector disagreement")
+    outcome["normal_only_fallback_oracle"] = fallback
     outcome.update(
         source_receipt_sha256=sha256_file(observation_receipt),
         candidate_observations_inspected=corpus.get("candidate_observations_inspected"),

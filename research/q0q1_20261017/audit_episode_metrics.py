@@ -119,6 +119,9 @@ class FrameObserver:
             "food_mass_collected": 0,
             "boost_eligible_decisions": 0,
             "boost_executed_frames": 0,
+            "boost_action_decisions": 0,
+            "boost_action_when_eligible": 0,
+            "boost_length_burned": 0,
             "reward_total": 0.0,
             "death_events": 0,
         }
@@ -207,6 +210,10 @@ class FrameObserver:
             }
             row["policy_diagnostics"].update(scalar_diagnostic)
             if diagnostic:
+                boost_eligible = int(
+                    diagnostic.get("policy_boost_eligible_decisions", boost_eligible)
+                )
+                values["boost_eligible_decisions"] = boost_eligible
                 burn = (
                     bool(boosted[index])
                     and "boost_frame_counter" in pre
@@ -214,6 +221,7 @@ class FrameObserver:
                     >= diagnostic.get("reward_boost_cost_frames", float("inf"))
                 )
                 row["boost_length_burned"] += int(burn)
+                values["boost_length_burned"] = int(burn)
                 gamma = diagnostic["reward_gamma"]
                 potential = gamma * values["mass_sum"] / 10.0 - pre_length / 10.0
                 death_term = diagnostic["reward_death_value"] * int(death)
@@ -232,6 +240,8 @@ class FrameObserver:
                     row["counterfactual_training_return"][str(fixed_gamma)] += (
                         fixed_gamma**frame * training_reward
                     )
+            values["boost_action_decisions"] = int(action >= 3)
+            values["boost_action_when_eligible"] = int(action >= 3 and boost_eligible)
             self.alive_frames[seed] += int(alive)
             if death:
                 if self.death_frame[seed] is not None:
@@ -390,6 +400,11 @@ class PolicyProbe:
                 )
                 for i, (env, slot) in enumerate(rows):
                     if slot != 0:
+                        continue
+                    if not legal[i].any():
+                        probe.reservoir.excluded_trapped += 1
+                        # Trapped rows are normal gameplay, not checkpoint fallback.
+                        # Their exact selector behavior is tested separately.
                         continue
                     length = int(sim.get_lengths()[env, slot])
                     probe.reservoir.add(

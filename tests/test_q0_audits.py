@@ -187,3 +187,9 @@ def test_trainer_telemetry_schema_and_identity_mix_groups(tmp_path):
     assert len(summary["by_identity_seed_mix"]) == 2
     assert summary["paired_mass_decomposition"][0]["mass_integral_delta"] == -4.0
     assert summary["exact_event_metrics"]["action_disagreement_with_b8"] == 0.2
+
+
+def test_legitimate_trapped_mask_uses_normal_only_independent_selector_fixture():
+    result = audit_b8_init.exact_tie_fixture(fallback=True)
+    assert result["fixture"] == "normal-only-fallback"
+    assert result["action_a"] == result["action_b"] == 0

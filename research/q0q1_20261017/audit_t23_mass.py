@@ -429,6 +429,8 @@ def run_development(artifact_root: Path, b8: Path) -> dict[str, Any]:
         "fidelity_corpus": {
             "rows": reservoir.rows + [exact_tie_fixture()],
             "candidate_observations_inspected": reservoir.seen,
+            "excluded_trapped_observations": reservoir.excluded_trapped,
+            "normal_only_fallback_oracle": exact_tie_fixture(fallback=True),
             "sampling": "seeded bounded reservoir with protected natural coverage witnesses",
             "bank_audit_pass": audit["pass"],
             "additional_episodes": 0,
