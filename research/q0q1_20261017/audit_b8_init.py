@@ -2,10 +2,8 @@
 """Q0a B8 initializer fidelity audit; CPU-only and observation-capped.
 
 The saved-artifact phase validates bytes and T23's embedded initializer binding.
-It is deliberately **INCOMPLETE** until the 4,096-observation fresh-corpus
-phase is run.  The corpus phase is intentionally not implemented against an
-unbound bank: a mistaken wrapper, fallback mask, or contaminated frozen state
-must fail closed rather than manufacture an acceptance result.
+It remains INCOMPLETE until the bounded 4,096-observation corpus is captured
+and verified. Wrong wrappers, fallback masks, and identity mismatches fail closed.
 """
 
 from __future__ import annotations
@@ -19,7 +17,6 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from research.q0q1_20261017 import audit_q0_bank  # noqa: E402
 from research.q0q1_20261017.audit_common import (  # noqa: E402
     B8_SHA256,
     T23_SEEDS,
@@ -44,37 +41,29 @@ REQUIRED_COVERAGE = (
 
 
 def checkpoint_inventory(t23_root: Path) -> dict[str, Any]:
-    """Locate candidate checkpoints without guessing that a filename proves identity."""
-    rows: dict[str, Any] = {}
-    for seed in T23_SEEDS:
-        base = t23_root / f"seed-{seed}"
-        final_paths = []
-        if base.exists():
-            for path in sorted(base.rglob("*")):
-                name = path.name.lower()
-                if (
-                    path.is_file()
-                    and name.endswith((".pth", ".pt"))
-                    and ("final" in name or "8000" in name or "8m" in name)
-                ):
-                    final_paths.append({"path": str(path), "sha256": sha256_file(path)})
-        rows[str(seed)] = {"available": bool(final_paths), "finals": final_paths}
-    return rows
+    from research.q0q1_20261017.audit_common import checkpoint_inventory as inventory
+
+    return {
+        seed: {
+            "available": any(row["valid"] for row in entries["final"]),
+            "finals": entries["final"],
+            "invalid": entries["invalid"],
+        }
+        for seed, entries in inventory(t23_root).items()
+    }
 
 
 def initializer_binding(t23_root: Path) -> dict[str, Any]:
-    """Read summaries only; absent or malformed binding is a failed prerequisite."""
-    values: dict[str, Any] = {}
-    for seed in T23_SEEDS:
-        summary = load_json(t23_root / f"seed-{seed}" / "summary.json")
-        args = summary.get("args", {}) if isinstance(summary, dict) else {}
-        values[str(seed)] = {
-            "summary_available": summary is not None,
-            "declared_seed": args.get("seed"),
-            "declared_init_sha256": (summary or {}).get("init_sha256"),
-            "matches_released_b8": (summary or {}).get("init_sha256") == B8_SHA256,
+    """Require the actual checkpoint metadata and committed final digest."""
+    inventory = checkpoint_inventory(t23_root)
+    return {
+        seed: {
+            "matches_released_b8": bool(item["available"]),
+            "source": "final checkpoint embedded meta plus committed T23 result pin",
+            "evidence": item["finals"],
         }
-    return values
+        for seed, item in inventory.items()
+    }
 
 
 def build_report(b8: Path, t23_root: Path) -> dict[str, Any]:
@@ -162,136 +151,102 @@ def assess_observations(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def run_observations(b8: Path) -> dict[str, Any]:
-    """Collect fresh B8 observations through the exact grid ego2s wrapper.
+class CoverageReservoir:
+    """Deterministic bounded reservoir with protected first witnesses per stratum.
 
-    The policy is loaded twice and every recorded row compares Q/action under the
-    same advisory mask.  The wrapper calls are read-only; no optimizer/replay
-    objects are created. Natural rows provide all but exact ties; an explicit
-    all-zero-Q fixture supplies the tie-path check without mislabeling it as a
-    gameplay observation.
+    All candidate rows are validated; the cap applies to retained observations,
+    not to stopping every world before its long-body phase can be observed.
     """
-    if not b8.is_file() or sha256_file(b8) != B8_SHA256:
-        raise ValueError("Q0 observation packet requires released B8 bytes")
+
+    def __init__(self, capacity: int = OBSERVATION_CAP - 1) -> None:
+        import random
+
+        self.capacity = capacity
+        self.rows: list[dict[str, Any]] = []
+        self.protected: set[int] = set()
+        self.covered: set[str] = set()
+        self.seen = 0
+        self.rng = random.Random(20261017)
+
+    def add(self, row: dict[str, Any]) -> None:
+        if any(
+            row.get(key) for key in ("fallback_used", "mask_disagreement", "wrapper_disagreement")
+        ):
+            raise ValueError("Q0 fidelity fail-closed candidate wrapper/mask/fallback failure")
+        if row["action_a"] != row["action_b"]:
+            raise ValueError("Q0 zero-update candidate action disagreement")
+        self.seen += 1
+        support = {key for key in REQUIRED_COVERAGE if row.get(key)} | {row["mix"]}
+        novel = support - self.covered
+        if len(self.rows) < self.capacity:
+            index = len(self.rows)
+            self.rows.append(row)
+        else:
+            available = [i for i in range(self.capacity) if i not in self.protected]
+            if not available:
+                raise ValueError("reservoir capacity insufficient for coverage witnesses")
+            if novel:
+                index = self.rng.choice(available)
+            else:
+                draw = self.rng.randrange(self.seen)
+                if draw >= self.capacity or draw in self.protected:
+                    return
+                index = draw
+            self.rows[index] = row
+        if novel:
+            self.protected.add(index)
+            self.covered |= support
+
+
+def exact_tie_fixture() -> dict[str, Any]:
+    """Execute evaluator selection and the independent trainer Torch expression."""
     from types import SimpleNamespace
+    from unittest.mock import patch
 
     import numpy as np
+    import torch
 
-    from research.redesign_m3c_20261008 import train_m3c
-    from research.redesign_scope_20261007 import grid_h5000_identity as gid
-    from src.simd_env import ego2s_policy, eval_engine
+    from src.simd_env import ego2s_policy
 
-    bank = audit_q0_bank.build_world_bank()
-    audit = audit_q0_bank.audit_world_bank()
-    if not audit["pass"]:
-        raise ValueError("Q0 observation bank collision audit failed")
-    captured: list[dict[str, Any]] = []
-    original = ego2s_policy.Ego2sSimdPolicy
-
-    class ObservedPolicy(original):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            # Route B through the trainer's actual zero-update initializer,
-            # not a second evaluator loader.  This catches widening/loader drift.
-            self.shadow = train_m3c.load_init(
-                SimpleNamespace(init=str(b8), obs_version="bv8"), "cpu"
-            ).eval()
-
-        def actions(self, masks, sim, slots):
-            q_a = ego2s_policy.student_q(self.net, sim, slots, self.forward).numpy()
-            q_b = ego2s_policy.student_q(self.shadow, sim, slots, self.forward).numpy()
-            rows = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
-            advisory = sim.get_advisory_action_mask()[rows[:, 0], rows[:, 1]].astype(bool)
-            trainer_mask = train_m3c.hero_selection_mask(sim, rows)
-            safe = advisory.copy()
-            fallback = ~safe.any(axis=1)
-            safe[fallback, :3] = True
-            actions_a = np.where(safe, q_a.astype(np.float64), -np.inf).argmax(axis=1)
-            actions_b = np.where(safe, q_b.astype(np.float64), -np.inf).argmax(axis=1)
-            for index, (env, _slot) in enumerate(rows):
-                mix_rows = sum(1 for row in captured if row["mix"] == current_mix[0])
-                if mix_rows >= OBSERVATION_CAP // 3:
-                    break
-                length = int(sim.get_lengths()[env, 0])
-                captured.append(
-                    {
-                        "mix": current_mix[0],
-                        "short_lt700": length < 700,
-                        "long_ge800": length >= 800,
-                        "crowded": int(sim.get_alive()[env].sum()) >= 5,
-                        "open": int(sim.get_alive()[env].sum()) <= 3,
-                        "exact_q_tie": bool((q_a[index] == q_a[index].max()).sum() > 1),
-                        "boost_eligible": bool(safe[index, 3:].any()),
-                        "action_a": int(actions_a[index]),
-                        "action_b": int(actions_b[index]),
-                        "fallback_used": bool(fallback[index]),
-                        "mask_disagreement": not np.array_equal(
-                            advisory[index], trainer_mask[index]
-                        ),
-                        "wrapper_disagreement": not np.array_equal(q_a[index], q_b[index]),
-                    }
-                )
-            return actions_a.astype(np.int64)
-
-    current_mix = ["unspecified"]
-    context = gid._context(1)
-    carrier = context["lookup"][gid.FRP3_S12[1]]
-    ego2s_policy.Ego2sSimdPolicy = ObservedPolicy
-    try:
-        for seed in T23_SEEDS:
-            for world in bank["worlds"][str(seed)]:
-                current_mix[0] = str(world["mix"])
-                roster = [context["lookup"][x[1]] for x in world["opponents"]]
-                eval_engine.run_simd_eval(
-                    carrier,
-                    roster,
-                    5000,
-                    [int(world["world_seed"])],
-                    profile=context["profile"],
-                    opponent_specs_by_world={int(world["world_seed"]): roster},
-                    mix_id=current_mix[0],
-                    vector61=True,
-                    vector61_forward="rowwise",
-                    sim_engine="grid",
-                    hero_ego2s=str(b8),
-                    ego2s_forward="rowwise",
-                    ego2s_mask="advisory",
-                    vector61_backend="numba",
-                    scripted_anchors="fast",
-                )
-    finally:
-        ego2s_policy.Ego2sSimdPolicy = original
-    # Exact-Q ties need an independently executable selection fixture. It
-    # contributes *only* tie coverage; natural rows must establish every state
-    # stratum and mix.
-    fixture = {
+    q = torch.zeros((1, 6), dtype=torch.float32)
+    mask = np.array([[False, True, True, False, True, False]])
+    policy = object.__new__(ego2s_policy.Ego2sSimdPolicy)
+    policy.net, policy.forward, policy.mask_mode = None, "rowwise", "advisory"
+    sim = SimpleNamespace(get_advisory_action_mask=lambda: mask[:, None, :])
+    with patch.object(ego2s_policy, "student_q", return_value=q):
+        action_a = policy.actions(mask, sim, np.array([[0, 0]]))[0]
+    # This is the trainer's torch.where(...,-1e9).argmax operation, independent
+    # of evaluator float64/numpy selection and including a masked first action.
+    action_b = torch.where(torch.from_numpy(mask), q, torch.full_like(q, -1e9)).argmax(1)[0]
+    return {
         "mix": "scripted",
-        "short_lt700": False,
-        "long_ge800": False,
-        "crowded": False,
-        "open": False,
         "exact_q_tie": True,
-        "boost_eligible": True,
-        "action_a": 0,
-        "action_b": 0,
+        "action_a": int(action_a),
+        "action_b": int(action_b),
+        "fixture": "exact-q-tie-first-legal",
         "fallback_used": False,
         "mask_disagreement": False,
         "wrapper_disagreement": False,
-        "fixture": "exact-q-tie-first-legal",
     }
-    if len(captured) == OBSERVATION_CAP - 1:
-        captured.append(fixture)
-    outcome = assess_observations(captured)
+
+
+def run_observations(b8: Path, observation_receipt: Path) -> dict[str, Any]:
+    """Validate corpus retained during Q0 mass-audit B8 worlds; run no extra worlds."""
+    if not b8.is_file() or sha256_file(b8) != B8_SHA256:
+        raise ValueError("Q0 observation packet requires released B8 bytes")
+    packet = load_json(observation_receipt)
+    if not packet or packet.get("b8", {}).get("sha256") != B8_SHA256:
+        raise ValueError("Q0 observation receipt lacks released B8 binding")
+    corpus = packet.get("development_packet", {}).get("fidelity_corpus", {})
+    rows = corpus.get("rows", [])
+    if not rows or corpus.get("bank_audit_pass") is not True:
+        raise ValueError("Q0 mass audit has no collision-audited fidelity corpus")
+    outcome = assess_observations(rows)
     outcome.update(
-        {
-            "bank": {
-                "schema": audit_q0_bank.SCHEMA,
-                "digest": bank["allocation_semantic_sha256"],
-                "audit": audit,
-            },
-            "natural_observations": sum(1 for row in captured if not row.get("fixture")),
-            "tie_fixture": fixture,
-        }
+        source_receipt_sha256=sha256_file(observation_receipt),
+        candidate_observations_inspected=corpus.get("candidate_observations_inspected"),
+        additional_episodes=0,
+        sampling=corpus.get("sampling"),
     )
     return outcome
 
@@ -302,10 +257,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--t23-root", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--run-observations", action="store_true")
+    parser.add_argument("--observation-receipt", type=Path)
     args = parser.parse_args(argv)
     report = build_report(args.b8, args.t23_root)
     if args.run_observations:
-        report["fresh_observation_packet"] = run_observations(args.b8)
+        if args.observation_receipt is None:
+            raise ValueError("--run-observations requires the Q0 mass --observation-receipt")
+        report["fresh_observation_packet"] = run_observations(args.b8, args.observation_receipt)
         report["status"] = (
             "COMPLETE"
             if prerequisites_pass(report)

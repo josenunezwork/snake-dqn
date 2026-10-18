@@ -66,3 +66,83 @@ def stratum(length: int) -> str:
     if length >= 800:
         return "long_ge800"
     return "middle_700_799"
+
+
+def checkpoint_evidence(path: Path, seed: int, step: int | None = None) -> dict[str, Any]:
+    """Bind bytes to the trainer's embedded identity, never to a filename."""
+    import torch
+
+    digest = sha256_file(path)
+    result = {"path": str(path), "sha256": digest, "valid": False}
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=False)
+        meta = payload.get("meta", {})
+        transitions = meta.get("transitions")
+        result.update(
+            seed=meta.get("seed"), init_sha256=meta.get("init_sha256"), transitions=transitions
+        )
+        manifest = path.parent / "manifest.jsonl"
+        matching = []
+        if manifest.is_file():
+            for line in manifest.read_text().splitlines():
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if (
+                    entry.get("file") == path.name
+                    and entry.get("sha256") == digest
+                    and entry.get("transitions") == transitions
+                ):
+                    matching.append(entry)
+        result["manifest_matches"] = len(matching)
+        result["valid"] = (
+            bool(matching)
+            and meta.get("m3c", {}).get("namespace") == "t23-r0-screen/v1"
+            and meta.get("seed") == seed
+            and meta.get("init_sha256") == B8_SHA256
+            and isinstance(transitions, int)
+            and not isinstance(transitions, bool)
+            and (step is None or step <= transitions < step + 4096)
+        )
+        if step == 8_000_000:
+            pins = load_json(
+                Path(__file__).resolve().parents[1]
+                / "t23_r0_screen_20261017/results/t23_verdict.json"
+            )
+            expected = pins["frozen_checkpoint_sha256s"][f"{seed}:8000000"]
+            result.update(expected_sha256=expected, matches_expected_sha256=digest == expected)
+            result["valid"] = result["valid"] and digest == expected
+    except Exception as exc:
+        result["error"] = f"{type(exc).__name__}: invalid checkpoint metadata"
+    return result
+
+
+def checkpoint_inventory(root: Path) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Discover every checkpoint and classify only by embedded decision counter."""
+    result = {}
+    for seed in T23_SEEDS:
+        buckets = {"final": [], "2m": [], "4m": [], "invalid": []}
+        base = root / f"seed-{seed}"
+        for path in sorted(base.rglob("*")) if base.exists() else []:
+            if not path.is_file() or path.suffix not in (".pt", ".pth"):
+                continue
+            evidence = checkpoint_evidence(path, seed)
+            step = evidence.get("transitions", -1)
+            label = next(
+                (
+                    label
+                    for label, target in (
+                        ("2m", 2_000_000),
+                        ("4m", 4_000_000),
+                        ("final", 8_000_000),
+                    )
+                    if isinstance(step, int) and target <= step < target + 4096
+                ),
+                "invalid",
+            )
+            if label == "final":
+                evidence = checkpoint_evidence(path, seed, 8_000_000)
+            buckets[label].append(evidence)
+        result[str(seed)] = buckets
+    return result
