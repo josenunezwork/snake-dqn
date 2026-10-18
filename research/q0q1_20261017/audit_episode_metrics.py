@@ -59,6 +59,10 @@ class FrameObserver:
         self._seeds: tuple[int, ...] | None = None
         self._next_frame = 0
         self._rows: dict[int, dict[str, Any]] = {}
+        # Compatibility surface for T23's public ``evaluate_world`` observer
+        # contract. These are derived from the same exact post-step events.
+        self.alive_frames: dict[int, int] = {}
+        self.death_frame: dict[int, int | None] = {}
 
     @staticmethod
     def _array(section: Mapping[str, object], name: str, size: int) -> np.ndarray:
@@ -133,6 +137,8 @@ class FrameObserver:
         if self._seeds is None:
             self._seeds = seeds
             self._rows = {seed: self._new_row() for seed in seeds}
+            self.alive_frames = {seed: 0 for seed in seeds}
+            self.death_frame = {seed: None for seed in seeds}
         elif seeds != self._seeds:
             raise ValueError("seed order changed within one frame observer")
 
@@ -178,6 +184,11 @@ class FrameObserver:
                 "reward_total": reward,
                 "death_events": int(death),
             }
+            self.alive_frames[seed] += int(alive)
+            if death:
+                if self.death_frame[seed] is not None:
+                    raise ValueError("terminal hero died twice")
+                self.death_frame[seed] = frame + 1
             for name in (
                 "decision_frames",
                 "alive_frames",

@@ -56,6 +56,8 @@ def test_frame_observer_uses_exact_post_events_and_strata() -> None:
     assert second["reward_on_death_frames"] == -3.0
     assert second["death_causes"] == {"4": 1}
     assert second["by_length"]["long_ge800"]["death_events"] == 1
+    assert observer.alive_frames == {11: 2, 22: 0}
+    assert observer.death_frame == {11: None, 22: 1}
 
 
 def test_frame_observer_fails_closed_on_bad_sequence_or_shape() -> None:
