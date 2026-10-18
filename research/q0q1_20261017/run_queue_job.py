@@ -124,20 +124,19 @@ def stage_q0_mass_receipt(env: Mapping[str, str], local_root: Path) -> Path:
     return receipt
 
 
-def qualified_recipe_binding(packet: Mapping[str, Any], train_command: list[str]) -> None:
-    """Require Q0b's source/config hashes to bind the actual queued recipe.
-
-    Volatile seed, output and namespace values are deliberately normalized: the
-    qualification packet qualifies each package, not one replica directory.
-    """
-    source_digest = sha256_file(Path("research/redesign_m3c_20261008/train_m3c.py"))
+def normalized_command_sha(train_command: list[str]) -> str:
+    """Hash a qualified recipe, normalizing only replica-specific values."""
     normalized = list(train_command)
     for flag in ("--seed", "--out", "--namespace"):
         index = normalized.index(flag)
         normalized[index + 1] = f"<{flag[2:]}>"
-    config_digest = hashlib.sha256(
-        json.dumps(normalized, separators=(",", ":")).encode()
-    ).hexdigest()
+    return hashlib.sha256(json.dumps(normalized, separators=(",", ":")).encode()).hexdigest()
+
+
+def qualified_recipe_binding(packet: Mapping[str, Any], train_command: list[str]) -> None:
+    """Bind the actual recipe to Q0b's source and four measured package hashes."""
+    source_digest = sha256_file(Path("research/redesign_m3c_20261008/train_m3c.py"))
+    config_digest = normalized_command_sha(train_command)
     source = packet.get("source", {})
     config = packet.get("config", {})
     if not isinstance(source, Mapping) or source_digest not in source.values():
@@ -235,6 +234,16 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
     py = env.get("Q0Q1_PYTHON", "/content/t16-colab-venv/bin/python")
     inputs = Path(env["Q0Q1_INPUT_ROOT"])
     kind = env["Q0Q1_JOB_KIND"]
+    if kind == "q0b_measure":
+        return [
+            py,
+            "-m",
+            "research.q0q1_20261017.q0b_queue",
+            "--out",
+            str(local_root),
+            "--hardware",
+            env["Q0Q1_HARDWARE"],
+        ]
     if kind == "q0_t23_mass":
         return [
             py,
@@ -414,6 +423,17 @@ def _write_training_outcome(env: Mapping[str, str], local_root: Path, reason: st
 
 def _scientific_done(kind: str, local_root: Path, env: Mapping[str, str] | None = None) -> None:
     receipt = local_root / "receipt.json"
+    if kind == "q0b_measure":
+        from research.q0q1_20261017.qualification import validate_packet
+
+        value = json.loads(receipt.read_text())
+        outcome = validate_packet(value)
+        if (
+            outcome["status"] != "QUALIFIED"
+            or value.get("qualification", {}).get("status") != "QUALIFIED"
+        ):
+            raise RuntimeError(f"Q0b did not qualify: {outcome['errors']}")
+        return
     if kind == "q1_eval":
         candidates = list((local_root / "evaluation").rglob("*.json"))
         if not candidates:

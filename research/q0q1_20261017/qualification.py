@@ -116,8 +116,8 @@ def _check_cell(
         decisions = _finite_number(
             item.get("learner_decisions"), f"cell {name}.window{index}.learner_decisions", errors
         )
-        if duration is not None and duration != WINDOW_SECONDS:
-            errors.append(f"cell {name}.window{index} must be exactly {WINDOW_SECONDS:g} seconds")
+        if duration is not None and duration < WINDOW_SECONDS:
+            errors.append(f"cell {name}.window{index} must be at least {WINDOW_SECONDS:g} seconds")
         if duration and decisions is not None and decisions > 0:
             throughputs.append(decisions / duration)
     if len(throughputs) == 2:

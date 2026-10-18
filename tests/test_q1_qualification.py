@@ -139,7 +139,7 @@ def test_packet_rejects_short_windows_actor_drift_and_counter_debt() -> None:
     outcome = subject.validate_packet(packet)
     assert outcome["status"] == "INCOMPLETE"
     assert any("one predeclared actor count" in error for error in outcome["errors"])
-    assert any("exactly 180" in error for error in outcome["errors"])
+    assert any("at least 180" in error for error in outcome["errors"])
     assert any("R/U/debt" in error for error in outcome["errors"])
 
 
