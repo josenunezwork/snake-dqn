@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -161,7 +162,9 @@ def _study_plan(
         "q0_gpu_hours": q0_gpu,
         "q0_cpu_hours": q0_cpu,
         "q1_gpu_overhead_hours": 20 * (30 + 5) / 60,
-        "q1_cpu_overhead_hours": 100 * 4 * cpu_seconds / (3600 * efficiency),
+        # 100 evaluation jobs each run a four-world probe, and each of the 20
+        # training attempts runs its own four-world CPU parity check.
+        "q1_cpu_overhead_hours": 120 * 4 * cpu_seconds / (3600 * efficiency),
         "cpu_unit_rate_per_hour": cpu_rate,
         "cpu_seconds_per_episode": cpu_seconds,
         "cpu_workers": 1,
@@ -198,6 +201,7 @@ def make_jobs(
     q0_accounting_path: Path,
     q0b_l4_job_id: str,
     q0b_a100_job_id: str,
+    study_plan_drive_path: str,
     drive_root: str = DRIVE_ROOT,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     l4, l4_packet = _qualified_receipt(l4_receipt_path, "L4")
@@ -212,10 +216,15 @@ def make_jobs(
     result = validate_admission(l4_packet, plan)
     if result.get("status") != "ADMITTED_FOR_DISPATCH" or result.get("dispatch_authorized") is not True:
         raise ValueError(f"A1 forecast is not admitted for dispatch: {result.get('errors')}")
+    measured = validate_packet(l4_packet).get("measured_cells", {})
+    for cell in ("restart/n3", "mature/n3", "restart/n1", "mature/n1"):
+        speed = measured.get(cell, {}).get("decisions_per_second")
+        if not isinstance(speed, (int, float)) or speed <= 0 or 8_000_000 / speed > 5100:
+            raise ValueError(f"L4 qualification cannot complete Q1 {cell} within the 5,100-second cap")
     bindings = queue_jobs.Bindings(
         q0b_l4_receipt=str(l4_receipt_path),
         q0b_l4_receipt_sha256=sha256_file(l4_receipt_path),
-        study_plan=f"{drive_root}/q0q1-20261017/q1/admission/study-plan.json",
+        study_plan=study_plan_drive_path,
         study_plan_sha256=hashlib.sha256(canonical(plan).encode()).hexdigest(),
         runtime_parity_receipt=str(runtime_receipt_path),
         runtime_parity_receipt_sha256=sha256_file(runtime_receipt_path),
@@ -228,7 +237,33 @@ def make_jobs(
     for job in jobs:
         job["env"]["Q0Q1_REGISTRATION_STATUS"] = OWNER_RELEASE
         job["env"]["Q0Q1_OWNER_RELEASE"] = OWNER_RELEASE
+        job["env"]["Q0Q1_Q0B_A100_RECEIPT"] = str(a100_receipt_path)
+        job["env"]["Q0Q1_Q0B_A100_RECEIPT_SHA256"] = sha256_file(a100_receipt_path)
         job["depends_on"] = list(dict.fromkeys([*job["depends_on"], q0b_l4_job_id, q0b_a100_job_id]))
+    runtime = l4_packet.get("runtime", {})
+    cores = runtime.get("cpu_cores") if isinstance(runtime, Mapping) else None
+    if isinstance(cores, bool) or not isinstance(cores, int) or cores < 1:
+        raise ValueError("L4 packet lacks an integer observed CPU-core capacity")
+    for job in jobs:
+        if job["id"].startswith("q1-train-"):
+            collector = "n1" if job["env"]["Q1_ARM"] in ("C", "D") else "n3"
+            actors = {
+                cell.get("actor_count")
+                for cell in l4_packet.get("cells", [])
+                if cell.get("collector") == collector
+            }
+            if len(actors) != 1 or not isinstance(next(iter(actors)), int) or cores < next(iter(actors)):
+                raise ValueError("L4 packet cannot hold the registered actor configuration")
+            job["requirements"]["min_vcpu"] = cores
+            # Verify the exact normalized source/config identity before an arm
+            # can inherit the timing result.  This is import-local to avoid the
+            # queue adapter becoming a generator dependency at module import.
+            from research.q0q1_20261017 import run_queue_job
+
+            with tempfile.TemporaryDirectory(prefix="q1-binding-") as temporary:
+                env = dict(job["env"])
+                env["Q1_ACTORS"] = str(next(iter(actors)))
+                run_queue_job.qualified_recipe_binding(l4_packet, run_queue_job.command(env, Path(temporary)))
     if len(jobs) != 120 or sum(job["id"].startswith("q1-train-") for job in jobs) != 20:
         raise AssertionError("Q1 generator did not make exactly 20 training and 100 evaluation jobs")
     return jobs, plan
@@ -255,6 +290,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--q0b-l4-job-id", required=True)
     parser.add_argument("--q0b-a100-job-id", required=True)
     parser.add_argument("--drive-root", default=DRIVE_ROOT)
+    parser.add_argument(
+        "--drive-output-dir",
+        default=f"{DRIVE_ROOT}/q0q1-20261017/q1/jobs_approved",
+        help="Colab-visible directory where --out-dir is synchronized before enqueue",
+    )
     parser.add_argument("--out-dir", type=Path, required=True)
     args = parser.parse_args(argv)
     root = Path(__file__).resolve().parents[2]
@@ -271,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         q0_accounting_path=args.q0_accounting,
         q0b_l4_job_id=args.q0b_l4_job_id,
         q0b_a100_job_id=args.q0b_a100_job_id,
+        study_plan_drive_path=f"{args.drive_output_dir.rstrip('/')}/study-plan.json",
         drive_root=args.drive_root,
     )
     args.out_dir.mkdir(parents=True)

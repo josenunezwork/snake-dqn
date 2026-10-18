@@ -68,12 +68,34 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
              "cpu_unit_rate_per_hour": 0.5}
         )
     )
-    monkeypatch.setattr(subject, "_qualified_receipt", lambda path, hardware: (_receipt(), {}))
+    packet = {
+        "runtime": {"cpu_cores": 12},
+        "cells": [
+            {"collector": "n1", "actor_count": 3},
+            {"collector": "n3", "actor_count": 6},
+        ],
+    }
+    monkeypatch.setattr(subject, "_qualified_receipt", lambda path, hardware: (_receipt(), packet))
+    monkeypatch.setattr(
+        subject,
+        "validate_packet",
+        lambda packet: {
+            "measured_cells": {
+                "restart/n3": {"decisions_per_second": 2_000},
+                "mature/n3": {"decisions_per_second": 2_000},
+                "restart/n1": {"decisions_per_second": 2_000},
+                "mature/n1": {"decisions_per_second": 2_000},
+            }
+        },
+    )
     monkeypatch.setattr(subject, "_validate_runtime_receipt", lambda path: {})
     monkeypatch.setattr(subject, "_validate_mac_reference", lambda path: {})
     monkeypatch.setattr(
         "research.q0q1_20261017.qualification.validate_admission",
         lambda packet, plan: {"status": "ADMITTED_FOR_DISPATCH", "dispatch_authorized": True},
+    )
+    monkeypatch.setattr(
+        "research.q0q1_20261017.run_queue_job.qualified_recipe_binding", lambda packet, command: None
     )
     jobs, plan = subject.make_jobs(
         commit="a" * 40,
@@ -85,9 +107,12 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
         q0_accounting_path=accounting,
         q0b_l4_job_id="q0b-l4",
         q0b_a100_job_id="q0b-a100",
+        study_plan_drive_path="/content/drive/MyDrive/t16_colab/q0q1-20261017/q1/jobs/study-plan.json",
     )
     assert len(jobs) == 120
     assert sum(job["id"].startswith("q1-train-") for job in jobs) == 20
     assert all(job["env"]["Q0Q1_OWNER_RELEASE"] == subject.OWNER_RELEASE for job in jobs)
     assert all({"q0b-l4", "q0b-a100"} <= set(job["depends_on"]) for job in jobs)
+    assert all(job["env"]["Q0Q1_Q0B_A100_RECEIPT_SHA256"] for job in jobs)
+    assert {job["requirements"]["min_vcpu"] for job in jobs if job["id"].startswith("q1-train-")} == {12}
     assert plan["q0_units"] == 20.0
