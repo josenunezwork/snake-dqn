@@ -203,7 +203,9 @@ def _clean_head(commit: str, root: Path) -> None:
         raise ValueError("refusing to bind jobs while the checkout has uncommitted source changes")
 
 
-def _stage_evidence(source: Path, target: Path, *, member_suffix: str | None = None) -> Path:
+def _stage_evidence(
+    source: Path, target: Path, *, member_name: str | None = None, member_suffix: str | None = None
+) -> Path:
     """Copy direct JSON or safely extract a hash-verified queue archive member."""
     if source.suffixes[-2:] != [".tar", ".gz"]:
         value = _json_object(source, "evidence")
@@ -214,9 +216,14 @@ def _stage_evidence(source: Path, target: Path, *, member_suffix: str | None = N
     if not fields or fields[0] != sha256_file(source):
         raise ValueError(f"queue archive sidecar does not bind {source}")
     with tarfile.open(source, "r:gz") as archive:
-        members = [member for member in archive.getmembers() if member.name.endswith(member_suffix or "receipt.json")]
+        if member_name is not None:
+            members = [member for member in archive.getmembers() if member.name == member_name]
+            if not members and member_suffix is not None:
+                members = [member for member in archive.getmembers() if member.name.endswith(member_suffix)]
+        else:
+            members = [member for member in archive.getmembers() if member.name.endswith(member_suffix or "receipt.json")]
         if len(members) != 1 or members[0].name.startswith("/") or ".." in Path(members[0].name).parts:
-            raise ValueError(f"queue archive lacks one safe {member_suffix or 'receipt.json'} member")
+            raise ValueError(f"queue archive lacks one safe {member_name or member_suffix or 'receipt.json'} member")
         stream = archive.extractfile(members[0])
         if stream is None:
             raise ValueError("queue archive evidence member cannot be read")
@@ -229,6 +236,12 @@ def _stage_evidence(source: Path, target: Path, *, member_suffix: str | None = N
         raise ValueError("queue archive evidence member is not a JSON object")
     target.write_bytes(raw)
     return target
+
+
+def _completed_q0_receipt(path: Path, schema: str) -> None:
+    receipt = _json_object(path, "Q0 receipt")
+    if receipt.get("schema") != schema or receipt.get("status") != "COMPLETE":
+        raise ValueError(f"Q1 requires completed Q0 receipt {schema}")
 
 
 def make_jobs(
@@ -333,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--q0b-l4-receipt", type=Path, required=True)
     parser.add_argument("--q0b-a100-receipt", type=Path, required=True)
+    parser.add_argument("--q0-mass-archive", type=Path, required=True)
+    parser.add_argument("--q0-init-archive", type=Path, required=True)
     parser.add_argument("--runtime-parity-receipt", type=Path)
     parser.add_argument("--mac-parity-reference", type=Path, required=True)
     parser.add_argument(
@@ -363,11 +378,20 @@ def main(argv: list[str] | None = None) -> int:
     args.out_dir.mkdir(parents=True)
     evidence = args.out_dir / "evidence"
     evidence.mkdir()
-    l4 = _stage_evidence(args.q0b_l4_receipt, evidence / "q0b-l4-receipt.json")
-    a100 = _stage_evidence(args.q0b_a100_receipt, evidence / "q0b-a100-receipt.json")
+    mass = _stage_evidence(args.q0_mass_archive, evidence / "q0-mass-receipt.json", member_name="attempt/receipt.json")
+    init = _stage_evidence(args.q0_init_archive, evidence / "q0-init-receipt.json", member_name="attempt/receipt.json")
+    _completed_q0_receipt(mass, "q0-t23-mass-audit/v1")
+    _completed_q0_receipt(init, "q0-b8-init-fidelity/v1")
+    l4 = _stage_evidence(
+        args.q0b_l4_receipt, evidence / "q0b-l4-receipt.json", member_name="attempt/receipt.json"
+    )
+    a100 = _stage_evidence(
+        args.q0b_a100_receipt, evidence / "q0b-a100-receipt.json", member_name="attempt/receipt.json"
+    )
     runtime = _stage_evidence(
         args.runtime_parity_receipt or args.q0b_l4_receipt,
         evidence / "runtime-parity.json",
+        member_name="attempt/measurement/runtime-parity.json",
         member_suffix="runtime-parity.json",
     )
     mac = _stage_evidence(args.mac_parity_reference, evidence / "mac-parity-reference.json")
