@@ -44,6 +44,17 @@ def _mapping(value: Any, label: str, errors: list[str]) -> Mapping[str, Any] | N
     return value
 
 
+def _positive_count(value: Any, label: str, errors: list[str]) -> int | None:
+    """Accept only a real, positive integer counter (``bool`` is not a count)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        errors.append(f"{label} must be a positive integer count")
+        return None
+    if value <= 0:
+        errors.append(f"{label} must be > 0")
+        return None
+    return value
+
+
 def _hash_bundle(packet: Mapping[str, Any], errors: list[str]) -> None:
     """Require independently bound source, config, environment, and input hashes."""
     for name in ("source", "config", "environment", "hashes"):
@@ -65,7 +76,7 @@ def _check_cell(cell: Mapping[str, Any], errors: list[str], checks: dict[str, bo
     result: dict[str, float] = {}
     if cell.get("schedule") not in SCHEDULES or cell.get("collector") not in COLLECTORS:
         errors.append(f"cell {name} must name schedule restart|mature and collector n1|n3")
-    if not isinstance(cell.get("actor_count"), int) or cell["actor_count"] <= 0:
+    if isinstance(cell.get("actor_count"), bool) or not isinstance(cell.get("actor_count"), int) or cell["actor_count"] <= 0:
         errors.append(f"cell {name}.actor_count must be a positive integer")
     warmup = _finite_number(cell.get("warmup_seconds"), f"cell {name}.warmup_seconds", errors)
     if warmup is not None and warmup < WARMUP_SECONDS:
@@ -96,25 +107,21 @@ def _check_cell(cell: Mapping[str, Any], errors: list[str], checks: dict[str, bo
             errors.append(f"cell {name}.{field} must be true")
     for field in ("dropped_transitions", "ring_overruns"):
         value = cell.get(field)
-        if not isinstance(value, int) or value != 0:
+        if isinstance(value, bool) or not isinstance(value, int) or value != 0:
             errors.append(f"cell {name}.{field} must be zero")
     counters = _mapping(cell.get("counters"), f"cell {name}.counters", errors)
     if counters is not None:
-        rows = _finite_number(counters.get("emitted_replay_rows"), f"cell {name}.counters.emitted_replay_rows", errors)
-        updates = _finite_number(counters.get("completed_updates"), f"cell {name}.counters.completed_updates", errors)
-        debt = _finite_number(counters.get("pending_update_debt"), f"cell {name}.counters.pending_update_debt", errors)
-        decisions = _finite_number(counters.get("actual_learner_decisions"), f"cell {name}.counters.actual_learner_decisions", errors)
-        world_frames = _finite_number(counters.get("world_frames"), f"cell {name}.counters.world_frames", errors)
-        _finite_number(counters.get("pool_decisions"), f"cell {name}.counters.pool_decisions", errors)
+        rows = _positive_count(counters.get("emitted_replay_rows"), f"cell {name}.counters.emitted_replay_rows", errors)
+        updates = _positive_count(counters.get("completed_updates"), f"cell {name}.counters.completed_updates", errors)
+        debt = _positive_count(counters.get("pending_update_debt"), f"cell {name}.counters.pending_update_debt", errors)
+        _positive_count(counters.get("actual_learner_decisions"), f"cell {name}.counters.actual_learner_decisions", errors)
+        _positive_count(counters.get("world_frames"), f"cell {name}.counters.world_frames", errors)
+        _positive_count(counters.get("pool_decisions"), f"cell {name}.counters.pool_decisions", errors)
         if rows is not None and updates is not None and debt is not None and rows > 0:
             reconciliation = abs(rows - (ROWS_PER_UPDATE * updates + debt)) / rows
             if reconciliation > 0.02:
                 errors.append(f"cell {name} R/U/debt reconciliation exceeds 2%")
             result["cadence_error"] = reconciliation
-        if decisions is not None and decisions <= 0:
-            errors.append(f"cell {name} must record actual learner decisions")
-        if world_frames is not None and world_frames <= 0:
-            errors.append(f"cell {name} must record positive world frames")
     lag = _mapping(cell.get("policy_lag"), f"cell {name}.policy_lag", errors)
     if lag is not None:
         control = _mapping(lag.get("matched_control"), f"cell {name}.policy_lag.matched_control", errors)
@@ -249,17 +256,23 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
     if packet.get("hardware") != "L4" or plan.get("q1_training_hardware") != "L4":
         errors.append("Q1 training admission requires one exact qualified L4 cohort")
     q0_units = _finite_number(plan.get("q0_units"), "q0_units", errors, positive=True)
-    q0_gpu_hours = _finite_number(plan.get("q0_gpu_hours"), "q0_gpu_hours", errors)
-    q0_cpu_hours = _finite_number(plan.get("q0_cpu_hours"), "q0_cpu_hours", errors)
+    q0_gpu_hours = _finite_number(plan.get("q0_gpu_hours"), "q0_gpu_hours", errors, positive=True)
+    q0_cpu_hours = _finite_number(plan.get("q0_cpu_hours"), "q0_cpu_hours", errors, positive=True)
     if q0_gpu_hours is not None and q0_gpu_hours < 0:
         errors.append("q0_gpu_hours cannot be negative")
     if q0_cpu_hours is not None and q0_cpu_hours < 0:
         errors.append("q0_cpu_hours cannot be negative")
     if q0_units is not None and q0_units > 15:
         errors.append("Q0 exceeds its 15-unit cap")
+    if q0_gpu_hours is not None and q0_gpu_hours > 2:
+        errors.append("Q0 exceeds its 2 GPU-hour cap")
+    if q0_cpu_hours is not None and q0_cpu_hours > 8:
+        errors.append("Q0 exceeds its 8 CPU-hour cap")
     cpu_rate = _finite_number(plan.get("cpu_unit_rate_per_hour"), "cpu_unit_rate_per_hour", errors, positive=True)
     cpu_seconds = _finite_number(plan.get("cpu_seconds_per_episode"), "cpu_seconds_per_episode", errors, positive=True)
     workers = _finite_number(plan.get("cpu_workers"), "cpu_workers", errors, positive=True)
+    if workers is not None and workers != 1:
+        errors.append("Q1 CPU accounting requires one worker per runtime")
     efficiency = _finite_number(plan.get("cpu_worker_efficiency"), "cpu_worker_efficiency", errors, positive=True)
     if efficiency is not None and efficiency > 1:
         errors.append("cpu_worker_efficiency cannot exceed 1")
@@ -270,6 +283,10 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
     decisions_per_run = plan.get("decisions_per_run")
     if runs_per_arm != 5 or decisions_per_run != 8_000_000:
         errors.append("Q1 admission requires 5 fresh seeds per arm and 8,000,000 decisions per run")
+    if plan.get("evaluation_jobs") != 100 or plan.get("parity_worlds_per_evaluation_job") != 4:
+        errors.append("Q1 CPU overhead must bind 100 evaluation jobs and four parity worlds per job")
+    gpu_overhead = _finite_number(plan.get("q1_gpu_overhead_hours"), "q1_gpu_overhead_hours", errors, positive=True)
+    cpu_overhead = _finite_number(plan.get("q1_cpu_overhead_hours"), "q1_cpu_overhead_hours", errors, positive=True)
     measured = outcome.get("measured_cells", {})
     train_hours = 0.0
     if not errors and isinstance(measured, Mapping):
@@ -281,16 +298,18 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
                 continue
             train_hours += 5 * 8_000_000 / float(speed) / 3600.0
     rate = outcome.get("unit_rate_per_hour")
-    training_units = train_hours * float(rate) if isinstance(rate, (int, float)) else None
+    gpu_overhead_units = float(gpu_overhead) * float(rate) if gpu_overhead is not None and isinstance(rate, (int, float)) else None
+    training_units = train_hours * float(rate) + (gpu_overhead_units or 0.0) if isinstance(rate, (int, float)) else None
     if training_units is not None and training_units > 60:
         errors.append("Q1 training forecast exceeds its 60-unit cap")
     cpu_hours = 0.0
     if None not in (cpu_seconds, workers, efficiency):
         cpu_hours = 3200 * float(cpu_seconds) / (3600 * float(workers) * float(efficiency))
-    cpu_units = cpu_hours * float(cpu_rate) if cpu_rate is not None else None
+    cpu_overhead_units = float(cpu_overhead) * float(cpu_rate) if cpu_overhead is not None and cpu_rate is not None else None
+    cpu_units = cpu_hours * float(cpu_rate) + (cpu_overhead_units or 0.0) if cpu_rate is not None else None
     total_units = (float(q0_units) if q0_units is not None else 0.0) + (training_units or 0.0) + (cpu_units or 0.0)
-    total_gpu_hours = train_hours + (float(q0_gpu_hours) if q0_gpu_hours is not None else 0.0)
-    total_cpu_hours = cpu_hours + (float(q0_cpu_hours) if q0_cpu_hours is not None else 0.0)
+    total_gpu_hours = train_hours + (float(gpu_overhead) if gpu_overhead is not None else 0.0) + (float(q0_gpu_hours) if q0_gpu_hours is not None else 0.0)
+    total_cpu_hours = cpu_hours + (float(cpu_overhead) if cpu_overhead is not None else 0.0) + (float(q0_cpu_hours) if q0_cpu_hours is not None else 0.0)
     if total_gpu_hours > 24 * 0.8:
         errors.append("GPU forecast consumes more than the 80% usable 24 GPU-hour envelope")
     if total_cpu_hours > 40 * 0.8:
@@ -303,8 +322,12 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         "qualification": outcome,
         "forecast": {
             "q1_training_gpu_hours": train_hours,
+            "q1_gpu_overhead_hours": gpu_overhead,
+            "q1_gpu_overhead_units": gpu_overhead_units,
             "q1_training_units": training_units,
             "q1_evaluation_cpu_hours": cpu_hours,
+            "q1_cpu_overhead_hours": cpu_overhead,
+            "q1_cpu_overhead_units": cpu_overhead_units,
             "q1_evaluation_units": cpu_units,
             "q0_gpu_hours": q0_gpu_hours,
             "q0_cpu_hours": q0_cpu_hours,

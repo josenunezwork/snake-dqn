@@ -72,13 +72,17 @@ def _plan() -> dict:
         "q0_units": 10,
         "q0_gpu_hours": 1,
         "q0_cpu_hours": 1,
+        "q1_gpu_overhead_hours": 1,
+        "q1_cpu_overhead_hours": 1,
         "cpu_unit_rate_per_hour": 0.5,
         "cpu_seconds_per_episode": 10,
-        "cpu_workers": 2,
+        "cpu_workers": 1,
         "cpu_worker_efficiency": 0.8,
         "evaluation_episodes": 3200,
         "runs_per_arm": 5,
         "decisions_per_run": 8_000_000,
+        "evaluation_jobs": 100,
+        "parity_worlds_per_evaluation_job": 4,
     }
 
 
@@ -134,7 +138,7 @@ def test_admission_computes_complete_20_run_and_3200_episode_forecast() -> None:
     assert outcome["status"] == "ADMITTED_FOR_OWNER_REVIEW", outcome["errors"]
     assert outcome["dispatch_authorized"] is False
     assert outcome["forecast"]["q1_training_gpu_hours"] > 0
-    assert outcome["forecast"]["q1_evaluation_cpu_hours"] == 3200 * 10 / (3600 * 2 * 0.8)
+    assert outcome["forecast"]["q1_evaluation_cpu_hours"] == 3200 * 10 / (3600 * 1 * 0.8)
 
 
 def test_admission_refuses_unknown_cpu_rate_and_cap_overrun() -> None:
@@ -176,3 +180,28 @@ def test_admission_counts_q0_hours_against_global_reserve() -> None:
     outcome = subject.validate_admission(packet, plan)
     assert outcome["status"] == "REFUSED"
     assert any("GPU forecast" in error for error in outcome["errors"])
+
+
+def test_packet_rejects_zero_negative_nan_and_boolean_counters() -> None:
+    packet = _packet()
+    packet["cells"][0]["actor_count"] = True
+    packet["cells"][0]["counters"]["emitted_replay_rows"] = 0
+    packet["cells"][1]["counters"]["completed_updates"] = -1
+    packet["cells"][2]["counters"]["pending_update_debt"] = float("nan")
+    packet["cells"][3]["counters"]["pool_decisions"] = False
+    outcome = subject.validate_packet(packet)
+    assert outcome["status"] == "INCOMPLETE"
+    assert any("actor_count" in error for error in outcome["errors"])
+    assert sum("must be > 0" in error or "positive integer count" in error for error in outcome["errors"]) >= 4
+
+
+def test_admission_requires_explicit_nonzero_overhead_and_one_worker() -> None:
+    plan = _plan()
+    plan["q1_gpu_overhead_hours"] = 0
+    plan["q1_cpu_overhead_hours"] = -1
+    plan["cpu_workers"] = 2
+    outcome = subject.validate_admission(_packet(), plan)
+    assert outcome["status"] == "REFUSED"
+    assert any("q1_gpu_overhead_hours" in error for error in outcome["errors"])
+    assert any("q1_cpu_overhead_hours" in error for error in outcome["errors"])
+    assert any("one worker" in error for error in outcome["errors"])

@@ -27,12 +27,16 @@
     "q0_units": null,
     "q0_gpu_hours": null,
     "q0_cpu_hours": null,
+    "q1_gpu_overhead_hours": null,
+    "q1_cpu_overhead_hours": null,
     "cpu_unit_rate_per_hour": null,
     "cpu_seconds_per_episode": null,
-    "cpu_workers": null,
+    "cpu_workers": 1,
     "cpu_worker_efficiency": null,
     "evaluation_episodes": 3200,
     "runs_per_arm": 5,
-    "decisions_per_run": 8000000
+    "decisions_per_run": 8000000,
+    "evaluation_jobs": 100,
+    "parity_worlds_per_evaluation_job": 4
   }
 }
