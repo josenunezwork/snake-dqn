@@ -1,6 +1,6 @@
 {
   "id": "overnight-host-contracts-a100",
-  "commit": "cff0b29859cdd85dd1806c142aead1444a9932eb",
+  "commit": "2f4078515043d899fc0005898a077854fde6657a",
   "script": "research/q0q1_20261017/run_host_contracts.sh",
   "env": {},
   "requirements": {
