@@ -24,6 +24,17 @@ ROWS_PER_UPDATE = 256
 WINDOW_SECONDS = 180.0
 WARMUP_SECONDS = 120.0
 PACKET_SECONDS = 3600.0
+DRAFT_OWNER_REVIEW = "DRAFT_PENDING_OWNER_REVIEW"
+APPROVED_OWNER_RELEASE = "APPROVED_Q0Q1_20261017"
+A1_AMENDMENT = "A1"
+DRAFT_Q0_UNITS_CAP = 15.0
+A1_Q0_UNITS_CAP = 40.0
+DRAFT_COMBINED_UNITS_CAP = 150.0
+A1_COMBINED_UNITS_CAP = 175.0
+GPU_HOURS_CAP = 24.0
+CPU_HOURS_CAP = 40.0
+Q0_CPU_HOURS_CAP = 8.0
+RESERVE_FRACTION = 0.20
 
 
 def _finite_number(
@@ -308,11 +319,45 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         }
     if plan.get("schema") != PLAN_SCHEMA:
         errors.append(f"study plan schema must equal {PLAN_SCHEMA}")
-    draft_status = plan.get("owner_review_status", plan.get("status"))
-    if draft_status != "DRAFT_PENDING_OWNER_REVIEW":
-        errors.append("study plan must explicitly remain DRAFT_PENDING_OWNER_REVIEW")
-    if plan.get("dispatch") is not False:
-        errors.append("qualification must not authorize dispatch")
+    owner_status = plan.get("owner_review_status", plan.get("status"))
+    approved_a1 = owner_status == APPROVED_OWNER_RELEASE
+    if owner_status == DRAFT_OWNER_REVIEW:
+        if plan.get("dispatch") is not False:
+            errors.append("draft qualification must not authorize dispatch")
+        q0_units_cap = DRAFT_Q0_UNITS_CAP
+        combined_units_cap = DRAFT_COMBINED_UNITS_CAP
+        dispatch_authorized = False
+        admitted_status = "ADMITTED_FOR_OWNER_REVIEW"
+    elif approved_a1:
+        if plan.get("owner_release") != APPROVED_OWNER_RELEASE:
+            errors.append("approved A1 plan must bind the exact owner release")
+        if plan.get("amendment") != A1_AMENDMENT:
+            errors.append("approved plan must bind Amendment A1")
+        if plan.get("dispatch") is not True:
+            errors.append("approved A1 admission must explicitly authorize dispatch")
+        envelope = _mapping(plan.get("a1_envelope"), "a1_envelope", errors)
+        expected_envelope = {
+            "q0_units_cap": A1_Q0_UNITS_CAP,
+            "combined_units_cap": A1_COMBINED_UNITS_CAP,
+            "reserve_fraction": RESERVE_FRACTION,
+        }
+        if envelope is not None:
+            for field, expected in expected_envelope.items():
+                if envelope.get(field) != expected:
+                    errors.append(f"a1_envelope.{field} must equal {expected:g}")
+        q0_units_cap = A1_Q0_UNITS_CAP
+        combined_units_cap = A1_COMBINED_UNITS_CAP
+        dispatch_authorized = True
+        admitted_status = "ADMITTED_FOR_DISPATCH"
+    else:
+        errors.append(
+            "study plan must be DRAFT_PENDING_OWNER_REVIEW or explicitly bound "
+            "APPROVED_Q0Q1_20261017 Amendment A1"
+        )
+        q0_units_cap = DRAFT_Q0_UNITS_CAP
+        combined_units_cap = DRAFT_COMBINED_UNITS_CAP
+        dispatch_authorized = False
+        admitted_status = "ADMITTED_FOR_OWNER_REVIEW"
     if packet.get("hardware") != "L4" or plan.get("q1_training_hardware") != "L4":
         errors.append("Q1 training admission requires one exact qualified L4 cohort")
     q0_units = _finite_number(plan.get("q0_units"), "q0_units", errors, positive=True)
@@ -322,11 +367,9 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         errors.append("q0_gpu_hours cannot be negative")
     if q0_cpu_hours is not None and q0_cpu_hours < 0:
         errors.append("q0_cpu_hours cannot be negative")
-    if q0_units is not None and q0_units > 15:
-        errors.append("Q0 exceeds its 15-unit cap")
-    if q0_gpu_hours is not None and q0_gpu_hours > 2:
-        errors.append("Q0 exceeds its 2 GPU-hour cap")
-    if q0_cpu_hours is not None and q0_cpu_hours > 8:
+    if q0_units is not None and q0_units > q0_units_cap:
+        errors.append(f"Q0 exceeds its {q0_units_cap:g}-unit cap")
+    if q0_cpu_hours is not None and q0_cpu_hours > Q0_CPU_HOURS_CAP:
         errors.append("Q0 exceeds its 8 CPU-hour cap")
     cpu_rate = _finite_number(
         plan.get("cpu_unit_rate_per_hour"), "cpu_unit_rate_per_hour", errors, positive=True
@@ -412,14 +455,18 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         + (float(cpu_overhead) if cpu_overhead is not None else 0.0)
         + (float(q0_cpu_hours) if q0_cpu_hours is not None else 0.0)
     )
-    if total_gpu_hours > 24 * 0.8:
+    if total_gpu_hours > GPU_HOURS_CAP * (1 - RESERVE_FRACTION):
         errors.append("GPU forecast consumes more than the 80% usable 24 GPU-hour envelope")
-    if total_cpu_hours > 40 * 0.8:
+    if total_cpu_hours > CPU_HOURS_CAP * (1 - RESERVE_FRACTION):
         errors.append("CPU forecast consumes more than the 80% usable 40 CPU-hour envelope")
-    if total_units > 150 * 0.8:
-        errors.append("total forecast consumes more than the 80% usable 150-unit envelope")
+    usable_units_cap = combined_units_cap * (1 - RESERVE_FRACTION)
+    if total_units > usable_units_cap:
+        errors.append(
+            "total forecast consumes more than the 80% usable "
+            f"{combined_units_cap:g}-unit envelope"
+        )
     return {
-        "status": "ADMITTED_FOR_OWNER_REVIEW" if not errors else "REFUSED",
+        "status": admitted_status if not errors else "REFUSED",
         "errors": errors,
         "qualification": outcome,
         "forecast": {
@@ -436,9 +483,12 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
             "total_gpu_hours_including_q0": total_gpu_hours,
             "total_cpu_hours_including_q0": total_cpu_hours,
             "total_units_including_q0": total_units,
-            "reserve_fraction": 0.20,
+            "reserve_fraction": RESERVE_FRACTION,
+            "q0_units_cap": q0_units_cap,
+            "combined_units_cap": combined_units_cap,
+            "usable_combined_units_cap": usable_units_cap,
         },
-        "dispatch_authorized": False,
+        "dispatch_authorized": dispatch_authorized if not errors else False,
     }
 
 
@@ -461,7 +511,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.json_output:
         args.json_output.write_text(rendered)
     sys.stdout.write(rendered)
-    return 0 if result["status"] in {"QUALIFIED", "ADMITTED_FOR_OWNER_REVIEW"} else 2
+    return (
+        0
+        if result["status"]
+        in {
+            "QUALIFIED",
+            "ADMITTED_FOR_OWNER_REVIEW",
+            "ADMITTED_FOR_DISPATCH",
+        }
+        else 2
+    )
 
 
 if __name__ == "__main__":

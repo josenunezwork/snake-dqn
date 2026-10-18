@@ -99,6 +99,22 @@ def _plan() -> dict:
     }
 
 
+def _approved_a1_plan() -> dict:
+    plan = _plan()
+    plan.update(
+        owner_review_status=subject.APPROVED_OWNER_RELEASE,
+        owner_release=subject.APPROVED_OWNER_RELEASE,
+        amendment=subject.A1_AMENDMENT,
+        dispatch=True,
+        a1_envelope={
+            "q0_units_cap": 40.0,
+            "combined_units_cap": 175.0,
+            "reserve_fraction": 0.20,
+        },
+    )
+    return plan
+
+
 def test_packet_accepts_all_exact_q0b_constraints() -> None:
     outcome = subject.validate_packet(_packet())
     assert outcome["status"] == "QUALIFIED", outcome["errors"]
@@ -164,6 +180,29 @@ def test_admission_refuses_unknown_cpu_rate_and_cap_overrun() -> None:
     assert outcome["status"] == "REFUSED"
     assert any("cpu_unit_rate" in error for error in outcome["errors"])
     assert any("Q0 exceeds" in error for error in outcome["errors"])
+
+
+def test_approved_a1_admission_uses_bound_40_unit_q0_and_175_unit_envelope() -> None:
+    plan = _approved_a1_plan()
+    plan["q0_units"] = 40
+    plan["q0_gpu_hours"] = 4
+    plan["q0_cpu_hours"] = 8
+    outcome = subject.validate_admission(_packet(), plan)
+    assert outcome["status"] == "ADMITTED_FOR_DISPATCH", outcome["errors"]
+    assert outcome["dispatch_authorized"] is True
+    assert outcome["forecast"]["q0_units_cap"] == 40
+    assert outcome["forecast"]["usable_combined_units_cap"] == 140
+
+
+def test_approved_a1_admission_requires_every_approval_and_envelope_binding() -> None:
+    plan = _approved_a1_plan()
+    plan["owner_release"] = "forged"
+    plan["a1_envelope"]["combined_units_cap"] = 150
+    outcome = subject.validate_admission(_packet(), plan)
+    assert outcome["status"] == "REFUSED"
+    assert outcome["dispatch_authorized"] is False
+    assert any("owner release" in error for error in outcome["errors"])
+    assert any("combined_units_cap" in error for error in outcome["errors"])
 
 
 def test_admission_never_turns_draft_qualification_into_dispatch() -> None:
