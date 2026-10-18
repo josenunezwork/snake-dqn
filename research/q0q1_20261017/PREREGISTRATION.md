@@ -1,4 +1,15 @@
-# DRAFT_PENDING_OWNER_REVIEW — Q0/Q1 B8 preservation factorial (2026-10-17)
+# APPROVED_Q0Q1_20261017 — Q0/Q1 B8 preservation factorial (2026-10-17)
+
+**Owner approval (2026-10-18, chat): "everything approved for today dont ask me again".** The registration below is
+approved as written, with one execution amendment (Amendment A1). Queue jobs carry
+`Q0Q1_OWNER_RELEASE=APPROVED_Q0Q1_20261017`.
+
+**Amendment A1 (before any Q0/Q1 data):** Q0 audits may run on the owner-granted Colab A100-40GB High-RAM runtime
+(~5.3 units/h). The Q0 cap is raised from 15 to **40 units** to cover A100 pricing; the combined Q0+Q1 envelope stays
+150 units plus this 25-unit difference (175). All other rules, arms, seeds, banks and decisions are unchanged.
+
+---
+(Original header: DRAFT_PENDING_OWNER_REVIEW.)
 
 This is a prospective registration for Q0 and Q1.  It implements the local plan
 in `docs/research/specs/after_t23_plan_2026-10-17.md` and adopts
