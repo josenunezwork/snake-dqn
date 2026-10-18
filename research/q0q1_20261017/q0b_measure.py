@@ -171,8 +171,10 @@ def cell_from_boundaries(
     first = _phase_snapshot(boundaries["window1"], "window1")
     second = _phase_snapshot(boundaries["window2"], "window2")
     for boundary in (warmup, first, second):
-        if len(boundary["pending_nstep_rows_by_actor"]) != actor_count:
-            raise ValueError("boundary n-step pending rows omit actors")
+        if set(boundary["pending_nstep_rows_by_actor"]) != {
+            str(actor) for actor in range(actor_count)
+        }:
+            raise ValueError("boundary n-step pending rows omit or misidentify actors")
     warmup_elapsed = _finite(warmup["elapsed_seconds"], "warmup.elapsed_seconds")
     first_elapsed = _finite(first["elapsed_seconds"], "window1.elapsed_seconds")
     second_elapsed = _finite(second["elapsed_seconds"], "window2.elapsed_seconds")

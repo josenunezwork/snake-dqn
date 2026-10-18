@@ -310,3 +310,20 @@ def test_registered_nstep_endpoint_rows_are_distinct_from_operational_loss(phase
             boundaries=boundaries,
             summary={"stopped_for_time": True, "halt": None, "actor_exitcodes": [0, 0]},
         )
+
+
+def test_nstep_boundary_rejects_wrong_actor_identity_despite_matching_sum():
+    boundaries = {
+        "warmup": _boundary("warmup", 120.0, 1000),
+        "window1": _boundary("window1", 300.0, 4000),
+        "window2": _boundary("window2", 480.0, 8000),
+    }
+    boundaries["window2"]["pending_nstep_rows_by_actor"] = {"0": 0, "wrong": 0}
+    with pytest.raises(ValueError, match="misidentify actors"):
+        subject.cell_from_boundaries(
+            schedule="restart",
+            collector="n3",
+            actor_count=2,
+            boundaries=boundaries,
+            summary={"stopped_for_time": True, "halt": None, "actor_exitcodes": [0, 0]},
+        )
