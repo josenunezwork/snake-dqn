@@ -30,6 +30,14 @@ def _cell(schedule: str, collector: str) -> dict:
             "emitted_replay_rows": 256_100,
             "completed_updates": 1000,
             "pending_update_debt": 100,
+            "truncation_rows_dropped": 3_325_836,
+            "pending_nstep_rows": 64,
+            "pending_nstep_rows_by_actor": {
+                str(actor): 64 if actor == 0 else 0
+                for actor in range(6 if collector == "n3" else 3)
+            },
+            "decision_replay_delta": 3_325_900,
+            "nstep_accounting_reconciled": True,
         },
         "policy_lag": {
             "mean": 2.0,
@@ -259,6 +267,7 @@ def test_packet_accepts_zero_pending_update_debt() -> None:
     packet = _packet()
     for cell in packet["cells"]:
         cell["counters"].update(emitted_replay_rows=256_000, pending_update_debt=0)
+        cell["counters"].update(truncation_rows_dropped=3_325_936, decision_replay_delta=3_326_000)
     assert subject.validate_packet(packet)["status"] == "QUALIFIED"
 
 

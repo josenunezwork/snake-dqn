@@ -145,7 +145,7 @@ def _check_cell(
         if type(debt) is not int or debt < 0:
             errors.append(f"cell {name}.counters.pending_update_debt must be a nonnegative integer")
             debt = None
-        _positive_count(
+        decisions = _positive_count(
             counters.get("actual_learner_decisions"),
             f"cell {name}.counters.actual_learner_decisions",
             errors,
@@ -159,6 +159,30 @@ def _check_cell(
             if reconciliation > 0.02:
                 errors.append(f"cell {name} R/U/debt reconciliation exceeds 2%")
             result["cadence_error"] = reconciliation
+        tails = counters.get("truncation_rows_dropped")
+        pending = counters.get("pending_nstep_rows")
+        delta = counters.get("decision_replay_delta")
+        by_actor = counters.get("pending_nstep_rows_by_actor")
+        actors = cell.get("actor_count")
+        if (
+            not isinstance(by_actor, Mapping)
+            or type(actors) is not int
+            or actors <= 0
+            or set(by_actor) != {str(actor) for actor in range(actors)}
+            or any(type(value) is not int or value < 0 for value in by_actor.values())
+            or sum(by_actor.values()) != pending
+        ):
+            errors.append(f"cell {name} pending n-step actor map does not reconcile")
+        if any(type(value) is not int or value < 0 for value in (tails, pending, delta)):
+            errors.append(f"cell {name} lacks nonnegative n-step tail/pending/delta counters")
+        elif (
+            counters.get("nstep_accounting_reconciled") is not True
+            or decisions is None
+            or rows is None
+            or decisions - rows != delta
+            or delta != tails + pending
+        ):
+            errors.append(f"cell {name} n-step decision/replay/tail accounting does not reconcile")
     lag = _mapping(cell.get("policy_lag"), f"cell {name}.policy_lag", errors)
     if lag is not None:
         control = _mapping(

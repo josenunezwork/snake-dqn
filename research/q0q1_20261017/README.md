@@ -154,6 +154,14 @@ measurement exports INCOMPLETE; it does not retry or shorten a window. CUDA B8
 inference is compared against the retained old pool; vector61 and v8 kernels
 remain on CPU as in the actual actor stack.
 
+The unchanged n-step builder omits the newest successorless decision at a
+registered segment boundary. That tail count is reported separately from
+operational replay/transport loss. Every Q0b endpoint must reconcile exactly:
+accepted decisions minus emitted rows equals registered truncation tails plus
+pending n-step rows. Operational dropped replay transitions and ring overruns
+must still be zero. This implements the registration's existing counter and
+segment semantics; it does not waive the no-loss guard.
+
 After both packet archives and their SHA sidecars have synchronized, record the
 actual complete Q0 debit (audits, packets, setup, failures, copies and cleanup)
 and measured per-evaluation-job CPU startup/copy/export overhead. Include any
