@@ -82,9 +82,14 @@ cross-respawn bootstrap with scalar fixtures.
 
 If all ten 2M/4M snapshots exist, evaluate each snapshot and B8 on 16 scripted,
 8 frozen, and 8 mixed fresh terminal-hero H5000 worlds per training seed:
-`5 × 32 × (2 snapshots + B8) = 480` episodes.  These are a retrospective mass
-decomposition, not a replacement endpoint and cannot rescue T23's existing 8M
-KILL.
+`5 × 32 × (2 snapshots + B8) = 480` mass-decomposition policy episodes.  The
+B8 fidelity observation capture reuses those same 160 worlds; it creates no
+second development-world allocation.  Its 160 B8 executions and its at-most-4096
+captured observations are reported separately from the 480 policy-episode cap.
+The completion receipt must make that reuse and both accounting denominators
+auditable before Q1; a nominal 640 independent development-episode allocation is
+not registered.  These observations are retrospective diagnosis, not a
+replacement endpoint and cannot rescue T23's existing 8M KILL.
 
 ### Descriptive report
 
@@ -153,6 +158,19 @@ and T24 target-runtime parity must pass for the candidate runtime; Mac CPU fixtu
 parity alone is insufficient for CUDA qualification.  The old/default path must
 remain covered and defaults must remain unchanged.
 
+The implementation names these checks in `tests/test_q1_trainer.py`:
+`test_mature_schedule_is_constant_at_registered_q1_checkpoints`,
+`test_restart_schedule_defaults_are_unchanged_and_explicit_starts_work`,
+`test_task_collection_mix_draws_are_stable_isolated_and_uniform_by_probability`,
+`test_task_collection_terminal_and_horizon_boundaries_are_distinct`,
+`test_terminal_nstep_flush_prevents_death_respawn_credit_leakage`,
+`test_horizon_truncation_keeps_the_registered_bootstrap_not_a_terminal_discount`,
+`test_task_reward_gamma_changes_the_live_simulator_contract_at_schedule_boundaries`,
+and `test_task_reset_replays_constructor_food_draw_path_for_fresh_gate_seed`.
+`tests/test_q1_qualification.py` binds the timing, lag, counter-debt, target-CUDA,
+and draft-admission requirements.  These are implementation acceptance tests, not
+evidence that a runtime packet has passed.
+
 ### Capacity packet and freeze rule
 
 On one L4 and one A100, after setup and completed compilation/replay readiness,
@@ -192,13 +210,18 @@ initializer and opponent hashes, hardware, software, namespace, seed, counters,
 and receipt identity.
 
 Use five fresh collision-audited seed blocks, paired across A--D by block and
-initializer: `261701`, `261702`, `261703`, `261704`, and `261705`.  The fresh
-bank namespace is `q1-mature-n1n3-h5000-terminal-hero/20261017/v1`; training and
-evaluation namespaces must be disjoint and collision-audited against prior
-training, labels, snapshots, development, and strict banks.  Shared exogenous
-seeds do not make trajectories identical after actions diverge.  The five blocks,
-conditional on B8, are the independent experimental units; actor slots,
-descendants, frames, seats, and checkpoints are not extra replicates.
+initializer: `261701`, `261703`, `261704`, `261705`, and `261707`.  Seed `261702`
+was rejected by the pre-data collision audit and is not a Q1 seed.  The fresh bank
+namespace is `q1-mature-n1n3-h5000-terminal-hero/20261017/v1`.  Training and
+evaluation namespaces are disjoint and collision-audited against prior training,
+labels, snapshots, development, and strict banks.  The authoritative training
+namespace is `q1-t23-n3-20261017/v1` for both A/B and
+`q1-task-aligned-n1-20261017/v1` for both C/D.  Arms use separate create-only
+outputs and share only the paired exogenous seed block; they do not get invented
+per-arm training namespaces.  Shared exogenous seeds do not make trajectories
+identical after actions diverge.  The five blocks, conditional on B8, are the
+independent experimental units; actor slots, descendants, frames, seats, and
+checkpoints are not extra replicates.
 
 Each paired four-arm seed block stays on the same qualified GPU type and software
 stack.  Prefer one GPU type for the study.  If preassigned heterogeneous blocks
@@ -222,19 +245,25 @@ not equal simulator work.
 
 ### Registered counter overshoot and artifacts
 
-The multi-actor lane delivers one actor-frame message at a time and increments the
-learner-decision counter only after accepting its learner rows.  For a frozen Q1
-configuration with `W` worlds and `N` learner seats, the accepted final message
-can add at most `W × N` learner decisions after the loop first sees a value below
-8M.  Register `W`, `N`, the derived `W × N` bound, target, actual final count, and
-overshoot (`actual - 8,000,000`) in every receipt.  Actor queue depth can leave
-unconsumed messages, but it does not increase the accepted-counter bound.  A
-receipt exceeding its registered bound is `INVALID/INCOMPLETE`; do not trim rows
-or call it an exact 8M result.
+The multi-actor lane increments its learner-decision counter only after accepting
+an actor-frame message, but the learner drains up to one message from **each** of
+`K` actors before the outer-loop budget condition is checked again.  For frozen
+Q1 values `K` actors, `W` worlds, and `N` learner seats, the accepted decision
+overshoot is bounded by `K × W × N − 1`, not by one actor message.  Register `K`,
+`W`, `N`, this bound, target, actual final learner count, and overshoot
+(`actual − 8,000,000`) in every receipt.  Unconsumed queued messages do not count
+as learner decisions.  Emitted replay rows and their target/update debt are a
+separate reconciliation: record emitted rows, completed updates, pending update
+debt, and frozen/pool decisions without using any of them to relax the learner
+decision endpoint.  A receipt exceeding the registered counter bound or failing
+that reconciliation is `INVALID/INCOMPLETE`; do not trim rows or call it exact
+8M.
 
-Save 0.5M, 2M, 4M, and 8M checkpoints for fixed-input drift diagnostics.  Only
-the 8M final decides gameplay efficacy.  A healthy arm is not stopped for a poor
-2M curve; no intermediate checkpoint may replace the final.
+Checkpoint cadence is every 500,000 learner decisions, retaining checkpoints at
+0.5M, 2M, 4M, and 8M as required.  All checkpoint values, including the other
+500k multiples, are diagnostics only.  Only the 8M final decides gameplay
+efficacy.  A healthy arm is not stopped for a poor 2M curve; no intermediate
+checkpoint may replace the final.
 
 ### Tripwires and run completeness
 
@@ -257,9 +286,18 @@ one per seed block: 64 scripted, 32 frozen, and 32 mixed worlds.  Within a bank,
 only the hero changes; A, B, C, D, and B8 each use the same world seed, ordered
 opponent roster, seats, wrapper, profile, and mechanics.  The 128-world B8 row is
 reused only in that exact bank and manifest.  Total evaluation is therefore
-`5 seeds × 128 worlds × 5 identities = 3,200` episodes.  CPU Colab evaluation
+`5 seeds × 128 worlds × 5 identities = 3,200` episodes.  Evaluation uses one CPU
+thread per world and parallelizes only immutable shards.  CPU Colab evaluation
 uses the pinned evaluator, immutable shard receipts, and a per-runtime T23-style
-Mac-reference parity fixture; the four-world parity probe is a smoke only.
+Mac-reference parity fixture.  The Mac uses the `q1_parity` CLI's `--reference`
+mode to produce the reference; each evaluation runtime uses its
+`--verify-reference` mode.  The four-world parity probe is a smoke only.
+
+The analyzer accepts a `q1-analysis-input/v1` object containing the committed
+bank, its collision audit, and complete immutable shard receipts.  It does not
+accept an unbound list of evaluation rows.  Each receipt must bind bank/profile,
+source, runtime parity/environment, B8 identity, candidate training provenance,
+and exact shard coverage.
 
 For arm `j` and seed `s`, let `G[j,s]` be the equal-weight mean of the three paired
 mix mass differences from B8.  Report per-mix/per-seed effects, mean `G`, and a
