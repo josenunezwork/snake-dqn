@@ -22,9 +22,13 @@ AUDIT_OUTPUT = Path(__file__).with_name("Q1_SEED_AUDIT.json")
 NAMESPACE = "q1-mature-n1n3-h5000-terminal-hero/20261017/v1"
 SCHEMA = "q1-world-bank/v1"
 PROFILE_ID = "q1-terminal-h5000/v1"
-TRAINING_SEEDS = (261701, 261702, 261703, 261704, 261705)
+TRAINING_SEEDS = (261701, 261703, 261704, 261705, 261707)
 MIX_COUNTS = {"scripted": 64, "frozen": 32, "mixed": 32}
 PARITY_COUNT = 4
+TRAINING_NAMESPACES = {
+    "n3": "q1-mature-n3-pool/20261017/v1",
+    "n1": "q1-task-aligned-n1-terminal-hero/20261017/v1",
+}
 
 
 def canonical_sha(value: Any) -> str:
@@ -160,6 +164,7 @@ def build_world_bank() -> dict[str, Any]:
         "profile": profile,
         "mix_counts": MIX_COUNTS,
         "training_seeds": list(TRAINING_SEEDS),
+        "training_namespaces": TRAINING_NAMESPACES,
         "worlds": allocation,
         "parity_worlds": parity,
         "profile_semantic_sha256": canonical_sha(profile),
@@ -194,26 +199,45 @@ def audit_world_bank(repo: Path = ROOT, artifacts: Path | None = None) -> dict[s
     candidates = {x["world_seed"] for rows in bank["worlds"].values() for x in rows} | {
         x["world_seed"] for x in bank["parity_worlds"]
     }
-    # T23's audited collector is deliberately reused, including the strict/T7 inventory.
+    # T23's collector supplies the authoritative strict/T7 inventory.  Invoke
+    # its broad-text component with a non-Q1 sentinel so it cannot mistake our
+    # checked-in allocation for historical evidence; scan actual candidates
+    # below with Q1's directory explicitly excluded.  Never subtract values
+    # from the authoritative binary/strict inventory.
+    training_seeds = set(TRAINING_SEEDS)
+    candidates |= training_seeds
     bindings, historical = t23_bank._prior_strict_seed_inventory(
-        repo, artifacts or repo.parent / "snake-dqn-artifacts", candidates
+        repo, artifacts or repo.parent / "snake-dqn-artifacts", {4_294_967_291}
     )
-    historical.update(
-        t23_bank._scan_candidate_tokens(
-            (repo / "research",), repo / "research/q0q1_20261017", candidates
-        )
+    own = repo / "research/q0q1_20261017"
+    external = t23_bank._scan_candidate_tokens(
+        (
+            repo / "research",
+            repo / "docs",
+            repo / "src",
+            artifacts or repo.parent / "snake-dqn-artifacts",
+        ),
+        own,
+        candidates,
     )
+    historical |= external
+    world_seeds = {x["world_seed"] for rows in bank["worlds"].values() for x in rows} | {
+        x["world_seed"] for x in bank["parity_worlds"]
+    }
     collisions = sorted(candidates & historical)
     return {
         "schema": "q1-seed-audit/v1",
         "namespace": NAMESPACE,
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "world_bank_semantic_sha256": bank["allocation_semantic_sha256"],
-        "candidate_count": len(candidates),
-        "internal_unique": len(candidates) == 644,
+        "candidate_count": len(world_seeds),
+        "training_seed_count": len(training_seeds),
+        "training_namespaces": TRAINING_NAMESPACES,
+        "training_seed_collision_seeds": sorted(training_seeds & historical),
+        "internal_unique": len(world_seeds) == 644 and not (world_seeds & training_seeds),
         "registered_collision_seeds": collisions,
         "mandatory_evidence": bindings,
-        "pass": len(candidates) == 644 and not collisions,
+        "pass": len(world_seeds) == 644 and not collisions,
         "limitations": [
             "Visible receipts and bound strict inventories; opaque binary payloads are outside this audit."
         ],

@@ -38,17 +38,14 @@ def source_manifest() -> dict[str, str]:
     return {name: sha256(root / name) for name in names}
 
 
-def validate_candidate_provenance(
-    path: Path, arm: str, seed: int, checkpoint: Path
-) -> dict[str, Any]:
-    value = json.loads(path.read_text())
+def validate_provenance(value: dict[str, Any], arm: str, seed: int, checkpoint_sha256: str) -> None:
     required = {
         "schema": "q1-training-provenance/v1",
         "arm": arm,
         "training_seed": seed,
         "endpoint": 8_000_000,
         "clean_exit": True,
-        "checkpoint_sha256": sha256(checkpoint),
+        "checkpoint_sha256": checkpoint_sha256,
         "parity_pass": True,
     }
     if any(value.get(key) != expected for key, expected in required.items()):
@@ -61,6 +58,13 @@ def validate_candidate_provenance(
         raise ValueError(
             "candidate provenance has tripwire or missing environment/runtime parity binding"
         )
+
+
+def validate_candidate_provenance(
+    path: Path, arm: str, seed: int, checkpoint: Path
+) -> dict[str, Any]:
+    value = json.loads(path.read_text())
+    validate_provenance(value, arm, seed, sha256(checkpoint))
     return value
 
 

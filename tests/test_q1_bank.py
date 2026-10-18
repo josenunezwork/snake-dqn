@@ -16,3 +16,4 @@ def test_q1_bank_is_fresh_terminal_shared_and_complete() -> None:
             assert row["world_seed"] not in seen
             seen.add(row["world_seed"])
     assert not seen & {x["world_seed"] for x in bank["parity_worlds"]}
+    assert bank["training_namespaces"] == q1_bank.TRAINING_NAMESPACES

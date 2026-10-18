@@ -1,6 +1,8 @@
 """Q1 parity receipt comparison, retaining T23's exact fail-closed comparator."""
 
 from __future__ import annotations
+import hashlib
+import json
 from typing import Any, Mapping
 from research.t23_r0_screen_20261017 import parity as t23
 from research.q0q1_20261017 import q1_bank
@@ -8,6 +10,32 @@ from research.q0q1_20261017 import q1_bank
 SCHEMA = "q1-parity/v1"
 HORIZON = 5000
 MIX_COUNTS = {"scripted": 2, "frozen": 1, "mixed": 1}
+
+
+def canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def validate_runtime_receipt(
+    value: Mapping[str, Any],
+    *,
+    bank_sha256: str,
+    b8_sha256: str,
+    source_manifest: Mapping[str, str],
+) -> None:
+    """Validate a completed Mac/CPU parity comparison before Q1 scoring."""
+    required = {
+        "schema": "q1-runtime-parity-receipt/v1",
+        "pass": True,
+        "bank_sha256": bank_sha256,
+        "b8_sha256": b8_sha256,
+        "source_manifest": dict(source_manifest),
+    }
+    if any(value.get(key) != expected for key, expected in required.items()):
+        raise ValueError("runtime parity receipt has wrong identity or failed comparison")
+    environment = value.get("environment")
+    if not isinstance(environment, Mapping) or not isinstance(environment.get("sha256"), str):
+        raise ValueError("runtime parity receipt lacks evaluation-runtime environment identity")
 
 
 def compare_artifacts(mac: Mapping[str, Any], colab: Mapping[str, Any]) -> dict[str, Any]:
