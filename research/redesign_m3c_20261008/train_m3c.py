@@ -822,6 +822,7 @@ class NStepBuilderRef:
         self.pend: List[deque] = [deque() for _ in range(n_worlds)]
         self.last_obs = np.full(n_worlds, -1, dtype=np.int64)
         self.out: List[tuple] = []
+        self.dropped_truncation_rows = 0
 
     def _flush(self, e: int, bootstrap: int, gamma_now: float) -> None:
         while self.pend[e]:
@@ -860,7 +861,13 @@ class NStepBuilderRef:
             e = int(e)
             if self.pend[e]:
                 self.pend[e].pop()
+                self.dropped_truncation_rows += 1
                 self._flush(e, int(self.last_obs[e]), gamma_end)
+
+    def take_truncation_drops(self) -> int:
+        """Return boundary rows dropped since the preceding actor message."""
+        dropped, self.dropped_truncation_rows = self.dropped_truncation_rows, 0
+        return int(dropped)
 
     def take(self):
         rows, self.out = self.out, []
@@ -896,6 +903,7 @@ class NStepBuilder:
         self.head = np.zeros(E, dtype=np.int64)  # ring slot of the oldest pending row
         self.cnt = np.zeros(E, dtype=np.int64)
         self._chunks: List[tuple] = []  # (s, a, R float64, disc float64, nxt) array chunks
+        self.dropped_truncation_rows = 0
 
     @property
     def out(self) -> List[tuple]:
@@ -1000,6 +1008,7 @@ class NStepBuilder:
             return
         boot = self.ids[w, (self.head[w] + self.cnt[w] - 1) % self.n]  # the newest row
         self.cnt[w] -= 1  # dropped: it has no successor observation
+        self.dropped_truncation_rows += int(len(w))
         k = self.cnt[w].copy()
         keep = k > 0
         w, k, boot = w[keep], k[keep], boot[keep]
@@ -1010,6 +1019,11 @@ class NStepBuilder:
         # dropped, but it must still be cleared at this world's clock boundary.
         self.cnt[requested] = 0
         self.head[requested] = 0
+
+    def take_truncation_drops(self) -> int:
+        """Return boundary rows dropped since the preceding actor message."""
+        dropped, self.dropped_truncation_rows = self.dropped_truncation_rows, 0
+        return int(dropped)
 
     def take(self):
         rows, self._chunks = self._chunks, []
@@ -3686,6 +3700,12 @@ def actor_main(
                     if horizon_worlds.any():
                         nsb.end_worlds(np.flatnonzero(horizon_worlds), gamma_now)
                 s, a, R, d, nx = nsb.take()
+                truncation_drops = nsb.take_truncation_drops()
+                pending_nstep_rows = (
+                    int(sum(len(rows) for rows in nsb.pend))
+                    if hasattr(nsb, "pend")
+                    else int(nsb.cnt.sum())
+                )
                 live_rows_by_policy = {"learner": int(len(acts)), **frozen_live_rows}
                 msg = {
                     "j": j,
@@ -3701,6 +3721,8 @@ def actor_main(
                     "env_s": time.perf_counter() - t0,
                     "timing": timing,
                     "weights_version": last,
+                    "truncation_rows_dropped": truncation_drops,
+                    "pending_nstep_rows": pending_nstep_rows,
                     **stats,
                     **m6_stats,
                 }
@@ -4134,6 +4156,8 @@ def main_multi(args) -> int:
     st = {
         "transitions": 0,
         "replay_rows": 0,
+        "truncation_rows_dropped": 0,
+        "pending_nstep_rows_by_actor": {},
         "updates": 0,
         "flags": [],
         "halt": None,
@@ -4456,6 +4480,8 @@ def main_multi(args) -> int:
                 replay.add_many(gs, msg["a"], msg["R"], msg["disc"], gn)
                 st["since_update"] += len(gs)
                 st["replay_rows"] += len(gs)
+                st["truncation_rows_dropped"] += int(msg.get("truncation_rows_dropped", 0))
+                st["pending_nstep_rows_by_actor"][int(j)] = int(msg.get("pending_nstep_rows", 0))
                 if "task_collection" in msg:
                     for key, by_mix in msg["task_collection"].items():
                         for mix, value in by_mix.items():
@@ -4872,9 +4898,16 @@ def main_multi(args) -> int:
         # endpoint instead reconciles emitted rows against learner-owned action
         # decisions, and records bounded actor-message overshoot explicitly.
         "emitted_replay_rows": st["replay_rows"],
-        "learner_decisions_accounted": st["decisions"],
+        "learner_decisions_accounted": st["transitions"],
         "pending_update_debt": int(st["since_update"]),
-        "decision_replay_delta": int(st["decisions"] - st["replay_rows"]),
+        "decision_replay_delta": int(st["transitions"] - st["replay_rows"]),
+        "truncation_rows_dropped": int(st["truncation_rows_dropped"]),
+        "pending_nstep_rows_by_actor": {
+            str(actor): int(rows) for actor, rows in st["pending_nstep_rows_by_actor"].items()
+        },
+        "pending_nstep_rows": int(sum(st["pending_nstep_rows_by_actor"].values())),
+        "nstep_accounting_reconciled": int(st["transitions"] - st["replay_rows"])
+        == int(st["truncation_rows_dropped"] + sum(st["pending_nstep_rows_by_actor"].values())),
         "transition_budget_overshoot": max(0, int(st["transitions"] - args.transitions)),
         "task_collection": (
             st["task_collection"] if args.collection_profile == "task-aligned-n1" else None

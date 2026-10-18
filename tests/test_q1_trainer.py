@@ -87,6 +87,22 @@ def test_horizon_truncation_keeps_the_registered_bootstrap_not_a_terminal_discou
     assert row[3].tolist() == pytest.approx([0.998]) and row[4].tolist() == [31]
 
 
+@pytest.mark.parametrize("builder_cls", [T.NStepBuilderRef, T.NStepBuilder])
+def test_nstep_accounting_exactly_partitions_emitted_dropped_and_pending(builder_cls):
+    builder = builder_cls(1, n_step=5)
+    for obs in range(3):
+        builder.step(
+            np.array([0]), np.array([obs]), np.array([0]), np.array([1.0]), np.array([False]), 0.99
+        )
+    emitted = len(builder.take()[0])
+    pending = len(builder.pend[0]) if hasattr(builder, "pend") else int(builder.cnt.sum())
+    assert 3 - emitted == builder.take_truncation_drops() + pending
+    builder.end_worlds(np.array([0]), 0.99)
+    emitted += len(builder.take()[0])
+    pending = len(builder.pend[0]) if hasattr(builder, "pend") else int(builder.cnt.sum())
+    assert 3 - emitted == builder.take_truncation_drops() + pending
+
+
 @dataclass(frozen=True)
 class _Cfg:
     gamma: float
