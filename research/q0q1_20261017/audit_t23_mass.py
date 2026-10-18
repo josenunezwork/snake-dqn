@@ -32,6 +32,7 @@ from research.q0q1_20261017.audit_common import (  # noqa: E402
     stratum,
     write_json,
 )
+from research.q0q1_20261017.audit_episode_metrics import FrameObserver  # noqa: E402
 
 SCHEMA = "q0-t23-mass-audit/v1"
 MAX_EPISODES = 480
@@ -205,17 +206,33 @@ def run_development(artifact_root: Path, b8: Path) -> dict[str, Any]:
     # B8 is intentionally evaluated once per fresh world and reused against both
     # snapshot identities: 5 * 32 * (B8 + 2M + 4M) == 480 maximum.
     rows: list[dict[str, Any]] = []
+
+    def observed(world, checkpoint, arm, label, seed):
+        observer = FrameObserver(horizon=HORIZON)
+        row = t23_eval.evaluate_world(
+            world, checkpoint, carrier, context, observer_factory=lambda _seeds: observer
+        )
+        metrics = observer.result()
+        episode = metrics["episodes"].get(str(int(world["world_seed"])))
+        if episode is None or not metrics["complete_horizon"]:
+            raise RuntimeError("Q0 frame observer did not complete its H5000 world")
+        return {
+            "arm": arm,
+            "checkpoint_label": label,
+            "training_seed": seed,
+            **row,
+            "q0_metrics": episode,
+        }
+
     for seed in T23_SEEDS:
         worlds = bank["worlds"][str(seed)]
         for world in worlds:
-            row = t23_eval.evaluate_world(world, b8, carrier, context)
-            rows.append({"arm": "b8", "checkpoint_label": "b8", "training_seed": seed, **row})
+            rows.append(observed(world, b8, "b8", "b8", seed))
         for label, checkpoint in available[str(seed)].items():
             if checkpoint is None:
                 continue
             for world in worlds:
-                row = t23_eval.evaluate_world(world, checkpoint, carrier, context)
-                rows.append({"arm": "t23", "checkpoint_label": label, "training_seed": seed, **row})
+                rows.append(observed(world, checkpoint, "t23", label, seed))
     if len(rows) > MAX_EPISODES:
         raise RuntimeError(f"Q0 episode cap exceeded: {len(rows)} > {MAX_EPISODES}")
     expected = MAX_EPISODES
