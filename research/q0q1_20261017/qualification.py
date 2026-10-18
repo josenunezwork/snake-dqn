@@ -154,6 +154,7 @@ def validate_packet(packet: Any) -> dict[str, Any]:
     else:
         seen: set[tuple[str, str]] = set()
         actors: dict[str, set[int]] = {"n1": set(), "n3": set()}
+        accounted_seconds = 0.0
         for raw in cells:
             cell = _mapping(raw, "cell", errors)
             if cell is None:
@@ -164,12 +165,24 @@ def validate_packet(packet: Any) -> dict[str, Any]:
                 results[f"{schedule}/{collector}"] = _check_cell(cell, errors, checks)
                 if collector in actors and isinstance(cell.get("actor_count"), int):
                     actors[collector].add(cell["actor_count"])
+            warmup = cell.get("warmup_seconds")
+            if isinstance(warmup, (int, float)) and not isinstance(warmup, bool) and math.isfinite(warmup):
+                accounted_seconds += float(warmup)
+            windows = cell.get("scored_windows")
+            if isinstance(windows, list):
+                for window in windows:
+                    if isinstance(window, Mapping):
+                        seconds = window.get("seconds")
+                        if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and math.isfinite(seconds):
+                            accounted_seconds += float(seconds)
         expected = {(schedule, collector) for schedule in SCHEDULES for collector in COLLECTORS}
         if seen != expected:
             errors.append("packet cells must contain each restart/mature × n1/n3 combination exactly once")
         for collector, counts in actors.items():
             if len(counts) != 1:
                 errors.append(f"{collector} must use one predeclared actor count across restart and mature")
+        if elapsed is not None and accounted_seconds > elapsed:
+            errors.append("packet_seconds cannot cover its declared warm-up and scored-window wall time")
     parity = _mapping(packet.get("parity"), "parity", errors)
     if parity is not None:
         if parity.get("target_runtime") != "cuda":
@@ -199,10 +212,13 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         return {**outcome, "status": "REFUSED", "errors": errors + ["study plan root must be an object"]}
     if plan.get("schema") != PLAN_SCHEMA:
         errors.append(f"study plan schema must equal {PLAN_SCHEMA}")
-    if plan.get("owner_review_status") != "DRAFT_PENDING_OWNER_REVIEW":
+    draft_status = plan.get("owner_review_status", plan.get("status"))
+    if draft_status != "DRAFT_PENDING_OWNER_REVIEW":
         errors.append("study plan must explicitly remain DRAFT_PENDING_OWNER_REVIEW")
     if plan.get("dispatch") is not False:
         errors.append("qualification must not authorize dispatch")
+    if packet.get("hardware") != "L4" or plan.get("q1_training_hardware") != "L4":
+        errors.append("Q1 training admission requires one exact qualified L4 cohort")
     q0_units = _finite_number(plan.get("q0_units"), "q0_units", errors, positive=True)
     if q0_units is not None and q0_units > 15:
         errors.append("Q0 exceeds its 15-unit cap")

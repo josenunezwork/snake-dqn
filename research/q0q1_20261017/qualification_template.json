@@ -21,6 +21,7 @@
     "schema": "q0q1-study-budget/v1",
     "owner_review_status": "DRAFT_PENDING_OWNER_REVIEW",
     "dispatch": false,
+    "q1_training_hardware": "L4",
     "q0_units": null,
     "cpu_unit_rate_per_hour": null,
     "cpu_seconds_per_episode": null,

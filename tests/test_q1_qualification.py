@@ -64,6 +64,7 @@ def _plan() -> dict:
         "schema": subject.PLAN_SCHEMA,
         "owner_review_status": "DRAFT_PENDING_OWNER_REVIEW",
         "dispatch": False,
+        "q1_training_hardware": "L4",
         "q0_units": 10,
         "cpu_unit_rate_per_hour": 0.5,
         "cpu_seconds_per_episode": 10,
@@ -114,6 +115,14 @@ def test_packet_rejects_rate_decline_and_lag_regression() -> None:
     assert any("ingestion age" in error for error in outcome["errors"])
 
 
+def test_packet_rejects_wall_time_that_cannot_cover_all_four_cells() -> None:
+    packet = _packet()
+    packet["packet_seconds"] = 1900  # Four 120-second warm-ups and eight 180-second windows need 1,920.
+    outcome = subject.validate_packet(packet)
+    assert outcome["status"] == "INCOMPLETE"
+    assert any("wall time" in error for error in outcome["errors"])
+
+
 def test_admission_computes_complete_20_run_and_3200_episode_forecast() -> None:
     outcome = subject.validate_admission(_packet(), _plan())
     assert outcome["status"] == "ADMITTED_FOR_OWNER_REVIEW", outcome["errors"]
@@ -139,3 +148,13 @@ def test_admission_never_turns_draft_qualification_into_dispatch() -> None:
     assert outcome["status"] == "REFUSED"
     assert outcome["dispatch_authorized"] is False
     assert any("must not authorize dispatch" in error for error in outcome["errors"])
+
+
+def test_admission_requires_a_single_l4_training_cohort() -> None:
+    packet = _packet()
+    packet["hardware"] = "A100"
+    plan = _plan()
+    plan["q1_training_hardware"] = "A100"
+    outcome = subject.validate_admission(packet, plan)
+    assert outcome["status"] == "REFUSED"
+    assert any("exact qualified L4 cohort" in error for error in outcome["errors"])
