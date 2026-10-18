@@ -199,3 +199,11 @@ def test_parent_checks_opponent_and_profile_pins_before_resumed_dispatch(tmp_pat
             resume_partials=tmp_path / "old/manifest.json",
             resume_partials_sha256="0" * 64,
         )
+
+
+def test_ordered_merge_retains_runtime_guard() -> None:
+    with pytest.raises(TimeoutError, match="runtime cap exhausted during ordered merge"):
+        audit_t23_mass.merge_episodes(
+            [{"row": {}, "candidates": [], "excluded_trapped": 0}],
+            deadline=time.monotonic() - 1,
+        )

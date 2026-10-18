@@ -426,13 +426,29 @@ def evaluate_episode(task: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def merge_episodes(results: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], Any]:
+def merge_episodes(
+    results: list[dict[str, Any]], *, deadline: float | None = None
+) -> tuple[list[dict[str, Any]], Any]:
     """Replay candidates in legacy serial order, preserving reservoir RNG draws."""
     from research.q0q1_20261017.audit_b8_init import CoverageReservoir
 
     reservoir = CoverageReservoir()
     rows = []
-    for result in results:
+    started = last_progress = time.monotonic()
+    for number, result in enumerate(results, 1):
+        now = time.monotonic()
+        if deadline is not None and now >= deadline:
+            raise TimeoutError("Q0 CPU runtime cap exhausted during ordered merge")
+        if now - last_progress >= 120:
+            completed = number - 1
+            elapsed = now - started
+            eta = elapsed / completed * (len(results) - completed) if completed else 0.0
+            print(
+                f"Q0 mass merge episodes {completed}/{len(results)} done "
+                f"elapsed={elapsed:.1f}s ETA={eta:.1f}s",
+                flush=True,
+            )
+            last_progress = now
         rows.append(result["row"])
         reservoir.excluded_trapped += result["excluded_trapped"]
         for candidate in result["candidates"]:
@@ -554,7 +570,8 @@ def run_development(
         resume_partials=resume_partials,
         resume_sha256=resume_partials_sha256,
     )
-    rows, reservoir = merge_episodes(results)
+    print("Q0 mass all episodes persisted; replaying fidelity stream in plan order", flush=True)
+    rows, reservoir = merge_episodes(results, deadline=deadline)
     if len(rows) > MAX_EPISODES:
         raise RuntimeError(f"Q0 episode cap exceeded: {len(rows)} > {MAX_EPISODES}")
     expected = MAX_EPISODES
