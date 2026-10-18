@@ -29,6 +29,7 @@ def test_study_plan_requires_observed_nonzero_cpu_debit_and_matches_packets() ->
         "q0_gpu_hours": 1.0,
         "q0_cpu_hours": 2.0,
         "cpu_unit_rate_per_hour": 0.5,
+        "cpu_eval_job_overhead_seconds": 3.0,
     }
     plan = subject._study_plan(l4, a100, accounting)
     assert plan["owner_release"] == subject.OWNER_RELEASE
@@ -66,7 +67,7 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
     accounting.write_text(
         json.dumps(
             {"q0_units": 20.0, "q0_gpu_hours": 1.0, "q0_cpu_hours": 2.0,
-             "cpu_unit_rate_per_hour": 0.5}
+             "cpu_unit_rate_per_hour": 0.5, "cpu_eval_job_overhead_seconds": 3.0}
         )
     )
     packet = {
@@ -124,6 +125,7 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
     assert all(job["env"]["Q0Q1_Q0B_A100_RECEIPT_SHA256"] for job in jobs)
     assert {job["requirements"]["min_vcpu"] for job in jobs if job["id"].startswith("q1-train-")} == {12}
     assert plan["q0_units"] == 20.0
+    assert plan["q1_cpu_overhead_hours"] == 100 * (4 * 2 + 3) / (3600 * 0.8)
     import hashlib
 
     assert jobs[0]["env"]["Q0Q1_STUDY_PLAN_SHA256"] == hashlib.sha256(

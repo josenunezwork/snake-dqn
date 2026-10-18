@@ -153,16 +153,22 @@ def _study_plan(
     efficiency = _number(l4.get("cpu_worker_efficiency"), "L4 cpu_worker_efficiency")
     if efficiency > 1:
         raise ValueError("L4 cpu_worker_efficiency cannot exceed 1")
-    stages = l4.get("stages")
-    if not isinstance(stages, Mapping):
-        raise ValueError("L4 Q0b receipt lacks measured setup and cleanup stages")
-    setup = _number(stages.get("setup_seconds"), "L4 setup_seconds", positive=False)
-    cleanup = _number(stages.get("cleanup_seconds"), "L4 cleanup_seconds", positive=False)
-    # Spread the common runtime's observed four-cell setup/cleanup cost across
-    # 20 Q1 attempts. A maximum timeout is not a forecast.
-    q1_gpu_overhead_hours = 20 * (setup + cleanup) / (4 * 3600)
-    if q1_gpu_overhead_hours <= 0:
-        raise ValueError("L4 Q0b packet must report nonzero measured setup or cleanup overhead")
+    attempt_overhead = l4.get("q1_attempt_overhead_seconds")
+    if attempt_overhead is None:  # Compatibility only for pre-overhead receipts in unit tests.
+        stages = l4.get("stages")
+        if not isinstance(stages, Mapping):
+            raise ValueError("L4 Q0b receipt lacks measured setup and cleanup stages")
+        setup = _number(stages.get("setup_seconds"), "L4 setup_seconds", positive=False)
+        cleanup = _number(stages.get("cleanup_seconds"), "L4 cleanup_seconds", positive=False)
+        attempt_overhead = (setup + cleanup) / 4
+    attempt_overhead = _number(
+        attempt_overhead, "L4 q1_attempt_overhead_seconds", positive=True
+    )
+    q1_gpu_overhead_hours = 20 * attempt_overhead / 3600
+    eval_job_overhead = _number(
+        q0_accounting.get("cpu_eval_job_overhead_seconds"),
+        "Q0 accounting cpu_eval_job_overhead_seconds",
+    )
     # Evaluation has 100 immutable shards with four-world parity probes. Training
     # CPU parity runs inside its L4 attempt and is charged to GPU elapsed time.
     return {
@@ -177,7 +183,8 @@ def _study_plan(
         "q0_gpu_hours": q0_gpu,
         "q0_cpu_hours": q0_cpu,
         "q1_gpu_overhead_hours": q1_gpu_overhead_hours,
-        "q1_cpu_overhead_hours": 100 * 4 * cpu_seconds / (3600 * efficiency),
+        "q1_training_attempt_overhead_seconds": attempt_overhead,
+        "q1_cpu_overhead_hours": 100 * (4 * cpu_seconds + eval_job_overhead) / (3600 * efficiency),
         "cpu_unit_rate_per_hour": cpu_rate,
         "cpu_seconds_per_episode": cpu_seconds,
         "cpu_workers": 1,
@@ -311,6 +318,8 @@ def make_jobs(
                 ]
             )
         )
+        if job["id"].startswith("q1-train-"):
+            job["timeout_minutes"] = math.ceil((5100 + plan["q1_training_attempt_overhead_seconds"] + 60) / 60)
     runtime = l4_packet.get("runtime", {})
     cores = runtime.get("cpu_cores") if isinstance(runtime, Mapping) else None
     if isinstance(cores, bool) or not isinstance(cores, (int, float)) or int(cores) != cores or cores < 1:
