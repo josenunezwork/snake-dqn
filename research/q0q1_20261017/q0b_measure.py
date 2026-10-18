@@ -83,6 +83,8 @@ def _environment_identity() -> dict[str, str]:
             "cuda": str(torch.version.cuda),
             "numpy": numpy.__version__,
         }
+        if torch.cuda.is_available():
+            details["gpu"] = torch.cuda.get_device_name(0)
     except ImportError:
         details = {"python": sys.version, "platform": platform.platform()}
     return {"runtime": canonical_sha(details)}
@@ -234,9 +236,16 @@ def validate_current_runtime(
         errors.append("Q0b packet is not qualified")
     if expected_hardware not in {"L4", "A100"} or packet.get("hardware") != expected_hardware:
         errors.append("current job hardware does not match its qualified Q0b packet")
-    declared = os.environ.get("Q0Q1_GPU_CLASS")
-    if declared != expected_hardware:
-        errors.append("Q0Q1_GPU_CLASS must explicitly name the expected qualified hardware")
+    try:
+        import torch
+
+        if (
+            not torch.cuda.is_available()
+            or expected_hardware not in torch.cuda.get_device_name(0).upper()
+        ):
+            errors.append("current worker does not expose the expected CUDA GPU class")
+    except ImportError:
+        errors.append("current worker cannot inspect CUDA hardware")
     environment = packet.get("environment")
     if not isinstance(environment, Mapping) or environment != _environment_identity():
         errors.append("current Python/Torch runtime differs from the Q0b qualified software stack")
@@ -314,8 +323,18 @@ def run_cell(
 
 def _parity(args: argparse.Namespace, out: Path) -> tuple[dict[str, Any], float]:
     t22, t24 = _load_json(args.t22_receipt), _load_json(args.t24_receipt)
-    if t22.get("status") != "PASS" or t24.get("status") != "PASS":
-        raise ValueError("T22/T24 CUDA parity receipts must both report PASS")
+    for name, receipt in (("t22", t22), ("t24", t24)):
+        if (
+            receipt.get("schema") != "q0b-cuda-fixture/v1"
+            or receipt.get("fixture") != name
+            or receipt.get("status") != "PASS"
+            or receipt.get("target_runtime") != "cuda"
+            or receipt.get("short_body") is not True
+            or receipt.get("long_body") is not True
+            or not isinstance(receipt.get("source_sha256"), str)
+            or len(receipt["source_sha256"]) != 64
+        ):
+            raise ValueError(f"{name.upper()} must be a completed hash-bound CUDA fixture receipt")
     receipt = out / "runtime-parity.json"
     command = [
         sys.executable,
