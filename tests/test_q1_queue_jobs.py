@@ -236,3 +236,32 @@ def test_q0_admission_reads_renamed_mass_and_fidelity_archives(tmp_path):
 def test_q1_admission_requires_mac_inventory_receipt_before_other_evidence(kind):
     with pytest.raises(ValueError, match="missing hash-bound"):
         runner.admission_checks({"Q0Q1_JOB_KIND": kind})
+
+
+def test_r5_jobs_keep_bindings_fresh_outputs_and_bounded_budgets():
+    from research.colab_queue.core import validate_job
+
+    root = Path("research/q0q1_20261017/jobs_approved")
+    jobs = {path.stem: json.loads(path.read_text()) for path in root.glob("*r5.json")}
+    mass = "q0-audit-t23-mass-a100r5"
+    init = "q0-audit-b8-init-a100r5"
+    assert set(jobs) == {mass, init, "q0b-capacity-l4-20261018r5", "q0b-capacity-a100-20261018r5"}
+    assert len({job["commit"] for job in jobs.values()}) == 1
+    for key, job in jobs.items():
+        validate_job(job)
+        previous = json.loads((root / (key.replace("r5", "r4") + ".json")).read_text())
+        assert job["id"] == job["env"]["Q0Q1_JOB_ID"] == key
+        assert job["output_dir"] == previous["output_dir"].replace("r4", "r5")
+        assert job["env"] == {k: v.replace("r4", "r5") for k, v in previous["env"].items()}
+        assert job["depends_on"] == [v.replace("r4", "r5") for v in previous["depends_on"]]
+        assert job["commit"] != previous["commit"]
+        kind = job["env"]["Q0Q1_JOB_KIND"]
+        estimate, timeout = {
+            "q0_t23_mass": (60, 120),
+            "q0_b8_init": (10, 30),
+            "q0b_measure": (50, 60),
+        }[kind]
+        assert job["requirements"]["est_minutes"] == estimate
+        assert job["timeout_minutes"] == timeout
+        if kind != "q0_b8_init":
+            assert job["requirements"]["min_vcpu"] == 12
