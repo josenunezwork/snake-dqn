@@ -13,6 +13,7 @@ BINDS = q.Bindings(
     q0b_l4_receipt="/content/drive/MyDrive/t16_colab/q0b/l4.json", q0b_l4_receipt_sha256=SHA,
     study_plan="/content/drive/MyDrive/t16_colab/q1/study-plan.json", study_plan_sha256=SHA,
     runtime_parity_receipt="/content/drive/MyDrive/t16_colab/q1/runtime-parity.json", runtime_parity_receipt_sha256=SHA,
+    eval_parity_receipt="/content/drive/MyDrive/t16_colab/q1/eval-parity.json", eval_parity_receipt_sha256=SHA,
     parity_owner_admission="/content/drive/MyDrive/t16_colab/q1/parity-owner.json", parity_owner_admission_sha256=SHA,
 )
 

@@ -129,6 +129,7 @@ def admission_checks(env: Mapping[str, str]) -> None:
             raise RuntimeError("qualified packet lacks one explicit actor count for this Q1 collector")
     elif kind == "q1_eval":
         _bound_json(env["Q0Q1_PARITY_OWNER_ADMISSION"], env["Q0Q1_PARITY_OWNER_ADMISSION_SHA256"], required_status="OWNER_ADMITTED")
+        _bound_json_bytes(env["Q1_EVAL_PARITY_RECEIPT"], env["Q1_EVAL_PARITY_RECEIPT_SHA256"])
 
 
 def stage_training_final(env: Mapping[str, str], local_root: Path) -> str:
@@ -193,6 +194,7 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
         return [py, "-m", "research.q0q1_20261017.q1_evaluate", "--root", str(local_root),
                 "--bank", "research/q0q1_20261017/Q1_WORLD_BANK.json", "--b8-checkpoint", str(inputs / "init/B8_s3_final.pth"),
                 "--checkpoint", checkpoint, "--arm", env["Q1_ARM"], "--seed", env["Q1_SEED"], "--shard", env["Q1_SHARD"],
+                "--parity-receipt", env["Q1_EVAL_PARITY_RECEIPT"],
                 *([] if env["Q1_ARM"] == "B8" else ["--provenance", env["Q1_TRAINING_PROVENANCE"]])]
     raise RuntimeError(f"unknown Q0/Q1 job kind: {kind!r}")
 
