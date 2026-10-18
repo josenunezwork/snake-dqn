@@ -29,6 +29,16 @@ text below or in dated docs, STATUS.md wins. Summary:
   ratifying. Never edit a governance or research doc whose bytes are bound by sha256 (intents,
   receipts, `prepare`); add a sibling erratum or status file instead.
 
+## Colab / Drive-queue jobs (2026-10-18) — read before touching anything that runs on Colab
+
+Code that runs on the owner's Colab runtimes (research/colab_queue, research/q0q1_*, research/t16_colab,
+`run_*_colab.sh`, worker notebooks) must pass the checklist in the Codex skill `snake-dqn-colab-jobs`
+(~/.codex/skills/snake-dqn-colab-jobs/SKILL.md; Claude's copy: ~/.claude/skills/colab-jobs). In short: no Mac-only
+paths or files (ship Mac-computed receipts via Drive), use all vCPUs with deterministic process pools, measure
+per-unit time before setting est/timeout, stream progress, make units resumable with fresh output dirs per attempt,
+never create shared Drive dirs concurrently, keep the runtime alive with a blocking last cell, and run the real
+entrypoint on a tiny real input before declaring done.
+
 ## Project Overview
 
 Multi-agent reinforcement learning platform for training AI snakes. Built with
