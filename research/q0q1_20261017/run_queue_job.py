@@ -284,9 +284,15 @@ def _scientific_done(kind: str, local_root: Path, env: Mapping[str, str] | None 
         return item
     rows, updates, debt = count("emitted_replay_rows"), count("updates"), count("pending_update_debt")
     decisions, accounted = count("learner_decisions"), count("learner_decisions_accounted")
+    dropped, pending = count("truncation_rows_dropped"), count("pending_nstep_rows")
+    by_actor = value.get("pending_nstep_rows_by_actor")
+    if (not isinstance(by_actor, dict) or any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in by_actor.values())
+            or value.get("nstep_accounting_reconciled") is not True):
+        raise RuntimeError("training n-step accounting receipt is malformed")
     delta = value.get("decision_replay_delta")
-    if updates == 0 or rows != 256 * updates + debt or delta != accounted - rows:
-        raise RuntimeError("training replay/update/debt accounting does not reconcile")
+    if (updates == 0 or rows != 256 * updates + debt or delta != accounted - rows
+            or accounted - rows != dropped + pending or sum(by_actor.values()) != pending):
+        raise RuntimeError("training replay/update/n-step accounting does not reconcile")
     if int(value.get("transitions", value.get("learner_transitions", 0))) < 8_000_000:
         raise RuntimeError("training did not reach the registered 8M learner decisions")
     actors = int(value.get("actors", 0)); seats = int(value.get("m3c", {}).get("learner_seats", 0))
@@ -340,6 +346,8 @@ def _write_training_provenance(env: Mapping[str, str], local_root: Path) -> None
         "emitted_replay_rows": int(summary["emitted_replay_rows"]),
         "completed_updates": int(summary["updates"]),
         "pending_update_debt": int(summary["pending_update_debt"]),
+        "truncation_rows_dropped": int(summary["truncation_rows_dropped"]),
+        "pending_nstep_rows": int(summary["pending_nstep_rows"]),
     }
     args = summary.get("args", {})
     source = Path("research/redesign_m3c_20261008/train_m3c.py")
