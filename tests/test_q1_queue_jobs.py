@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import tarfile
+from pathlib import Path
 
 import pytest
 
@@ -25,6 +26,30 @@ BINDS = q.Bindings(
     parity_owner_admission="/content/drive/MyDrive/t16_colab/q1/parity-owner.json",
     parity_owner_admission_sha256=SHA,
 )
+
+
+def test_approved_job_objects_are_pinned_and_target_the_actual_audit_names():
+    from research.colab_queue.core import validate_job
+
+    root = Path("research/q0q1_20261017/jobs_approved")
+    jobs = {path.stem: json.loads(path.read_text()) for path in root.glob("*.json")}
+    assert set(jobs) == {
+        "q0-audit-b8-init-a100r2",
+        "q0b-capacity-l4-20261018",
+        "q0b-capacity-a100-20261018",
+    }
+    for job in jobs.values():
+        validate_job(job)
+        assert job["env"]["Q0Q1_REGISTRATION_STATUS"] == "APPROVED_Q0Q1_20261017"
+        assert job["env"]["Q0Q1_OWNER_RELEASE"] == "APPROVED_Q0Q1_20261017"
+        assert job["env"]["Q0Q1_MASS_ARCHIVE_DIR"].endswith("audit-t23-mass-a100r")
+        assert "q0-audit-t23-mass-a100r" in job["depends_on"]
+    assert jobs["q0-audit-b8-init-a100r2"]["requirements"]["gpu"] == "A100"
+    for hardware in ("L4", "A100"):
+        job = jobs[f"q0b-capacity-{hardware.lower()}-20261018"]
+        assert job["requirements"]["gpu"] == hardware
+        assert job["timeout_minutes"] == 60
+        assert "q0-audit-b8-init-a100r2" in job["depends_on"]
 
 
 def test_q1_graph_uses_final_pin_shared_b8_and_all_required_dependencies():
