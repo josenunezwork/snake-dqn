@@ -58,6 +58,10 @@ def test_train_command_pins_the_registered_t23_control_and_q1_treatments(tmp_pat
         index = command.index(flag)
         assert command[index + 1] == value
     assert "--onpolicy-labels" in command and "--learner-fast" in command
+    from research.redesign_m3c_20261008 import train_m3c
+    parsed = train_m3c.build_parser().parse_args(command[3:])
+    assert parsed.max_wall_seconds == 7200
+    assert parsed.namespace == q.q1_bank.training_namespace("D")
 
 
 def test_draft_guard_runs_before_job_admission_or_output_access():

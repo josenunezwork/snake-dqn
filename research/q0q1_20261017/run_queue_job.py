@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from research.q0q1_20261017.queue_jobs import REGISTRATION_STATUS
+from research.q0q1_20261017 import q1_bank
 
 
 def sha256_file(path: Path) -> str:
@@ -186,9 +187,7 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
                 "--actor-queue-frames", "2", "--schedule-package", "mature" if env["Q1_ARM"] in ("B", "D") else "restart",
                 "--collection-profile", "task-aligned-n1" if env["Q1_ARM"] in ("C", "D") else "legacy",
                 "--learner-seats", "1" if env["Q1_ARM"] in ("C", "D") else "3",
-                "--namespace", (f"q1-task-aligned-n1-20261017/{env['Q1_ARM'].lower()}-{env['Q1_SEED']}/v1"
-                                  if env["Q1_ARM"] in ("C", "D")
-                                  else f"q1-t23-n3/{env['Q1_ARM'].lower()}-{env['Q1_SEED']}/v1")]
+                "--namespace", q1_bank.training_namespace(env["Q1_ARM"])]
     if kind == "q1_eval":
         checkpoint = env["Q1_TRAINING_FINAL"]
         return [py, "-m", "research.q0q1_20261017.q1_evaluate", "--root", str(local_root),
@@ -220,11 +219,15 @@ def _scientific_done(kind: str, local_root: Path) -> None:
     value = json.loads(summary.read_text())
     if value.get("stopped_for_time") is not False or value.get("halt") not in (None, False, "", "none", "None"):
         raise RuntimeError("training did not reach scientificdone")
+    if not isinstance(value.get("actor_exitcodes"), list) or any(value["actor_exitcodes"]):
+        raise RuntimeError("training actors did not all exit cleanly")
+    if value.get("ring_overrun_rows") != 0:
+        raise RuntimeError("training recorded ring overruns")
     if int(value.get("transitions", value.get("learner_transitions", 0))) < 8_000_000:
         raise RuntimeError("training did not reach the registered 8M learner decisions")
     actors = int(value.get("actors", 0)); seats = int(value.get("m3c", {}).get("learner_seats", 0))
     overshoot = int(value.get("transition_budget_overshoot", -1))
-    bound = actors * 128 * seats - 1
+    bound = actors * int(value.get("args", {}).get("worlds", 0)) * seats - 1
     if actors < 1 or seats < 1 or overshoot < 0 or overshoot > bound:
         raise RuntimeError("training exceeded the registered actor-packet overshoot bound")
 
@@ -248,9 +251,20 @@ def _write_training_provenance(env: Mapping[str, str], local_root: Path) -> None
         "cuda_available": bool(torch.cuda.is_available()),
         "cuda_device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
     }
+    actors = int(summary["actors"])
+    seats = int(summary["m3c"]["learner_seats"])
+    worlds = int(summary["args"]["worlds"])
+    decisions = int(summary["learner_decisions"])
+    overshoot = int(summary["transition_budget_overshoot"])
+    bound = actors * worlds * seats - 1
     counters = {
-        key: summary.get(key)
-        for key in ("transitions", "learner_decisions", "transition_budget_overshoot", "emitted_replay_rows", "updates", "replay_rows")
+        "actual_learner_decisions": decisions,
+        "transition_budget_overshoot": overshoot,
+        "registered_overshoot_bound": bound,
+        "actors": actors, "worlds": worlds, "learner_seats": seats,
+        "emitted_replay_rows": int(summary["emitted_replay_rows"]),
+        "completed_updates": int(summary["updates"]),
+        "pending_update_debt": int(summary["pending_update_debt"]),
     }
     args = summary.get("args", {})
     source = Path("research/redesign_m3c_20261008/train_m3c.py")
@@ -259,9 +273,10 @@ def _write_training_provenance(env: Mapping[str, str], local_root: Path) -> None
         "training_seed": int(env["Q1_SEED"]), "endpoint": 8_000_000, "clean_exit": True,
         "checkpoint_sha256": sha256_file(final), "parity_pass": True, "tripwire_triggered": False,
         "environment": runtime,
-        "environment_sha256": hashlib.sha256(json.dumps(runtime, sort_keys=True).encode()).hexdigest(),
+        "environment_sha256": hashlib.sha256(json.dumps(runtime, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
         "source_sha256": sha256_file(source),
-        "config_sha256": hashlib.sha256(json.dumps(args, sort_keys=True).encode()).hexdigest(),
+        "config": args,
+        "config_sha256": hashlib.sha256(json.dumps(args, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
         "counters": counters,
         "runtime_parity_receipt_sha256": expected,
     }
