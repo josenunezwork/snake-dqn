@@ -198,7 +198,7 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
     raise RuntimeError(f"unknown Q0/Q1 job kind: {kind!r}")
 
 
-def _scientific_done(kind: str, local_root: Path) -> None:
+def _scientific_done(kind: str, local_root: Path, env: Mapping[str, str] | None = None) -> None:
     receipt = local_root / "receipt.json"
     if kind == "q1_eval":
         candidates = list((local_root / "evaluation").rglob("*.json"))
@@ -230,6 +230,17 @@ def _scientific_done(kind: str, local_root: Path) -> None:
     bound = actors * int(value.get("args", {}).get("worlds", 0)) * seats - 1
     if actors < 1 or seats < 1 or overshoot < 0 or overshoot > bound:
         raise RuntimeError("training exceeded the registered actor-packet overshoot bound")
+    final = local_root / "run/final.pth"
+    if not final.is_file():
+        raise RuntimeError("training did not save a final checkpoint")
+    if env is not None:
+        import torch
+
+        meta = torch.load(final, map_location="cpu", weights_only=False).get("meta", {})
+        expected_init = sha256_file(Path(env["Q0Q1_INPUT_ROOT"]) / "init/B8_s3_final.pth")
+        if (meta.get("seed") != int(env["Q1_SEED"]) or int(meta.get("transitions", 0)) < 8_000_000
+                or meta.get("init_sha256") != expected_init):
+            raise RuntimeError("final checkpoint metadata lacks the registered seed/init/8M binding")
 
 
 def _write_training_provenance(env: Mapping[str, str], local_root: Path) -> None:
@@ -325,7 +336,7 @@ def run(env: Mapping[str, str] | None = None) -> int:
         completed = subprocess.run(command(run_env, local), cwd="/content/t16-snake-dqn", env=child_env)
         if completed.returncode != 0:
             raise RuntimeError(f"child exited {completed.returncode}")
-        _scientific_done(env["Q0Q1_JOB_KIND"], local)
+        _scientific_done(env["Q0Q1_JOB_KIND"], local, run_env)
         if env["Q0Q1_JOB_KIND"] == "q1_train":
             _write_training_provenance(run_env, local)
     except Exception as exc:  # retain every failed scientific attempt for audit
