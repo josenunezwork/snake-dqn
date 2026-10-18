@@ -1,0 +1,15 @@
+{
+  "id": "overnight-host-contracts-a100",
+  "commit": "cff0b29859cdd85dd1806c142aead1444a9932eb",
+  "script": "research/q0q1_20261017/run_host_contracts.sh",
+  "env": {},
+  "requirements": {
+    "gpu": "A100",
+    "min_vcpu": 2,
+    "est_minutes": 15
+  },
+  "timeout_minutes": 20,
+  "depends_on": [],
+  "output_dir": "overnight-20261018/host-contracts-a100/attempt-1",
+  "priority": 0
+}
