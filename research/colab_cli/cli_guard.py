@@ -20,14 +20,21 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-CONNECT_TIMEOUT_SECONDS = 10
-READ_TIMEOUT_SECONDS = 45
-HELPER_TIMEOUT_SECONDS = 75
+# Keep these literals here: this module is executed directly by the pinned CLI
+# hook and must not depend on package imports being available in that process.
+# They mirror the Mac-side read policy.  Runs 3--5 showed tunnel/kernel and
+# OAuth latency can exceed the former 10/45/75-second limits.
+CONNECT_TIMEOUT_SECONDS = 30
+READ_TIMEOUT_SECONDS = 120
+HELPER_TIMEOUT_SECONDS = 150
+READ_HELPER_ATTEMPTS = 3
+READ_HELPER_BACKOFF_SECONDS = (2.0, 5.0)
 
 
 class GuardError(RuntimeError):
@@ -37,7 +44,10 @@ class GuardError(RuntimeError):
 def _timeout_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     """Supply the real requests timeout the upstream CLI otherwise omits."""
     patched = dict(kwargs)
-    patched.setdefault("timeout", (CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS))
+    # ``requests`` treats ``timeout=None`` as unbounded, so setdefault alone
+    # would leave a caller able to bypass the supervisor's transport limit.
+    if patched.get("timeout") is None:
+        patched["timeout"] = (CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
     return patched
 
 
@@ -145,6 +155,56 @@ def _run_helper(
     return value
 
 
+def _transient_helper_error(exc: BaseException) -> bool:
+    """Recognize a transport failure without turning auth/state refusals into retries."""
+    if isinstance(exc, (OSError, subprocess.TimeoutExpired, TimeoutError)):
+        return True
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "500",
+            "502",
+            "503",
+            "504",
+            "connection reset",
+            "connection aborted",
+            "connection refused",
+            "connection error",
+            "timed out",
+            "timeout",
+            "temporarily unavailable",
+        )
+    )
+
+
+def _run_read_helper(
+    oauth_python: str, *arguments: str, timeout: float = HELPER_TIMEOUT_SECONDS
+) -> dict[str, Any]:
+    """Retry only idempotent helper reads inside one caller-owned deadline.
+
+    Recovery and kernel state checks issue GET/read RPCs only.  An unassign is
+    deliberately excluded: its caller must first establish endpoint state
+    before choosing another release attempt.
+    """
+    deadline = time.monotonic() + min(timeout, HELPER_TIMEOUT_SECONDS)
+    last_error: GuardError | None = None
+    for attempt in range(READ_HELPER_ATTEMPTS):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            return _run_helper(oauth_python, *arguments, timeout=remaining)
+        except GuardError as exc:
+            last_error = exc
+            if attempt + 1 == READ_HELPER_ATTEMPTS or not _transient_helper_error(exc):
+                raise
+            delay = min(READ_HELPER_BACKOFF_SECONDS[attempt], max(0.0, deadline - time.monotonic()))
+            if delay:
+                time.sleep(delay)
+    raise GuardError("read helper operation budget exhausted") from last_error
+
+
 def recover_assignment(
     oauth_python: str, notebook_hash: str, *, timeout: float = HELPER_TIMEOUT_SECONDS
 ) -> str | None:
@@ -153,7 +213,7 @@ def recover_assignment(
         uuid.UUID(notebook_hash)
     except ValueError as exc:
         raise GuardError("notebook_hash must be a UUID") from exc
-    result = _run_helper(oauth_python, "--recover-assignment", notebook_hash, timeout=timeout)
+    result = _run_read_helper(oauth_python, "--recover-assignment", notebook_hash, timeout=timeout)
     endpoint = result.get("endpoint")
     if endpoint is None:
         return None
@@ -185,7 +245,7 @@ def kernel_idle(
     A busy kernel returns ``False``.  Missing metadata, transport errors, and
     malformed state are unknown facts and therefore raise :class:`GuardError`.
     """
-    result = _run_helper(oauth_python, "--kernel-idle", str(config), session, timeout=timeout)
+    result = _run_read_helper(oauth_python, "--kernel-idle", str(config), session, timeout=timeout)
     if set(result) != {"idle"} or not isinstance(result["idle"], bool):
         raise GuardError("kernel helper returned unknown state")
     return result["idle"]

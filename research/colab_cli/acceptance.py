@@ -318,7 +318,7 @@ def execute(
                     "rate_calibration": measurement,
                 }
             )
-        except supervisor.Refused as exc:
+        except (supervisor.Refused, OSError, subprocess.SubprocessError) as exc:
             # The L4 arm intentionally stops renewals.  It only passes when the
             # runtime-side release was observed within the stated bound *before*
             # broker cleanup, and the broker receipt reports a clean release.

@@ -19,18 +19,24 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterator
 
+from research.colab_cli import policy
+
 ACCOUNT_ROOT = Path.home() / ".config/colab-cli/snake"
 REPO = Path(__file__).resolve().parents[2]
 OAUTH_PYTHON = str(Path.home() / ".venvs/colab-cli/bin/python")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
-RATE_CALIBRATION_SECONDS = 120.0
 RATE_CALIBRATION_INTERVAL_SECONDS = 5.0
 RATE_CALIBRATION_STABLE_READS = 3
+RATE_CALIBRATION_SECONDS = (
+    2 * RATE_CALIBRATION_STABLE_READS * policy.READ_SECONDS
+    + (RATE_CALIBRATION_STABLE_READS - 1) * RATE_CALIBRATION_INTERVAL_SECONDS
+)
 RATE_CALIBRATION_STABILITY_UNITS_PER_HOUR = 0.01
 
 
@@ -238,6 +244,7 @@ class CLI:
     def __init__(self, binary: str, config: Path, session: str = "") -> None:
         self.binary, self.config, self.session = binary, config, session
         self.exec_uncertain = False
+        self.cleanup_mode = False
         self.deadline: float | None = None
         self.priced_deadline: float | None = None
         self.notebook_hash = uuid.uuid4().hex
@@ -246,6 +253,71 @@ class CLI:
         self.renew: Callable[[], Any] | None = None
         self.transfer_records: list[dict[str, Any]] = []
         self.contents_transfers: list[dict[str, Any]] = []
+        self.call_records: list[dict[str, Any]] = []
+        self._lease_stop = threading.Event()
+        self._lease_thread: threading.Thread | None = None
+
+    def remaining_seconds(self, allowance: float) -> float:
+        """Clip non-CLI helpers to the same first-cap-wins session clock."""
+        remaining = min(
+            allowance,
+            (self.deadline if self.deadline is not None else math.inf) - time.monotonic(),
+            (self.priced_deadline if self.priced_deadline is not None else math.inf)
+            - time.monotonic(),
+        )
+        if remaining <= 0:
+            raise Refused("whole-session deadline reached before helper")
+        return remaining
+
+    def start_lease(self, root: str, generation: str, lease_seconds: float) -> None:
+        """Renew via Contents while a kernel/control RPC is blocked.
+
+        This single daemon owns only a generation-bound lease PUT. It never
+        submits kernel code, allocates, launches, or stops. The watchdog remains
+        responsible for actual Mac loss or exhausted wall/unit budget.
+        """
+        self.stop_lease(wait=True)
+        self._lease_stop = threading.Event()
+        stop_event = self._lease_stop
+
+        def heartbeat() -> None:
+            while not stop_event.is_set():
+                try:
+                    timeout = self.remaining_seconds(min(policy.READ_SECONDS, lease_seconds / 3))
+                    self._put_lease(root, generation, timeout)
+                except Exception:
+                    # A missing heartbeat is handled by the remote watchdog;
+                    # transport errors cannot extend the session or its lease.
+                    pass
+                if stop_event.wait(30):
+                    return
+
+        self._lease_thread = threading.Thread(target=heartbeat, name="colab-lease", daemon=True)
+        self._lease_thread.start()
+
+    def _put_lease(self, root: str, generation: str, timeout: float) -> None:
+        """Write one complete lease using the Contents atomic file-save path."""
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
+            json.dump({"generation": generation, "renewal_clock": "contents-mtime"}, handle)
+            handle.flush()
+            self.call(
+                "upload",
+                "-s",
+                self.session,
+                handle.name,
+                root + "/lease-heartbeat.json",
+                timeout=timeout,
+            )
+
+    def stop_lease(self, *, wait: bool = False) -> None:
+        """Fence future lease PUTs before simulated Mac loss or broker cleanup."""
+        self._lease_stop.set()
+        if wait and self._lease_thread is not None:
+            self._lease_thread.join(timeout=policy.READ_SECONDS + 5)
+            if self._lease_thread.is_alive():
+                raise Refused("lease PUT did not quiesce before Mac-loss observation")
+        # Do not wait on an in-flight idempotent PUT before stopping spending.
+        # It cannot allocate or undo a verified unassignment.
 
     @contextlib.contextmanager
     def limit_deadline(self, deadline: float) -> Iterator[None]:
@@ -257,8 +329,40 @@ class CLI:
         finally:
             self.deadline = original
 
-    def call(self, *args: str, timeout: float = 45) -> str:
-        if args[0] not in {"stop", "sessions"}:
+    def call(self, *args: str, timeout: float = policy.READ_SECONDS) -> str:
+        """Retry read-only commands within one budget; mutations get one dispatch."""
+        deadline = time.monotonic() + timeout
+        attempts = policy.ATTEMPTS if args[0] in policy.READ_COMMANDS else 1
+        for attempt in range(attempts):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise Refused(f"colab {args[0]} operation budget exhausted")
+            started = time.monotonic()
+            status = "failed"
+            try:
+                result = self._call_once(*args, timeout=remaining)
+                status = "completed"
+                return result
+            except (Refused, OSError, subprocess.SubprocessError) as exc:
+                if attempt + 1 == attempts or not policy.transient_error(exc):
+                    raise
+                delay = min(policy.BACKOFF_SECONDS[attempt], max(0, deadline - time.monotonic()))
+                if delay:
+                    time.sleep(delay)
+            finally:
+                self.call_records.append(
+                    {
+                        "command": args[0],
+                        "attempt": attempt + 1,
+                        "timeout_seconds": remaining,
+                        "status": status,
+                        "elapsed_seconds": time.monotonic() - started,
+                    }
+                )
+        raise Refused("read retry budget exhausted")
+
+    def _call_once(self, *args: str, timeout: float) -> str:
+        if args[0] != "stop" and not (args[0] == "sessions" and self.cleanup_mode):
             deadline = min(
                 self.deadline if self.deadline is not None else math.inf,
                 self.priced_deadline if self.priced_deadline is not None else math.inf,
@@ -277,11 +381,20 @@ class CLI:
         hook = self.config.parent / "cli-hook"
         hook.mkdir(exist_ok=True, mode=0o700)
         guard_path = Path(__file__).with_name("cli_guard.py")
-        (hook / "sitecustomize.py").write_text(
+        hook_code = (
             "import os,runpy\ntry:\n    runpy.run_path("
             + repr(str(guard_path))
             + ", run_name='snake_cli_guard')\nexcept BaseException:\n    os._exit(70)\n"
         )
+        hook_file = hook / "sitecustomize.py"
+        if not hook_file.exists() or hook_file.read_text() != hook_code:
+            with tempfile.NamedTemporaryFile("w", dir=hook, delete=False) as handle:
+                handle.write(hook_code)
+                temporary = Path(handle.name)
+            try:
+                os.replace(temporary, hook_file)
+            finally:
+                temporary.unlink(missing_ok=True)
         env["PYTHONPATH"] = str(hook) + os.pathsep + env.get("PYTHONPATH", "")
         transfer_started = time.monotonic()
         transfer_status = "failed"
@@ -321,14 +434,14 @@ class CLI:
             raise Refused(f"colab {args[0]} failed ({result.returncode}): {output[-2000:]}")
         return output
 
-    def sessions(self, timeout: float = 45) -> dict[str, str]:
+    def sessions(self, timeout: float = policy.READ_SECONDS) -> dict[str, str]:
         output = self.call("sessions", timeout=timeout)
         rows = re.findall(r"^\[([^\]]+)\]\s+(\S+)\s+\| Hardware:", output, re.M)
         if not rows and "No active sessions found on server." not in output:
             raise Refused("unrecognized account sessions output")
         return {endpoint: name for name, endpoint in rows}
 
-    def usage(self, timeout: float = 45) -> dict[str, float]:
+    def usage(self, timeout: float = policy.READ_SECONDS) -> dict[str, float]:
         output = self.call("usage", timeout=timeout)
         result = {}
         for key, label in (
@@ -342,7 +455,7 @@ class CLI:
             result[key] = float(match[1])
         return result
 
-    def rpc(self, code: str, timeout: float = 20) -> Any:
+    def rpc(self, code: str, timeout: float = policy.RPC_SECONDS) -> Any:
         """A nonce response proves kernel completion even when CLI exits zero."""
         if self.exec_uncertain:
             raise Refused("previous exec uncertain/busy; refusing to resubmit to kernel")
@@ -380,39 +493,80 @@ class CLI:
             raise Refused(f"kernel error despite CLI exit zero: {reply.get('error')}")
         return reply["value"]
 
-    def poll_rpc(self, code: str, timeout: float = 20) -> Any:
-        """Retry only idempotent telemetry after independent proof of kernel idle."""
+    def poll_rpc(self, code: str, timeout: float = policy.RPC_SECONDS) -> Any:
+        """Retry idempotent telemetry only after independent kernel-idle proof.
+
+        All attempts, idle probes, and backoff share one operation budget.
+        Neither a kernel error nor an exhausted deadline is a retry trigger.
+        """
         from research.colab_cli.cli_guard import kernel_idle
 
-        for attempt in range(3):
+        deadline = min(
+            time.monotonic() + timeout,
+            self.deadline if self.deadline is not None else math.inf,
+            self.priced_deadline if self.priced_deadline is not None else math.inf,
+        )
+        for attempt in range(policy.ATTEMPTS):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise Refused("deadline reached during telemetry recovery")
             try:
-                return self.rpc(code, timeout)
+                with self.limit_deadline(deadline):
+                    return self.rpc(code, remaining)
             except (Refused, subprocess.SubprocessError):
-                if not self.exec_uncertain or attempt == 2:
+                if not self.exec_uncertain or attempt == policy.ATTEMPTS - 1:
                     raise
                 # Never enqueue work while the previous exec could still be busy.
-                # The bounded REST probe executes no kernel code.
                 idle = False
-                for _ in range(3):
-                    remaining = (self.deadline or (time.monotonic() + 60)) - time.monotonic()
-                    if remaining <= 1:
+                for probe in range(policy.ATTEMPTS):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
                         raise Refused("deadline reached during telemetry recovery")
-                    if kernel_idle(
-                        self.oauth_python, self.config, self.session, timeout=min(45, remaining)
-                    ):
-                        idle = True
+                    try:
+                        idle = kernel_idle(
+                            self.oauth_python,
+                            self.config,
+                            self.session,
+                            timeout=min(policy.READ_SECONDS, remaining),
+                        )
+                    except Exception as exc:
+                        if not policy.transient_error(exc):
+                            raise
+                    if idle:
                         break
-                    time.sleep(2)
+                    delay = min(2, max(0, deadline - time.monotonic()))
+                    if delay:
+                        time.sleep(delay)
                 if not idle:
                     raise Refused("kernel remains busy/unknown after telemetry hiccup")
                 self.exec_uncertain = False
+                delay = min(policy.BACKOFF_SECONDS[attempt], max(0, deadline - time.monotonic()))
+                if delay:
+                    time.sleep(delay)
         raise Refused("telemetry recovery exhausted")
 
 
 def stop_verified(cli: CLI, endpoint: str) -> None:
+    """Cleanup reads retain their budget even after the job deadline expires."""
+    previous = cli.cleanup_mode
+    cli.cleanup_mode = True
+    try:
+        _stop_verified(cli, endpoint)
+    finally:
+        cli.cleanup_mode = previous
+
+
+def _stop_verified(cli: CLI, endpoint: str) -> None:
     """A stop exit code cannot prove release; independently query the account."""
     errors = []
     for attempt in range(3):
+        if attempt:
+            try:
+                if endpoint not in cli.sessions(timeout=60):
+                    return
+            except Exception as exc:
+                errors.append(redact(repr(exc)))
+                continue
         try:
             cli.call("stop", "-s", cli.session, timeout=75)
         except Exception as exc:
@@ -422,7 +576,8 @@ def stop_verified(cli: CLI, endpoint: str) -> None:
             try:
                 from research.colab_cli.cli_guard import unassign_endpoint
 
-                unassign_endpoint(cli.oauth_python, endpoint, timeout=75)
+                if endpoint in cli.sessions(timeout=60):
+                    unassign_endpoint(cli.oauth_python, endpoint, timeout=75)
             except Exception as exc:
                 errors.append(redact(repr(exc)))
         for _ in range(3):
@@ -439,7 +594,7 @@ def stop_verified(cli: CLI, endpoint: str) -> None:
 
 def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit: int) -> None:
     """Download immutable data + digest + marker, verify, publish atomically."""
-    from research.colab_cli.transfers import TransferError, download_file
+    from research.colab_cli.transfers import TransferError, _contents_call, download_file
 
     rel = safe_relative(entry["path"])
     size = entry["size"]
@@ -468,13 +623,12 @@ def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit:
         except TransferError as exc:
             raise Refused(f"download hash mismatch or transfer failure: {exc}") from exc
         for suffix, local in ((".sha256", sidecar), (".complete", marker)):
-            cli.call(
-                "download",
-                "-s",
-                cli.session,
-                root + "/output/" + rel + suffix,
-                str(local),
-                timeout=60,
+            _contents_call(
+                cli,
+                ("download", "-s", cli.session, root + "/output/" + rel + suffix, str(local)),
+                policy.READ_SECONDS,
+                cli.renew,
+                deadline=time.monotonic() + policy.READ_SECONDS,
             )
         if data.stat().st_size != size or sha256(data) != digest:
             raise Refused("download hash mismatch; temporary export rejected")
@@ -539,6 +693,7 @@ class Broker:
                 # transfer ledger from the previous link in the chain.
                 cli.transfer_records = []
                 cli.contents_transfers = []
+                cli.call_records = []
             started = time.monotonic()
             cli.deadline = min(
                 started + m["timeout_minutes"] * 60 - 45, (retained or {}).get("deadline", math.inf)
@@ -570,7 +725,10 @@ class Broker:
                     from research.colab_cli.release import mint_release_credential
 
                     cli.release_credential = mint_release_credential(
-                        cli.oauth_python, endpoint="", min_valid_seconds=m["lease_seconds"] + 300
+                        cli.oauth_python,
+                        endpoint="",
+                        min_valid_seconds=m["lease_seconds"] + 900,
+                        timeout=cli.remaining_seconds(150),
                     )
                     before = cli.sessions()
                     usage_before = cli.usage()
@@ -622,7 +780,7 @@ class Broker:
                         args = ["new", "-s", session]
                         if m["requirements"]["gpu"] != "cpu":
                             args += ["--gpu", m["requirements"]["gpu"]]
-                        cli.call(*args, timeout=60)
+                        cli.call(*args, timeout=policy.ALLOCATION_SECONDS)
                         metadata = json.loads(cli.config.read_text()).get(session, {})
                         endpoint = metadata.get("endpoint")
                         if not endpoint:
@@ -664,6 +822,7 @@ class Broker:
                 except BaseException as exc:
                     error = redact(repr(exc))
                 finally:
+                    cli.stop_lease()
                     # Recover identity from CLI metadata if allocation returned uncertain.
                     if endpoint is None and cli.config.exists():
                         try:
@@ -739,6 +898,7 @@ class Broker:
                         "exports": exports,
                         "transfers": cli.transfer_records,
                         "contents_transfers": cli.contents_transfers,
+                        "cli_calls": cli.call_records,
                         "error": error,
                         "cleanup_error": cleanup,
                         "status": (
@@ -814,7 +974,7 @@ class Broker:
             seconds = deadline - time.monotonic()
             if seconds <= 0:
                 raise Refused("provider rate calibration did not stabilize within bounded window")
-            return min(20.0, seconds)
+            return min(policy.READ_SECONDS, seconds)
 
         try:
             # Count bound also protects against a stalled/test monotonic clock.
@@ -962,7 +1122,12 @@ class Broker:
                 "stdout=log,stderr=subprocess.STDOUT,start_new_session=True)\n"
                 "result={'pid':p.pid}"
             )
-            cli.rpc(initial, timeout=30)
+            # Contents is independent of the kernel: arm renewal before the
+            # launch RPC so a slow acknowledgement cannot consume the lease.
+            # A PUT before root creation safely returns 404 and is retried at
+            # the next heartbeat; it never creates a runtime or kernel job.
+            cli.start_lease(root, generation, m["lease_seconds"])
+            cli.rpc(initial, timeout=policy.RPC_SECONDS)
             cli.current_root = root
             # Runtime writes state before Popen; wait through file downloads,
             # never by queuing another exec behind an uncertain/busy kernel.
@@ -980,9 +1145,8 @@ class Broker:
                     mint_release_credential,
                 )
 
-                # Refresh the lease before credential retries. Reserve 90 seconds
-                # for transport/rotation RPC grace and the next renewal.
-                credential_deadline = time.monotonic() + m["lease_seconds"] - 90
+                # The independent Contents heartbeat covers slow credential
+                # work; rotation borrows no time beyond the first real cap.
                 result = cli.poll_rpc(
                     "import importlib.util\n"
                     f"runtime_path={root + '/runtime.py'!r}\n"
@@ -992,15 +1156,19 @@ class Broker:
                 )
                 if credential_renewal_due(cli.release_credential, "", safety_window_seconds=900):
                     cli.release_credential = mint_release_credential(
-                        cli.oauth_python, endpoint="", min_valid_seconds=m["lease_seconds"] + 300
+                        cli.oauth_python,
+                        endpoint="",
+                        min_valid_seconds=m["lease_seconds"] + 900,
+                        timeout=cli.remaining_seconds(150),
                     )
+                    credential_deadline = time.monotonic() + cli.remaining_seconds(150)
                     upload_credential(credential_deadline)
                     cli.rpc(
                         "from pathlib import Path\n"
                         f"p=Path({credential_remote!r})\np.chmod(0o600)\n"
                         f"p.replace(Path({root!r})/'release-credential.json')\n"
                         f"result=mod.read_state({root!r},{generation!r},renew=True)",
-                        timeout=20,
+                        timeout=policy.RPC_SECONDS,
                     )
                 self.renew_retained(cli, retained)
                 renewal.update(at=time.monotonic(), state=result)
@@ -1065,7 +1233,7 @@ class Broker:
                     "'snake_source',root/'source.py')\n"
                     "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
                     f"result=mod.{operation}(root,plan)",
-                    timeout=90,
+                    timeout=policy.SOURCE_RPC_SECONDS,
                 )
                 renew()
                 return result
@@ -1121,7 +1289,7 @@ class Broker:
                 "(root/'ready.json').write_text(json.dumps({'ready':True,'hardware':gpu}))\n"
                 "result={'ready':True,'hardware':gpu}",
             )
-            admitted = cli.rpc(code, timeout=30)
+            admitted = cli.rpc(code, timeout=policy.RPC_SECONDS)
             write_once(output / "hardware.json", admitted)
             if self.observer:
                 self.observer(

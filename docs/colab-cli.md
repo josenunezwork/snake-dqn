@@ -83,9 +83,11 @@ For one job, the supervisor:
    backend evidence says the kernel is idle.
 4. Imports only completed immutable exports: payload, SHA-256 sidecar, and
    completion marker. Files move in bounded 8 MiB chunks; an 8 MiB Contents
-   call is bounded to 60 seconds. Renewals are throttled to at most one every
+   call is bounded to 120 seconds. Renewals are throttled to at most one every
    30 seconds, so a transfer does not submit two polling RPCs for every chunk.
-   Only idempotent transport reads use their bounded three-attempt retry; a
+   An independent generation-bound Contents heartbeat keeps the lease alive
+   while a kernel RPC waits. Only idempotent reads or writes of the same bytes
+   use bounded three-attempt retries; a
    mutating kernel operation is never retried after an uncertain result. The per-export limit is
    `max_export_bytes`, up to 2 GiB. The supervisor verifies size and digest in
    a temporary local path before an atomic publish. An interrupted or corrupt
@@ -174,9 +176,9 @@ The runtime normally obtains the pinned source itself, rather than receiving a
 tar archive of the whole Mac checkout. Before allocation, the Mac resolves the
 manifest's 40-character commit and records its Git tree ID. The runtime then
 performs a shallow fetch of that exact commit from the public GitHub repository
-within a 60-second fetch operation budget. It must confirm its checked-out
+within a 120-second shared fetch operation budget with bounded transient retries. It must confirm its checked-out
 commit and `HEAD^{tree}` against the Mac-recorded values before it runs the
-bootstrap or job script. The supervisor gives this RPC a 90-second bound.
+bootstrap or job script. The supervisor gives this RPC a 150-second bound.
 
 Only a GitHub-unreachable result permits the fallback. A missing commit,
 checksum/tree mismatch, or malformed repository result refuses the job; it
@@ -222,7 +224,7 @@ avoid declaring the dependency is refused.
 Normal GitHub source delivery leaves only Mac-only inputs and the conditional
 sparse fallback to upload. The supervisor transfers those files in 2 MiB
 chunks. Each chunk is written to an idempotent offset/part path, has a bounded
-retry only for connection or timeout failures, and is assembled only after the
+retry only for connection, timeout, or transient 5xx failures, and is assembled only after the
 complete file's SHA-256 and size are checked. Initial input PUTs share a
 five-minute staging deadline; exhausting it refuses the job before
 an unbounded Contents-client request can continue.
@@ -239,10 +241,11 @@ cap. Each later upload or download starts a fresh transfer deadline of
 600 MiB roundtrip upload therefore has 1,320 seconds, subject to the remaining
 whole-session wall and unit limits. Small credential/control PUTs have the same
 minimum allowance and at most three idempotent Contents attempts, without a
-kernel verification RPC. Credential rotation first refreshes the lease, caps
-the PUT budget to leave a 90-second lease margin (including token mint time),
-and refreshes the lease again in the single rotation RPC. This lease cap may
-shorten the transfer allowance. Mutating RPCs are never retried.
+kernel verification RPC. Credential rotation first refreshes the lease; mint
+and staging each have at most 150 seconds, clipped to the wall and priced-unit
+deadlines. The independent Contents heartbeat covers this work, replacing the
+old 90-second staging ceiling. A single rotation RPC installs the credential
+and refreshes the VM lease. Mutating RPCs are never blindly replayed.
 
 `receipt.json.transfers` contains one record per immutable file upload/download:
 `direction`, `remote`, `size_bytes`, `elapsed_seconds`, `bytes_per_second`,
@@ -377,3 +380,11 @@ lease fencing, restricted credential handling, bounded transfer and stop
 logic, and evidence requirements around that provider behavior. See the
 [`snake-dqn-colab-jobs` skill](codex-skills/snake-dqn-colab-jobs/SKILL.md)
 for the agent checklist and the legacy-Q1 boundary.
+
+
+See [the systematic transport audit](../research/colab_cli/ROBUSTNESS.md) for
+all CLI/HTTP call classes, retry/reconciliation rules, live timing evidence,
+the independent Contents lease renewal, and the unchanged acceptance caps.
+The 1,320-second standalone allowance for a 600 MiB upload exceeds the CPU
+arm's 20-minute total cap; it is clipped to that cap and does not authorize
+additional time or units.

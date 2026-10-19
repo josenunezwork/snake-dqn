@@ -213,6 +213,17 @@ def test_renewal_after_initial_staging_deadline_uses_fresh_contents_transfer(
     manifest["timeout_minutes"] = 10.0
     manifest["budget"]["unit_cap"] = 2.0
     renewed: list[bool] = []
+    original = supervisor.CLI.call
+
+    def delayed_credential(self, *args: str, timeout: float = 120) -> str:
+        if args[0] == "upload" and args[-1].endswith("-release.json") and monotonic[0] >= 301:
+            assert timeout >= 100  # The obsolete lease-minus-90 allowance failed here.
+            result = original(self, *args, timeout=timeout)
+            monotonic[0] += 100
+            return result
+        return original(self, *args, timeout=timeout)
+
+    monkeypatch.setattr(supervisor.CLI, "call", delayed_credential)
 
     def observer(event: str, context: dict[str, object]) -> None:
         if event != "ready":
@@ -303,7 +314,14 @@ def test_l4_observed_rate_below_priced_ceiling_calibrates_and_passes(
     [
         ([2.06], "exceeds priced upper bound"),
         ([0.0], "did not stabilize"),
-        ([1.54, 1.7] * 13, "did not stabilize"),
+        (
+            [1.54, 1.7]
+            * int(
+                supervisor.RATE_CALIBRATION_SECONDS / supervisor.RATE_CALIBRATION_INTERVAL_SECONDS
+                + 1
+            ),
+            "did not stabilize",
+        ),
         ([1.54, 1.54, 1.54, 1.7], "rate drift"),
     ],
 )
@@ -362,7 +380,7 @@ def test_provider_calibration_timeout_is_a_real_elapsed_bound(
     receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
     assert receipt["stop_verified"] is True
     assert receipt["accounting"]["calibration"]["status"] == "INCOMPLETE"
-    assert receipt["elapsed_seconds"] == 121  # One watchdog-start second, then 120 calibration.
+    assert receipt["elapsed_seconds"] == 135  # The existing three-minute wall cap wins.
 
 
 def test_stop_success_exit_is_rejected_when_backend_keeps_assignment(
@@ -919,7 +937,7 @@ def test_runtime_source_delivery_with_fake_binary(
         ).strip()
     )
     state = json.loads((tmp_path / "fake-state.json").read_text())
-    assert len(state["source_fetches"]) == 1
+    assert len(state["source_fetches"]) == (3 if mode == "github_unreachable" else 1)
     assert state["source_fetches"][0][-1] == manifest["commit"]
     assert state["source_fetches"][0][-2] == "https://github.com/josenunezwork/snake-dqn.git"
     archives = [
@@ -1066,10 +1084,182 @@ def test_disconnect_acceptance_observes_fake_backend_endpoint_release(
     monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock[0])
     observer = AcceptanceObserver("unused")
     monkeypatch.setattr(observer, "_state", lambda context: {})
+    monkeypatch.setattr(cli, "poll_rpc", lambda code: clock.__setitem__(0, 180))
     output = tmp_path / "watchdog-output"
     output.mkdir()
     observer._watchdog(
-        {"cli": cli, "root": root, "output": output, "manifest": {"lease_seconds": 180}}
+        {
+            "cli": cli,
+            "root": root,
+            "output": output,
+            "generation": "g",
+            "manifest": {"lease_seconds": 180},
+        }
     )
     assert observer.records["mac-loss-watchdog-unassign"]["endpoint"] == endpoint
     assert not any(event["argv"][4] == "stop" for event in _events(tmp_path))
+
+
+@pytest.mark.parametrize("command", ["sessions", "usage", "whoami", "url"])
+def test_read_retries_transient_failures_within_one_budget(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, command: str
+) -> None:
+    cli = supervisor.CLI("fake", tmp_path / "state.json")
+    clock = [0.0]
+    calls = []
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        supervisor.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay)
+    )
+
+    def invoke(*args: str, timeout: float) -> str:
+        calls.append(timeout)
+        if len(calls) < 3:
+            raise supervisor.Refused("HTTP 503 temporarily unavailable")
+        return "ok"
+
+    monkeypatch.setattr(cli, "_call_once", invoke)
+    assert cli.call(command) == "ok"
+    assert calls == [120, 118, 113]
+    assert clock[0] == 7
+
+
+@pytest.mark.parametrize("command", ["new", "exec", "stop"])
+def test_mutating_dispatch_is_never_blindly_retried(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, command: str
+) -> None:
+    cli = supervisor.CLI("fake", tmp_path / "state.json")
+    calls = []
+
+    def invoke(*args: str, timeout: float) -> str:
+        calls.append(args)
+        raise supervisor.Refused("HTTP 503 temporarily unavailable")
+
+    monkeypatch.setattr(cli, "_call_once", invoke)
+    with pytest.raises(supervisor.Refused):
+        cli.call(command)
+    assert len(calls) == 1
+
+
+def test_sessions_respects_expired_job_caps_but_cleanup_can_observe_release(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cli = supervisor.CLI("fake", tmp_path / "state.json", "owned")
+    cli.deadline = 1.0
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: 2.0)
+
+    def invoke(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert kwargs["timeout"] > 0
+        return subprocess.CompletedProcess(args, 0, "No active sessions found on server.", "")
+
+    monkeypatch.setattr(supervisor.subprocess, "run", invoke)
+    with pytest.raises(supervisor.Refused, match="deadline"):
+        cli.sessions()
+    supervisor.stop_verified(cli, "owned-endpoint")
+    assert cli.cleanup_mode is False
+
+
+def test_contents_lease_runs_while_kernel_rpc_is_blocked_and_quiesces(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import threading
+
+    cli = supervisor.CLI("fake", tmp_path / "state.json")
+    renewed = threading.Event()
+    uploads = []
+
+    def invoke(*args: str, timeout: float) -> str:
+        assert args[0] == "upload"
+        lease = json.loads(Path(args[-2]).read_text())
+        uploads.append((lease, timeout))
+        renewed.set()
+        return "ok"
+
+    monkeypatch.setattr(cli, "call", invoke)
+    cli.start_lease("/content/snake-cli/owned", "generation", 180)
+    assert renewed.wait(2)
+    cli.stop_lease(wait=True)
+    assert cli._lease_thread is not None and not cli._lease_thread.is_alive()
+    assert uploads[0][0]["generation"] == "generation"
+    assert uploads[0][1] <= 60
+
+
+def test_lease_does_not_renew_after_wall_or_priced_deadline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cli = supervisor.CLI("fake", tmp_path / "state.json")
+    cli.priced_deadline = 1.0
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: 2.0)
+    with pytest.raises(supervisor.Refused, match="deadline"):
+        cli.remaining_seconds(120)
+
+
+def test_export_sidecar_transient_failure_uses_contents_retry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path, mode="export_success")
+    monkeypatch.setattr(supervisor.time, "sleep", lambda delay: None)
+    original = supervisor.CLI.call
+    failures = []
+
+    def invoke(self, *args: str, timeout: float = 120) -> str:
+        if args[0] == "download" and args[-2].endswith(".sha256") and not failures:
+            failures.append(args[-2])
+            raise supervisor.Refused("HTTP 503 temporarily unavailable")
+        return original(self, *args, timeout=timeout)
+
+    monkeypatch.setattr(supervisor.CLI, "call", invoke)
+    manifest = _manifest(tmp_path)
+    supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    receipt = json.loads((Path(manifest["output_dir"]) / "receipt.json").read_text())
+    assert failures
+    assert receipt["status"] == "PASS" and receipt["stop_verified"] is True
+
+
+def test_calibration_allows_six_healthy_twenty_second_reads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path)
+    clock = [0.0]
+    reads = []
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        supervisor.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay)
+    )
+    original = supervisor.CLI.call
+
+    def delayed(self, *args: str, timeout: float = 120) -> str:
+        result = original(self, *args, timeout=timeout)
+        if args[0] in {"sessions", "usage"} and hasattr(self, "accounting") and len(reads) < 6:
+            assert timeout >= 20
+            clock[0] += 20
+            reads.append(args[0])
+        return result
+
+    monkeypatch.setattr(supervisor.CLI, "call", delayed)
+    manifest = _manifest(tmp_path)
+    manifest["timeout_minutes"] = 10
+    manifest["budget"]["unit_cap"] = 2
+    supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    receipt = json.loads((Path(manifest["output_dir"]) / "receipt.json").read_text())
+    assert len(reads) == 6
+    assert receipt["status"] == "PASS" and receipt["stop_verified"] is True
+    assert receipt["accounting"]["calibration"]["samples"][-1]["elapsed_seconds"] >= 130
+
+
+def test_poll_rpc_completion_grace_cannot_extend_shared_read_budget(
+    monkeypatch, tmp_path: Path
+) -> None:
+    cli = supervisor.CLI("fake", tmp_path / "config", "owned")
+    cli.deadline = 500
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: 100)
+
+    def invoke(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert kwargs["timeout"] == 120  # Not the ordinary mutation RPC's 130s outer grace.
+        code = Path(argv[argv.index("-f") + 1]).read_text()
+        nonce = "SNAKE_RPC_" + code.split("SNAKE_RPC_")[1][:32]
+        return subprocess.CompletedProcess(argv, 0, nonce + '{"ok":true,"value":true}', "")
+
+    monkeypatch.setattr(supervisor.subprocess, "run", invoke)
+    assert cli.poll_rpc("result=True") is True
+    assert cli.deadline == 500

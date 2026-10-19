@@ -34,15 +34,49 @@ RELEASE_SCOPES = frozenset(
     }
 )
 RELEASE_FILE = "release-credential.json"
+# This runtime module is transferred and imported standalone, so it must not
+# import the Mac supervisor's policy module.  Keep the watchdog release bound
+# at 130 seconds: lease/grace admission and the runtime safety margin are
+# calculated from it.  The wider 120-second Mac read budget does not apply to
+# this final in-VM release sequence.
 REQUEST_TIMEOUT_SECONDS = 20
 REQUEST_OVERHEAD_SECONDS = 1
 RELEASE_ATTEMPTS = 3
 RELEASE_RETRY_SECONDS = 2
+MINT_RETRY_BACKOFF_SECONDS = (2, 5)
 RELEASE_MAX_SECONDS = (
     RELEASE_ATTEMPTS * 2 * (REQUEST_TIMEOUT_SECONDS + REQUEST_OVERHEAD_SECONDS)
     + (RELEASE_ATTEMPTS - 1) * RELEASE_RETRY_SECONDS
 )
 _ENDPOINT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _transient_mint_error(exc: BaseException) -> bool:
+    """Retry only bounded OAuth transport failures, never scope/auth refusals."""
+    if isinstance(exc, (OSError, subprocess.TimeoutExpired, TimeoutError)):
+        return True
+    if not isinstance(exc, subprocess.CalledProcessError):
+        return False
+    stderr = exc.stderr
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", errors="replace")
+    text = str(stderr or "").lower()
+    return any(
+        marker in text
+        for marker in (
+            "500",
+            "502",
+            "503",
+            "504",
+            "connection reset",
+            "connection aborted",
+            "connection refused",
+            "connection error",
+            "timed out",
+            "timeout",
+            "temporarily unavailable",
+        )
+    )
 
 
 class ReleaseError(RuntimeError):
@@ -159,6 +193,7 @@ import json
 import sys
 import time
 from datetime import timezone
+import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
@@ -166,7 +201,15 @@ scopes = json.loads(sys.argv[1])
 credentials = Credentials.from_authorized_user_file(
     __import__("os").path.expanduser("~/.config/colab-cli/token.json"), scopes
 )
-credentials.refresh(Request())
+# OAuth refresh is a read-like network operation.  Keep it bounded without
+# importing supervisor code: this string is executed by a private local helper.
+session = requests.Session()
+original_request = session.request
+def bounded_request(*args, **kwargs):
+    kwargs.setdefault("timeout", (30, 120))
+    return original_request(*args, **kwargs)
+session.request = bounded_request
+credentials.refresh(Request(session=session))
 granted = set(credentials.granted_scopes or ())
 if granted != set(scopes):
     raise RuntimeError("provider did not grant exactly the requested release scopes")
@@ -186,7 +229,11 @@ print(json.dumps({
 
 
 def mint_release_credential(
-    oauth_python: str | Path, endpoint: str, min_valid_seconds: float
+    oauth_python: str | Path,
+    endpoint: str,
+    min_valid_seconds: float,
+    *,
+    timeout: float = 150,
 ) -> dict[str, Any]:
     """Mint a scope-checked, short-lived release access token on the Mac.
 
@@ -197,18 +244,35 @@ def mint_release_credential(
     _validate_endpoint_if_bound(endpoint)
     if min_valid_seconds <= 0:
         raise ReleaseError("release credential minimum lifetime must be positive")
-    try:
-        completed = subprocess.run(
-            [str(oauth_python), "-c", _MINT_PROGRAM, json.dumps(sorted(RELEASE_SCOPES))],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=20,
-        )
-        raw = json.loads(completed.stdout)
-    except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError) as exc:
-        raise ReleaseError("could not mint restricted runtime release credential") from exc
-    return _validate_credential(raw, endpoint, min_valid_seconds=min_valid_seconds)
+    if timeout <= 0:
+        raise ReleaseError("release credential mint timeout must be positive")
+    deadline = time.monotonic() + min(timeout, 150)
+    for attempt in range(RELEASE_ATTEMPTS):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            completed = subprocess.run(
+                [str(oauth_python), "-c", _MINT_PROGRAM, json.dumps(sorted(RELEASE_SCOPES))],
+                check=True,
+                capture_output=True,
+                text=True,
+                # OAuth refresh and tunnel startup have exceeded the former
+                # 20s helper cap.  This Mac-only bound does not alter the VM
+                # watchdog's fixed 130-second release envelope.
+                timeout=remaining,
+            )
+            raw = json.loads(completed.stdout)
+            return _validate_credential(raw, endpoint, min_valid_seconds=min_valid_seconds)
+        except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError) as exc:
+            if attempt + 1 == RELEASE_ATTEMPTS or not _transient_mint_error(exc):
+                break
+            delay = min(MINT_RETRY_BACKOFF_SECONDS[attempt], deadline - time.monotonic())
+            if delay > 0:
+                time.sleep(delay)
+    # Do not include subprocess stderr/stdout in diagnostics: either could
+    # contain provider details and this code handles short-lived credentials.
+    raise ReleaseError("could not mint restricted runtime release credential") from None
 
 
 class _RejectRedirect(HTTPRedirectHandler):
@@ -244,6 +308,27 @@ def _request(
         return response.read()
 
 
+def _verify_assignment_and_get_xsrf(url: str, token: str, *, request_timeout: float) -> str:
+    """GET the endpoint before a POST; a later retry must repeat this probe.
+
+    This is an authenticated endpoint check and fresh XSRF-token retrieval;
+    it does not claim that the assignment still exists.  The token is
+    intentionally one-shot, so a POST is never blindly replayed after an
+    uncertain result.
+    """
+    body = _request(url, token, timeout=request_timeout)
+    text = body.decode("utf-8")
+    if text.startswith(")]}'\n"):
+        text = text[5:]
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise ReleaseError("release GET returned a malformed envelope")
+    xsrf = payload.get("token")
+    if not isinstance(xsrf, str) or not xsrf:
+        raise ReleaseError("release GET returned no XSRF token")
+    return xsrf
+
+
 def unassign_with_credential(
     credential: Mapping[str, Any],
     endpoint: str,
@@ -254,16 +339,9 @@ def unassign_with_credential(
     checked = _validate_credential(credential, endpoint)
     url = _unassign_url(endpoint)
     try:
-        body = _request(url, checked["access_token"], timeout=request_timeout)
-        text = body.decode("utf-8")
-        if text.startswith(")]}'\n"):
-            text = text[5:]
-        payload = json.loads(text)
-        if not isinstance(payload, dict):
-            raise ReleaseError("release GET returned a malformed envelope")
-        xsrf = payload.get("token")
-        if not isinstance(xsrf, str) or not xsrf:
-            raise ReleaseError("release GET returned no XSRF token")
+        xsrf = _verify_assignment_and_get_xsrf(
+            url, checked["access_token"], request_timeout=request_timeout
+        )
         _request(url, checked["access_token"], method="POST", xsrf=xsrf, timeout=request_timeout)
     except (HTTPError, URLError, OSError, ValueError) as exc:
         raise ReleaseError(f"runtime release request failed: {type(exc).__name__}: {exc}") from exc

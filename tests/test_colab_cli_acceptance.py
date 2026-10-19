@@ -146,6 +146,14 @@ def test_l4_watchdog_requires_backend_disappearance_within_bound(
     class CLI:
         session = "acceptance-session"
 
+        @staticmethod
+        def stop_lease(*, wait: bool = False) -> None:
+            assert wait
+
+        @staticmethod
+        def poll_rpc(code: str) -> bool:
+            return True
+
         class accounting:
             endpoint = "endpoint"
 
@@ -153,6 +161,7 @@ def test_l4_watchdog_requires_backend_disappearance_within_bound(
             self.polls = 0
 
         def call(self, command: str, *_args: str, timeout: int) -> str:
+            now[0] = max(now[0], 180)
             assert command == "download"
             destination = Path(_args[-1])
             if _args[-2].endswith(".sha256"):
@@ -182,6 +191,7 @@ def test_l4_watchdog_requires_backend_disappearance_within_bound(
             "manifest": {"lease_seconds": 180},
             "output": output,
             "root": "/content/acceptance",
+            "generation": "g",
         }
     )
     record = observer.records["mac-loss-watchdog-unassign"]
@@ -201,11 +211,20 @@ def test_l4_watchdog_rejects_question_mark_session_when_endpoint_remains(
     class CLI:
         session = "acceptance-session"
 
+        @staticmethod
+        def stop_lease(*, wait: bool = False) -> None:
+            assert wait
+
+        @staticmethod
+        def poll_rpc(code: str) -> bool:
+            return True
+
         class accounting:
             endpoint = "endpoint"
 
         @staticmethod
         def call(command: str, *_args: str, timeout: int) -> str:
+            now[0] = max(now[0], 180)
             assert command == "download"
             destination = Path(_args[-1])
             if _args[-2].endswith(".sha256"):
@@ -235,6 +254,7 @@ def test_l4_watchdog_rejects_question_mark_session_when_endpoint_remains(
                 "manifest": {"lease_seconds": 180},
                 "output": output,
                 "root": "/content/acceptance",
+                "generation": "g",
             }
         )
 
@@ -283,7 +303,7 @@ def test_state_reconciles_session_spend_not_raw_shared_balance(
         accounting = Tracker()
 
         @staticmethod
-        def rpc(*_args: str) -> dict[str, object]:
+        def poll_rpc(*_args: str) -> dict[str, object]:
             return {"runtime": {}, "probe": {}}
 
         @staticmethod

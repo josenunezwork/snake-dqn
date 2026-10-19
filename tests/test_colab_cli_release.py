@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import stat
+import subprocess
 import sys
 import time
 import types
@@ -57,6 +58,72 @@ def test_mint_fails_closed_when_provider_returns_broader_scopes(
     monkeypatch.setattr(release.subprocess, "run", lambda *args, **kwargs: Completed())
     with pytest.raises(release.ReleaseError, match="restricted release scopes"):
         release.mint_release_credential("fake-oauth-python", "", 10)
+
+
+def test_mint_timeout_is_caller_clamped_to_robust_helper_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[float] = []
+
+    class Completed:
+        stdout = json.dumps(_credential())
+
+    def fake_run(*_args: object, **kwargs: object) -> Completed:
+        seen.append(float(kwargs["timeout"]))
+        return Completed()
+
+    monkeypatch.setattr(release.subprocess, "run", fake_run)
+    assert release.mint_release_credential("fake-oauth-python", "", 10, timeout=999)
+    assert len(seen) == 1
+    assert 149 <= seen[0] <= 150
+    with pytest.raises(release.ReleaseError, match="timeout must be positive"):
+        release.mint_release_credential("fake-oauth-python", "", 10, timeout=0)
+
+
+def test_mint_retries_transient_transport_and_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    class Completed:
+        stdout = json.dumps(_credential())
+
+    def fake_run(*_args: object, **_kwargs: object) -> Completed:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise subprocess.TimeoutExpired("oauth", 1)
+        return Completed()
+
+    monkeypatch.setattr(release.subprocess, "run", fake_run)
+    monkeypatch.setattr(release.time, "sleep", lambda _delay: None)
+    assert release.mint_release_credential("fake-oauth-python", "", 10)
+    assert calls == 3
+
+
+def test_mint_scope_refusal_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    class Completed:
+        stdout = json.dumps(_credential(scopes=sorted(release.RELEASE_SCOPES | {"broader"})))
+
+    def fake_run(*_args: object, **_kwargs: object) -> Completed:
+        nonlocal calls
+        calls += 1
+        return Completed()
+
+    monkeypatch.setattr(release.subprocess, "run", fake_run)
+    with pytest.raises(release.ReleaseError, match="restricted release scopes"):
+        release.mint_release_credential("fake-oauth-python", "", 10)
+    assert calls == 1
+
+
+def test_mint_refuses_when_the_shared_timeout_is_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(release.time, "monotonic", lambda: 1.0)
+    with pytest.raises(release.ReleaseError, match="could not mint"):
+        release.mint_release_credential("fake-oauth-python", "", 10, timeout=1e-99)
 
 
 def test_unassign_replays_cli_get_xsrf_post_without_refresh_token(
@@ -112,18 +179,53 @@ def test_mint_program_treats_naive_google_auth_expiry_as_utc(
         def refresh(self, request: object) -> None:
             return None
 
+    class Session:
+        def __init__(self) -> None:
+            self.request = lambda *_args, **_kwargs: None
+
+    raw_requests_module = types.ModuleType("requests")
+    raw_requests_module.Session = Session
     requests_module = types.ModuleType("google.auth.transport.requests")
-    requests_module.Request = object
+    requests_module.Request = lambda *, session: session
     credentials_module = types.ModuleType("google.oauth2.credentials")
     credentials_module.Credentials = Credentials
     monkeypatch.setitem(sys.modules, "google.auth.transport.requests", requests_module)
     monkeypatch.setitem(sys.modules, "google.oauth2.credentials", credentials_module)
+    monkeypatch.setitem(sys.modules, "requests", raw_requests_module)
     monkeypatch.setattr(sys, "argv", ["mint", json.dumps(sorted(release.RELEASE_SCOPES))])
 
     exec(release._MINT_PROGRAM, {"__name__": "__main__"})
 
     result = json.loads(capsys.readouterr().out)
     assert result["expires_at"] == datetime(2030, 1, 2, 3, 4, 5, tzinfo=timezone.utc).timestamp()
+
+
+def test_release_retry_reverifies_endpoint_before_a_second_post(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    credential = _credential(expires_at=time.time() + release.RELEASE_MAX_SECONDS + 30)
+    release.write_release_credential(
+        tmp_path, "endpoint_1", credential, min_valid_seconds=release.RELEASE_MAX_SECONDS
+    )
+    calls: list[str] = []
+
+    def fake_request(_url: str, _token: str, *, method: str = "GET", **_kwargs: object) -> bytes:
+        calls.append(method)
+        if method == "GET":
+            return b')]}\'\n{"token":"fresh-xsrf"}'
+        if calls.count("POST") == 1:
+            raise release.ReleaseError("runtime release request failed: timeout")
+        return b"{}"
+
+    monkeypatch.setattr(release, "_request", fake_request)
+    monkeypatch.setattr(release.time, "sleep", lambda _delay: None)
+    release.release_from_file(tmp_path, "endpoint_1")
+    assert calls == ["GET", "POST", "GET", "POST"]
+
+
+def test_release_envelope_remains_fixed_when_mac_oauth_timeout_grows() -> None:
+    assert release.REQUEST_TIMEOUT_SECONDS == 20
+    assert release.RELEASE_MAX_SECONDS == 130
 
 
 def test_rejects_nonfinite_expiry_and_redirects() -> None:

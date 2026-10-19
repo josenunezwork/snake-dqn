@@ -211,7 +211,9 @@ def _exports(
     return records
 
 
-def read_state(root: str | Path, generation: str | int, renew: bool = True) -> dict[str, Any]:
+def read_state(
+    root: str | Path, generation: str | int, renew: bool = True, *, disable_contents: bool = False
+) -> dict[str, Any]:
     """Read a fenced state and optionally renew its lease.
 
     A wrong generation never refreshes the lease.  Callers receive the state,
@@ -225,7 +227,10 @@ def read_state(root: str | Path, generation: str | int, renew: bool = True) -> d
         lease = _load_json(root_path / "lease.json")
         if str(lease.get("generation")) != str(generation):
             raise RuntimeError("lease generation fence mismatch; lease was not renewed")
-        _atomic_json(root_path / "lease.json", {"generation": generation, "renewed_at": _now()})
+        renewed = {"generation": generation, "renewed_at": _now()}
+        if disable_contents or lease.get("contents_disabled") is True:
+            renewed["contents_disabled"] = True
+        _atomic_json(root_path / "lease.json", renewed)
     terminal_path = root_path / "terminal.json"
     terminal = _load_json(terminal_path) if terminal_path.exists() else None
     return {
@@ -285,11 +290,40 @@ def _require_release_safety(spec: Mapping[str, Any]) -> None:
     )
 
 
+_CONTENTS_LEASES: dict[tuple[str, str], float] = {}
+
+
 def _lease_expired(root: Path, generation: str | int, lease_seconds: float) -> str | None:
     lease = _load_json(root / "lease.json")
     if str(lease.get("generation")) != str(generation):
         return "lease_generation_changed"
-    if _now() - float(lease.get("renewed_at", 0)) > lease_seconds:
+    renewed_at = float(lease.get("renewed_at", 0))
+    # Contents chunk=1 writes may expose an incomplete file. Keep them separate
+    # from the VM-owned atomic lease and retain the last validated heartbeat
+    # in this watchdog process. A partial/failed PUT cannot erase a good lease
+    # or extend it. The client sends no timestamp metadata: stat uses VM time.
+    if lease.get("contents_disabled") is not True:
+        key = (str(root), str(generation))
+        heartbeat = root / "lease-heartbeat.json"
+        try:
+            before = heartbeat.stat()
+            control = _load_json(heartbeat)
+            after = heartbeat.stat()
+            if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
+                raise ValueError("heartbeat changed during read")
+            if str(control.get("generation")) != str(generation):
+                return "lease_generation_changed"
+            if control.get("renewal_clock") == "contents-mtime":
+                stamp = before.st_mtime
+                if stamp > _now() + 5:
+                    return "lease_clock_invalid"
+                _CONTENTS_LEASES[key] = max(_CONTENTS_LEASES.get(key, 0), stamp)
+        except (OSError, ValueError, TypeError, RuntimeError):
+            pass  # Normal clock-based expiry still applies to the last good lease.
+        renewed_at = max(renewed_at, _CONTENTS_LEASES.get(key, 0))
+    if renewed_at > _now() + 5:
+        return "lease_clock_invalid"
+    if _now() - renewed_at > lease_seconds:
         return "lease_expired"
     return None
 

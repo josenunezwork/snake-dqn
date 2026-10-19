@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import tempfile
 import time
@@ -17,8 +18,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from research.colab_cli import supervisor
-from research.colab_cli.transfers import upload_contents, upload_file
+from research.colab_cli import policy, supervisor
+from research.colab_cli.transfers import _contents_call, upload_contents, upload_file
 
 WATCHDOG_DISAPPEARANCE_BOUND_SECONDS = 300
 WATCHDOG_DISAPPEARANCE_POLL_SECONDS = 10
@@ -71,26 +72,45 @@ class AcceptanceObserver:
             "from colab_cli.auth import TOKEN_CONFIG_PATH,PUBLIC_SCOPES\n"
             "c=Credentials.from_authorized_user_file(TOKEN_CONFIG_PATH,PUBLIC_SCOPES)\n"
             "assert c.refresh_token\n"
-            "c.refresh(Request())\n"
+            "import requests\n"
+            "original=requests.sessions.Session.request\n"
+            "def bounded(self,*a,**kw):\n"
+            "    kw['timeout']=(30,120)\n"
+            "    return original(self,*a,**kw)\n"
+            "requests.sessions.Session.request=bounded\n"
+            "c.refresh(Request(session=__import__('requests').Session()))\n"
             "assert c.valid\n"
             "print('REFRESH_OK')\n"
         )
-        try:
-            result = subprocess.run(
-                [self.oauth_python, "-c", code],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise supervisor.Refused(
-                f"OAuth refresh subprocess failed: {type(exc).__name__}"
-            ) from exc
-        if result.returncode or result.stdout.strip() != "REFRESH_OK":
-            raise supervisor.Refused("OAuth refresh did not confirm reusable credentials")
+        deadline = time.monotonic() + cli.remaining_seconds(150)
+        for attempt in range(policy.ATTEMPTS):
+            try:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise supervisor.Refused("OAuth refresh operation budget exhausted")
+                result = subprocess.run(
+                    [self.oauth_python, "-c", code],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=remaining,
+                )
+                if result.returncode == 0 and result.stdout.strip() == "REFRESH_OK":
+                    break
+                failure = RuntimeError(result.stderr)
+                if not policy.transient_error(failure):
+                    raise supervisor.Refused("OAuth refresh did not confirm reusable credentials")
+            except (OSError, subprocess.SubprocessError) as exc:
+                failure = exc
+                if not policy.transient_error(exc):
+                    raise supervisor.Refused("OAuth refresh subprocess failed") from exc
+            if attempt == policy.ATTEMPTS - 1:
+                raise supervisor.Refused("OAuth refresh transient retry budget exhausted")
+            delay = min(policy.BACKOFF_SECONDS[attempt], max(0, deadline - time.monotonic()))
+            if delay:
+                time.sleep(delay)
         # Official CLI 0.7.4 exposes whoami even though its terse help omits it.
-        cli.call("whoami", timeout=30)
+        cli.call("whoami")
         self._record("fresh-oauth-refresh", refreshed_in_memory=True, usage=cli.usage())
 
     def _accounted_assignments(self, cli: supervisor.CLI, arm: str) -> None:
@@ -125,9 +145,9 @@ class AcceptanceObserver:
         arms.append(arm_evidence)
 
     def _url_no_second_allocation(self, cli: supervisor.CLI) -> None:
-        before = cli.sessions(timeout=10)
-        cli.call("url", "-s", cli.session, timeout=20)
-        after = cli.sessions(timeout=10)
+        before = cli.sessions(timeout=policy.READ_SECONDS)
+        cli.call("url", "-s", cli.session, timeout=policy.READ_SECONDS)
+        after = cli.sessions(timeout=policy.READ_SECONDS)
         if before != after or list(after.values()).count(cli.session) != 1:
             raise supervisor.Refused("url changed assignment identity or count")
         self._record("url-no-second-allocation", sessions_before=before, sessions_after=after)
@@ -137,18 +157,20 @@ class AcceptanceObserver:
         # The runtime child is an independently supervised subprocess. This
         # bounded kernel call creates an actual >60-second execution silence;
         # its explicit timeout is evidence that no unbounded wait is hidden.
-        value = cli.rpc("import time\ntime.sleep(65)\nresult={'after_silence':True}", timeout=90)
+        value = cli.rpc(
+            "import time\ntime.sleep(65)\nresult={'after_silence':True}", timeout=policy.RPC_SECONDS
+        )
         self._record(
             "silence-timeout",
             silence_seconds=time.monotonic() - started,
-            rpc_timeout_seconds=90,
+            rpc_timeout_seconds=policy.RPC_SECONDS,
             rpc_value=value,
         )
 
     @staticmethod
     def _state(context: dict[str, Any]) -> dict[str, Any]:
         cli, root, generation = context["cli"], context["root"], context["generation"]
-        result = cli.rpc(
+        result = cli.poll_rpc(
             "import importlib.util,json\nfrom pathlib import Path\n"
             f"s=importlib.util.spec_from_file_location('accept_runtime',{root + '/runtime.py'!r})\n"
             "module=importlib.util.module_from_spec(s)\ns.loader.exec_module(module)\n"
@@ -207,7 +229,7 @@ class AcceptanceObserver:
         cli, root, output = context["cli"], context["root"], context["output"]
         probe = self._wait_phase(context, "transfer_ready")
         identity = {key: probe[key] for key in ("pid", "execution_id")}
-        before = cli.sessions(timeout=10)
+        before = cli.sessions(timeout=policy.READ_SECONDS)
         self._state(context)
         cli.rpc(
             "from pathlib import Path\n"
@@ -262,7 +284,11 @@ class AcceptanceObserver:
                 "temp=root/'client-start.tmp'\n"
                 "temp.write_text(json.dumps({'request':request,'started_at':time.time()}))\n"
                 "temp.replace(root/'client-start.json')\n"
-                "time.sleep(120)\n"
+                "deadline=time.monotonic()+300\n"
+                "while not (root/'client-release.json').exists():\n"
+                "    if time.monotonic() >= deadline:\n"
+                "        raise RuntimeError('client-loss release timeout')\n"
+                "    time.sleep(0.2)\n"
                 "done={'request':request,'finished_at':time.time()}\n"
                 "temp=root/'client-finished.tmp'\ntemp.write_text(json.dumps(done))\n"
                 "temp.replace(root/'client-finished.json')\n"
@@ -283,7 +309,7 @@ class AcceptanceObserver:
                 "-f",
                 str(code),
                 "--timeout",
-                "150",
+                "300",
             ]
             # This process is deliberately the fault subject; its PID is owned here.
             client = subprocess.Popen(
@@ -296,19 +322,29 @@ class AcceptanceObserver:
             began = time.monotonic()
             try:
                 started_file = directory / "started.json"
-                self._wait_file(cli, root + "/client-start.json", started_file, began + 25)
+                self._wait_file(cli, root + "/client-start.json", started_file, began + 150)
                 started = json.loads(started_file.read_text())
+                if client.poll() is not None:
+                    raise supervisor.Refused(
+                        "client exited before intentional loss could be injected"
+                    )
                 client.terminate()
-                client.wait(timeout=5)
+                if client.wait(timeout=5) != -signal.SIGTERM:
+                    raise supervisor.Refused("owned client termination was not confirmed")
                 finished_file = directory / "finished.json"
                 try:
-                    cli.call(
-                        "download",
-                        "-s",
-                        cli.session,
-                        root + "/client-finished.json",
-                        str(finished_file),
-                        timeout=10,
+                    _contents_call(
+                        cli,
+                        (
+                            "download",
+                            "-s",
+                            cli.session,
+                            root + "/client-finished.json",
+                            str(finished_file),
+                        ),
+                        policy.READ_SECONDS,
+                        None,
+                        deadline=began + 300,
                     )
                 except supervisor.Refused as exc:
                     if "not found" not in str(exc).lower() and "404" not in str(exc):
@@ -317,7 +353,10 @@ class AcceptanceObserver:
                     raise supervisor.Refused(
                         "kernel became idle before the client-loss observation"
                     )
-                self._wait_file(cli, root + "/client-finished.json", finished_file, began + 155)
+                release = directory / "release.json"
+                release.write_text(json.dumps({"request": request}))
+                upload_contents(cli, release, root + "/client-release.json", deadline=began + 300)
+                self._wait_file(cli, root + "/client-finished.json", finished_file, began + 300)
                 finished = json.loads(finished_file.read_text())
                 if started["request"] != request or finished["request"] != request:
                     raise supervisor.Refused("client-loss kernel request identity mismatch")
@@ -331,6 +370,7 @@ class AcceptanceObserver:
                         client.wait(timeout=5)
         reconnected = supervisor.CLI(cli.binary, cli.config, cli.session)
         reconnected.deadline = cli.deadline
+        reconnected.priced_deadline = cli.priced_deadline
         # A CLI process is stateless; preserve the broker-owned accounting and
         # lease authority when using a fresh client object for the reconnect
         # proof.  No credentials are copied to the runtime.
@@ -339,10 +379,16 @@ class AcceptanceObserver:
         reconnected.release_credential = cli.release_credential
         reconnected.transfer_records = cli.transfer_records
         reconnected.contents_transfers = cli.contents_transfers
+        reconnected.call_records = cli.call_records
+        reconnected._lease_stop = cli._lease_stop
+        reconnected._lease_thread = cli._lease_thread
         context["cli"] = reconnected
         observed = self._state(context)
         after_identity = {key: observed["probe"][key] for key in identity}
-        if after_identity != identity or reconnected.sessions(timeout=10) != before:
+        if (
+            after_identity != identity
+            or reconnected.sessions(timeout=policy.READ_SECONDS) != before
+        ):
             raise supervisor.Refused("job identity changed after client loss/reconnect")
         self._record(
             "client-loss-reconnect",
@@ -377,12 +423,27 @@ class AcceptanceObserver:
 
     @staticmethod
     def _wait_file(cli: supervisor.CLI, remote: str, local: Path, deadline: float) -> None:
+        deadline = min(
+            deadline,
+            cli.deadline if cli.deadline is not None else float("inf"),
+            cli.priced_deadline if cli.priced_deadline is not None else float("inf"),
+        )
         while time.monotonic() < deadline:
             try:
-                cli.call("download", "-s", cli.session, remote, str(local), timeout=10)
+                cli.call(
+                    "download",
+                    "-s",
+                    cli.session,
+                    remote,
+                    str(local),
+                    timeout=min(policy.READ_SECONDS, deadline - time.monotonic()),
+                )
                 return
-            except supervisor.Refused:
-                time.sleep(2)
+            except (supervisor.Refused, OSError, subprocess.SubprocessError) as exc:
+                missing = "404" in str(exc) or "not found" in str(exc).lower()
+                if not missing and not policy.transient_error(exc):
+                    raise
+                time.sleep(min(2, max(0, deadline - time.monotonic())))
         raise supervisor.Refused("kernel completion file not observed; refusing exec resubmission")
 
     def _corrupt_export_rejection(self, cli: supervisor.CLI, root: str, output: Path) -> None:
@@ -396,7 +457,7 @@ class AcceptanceObserver:
             "p.with_name(p.name+'.sha256').write_text('0'*64+'  '+p.name+'\\n')\n"
             "p.with_name(p.name+'.complete').write_text('complete\\n')\n"
             "result=True",
-            timeout=20,
+            timeout=policy.RPC_SECONDS,
         )
         try:
             supervisor.export_file(
@@ -416,7 +477,7 @@ class AcceptanceObserver:
                 "files=(p,p.with_name(p.name+'.sha256'),p.with_name(p.name+'.complete'))\n"
                 "[q.unlink() for q in files if q.exists()]\n"
                 "result=True",
-                timeout=20,
+                timeout=policy.RPC_SECONDS,
             )
             self._record("failure-and-corrupt-export", corrupt_export_rejected=True)
             return
@@ -463,11 +524,11 @@ class AcceptanceObserver:
             f"args=[{root + '/.venv/bin/python'!r},"
             f"{root + '/repo/research/colab_cli/acceptance_probe.py'!r},"
             "'--resume-input',str(p/'input.pkl'),'--resume-output',str(p/'output'/'resume.json')]\n"
-            "subprocess.run(args,check=True,timeout=10)\n"
+            "subprocess.run(args,check=True,timeout=120)\n"
             "payload=p/'output'/'resume.json'\n"
             "result={'path':'resume.json','size':payload.stat().st_size,"
             "'sha256':hashlib.sha256(payload.read_bytes()).hexdigest()}",
-            timeout=20,
+            timeout=policy.RPC_SECONDS,
         )
         supervisor.export_file(cli, fault_root, result, output / "resume-roundtrip", 1024 * 1024)
         resumed = json.loads((output / "resume-roundtrip/exports/resume.json").read_text())
@@ -490,16 +551,34 @@ class AcceptanceObserver:
         endpoint = getattr(getattr(cli, "accounting", None), "endpoint", None)
         if not isinstance(endpoint, str) or not endpoint:
             raise supervisor.Refused("watchdog has no allocated endpoint to verify")
-        # Suppress renewal longer than the lease. The runtime, not the Mac,
-        # must checkpoint/attempt unassign. The next sessions call is evidence.
+        # Reconcile spend first, then quiesce every independent Contents PUT.
+        # The final small RPC renews on the VM; no kernel work follows it.
         self._state(context)
-        lease_expiry = time.monotonic() + lease
-        time.sleep(lease + 1)
-        # Reconnect only to file transport during the bounded checkpoint grace.
-        # It never renews the failed lease or submits a kernel execution.  The
-        # runtime may need most of its 15-second signal/checkpoint grace before
-        # the immutable checkpoint appears, so an early 404 is not evidence.
-        checkpoint_deadline = time.monotonic() + WATCHDOG_CHECKPOINT_GRACE_SECONDS
+        cli.stop_lease(wait=True)
+        renewal_started = time.monotonic()
+        cli.poll_rpc(
+            "import importlib.util\nfrom pathlib import Path\n"
+            "s=importlib.util.spec_from_file_location('watchdog_runtime',"
+            f"{context['root']+'/runtime.py'!r})\n"
+            "m=importlib.util.module_from_spec(s)\ns.loader.exec_module(m)\n"
+            f"m.read_state({context['root']!r},{context['generation']!r},"
+            "renew=True,disable_contents=True)\n"
+            "result=True"
+        )
+        renewal_finished = time.monotonic()
+        # RPC latency gives an interval, not an exact local expiry timestamp.
+        # Collect immediately so slow acknowledgements cannot skip the remote
+        # 15s checkpoint window. The disappearance deadline uses the EARLIEST
+        # possible expiry: passing it proves the unchanged <=300s bound.
+        lease_expiry = renewal_started + lease
+        latest_lease_expiry = renewal_finished + lease
+        cap_deadline = min(
+            getattr(cli, "deadline", None) or float("inf"),
+            getattr(cli, "priced_deadline", None) or float("inf"),
+        )
+        checkpoint_deadline = min(
+            latest_lease_expiry + WATCHDOG_CHECKPOINT_GRACE_SECONDS, cap_deadline
+        )
         checkpoint_hash = None
         with tempfile.TemporaryDirectory(dir=context["output"], prefix=".watchdog-") as temp:
             marker = Path(temp) / "checkpoint.sha256"
@@ -512,7 +591,9 @@ class AcceptanceObserver:
                         cli.session,
                         context["root"] + "/output/lease-checkpoint.pkl.sha256",
                         str(marker),
-                        timeout=3,
+                        timeout=min(
+                            policy.READ_SECONDS, max(0.01, checkpoint_deadline - time.monotonic())
+                        ),
                     )
                     candidate = marker.read_text().split()[0]
                     cli.call(
@@ -521,14 +602,19 @@ class AcceptanceObserver:
                         cli.session,
                         context["root"] + "/output/lease-checkpoint.pkl",
                         str(local),
-                        timeout=3,
+                        timeout=min(
+                            policy.READ_SECONDS, max(0.01, checkpoint_deadline - time.monotonic())
+                        ),
                     )
                     if supervisor.sha256(local) != candidate:
                         raise supervisor.Refused("watchdog checkpoint hash mismatch")
                     checkpoint_hash = candidate
                     break
-                except supervisor.Refused:
-                    time.sleep(1)
+                except (supervisor.Refused, OSError, subprocess.SubprocessError) as exc:
+                    missing = "404" in str(exc) or "not found" in str(exc).lower()
+                    if not missing and not policy.transient_error(exc):
+                        raise
+                    time.sleep(min(1, max(0, checkpoint_deadline - time.monotonic())))
             if checkpoint_hash is None:
                 raise supervisor.Refused("watchdog checkpoint was not exported during grace")
             destination = context["output"] / "watchdog-checkpoint.pkl"
@@ -536,7 +622,7 @@ class AcceptanceObserver:
             marker.replace(destination.with_suffix(".pkl.sha256"))
         observed_at = None
         release_wait_started = lease_expiry
-        deadline = lease_expiry + WATCHDOG_DISAPPEARANCE_BOUND_SECONDS
+        deadline = min(lease_expiry + WATCHDOG_DISAPPEARANCE_BOUND_SECONDS, cap_deadline)
         last_sessions: dict[str, str] = {}
         while time.monotonic() < deadline:
             # Read-only account polling is deliberately permitted after the
@@ -546,7 +632,13 @@ class AcceptanceObserver:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
-            last_sessions = cli.sessions(timeout=min(20.0, remaining))
+            try:
+                last_sessions = cli.sessions(timeout=min(policy.READ_SECONDS, remaining))
+            except (supervisor.Refused, OSError, subprocess.SubprocessError) as exc:
+                if not policy.transient_error(exc):
+                    raise
+                time.sleep(min(2, max(0, deadline - time.monotonic())))
+                continue
             if endpoint not in last_sessions:
                 observed_at = time.monotonic()
                 if observed_at <= deadline:
@@ -559,9 +651,12 @@ class AcceptanceObserver:
                 "watchdog lease expired but assignment did not disappear within "
                 f"{WATCHDOG_DISAPPEARANCE_BOUND_SECONDS} seconds"
             )
+        if observed_at < lease_expiry:
+            raise supervisor.Refused("assignment disappeared before lease expiry; cause unproven")
         self._record(
             "mac-loss-watchdog-unassign",
             lease_seconds=lease,
+            lease_expiry_uncertainty_seconds=renewal_finished - renewal_started,
             endpoint=endpoint,
             release_bound_seconds=WATCHDOG_DISAPPEARANCE_BOUND_SECONDS,
             observed_after_lease_seconds=observed_at - release_wait_started,

@@ -14,12 +14,13 @@ import inspect
 import json
 import math
 import os
-import subprocess
 import tempfile
 import time
 import uuid
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Protocol
+
+from research.colab_cli import policy
 
 # Uploads travel through ContentsClient JSON/base64 PUTs, where smaller writes
 # are materially more reliable on a fresh VM.  Downloads do not have that
@@ -58,8 +59,8 @@ def _digest(path: Path) -> str:
 
 
 def _timeout(size: int) -> float:
-    """Per chunk timeout: 60 seconds minimum, 120 seconds maximum."""
-    return float(min(120, max(60, 15 + math.ceil(size / (512 * 1024)))))
+    """Per chunk timeout: 120 seconds minimum, 180 seconds maximum."""
+    return float(min(180, max(120, 30 + math.ceil(size / (512 * 1024)))))
 
 
 def transfer_timeout(size: int) -> float:
@@ -123,26 +124,7 @@ def _is_retryable_contents_error(exc: BaseException) -> bool:
     Authentication, path, quota, and kernel errors must fail on their first
     observation.
     """
-    if isinstance(exc, (ConnectionError, TimeoutError, subprocess.TimeoutExpired)):
-        return True
-    text = str(exc).lower()
-    return any(
-        marker in text
-        for marker in (
-            "connection reset",
-            "connection aborted",
-            "connection refused",
-            "connection error",
-            "connectionerror",
-            "nameresolutionerror",
-            "failed to resolve",
-            "remotedisconnected",
-            "network is unreachable",
-            "temporarily unavailable",
-            "timed out",
-            "timeout",
-        )
-    )
+    return policy.transient_error(exc)
 
 
 def _bounded_timeout(timeout: float, deadline: float | None, call_site: str = "transfer") -> float:
@@ -170,7 +152,7 @@ def _contents_call(
     come through this helper.
     """
     failure: BaseException | None = None
-    for _ in range(CONTENTS_ATTEMPTS):
+    for attempt in range(CONTENTS_ATTEMPTS):
         if renew:
             renew()
         try:
@@ -179,6 +161,12 @@ def _contents_call(
             failure = exc
             if not _is_retryable_contents_error(exc):
                 raise
+            if attempt + 1 < CONTENTS_ATTEMPTS:
+                delay = policy.BACKOFF_SECONDS[attempt]
+                if deadline is not None:
+                    delay = min(delay, max(0, deadline - time.monotonic()))
+                if delay:
+                    time.sleep(delay)
         else:
             # Renewal is a separate mutating RPC.  Never mistake its failure
             # for a failed idempotent ContentsClient write and retry the write.
@@ -258,7 +246,7 @@ spec = PAYLOAD
 path = Path(spec['path'])
 if not path.name.startswith('.snake-transfer-'):
     raise RuntimeError('refusing non-transfer directory')
-path.mkdir(parents=True, exist_ok=False)
+path.mkdir(parents=True, exist_ok=True)
 result = True
 """.replace("PAYLOAD", payload)
     elif operation == "VERIFY_FILE":
@@ -275,6 +263,10 @@ result = {'sha256': hash_.hexdigest(), 'size': path.stat().st_size}
 """.replace("PAYLOAD", payload)
     else:  # pragma: no cover
         raise AssertionError(operation)
+    # These operations repeat the same fact/control state at a UUID path.
+    # File assembly/splitting remains single-dispatch and fenced on ambiguity.
+    if operation in {"VERIFY_FILE", "CREATE_DIR", "REMOVE_TREE"} and hasattr(cli, "poll_rpc"):
+        return cli.poll_rpc(code, timeout=timeout)
     return cli.rpc(code, timeout=timeout)
 
 
@@ -306,7 +298,7 @@ def _cleanup(
             return
         if renew:
             renew()
-        _rpc(cli, "REMOVE_TREE", {"path": path}, _bounded_timeout(60, deadline))
+        _rpc(cli, "REMOVE_TREE", {"path": path}, _bounded_timeout(policy.RPC_SECONDS, deadline))
         if renew:
             renew()
     except Exception:

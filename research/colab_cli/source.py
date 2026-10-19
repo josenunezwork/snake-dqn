@@ -21,7 +21,7 @@ from typing import Any
 
 GITHUB_URL = "https://github.com/josenunezwork/snake-dqn.git"
 MAX_FALLBACK_BYTES = 32 * 1024 * 1024
-FETCH_TIMEOUT_SECONDS = 55
+FETCH_TIMEOUT_SECONDS = 120
 ARCHIVE_NAME = "source.tar.gz"
 PLAN_NAME = "source-plan.json"
 _REQUIRED_COLAB = (
@@ -213,39 +213,47 @@ def fetch(root: Path, plan: dict[str, Any]) -> dict[str, Any]:
     # fallback whose purpose is only a public-GitHub outage.
     _run(["git", "init", "--quiet", str(target)], cwd=root, timeout=10)
     _run(["git", "-C", str(target), "config", "core.hooksPath", "/dev/null"], cwd=root, timeout=5)
-    try:
-        remain = FETCH_TIMEOUT_SECONDS - (time.monotonic() - started)
-        if remain <= 0:
-            raise subprocess.TimeoutExpired("git fetch", FETCH_TIMEOUT_SECONDS)
-        _run(
-            ["git", "-C", str(target), "fetch", "--depth=1", GITHUB_URL, str(plan["commit"])],
-            cwd=root,
-            timeout=remain,
-        )
-    except subprocess.TimeoutExpired as exc:
-        shutil.rmtree(target)
-        return {"transport": "fallback_required", "reason": str(exc)[:500]}
-    except subprocess.CalledProcessError as exc:
-        # A bad SHA/permission error is an identity/configuration failure.  Only
-        # transient reachability is eligible for the sparse fallback.
-        detail = (exc.output or "").lower()
-        outage = (
-            "could not resolve" in detail
-            or "failed to connect" in detail
-            or "connection timed out" in detail
-            or "connection reset" in detail
-            or "http 5" in detail
-            or "service unavailable" in detail
-            or re.search(r"requested url returned error: 5\d\d", detail) is not None
-        )
-        if outage:
+    # Fetching the same pinned object is idempotent. One shared budget covers
+    # all attempts and backoff; a timeout never restarts this clock.
+    for attempt in range(3):
+        try:
+            remain = FETCH_TIMEOUT_SECONDS - (time.monotonic() - started)
+            if remain <= 0:
+                raise subprocess.TimeoutExpired("git fetch", FETCH_TIMEOUT_SECONDS)
+            _run(
+                ["git", "-C", str(target), "fetch", "--depth=1", GITHUB_URL, str(plan["commit"])],
+                cwd=root,
+                timeout=remain,
+            )
+            break
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as exc:
+            detail = str(getattr(exc, "output", "") or "").lower()
+            outage = (
+                isinstance(exc, subprocess.TimeoutExpired)
+                or any(
+                    marker in detail
+                    for marker in (
+                        "could not resolve",
+                        "failed to connect",
+                        "connection timed out",
+                        "connection reset",
+                        "http 5",
+                        "service unavailable",
+                    )
+                )
+                or re.search(r"requested url returned error: 5\d\d", detail) is not None
+            )
+            if not outage:
+                shutil.rmtree(target)
+                raise ValueError("GitHub fetch failed without an outage; fallback refused") from exc
+            remaining = FETCH_TIMEOUT_SECONDS - (time.monotonic() - started)
+            if attempt == 2 or remaining <= 0:
+                shutil.rmtree(target)
+                return {"transport": "fallback_required", "reason": str(exc)[:500]}
+            time.sleep(min((2, 5)[attempt], remaining))
+        except OSError:
             shutil.rmtree(target)
-            return {"transport": "fallback_required", "reason": str(exc)[:500]}
-        shutil.rmtree(target)
-        raise ValueError("GitHub fetch failed without an outage; fallback refused") from exc
-    except OSError:
-        shutil.rmtree(target)
-        raise
+            raise
     head = _run(["git", "-C", str(target), "rev-parse", "FETCH_HEAD"], cwd=root, timeout=5).strip()
     tree = _run(
         ["git", "-C", str(target), "rev-parse", "FETCH_HEAD^{tree}"], cwd=root, timeout=5

@@ -254,6 +254,7 @@ def test_control_upload_retry_budget_obeys_renewal_lease_ceiling(
             raise RuntimeError("ContentsClient connection reset")
 
     monkeypatch.setattr(transfers.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(transfers.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
     cli = SlowTransientCLI(tmp_path / "remote")
 
     with pytest.raises(
@@ -265,10 +266,9 @@ def test_control_upload_retry_budget_obeys_renewal_lease_ceiling(
     ):
         transfers.upload_contents(cli, source, "/content/release.json", deadline=391.0)
 
-    # First attempt has its normal chunk allowance, the retry is clipped to
-    # the 30 seconds left in the 90-second renewal window, and a third PUT is
-    # refused before it can begin.
-    assert seen_timeouts == [60.0, 30.0]
+    # The first allowance is clipped to the lease window. The simulated reset
+    # arrives at 60s, then 2s backoff leaves 28s; no third PUT may start.
+    assert seen_timeouts == [90.0, 28.0]
     assert now[0] == pytest.approx(391.0)
 
 
@@ -320,8 +320,8 @@ def test_download_requires_inventory_digest(tmp_path: Path) -> None:
 
 
 def test_chunk_timeout_scales_and_is_bounded() -> None:
-    assert transfers._timeout(1) == 60
-    assert transfers._timeout(80 * 1024 * 1024) == 120
+    assert transfers._timeout(1) == 120
+    assert transfers._timeout(80 * 1024 * 1024) == 180
 
 
 @pytest.mark.parametrize(

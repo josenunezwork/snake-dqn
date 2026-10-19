@@ -68,8 +68,9 @@ def test_sitecustomize_hook_forces_hash_writes_nonsecret_durable_identity(
         "notebook_hash": str(forced),
     }
     assert stat.S_IMODE(record.stat().st_mode) == 0o600
-    assert client._issue_request("unused") == {"timeout": (10, 45)}
-    assert FakeSession().request("GET", "https://example.invalid") == {"timeout": (10, 45)}
+    assert client._issue_request("unused") == {"timeout": (30, 120)}
+    assert FakeSession().request("GET", "https://example.invalid") == {"timeout": (30, 120)}
+    assert client._issue_request("unused", timeout=None) == {"timeout": (30, 120)}
 
 
 def test_helpers_use_bounded_private_python_and_validate_json(
@@ -93,6 +94,59 @@ def test_helpers_use_bounded_private_python_and_validate_json(
     assert seen[0][1:] == [str(MODULE_PATH.resolve()), "--recover-assignment", seen[0][-1]]
     assert "--kernel-idle" in seen[1]
     assert "--unassign-endpoint" in seen[2]
+
+
+def test_idempotent_read_helpers_retry_transient_failure_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    guard = _load("guard_read_retry_test")
+    attempts: list[float] = []
+
+    def fake_run_helper(*_args: object, timeout: float, **_kwargs: object) -> dict[str, object]:
+        attempts.append(timeout)
+        if len(attempts) < 3:
+            raise guard.GuardError("guard helper failed: TimeoutExpired")
+        return {"endpoint": "recovered"}
+
+    monkeypatch.setattr(guard, "_run_helper", fake_run_helper)
+    monkeypatch.setattr(guard.time, "sleep", lambda _delay: None)
+    assert guard.recover_assignment("/private/python", str(uuid.uuid4())) == "recovered"
+    assert len(attempts) == guard.READ_HELPER_ATTEMPTS
+    assert all(0 < timeout <= guard.HELPER_TIMEOUT_SECONDS for timeout in attempts)
+
+
+def test_mutating_unassign_helper_never_gets_automatic_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    guard = _load("guard_unassign_no_retry_test")
+    calls = 0
+
+    def fake_run_helper(*_args: object, **_kwargs: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        raise guard.GuardError("guard helper failed: TimeoutExpired")
+
+    monkeypatch.setattr(guard, "_run_helper", fake_run_helper)
+    with pytest.raises(guard.GuardError, match="TimeoutExpired"):
+        guard.unassign_endpoint("/private/python", "ep")
+    assert calls == 1
+
+
+def test_idempotent_read_helper_refuses_when_its_shared_budget_is_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    guard = _load("guard_read_budget_test")
+    calls = 0
+
+    def fake_run_helper(*_args: object, **_kwargs: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {"endpoint": "unexpected"}
+
+    monkeypatch.setattr(guard, "_run_helper", fake_run_helper)
+    with pytest.raises(guard.GuardError, match="operation budget exhausted"):
+        guard._run_read_helper("/private/python", "--recover-assignment", timeout=0)
+    assert calls == 0
 
 
 def test_recovery_get_is_read_only_and_timeout_is_injected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,5 +210,5 @@ def test_kernel_idle_accepts_only_known_idle_or_busy(
     requests_module.get = get
     monkeypatch.setitem(sys.modules, "requests", requests_module)
     assert guard._kernel_idle_once(str(tmp_path / "sessions.json"), "lane") == {"idle": True}
-    assert calls[0]["timeout"] == (10, 45)
+    assert calls[0]["timeout"] == (30, 120)
     assert calls[0]["url"] == "https://runtime.example/api/kernels/kid"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -246,3 +247,43 @@ def test_export_cache_hashes_once_and_rejects_later_mutation(
     payload.write_bytes(b"two")
     with pytest.raises(RuntimeError, match="immutable completed export changed"):
         runtime._exports(root, 100, cache)
+
+
+def test_contents_lease_uses_runtime_mtime_not_mac_clock(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "runtime"
+    root.mkdir()
+    (root / "lease.json").write_text(json.dumps({"generation": "g", "renewed_at": 900}))
+    heartbeat = root / "lease-heartbeat.json"
+    heartbeat.write_text(
+        json.dumps(
+            {"generation": "g", "renewal_clock": "contents-mtime", "renewed_at": 999999999999}
+        )
+    )
+    os.utime(heartbeat, (1000, 1000))
+    monkeypatch.setattr(runtime, "_now", lambda: 1179)
+    assert runtime._lease_expired(root, "g", 180) is None
+    # A chunk=1 overwrite may briefly expose malformed JSON. Preserve only
+    # the previously validated VM timestamp, never renew from partial bytes.
+    heartbeat.write_text('{"generation":')
+    assert runtime._lease_expired(root, "g", 180) is None
+    monkeypatch.setattr(runtime, "_now", lambda: 1181)
+    assert runtime._lease_expired(root, "g", 180) == "lease_expired"
+    heartbeat.write_text(json.dumps({"generation": "g", "renewal_clock": "contents-mtime"}))
+    os.utime(heartbeat, (1000, 1000))
+    monkeypatch.setattr(runtime, "_now", lambda: 900)
+    assert runtime._lease_expired(root, "g", 180) == "lease_clock_invalid"
+
+
+def test_final_renewal_fences_late_contents_commit(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "runtime"
+    root.mkdir()
+    (root / "lease.json").write_text(json.dumps({"generation": "g", "renewed_at": 0}))
+    (root / "state.json").write_text(json.dumps({"generation": "g"}))
+    monkeypatch.setattr(runtime, "_now", lambda: 1000)
+    runtime.read_state(root, "g", renew=True, disable_contents=True)
+    heartbeat = root / "lease-heartbeat.json"
+    heartbeat.write_text(json.dumps({"generation": "g", "renewal_clock": "contents-mtime"}))
+    os.utime(heartbeat, (1030, 1030))  # A timed-out PUT commits after quiescence.
+    monkeypatch.setattr(runtime, "_now", lambda: 1181)
+    assert runtime._lease_expired(root, "g", 180) == "lease_expired"
+    assert json.loads((root / "lease.json").read_text())["contents_disabled"] is True
