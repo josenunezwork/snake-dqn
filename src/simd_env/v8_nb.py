@@ -214,6 +214,59 @@ def _bfs_membership(
 
 
 @njit(cache=True, nogil=True)
+def _bfs_owner(
+    sx, sy, gw, gh, owner_pad, env, owner_offset, observer, block_any, blk2, st2,
+    rel_st, rel_val, rel_cur, use_rel, seen, seen_cur, qx, qy, qd, cap,
+):  # fmt: skip
+    """Stamped BFS reading GridBatchSim occupancy directly.
+
+    ``block_any`` is the legacy ``all_bits`` case; otherwise only other snakes
+    block.  The caller supplies post-move/release overlays through the same
+    ``blk2`` and release arrays as the painted reference.
+    """
+    if sx < 0 or sx >= gw or sy < 0 or sy >= gh:
+        return 0
+    owner = owner_pad[env, sy + owner_offset, sx + owner_offset]
+    if (owner >= 0 and (block_any or owner != observer)) or blk2[sx * gh + sy] == st2:
+        return 0
+    idx = sx * gh + sy
+    if use_rel and rel_st[idx] == rel_cur and 0 < rel_val[idx]:
+        return 0
+    seen[idx] = seen_cur
+    head = 0
+    tail = 1
+    qx[0] = sx
+    qy[0] = sy
+    qd[0] = 0
+    count = 0
+    while head < tail and count < cap:
+        x = qx[head]
+        y = qy[head]
+        d = qd[head]
+        head += 1
+        count += 1
+        for k in range(4):
+            nx = x + _NBX[k]
+            ny = y + _NBY[k]
+            if nx < 0 or nx >= gw or ny < 0 or ny >= gh:
+                continue
+            nidx = nx * gh + ny
+            if seen[nidx] == seen_cur:
+                continue
+            owner = owner_pad[env, ny + owner_offset, nx + owner_offset]
+            if (owner >= 0 and (block_any or owner != observer)) or blk2[nidx] == st2:
+                continue
+            if use_rel and rel_st[nidx] == rel_cur and d + 1 < rel_val[nidx]:
+                continue
+            seen[nidx] = seen_cur
+            qx[tail] = nx
+            qy[tail] = ny
+            qd[tail] = d + 1
+            tail += 1
+    return count
+
+
+@njit(cache=True, nogil=True)
 def _post_move(n, L, bf, boost_action, min_boost, boost_cost):
     """``safety_veto_v5.simulate_move`` sizes: ``(boosted, n_segments, post_length)``."""
     ln = n + 1
@@ -372,6 +425,192 @@ def _landing_area_membership(
 
 
 @njit(cache=True, nogil=True)
+def _landing_count_owner(
+    bodies, e, s, hp, ring, n, L, bf, heading, gw, gh, min_boost, boost_cost, cap,
+    owner_pad, owner_offset, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+):  # fmt: skip
+    boosted, ln, _ = _post_move(n, L, bf, True, min_boost, boost_cost)
+    if not boosted:
+        return _LANDING_NO_BOOST
+    hx = bodies[e, s, hp, 0]
+    hy = bodies[e, s, hp, 1]
+    dx = _DX[heading]
+    dy = _DY[heading]
+    ws[0] += 1
+    tst = ws[0]
+    for i in range(1, ln):
+        cx, cy = _seg_cell(bodies, e, s, hp, ring, 2, hx, hy, dx, dy, i)
+        if cx >= 0 and cx < gw and cy >= 0 and cy < gh:
+            tmp[cx * gh + cy] = tst
+    ws[1] += 1
+    return _bfs_owner(
+        hx + 2 * dx, hy + 2 * dy, gw, gh, owner_pad, e, owner_offset, s, False, tmp, tst,
+        rel_st, rel_val, -1, False, seen, ws[1], qx, qy, qd, cap,
+    )  # fmt: skip
+
+
+@njit(cache=True, nogil=True)
+def _landing_area_owner(
+    bodies, e, s, hp, ring, n, L, bf, heading, action, gw, gh, min_boost, boost_cost, cap,
+    owner_pad, owner_offset, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+):  # fmt: skip
+    rel = action % 3
+    hd = (heading + rel - 1) % 4
+    dx = _DX[hd]
+    dy = _DY[hd]
+    boosted, ln, lpost = _post_move(n, L, bf, action >= 3, min_boost, boost_cost)
+    nh = 2 if boosted else 1
+    hx = bodies[e, s, hp, 0]
+    hy = bodies[e, s, hp, 1]
+    ws[2] += 1
+    rcur = ws[2]
+    for i in range(ln):
+        cx, cy = _seg_cell(bodies, e, s, hp, ring, nh, hx, hy, dx, dy, i)
+        if cx < 0 or cx >= gw or cy < 0 or cy >= gh:
+            continue
+        idx = cx * gh + cy
+        when = lpost - i + 1
+        if rel_st[idx] != rcur:
+            rel_st[idx] = rcur
+            rel_val[idx] = when
+        elif when > rel_val[idx]:
+            rel_val[idx] = when
+    nx = hx + dx * nh
+    ny = hy + dy * nh
+    if nx >= 0 and nx < gw and ny >= 0 and ny < gh:
+        rel_st[nx * gh + ny] = 0
+    ws[1] += 1
+    return _bfs_owner(
+        nx, ny, gw, gh, owner_pad, e, owner_offset, s, False, tmp, -1,
+        rel_st, rel_val, rcur, True, seen, ws[1], qx, qy, qd, cap,
+    )  # fmt: skip
+
+
+@njit(cache=True, nogil=True)
+def _landing_count_route(
+    bodies, e, s, hp, ring, n, L, bf, heading, gw, gh, min_boost, boost_cost, cap,
+    membership, other_bits, owner_pad, owner_offset, use_owner_pad,
+    tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+):  # fmt: skip
+    if use_owner_pad:
+        return _landing_count_owner(
+            bodies,
+            e,
+            s,
+            hp,
+            ring,
+            n,
+            L,
+            bf,
+            heading,
+            gw,
+            gh,
+            min_boost,
+            boost_cost,
+            cap,
+            owner_pad,
+            owner_offset,
+            tmp,
+            ws,
+            seen,
+            rel_st,
+            rel_val,
+            qx,
+            qy,
+            qd,
+        )
+    return _landing_count_membership(
+        bodies,
+        e,
+        s,
+        hp,
+        ring,
+        n,
+        L,
+        bf,
+        heading,
+        gw,
+        gh,
+        min_boost,
+        boost_cost,
+        cap,
+        membership,
+        other_bits,
+        tmp,
+        ws,
+        seen,
+        rel_st,
+        rel_val,
+        qx,
+        qy,
+        qd,
+    )
+
+
+@njit(cache=True, nogil=True)
+def _landing_area_route(
+    bodies, e, s, hp, ring, n, L, bf, heading, action, gw, gh, min_boost, boost_cost, cap,
+    membership, other_bits, owner_pad, owner_offset, use_owner_pad,
+    tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+):  # fmt: skip
+    if use_owner_pad:
+        return _landing_area_owner(
+            bodies,
+            e,
+            s,
+            hp,
+            ring,
+            n,
+            L,
+            bf,
+            heading,
+            action,
+            gw,
+            gh,
+            min_boost,
+            boost_cost,
+            cap,
+            owner_pad,
+            owner_offset,
+            tmp,
+            ws,
+            seen,
+            rel_st,
+            rel_val,
+            qx,
+            qy,
+            qd,
+        )
+    return _landing_area_membership(
+        bodies,
+        e,
+        s,
+        hp,
+        ring,
+        n,
+        L,
+        bf,
+        heading,
+        action,
+        gw,
+        gh,
+        min_boost,
+        boost_cost,
+        cap,
+        membership,
+        other_bits,
+        tmp,
+        ws,
+        seen,
+        rel_st,
+        rel_val,
+        qx,
+        qy,
+        qd,
+    )
+
+
+@njit(cache=True, nogil=True)
 def _eager_templates(
     bodies, e, s, hp, ring, n, L, bf, heading, gw, gh, min_boost, boost_cost,
     area_cap, landing_cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val,
@@ -491,6 +730,126 @@ def _eager_templates(
 
 
 @njit(cache=True, nogil=True)
+def _eager_templates_owner(
+    bodies, e, s, hp, ring, n, L, bf, heading, gw, gh, min_boost, boost_cost,
+    area_cap, landing_cap, owner_pad, owner_offset, tmp, ws, seen, rel_st, rel_val,
+    qx, qy, qd, area, landing,
+):  # fmt: skip
+    """Owner-pad counterpart of :func:`_eager_templates` without a body bitset."""
+    hx = bodies[e, s, hp, 0]
+    hy = bodies[e, s, hp, 1]
+    for speed in range(2):
+        boosted, ln, lpost = _post_move(n, L, bf, speed == 1, min_boost, boost_cost)
+        nh = 2 if boosted else 1
+        if speed == 1 and not boosted:
+            for d in range(3):
+                area[3 + d] = area[d]
+                landing[d] = _LANDING_NO_BOOST
+            continue
+        ws[2] += 1
+        rcur = ws[2]
+        ws[0] += 1
+        tst = ws[0]
+        for j in range(max(0, ln - nh)):
+            k = (hp - j) % ring
+            cx = bodies[e, s, k, 0]
+            cy = bodies[e, s, k, 1]
+            if cx < 0 or cx >= gw or cy < 0 or cy >= gh:
+                continue
+            idx = cx * gh + cy
+            when = lpost - j - (nh - 1)
+            if rel_st[idx] != rcur:
+                rel_st[idx] = rcur
+                rel_val[idx] = when
+            elif when > rel_val[idx]:
+                rel_val[idx] = when
+            if boosted:
+                tmp[idx] = tst
+        for d in range(3):
+            hd = (heading + d - 1) % 4
+            dx = _DX[hd]
+            dy = _DY[hd]
+            ix = hx + dx
+            iy = hy + dy
+            mid = -1
+            mid_st = 0
+            mid_val = 0
+            mid_tmp = 0
+            if boosted and ln > 1 and 0 <= ix < gw and 0 <= iy < gh:
+                mid = ix * gh + iy
+                mid_st = rel_st[mid]
+                mid_val = rel_val[mid]
+                mid_tmp = tmp[mid]
+                if mid_st != rcur or lpost > mid_val:
+                    rel_val[mid] = lpost
+                rel_st[mid] = rcur
+                tmp[mid] = tst
+            nx = hx + nh * dx
+            ny = hy + nh * dy
+            if boosted:
+                ws[1] += 1
+                landing[d] = _bfs_owner(
+                    nx,
+                    ny,
+                    gw,
+                    gh,
+                    owner_pad,
+                    e,
+                    owner_offset,
+                    s,
+                    False,
+                    tmp,
+                    tst,
+                    rel_st,
+                    rel_val,
+                    -1,
+                    False,
+                    seen,
+                    ws[1],
+                    qx,
+                    qy,
+                    qd,
+                    landing_cap,
+                )
+            head = -1
+            head_st = 0
+            if 0 <= nx < gw and 0 <= ny < gh:
+                head = nx * gh + ny
+                head_st = rel_st[head]
+                rel_st[head] = 0
+            ws[1] += 1
+            area[speed * 3 + d] = _bfs_owner(
+                nx,
+                ny,
+                gw,
+                gh,
+                owner_pad,
+                e,
+                owner_offset,
+                s,
+                False,
+                tmp,
+                -1,
+                rel_st,
+                rel_val,
+                rcur,
+                True,
+                seen,
+                ws[1],
+                qx,
+                qy,
+                qd,
+                area_cap,
+            )
+            if head >= 0:
+                rel_st[head] = head_st
+            if mid >= 0:
+                rel_st[mid] = mid_st
+                rel_val[mid] = mid_val
+                tmp[mid] = mid_tmp
+
+
+@njit(cache=True, nogil=True)
 def _veto_choice(qv, elig, base):
     """``safety_veto.veto_choice`` on precomputed eligibility (mask & spacious)."""
     anyel = False
@@ -571,7 +930,7 @@ def _space_pref(qv, cand, nc, anchor, lam, area, area_cap_row, scratch):
 def _v8_rows(
     bodies, head_ptr, seg_count, length, boost_frames, direction, alive,
     envs, slots, q, mask_in, gw, gh, min_boost, boost_cost, mech_v2, headon_ratio, lam,
-    owner_pad, owner_pad_width, owner_pad_offset, use_owner_pad,
+    owner_pad, owner_pad_width, owner_pad_offset, coarse_snake, use_owner_pad,
     eager, ws, others, hero, tmp, seen, rel_st, rel_val, qx, qy, qd, membership, touched,
     out_action, out_base, out_v5, out_v7, out_outcome, out_reason,
     out_counts, out_cap, out_need, out_acap, out_area, out_landing, out_risky,
@@ -595,11 +954,11 @@ def _v8_rows(
     inv = np.float32(INVALID_Q_VALUE)
     last_e = -1
     ntouched = 0
-    # The workspace is retained for allocation reuse only.  Membership is rebuilt from
-    # this decision frame; clearing it here prevents a changed world from inheriting a
-    # prior frame's occupied cells.
-    for i in range(membership.shape[0]):
-        membership[i] = np.uint64(0)
+    # The painted reference rebuilds a frame-local membership map.  The owner-pad
+    # route deliberately does neither: occupancy is read directly by its BFSes.
+    if not use_owner_pad:
+        for i in range(membership.shape[0]):
+            membership[i] = np.uint64(0)
     for r in range(N):
         e = envs[r]
         s = slots[r]
@@ -618,47 +977,28 @@ def _v8_rows(
         # observer-vs-other bits rebuilt for that row: exact union/overlap behavior,
         # without truncating a snake id into a machine word.
         wide_population = S > 63
-        if wide_population or e != last_e:
+        if (not use_owner_pad) and (wide_population or e != last_e):
             for i in range(ntouched):
                 membership[touched[i]] = np.uint64(0)
             ntouched = 0
-            if use_owner_pad:
-                # GridBatchSim already maintains this membership map for the
-                # raster path.  It is exact for normal worlds (one owner per
-                # cell); the painted route remains the reference for synthetic
-                # overlapping bodies, whose precedence is intentionally tested.
-                for cy in range(gh):
-                    for cx in range(gw):
-                        o = owner_pad[e, cy + owner_pad_offset, cx + owner_pad_offset]
-                        if o < 0:
-                            continue
-                        if wide_population:
-                            bit = np.uint64(1) if o == s else np.uint64(2)
-                        else:
-                            bit = np.uint64(1) << np.uint64(o)
+            for o in range(S):
+                if not alive[e, o]:
+                    continue
+                if wide_population:
+                    bit = np.uint64(1) if o == s else np.uint64(2)
+                else:
+                    bit = np.uint64(1) << np.uint64(o)
+                ohp = head_ptr[e, o]
+                for k in range(seg_count[e, o]):
+                    j = (ohp - k) % ring
+                    cx = bodies[e, o, j, 0]
+                    cy = bodies[e, o, j, 1]
+                    if cx >= 0 and cx < gw and cy >= 0 and cy < gh:
                         idx = cx * gh + cy
-                        touched[ntouched] = idx
-                        ntouched += 1
-                        membership[idx] = bit
-            else:
-                for o in range(S):
-                    if not alive[e, o]:
-                        continue
-                    if wide_population:
-                        bit = np.uint64(1) if o == s else np.uint64(2)
-                    else:
-                        bit = np.uint64(1) << np.uint64(o)
-                    ohp = head_ptr[e, o]
-                    for k in range(seg_count[e, o]):
-                        j = (ohp - k) % ring
-                        cx = bodies[e, o, j, 0]
-                        cy = bodies[e, o, j, 1]
-                        if cx >= 0 and cx < gw and cy >= 0 and cy < gh:
-                            idx = cx * gh + cy
-                            if membership[idx] == 0:
-                                touched[ntouched] = idx
-                                ntouched += 1
-                            membership[idx] |= bit
+                        if membership[idx] == 0:
+                            touched[ntouched] = idx
+                            ntouched += 1
+                        membership[idx] |= bit
             last_e = e
         # ---- masked Q (float32), base = first maximum (torch.argmax)
         anym = False
@@ -690,19 +1030,52 @@ def _v8_rows(
             all_bits = (np.uint64(1) << np.uint64(S)) - np.uint64(1)
             own_bit = np.uint64(1) << np.uint64(s)
             other_bits = all_bits ^ own_bit
-        for i in range(ntouched):
-            if (membership[touched[i]] & other_bits) != 0:
-                covered += 1
+        if use_owner_pad:
+            for o in range(S):
+                if o == s:
+                    continue
+                for cy in range(coarse_snake.shape[2]):
+                    for cx in range(coarse_snake.shape[3]):
+                        covered += coarse_snake[e, o, cy, cx]
+        else:
+            for i in range(ntouched):
+                if (membership[touched[i]] & other_bits) != 0:
+                    covered += 1
         # ---- v2 cap / need / counts / spacious
         cap = min(FREE_SPACE_BFS_CAP, max(FREE_SPACE_MIN_CAP, L * 2))
         need = min(max(1, L), cap)
         for d in range(3):
             hd = (heading + d - 1) % 4
             ws[1] += 1
-            c = _bfs_membership(
-                hx + _DX[hd], hy + _DY[hd], gw, gh, membership, all_bits, hero, hst,
-                rel_st, rel_val, -1, False, seen, ws[1], qx, qy, qd, cap,
-            )  # fmt: skip
+            if use_owner_pad:
+                c = _bfs_owner(
+                    hx + _DX[hd],
+                    hy + _DY[hd],
+                    gw,
+                    gh,
+                    owner_pad,
+                    e,
+                    owner_pad_offset,
+                    s,
+                    True,
+                    hero,
+                    hst,
+                    rel_st,
+                    rel_val,
+                    -1,
+                    False,
+                    seen,
+                    ws[1],
+                    qx,
+                    qy,
+                    qd,
+                    cap,
+                )
+            else:
+                c = _bfs_membership(
+                    hx + _DX[hd], hy + _DY[hd], gw, gh, membership, all_bits, hero, hst,
+                    rel_st, rel_val, -1, False, seen, ws[1], qx, qy, qd, cap,
+                )  # fmt: skip
             out_counts[r, d] = c
             spac[d] = c >= need
             land_ok[d] = -1
@@ -714,35 +1087,66 @@ def _v8_rows(
         for a in range(6):
             area[a] = -1
         if eager:
-            _eager_templates(
-                bodies,
-                e,
-                s,
-                hp,
-                ring,
-                n,
-                L,
-                bf,
-                heading,
-                gw,
-                gh,
-                min_boost,
-                boost_cost,
-                acap,
-                cap,
-                membership,
-                other_bits,
-                tmp,
-                ws,
-                seen,
-                rel_st,
-                rel_val,
-                qx,
-                qy,
-                qd,
-                area,
-                out_landing[r],
-            )
+            if use_owner_pad:
+                _eager_templates_owner(
+                    bodies,
+                    e,
+                    s,
+                    hp,
+                    ring,
+                    n,
+                    L,
+                    bf,
+                    heading,
+                    gw,
+                    gh,
+                    min_boost,
+                    boost_cost,
+                    acap,
+                    cap,
+                    owner_pad,
+                    owner_pad_offset,
+                    tmp,
+                    ws,
+                    seen,
+                    rel_st,
+                    rel_val,
+                    qx,
+                    qy,
+                    qd,
+                    area,
+                    out_landing[r],
+                )
+            else:
+                _eager_templates(
+                    bodies,
+                    e,
+                    s,
+                    hp,
+                    ring,
+                    n,
+                    L,
+                    bf,
+                    heading,
+                    gw,
+                    gh,
+                    min_boost,
+                    boost_cost,
+                    acap,
+                    cap,
+                    membership,
+                    other_bits,
+                    tmp,
+                    ws,
+                    seen,
+                    rel_st,
+                    rel_val,
+                    qx,
+                    qy,
+                    qd,
+                    area,
+                    out_landing[r],
+                )
             for d in range(3):
                 lc = out_landing[r, d]
                 land_ok[d] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
@@ -759,9 +1163,10 @@ def _v8_rows(
             if base >= 3:
                 if land_ok[d0] < 0:
                     hd = (heading + d0 - 1) % 4
-                    lc = _landing_count_membership(
+                    lc = _landing_count_route(
                         bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost, boost_cost,
-                        cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+                        cap, membership, other_bits, owner_pad, owner_pad_offset,
+                        use_owner_pad, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
                     )  # fmt: skip
                     out_landing[r, d0] = lc
                     land_ok[d0] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
@@ -781,9 +1186,10 @@ def _v8_rows(
                 d0 = v5 % 3
                 if land_ok[d0] < 0:
                     hd = (heading + d0 - 1) % 4
-                    lc = _landing_count_membership(
+                    lc = _landing_count_route(
                         bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost, boost_cost,
-                        cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+                        cap, membership, other_bits, owner_pad, owner_pad_offset,
+                        use_owner_pad, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
                     )  # fmt: skip
                     out_landing[r, d0] = lc
                     land_ok[d0] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
@@ -796,9 +1202,10 @@ def _v8_rows(
                 if elig[a]:
                     if land_ok[d] < 0:
                         hd = (heading + d - 1) % 4
-                        lc = _landing_count_membership(
+                        lc = _landing_count_route(
                             bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost,
-                            boost_cost, cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val,
+                            boost_cost, cap, membership, other_bits, owner_pad,
+                            owner_pad_offset, use_owner_pad, tmp, ws, seen, rel_st, rel_val,
                             qx, qy, qd,
                         )  # fmt: skip
                         out_landing[r, d] = lc
@@ -835,9 +1242,10 @@ def _v8_rows(
                     else:
                         if land_ok[d] < 0:
                             hd = (heading + d - 1) % 4
-                            lc = _landing_count_membership(
+                            lc = _landing_count_route(
                                 bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost,
-                                boost_cost, cap, membership, other_bits, tmp, ws, seen, rel_st,
+                                boost_cost, cap, membership, other_bits, owner_pad,
+                                owner_pad_offset, use_owner_pad, tmp, ws, seen, rel_st,
                                 rel_val, qx, qy, qd,
                             )  # fmt: skip
                             out_landing[r, d] = lc
@@ -850,9 +1258,10 @@ def _v8_rows(
                     best, missing = _space_pref(qv, cand, nc, v5, lam, area, acap, scratch)
                     if missing < 0:
                         break
-                    area[missing] = _landing_area_membership(
+                    area[missing] = _landing_area_route(
                         bodies, e, s, hp, ring, n, L, bf, heading, missing, gw, gh, min_boost,
-                        boost_cost, acap, membership, other_bits, tmp, ws, seen, rel_st, rel_val,
+                        boost_cost, acap, membership, other_bits, owner_pad, owner_pad_offset,
+                        use_owner_pad, tmp, ws, seen, rel_st, rel_val,
                         qx, qy, qd,
                     )  # fmt: skip
                 if best != v5:
@@ -926,9 +1335,10 @@ def _v8_rows(
                     d = a - 3
                     if land_ok[d] < 0:
                         hd = (heading + d - 1) % 4
-                        lc = _landing_count_membership(
+                        lc = _landing_count_route(
                             bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost,
-                            boost_cost, cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val,
+                            boost_cost, cap, membership, other_bits, owner_pad,
+                            owner_pad_offset, use_owner_pad, tmp, ws, seen, rel_st, rel_val,
                             qx, qy, qd,
                         )  # fmt: skip
                         out_landing[r, d] = lc
@@ -959,9 +1369,10 @@ def _v8_rows(
                     best, missing = _space_pref(qv, cand, nc, anchor, lam, area, acap, scratch)
                     if missing < 0:
                         break
-                    area[missing] = _landing_area_membership(
+                    area[missing] = _landing_area_route(
                         bodies, e, s, hp, ring, n, L, bf, heading, missing, gw, gh, min_boost,
-                        boost_cost, acap, membership, other_bits, tmp, ws, seen, rel_st, rel_val,
+                        boost_cost, acap, membership, other_bits, owner_pad, owner_pad_offset,
+                        use_owner_pad, tmp, ws, seen, rel_st, rel_val,
                         qx, qy, qd,
                     )  # fmt: skip
                 final = best
@@ -983,27 +1394,34 @@ def _v8_rows(
 def _v8_rows_prange(
     bodies, head_ptr, seg_count, length, boost_frames, direction, alive,
     envs, slots, q, mask_in, gw, gh, min_boost, boost_cost, mech_v2, headon_ratio, lam,
-    owner_pad, owner_pad_width, owner_pad_offset, use_owner_pad, eager,
+    owner_pad, owner_pad_width, owner_pad_offset, coarse_snake, use_owner_pad, eager,
     w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11,
     out_action, out_base, out_v5, out_v7, out_outcome, out_reason,
     out_counts, out_cap, out_need, out_acap, out_area, out_landing, out_risky,
     out_waived, out_elig,
 ):  # fmt: skip
-    """Run independent rows with scratch indexed by Numba's worker id."""
-    for r in prange(envs.shape[0]):
+    """Run contiguous row partitions with scratch indexed by worker id.
+
+    The scalar kernel allocates small per-call action arrays, so invoke it
+    once per partition rather than once per row.
+    """
+    parts = w0.shape[0]
+    for part in prange(parts):
+        begin = part * envs.shape[0] // parts
+        end = (part + 1) * envs.shape[0] // parts
         tid = get_thread_id()
         _v8_rows(
             bodies, head_ptr, seg_count, length, boost_frames, direction, alive,
-            envs[r : r + 1], slots[r : r + 1], q[r : r + 1], mask_in[r : r + 1],
+            envs[begin:end], slots[begin:end], q[begin:end], mask_in[begin:end],
             gw, gh, min_boost, boost_cost, mech_v2, headon_ratio, lam,
-            owner_pad, owner_pad_width, owner_pad_offset, use_owner_pad, eager,
+            owner_pad, owner_pad_width, owner_pad_offset, coarse_snake, use_owner_pad, eager,
             w0[tid], w1[tid], w2[tid], w3[tid], w4[tid], w5[tid], w6[tid], w7[tid],
             w8[tid], w9[tid], w10[tid], w11[tid],
-            out_action[r : r + 1], out_base[r : r + 1], out_v5[r : r + 1], out_v7[r : r + 1],
-            out_outcome[r : r + 1], out_reason[r : r + 1], out_counts[r : r + 1],
-            out_cap[r : r + 1], out_need[r : r + 1], out_acap[r : r + 1], out_area[r : r + 1],
-            out_landing[r : r + 1], out_risky[r : r + 1], out_waived[r : r + 1],
-            out_elig[r : r + 1],
+            out_action[begin:end], out_base[begin:end], out_v5[begin:end], out_v7[begin:end],
+            out_outcome[begin:end], out_reason[begin:end], out_counts[begin:end],
+            out_cap[begin:end], out_need[begin:end], out_acap[begin:end], out_area[begin:end],
+            out_landing[begin:end], out_risky[begin:end], out_waived[begin:end],
+            out_elig[begin:end],
         )  # fmt: skip
 
 
@@ -1229,6 +1647,11 @@ def v8_decide(
         else np.full((1, 1, 1), -1, dtype=np.int16)
     )
     owner_offset = int(getattr(sim, "_grid_pad", 0))
+    coarse_snake = (
+        np.ascontiguousarray(sim._csnake, dtype=np.int32)
+        if use_owner_pad
+        else np.zeros((1, 1, 1, 1), dtype=np.int32)
+    )
     threads = int(__import__("numba").get_num_threads())
     if threads > 1 and N >= threads:
         ws = _parallel_workspace(gw, gh, threads)
@@ -1239,7 +1662,8 @@ def v8_decide(
             int(gw), int(gh),
             int(sim.cfg.min_boost_length), int(sim.cfg.boost_length_cost_frames),
             int(sim.cfg.mechanics_version) == 2, float(HEADON_SIZE_RATIO), lam,
-            owner_pad, int(owner_pad.shape[2]), owner_offset, use_owner_pad, bool(features),
+            owner_pad, int(owner_pad.shape[2]), owner_offset, coarse_snake, use_owner_pad,
+            bool(features),
             *ws,
             out.action, out.base, out.v5_action, out.v7_action, out.outcome, out.v5_reason,
             out.counts, out.cap, out.need, out.area_cap, out.area, out.landing, out.head_risky,
@@ -1254,7 +1678,8 @@ def v8_decide(
             rows_kernel[:, 0].copy(), rows_kernel[:, 1].copy(), q_kernel, mask_kernel,
             int(gw), int(gh), int(sim.cfg.min_boost_length), int(sim.cfg.boost_length_cost_frames),
             int(sim.cfg.mechanics_version) == 2, float(HEADON_SIZE_RATIO), lam,
-            owner_pad, int(owner_pad.shape[2]), owner_offset, use_owner_pad, bool(features), *ws,
+            owner_pad, int(owner_pad.shape[2]), owner_offset, coarse_snake, use_owner_pad,
+            bool(features), *ws,
             out.action, out.base, out.v5_action, out.v7_action, out.outcome, out.v5_reason,
             out.counts, out.cap, out.need, out.area_cap, out.area, out.landing, out.head_risky,
             out.head_waived, out.v5_eligible,

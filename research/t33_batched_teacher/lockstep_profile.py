@@ -24,6 +24,29 @@ from research.t33_batched_teacher.inference import FixedInference
 from research.t33_batched_teacher.teacher import BatchedTeacher, SearchConfig
 
 
+class GuardedProfileTeacher(BatchedTeacher):
+    """Check power/thermal admission and emit bounded progress during a cell."""
+
+    def _q(self, sim, rows, net, **kwargs):
+        now = time.perf_counter()
+        if now - getattr(self, "_last_guard", 0.0) >= 30.0:
+            operational_guard()
+            self._last_guard = now
+        if now - getattr(self, "_last_progress", 0.0) >= 55.0:
+            print(
+                json.dumps(
+                    {
+                        "event": "lockstep_progress",
+                        "selected_rows": len(rows),
+                        "resident_rows": kwargs.get("resident_rows", len(rows)),
+                    }
+                ),
+                flush=True,
+            )
+            self._last_progress = now
+        return super()._q(sim, rows, net, **kwargs)
+
+
 def projection(cell: dict, threads: int) -> dict:
     """Expose assumptions; never confuse a CPU/GPU model with an L4 measurement."""
     phases, inference = cell["phases"], cell["inference"]
@@ -64,6 +87,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worlds", default="256,1024")
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--device", choices=("cpu", "mps"), default="cpu")
     parser.add_argument("--horizon", type=int, default=32)
     parser.add_argument("--rollouts", type=int, default=4)
     parser.add_argument("--out", type=Path, required=True)
@@ -81,7 +105,9 @@ def main() -> None:
     config = SearchConfig(horizon=args.horizon, rollouts=args.rollouts, length_gate=0)
     # Warm all kernels/types on a small shape. Large-shape assembly, allocations
     # and first CPU resident forward remain in the measured wall time (conservative).
-    warm = BatchedTeacher(config, inference=FixedInference(templates[0].hero.net, "cpu"))
+    warm = GuardedProfileTeacher(
+        config, device=args.device, inference=FixedInference(templates[0].hero.net, args.device)
+    )
     warm.choose(templates)
     del warm
     gc.collect()
@@ -89,6 +115,7 @@ def main() -> None:
         "schema": "t33-Mac-lockstep/v1",
         "source": identity(),
         "threads": args.threads,
+        "device": args.device,
         "search": asdict(config),
         "cells": [],
         "warmup": "3 source worlds, full H/N; large-shape first allocation included",
@@ -103,7 +130,7 @@ def main() -> None:
             max(templates, key=lambda w: w.sim.seg_count.max()),
             count,
             config.rollouts,
-            "cpu",
+            args.device,
             host_available,
             None,
             horizon=config.horizon,
@@ -111,8 +138,10 @@ def main() -> None:
         if not admission["admitted"]:
             receipt["cells"].append({"worlds": count, **admission})
             continue
-        adapter = FixedInference(templates[0].hero.net, "cpu")
-        search = BatchedTeacher(config, inference=adapter, opponent_inference=adapter)
+        adapter = FixedInference(templates[0].hero.net, args.device)
+        search = GuardedProfileTeacher(
+            config, device=args.device, inference=adapter, opponent_inference=adapter
+        )
         start = time.perf_counter()
         actions, diagnostics = search.choose(sources)
         elapsed = time.perf_counter() - start

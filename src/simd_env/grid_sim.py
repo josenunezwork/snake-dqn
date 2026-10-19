@@ -445,13 +445,9 @@ class GridBatchSim(BatchSim):
         """
         if self._kernels is not None and cells:
             old_n = int(self._food_n[e])
-            self._ensure_food_array_capacity(old_n + len(cells))
             incoming = np.asarray(cells, dtype=np.int64).reshape(-1, 2)
-            old_corpse = np.fromiter(
-                (tuple(cell) in self.corpse_cells[e] for cell in self._food_array[e, :old_n]),
-                dtype=np.bool_,
-                count=old_n,
-            )
+            old_cells = self._food_array[e, :old_n]
+            old_corpse = self._food[e, old_cells[:, 1], old_cells[:, 0]] == FOOD_CORPSE
             out = np.empty((old_n + len(cells), 2), dtype=np.int64)
             out_corpse = np.empty(old_n + len(cells), dtype=np.bool_)
             count = self._kernels.corpse_queue_compact(
@@ -463,12 +459,17 @@ class GridBatchSim(BatchSim):
                 corpse_food_cap(self.cfg.max_food),
                 out,
                 out_corpse,
+                self._food[e],
+                self._cfood[e],
             )
             ordered = [tuple(cell) for cell in out[:count]]
             self.food_cells[e][:] = ordered
             self.food_set[e] = set(ordered)
             self.corpse_cells[e] = {tuple(out[i]) for i in range(count) if out_corpse[i]}
-            self._rebuild_env_grids(e)
+            self._ensure_food_array_capacity(count)
+            self._food_array[e, :count] = out[:count]
+            self._food_n[e] = count
+            self._food_version[e] += 1
             return
 
         from collections import deque

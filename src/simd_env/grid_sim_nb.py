@@ -24,15 +24,11 @@ _DX = np.array([0, 1, 0, -1], dtype=np.int64)
 _DY = np.array([-1, 0, 1, 0], dtype=np.int64)
 
 
-@njit(cache=True, nogil=True)
-def corpse_queue_compact(old, old_n, old_corpse, incoming, incoming_n, cap, out, out_corpse):
-    """Numeric ordered corpse queue; Python owns collection reconstruction.
-
-    ``old_corpse`` is aligned with ordered food.  The output preserves surviving
-    old order followed by surviving append order, including an evicted/re-added
-    cell moving to the tail.  Grid membership remains the caller's O(1) dedup
-    authority.
-    """
+@njit(cache=True, nogil=True, boundscheck=True)
+def corpse_queue_compact(
+    old, old_n, old_corpse, incoming, incoming_n, cap, out, out_corpse, food, coarse
+):
+    """Ordered corpse queue with O(1) live-grid membership and exact evictions."""
     limit = old_n + incoming_n
     keep = np.ones(limit, dtype=np.bool_)
     cells = np.empty((limit, 2), dtype=np.int64)
@@ -51,12 +47,7 @@ def corpse_queue_compact(old, old_n, old_corpse, incoming, incoming_n, cap, out,
     nc = qtail
     for j in range(incoming_n):
         x, y = incoming[j, 0], incoming[j, 1]
-        exists = False
-        for i in range(n):
-            if keep[i] and cells[i, 0] == x and cells[i, 1] == y:
-                exists = True
-                break
-        if exists:
+        if food[y, x] > 0:
             continue
         cells[n, 0] = x
         cells[n, 1] = y
@@ -65,10 +56,15 @@ def corpse_queue_compact(old, old_n, old_corpse, incoming, incoming_n, cap, out,
         qtail += 1
         n += 1
         nc += 1
-        if nc > cap:
+        food[y, x] = 2
+        coarse[y // 8, x // 8] += 1
+        while nc > cap:
             victim = queue[qhead]
             qhead += 1
             keep[victim] = False
+            vx, vy = cells[victim, 0], cells[victim, 1]
+            food[vy, vx] = 0
+            coarse[vy // 8, vx // 8] -= 1
             nc -= 1
     w = 0
     for i in range(n):
