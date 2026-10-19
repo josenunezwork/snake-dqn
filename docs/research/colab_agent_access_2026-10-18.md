@@ -25,3 +25,19 @@ zero-balance runtimes (`colab ssh` is an official feature).
 
 Sources: github.com/googlecolab/google-colab-cli; developers.googleblog.com (CLI 2026-06-05, VS Code 2025-11-13,
 MCP 2026-03-17); research.google.com/colaboratory/faq.html; cloud.google.com/colab/pricing.
+
+## Verified facts and corrections (2026-10-18 evening)
+
+- Owner signed in: `colab --auth oauth2 whoami` = josemnunez.jn@gmail.com (bundled public OAuth client, copy-paste
+  code; scopes openid/profile/email, cloud-platform, colaboratory, drive.file). The "Expires in 59m" is the access
+  token; the stored refresh token renews it. Refresh tokens end on revocation, ~6 months of non-use, or >100 newer
+  tokens per client; password changes only revoke Gmail-scoped tokens (none here).
+- `colab usage`/`sessions` also see notebook-started runtimes (balance 1178.30, 6.84 u/h for one A100 + one L4).
+- Unit rates (no official table; mccormickml.com 2026-03-10, fluctuate): T4 1.19, L4 1.71, A100-40GB 5.40,
+  A100-80GB 7.52, G4 8.71, H100 unmeasured. Our planning keeps L4 = 2.0.
+- Correction to the ranking above: a background process alone does not keep a runtime; liveness follows kernel
+  execution (CLI keep-alive daemon removed 2026-09-25), so the supervisor keeps a kernel-side supervised job and
+  stops the VM when done (Astra: docs/research/advice/2026-10-18_colab_cli_operating_model.md).
+- Colab FAQ (fetched 2026-10-18): Pro+ continuous execution up to 24 h with sufficient units; free-tier-only bans on
+  SSH/remote control/bypassing the notebook UI lift with a positive balance; GPU types vary over time; units expiry
+  not stated.
