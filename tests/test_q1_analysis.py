@@ -305,6 +305,9 @@ def test_serialized_evaluator_shards_are_accepted_without_rehashing_file_whitesp
             arm=arm,
             seed=seed,
             shard="0/1",
+            # This test substitutes world execution in-process; real spawn
+            # identity is covered by the reserved-world A4 capacity probe.
+            workers=1,
             provenance_path=provenance_path,
             parity_path=parity_path,
         )
