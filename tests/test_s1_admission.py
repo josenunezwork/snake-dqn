@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tarfile
 from pathlib import Path
 
@@ -73,3 +74,57 @@ def test_pricing_rejects_nonfinite_bounds(tmp_path: Path, number: float) -> None
     )
     with pytest.raises(admission.AdmissionRefused):
         admission.priced_mac_bound(receipt)
+
+
+def test_pricing_requires_current_counter_sources_and_measured_transfer(tmp_path: Path) -> None:
+    sources = {
+        relative: admission.sha256(admission.ROOT / relative)
+        for relative in (
+            "research/redesign_m3c_20261008/train_m3c.py",
+            "research/s1_mature_20261018/train.py",
+        )
+    }
+    training = tmp_path / "training.json"
+    training.write_text(json.dumps({"status": "PASS", "counter_admission": "PASS"}))
+    evaluation = tmp_path / "evaluation.json"
+    evaluation.write_text(
+        json.dumps(
+            {
+                "schema": "s1-eval-timing/v1",
+                "status": "completed",
+                "episode_count": 10,
+                "identity": {"source_manifest": {}},
+            }
+        )
+    )
+
+    def priced() -> Path:
+        path = tmp_path / "pricing.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "status": "PASS",
+                    "evidence": {
+                        name: {"path": str(item), "sha256": admission.sha256(item)}
+                        for name, item in (("training", training), ("evaluation", evaluation))
+                    },
+                    "complete_upper_bound": {"mac_worker_hours": 1, "elapsed_hours": 1},
+                    "full_replay_transport": {"status": "PASS"},
+                }
+            )
+        )
+        return path
+
+    with pytest.raises(admission.AdmissionRefused, match="source identity"):
+        admission.priced_mac_bound(priced())
+    training.write_text(
+        json.dumps(
+            {
+                "status": "PASS",
+                "counter_admission": "PASS",
+                "identity": {"source_manifest": sources},
+            }
+        )
+    )
+    with pytest.raises(admission.AdmissionRefused, match="transport qualification"):
+        admission.priced_mac_bound(priced())

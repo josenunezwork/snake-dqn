@@ -28,6 +28,13 @@ actor weight lag, league seats, label-buffer state, and demonstration-stream sta
 Full replay includes both transition arrays and the observation rings referenced by
 transition and label IDs. Restoring indices without their observations is invalid.
 
+Multi-actor barriers hold learner ingestion at the completed decision boundary while
+actors finish their queued frames and publish FIFO snapshot markers. Those unconsumed
+frames belong to the snapshot too: the learner restores and consumes them before new
+actor messages. The learner counter therefore stays within the registered
+`actors * worlds * learner_seats - 1` overshoot bound, including the terminal boundary,
+without discarding actor work or changing replay sampling and optimizer schedules.
+
 `--full-state-replay none` omits those large replay/observation arrays. It is a
 continuation with replay refill, marked `resumed-without-replay`; it is not a bitwise
 resume. Empty replay and stale label references must refill before learner updates

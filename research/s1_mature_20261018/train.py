@@ -410,7 +410,7 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
     if smoke:
         # Qualification only: this is a real M3-C run but intentionally cannot
         # be mistaken for S1 data or a production manifest.
-        _replace_option(command, "--transitions", "12001")
+        _replace_option(command, "--transitions", "12000")
         _replace_option(command, "--device", "cpu")
         _replace_option(command, "--actor-device", "cpu")
         _replace_option(command, "--worlds", "8")
@@ -486,7 +486,7 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
         return
     if child.returncode or not final.is_file():
         raise RuntimeError("training did not produce a clean final")
-    expected_decisions = 12_001 if smoke else TRAINING_DECISIONS
+    expected_decisions = 12_000 if smoke else TRAINING_DECISIONS
     if (
         data.get("halt")
         or data.get("stopped_for_time")

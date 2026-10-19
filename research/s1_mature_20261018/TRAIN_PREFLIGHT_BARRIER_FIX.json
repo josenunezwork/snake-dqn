@@ -1,0 +1,102 @@
+{
+  "counter_admission": "PASS",
+  "development_runs_not_used_for_admission": [
+    "barrier-fix-01 (packet-drop implementation rejected)",
+    "barrier-fix-02 (source changed before freeze)",
+    "barrier-fix-03 (source changed before freeze)",
+    "barrier-fix-04 (annotation lint correction before freeze)"
+  ],
+  "export_roundtrip": "PASS",
+  "fixture": {
+    "actor_exitcodes": [
+      0,
+      0
+    ],
+    "actors": 2,
+    "actual_learner_decisions": 12000,
+    "adapter_wall_seconds": 124.4,
+    "artifact_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-05",
+    "decision_replay_delta": 240,
+    "emitted_replay_rows": 11760,
+    "learner_seats": 3,
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-05/adapter.log",
+      "sha256": "e1363e61aa6d3c2986118f5137e288106ba3c6ef2307fb417f99c884e765f655"
+    },
+    "nstep_accounting_reconciled": true,
+    "observed_overshoot": 0,
+    "pending_nstep_rows": 240,
+    "pending_update_debt": 240,
+    "registered_overshoot_bound": 47,
+    "ring_overrun_rows": 0,
+    "snapshots": [
+      {
+        "accepted": true,
+        "actor_barrier_ms": 192.17408300028183,
+        "capture_stall_ms": 30.78708400425967,
+        "deferred_decisions": 48,
+        "event": "full-state-snapshot",
+        "replay": "full",
+        "transitions": 6024
+      },
+      {
+        "accepted": true,
+        "actor_barrier_ms": 44.62216699903365,
+        "capture_stall_ms": 102.34187499736436,
+        "deferred_decisions": 48,
+        "event": "full-state-snapshot",
+        "replay": "full",
+        "transitions": 12000
+      }
+    ],
+    "summary": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-05/s1-work/run/summary.json",
+      "sha256": "2e2dfd205a973139269bb5847a708d3c4e3d454de2ef0ee543bfd1cb467bad38"
+    },
+    "target_learner_decisions": 12000,
+    "trainer_wall_seconds": 74.03174195799511,
+    "truncation_rows_dropped": 0,
+    "updates": 45,
+    "worlds": 8
+  },
+  "historical_evidence_preserved": [
+    "research/s1_mature_20261018/TRAIN_PREFLIGHT.json",
+    "research/s1_mature_20261018/ADMISSION_STATUS_FINAL.json"
+  ],
+  "identity": {
+    "baseline_commit": "474b3c2e233b167f071f9c5b9ea729ca39222371",
+    "source_manifest": {
+      "research/redesign_m3c_20261008/train_m3c.py": "e54f615b2a445661d96baaef85861dcb6dd5f11a53b88d9772e3584cdb8048a1",
+      "research/s1_mature_20261018/train.py": "1156301a0c25533c1ff9bcb75057ecb8e6eaae84b70c0767f04bcf59ab744089"
+    }
+  },
+  "recovery": {
+    "complete_state_keys_present": true,
+    "counters_match_final": true,
+    "deferred_decisions": 48,
+    "deferred_packets": 2,
+    "index": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-05/output/full-state-snapshot-00000000000000012000-3e0ef231.index.json",
+      "sha256": "b4e6dae49a902b1a4da8e17db15b84fc199496f0014b8847625f11f35489da4a"
+    },
+    "snapshot": "snapshot-00000000000000012000-3e0ef231",
+    "state": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-05/recovered-final/snapshot-00000000000000012000-3e0ef231/state.pt",
+      "sha256": "e6aeb6db6d02342ddc891b8e12f6e36409df000b77e0d97901eb477bbf55b0bd"
+    }
+  },
+  "schema": "s1-training-preflight/v1",
+  "scope": "Real Mac CPU adapter fixture; operational qualification only, CPU compile fell back to eager; no study training or L4 qualification.",
+  "status": "PASS",
+  "unchanged_bound_proof": {
+    "evidence_tests": [
+      "tests/test_s1_checkpoint_barrier.py",
+      "tests/test_s1_no_barrier_oracle.py"
+    ],
+    "maximum_positive_target_overshoot": "actors * worlds * learner_seats - 1",
+    "maximum_round_decisions": "actors * worlds * learner_seats",
+    "production_n1_bound": 383,
+    "production_n3_bound": 2303,
+    "while_pending_ingested_decisions": 0
+  }
+}

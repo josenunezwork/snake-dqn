@@ -3910,6 +3910,29 @@ def _tick_learner_profile(prof, st: Dict[str, Any]) -> None:
         prof.meta["end"] = _learner_counters(st)
 
 
+def deferred_actor_packets(
+    packets: List[Dict[str, Any]], actors: int, replay_is_present: bool
+) -> tuple[Dict[int, deque], int]:
+    """Validate and restore FIFO actor packets held at a full-state barrier.
+
+    A packet names the actor whose queue supplied it.  Replay-none snapshots omit
+    the observation rings those packet ids address, so their documented refill
+    continuation deliberately drops the packets and returns their decision count.
+    """
+    by_actor: Dict[int, deque] = {actor: deque() for actor in range(actors)}
+    dropped_decisions = 0
+    for packet in packets:
+        actor = int(packet["actor"])
+        message = packet.get("message")
+        if actor < 0 or actor >= actors or not isinstance(message, dict):
+            raise ValueError("full-state deferred actor message is invalid")
+        if replay_is_present:
+            by_actor[actor].append(message)
+        else:
+            dropped_decisions += int(message.get("decisions", 0))
+    return by_actor, dropped_decisions
+
+
 def main_multi(args) -> int:
     """Learner process with ``args.actors`` actor processes (see the module docstring)."""
     import multiprocessing as mp
@@ -3981,6 +4004,13 @@ def main_multi(args) -> int:
     prof = ProcessProfile.from_env("learner", args.out)
     args.out.mkdir(parents=True)
     K = int(args.actors)
+    saved_deferred_messages = (
+        list(resume_payload.get("extra", {}).get("deferred_actor_messages", []))
+        if resume_payload is not None
+        else []
+    )
+    # Refuse malformed packet routing before the first shared-memory allocation.
+    deferred_actor_packets(saved_deferred_messages, K, replay_is_present=False)
     torch.set_num_threads(1)
     torch.manual_seed(args.seed)
     rng = np.random.default_rng([args.seed, 17])
@@ -4113,6 +4143,9 @@ def main_multi(args) -> int:
     else:
         _publish_weights(online, wbuf, wver)  # version 2 = publish #1
     multi = MultiRing(rings)
+    restored_deferred_by_actor, discarded_deferred_decisions = deferred_actor_packets(
+        saved_deferred_messages, K, resumed_with_replay
+    )
 
     ctx_mp = mp.get_context("spawn")
     stop_evt = ctx_mp.Event()
@@ -4390,6 +4423,11 @@ def main_multi(args) -> int:
             from research.redesign_m3c_20261008.demo_snapshot import capture_demo_state
 
             demo_snapshot = capture_demo_state(demos)
+        checkpoint_deferred = [
+            {"actor": actor, "message": message}
+            for actor in range(K)
+            for message in deferred_by_actor[actor]
+        ] + deferred_actor_messages
         payload = full_state_payload(
             torch,
             online,
@@ -4415,6 +4453,7 @@ def main_multi(args) -> int:
                 "progress": progress.copy(),
                 "demos": demo_snapshot,
                 "actors": frozen,
+                "deferred_actor_messages": checkpoint_deferred,
                 "learner": capture_learner_execution(learner),
             },
         )
@@ -4436,12 +4475,22 @@ def main_multi(args) -> int:
             "accepted": accepted,
             "actor_barrier_ms": 1000.0 * (begin - actor_barrier_started),
             "replay": args.full_state_replay,
+            "deferred_decisions": int(
+                sum(int(packet["message"].get("decisions", 0)) for packet in checkpoint_deferred)
+            ),
         }
         record_full_state(event)
         tel.add("full_state_capture_stall_ms", stall_ms)
         for control in controls:
             control.put({"op": "release", "id": pending_actor_snapshot})
         pending_actor_snapshot = None
+        # A nonterminal cadence resumes these held FIFO packets locally after the
+        # immutable capture.  At the final boundary they stay only in the saved
+        # full state, so the run's published counter cannot pass its cap.
+        if not stopped_for_time and st["transitions"] < args.transitions and st["halt"] is None:
+            for packet in deferred_actor_messages:
+                deferred_by_actor[int(packet["actor"])].append(packet["message"])
+        deferred_actor_messages.clear()
         if accepted:
             last_snapshot_counters = (int(st["transitions"]), int(st["updates"]))
         next_full_state = ((st["transitions"] // args.full_state_every) + 1) * args.full_state_every
@@ -4455,6 +4504,20 @@ def main_multi(args) -> int:
     q0b_measurement_started = None
     full_state_complete: Optional[bool] = None
     actor_snapshots: Dict[int, Dict[str, Any]] = {}
+    deferred_actor_messages: List[Dict[str, Any]] = []
+    deferred_by_actor: Dict[int, deque] = restored_deferred_by_actor
+    if resume_payload is not None and not resumed_with_replay and saved_deferred_messages:
+        # Replay-none snapshots intentionally do not preserve shared ring rows;
+        # their documented refill continuation cannot replay held packet ids.
+        dropped = saved_deferred_messages
+        if dropped:
+            st["flags"].append(
+                {
+                    "event": "resume-full-state-deferred-packets-discarded",
+                    "reason": "replay-none",
+                    "decisions": discarded_deferred_decisions,
+                }
+            )
     actor_snapshot_serial = 0
     pending_actor_snapshot: Optional[int] = None
     actor_barrier_started = 0.0
@@ -4490,13 +4553,23 @@ def main_multi(args) -> int:
             t_w = time.perf_counter()
             first, rr = rr, (rr + 1) % K  # fair round-robin start
             for j in [(first + i) % K for i in range(K)]:
-                try:
-                    msg = txs[j].get(timeout=0.05 if not got else 0.0)
-                except queue.Empty:
-                    continue
+                if pending_actor_snapshot is None and deferred_by_actor[j]:
+                    msg = deferred_by_actor[j].popleft()
+                else:
+                    try:
+                        msg = txs[j].get(timeout=0.05 if not got else 0.0)
+                    except queue.Empty:
+                        continue
                 got = True
                 if msg.get("kind") == "snapshot":
                     actor_snapshots[int(msg["j"])] = msg
+                    continue
+                if pending_actor_snapshot is not None:
+                    # The packet precedes this actor's FIFO marker.  Preserve it
+                    # in the checkpoint and restore it before fresh traffic;
+                    # never ingest it after the barrier has been requested.
+                    packet = {"actor": int(j), "message": msg}
+                    deferred_actor_messages.append(packet)
                     continue
                 if j not in attached:
                     attached.add(j)

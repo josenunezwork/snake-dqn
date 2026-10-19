@@ -1,0 +1,386 @@
+{
+  "complete_upper_bound": null,
+  "conditional_reserved_forecast": {
+    "elapsed_hours": 27.099503111466767,
+    "gpu_allocation_hours": 19.166666666666668,
+    "mac_worker_hours": 15.865672889600198,
+    "units": 38.333333333333336
+  },
+  "dispatch_authorized": false,
+  "evidence": {
+    "evaluation": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/EVAL_PREFLIGHT_FINAL.json",
+      "sha256": "8181d170ce3f8c523ca48449830cb9079bf567d667f89d654135afaab48f3188"
+    },
+    "training": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/TRAIN_PREFLIGHT_BARRIER_FIX.json",
+      "sha256": "f958da1018ea1537fd0629edb0fabc1be3e4539099e8b58fa965233f341bd0bb"
+    }
+  },
+  "full_replay_transport": {
+    "additional_liability": "full-size snapshot capture/serialization/hash/archive/chunk/copy preparation for every snapshot and final archive; deferred barrier packets included",
+    "archive_bound_formula": "ceil(snapshot_bytes_upper_bound * 1.01) + 1 MiB",
+    "capacity": {
+      "n1": {
+        "actors": 3,
+        "arm": "n1",
+        "demonstration_buffer_bytes": 0,
+        "demonstration_reason": "bv8 sets demos=None; anchors are on-policy labels",
+        "excluded": "actor simulator/runtime/n-step state, networks, optimizer, RNG, Python objects and pickle/zip framing",
+        "fill_independent": true,
+        "fixed_capacity_array_bytes": 9481840816,
+        "fixed_capacity_array_gib": 8.83065240085125,
+        "label_array_bytes": 4800000,
+        "label_capacity": 300000,
+        "learner_seats": 1,
+        "protocol2_array_payload_upper_bound_bytes": 18963681632,
+        "replay_array_bytes": 16000000,
+        "replay_capacity": 500000,
+        "ring_array_bytes": 9461040816,
+        "ring_fields": [
+          {
+            "dtype": "|u1",
+            "name": "local",
+            "row_bytes": 6727,
+            "row_shape": [
+              7,
+              31,
+              31
+            ]
+          },
+          {
+            "dtype": "|u1",
+            "name": "global",
+            "row_bytes": 5476,
+            "row_shape": [
+              4,
+              37,
+              37
+            ]
+          },
+          {
+            "dtype": "<f4",
+            "name": "scalars",
+            "row_bytes": 240,
+            "row_shape": [
+              60
+            ]
+          },
+          {
+            "dtype": "|b1",
+            "name": "mask",
+            "row_bytes": 6,
+            "row_shape": [
+              6
+            ]
+          }
+        ],
+        "ring_margin_rows": 2048,
+        "ring_row_bytes": 12449,
+        "ring_rows_per_actor": 253328,
+        "snapshot_targets": [
+          2000000,
+          4000000,
+          6000000,
+          8000000
+        ],
+        "worlds_per_actor": 128
+      },
+      "n3": {
+        "actors": 6,
+        "arm": "n3",
+        "demonstration_buffer_bytes": 0,
+        "demonstration_reason": "bv8 sets demos=None; anchors are on-policy labels",
+        "excluded": "actor simulator/runtime/n-step state, networks, optimizer, RNG, Python objects and pickle/zip framing",
+        "fill_independent": true,
+        "fixed_capacity_array_bytes": 10103294896,
+        "fixed_capacity_array_gib": 9.409426614642143,
+        "label_array_bytes": 4800000,
+        "label_capacity": 300000,
+        "learner_seats": 3,
+        "protocol2_array_payload_upper_bound_bytes": 20206589792,
+        "replay_array_bytes": 16000000,
+        "replay_capacity": 500000,
+        "ring_array_bytes": 10082494896,
+        "ring_fields": [
+          {
+            "dtype": "|u1",
+            "name": "local",
+            "row_bytes": 6727,
+            "row_shape": [
+              7,
+              31,
+              31
+            ]
+          },
+          {
+            "dtype": "|u1",
+            "name": "global",
+            "row_bytes": 5476,
+            "row_shape": [
+              4,
+              37,
+              37
+            ]
+          },
+          {
+            "dtype": "<f4",
+            "name": "scalars",
+            "row_bytes": 240,
+            "row_shape": [
+              60
+            ]
+          },
+          {
+            "dtype": "|b1",
+            "name": "mask",
+            "row_bytes": 6,
+            "row_shape": [
+              6
+            ]
+          }
+        ],
+        "ring_margin_rows": 6144,
+        "ring_row_bytes": 12449,
+        "ring_rows_per_actor": 134984,
+        "snapshot_targets": [
+          2000000,
+          4000000,
+          6000000,
+          8000000
+        ],
+        "worlds_per_actor": 128
+      }
+    },
+    "checkpoint_planning_sizes": {
+      "n1": {
+        "actor_raw_array_tensor_bytes_projection_per_actor": 159237084,
+        "actors": 3,
+        "all_state_raw_bytes_projection": 10000057788,
+        "arm": "n1",
+        "assumptions": [
+          "Actor non-network arrays scale linearly from observed worlds to 128 worlds",
+          "Default protocol-2 NumPy payload expansion is bounded by 2 bytes per raw byte",
+          "64 MiB Python/RNG/pickle framing allowance per actor plus learner; provisional",
+          "At most three deferred packets per actor with 1 KiB per driven row allowance",
+          "No compression credit; gzip/tar/chunk/index framing gets 1 percent plus 1 MiB"
+        ],
+        "complete_upper_bound": null,
+        "deferred_packet_raw_bytes_planning_allowance": 1179648,
+        "demonstration_buffer_bytes": 0,
+        "demonstration_reason": "bv8 sets demos=None; anchors are on-policy labels",
+        "excluded": "actor simulator/runtime/n-step state, networks, optimizer, RNG, Python objects and pickle/zip framing",
+        "fill_independent": true,
+        "fixed_capacity_array_bytes": 9481840816,
+        "fixed_capacity_array_gib": 8.83065240085125,
+        "fixed_noncapacity_raw_bytes_observed": 39326072,
+        "four_snapshot_export_bytes_planning_upper_bound": 81889140476,
+        "label_array_bytes": 4800000,
+        "label_capacity": 300000,
+        "learner_seats": 1,
+        "planning_allowances_require_full_size_validation": true,
+        "production_size_measured": false,
+        "protocol2_array_payload_upper_bound_bytes": 18963681632,
+        "python_and_serializer_framing_bytes_planning_allowance": 268435456,
+        "replay_array_bytes": 16000000,
+        "replay_capacity": 500000,
+        "ring_array_bytes": 9461040816,
+        "ring_fields": [
+          {
+            "dtype": "|u1",
+            "name": "local",
+            "row_bytes": 6727,
+            "row_shape": [
+              7,
+              31,
+              31
+            ]
+          },
+          {
+            "dtype": "|u1",
+            "name": "global",
+            "row_bytes": 5476,
+            "row_shape": [
+              4,
+              37,
+              37
+            ]
+          },
+          {
+            "dtype": "<f4",
+            "name": "scalars",
+            "row_bytes": 240,
+            "row_shape": [
+              60
+            ]
+          },
+          {
+            "dtype": "|b1",
+            "name": "mask",
+            "row_bytes": 6,
+            "row_shape": [
+              6
+            ]
+          }
+        ],
+        "ring_margin_rows": 2048,
+        "ring_row_bytes": 12449,
+        "ring_rows_per_actor": 253328,
+        "serialized_checkpoint_bytes_planning_upper_bound": 20268551032,
+        "serialized_checkpoint_gib_planning_upper_bound": 18.876559130847454,
+        "snapshot_archive_bytes_planning_upper_bound": 20472285119,
+        "snapshot_targets": [
+          2000000,
+          4000000,
+          6000000,
+          8000000
+        ],
+        "worlds_per_actor": 128
+      },
+      "n3": {
+        "actor_raw_array_tensor_bytes_projection_per_actor": 159237084,
+        "actors": 6,
+        "all_state_raw_bytes_projection": 11105121360,
+        "arm": "n3",
+        "assumptions": [
+          "Actor non-network arrays scale linearly from observed worlds to 128 worlds",
+          "Default protocol-2 NumPy payload expansion is bounded by 2 bytes per raw byte",
+          "64 MiB Python/RNG/pickle framing allowance per actor plus learner; provisional",
+          "At most three deferred packets per actor with 1 KiB per driven row allowance",
+          "No compression credit; gzip/tar/chunk/index framing gets 1 percent plus 1 MiB"
+        ],
+        "complete_upper_bound": null,
+        "deferred_packet_raw_bytes_planning_allowance": 7077888,
+        "demonstration_buffer_bytes": 0,
+        "demonstration_reason": "bv8 sets demos=None; anchors are on-policy labels",
+        "excluded": "actor simulator/runtime/n-step state, networks, optimizer, RNG, Python objects and pickle/zip framing",
+        "fill_independent": true,
+        "fixed_capacity_array_bytes": 10103294896,
+        "fixed_capacity_array_gib": 9.409426614642143,
+        "fixed_noncapacity_raw_bytes_observed": 39326072,
+        "four_snapshot_export_bytes_planning_upper_bound": 91631413568,
+        "label_array_bytes": 4800000,
+        "label_capacity": 300000,
+        "learner_seats": 3,
+        "planning_allowances_require_full_size_validation": true,
+        "production_size_measured": false,
+        "protocol2_array_payload_upper_bound_bytes": 20206589792,
+        "python_and_serializer_framing_bytes_planning_allowance": 469762048,
+        "replay_array_bytes": 16000000,
+        "replay_capacity": 500000,
+        "ring_array_bytes": 10082494896,
+        "ring_fields": [
+          {
+            "dtype": "|u1",
+            "name": "local",
+            "row_bytes": 6727,
+            "row_shape": [
+              7,
+              31,
+              31
+            ]
+          },
+          {
+            "dtype": "|u1",
+            "name": "global",
+            "row_bytes": 5476,
+            "row_shape": [
+              4,
+              37,
+              37
+            ]
+          },
+          {
+            "dtype": "<f4",
+            "name": "scalars",
+            "row_bytes": 240,
+            "row_shape": [
+              60
+            ]
+          },
+          {
+            "dtype": "|b1",
+            "name": "mask",
+            "row_bytes": 6,
+            "row_shape": [
+              6
+            ]
+          }
+        ],
+        "ring_margin_rows": 6144,
+        "ring_row_bytes": 12449,
+        "ring_rows_per_actor": 134984,
+        "serialized_checkpoint_bytes_planning_upper_bound": 22680004768,
+        "serialized_checkpoint_gib_planning_upper_bound": 21.12240043282509,
+        "snapshot_archive_bytes_planning_upper_bound": 22907853392,
+        "snapshot_targets": [
+          2000000,
+          4000000,
+          6000000,
+          8000000
+        ],
+        "worlds_per_actor": 128
+      }
+    },
+    "checkpoint_size_receipt": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/CHECKPOINT_SIZE_MEASUREMENT.json",
+      "sha256": "91d48fae8ef5fb1baeaf317984dff2e68144d91250392898fe143d07924241f7"
+    },
+    "complete_upper_bound": null,
+    "export_liability_formula": "5 * (4 * archive_N3_bytes + final_N3_bytes + 4 * archive_N1_bytes + final_N1_bytes) / measured_export_bytes_per_second_lower_bound",
+    "measured_export_bytes_per_second_lower_bound": null,
+    "required_cli_acceptance_field": "s1_full_replay_transfer.bytes_per_second_lower_bound",
+    "snapshot_count_per_run": 4,
+    "snapshot_export_gpu_hours_formula": "867602770220 / measured_export_bytes_per_second_lower_bound / 3600; plus ten final archives and all preparation",
+    "snapshot_targets": [
+      2000000,
+      4000000,
+      6000000,
+      8000000
+    ],
+    "status": "UNQUALIFIED",
+    "ten_run_snapshot_export_bytes_planning_upper_bound": 867602770220
+  },
+  "mac_pricing": {
+    "audit_and_preflight_worker_hours": 2,
+    "episode_factor": 2,
+    "max_measured_episode_seconds": 8.311568334000185,
+    "startup_seconds_per_identity": 600
+  },
+  "next_step": "Qualify production-size snapshot preparation and CLI acceptance measured L4 export throughput inside unchanged timeouts and envelopes before approval and admission.",
+  "nominal_caps": {
+    "elapsed_hours": 48.0,
+    "gpu_allocation_hours": 25.0,
+    "mac_worker_hours": 24.0,
+    "units": 60.0
+  },
+  "production_counter_qualification": {
+    "required_invariant": "overshoot <= actors * worlds * learner_seats - 1",
+    "status": "PASS",
+    "tiny_export_roundtrip_is_not_production_qualification": true
+  },
+  "qualified_q0b_planning": {
+    "estimated_training_gpu_hours": 8.166666666666666,
+    "estimated_training_units_at_2_per_hour": 16.333333333333332,
+    "evidence": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/q0q1_20261017/Q0B_A3_REQUALIFICATION_20261018.md",
+      "sha256": "e3587a53f23a62db866c7fbd6a64ea3b8f76271984c311c815d5300fdc6e86f5"
+    },
+    "limitation": "Historical training estimates exclude the newly required full-replay transport qualification.",
+    "n1_estimate_minutes": 68,
+    "n3_estimate_minutes": 30
+  },
+  "refusal_reasons": [
+    "Full-size L4 full-replay checkpoint/export liability is unqualified; no finite complete upper bound is admitted."
+  ],
+  "registration_status": "DRAFT_PENDING_OWNER_REVIEW",
+  "schema": "s1-mature-pricing/v1",
+  "status": "REFUSED",
+  "training_preflight_status": "PASS",
+  "usable_caps": {
+    "elapsed_hours": 38.4,
+    "gpu_allocation_hours": 20.0,
+    "mac_worker_hours": 19.2,
+    "units": 48.0
+  }
+}
