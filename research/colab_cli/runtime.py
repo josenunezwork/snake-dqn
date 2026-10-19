@@ -127,9 +127,20 @@ def _validate_spec(raw: Mapping[str, Any]) -> dict[str, Any]:
     return {**raw, "root": str(root)}
 
 
-def _exports(root: Path, max_export_bytes: int) -> list[dict[str, Any]]:
+def _signature(path: Path) -> tuple[int, int, int, int, int]:
+    stat = path.stat()
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
+def _exports(
+    root: Path,
+    max_export_bytes: int,
+    cache: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
     output = root / "output"
     if not output.is_dir():
+        if cache:
+            raise RuntimeError("immutable completed export directory was removed")
         return []
     records: list[dict[str, Any]] = []
     for marker in sorted(output.rglob("*.complete")):
@@ -140,26 +151,40 @@ def _exports(root: Path, max_export_bytes: int) -> list[dict[str, Any]]:
             or not checksum.is_file()
             or marker.is_symlink()
             or candidate.is_symlink()
+            or checksum.is_symlink()
         ):
             raise RuntimeError(f"invalid completed export marker: {marker}")
         resolved = candidate.resolve()
-        if output.resolve() not in resolved.parents or candidate.stat().st_size > max_export_bytes:
+        if (
+            output.resolve() not in resolved.parents
+            or output.resolve() not in checksum.resolve().parents
+            or candidate.stat().st_size > max_export_bytes
+            or checksum.stat().st_size > 1024
+            or marker.stat().st_size > 4096
+        ):
             raise RuntimeError(f"unsafe or oversized completed export: {candidate}")
-        declared = (
-            checksum.read_text(encoding="utf-8").strip().split()[0].lower()
-            if checksum.stat().st_size
-            else ""
-        )
+        relative = str(candidate.relative_to(output))
+        signature = (_signature(candidate), _signature(checksum), _signature(marker))
+        if cache is not None and relative in cache:
+            old_signature, record = cache[relative]
+            if old_signature != signature:
+                raise RuntimeError(f"immutable completed export changed: {candidate}")
+            records.append(record)
+            continue
+        with checksum.open(encoding="utf-8") as handle:
+            words = handle.read(1025).split()
+        declared = words[0].lower() if words else ""
         observed = _sha256(candidate)
         if len(declared) != 64 or declared != observed:
             raise RuntimeError(f"completed export hash mismatch: {candidate}")
-        records.append(
-            {
-                "path": str(candidate.relative_to(output)),
-                "sha256": observed,
-                "size": candidate.stat().st_size,
-            }
-        )
+        if signature != (_signature(candidate), _signature(checksum), _signature(marker)):
+            raise RuntimeError(f"completed export changed during hash: {candidate}")
+        record = {"path": relative, "sha256": observed, "size": candidate.stat().st_size}
+        if cache is not None:
+            cache[relative] = (signature, record)
+        records.append(record)
+    if cache is not None and set(cache) != {entry["path"] for entry in records}:
+        raise RuntimeError("immutable completed export was removed")
     return records
 
 
@@ -345,6 +370,7 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
     reason: str | None = None
     last_state = 0.0
     failure: BaseException | None = None
+    export_cache: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
     try:
         while process.poll() is None:
             now = _now()
@@ -359,7 +385,7 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
                     status="running",
                     updated_at=now,
                     pid=process.pid,
-                    exports=_exports(root, spec["max_export_bytes"]),
+                    exports=_exports(root, spec["max_export_bytes"], export_cache),
                 )
                 _atomic_json(root / "state.json", state)
                 last_state = now
@@ -374,7 +400,7 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
         returncode = process.wait()
         log.close()
     try:
-        completed_exports = _exports(root, spec["max_export_bytes"])
+        completed_exports = _exports(root, spec["max_export_bytes"], export_cache)
     except BaseException as exc:
         completed_exports = []
         failure = failure or exc

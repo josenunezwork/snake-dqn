@@ -205,3 +205,32 @@ def test_initial_lease_storage_failure_still_attempts_unassign(
     with pytest.raises(OSError, match="disk full"):
         runtime.supervise(spec)
     assert calls == ["unassign"]
+
+
+def test_export_cache_hashes_once_and_rejects_later_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "root"
+    output = root / "output"
+    output.mkdir(parents=True)
+    payload = output / "snap"
+    payload.write_bytes(b"one")
+    digest = hashlib.sha256(b"one").hexdigest()
+    (output / "snap.sha256").write_text(digest, encoding="utf-8")
+    (output / "snap.complete").touch()
+    calls = 0
+    original = runtime._sha256
+
+    def counted(path: Path) -> str:
+        nonlocal calls
+        calls += 1
+        return original(path)
+
+    monkeypatch.setattr(runtime, "_sha256", counted)
+    cache = {}
+    assert runtime._exports(root, 100, cache)
+    assert runtime._exports(root, 100, cache)
+    assert calls == 1
+    payload.write_bytes(b"two")
+    with pytest.raises(RuntimeError, match="immutable completed export changed"):
+        runtime._exports(root, 100, cache)
