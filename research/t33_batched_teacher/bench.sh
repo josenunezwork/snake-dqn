@@ -28,13 +28,19 @@ export NUMBA_NUM_THREADS="${T33_THREADS:-1}"
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 mkdir -p "${output_root}"
 
+row_args=()
+if [[ -n "${T33_RESIDENT_ROWS:-}" ]]; then
+  row_args=(--resident-rows "${T33_RESIDENT_ROWS}")
+fi
+
 exec python -m research.t33_batched_teacher.benchmark \
   --checkpoint "${input_root}/B8_s3_final.pth" \
-  --worlds "${T33_WORLDS:-256,1024,4096}" \
+  --worlds "${T33_WORLDS:-256,1024}" \
+  "${row_args[@]}" \
   --fallback-worlds "${T33_FALLBACK_WORLDS:-64}" \
   --seconds "${T33_SECONDS:-1200}" \
-  --horizon "${T33_HORIZON:-128}" \
-  --rollouts "${T33_ROLLOUTS:-8}" \
+  --horizon "${T33_HORIZON:-32}" \
+  --rollouts "${T33_ROLLOUTS:-4}" \
   --device "${T33_DEVICE:-cuda}" \
   --threads "${T33_THREADS:-1}" \
   --iterations "${T33_ITERATIONS:-0}" \

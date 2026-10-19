@@ -266,17 +266,17 @@ class BatchedVector61Runtime(Vector61Runtime):
         )
         self.timings = {"prepare_s": 0.0, "observe_s": 0.0, "prepare_calls": 0, "observe_calls": 0}
 
-    def prepare(self, sim: BatchSim) -> None:
+    def prepare(self, sim: BatchSim, rows_mask: Optional[np.ndarray] = None) -> None:
         """Prepare selections and accumulate wall time for the T33 profile."""
         started = time.perf_counter()
-        super().prepare(sim)
+        super().prepare(sim, rows_mask=rows_mask)
         self.timings["prepare_s"] += time.perf_counter() - started
         self.timings["prepare_calls"] += 1
 
-    def observe_step(self, sim: BatchSim) -> None:
+    def observe_step(self, sim: BatchSim, rows_mask: Optional[np.ndarray] = None) -> None:
         """Capture post-step carry and accumulate wall time for the T33 profile."""
         started = time.perf_counter()
-        super().observe_step(sim)
+        super().observe_step(sim, rows_mask=rows_mask)
         self.timings["observe_s"] += time.perf_counter() - started
         self.timings["observe_calls"] += 1
 

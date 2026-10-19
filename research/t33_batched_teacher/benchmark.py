@@ -46,6 +46,9 @@ def memory_admission(
     device: str,
     host_available: int,
     gpu_available: int | None,
+    *,
+    horizon: int = 128,
+    ring_margin: int = 1,
 ) -> dict:
     """Conservative peak estimate before creating any expanded batch.
 
@@ -55,18 +58,40 @@ def memory_admission(
     """
     if worlds < 1 or rollouts < 1:
         raise ValueError("world and rollout counts must be positive")
-    sim_arrays = sum(
-        v.nbytes
-        for v in vars(source.sim).values()
-        if isinstance(v, np.ndarray) and v.ndim and v.shape[0] == 1
-    )
-    runtime_arrays = sum(
-        v.nbytes
-        for v in vars(source.runtime).values()
-        if isinstance(v, np.ndarray) and v.ndim and v.shape[0] == 1
-    )
+
+    def unique_backing_bytes(owner: Any) -> int:
+        """Count each ndarray allocation once; padded interior views alias it."""
+        allocations: dict[int, int] = {}
+        for value in vars(owner).values():
+            if not isinstance(value, np.ndarray) or not value.ndim or value.shape[0] != 1:
+                continue
+            root = value
+            while isinstance(root.base, np.ndarray):
+                root = root.base
+            allocations[id(root)] = max(allocations.get(id(root), 0), int(root.nbytes))
+        return sum(allocations.values())
+
+    source_sim_arrays = unique_backing_bytes(source.sim)
+    sim_arrays = source_sim_arrays
+    # merge_worlds re-caps the int64 body rings before expansion.  Model the
+    # resulting resident row rather than the source's strict-H5000 capacity.
+    old_bodies = getattr(source.sim, "bodies", None)
+    seg_count = getattr(source.sim, "seg_count", None)
+    recap_capacity = None
+    if isinstance(old_bodies, np.ndarray) and isinstance(seg_count, np.ndarray):
+        recap_capacity = int(np.max(seg_count)) + horizon + ring_margin
+        recapped_bodies = (
+            int(old_bodies.shape[1]) * recap_capacity * 2 * np.dtype(np.int64).itemsize
+        )
+        sim_arrays += recapped_bodies - old_bodies.nbytes
+    runtime_arrays = unique_backing_bytes(source.runtime)
     branches = worlds * 6 * rollouts
-    host = branches * (2 * sim_arrays + runtime_arrays + 65536 + 12444)
+    resident_bytes_per_row = sim_arrays + runtime_arrays + 65536 + 12444
+    # Assembly owns a resident output plus a same-sized explicit clone headroom;
+    # source-world clones peak separately before the gathered batch is complete.
+    clone_headroom = branches * sim_arrays
+    source_clone_headroom = worlds * source_sim_arrays
+    host = branches * resident_bytes_per_row + clone_headroom + source_clone_headroom
     # fp16 CNN workspaces/activations plus persistent inputs. Large resident
     # shapes can exceed a 24GB L4 even when host RAM admits their simulator.
     gpu = branches * (512 * 1024 + 12444) + 256 * 1024**2 if device == "cuda" else 0
@@ -78,8 +103,14 @@ def memory_admission(
         "model_batch_rows": branches,
         "chunk_count": 1,
         "estimated_host_peak_bytes": host,
+        "resident_bytes_per_row": resident_bytes_per_row,
+        "clone_headroom_bytes": clone_headroom,
+        "source_clone_headroom_bytes": source_clone_headroom,
+        "row_count": branches,
+        "recap_capacity": recap_capacity,
         "host_admission_cap_bytes": host_available,
         "estimated_gpu_peak_bytes": gpu,
+        "gpu_activation_bytes_per_row": 512 * 1024 if device == "cuda" else 0,
         "gpu_admission_cap_bytes": gpu_available,
         "admitted": allowed,
         "status": "admitted" if allowed else "skipped_memory_admission",
@@ -124,7 +155,7 @@ class TimedTeacher(BatchedTeacher):
     deadline: float = float("inf")
     heartbeat: float = 0.0
 
-    def _q(self, sim: Any, rows: np.ndarray, net: Any) -> np.ndarray:
+    def _q(self, sim: Any, rows: np.ndarray, net: Any, **kwargs: Any) -> np.ndarray:
         if time.perf_counter() >= self.deadline:
             raise TimeoutError("benchmark cell reached its wall cap")
         if time.perf_counter() - self.heartbeat >= 110:
@@ -139,7 +170,7 @@ class TimedTeacher(BatchedTeacher):
                 flush=True,
             )
             self.heartbeat = time.perf_counter()
-        return super()._q(sim, rows, net)
+        return super()._q(sim, rows, net, **kwargs)
 
 
 def run_cell(
@@ -223,6 +254,20 @@ def run_cell(
         "h2d_fraction": h2d / measured if measured else 0.0,
         "gpu_utilization_snapshot_percent": utilization() if device == "cuda" else None,
         "phases": phases,
+        "stage_us_per_resident_row_step": {
+            k: 1e6
+            * v
+            / max(1, phases.get("resident_row_steps", steps * worlds * 6 * config.rollouts))
+            for k, v in phases.items()
+            if k.endswith("_s")
+        },
+        "stage_us_per_active_row_step": {
+            k: 1e6
+            * v
+            / max(1, phases.get("active_row_steps", steps * worlds * 6 * config.rollouts))
+            for k, v in phases.items()
+            if k.endswith("_s")
+        },
         "inference": inference,
         "rows": rows,
         "fixture": "repeated three disjoint L800 timing snapshots, not independent labels",
@@ -243,7 +288,8 @@ def recommendation(cells: list[dict], device: str) -> str:
     cell = max(valid, key=lambda r: r["decisions_per_s"])
     if cell["host_fraction"] >= 0.6:
         return (
-            "HOST_BOUND: consider three L4 runtimes and conditional step 5; no dispatch authorized"
+            "HOST_BOUND: consider three L4 hosts; GPU cropping dropped by Fable; "
+            "no dispatch authorized"
         )
     if cell["gpu_fraction"] >= 0.6:
         return "GPU_BOUND: consider one separately operated 20-minute A100 probe"
@@ -253,7 +299,11 @@ def recommendation(cells: list[dict], device: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, default=B8)
-    parser.add_argument("--worlds", default="256,1024,4096")
+    parser.add_argument("--worlds", default="256,1024")
+    parser.add_argument(
+        "--resident-rows",
+        help="comma-separated resident row shapes, divisible by 6*N; overrides worlds",
+    )
     parser.add_argument(
         "--fallback-worlds",
         type=int,
@@ -263,8 +313,8 @@ def main() -> int:
     parser.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cuda")
     parser.add_argument("--seconds", type=float, default=1200.0)
     parser.add_argument("--iterations", type=int, default=0)
-    parser.add_argument("--horizon", type=int, default=128)
-    parser.add_argument("--rollouts", type=int, default=8)
+    parser.add_argument("--horizon", type=int, default=32)
+    parser.add_argument("--rollouts", type=int, default=4)
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--host-memory-gib", type=float)
     parser.add_argument("--qualify-states", type=int, default=1000)
@@ -273,6 +323,11 @@ def main() -> int:
     if args.out.exists():
         raise FileExistsError(args.out)
     worlds = [int(x) for x in args.worlds.split(",")]
+    if args.resident_rows:
+        requested_rows = [int(x) for x in args.resident_rows.split(",")]
+        if args.rollouts < 1 or any(r < 1 or r % (6 * args.rollouts) for r in requested_rows):
+            parser.error("resident rows must be positive multiples of 6*N")
+        worlds = [r // (6 * args.rollouts) for r in requested_rows]
     if min(worlds) < 1 or args.seconds <= 0 or args.iterations < 0 or args.threads < 1:
         parser.error("positive world/time/thread limits required")
     if platform.system() == "Darwin" and args.threads > 4:
@@ -300,6 +355,7 @@ def main() -> int:
         "checkpoint_sha256": B8_SHA,
         "bank_sha256": sha(Path(phase0.__file__).with_name("WORLD_BANK.json")),
         "requested_source_worlds": worlds,
+        "requested_resident_rows": [w * 6 * args.rollouts for w in worlds],
         "cells": [],
         "status": "incomplete",
     }
@@ -326,7 +382,9 @@ def main() -> int:
     )
     gpu_cap = int(torch.cuda.mem_get_info()[0] * 0.7) if args.device == "cuda" else None
     admissions = [
-        memory_admission(templates[0], size, args.rollouts, args.device, host_cap, gpu_cap)
+        memory_admission(
+            templates[0], size, args.rollouts, args.device, host_cap, gpu_cap, horizon=args.horizon
+        )
         for size in worlds
     ]
     for admission in admissions:
@@ -334,7 +392,13 @@ def main() -> int:
     execution_worlds = list(worlds)
     if not any(c["admitted"] for c in admissions) and args.fallback_worlds > 0:
         fallback = memory_admission(
-            templates[0], args.fallback_worlds, args.rollouts, args.device, host_cap, gpu_cap
+            templates[0],
+            args.fallback_worlds,
+            args.rollouts,
+            args.device,
+            host_cap,
+            gpu_cap,
+            horizon=args.horizon,
         )
         fallback["benchmark_role"] = "fallback_requested_resident_shapes_unverified"
         admissions.append(fallback)

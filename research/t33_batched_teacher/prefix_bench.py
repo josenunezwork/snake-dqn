@@ -7,7 +7,6 @@ import json
 import statistics
 import subprocess
 import time
-import types
 from dataclasses import asdict
 from pathlib import Path
 
@@ -24,17 +23,6 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     teacher.configure_cpu()
-    old = types.ModuleType("t33_repeated_reference")
-    exec(
-        compile(
-            subprocess.check_output(
-                ["git", "show", f"{BASE}:research/t33_batched_teacher/ablation.py"], text=True
-            ),
-            "<frozen ablation>",
-            "exec",
-        ),
-        {**old.__dict__, "__file__": ablation.__file__},
-    )
     # Explicit namespace needed because the frozen function resolves its own globals.
     namespace = {"__file__": ablation.__file__, "__name__": "t33_repeated_reference"}
     exec(

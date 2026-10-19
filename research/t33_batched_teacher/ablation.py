@@ -113,6 +113,7 @@ def compare(world: Any, settings: dict, choices: list[dict], gate: float | None)
         "decision": decision,
         "length": int(world.sim.length[0, 0]),
         "margin": margin,
+        "base_action": teacher._mask_argmax(q, select),
         "reference_action": winner,
         "reference_scores": full,
         "legacy_action": old_winner,
@@ -311,7 +312,11 @@ def calibrate(rows: list[dict]) -> dict:
             matches, regrets = [], []
             for row, trace in zip(rows, traces):
                 scores = reference.trace_scores(trace, h, n, leaf, scale)
-                action = max(scores, key=scores.__getitem__)
+                searched = next(
+                    (v.get("searched", True) for v in row["variants"] if v["id"] == variant["id"]),
+                    True,
+                )
+                action = max(scores, key=scores.__getitem__) if searched else row["base_action"]
                 full = row["reference_scores"]
                 matches.append(action == row["reference_action"])
                 regrets.append(full[row["reference_action"]] - full[action])

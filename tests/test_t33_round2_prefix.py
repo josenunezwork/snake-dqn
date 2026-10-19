@@ -48,3 +48,61 @@ def test_leaf_fit_recovers_segment_frames_per_q_and_reports_zero_one() -> None:
     assert fitted["reports"]["zero"]["scale"] == 0.0
     assert fitted["reports"]["one"]["scale"] == 1.0
     assert "segment-frames" in fitted["units"]
+
+
+def test_first_calibration_pass_reservoirs_snapshots_and_cache_replays_once(monkeypatch, tmp_path):
+    """First use scans once; cached use replays selected seams without rescanning."""
+    import copy
+    from types import SimpleNamespace
+
+    from research.phase0_search_20261019 import runner
+
+    steps = []
+
+    class World:
+        def __init__(self):
+            self.sim = SimpleNamespace(
+                frame=np.array([0]), alive=np.array([[True]]), length=np.array([[700]])
+            )
+
+        def clone(self):
+            return copy.deepcopy(self)
+
+    def step(world, collector=None):
+        world.sim.frame[0] += 1
+        steps.append(int(world.sim.frame[0]))
+        if collector is not None:
+            collector.choose(world)
+        return {"length": 700, "margin": 1.0}
+
+    monkeypatch.setattr(teacher, "configure_cpu", lambda: None)
+    monkeypatch.setattr(teacher, "build_world", lambda *a: World())
+    monkeypatch.setattr(teacher, "step_world", step)
+    monkeypatch.setattr(
+        teacher,
+        "_q_and_legal",
+        lambda *a: (np.arange(6), np.ones(6, dtype=bool), np.ones(6, dtype=bool)),
+    )
+    monkeypatch.setattr(runner, "operational_guard", lambda: None)
+    monkeypatch.setattr(ablation, "identity", lambda: {"source_sha256": {"fixture": "same"}})
+    monkeypatch.setattr(
+        ablation, "compare", lambda world, *a: {"decision": int(world.sim.frame[0]) - 1}
+    )
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.write_bytes(b"fixed")
+    payload = (
+        {"world_seed": 42, "world_id": "cache-fixture", "mix": "scripted"},
+        str(checkpoint),
+        2,
+        {"horizon": 4995},
+        [],
+        None,
+        False,
+        str(tmp_path / "cache"),
+    )
+    first = ablation.task(payload)
+    assert len(steps) == 6
+    assert len(first) == 2
+    steps.clear()
+    assert ablation.task(payload) == first
+    assert len(steps) == max(row["decision"] for row in first) + 1

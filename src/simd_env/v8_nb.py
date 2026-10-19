@@ -51,7 +51,7 @@ from dataclasses import dataclass, replace
 from typing import Optional, Tuple
 
 import numpy as np
-from numba import njit
+from numba import get_thread_id, njit, prange
 
 __all__ = [
     "V8Result",
@@ -571,6 +571,7 @@ def _space_pref(qv, cand, nc, anchor, lam, area, area_cap_row, scratch):
 def _v8_rows(
     bodies, head_ptr, seg_count, length, boost_frames, direction, alive,
     envs, slots, q, mask_in, gw, gh, min_boost, boost_cost, mech_v2, headon_ratio, lam,
+    owner_pad, owner_pad_width, owner_pad_offset, use_owner_pad,
     eager, ws, others, hero, tmp, seen, rel_st, rel_val, qx, qy, qd, membership, touched,
     out_action, out_base, out_v5, out_v7, out_outcome, out_reason,
     out_counts, out_cap, out_need, out_acap, out_area, out_landing, out_risky,
@@ -621,24 +622,43 @@ def _v8_rows(
             for i in range(ntouched):
                 membership[touched[i]] = np.uint64(0)
             ntouched = 0
-            for o in range(S):
-                if not alive[e, o]:
-                    continue
-                if wide_population:
-                    bit = np.uint64(1) if o == s else np.uint64(2)
-                else:
-                    bit = np.uint64(1) << np.uint64(o)
-                ohp = head_ptr[e, o]
-                for k in range(seg_count[e, o]):
-                    j = (ohp - k) % ring
-                    cx = bodies[e, o, j, 0]
-                    cy = bodies[e, o, j, 1]
-                    if cx >= 0 and cx < gw and cy >= 0 and cy < gh:
+            if use_owner_pad:
+                # GridBatchSim already maintains this membership map for the
+                # raster path.  It is exact for normal worlds (one owner per
+                # cell); the painted route remains the reference for synthetic
+                # overlapping bodies, whose precedence is intentionally tested.
+                for cy in range(gh):
+                    for cx in range(gw):
+                        o = owner_pad[e, cy + owner_pad_offset, cx + owner_pad_offset]
+                        if o < 0:
+                            continue
+                        if wide_population:
+                            bit = np.uint64(1) if o == s else np.uint64(2)
+                        else:
+                            bit = np.uint64(1) << np.uint64(o)
                         idx = cx * gh + cy
-                        if membership[idx] == 0:
-                            touched[ntouched] = idx
-                            ntouched += 1
-                        membership[idx] |= bit
+                        touched[ntouched] = idx
+                        ntouched += 1
+                        membership[idx] = bit
+            else:
+                for o in range(S):
+                    if not alive[e, o]:
+                        continue
+                    if wide_population:
+                        bit = np.uint64(1) if o == s else np.uint64(2)
+                    else:
+                        bit = np.uint64(1) << np.uint64(o)
+                    ohp = head_ptr[e, o]
+                    for k in range(seg_count[e, o]):
+                        j = (ohp - k) % ring
+                        cx = bodies[e, o, j, 0]
+                        cy = bodies[e, o, j, 1]
+                        if cx >= 0 and cx < gw and cy >= 0 and cy < gh:
+                            idx = cx * gh + cy
+                            if membership[idx] == 0:
+                                touched[ntouched] = idx
+                                ntouched += 1
+                            membership[idx] |= bit
             last_e = e
         # ---- masked Q (float32), base = first maximum (torch.argmax)
         anym = False
@@ -959,6 +979,34 @@ def _v8_rows(
         out_reason[r] = reason
 
 
+@njit(cache=True, nogil=True, parallel=True)
+def _v8_rows_prange(
+    bodies, head_ptr, seg_count, length, boost_frames, direction, alive,
+    envs, slots, q, mask_in, gw, gh, min_boost, boost_cost, mech_v2, headon_ratio, lam,
+    owner_pad, owner_pad_width, owner_pad_offset, use_owner_pad, eager,
+    w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11,
+    out_action, out_base, out_v5, out_v7, out_outcome, out_reason,
+    out_counts, out_cap, out_need, out_acap, out_area, out_landing, out_risky,
+    out_waived, out_elig,
+):  # fmt: skip
+    """Run independent rows with scratch indexed by Numba's worker id."""
+    for r in prange(envs.shape[0]):
+        tid = get_thread_id()
+        _v8_rows(
+            bodies, head_ptr, seg_count, length, boost_frames, direction, alive,
+            envs[r : r + 1], slots[r : r + 1], q[r : r + 1], mask_in[r : r + 1],
+            gw, gh, min_boost, boost_cost, mech_v2, headon_ratio, lam,
+            owner_pad, owner_pad_width, owner_pad_offset, use_owner_pad, eager,
+            w0[tid], w1[tid], w2[tid], w3[tid], w4[tid], w5[tid], w6[tid], w7[tid],
+            w8[tid], w9[tid], w10[tid], w11[tid],
+            out_action[r : r + 1], out_base[r : r + 1], out_v5[r : r + 1], out_v7[r : r + 1],
+            out_outcome[r : r + 1], out_reason[r : r + 1], out_counts[r : r + 1],
+            out_cap[r : r + 1], out_need[r : r + 1], out_acap[r : r + 1], out_area[r : r + 1],
+            out_landing[r : r + 1], out_risky[r : r + 1], out_waived[r : r + 1],
+            out_elig[r : r + 1],
+        )  # fmt: skip
+
+
 # ----------------------------------------------------------------------------- Python API
 @dataclass
 class V8Result:
@@ -1053,6 +1101,34 @@ def _workspace(gw: int, gh: int) -> Tuple[np.ndarray, ...]:
     return ws
 
 
+def _parallel_workspace(gw: int, gh: int, threads: int) -> Tuple[np.ndarray, ...]:
+    """Allocate independent stamped workspaces for each Numba worker."""
+    key = ("parallel", int(gw), int(gh), int(threads))
+    workspaces = getattr(_WORKSPACE, "by_shape", None)
+    if workspaces is None:
+        workspaces = {}
+        _WORKSPACE.by_shape = workspaces
+    ws = workspaces.get(key)
+    if ws is None:
+        n = int(gw) * int(gh)
+        ws = (
+            np.ones((threads, 4), dtype=np.int64),
+            np.zeros((threads, n), dtype=np.int64),
+            np.zeros((threads, n), dtype=np.int64),
+            np.zeros((threads, n), dtype=np.int64),
+            np.zeros((threads, n), dtype=np.int64),
+            np.zeros((threads, n), dtype=np.int64),
+            np.zeros((threads, n), dtype=np.int64),
+            np.zeros((threads, n), dtype=np.int64),
+            np.zeros((threads, n), dtype=np.int64),
+            np.zeros((threads, n), dtype=np.int64),
+            np.zeros((threads, n), dtype=np.uint64),
+            np.zeros((threads, n), dtype=np.int64),
+        )
+        workspaces[key] = ws
+    return ws
+
+
 def _prepare_workspace(ws: Tuple[np.ndarray, ...]) -> None:
     """Clear stamped scratch before an int64 stamp could wrap.
 
@@ -1078,6 +1154,7 @@ def v8_decide(
     lam: float = 8.0,
     features: bool = False,
     grid_shape: Optional[Tuple[int, int]] = None,
+    membership: str = "painted",
 ) -> V8Result:
     """The v8 veto (``lambda = lam``, head layer on) for ``(N, 2)`` ``(env, slot)`` rows.
 
@@ -1092,6 +1169,9 @@ def v8_decide(
             decision is identical either way.
         grid_shape: ``(gw, gh)`` override (default ``(sim.grid_w, sim.grid_h)``, the
             vector61 featurizer's free-space grid).
+        membership: ``"painted"`` is the overlap-safe reference. ``"owner_pad"``
+            reads GridBatchSim's maintained owner map and is valid for normal
+            non-overlapping worlds.
     """
     from src.core.mechanics_constants import HEADON_SIZE_RATIO
 
@@ -1100,6 +1180,11 @@ def v8_decide(
         raise ValueError(f"lambda must be finite and >= 0, got {lam!r}")
     if getattr(sim.cfg, "arena_type", "rectangular") == "circular":
         raise ValueError("v8_nb supports rectangular arenas only")
+    if membership not in ("painted", "owner_pad"):
+        raise ValueError("membership must be 'painted' or 'owner_pad'")
+    use_owner_pad = membership == "owner_pad"
+    if use_owner_pad and not hasattr(sim, "_owner_pad"):
+        raise ValueError("owner_pad membership requires GridBatchSim")
     rows = _i64(rows).reshape(-1, 2)
     N = len(rows)
     q = np.ascontiguousarray(q, dtype=np.float32).reshape(N, 6)
@@ -1138,19 +1223,42 @@ def v8_decide(
         rows_kernel = rows
         q_kernel = q
         mask_kernel = mask
-    ws = _workspace(gw, gh)
-    _prepare_workspace(ws)
-    _v8_rows(
-        _i64(sim.bodies), _i64(sim.head_ptr), _i64(sim.seg_count), _i64(sim.length),
-        _i64(sim.boost_frames), _i64(sim.direction), np.ascontiguousarray(sim.alive, bool),
-        rows_kernel[:, 0].copy(), rows_kernel[:, 1].copy(), q_kernel, mask_kernel, int(gw), int(gh),
-        int(sim.cfg.min_boost_length), int(sim.cfg.boost_length_cost_frames),
-        int(sim.cfg.mechanics_version) == 2, float(HEADON_SIZE_RATIO), lam, bool(features),
-        *ws,
-        out.action, out.base, out.v5_action, out.v7_action, out.outcome, out.v5_reason,
-        out.counts, out.cap, out.need, out.area_cap, out.area, out.landing, out.head_risky,
-        out.head_waived, out.v5_eligible,
-    )  # fmt: skip
+    owner_pad = (
+        np.ascontiguousarray(sim._owner_pad, dtype=np.int16)
+        if use_owner_pad
+        else np.full((1, 1, 1), -1, dtype=np.int16)
+    )
+    owner_offset = int(getattr(sim, "_grid_pad", 0))
+    threads = int(__import__("numba").get_num_threads())
+    if threads > 1 and N >= threads:
+        ws = _parallel_workspace(gw, gh, threads)
+        _v8_rows_prange(
+            _i64(sim.bodies), _i64(sim.head_ptr), _i64(sim.seg_count), _i64(sim.length),
+            _i64(sim.boost_frames), _i64(sim.direction), np.ascontiguousarray(sim.alive, bool),
+            rows_kernel[:, 0].copy(), rows_kernel[:, 1].copy(), q_kernel, mask_kernel,
+            int(gw), int(gh),
+            int(sim.cfg.min_boost_length), int(sim.cfg.boost_length_cost_frames),
+            int(sim.cfg.mechanics_version) == 2, float(HEADON_SIZE_RATIO), lam,
+            owner_pad, int(owner_pad.shape[2]), owner_offset, use_owner_pad, bool(features),
+            *ws,
+            out.action, out.base, out.v5_action, out.v7_action, out.outcome, out.v5_reason,
+            out.counts, out.cap, out.need, out.area_cap, out.area, out.landing, out.head_risky,
+            out.head_waived, out.v5_eligible,
+        )  # fmt: skip
+    else:
+        ws = _workspace(gw, gh)
+        _prepare_workspace(ws)
+        _v8_rows(
+            _i64(sim.bodies), _i64(sim.head_ptr), _i64(sim.seg_count), _i64(sim.length),
+            _i64(sim.boost_frames), _i64(sim.direction), np.ascontiguousarray(sim.alive, bool),
+            rows_kernel[:, 0].copy(), rows_kernel[:, 1].copy(), q_kernel, mask_kernel,
+            int(gw), int(gh), int(sim.cfg.min_boost_length), int(sim.cfg.boost_length_cost_frames),
+            int(sim.cfg.mechanics_version) == 2, float(HEADON_SIZE_RATIO), lam,
+            owner_pad, int(owner_pad.shape[2]), owner_offset, use_owner_pad, bool(features), *ws,
+            out.action, out.base, out.v5_action, out.v7_action, out.outcome, out.v5_reason,
+            out.counts, out.cap, out.need, out.area_cap, out.area, out.landing, out.head_risky,
+            out.head_waived, out.v5_eligible,
+        )  # fmt: skip
     if grouped:
         inverse = np.empty(N, dtype=np.int64)
         inverse[order] = np.arange(N)
