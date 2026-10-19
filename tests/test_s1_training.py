@@ -36,6 +36,7 @@ def test_manifest_factory_makes_ten_draft_review_rows_with_asymmetric_l4_caps(
         _input(tmp_path, "mac-parity-reference.json", "mac-parity-reference.json"),
         _input(tmp_path, "parity-bank.json", "parity-bank.json"),
         _input(tmp_path, "q0b-l4.json", "q0b-l4.json"),
+        _input(tmp_path, "cli-acceptance-result.json", "cli-acceptance-result.json"),
     ]
     rows = manifests.make_manifests(
         seed_bank=seeds,
@@ -46,6 +47,13 @@ def test_manifest_factory_makes_ten_draft_review_rows_with_asymmetric_l4_caps(
         inputs=inputs,
     )
     assert len(rows) == 10
+    assert all(
+        any(
+            item["dest"] == "cli-acceptance-result.json" and len(item["sha256"]) == 64
+            for item in row["inputs"]
+        )
+        for row in rows
+    )
     assert {row["requirements"]["gpu"] for row in rows} == {"L4"}
     n3 = next(row for row in rows if row["env"]["S1_ARM"] == "n3")
     n1 = next(row for row in rows if row["env"]["S1_ARM"] == "n1")

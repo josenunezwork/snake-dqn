@@ -30,7 +30,9 @@ def _verify_plan(path: Path, repo: Path) -> dict[str, Any]:
     plan = _read(path)
     if plan.get("schema") != admission.SCHEMA or plan.get("status") != "PREPARED_NOT_DISPATCHED":
         raise admission.AdmissionRefused("not an immutable prepared S1 admission plan")
-    if admission.published_commit(repo) != plan.get("commit"):
+    if admission.published_commit(repo, plan.get("published_ref", "origin/main")) != plan.get(
+        "commit"
+    ):
         raise admission.AdmissionRefused("published source changed since S1 plan preparation")
     if admission.source_closure(repo, plan["commit"]) != plan.get("source_closure"):
         raise admission.AdmissionRefused("complete source closure differs from the prepared plan")

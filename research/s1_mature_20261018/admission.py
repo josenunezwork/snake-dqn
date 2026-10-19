@@ -51,11 +51,21 @@ def git(repo: Path, *args: str) -> str:
     return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
 
 
-def published_commit(repo: Path) -> str:
-    """Require the plan source to be exactly the fetched public main head."""
-    head, main = git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "origin/main")
+def published_commit(repo: Path, published_ref: str = "origin/main") -> str:
+    """Require clean source at an explicitly named remote-tracking branch head."""
+    if not published_ref.startswith("origin/") or any(
+        char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-"
+        for char in published_ref
+    ):
+        raise AdmissionRefused("published reference must name an origin remote-tracking branch")
+    git(repo, "show-ref", "--verify", f"refs/remotes/{published_ref}")
+    head, main = git(repo, "rev-parse", "HEAD"), git(
+        repo, "rev-parse", f"refs/remotes/{published_ref}"
+    )
     if head != main:
-        raise AdmissionRefused("prepare requires HEAD to equal the current published origin/main")
+        raise AdmissionRefused(
+            f"prepare requires HEAD to equal the current published {published_ref}"
+        )
     if git(repo, "status", "--porcelain"):
         raise AdmissionRefused("prepare requires a clean published worktree")
     return head
@@ -80,7 +90,11 @@ def require_approved_preregistration(path: Path) -> dict[str, str]:
     text = path.read_text()
     # The original DRAFT header remains part of the immutable historical bytes
     # after ratification, so only a prospective approval line can admit it.
-    approved = any(line.strip() == f"**Status: {APPROVAL}.**" for line in text.splitlines()[:12])
+    marker = f"**Status: {APPROVAL}.**"
+    approved = any(
+        line.strip() == marker or line.strip().startswith(marker + " ")
+        for line in text.splitlines()[:12]
+    )
     if not approved:
         raise AdmissionRefused("preregistration lacks the prospective Claude approval status line")
     return {"path": str(path.resolve()), "sha256": sha256(path)}
@@ -166,7 +180,7 @@ def priced_mac_bound(path: Path) -> dict[str, Any]:
         raise AdmissionRefused("pricing receipt lacks a complete_upper_bound")
     try:
         mac = float(bounds["mac_worker_hours"])
-        elapsed = float(bounds["elapsed_hours"])
+        elapsed = float(value["mac_upper_bound"]["elapsed_hours"])
     except (KeyError, TypeError, ValueError) as exc:
         raise AdmissionRefused("pricing receipt lacks finite Mac and elapsed bounds") from exc
     if not math.isfinite(mac) or not math.isfinite(elapsed) or mac < 0 or elapsed < 0:
@@ -182,6 +196,7 @@ def priced_mac_bound(path: Path) -> dict[str, Any]:
     except (ValueError, KeyError, TypeError, OSError) as exc:
         raise AdmissionRefused(str(exc)) from exc
     return {
+        "cli_acceptance_receipt": qualified["cli_acceptance_receipt"],
         "mac_worker_hours": mac,
         "elapsed_hours": elapsed,
         "per_arm_gpu_hours": {
@@ -193,7 +208,8 @@ def priced_mac_bound(path: Path) -> dict[str, Any]:
 
 def prepare(args: argparse.Namespace) -> Path:
     repo, out = args.repo.resolve(), args.out.resolve()
-    commit = published_commit(repo)
+    published_ref = getattr(args, "published_ref", "origin/main")
+    commit = published_commit(repo, published_ref)
     prereg = require_approved_preregistration(args.preregistration.resolve())
     seed_value, audit_value = json.loads(args.seed_bank.read_text()), json.loads(
         args.seed_audit.read_text()
@@ -208,7 +224,7 @@ def prepare(args: argparse.Namespace) -> Path:
     from research.s1_mature_20261018.review_jobs import verified_inputs
 
     frozen_inputs = verified_inputs()
-    parsed_inputs = [_input(item) for item in args.input] if args.input else frozen_inputs
+    parsed_inputs = [_input(item) for item in args.input] if args.input else list(frozen_inputs)
     expected_inputs = {item.dest: item.as_manifest()["sha256"] for item in frozen_inputs}
     if {item.dest: item.as_manifest()["sha256"] for item in parsed_inputs} != expected_inputs:
         raise AdmissionRefused("uploaded inputs differ from the frozen qualified input inventory")
@@ -217,6 +233,13 @@ def prepare(args: argparse.Namespace) -> Path:
         raise AdmissionRefused(
             "supervisor seed-bank input must be the exact registered seed-bank bytes"
         )
+    mac_bound = priced_mac_bound(args.pricing.resolve())
+    acceptance = mac_bound["cli_acceptance_receipt"]
+    parsed_inputs.append(
+        manifests.ExternalInput(
+            "cli-acceptance-result", Path(acceptance["path"]), "cli-acceptance-result.json"
+        )
+    )
     rows = manifests.make_manifests(
         seed_bank=args.seed_bank.resolve(),
         published_commit=commit,
@@ -226,7 +249,6 @@ def prepare(args: argparse.Namespace) -> Path:
         inputs=parsed_inputs,
     )
     liability = liabilities(rows)
-    mac_bound = priced_mac_bound(args.pricing.resolve())
     liability["mac-final-evaluation"] = {
         "units": 0.0,
         "gpu_allocation_hours": 0.0,
@@ -282,6 +304,7 @@ def prepare(args: argparse.Namespace) -> Path:
         "schema": SCHEMA,
         "status": "PREPARED_NOT_DISPATCHED",
         "commit": commit,
+        "published_ref": published_ref,
         "preregistration": prereg,
         "source_closure": source_closure(repo, commit),
         "world_bank": {"path": str(args.world_bank.resolve()), "sha256": sha256(args.world_bank)},
@@ -317,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("prepare", help="bind approved source and render create-only manifests")
     p.add_argument("--repo", type=Path, default=ROOT)
+    p.add_argument("--published-ref", default="origin/main")
     p.add_argument(
         "--preregistration",
         type=Path,

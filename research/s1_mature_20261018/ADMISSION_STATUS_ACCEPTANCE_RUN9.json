@@ -1,0 +1,144 @@
+{
+  "complete_upper_bound": {
+    "elapsed_hours": 27.099503111466767,
+    "gpu_allocation_hours": 19.166666666666668,
+    "mac_worker_hours": 15.865672889600198,
+    "units": 38.333333333333336
+  },
+  "conditional_planning_forecast": {
+    "conditional_training_gpu_hours": 9.8,
+    "conditional_transport_gpu_hours": 0.09359791684972336,
+    "elapsed_hours": 19.826434361649824,
+    "gpu_allocation_hours": 11.893597916849725,
+    "interpretation": "optional planning scenario only; not an admission reservation",
+    "known_base_gpu_hours_before_setup_export_cleanup": 11.8,
+    "known_base_plus_cleanup_gpu_hours": 12.8,
+    "known_base_plus_cleanup_units": 25.6,
+    "known_base_units_before_setup_export_cleanup": 23.6,
+    "known_cleanup_gpu_hours": 1.0,
+    "mac_worker_hours": 15.865672889600198,
+    "pre_funded": false,
+    "primary_training_gpu_hours": 8.166666666666666,
+    "primary_transport_gpu_hours": 0.07799826404143614,
+    "reruns": {
+      "n1": 1,
+      "n3": 1
+    },
+    "units": 23.78719583369945
+  },
+  "conditional_reruns": {
+    "admission": "spent + outstanding + remaining primary liabilities + full rerun worst case must fit every usable cap at launch; otherwise arm INCOMPLETE",
+    "maximum_per_arm": {
+      "n1": 1,
+      "n3": 1
+    },
+    "per_attempt_hard_liability": {
+      "n1": {
+        "elapsed_hours": 2.35,
+        "gpu_allocation_hours": 2.35,
+        "mac_worker_hours": 0.0,
+        "units": 4.7
+      },
+      "n3": {
+        "elapsed_hours": 1.0833333333333333,
+        "gpu_allocation_hours": 1.0833333333333333,
+        "mac_worker_hours": 0.0,
+        "units": 2.1666666666666665
+      }
+    },
+    "pre_funded": false
+  },
+  "dispatch_authorized": false,
+  "evidence": {
+    "acceptance": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance/acceptance-1792397953/acceptance-result.json",
+      "sha256": "42ee3f64b861ea385f617bba7a5f2fa6a8bf223217d0977cfbef02d1d207a5b7"
+    },
+    "evaluation": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-colab-safety/research/s1_mature_20261018/EVAL_PREFLIGHT_FINAL.json",
+      "sha256": "8181d170ce3f8c523ca48449830cb9079bf567d667f89d654135afaab48f3188"
+    },
+    "training": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-colab-safety/research/s1_mature_20261018/TRAIN_PREFLIGHT_FINAL_ONLY.json",
+      "sha256": "94eeaa59467c9434cb8350bf67344c5bb2d353daac7f595a042667cbc0a75b9e"
+    }
+  },
+  "final_artifact_transport": {
+    "cli_acceptance_receipt": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance/acceptance-1792397953/acceptance-result.json",
+      "sha256": "42ee3f64b861ea385f617bba7a5f2fa6a8bf223217d0977cfbef02d1d207a5b7"
+    },
+    "liability_formula": "final_bundle_bytes_upper_bound / measured_export_bytes_per_second_lower_bound",
+    "measured_export_bytes_per_second_lower_bound": 2389970,
+    "qualified_arms": {
+      "n1": {
+        "bound_basis": "enforced aggregate per-attempt export cap; not a size measurement",
+        "final_bundle_bytes_upper_bound": 67108864,
+        "transport_seconds_upper_bound": 28.07937505491701
+      },
+      "n3": {
+        "bound_basis": "enforced aggregate per-attempt export cap; not a size measurement",
+        "final_bundle_bytes_upper_bound": 67108864,
+        "transport_seconds_upper_bound": 28.07937505491701
+      }
+    },
+    "schema": "s1-final-artifact-transport/v1",
+    "source_manifest": {
+      "research/redesign_m3c_20261008/train_m3c.py": "c8aa8fd8f3f4e6eb81925d8e9967bc44ec380d4c0f12f178f2c3be0d37ab6e28",
+      "research/s1_mature_20261018/final_artifacts.py": "c0842a09ab304e3e1ccd6079b11e39e2f2d28e14ab0abab5ba631bb34021b3c6",
+      "research/s1_mature_20261018/manifests.py": "dd9cefbcedecce3bfbeb4b4c82a37182f712710e93d85bab829c10b9fca6a5c6",
+      "research/s1_mature_20261018/train.py": "f56be45e9b3d32d81845e3335269540808048a5251cbae715489a4ace06251f2"
+    },
+    "status": "PASS"
+  },
+  "mac_pricing": {
+    "audit_and_preflight_worker_hours": 2,
+    "episode_factor": 2,
+    "max_measured_episode_seconds": 8.311568334000185,
+    "startup_seconds_per_identity": 600
+  },
+  "mac_upper_bound": {
+    "elapsed_hours": 7.932836444800099,
+    "mac_worker_hours": 15.865672889600198
+  },
+  "next_step": "Prepare a clean published-source plan locally; dispatch remains separately guarded.",
+  "nominal_caps": {
+    "elapsed_hours": 48.0,
+    "gpu_allocation_hours": 25.0,
+    "mac_worker_hours": 24.0,
+    "units": 60.0
+  },
+  "primary_hard_reservation": {
+    "elapsed_hours": 27.099503111466767,
+    "gpu_allocation_hours": 19.166666666666668,
+    "mac_worker_hours": 15.865672889600198,
+    "units": 38.333333333333336
+  },
+  "production_counter_qualification": {
+    "required_invariant": "overshoot <= actors * worlds * learner_seats - 1",
+    "status": "PASS",
+    "tiny_export_roundtrip_is_not_production_qualification": true
+  },
+  "qualified_q0b_planning": {
+    "estimated_training_gpu_hours": 8.166666666666666,
+    "estimated_training_units_at_2_per_hour": 16.333333333333332,
+    "evidence": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-colab-safety/research/q0q1_20261017/Q0B_A3_REQUALIFICATION_20261018.md",
+      "sha256": "e3587a53f23a62db866c7fbd6a64ea3b8f76271984c311c815d5300fdc6e86f5"
+    },
+    "limitation": "Historical training estimates exclude final-only transfer; the current receipt must bind final size and measured CLI throughput.",
+    "n1_estimate_minutes": 68,
+    "n3_estimate_minutes": 30
+  },
+  "refusal_reasons": [],
+  "registration_status": "APPROVED_S1_MATURE_20261018",
+  "schema": "s1-mature-pricing/v1",
+  "status": "PASS",
+  "training_preflight_status": "PASS",
+  "usable_caps": {
+    "elapsed_hours": 38.4,
+    "gpu_allocation_hours": 20.0,
+    "mac_worker_hours": 19.2,
+    "units": 48.0
+  }
+}

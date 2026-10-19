@@ -177,6 +177,8 @@ def make_manifests(
     seeds = _load_seed_bank(seed_bank)
     input_rows = [item.as_manifest() for item in inputs]
     names = {item["dest"] for item in input_rows}
+    if len(names) != len(input_rows):
+        raise ManifestRefused("uploaded input destinations must be unique")
     required = {
         "seed-bank.json",
         "B8_s3_final.pth",
@@ -185,6 +187,7 @@ def make_manifests(
         "mac-parity-reference.json",
         "parity-bank.json",
         "q0b-l4.json",
+        "cli-acceptance-result.json",
     }
     if not required.issubset(names):
         raise ManifestRefused(f"missing required uploaded inputs: {sorted(required - names)}")

@@ -28,6 +28,7 @@ def forecast(
     eval_path: Path,
     training_path: Path,
     transport_path: Path | None = None,
+    acceptance_path: Path | None = None,
 ) -> dict[str, Any]:
     """Price primary admission and disclose optional reruns without pre-funding them."""
     timing, training = json.loads(eval_path.read_text()), json.loads(training_path.read_text())
@@ -69,7 +70,7 @@ def forecast(
     transport: dict[str, Any] = {
         "status": "UNQUALIFIED",
         "measured_export_bytes_per_second_lower_bound": None,
-        "required_cli_acceptance_field": "s1_final_artifact_transfer.bytes_per_second_lower_bound",
+        "required_cli_acceptance_field": "final_artifact_transfer.bytes_per_second_lower_bound",
         "export_liability_formula": "final_bundle_bytes_upper_bound / "
         "measured_export_bytes_per_second_lower_bound",
         "excluded_by_registration": "full-state, replay, optimizer, actor, RNG, and mid-run "
@@ -80,9 +81,15 @@ def forecast(
         "primary_export_cap_bytes": 10 * final_artifacts.MAX_FINAL_EXPORT_BYTES,
         "conditional_export_cap_bytes": 12 * final_artifacts.MAX_FINAL_EXPORT_BYTES,
     }
-    if transport_path is not None:
+    if transport_path is not None and acceptance_path is not None:
+        raise ValueError("supply either an acceptance result or a transport receipt")
+    if transport_path is not None or acceptance_path is not None:
         try:
-            transport = final_artifacts.transport_bound(json.loads(transport_path.read_text()))
+            transport = (
+                final_artifacts.acceptance_transport(acceptance_path)
+                if acceptance_path is not None
+                else final_artifacts.transport_bound(json.loads(transport_path.read_text()))
+            )
         except (ValueError, TypeError, KeyError, OSError) as exc:
             reasons.append(f"Final-artifact transport refused: {exc}")
     if transport.get("status") != "PASS":
@@ -150,7 +157,16 @@ def forecast(
         "evidence": {
             "evaluation": binding(eval_path),
             "training": binding(training_path),
-            **({"transport": binding(transport_path)} if transport_path is not None else {}),
+            **(
+                {"transport": binding(transport_path)}
+                if transport_path is not None and transport_path.is_file()
+                else {}
+            ),
+            **(
+                {"acceptance": binding(acceptance_path)}
+                if acceptance_path is not None and acceptance_path.is_file()
+                else {}
+            ),
         },
         "qualified_q0b_planning": {
             "evidence": binding(ROOT / "research/q0q1_20261017/Q0B_A3_REQUALIFICATION_20261018.md"),
@@ -198,6 +214,7 @@ def forecast(
             "required_invariant": "overshoot <= actors * worlds * learner_seats - 1",
             "tiny_export_roundtrip_is_not_production_qualification": True,
         },
+        "mac_upper_bound": {"mac_worker_hours": mac_hours, "elapsed_hours": mac_elapsed},
         "mac_pricing": {
             "max_measured_episode_seconds": max(samples),
             "episode_factor": 2,
@@ -208,11 +225,23 @@ def forecast(
         "usable_caps": ledger.USABLE_CAPS,
         "nominal_caps": ledger.NOMINAL_CAPS,
         "refusal_reasons": reasons,
-        "registration_status": "DRAFT_PENDING_OWNER_REVIEW",
+        "registration_status": (
+            "APPROVED_S1_MATURE_20261018"
+            if any(
+                line.strip() == "**Status: APPROVED_S1_MATURE_20261018.**"
+                or line.strip().startswith("**Status: APPROVED_S1_MATURE_20261018.** ")
+                for line in (ROOT / "research/s1_mature_20261018/PREREGISTRATION.md")
+                .read_text()
+                .splitlines()[:12]
+            )
+            else "DRAFT_PENDING_OWNER_REVIEW"
+        ),
         "training_preflight_status": training.get("status"),
-        "next_step": "Obtain the current-source CLI acceptance receipt for final-only L4 exports, "
-        "then "
-        "obtain prospective registration approval and fresh admission evidence before dispatch.",
+        "next_step": (
+            "Prepare a clean published-source plan locally; dispatch remains separately guarded."
+            if not reasons
+            else "Resolve refusal reasons and regenerate admission evidence."
+        ),
     }
 
 
@@ -221,9 +250,12 @@ def main() -> int:
     parser.add_argument("--eval-preflight", type=Path, required=True)
     parser.add_argument("--training-preflight", type=Path, required=True)
     parser.add_argument("--transport-receipt", type=Path)
+    parser.add_argument("--acceptance-result", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    result = forecast(args.eval_preflight, args.training_preflight, args.transport_receipt)
+    result = forecast(
+        args.eval_preflight, args.training_preflight, args.transport_receipt, args.acceptance_result
+    )
     with args.out.open("x") as stream:
         json.dump(result, stream, sort_keys=True, indent=2, allow_nan=False)
         stream.write("\n")

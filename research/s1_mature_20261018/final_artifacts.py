@@ -81,32 +81,71 @@ def _bound_receipt(value: Any, name: str) -> dict[str, Any]:
     return result
 
 
+def acceptance_result(path: Path) -> dict[str, Any]:
+    """Read a final-only PASS bound to every current CLI Python and shell file."""
+    if not path.is_absolute():
+        raise ValueError("CLI acceptance result requires an absolute path")
+    from research.colab_cli.admission import require_final_only
+    from research.colab_cli.supervisor import Refused
+
+    value = json.loads(path.read_text())
+    try:
+        if not isinstance(value, dict):
+            raise ValueError("CLI acceptance result must be a JSON object")
+        require_final_only(value, ROOT)
+    except (Refused, AttributeError, TypeError) as exc:
+        raise ValueError(str(exc)) from exc
+    return value
+
+
+def acceptance_transport(path: Path) -> dict[str, Any]:
+    """Price each final bundle at its enforced cap, using verified CLI throughput.
+
+    The cap is a conservative liability bound, not a production size measurement.
+    An oversized final bundle fails closed in the S1 adapter.
+    """
+    acceptance = acceptance_result(path)
+    rate = acceptance["final_artifact_transfer"]["bytes_per_second_lower_bound"]
+    return {
+        "schema": SCHEMA,
+        "status": "PASS",
+        "source_manifest": source_manifest(SOURCES),
+        "cli_acceptance_receipt": binding(path),
+        "measured_export_bytes_per_second_lower_bound": rate,
+        "liability_formula": "final_bundle_bytes_upper_bound / "
+        "measured_export_bytes_per_second_lower_bound",
+        "qualified_arms": {
+            arm: {
+                "final_bundle_bytes_upper_bound": MAX_FINAL_EXPORT_BYTES,
+                "bound_basis": "enforced aggregate per-attempt export cap; not a size measurement",
+                "transport_seconds_upper_bound": MAX_FINAL_EXPORT_BYTES / rate,
+            }
+            for arm in ("n3", "n1")
+        },
+    }
+
+
 def transport_bound(value: dict[str, Any]) -> dict[str, Any]:
-    """Validate final-bundle size bounds against a CLI acceptance receipt."""
+    """Revalidate the bound acceptance bytes and derive the liability afresh."""
     if value.get("schema") != SCHEMA or value.get("status") != "PASS":
         raise ValueError("final-artifact transport qualification is absent")
-    expected_sources = source_manifest(SOURCES)
-    if value.get("source_manifest") != expected_sources:
+    if value.get("source_manifest") != source_manifest(SOURCES):
         raise ValueError("final-artifact source binding changed")
-    acceptance = _bound_receipt(value.get("cli_acceptance_receipt"), "CLI acceptance")
+    receipt = value.get("cli_acceptance_receipt")
+    _bound_receipt(receipt, "CLI acceptance")
+    acceptance = acceptance_result(Path(receipt["path"]))
+    # Older callers may supply additional size proofs. Continue to check them;
+    # direct raw acceptance needs only the enforced aggregate export cap.
     transfer = acceptance.get("s1_final_artifact_transfer")
-    if acceptance.get("qualified") is not True or not isinstance(transfer, dict):
-        raise ValueError("CLI acceptance receipt lacks measured final-artifact throughput")
-    if (
-        transfer.get("status") != "PASS"
-        or transfer.get("hardware") != "L4"
-        or transfer.get("protocol") != PROTOCOL
-        or transfer.get("verified_on_mac") is not True
-        or transfer.get("transport_source_sha256")
-        != expected_sources["research/s1_mature_20261018/train.py"]
-        or transfer.get("transport_source_manifest") != source_manifest(CLI_SOURCES)
-    ):
-        raise ValueError("throughput must cover verified L4 final-only exports on the Mac")
+    if transfer is not None:
+        _validate_size_receipts(transfer)
+    return acceptance_transport(Path(receipt["path"]))
+
+
+def _validate_size_receipts(transfer: dict[str, Any]) -> None:
+    """Preserve the optional compatibility bridge's bound size-proof checks."""
+    expected_sources = source_manifest(SOURCES)
     rate = _positive(transfer.get("bytes_per_second_lower_bound"), "measured throughput")
-    sent = _positive(transfer.get("exported_bytes"), "measured exported bytes")
-    seconds = _positive(transfer.get("elapsed_seconds"), "measured transfer seconds")
-    if rate > sent / seconds:
-        raise ValueError("throughput lower bound exceeds the measured transfer average")
     receipts = transfer.get("final_artifact_size_receipts")
     if not isinstance(receipts, dict):
         raise ValueError("CLI acceptance receipt lacks bound final-artifact size receipts")
@@ -147,10 +186,3 @@ def transport_bound(value: dict[str, Any]) -> dict[str, Any]:
             "artifact_files": files,
             "transport_seconds_upper_bound": upper / rate,
         }
-    return {
-        **value,
-        "measured_export_bytes_per_second_lower_bound": rate,
-        "liability_formula": "final_bundle_bytes_upper_bound / "
-        "measured_export_bytes_per_second_lower_bound",
-        "qualified_arms": arms,
-    }

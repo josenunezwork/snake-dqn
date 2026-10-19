@@ -12,55 +12,11 @@ from research.s1_mature_20261018 import admission, final_artifacts, run
 
 
 def _final_transport(tmp_path: Path) -> dict:
-    sources = final_artifacts.source_manifest(final_artifacts.SOURCES)
-    receipts = {}
-    for arm in ("n3", "n1"):
-        receipt = tmp_path / f"{arm}-size.json"
-        receipt.write_text(
-            json.dumps(
-                {
-                    "schema": final_artifacts.SIZE_SCHEMA,
-                    "status": "PASS",
-                    "arm": arm,
-                    "source_manifest": sources,
-                    "production_contract_validated": True,
-                    "export_contract": final_artifacts.PROTOCOL,
-                    "measured_final_bundle_bytes": 13_000_000,
-                    "final_bundle_bytes_upper_bound": 64 * 1024**2,
-                    "telemetry_log_allowance_bytes": 1_000_000,
-                    "artifact_files": sorted(final_artifacts.REQUIRED_ARTIFACT_FILES),
-                }
-            )
-        )
-        receipts[arm] = {"path": str(receipt), "sha256": admission.sha256(receipt)}
+    from tests.test_colab_cli_admission import passing_result
+
     acceptance = tmp_path / "acceptance.json"
-    acceptance.write_text(
-        json.dumps(
-            {
-                "qualified": True,
-                "s1_final_artifact_transfer": {
-                    "status": "PASS",
-                    "hardware": "L4",
-                    "protocol": final_artifacts.PROTOCOL,
-                    "verified_on_mac": True,
-                    "transport_source_sha256": sources["research/s1_mature_20261018/train.py"],
-                    "transport_source_manifest": final_artifacts.source_manifest(
-                        final_artifacts.CLI_SOURCES
-                    ),
-                    "exported_bytes": 13_000_000,
-                    "elapsed_seconds": 13,
-                    "bytes_per_second_lower_bound": 1_000_000,
-                    "final_artifact_size_receipts": receipts,
-                },
-            }
-        )
-    )
-    return {
-        "schema": final_artifacts.SCHEMA,
-        "status": "PASS",
-        "source_manifest": sources,
-        "cli_acceptance_receipt": {"path": str(acceptance), "sha256": admission.sha256(acceptance)},
-    }
+    acceptance.write_text(json.dumps(passing_result.__wrapped__(tmp_path)))
+    return final_artifacts.acceptance_transport(acceptance)
 
 
 def test_preregistration_requires_prospective_approval_line(tmp_path: Path) -> None:
@@ -70,7 +26,8 @@ def test_preregistration_requires_prospective_approval_line(tmp_path: Path) -> N
         admission.require_approved_preregistration(draft)
     # The old draft text is intentionally retained in the frozen history.
     draft.write_text(
-        "**Status: APPROVED_S1_MATURE_20261018.**\nold DRAFT_PENDING_OWNER_REVIEW bytes\n"
+        "**Status: APPROVED_S1_MATURE_20261018.** Approved by planner before data.\n"
+        "old DRAFT_PENDING_OWNER_REVIEW bytes\n"
     )
     assert admission.require_approved_preregistration(draft)["sha256"] == admission.sha256(draft)
 
@@ -148,6 +105,7 @@ def test_pricing_rejects_nonfinite_bounds(tmp_path: Path, number: float) -> None
                     for name, item in (("training", training), ("evaluation", evaluation))
                 },
                 "complete_upper_bound": {"mac_worker_hours": number, "elapsed_hours": 1},
+                "mac_upper_bound": {"elapsed_hours": 1},
                 "final_artifact_transport": _final_transport(tmp_path),
             }
         )
@@ -189,6 +147,7 @@ def test_pricing_requires_current_counter_sources_and_bound_final_transfer(tmp_p
                         for name, item in (("training", training), ("evaluation", evaluation))
                     },
                     "complete_upper_bound": {"mac_worker_hours": 1, "elapsed_hours": 1},
+                    "mac_upper_bound": {"elapsed_hours": 1},
                     "final_artifact_transport": _final_transport(tmp_path),
                 }
             )
@@ -227,3 +186,94 @@ def test_primary_forecast_fits_caps_without_pre_funding_optional_reruns() -> Non
     assert forecast["complete_upper_bound"] is None  # Missing live transfer qualification.
     assert forecast["status"] == "REFUSED"
     assert not any("exceeds usable" in reason for reason in forecast["refusal_reasons"])
+
+
+def test_prepare_matches_pricing_and_uploads_bound_acceptance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import argparse
+
+    from research.s1_mature_20261018 import ledger, manifests, price, review_jobs
+
+    root = admission.ROOT / "research/s1_mature_20261018"
+    transport = _final_transport(tmp_path)
+    acceptance = Path(transport["cli_acceptance_receipt"]["path"])
+    forecast = price.forecast(
+        root / "EVAL_PREFLIGHT_FINAL.json",
+        root / "TRAIN_PREFLIGHT_FINAL_ONLY.json",
+        acceptance_path=acceptance,
+    )
+    pricing = tmp_path / "pricing.json"
+    pricing.write_text(json.dumps(forecast))
+    seed = tmp_path / "seed-bank.json"
+    seed.write_text(json.dumps({"seeds": list(admission.bank.TRAINING_SEEDS)}))
+    inputs = [manifests.ExternalInput("seed-bank", seed, "seed-bank.json")]
+    for dest in (
+        "B8_s3_final.pth",
+        "demo.tar.gz",
+        "league.tar.gz",
+        "mac-parity-reference.json",
+        "parity-bank.json",
+        "q0b-l4.json",
+    ):
+        path = tmp_path / dest
+        path.write_text("fixture")
+        inputs.append(manifests.ExternalInput(dest, path, dest))
+    monkeypatch.setattr(review_jobs, "verified_inputs", lambda: inputs)
+    monkeypatch.setattr(admission, "published_commit", lambda repo, ref: "a" * 40)
+    monkeypatch.setattr(admission, "source_closure", lambda repo, commit: {"fixture": "bound"})
+    args = argparse.Namespace(
+        repo=admission.ROOT,
+        published_ref="origin/t31-colab-safety-20261018",
+        out=tmp_path / "plan.json",
+        preregistration=root / "PREREGISTRATION.md",
+        seed_bank=seed,
+        world_bank=root / "WORLD_BANK.json",
+        seed_audit=root / "SEED_AUDIT.json",
+        input=[],
+        artifact_root=tmp_path / "artifacts",
+        pricing=pricing,
+        manifest_dir=tmp_path / "jobs",
+    )
+    plan = json.loads(admission.prepare(args).read_text())
+    assert plan["status"] == "PREPARED_NOT_DISPATCHED"
+    assert plan["published_ref"] == args.published_ref
+    assert plan["complete_upper_bound"] == pytest.approx(forecast["complete_upper_bound"])
+    assert all(plan["complete_upper_bound"][key] <= cap for key, cap in ledger.USABLE_CAPS.items())
+    for item in plan["manifests"]:
+        row = json.loads(Path(item["path"]).read_text())
+        assert [item for item in row["inputs"] if item["dest"] == "cli-acceptance-result.json"] == [
+            {"dest": "cli-acceptance-result.json", **final_artifacts.binding(acceptance)}
+        ]
+    with pytest.raises(admission.AdmissionRefused, match="already exists"):
+        admission.prepare(args)
+
+
+def test_published_source_requires_clean_exact_remote_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+
+    def fake_git(repo: Path, *args: str) -> str:
+        calls.append(args)
+        return "" if args == ("status", "--porcelain") else "a" * 40
+
+    monkeypatch.setattr(admission, "git", fake_git)
+    ref = "origin/t31-colab-safety-20261018"
+    assert admission.published_commit(tmp_path, ref) == "a" * 40
+    assert ("show-ref", "--verify", f"refs/remotes/{ref}") in calls
+    assert ("rev-parse", f"refs/remotes/{ref}") in calls
+    with pytest.raises(admission.AdmissionRefused, match="remote-tracking"):
+        admission.published_commit(tmp_path, "HEAD")
+    monkeypatch.setattr(
+        admission, "git", lambda repo, *args: " M dirty" if args[0] == "status" else "a" * 40
+    )
+    with pytest.raises(admission.AdmissionRefused, match="clean"):
+        admission.published_commit(tmp_path, ref)
+    monkeypatch.setattr(
+        admission,
+        "git",
+        lambda repo, *args: "b" * 40 if args == ("rev-parse", f"refs/remotes/{ref}") else "a" * 40,
+    )
+    with pytest.raises(admission.AdmissionRefused, match="HEAD to equal"):
+        admission.published_commit(tmp_path, ref)

@@ -1,91 +1,114 @@
-"""Final-only S1 transport receipt validation."""
+"""Final-only S1 transport receipt validation, without remote allocation."""
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
 import pytest
 
-from research.s1_mature_20261018 import final_artifacts
+from research.s1_mature_20261018 import final_artifacts, price
+from tests.test_colab_cli_admission import passing_result as _passing_result_fixture
 
 
-def _receipt(tmp_path: Path) -> dict:
-    sources = final_artifacts.source_manifest(final_artifacts.SOURCES)
-    size_receipts = {}
+@pytest.fixture
+def passing_result(tmp_path: Path) -> dict:
+    return _passing_result_fixture.__wrapped__(tmp_path)
+
+
+def test_final_artifact_transport_charges_enforced_cap_at_measured_rate(
+    tmp_path: Path, passing_result: dict
+) -> None:
+    path = tmp_path / "acceptance.json"
+    path.write_text(json.dumps(passing_result))
+    value = final_artifacts.acceptance_transport(path)
+    result = final_artifacts.transport_bound(value)
+    rate = passing_result["final_artifact_transfer"]["bytes_per_second_lower_bound"]
     for arm in ("n3", "n1"):
-        path = tmp_path / f"{arm}.json"
-        path.write_text(
-            json.dumps(
-                {
-                    "schema": final_artifacts.SIZE_SCHEMA,
-                    "status": "PASS",
-                    "arm": arm,
-                    "source_manifest": sources,
-                    "production_contract_validated": True,
-                    "export_contract": final_artifacts.PROTOCOL,
-                    "measured_final_bundle_bytes": 12_000_000,
-                    "final_bundle_bytes_upper_bound": 64 * 1024**2,
-                    "telemetry_log_allowance_bytes": 1_000_000,
-                    "artifact_files": sorted(final_artifacts.REQUIRED_ARTIFACT_FILES),
-                }
-            )
+        assert result["qualified_arms"][arm]["transport_seconds_upper_bound"] == pytest.approx(
+            64 * 1024**2 / rate
         )
-        size_receipts[arm] = {
-            "path": str(path),
-            "sha256": final_artifacts.binding(path)["sha256"],
-        }
-    acceptance = tmp_path / "acceptance.json"
-    acceptance.write_text(
-        json.dumps(
-            {
-                "qualified": True,
-                "s1_final_artifact_transfer": {
-                    "status": "PASS",
-                    "hardware": "L4",
-                    "protocol": final_artifacts.PROTOCOL,
-                    "verified_on_mac": True,
-                    "transport_source_sha256": sources["research/s1_mature_20261018/train.py"],
-                    "transport_source_manifest": final_artifacts.source_manifest(
-                        final_artifacts.CLI_SOURCES
-                    ),
-                    "exported_bytes": 12_000_000,
-                    "elapsed_seconds": 12,
-                    "bytes_per_second_lower_bound": 1_000_000,
-                    "final_artifact_size_receipts": size_receipts,
-                },
-            }
-        )
+    assert result["cli_acceptance_receipt"] == final_artifacts.binding(path)
+    root = final_artifacts.ROOT / "research/s1_mature_20261018"
+    forecast = price.forecast(
+        root / "EVAL_PREFLIGHT_FINAL.json",
+        root / "TRAIN_PREFLIGHT_FINAL_ONLY.json",
+        acceptance_path=path,
     )
-    return {
-        "schema": final_artifacts.SCHEMA,
-        "status": "PASS",
-        "source_manifest": sources,
-        "cli_acceptance_receipt": {
-            "path": str(acceptance),
-            "sha256": final_artifacts.binding(acceptance)["sha256"],
-        },
-    }
+    assert forecast["status"] == "PASS"
+    assert forecast["refusal_reasons"] == []
+    assert forecast["complete_upper_bound"] == forecast["primary_hard_reservation"]
+    assert forecast["complete_upper_bound"]["gpu_allocation_hours"] == pytest.approx(19 + 1 / 6)
 
 
-def test_final_artifact_transport_charges_bound_size_at_measured_rate(tmp_path: Path) -> None:
-    result = final_artifacts.transport_bound(_receipt(tmp_path))
-    assert result["qualified_arms"]["n3"]["transport_seconds_upper_bound"] == pytest.approx(
-        64 * 1024**2 / 1_000_000
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "wrong-profile",
+        "stale-source",
+        "missing-gate",
+        "unobserved-gate",
+        "short-artifact",
+        "missing-result",
+        "changed-artifact",
+        "nonfinite-rate",
+        "not-qualified",
+        "plan-source",
+    ],
+)
+def test_s1_forecast_refuses_invalid_acceptance(
+    tmp_path: Path, passing_result: dict, fault: str
+) -> None:
+    value = copy.deepcopy(passing_result)
+    if fault == "wrong-profile":
+        value["profile"] = "full-state"
+    elif fault == "stale-source":
+        value["source_manifest"]["research/colab_cli/supervisor.py"] = "0" * 64
+    elif fault == "missing-gate":
+        value["final_plan"]["gates"].pop()
+    elif fault == "unobserved-gate":
+        value["final_plan"]["gates"][0]["status"] = "INCOMPLETE"
+    elif fault == "short-artifact":
+        value["final_artifact_transfer"]["exported_bytes"] -= 1
+    elif fault == "changed-artifact":
+        Path(value["final_artifact_transfer"]["path"]).write_bytes(b"changed")
+    elif fault == "nonfinite-rate":
+        value["final_artifact_transfer"]["bytes_per_second_lower_bound"] = float("nan")
+    elif fault == "not-qualified":
+        value["qualified"] = False
+    elif fault == "plan-source":
+        value["final_plan"]["source_manifest"] = {}
+    path = tmp_path / "acceptance.json"
+    if fault != "missing-result":
+        path.write_text(json.dumps(value))
+    root = final_artifacts.ROOT / "research/s1_mature_20261018"
+    forecast = price.forecast(
+        root / "EVAL_PREFLIGHT_FINAL.json",
+        root / "TRAIN_PREFLIGHT_FINAL_ONLY.json",
+        acceptance_path=path,
     )
-    assert "target.pth" in result["qualified_arms"]["n1"]["artifact_files"]
+    assert forecast["status"] == "REFUSED"
+    assert forecast["complete_upper_bound"] is None
 
 
-def test_final_artifact_transport_rejects_size_below_measurement(tmp_path: Path) -> None:
-    value = _receipt(tmp_path)
-    acceptance = Path(value["cli_acceptance_receipt"]["path"])
-    transfer = json.loads(acceptance.read_text())["s1_final_artifact_transfer"]
-    n3 = Path(transfer["final_artifact_size_receipts"]["n3"]["path"])
-    size = json.loads(n3.read_text())
-    size["final_bundle_bytes_upper_bound"] = size["measured_final_bundle_bytes"] - 1
-    n3.write_text(json.dumps(size))
-    transfer["final_artifact_size_receipts"]["n3"]["sha256"] = final_artifacts.binding(n3)["sha256"]
-    acceptance.write_text(json.dumps({"qualified": True, "s1_final_artifact_transfer": transfer}))
-    value["cli_acceptance_receipt"]["sha256"] = final_artifacts.binding(acceptance)["sha256"]
-    with pytest.raises(ValueError, match="omits"):
-        final_artifacts.transport_bound(value)
+def test_s1_acceptance_requires_absolute_path() -> None:
+    with pytest.raises(ValueError, match="absolute"):
+        final_artifacts.acceptance_result(Path("acceptance.json"))
+
+
+def test_s1_forecast_refuses_usable_cap_overrun(
+    tmp_path: Path, passing_result: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "acceptance.json"
+    path.write_text(json.dumps(passing_result))
+    monkeypatch.setitem(price.ledger.USABLE_CAPS, "gpu_allocation_hours", 19)
+    root = final_artifacts.ROOT / "research/s1_mature_20261018"
+    forecast = price.forecast(
+        root / "EVAL_PREFLIGHT_FINAL.json",
+        root / "TRAIN_PREFLIGHT_FINAL_ONLY.json",
+        acceptance_path=path,
+    )
+    assert forecast["status"] == "REFUSED"
+    assert forecast["complete_upper_bound"] is None
+    assert any("exceeds usable gpu_allocation_hours" in r for r in forecast["refusal_reasons"])

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from research.colab_cli import supervisor
-from research.s1_mature_20261018 import manifests
+from research.s1_mature_20261018 import final_artifacts, manifests
 
 PACKAGE = Path(__file__).resolve().parent
 
@@ -27,18 +27,25 @@ def verified_inputs(path: Path = PACKAGE / "INPUTS.json") -> list[manifests.Exte
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--acceptance-result", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     args = parser.parse_args()
     if args.out.exists():
         raise ValueError("review manifest directory must be fresh")
+    final_artifacts.acceptance_result(args.acceptance_result)
+    inputs = verified_inputs() + [
+        manifests.ExternalInput(
+            "cli-acceptance-result", args.acceptance_result, "cli-acceptance-result.json"
+        )
+    ]
     rows = manifests.make_manifests(
         seed_bank=PACKAGE / "SEED_BANK.json",
         published_commit=args.commit,
         registration_status="DRAFT_PENDING_OWNER_REVIEW",
         owner_release="DRAFT_PENDING_OWNER_REVIEW",
         output_root=args.output_root,
-        inputs=verified_inputs(),
+        inputs=inputs,
     )
     validated = [supervisor.validate(row) for row in rows]
     args.out.mkdir(parents=True)
