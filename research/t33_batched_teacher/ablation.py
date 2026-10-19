@@ -19,6 +19,7 @@ import numpy as np
 from research.phase0_search_20261019 import bank, teacher
 from research.phase0_search_20261019.preflight import B8, fixture
 from research.t33_batched_teacher import reference
+from research.t33_batched_teacher.evidence import identity
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BANK = ROOT / "research/phase0_search_20261019/WORLD_BANK.json"
@@ -220,6 +221,7 @@ def main() -> int:
         )
         for r in rows
     ]
+    binding = identity()
     started = time.perf_counter()
     if args.workers == 1:
         batches = list(map(task, payloads))
@@ -243,6 +245,7 @@ def main() -> int:
             str(p.relative_to(ROOT)): sha(p)
             for p in [Path(__file__), Path(reference.__file__), Path(teacher.__file__)]
         },
+        "source": binding,
         "reference": settings,
         "margin_gate": args.margin_gate,
         "rows": results,
