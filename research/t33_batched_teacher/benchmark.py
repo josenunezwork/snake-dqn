@@ -14,6 +14,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import numba
 import numpy as np
 import psutil
 import torch
@@ -281,8 +282,6 @@ def main() -> int:
     if sha(args.checkpoint) != B8_SHA:
         raise ValueError("B8 checkpoint hash mismatch")
     phase0.configure_cpu()
-    import numba
-
     # Phase0 imports pin all native pools to 1. Larger Numba pools must be
     # explicitly configured before Python starts (NUMBA_NUM_THREADS).
     os.environ["NUMBA_NUM_THREADS"] = str(args.threads)

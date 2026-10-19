@@ -1,5 +1,8 @@
 """Resource admission and complete-iteration accounting for T33 probes."""
 
+import os
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -94,3 +97,35 @@ def test_partial_iteration_is_excluded_from_all_timed_counters(monkeypatch) -> N
     assert result["searched_decisions"] == 1
     assert result["excluded_wall_s"] > 0
     assert result["host_fraction"] + result["gpu_fraction"] == pytest.approx(1.0)
+
+
+def test_entrypoint_preserves_configured_numba_ceiling_before_phase0_import() -> None:
+    env = dict(
+        os.environ,
+        NUMBA_NUM_THREADS="2",
+        OMP_NUM_THREADS="1",
+        MKL_NUM_THREADS="1",
+        OPENBLAS_NUM_THREADS="1",
+        VECLIB_MAXIMUM_THREADS="1",
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "\n".join(
+                [
+                    "from research.t33_batched_teacher import benchmark as b",
+                    "b.phase0.configure_cpu()",
+                    "b.os.environ['NUMBA_NUM_THREADS'] = '2'",
+                    "b.numba.config.reload_config()",
+                    "b.numba.set_num_threads(2)",
+                    "assert b.numba.get_num_threads() == 2",
+                ]
+            ),
+        ],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
