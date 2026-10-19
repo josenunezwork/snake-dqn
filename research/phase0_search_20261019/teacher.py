@@ -278,7 +278,7 @@ def _replicate(source: bank_engine.CapturedWorld, count: int) -> Any:
     return SimpleNamespace(sim=sim, runtime=runtime, heroes=heroes, opponents=opponents)
 
 
-def _batched_scores(
+def _reference_scores(
     source: bank_engine.CapturedWorld, actions: list[int], config: SearchConfig, decision: int
 ) -> dict[int, float]:
     """Evaluate ``action x rollout`` independent rows in one SIMD continuation."""
@@ -375,6 +375,153 @@ def _batched_scores(
     }
 
 
+# Batching can change float32 accumulation. Resolve close action comparisons
+# with the original batch-1 CPU forward; exact ties keep the first index.
+Q_TIE_ATOL = 1e-3
+
+
+class _ForcedHero:
+    """Skip hero inference in opponent dispatch; the caller supplies its action."""
+
+    batched_rows = True
+
+    def actions(self, masks: np.ndarray, sim: Any, slots: np.ndarray) -> np.ndarray:
+        return np.ones(len(slots), dtype=np.int64)
+
+
+def _unique_observations(obs: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """Exact byte equality, without hash collisions, for repeated rollout inputs.
+
+    Branches share a prefix until their private epsilon streams diverge. Only
+    neural inputs are deduplicated: simulator rows and RNG streams stay private.
+    NumPy compares fixed-width byte records in C, avoiding Python row loops.
+    """
+    count = len(obs["local"])
+    packed = np.concatenate(
+        [
+            np.ascontiguousarray(obs[key]).reshape(count, -1).view(np.uint8).reshape(count, -1)
+            for key in ("local", "global", "scalars")
+        ],
+        axis=1,
+    )
+    records = packed.view(np.dtype((np.void, packed.shape[1]))).reshape(-1)
+    _, first, inverse = np.unique(records, return_index=True, return_inverse=True)
+    return first, inverse
+
+
+def _rollout_q(
+    sim: Any, net: Any, reference_net: Any, envs: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """One numba observation build and one B8 batch, with CPU tie resolution."""
+    from src.simd_env.ego2s_policy import forward_q
+    from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
+
+    rows = np.column_stack((envs, np.zeros(len(envs), dtype=np.int64)))
+    obs = build_ego_raster(sim, EgoRasterConfig(version="bv8"), backend="numba", rows=rows)
+    first, inverse = _unique_observations(obs)
+    unique = {key: value[first] for key, value in obs.items()}
+    q = forward_q(net, unique, "batched").numpy()[inverse].copy()
+    legal = sim.get_legal_action_mask()[envs, 0].astype(bool)
+    select = sim.get_advisory_action_mask()[envs, 0].astype(bool)
+    empty = ~select.any(axis=1)
+    select[empty, :3] = legal[empty, :3]
+    select[~select.any(axis=1), :3] = True
+    ranked = np.sort(np.where(select, q.astype(np.float64), -np.inf), axis=1)
+    close = np.flatnonzero(ranked[:, -1] - ranked[:, -2] <= Q_TIE_ATOL)
+    if len(close):
+        subset = {key: value[close] for key, value in obs.items()}
+        q[close] = forward_q(reference_net, subset, "rowwise").numpy()
+    return q, legal, select
+
+
+def _batched_scores(
+    source: bank_engine.CapturedWorld,
+    actions: list[int],
+    config: SearchConfig,
+    decision: int,
+    *,
+    net: Any = None,
+) -> dict[int, float]:
+    """Lockstep continuations with one shared B8 observation/forward per step.
+
+    Opponents retain the reference's grouped policies and runtime. The only
+    per-branch Python work inside selection is its private epsilon RNG stream;
+    drawing in another order would change the registered stochastic policy.
+    """
+    from src.simd_env.eval_engine import _dispatch_actions
+
+    branches = [(action, rollout) for action in actions for rollout in range(config.rollouts)]
+    replica = _replicate(source, len(branches))
+    sim, runtime = replica.sim, replica.runtime
+    net = source.hero.net if net is None else net
+    rngs = [_rng(source.seed, decision, action, rollout) for action, rollout in branches]
+    forced = np.repeat(np.asarray(actions, dtype=np.int64), config.rollouts)
+    skip = _ForcedHero()
+    heroes = [skip] * sim.E
+    grid = np.ones((sim.E, sim.S), dtype=np.int64)
+
+    def opponents(prepared: Any) -> np.ndarray:
+        grid.fill(1)
+        _dispatch_actions(
+            prepared, prepared.get_resolved_action_mask(), grid, heroes, replica.opponents
+        )
+        return grid
+
+    opponents(sim)[:, 0] = forced
+    sim.step(grid)
+    runtime.observe_step(sim)
+    mass = np.where(sim.alive[:, 0], sim.length[:, 0], 0).astype(np.float64)
+    active = sim.alive[:, 0].copy()
+    for _ in range(1, config.horizon):
+        if not active.any():
+            break
+
+        def choose(prepared: Any) -> np.ndarray:
+            runtime.prepare(prepared)
+            opponents(prepared)
+            envs = np.flatnonzero(active)
+            q, legal, select = _rollout_q(prepared, net, source.hero.net, envs)
+            choices = np.where(select, q.astype(np.float64), -np.inf).argmax(axis=1)
+            if config.epsilon:
+                for index, env in enumerate(envs):
+                    rng = rngs[int(env)]
+                    if float(rng.random()) < config.epsilon:
+                        choices[index] = int(rng.choice(np.flatnonzero(legal[index])))
+            grid[envs, 0] = choices
+            return grid
+
+        sim.step_with_policy(choose, active_env_mask=active)
+        runtime.observe_step(sim)
+        mass += np.where(sim.alive[:, 0] & active, sim.length[:, 0], 0)
+        active &= sim.alive[:, 0]
+    leaf_values = np.zeros(sim.E, dtype=np.float64)
+    if active.any():
+
+        class _LeafReady(Exception):
+            pass
+
+        def leaf(prepared: Any) -> np.ndarray:
+            runtime.prepare(prepared)
+            envs = np.flatnonzero(active)
+            q, legal, _ = _rollout_q(prepared, net, source.hero.net, envs)
+            leaf_values[envs] = np.max(np.where(legal, q, -np.inf), axis=1)
+            raise _LeafReady
+
+        try:
+            sim.step_with_policy(leaf, active_env_mask=active)
+        except _LeafReady:
+            pass
+    totals = mass + config.leaf_scale * leaf_values
+    means = totals.reshape(len(actions), config.rollouts).mean(axis=1)
+    scores = {action: float(score) for action, score in zip(actions, means)}
+    if len(scores) > 1:
+        ranked = sorted(scores.values())
+        if ranked[-1] - ranked[-2] <= 2 * Q_TIE_ATOL * config.leaf_scale:
+            # Leaf roundoff must never decide an exact/near score tie.
+            return _reference_scores(source, actions, config, decision)
+    return scores
+
+
 def _leaf_q(world: bank_engine.CapturedWorld) -> tuple[np.ndarray, np.ndarray]:
     """Read B8 at the next exact Watch boundary without consuming a transition."""
     captured: dict[str, Any] = {}
@@ -400,8 +547,24 @@ def _leaf_q(world: bank_engine.CapturedWorld) -> tuple[np.ndarray, np.ndarray]:
 class SearchTeacher:
     """Choose legal hero actions from exact cloned continuations."""
 
-    def __init__(self, config: SearchConfig = SearchConfig()) -> None:
+    def __init__(
+        self,
+        config: SearchConfig = SearchConfig(),
+        *,
+        implementation: str = "batched",
+        device: str = "cpu",
+    ) -> None:
+        if implementation not in ("batched", "reference"):
+            raise ValueError("implementation must be batched or reference")
+        if device not in ("cpu", "mps", "cuda"):
+            raise ValueError("device must be cpu, mps or cuda")
+        if implementation == "reference" and device != "cpu":
+            raise ValueError("the reference teacher requires CPU")
         self.config = config
+        self.implementation = implementation
+        self.device = device
+        self._device_net = None
+        self._source_net = None
 
     def choose(self, world: bank_engine.CapturedWorld) -> tuple[int, dict[str, Any]]:
         """Return an action and diagnostics from an already-prepared Watch world."""
@@ -424,9 +587,17 @@ class SearchTeacher:
         if not searched:
             return base, diag
         decision = int(world.sim.frame[0]) - 1
-        scores = _batched_scores(
-            world, [int(action) for action in np.flatnonzero(legal)], self.config, decision
-        )
+        actions = [int(action) for action in np.flatnonzero(legal)]
+        if self.implementation == "reference":
+            scores = _reference_scores(world, actions, self.config, decision)
+        elif self.device == "cpu":
+            scores = _batched_scores(world, actions, self.config, decision)
+        else:
+            if self._source_net is not world.hero.net:
+                # Cache only immutable weights; never move the source CPU oracle.
+                self._device_net = copy.deepcopy(world.hero.net).to(self.device).eval()
+                self._source_net = world.hero.net
+            scores = _batched_scores(world, actions, self.config, decision, net=self._device_net)
         diag["scores"] = scores
         # dict insertion follows increasing action order, preserving first-index ties.
         return max(scores, key=scores.__getitem__), diag

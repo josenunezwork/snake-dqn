@@ -7,7 +7,9 @@ import concurrent.futures
 import hashlib
 import json
 import multiprocessing
+import platform
 import statistics
+import sys
 import time
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -38,13 +40,16 @@ def fixture(row: dict, checkpoint: Path, length: int) -> Any:
 
 def timing_task(payload: tuple) -> dict:
     """One single-thread search including cloning, features and inference."""
-    row, checkpoint, length, config = payload
+    row, checkpoint, length, config, *execution = payload
+    implementation, device = execution or ("batched", "cpu")
     configure_cpu()
     from research.phase0_search_20261019.runner import operational_guard
 
     operational_guard()
     world = fixture(row, Path(checkpoint), length)
-    teacher = SearchTeacher(replace(SearchConfig(**config), length_gate=0))
+    teacher = SearchTeacher(
+        replace(SearchConfig(**config), length_gate=0), implementation=implementation, device=device
+    )
     started = time.perf_counter()
     diag = step_world(world, teacher)
     return {
@@ -54,6 +59,10 @@ def timing_task(payload: tuple) -> dict:
         "seconds": time.perf_counter() - started,
         "legal_actions": len(diag.get("scores", {})),
         "searched": diag["searched"],
+        "action": diag["action"],
+        "scores": diag["scores"],
+        "implementation": implementation,
+        "device": device,
     }
 
 
@@ -83,6 +92,7 @@ def calibrate(rows: list, checkpoint: Path, horizon: int) -> dict:
                 "world_id": row["world_id"],
                 "decisions": count,
                 "mandatory_length_decisions": sum(x >= 600 for x in lengths[offset:]),
+                "proposal_length800_decisions": sum(x >= 800 for x in lengths[offset:]),
                 "seconds": time.perf_counter() - started,
             }
         )
@@ -107,6 +117,7 @@ def calibrate(rows: list, checkpoint: Path, horizon: int) -> dict:
         "decisions": len(m),
         "mandatory_length_fraction": float(long.mean()),
         "searched_fraction": float(admitted.mean()),
+        "proposal_length800_fraction": float((np.asarray(lengths) >= 800).mean()),
         "margin_threshold": threshold,
         "target_fraction": 0.10,
         "method": "all alive bare-B8 decisions pooled; mandatory L>=600 first; "
@@ -121,9 +132,16 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--mode", choices=("calibrate", "timing", "scaling"), required=True)
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--implementation", choices=("batched", "reference"), default="batched")
+    parser.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cpu")
     parser.add_argument("--workers", type=int, default=1, choices=range(1, 7))
     parser.add_argument("--horizon", type=int, default=5000)
+    parser.add_argument("--rounds", type=int, choices=range(1, 5), default=1)
     args = parser.parse_args()
+    if args.device != "cpu" and args.workers != 1:
+        parser.error("GPU timing uses one process; CPU process scaling is a separate measurement")
+    if args.device != "cpu" and args.implementation == "reference":
+        parser.error("the reference teacher requires CPU")
     configure_cpu()
     from research.phase0_search_20261019.runner import operational_guard
 
@@ -145,9 +163,19 @@ def main() -> None:
         result = calibrate(rows, args.checkpoint, args.horizon)
     else:
         # Warm one tiny real fixture outside measurement to compile numba kernels.
-        timing_task((rows[0], str(args.checkpoint), 200, {**config, "rollouts": 1, "horizon": 2}))
+        timing_task(
+            (
+                rows[0],
+                str(args.checkpoint),
+                200,
+                {**config, "rollouts": 1, "horizon": 2},
+                args.implementation,
+                args.device,
+            )
+        )
         payloads = [
-            (row, str(args.checkpoint), length, config)
+            (row, str(args.checkpoint), length, config, args.implementation, args.device)
+            for _ in range(args.rounds)
             for length in (200, 800, 1500)
             for row in rows
         ]
@@ -165,6 +193,7 @@ def main() -> None:
         result = {
             "rows": results,
             "workers": args.workers,
+            "rounds": args.rounds if args.mode == "timing" else 1,
             "batch_wall_seconds": wall,
             "search_seconds_median": statistics.median(r["seconds"] for r in results),
             "decisions_per_wall_second": len(results) / wall,
@@ -173,6 +202,10 @@ def main() -> None:
         }
     result.update(
         mode=args.mode,
+        command=[sys.executable, *sys.argv],
+        platform=platform.platform(),
+        implementation=args.implementation,
+        device=args.device,
         config=config,
         total_seconds=time.perf_counter() - start,
         bank_sha256=hashlib.sha256(args.bank.read_bytes()).hexdigest(),
