@@ -538,3 +538,33 @@ No efficacy endpoint, survival guard, N, arm, seed, final-checkpoint rule, analy
 look, selection threshold, gameplay bank, serving behavior or release authority
 changes. Any other operational failure remains INVALID/INCOMPLETE. Q1 remains
 conditional on both qualified hardware packets and the complete current admission.
+
+## Amendment A4 — Q1 GPU-cap correction and deterministic parallel CPU evaluation (2026-10-18)
+
+**Owner authorization and disclosure:** owner decision in chat on 2026-10-18 at
+approximately 6:40 PM PT, verbatim option chosen: **"Raise to 37 GPU-h (Recommended)"**.
+Its description, verbatim, was: **"Amendment A4: GPU-hour limit 24 -> 37 (keeps the
+20% reserve over the 29.5 forecast); credits, seeds, recipe unchanged. Also fix CPU eval
+parallelism so CPU-hours fit the existing limit. Q1 can start tonight."** This is a new,
+hash-bound A4 owner admission. Earlier owner-admission packets and all earlier
+registration bytes remain immutable.
+
+**Prospective execution correction:** the combined GPU-hour cap is raised from 24 to
+**37 GPU-hours**, with the unchanged 20% reserve. The usable GPU forecast limit is
+therefore **29.6 GPU-hours**. The combined CPU-hour cap remains **40 CPU-hours** and
+its usable limit remains **32 CPU-hours**. The A3 inclusive Q0 unit formula and all
+unit caps remain unchanged.
+
+Q1 CPU evaluation jobs must use a deterministic process pool: `workers =
+max(1, min(cpu_count - 1, 10))`, with results merged in world order.
+Forecasts conservatively use seven workers on a minimum eight-vCPU CPU runtime;
+larger runtimes use the bounded default formula above. The pool must have a serial-versus-parallel
+byte-identity test, stream progress, and use a forecast based on a Mac measurement of
+the real entrypoint, including a conservative Colab per-core slowdown factor. The
+four parity worlds per evaluation job and per-job overhead remain serial accounting
+reserves; they are not divided by the pool worker count.
+
+No credits, seeds, training recipe, Q1 units, endpoints, thresholds, clauses, banks,
+analysis look, selection rule, serving behavior, release authority, or any other cap
+changes. Any nonconforming execution remains INVALID/INCOMPLETE. This amendment does
+not enqueue or dispatch jobs.
