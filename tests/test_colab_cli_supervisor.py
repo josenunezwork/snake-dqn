@@ -681,3 +681,43 @@ def test_cleanup_lock_wait_ignores_expired_execution_and_uncertain_renewal(
     with supervisor.account_locked(cli, cleanup=True):
         pass
     assert len(calls) == 3
+
+
+def test_disconnect_acceptance_observes_fake_backend_endpoint_release(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from types import SimpleNamespace
+
+    from research.colab_cli.acceptance_faults import AcceptanceObserver
+
+    binary = _fake_env(monkeypatch, tmp_path)
+    cli = supervisor.CLI(binary, tmp_path / "session.json", "disconnect")
+    cli.call("new", "-s", cli.session)
+    endpoint = next(iter(cli.sessions()))
+    cli.accounting = SimpleNamespace(endpoint=endpoint)
+    root = "/content/snake-cli/disconnect"
+    remote = Path(os.environ["FAKE_COLAB_REMOTE"]) / cli.session / root.lstrip("/") / "output"
+    remote.mkdir(parents=True)
+    payload = b"checkpoint-on-lease-loss"
+    (remote / "lease-checkpoint.pkl").write_bytes(payload)
+    (remote / "lease-checkpoint.pkl.sha256").write_text(hashlib.sha256(payload).hexdigest())
+    clock = [0.0]
+
+    def disconnect_sleep(seconds: float) -> None:
+        clock[0] += seconds
+        state_path = tmp_path / "fake-state.json"
+        state = json.loads(state_path.read_text())
+        state["sessions"].pop(endpoint, None)
+        state_path.write_text(json.dumps(state))
+
+    monkeypatch.setattr(supervisor.time, "sleep", disconnect_sleep)
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock[0])
+    observer = AcceptanceObserver("unused")
+    monkeypatch.setattr(observer, "_state", lambda context: {})
+    output = tmp_path / "watchdog-output"
+    output.mkdir()
+    observer._watchdog(
+        {"cli": cli, "root": root, "output": output, "manifest": {"lease_seconds": 180}}
+    )
+    assert observer.records["mac-loss-watchdog-unassign"]["endpoint"] == endpoint
+    assert not any(event["argv"][4] == "stop" for event in _events(tmp_path))
