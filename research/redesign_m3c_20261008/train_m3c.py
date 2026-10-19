@@ -38,6 +38,8 @@ Everything new is behind a flag:
   learner loop at the requested elapsed wall time, then writes the normal final checkpoint
   and summary with ``stopped_for_time: true``.  It is a weights-only restart boundary, not an
   exact optimizer/replay/actor-state resume unless full-state checkpointing is enabled.
+* ``--final-target-weights`` (multi-actor only): also write terminal ``target.pth``
+  after the learner flush. Weights only; no optimizer/replay snapshot or resume promise.
 * ``--full-state-every N``: opt-in full training state, with local serialization and durable
   copying in separate workers. ``--resume-full-state DIR`` restores a verified manifest;
   see ``CHECKPOINTS.md`` for replay size, refill and measured capture latency limits.
@@ -1947,6 +1949,7 @@ def m3c_flags(args) -> Dict[str, Any]:
         "league_checkpoint_dir",
         "league_b8_checkpoint",
         "max_wall_seconds",
+        "final_target_weights",
         "kill_scale",
         "death_value",
         "gamma_start",
@@ -2023,6 +2026,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--demo-initial-shards", type=int, default=30)
     ap.add_argument("--warmup", type=int, default=20_000)
     ap.add_argument("--checkpoint-every", type=int, default=2_500_000)
+    ap.add_argument(
+        "--final-target-weights",
+        action="store_true",
+        help="multi-actor only: export terminal target weights (not exact resume)",
+    )
     ap.add_argument(
         "--full-state-every",
         type=int,
@@ -2385,6 +2393,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         # Continuing a long run should retain a new local recovery point without making a
         # surprising Drive write: the resume source may itself be mounted Drive.
         args.ckpt_local_dir = args.out / "full_state"
+    if args.final_target_weights and not args.actors:
+        raise SystemExit("--final-target-weights needs the multi-actor trainer")
     if args.actors < 0:
         raise SystemExit("--actors must be >= 0")
     if args.learner_seats is not None and args.all_snakes_learner:
@@ -5111,6 +5121,18 @@ def main_multi(args) -> int:
         },
         manifest,
     )
+    if getattr(args, "final_target_weights", False) and not st["halt"]:
+        save_checkpoint_atomic(
+            args.out / "target.pth",
+            target,
+            {
+                **meta_base,
+                "transitions": st["transitions"],
+                "updates": st["updates"],
+                "weights_role": "target",
+            },
+            manifest,
+        )
     summary = {
         "schema": SCHEMA_M3C,
         "created_utc": datetime.now(timezone.utc).isoformat(),

@@ -276,7 +276,15 @@ def _args(module: ModuleType, root: Path, demo: Path, init: Path):
     return args
 
 
-def _run(module: ModuleType, root: Path, demo: Path, init: Path, monkeypatch, captures):
+def _run(
+    module: ModuleType,
+    root: Path,
+    demo: Path,
+    init: Path,
+    monkeypatch,
+    captures,
+    final_target_weights=False,
+):
     import multiprocessing as mp
 
     monkeypatch.setattr(mp, "get_context", lambda _method: _Context(module))
@@ -313,12 +321,17 @@ def _run(module: ModuleType, root: Path, demo: Path, init: Path, monkeypatch, ca
     monkeypatch.setattr(LM.Learner, "update", update_spy)
     monkeypatch.setattr(LM.Learner, "close", close_spy)
     args = _args(module, root, demo, init)
+    if final_target_weights:
+        args.final_target_weights = True
     assert module.main_multi(args) == 0
     summary = json.loads((args.out / "summary.json").read_text())
     return samples, captures, summary
 
 
-def test_s1_no_barrier_whole_learner_trajectory_matches_frozen(tmp_path, monkeypatch):
+@pytest.mark.parametrize("final_target_weights", [False, True])
+def test_s1_no_barrier_whole_learner_trajectory_matches_frozen(
+    tmp_path, monkeypatch, final_target_weights
+):
     """No full-state barrier means current and frozen trainers are byte-identical."""
     from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
 
@@ -329,7 +342,7 @@ def test_s1_no_barrier_whole_learner_trajectory_matches_frozen(tmp_path, monkeyp
     save_ego2s_checkpoint(init, Ego2sNet(7, 60))
     frozen = _load_frozen(tmp_path)
     candidate_samples, candidate_trace, candidate_summary = _run(
-        CANDIDATE, tmp_path / "candidate", demo, init, monkeypatch, []
+        CANDIDATE, tmp_path / "candidate", demo, init, monkeypatch, [], final_target_weights
     )
     frozen_samples, frozen_trace, frozen_summary = _run(
         frozen, tmp_path / "frozen", demo, init, monkeypatch, []
@@ -360,3 +373,9 @@ def test_s1_no_barrier_whole_learner_trajectory_matches_frozen(tmp_path, monkeyp
     assert candidate_summary["transition_budget_overshoot"] == 0
     assert candidate_summary["full_state_events"] == []
     assert candidate_summary["full_state_complete"] is None
+
+    target_path = tmp_path / "candidate/out/target.pth"
+    assert target_path.exists() is final_target_weights
+    if final_target_weights:
+        target = torch.load(target_path, map_location="cpu", weights_only=False)
+        assert target["meta"]["weights_role"] == "target"

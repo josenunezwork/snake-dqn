@@ -36,6 +36,7 @@ NOMINAL_CAPS = {
 }
 SNAPSHOT_MAX_AGE_SECONDS = 15 * 60
 DIMENSIONS = tuple(USABLE_CAPS)
+OPERATIONAL_FAILURES = frozenset({"disconnect", "transfer_failure", "runtime_reclaim"})
 
 
 class Refused(RuntimeError):
@@ -218,14 +219,91 @@ class Ledger:
                 raise Refused("no outstanding reservation for job")
             receipt = self._receipt(receipt_path, entry["manifest"])
             actual = self._cli_actual(receipt, entry)
-            state["settled"][job_id] = {
+            settled = {
                 "actual": actual,
                 "receipt": self._evidence(receipt_path),
                 "settled_at": self.clock(),
             }
+            if "retry_of" in entry:
+                settled["retry_of"] = entry["retry_of"]
+                settled["source_manifest"] = entry["manifest"]
+            state["settled"][job_id] = settled
             del state["outstanding"][job_id]
             self._verify_invariants(state, require_snapshot=False)
             state["events"].append({"kind": "settle", "job_id": job_id, "at": self.clock()})
+            return self._summary(state)
+
+    def reconcile_operational_failure(
+        self, job_id: str, receipt_path: str | Path, review_path: str | Path
+    ) -> dict[str, Any]:
+        """Close a failed initial attempt while preserving its charged evidence.
+
+        This deliberately does *not* create or reserve a retry.  An operator must
+        separately prepare a bound retry manifest and explicitly reserve it.
+        """
+        with self._locked() as state:
+            self._verify_static_evidence(state)
+            entry = state["outstanding"].get(job_id)
+            if entry is None:
+                raise Refused("no outstanding reservation for job")
+            receipt = self._operational_receipt(receipt_path, entry["manifest"])
+            review = self._operational_review(review_path, job_id, receipt_path, entry["manifest"])
+            actual = self._operational_actual(receipt, entry)
+            state["settled"][job_id] = {
+                "actual": actual,
+                "receipt": self._evidence(receipt_path),
+                "source_manifest": entry["manifest"],
+                "operational_failure_review": self._evidence(review_path),
+                "failure_classification": review["failure_classification"],
+                "settled_at": self.clock(),
+            }
+            del state["outstanding"][job_id]
+            self._verify_invariants(state, require_snapshot=False)
+            state["events"].append(
+                {"kind": "operational_failure", "job_id": job_id, "at": self.clock()}
+            )
+            return self._summary(state)
+
+    def reserve_manual_retry(
+        self, source_job_id: str, retry_job_id: str, manifest_path: str | Path
+    ) -> dict[str, Any]:
+        """Consume the one arm-level retry liability after a reviewed operational loss."""
+        with self._locked() as state:
+            self._verify_invariants(state, require_snapshot=True)
+            source = state["settled"].get(source_job_id)
+            if not source or "operational_failure_review" not in source:
+                raise Refused("manual retry requires a reconciled operational failure")
+            source_evidence = source.get("source_manifest")
+            if not isinstance(source_evidence, Mapping):
+                raise Refused("original reservation manifest evidence is absent")
+            if sha256(Path(source_evidence["path"])) != source_evidence.get("sha256"):
+                raise Refused("original reservation manifest changed")
+            source_manifest = json.loads(Path(source_evidence["path"]).read_text())
+            arm = source_manifest.get("env", {}).get("S1_ARM")
+            if arm not in {"n1", "n3"}:
+                raise Refused("manual retry source is not an S1 training arm")
+            expected = f"retry-{arm}"
+            if retry_job_id != expected or retry_job_id not in state["planned"]:
+                raise Refused("the single registered retry liability for this arm is unavailable")
+            if state["outstanding"]:
+                raise Refused("one active S1 job maximum; reconcile the existing reservation first")
+            retry_path = Path(manifest_path)
+            self._retry_manifest_fits(source_manifest, retry_path, retry_job_id)
+            state["outstanding"][retry_job_id] = {
+                "bound": state["planned"].pop(retry_job_id),
+                "manifest": self._evidence(retry_path),
+                "reserved_at": self.clock(),
+                "retry_of": source_job_id,
+            }
+            self._verify_invariants(state, require_snapshot=True)
+            state["events"].append(
+                {
+                    "kind": "reserve_manual_retry",
+                    "job_id": retry_job_id,
+                    "source_job_id": source_job_id,
+                    "at": self.clock(),
+                }
+            )
             return self._summary(state)
 
     def settle_mac(self, job_id: str, receipt_path: str | Path) -> dict[str, Any]:
@@ -423,6 +501,9 @@ class Ledger:
         for job_id, item in state["settled"].items():
             if sha256(Path(item["receipt"]["path"])) != item["receipt"]["sha256"]:
                 raise Refused(f"settled receipt evidence changed: {job_id}")
+            for name in ("source_manifest", "operational_failure_review"):
+                if name in item and sha256(Path(item[name]["path"])) != item[name]["sha256"]:
+                    raise Refused(f"settled {name} evidence changed: {job_id}")
 
     def _receipt(self, path: str | Path, manifest: Mapping[str, str]) -> dict[str, Any]:
         receipt_path = Path(path).resolve(strict=True)
@@ -431,24 +512,93 @@ class Ledger:
             raise Refused("supervisor receipt does not prove completed stop/disappearance")
         if data.get("error") is not None or data.get("cleanup_error") is not None:
             raise Refused("supervisor receipt records an execution or cleanup error")
-        if data.get("manifest_sha256") != manifest["sha256"]:
-            # The broker writes its validated/canonical manifest into the fresh
-            # output directory, so formatting/default normalization can change its
-            # bytes.  Bind it back to the reserved source manifest by immutable
-            # identity and priced fields rather than accepting an unconnected hash.
-            output_manifest = receipt_path.parent / "manifest.json"
-            if not output_manifest.is_file() or sha256(output_manifest) != data.get(
-                "manifest_sha256"
-            ):
-                raise Refused("receipt manifest hash does not name its output manifest")
-            original = json.loads(Path(manifest["path"]).read_text())
-            validated = json.loads(output_manifest.read_text())
-            for key in ("job_id", "commit", "script", "requirements", "budget"):
-                if original.get(key) != validated.get(key):
-                    raise Refused("validated receipt manifest differs from reserved manifest")
+        self._receipt_manifest_bound(receipt_path, data, manifest)
         if not data.get("endpoint") or not data.get("terminal"):
             raise Refused("receipt lacks endpoint or terminal evidence")
         return data
+
+    def _operational_receipt(self, path: str | Path, manifest: Mapping[str, str]) -> dict[str, Any]:
+        """Validate a supervisor-stop receipt for a non-scientific lost attempt."""
+        receipt_path = Path(path).resolve(strict=True)
+        data = json.loads(receipt_path.read_text())
+        if data.get("status") != "INCOMPLETE" or data.get("stop_verified") is not True:
+            raise Refused("operational failure lacks verified stop/disappearance")
+        if data.get("cleanup_error") is not None:
+            raise Refused("operational failure cleanup is unverified")
+        if not data.get("endpoint"):
+            raise Refused("operational failure receipt lacks endpoint evidence")
+        self._receipt_manifest_bound(receipt_path, data, manifest)
+        # A present, fully verified final is decisive; a partial export index is not.
+        final = data.get("verified_final_export")
+        if final is True:
+            raise Refused("verified final export exists; a retry cannot be prepared")
+        self._operational_actual(data, {"bound": {key: math.inf for key in DIMENSIONS}})
+        return data
+
+    @staticmethod
+    def _receipt_manifest_bound(
+        receipt_path: Path, receipt: Mapping[str, Any], manifest: Mapping[str, str]
+    ) -> None:
+        if receipt.get("manifest_sha256") == manifest["sha256"]:
+            return
+        output_manifest = receipt_path.parent / "manifest.json"
+        named_hash = receipt.get("manifest_sha256")
+        if not output_manifest.is_file() or sha256(output_manifest) != named_hash:
+            raise Refused("receipt manifest hash does not name its output manifest")
+        original, validated = json.loads(Path(manifest["path"]).read_text()), json.loads(
+            output_manifest.read_text()
+        )
+        # The supervisor may only normalize representation/default types. Every
+        # execution input remains semantic identity for both PASS and INCOMPLETE.
+        for key in (
+            "job_id",
+            "commit",
+            "script",
+            "env",
+            "requirements",
+            "timeout_minutes",
+            "output_dir",
+            "inputs",
+            "budget",
+            "lease_seconds",
+            "max_export_bytes",
+        ):
+            if original.get(key) != validated.get(key):
+                raise Refused("validated receipt manifest differs from reserved manifest")
+
+    def _operational_review(
+        self, path: str | Path, job_id: str, receipt_path: str | Path, manifest: Mapping[str, str]
+    ) -> dict[str, Any]:
+        review_path = Path(path).resolve(strict=True)
+        value = json.loads(review_path.read_text())
+        if (
+            value.get("schema") != "s1-operational-failure-review/v1"
+            or value.get("status") != "PASS"
+        ):
+            raise Refused("operational failure review is absent or not PASS")
+        if value.get("job_id") != job_id or value.get("manifest_sha256") != manifest["sha256"]:
+            raise Refused("operational failure review identity differs from the reservation")
+        if value.get("receipt_sha256") != sha256(Path(receipt_path)):
+            raise Refused("operational failure review is not bound to the receipt")
+        if value.get("failure_classification") not in OPERATIONAL_FAILURES:
+            raise Refused("failure is not an eligible operational classification")
+        if (
+            value.get("no_efficacy_look") is not True
+            or value.get("mac_final_evaluation_planned") is not True
+        ):
+            raise Refused("operational failure review does not preserve the one-look rule")
+        if value.get("verified_final_export") is not False:
+            raise Refused("operational failure review does not exclude a verified final")
+        prohibited = (
+            "tripwire",
+            "integrity_failure",
+            "parity_failure",
+            "hash_failure",
+            "counter_failure",
+        )
+        if any(value.get(name) is not False for name in prohibited):
+            raise Refused("scientific or integrity failure cannot consume the retry")
+        return value
 
     def _cli_actual(self, receipt: Mapping[str, Any], entry: Mapping[str, Any]) -> dict[str, float]:
         bound = entry["bound"]
@@ -477,6 +627,34 @@ class Ledger:
         actual["units"] = max(actual["units"], bound["units"])
         return actual
 
+    def _operational_actual(
+        self, receipt: Mapping[str, Any], entry: Mapping[str, Any]
+    ) -> dict[str, float]:
+        """Price only the receipt's known request-to-disappearance interval.
+
+        Human review time after disappearance remains real elapsed wall time via
+        ``_totals``; it is not retrospectively claimed as paid GPU time.
+        """
+        bound = entry["bound"]
+        before, after = receipt.get("usage_before"), receipt.get("usage_after")
+        if not isinstance(before, Mapping) or not isinstance(after, Mapping):
+            raise Refused("receipt lacks final account usage; reservation remains outstanding")
+        debit = _number(before.get("balance"), "receipt usage_before.balance") - _number(
+            after.get("balance"), "receipt usage_after.balance"
+        )
+        if debit < 0:
+            raise Refused("account balance increased; receipt cannot price this allocation")
+        elapsed = _number(receipt.get("elapsed_seconds"), "receipt elapsed_seconds") / 3600
+        actual = {
+            "units": max(debit, bound["units"]),
+            "gpu_allocation_hours": elapsed,
+            "mac_worker_hours": 0.0,
+            "elapsed_hours": elapsed,
+        }
+        if any(actual[key] > bound[key] + 1e-9 for key in DIMENSIONS):
+            raise Refused("receipt exceeds reserved worst case")
+        return actual
+
     @staticmethod
     def _manifest_fits(path: Path, job_id: str, bound: Mapping[str, float]) -> None:
         manifest = json.loads(path.read_text())
@@ -495,6 +673,31 @@ class Ledger:
         timeout = _number(manifest.get("timeout_minutes"), "manifest timeout") / 60
         if timeout * rate > bound["units"] + 1e-9 or timeout > bound["gpu_allocation_hours"] + 1e-9:
             raise Refused("manifest timeout/rate needs more than its registered reservation")
+
+    @staticmethod
+    def _retry_manifest_fits(source: Mapping[str, Any], path: Path, job_id: str) -> None:
+        retry = json.loads(path.read_text())
+        if retry.get("job_id") != job_id:
+            raise Refused("retry manifest job id differs from its retry liability")
+        if not isinstance(retry.get("output_dir"), str) or retry["output_dir"] == source.get(
+            "output_dir"
+        ):
+            raise Refused("retry manifest requires a fresh output directory")
+        attempt = retry.get("attempt")
+        if not isinstance(attempt, Mapping) or attempt != {
+            "kind": "manual-operational-rerun",
+            "of": source.get("job_id"),
+        }:
+            raise Refused("retry manifest lacks the required explicit attempt metadata")
+        compare_source, compare_retry = dict(source), dict(retry)
+        for value in (compare_source, compare_retry):
+            value.pop("job_id", None)
+            value.pop("output_dir", None)
+            value.pop("attempt", None)
+        if compare_source != compare_retry:
+            raise Refused(
+                "retry manifest differs from the original seed, recipe, inputs, commit or budget"
+            )
 
     def _verify_invariants(self, state: Mapping[str, Any], *, require_snapshot: bool) -> None:
         self._verify_static_evidence(state)

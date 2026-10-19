@@ -34,10 +34,15 @@ target oracle checks. Changed sources require fresh validation before admission.
 
 The frozen qualified settings are N3=6 actors and N1=3 actors; 128 worlds;
 raw rings with gather threads `g3` and queue depth 2; fp32; batch-scale 2; and
-`torch.compile` reduce-overhead. Full state (online/target/optimizer/replay,
-rings, counters and RNG) checkpoints every 2M learner decisions in bounded
-transport chunks no larger than 2 GiB; weights-only snapshots occur every 500k
-for diagnostics and cannot be resumed or selected. The counter overshoot limit
+`torch.compile` reduce-overhead. Export only the terminal 8M online weights
+(`final.pth`), terminal target weights (`target.pth`), counters/provenance/parity
+receipts, telemetry and logs. No mid-run weights, full-state or replay snapshots
+are created or exported. The adapter sets `--full-state-every 0` and puts the
+weights checkpoint interval beyond the endpoint plus overshoot; the trainer's
+correct full-state barrier implementation remains available to other studies.
+The immutable final archive and its index are bounded to **64 MiB total per
+attempt**; an oversized artifact is incomplete, never silently truncated.
+Neither terminal weights file supplies an exact resume. The counter overshoot limit
 is `actors * worlds * learner seats - 1`; emitted decisions reconcile as
 `256 * updates + debt`; clean actor exits and ring overruns both equal zero.
 Admission pins B8, the demo/league inputs, and their SHA-256 hashes as immutable
@@ -50,8 +55,8 @@ rosters and joint seat/roster/termination semantics. Collection is a package;
 this screen cannot attribute an effect to one component. Each arm has five
 fresh collision-audited seed blocks (`223213833, 3055723932, 1783343308,
 1125234883, 1809856951`),
-one L4 run at a time, and exactly 8,000,000 learner decisions. No 2M/4M output,
-if retained for transport diagnostics, can decide or replace a final.
+one L4 run at a time, and exactly 8,000,000 learner decisions. No intermediate
+checkpoint exists for selection or substitution.
 
 ## Immutable banks, one look, and statistics
 
@@ -78,6 +83,7 @@ Intervals are development screens, not multiplicity-controlled discoveries.
 This is an explicit fixed-N exception to sequential Phase R: five paired seeds,
 one complete final look, no interim efficacy inspection, no early stopping,
 extension, replacement, resampling, checkpoint selection, or automatic retry.
+The sole operational exception is the prospective from-scratch rule below.
 
 ## Ordered decision rule
 
@@ -86,8 +92,9 @@ Apply these labels in order per arm.
 1. **INVALID / INCOMPLETE**: any missing/hash-mismatched input, receipt, final,
    row, world, sample count, counter reconciliation, parity/merge proof, clean
    exit, cap or timing/admission requirement; a namespace collision; or failed
-   transport identity. Preserve evidence. Do not rerun, substitute a final or
-   replace a seed.
+   transport identity. Preserve evidence. No substitute final or replacement seed
+   is permitted. Only an eligible operational loss may use the once-per-arm
+   from-scratch rule below; all other failures remain INVALID / INCOMPLETE.
 2. **KILL**: Q1 tripwire (non-finite loss/Q/grad or illegal action; >90% one
    action share in a complete 100k window; greedy boost >2% overall or >1%
    below length 700); pooled alive-fraction effect below -.03 on any mix; any
@@ -109,6 +116,28 @@ the healthy arm. Contrast and bootstrap sensitivity are unavailable if either
 arm lacks five valid finals. Any integrity uncertainty remains INVALID rather
 than being relabeled as a KILL.
 
+## Operational failure rule (pre-data)
+
+A run lost to a disconnect, transfer failure, or runtime reclaim **before its
+final export is verified on the Mac** may be rerun **once from scratch per
+recipe arm**: at most one N3 rerun and one N1 rerun across their five seed
+blocks (two additional attempts total). Use the identical failed seed block,
+namespace, B8 initializer, uploaded inputs, source commit and training recipe;
+start with fresh Adam and empty replay/label rings. Use a fresh attempt identity
+and output directory. There is no resume, seed replacement or training extension.
+
+The operator must record the infrastructure cause, absence of any efficacy
+look, and the failed attempt's immutable receipts before preparing a replacement.
+A verified final cannot be discarded. A scientific tripwire, parity/hash/counter
+failure, or ambiguous cause is ineligible. Reconcile request-to-disappearance
+elapsed time and debit, and prove runtime release before any replacement can
+launch. Unknown intervals or release evidence block further allocation. Do not
+retry automatically. The same budget includes both failed and replacement
+attempts, with one replacement liability per arm reserved before first launch.
+A second operational failure in that arm, or insufficient remaining budget,
+leaves that arm INCOMPLETE; no second exception or efficacy look is allowed.
+Other integrity failures retain INVALID precedence. Preserve all failed bytes.
+
 ## Governance, accounting, and admission
 
 The nominal envelope is **60 compute units / 25 GPU-allocation hours / 24 Mac
@@ -125,17 +154,31 @@ upper bound would exceed any usable cap. Allocation is charged from request
 through supervisor-confirmed disappearance, including setup, idle, failure,
 export and cleanup. Unknown intervals, missing supervisor receipts, unreconciled
 assignments, missing pricing or changed hashes block launch. First cap wins. No
-borrowing reserves, raises, substitutions, retries, automatic recovery, or
-parallel L4 study run exists. The 10 runs are serialized.
+borrowing reserves, raises, substitutions, automatic retries/recovery, or
+parallel L4 study run exists. The ten primary runs and at most two expressly
+prepared operational replacements are serialized.
 
 The Mac evaluation uses at most two deterministic single-thread workers,
 resumable per-world partials and a fixed-order merge proven byte-identical to
 serial. A disjoint fixture of at least 10 episodes prices the complete upper
 bound. A tiny real M3-C entrypoint run and real eval entrypoint timing are
 required before admission; admission refuses if the complete forecast does not
-fit all usable caps. The full-size transport/export upper bound is unpriced at
-registration and therefore blocks admission until it is measured and fits every
-usable cap; local preflight results are pending and are not claimed here.
+fit all usable caps. Transport liability is the measured final artifact size
+(or its enforced conservative bound) divided by the measured throughput lower
+bound from the independently qualified CLI acceptance receipt, plus final
+preparation and cleanup. There is no full-replay transfer liability. A local CPU
+fixture does not measure L4/home-connection throughput. Acceptance must bind the
+current transport/adapter sources and final-size receipts before admission.
+
+Conditional training planning is `6 * (30 + 68) / 60 = 9.8 GPU-hours` including
+one possible rerun per arm, before acceptance, setup, final export and cleanup.
+Hard manifest estimates/timeouts remain N3 30/60 minutes and N1 68/136 minutes;
+reserving every timeout plus a five-minute cleanup tail, and two acceptance
+GPU-hours, gives `6 * (65 + 141) / 60 + 2 = 22.6 GPU-hours` and `45.2 units`
+at 2 units/hour. Thus the hard upper bound **exceeds 20 usable GPU-hours** even
+though units fit 48. Admission remains REFUSED until a prospective reviewed
+execution design fits all caps; this DRAFT does not reduce timeouts, spend the
+withheld reserve or raise caps to hide that conflict.
 
 New Colab work uses only `research/colab_cli` after its independent live
 acceptance. No Drive queue, direct `colab` operation, runtime retention,
@@ -153,3 +196,20 @@ that S1 has already passed an invariant. N3/N1 are mature-schedule candidate
 recipes; this study cannot identify schedule, collection, optimizer-reset or
 interaction causality. Failure closes these recipes within this package, not
 all RL.
+
+
+## Pre-data change log
+
+- 2026-10-18 (planner decision, before S1 training/evaluation data): replace
+  four full-replay snapshots per run and 500k diagnostic weights with terminal
+  online/target weights and decision evidence only. The measured capacity record
+  `CHECKPOINT_SIZE_MEASUREMENT.md` at commit `66c9135e` showed about 868 GB of
+  snapshot exports across ten runs, before finals; this transport is infeasible
+  on the home connection during paid allocations and cannot support a registered
+  exact resume. Keep the trainer barrier correction; remove it only from S1's
+  export path. Add the once-per-recipe operational rerun rule, charged to the
+  same caps and settled before any efficacy look. Replace full-replay transport
+  qualification with final-artifact size/CLI throughput qualification. Preserve
+  DRAFT status, seeds, recipes, endpoint, statistical thresholds, fixed look,
+  overshoot bounds, serving boundary and all historical evidence. Record the
+  resulting 22.6-hour hard reservation refusal explicitly.
