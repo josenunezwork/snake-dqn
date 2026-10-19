@@ -8,7 +8,59 @@ from pathlib import Path
 
 import pytest
 
-from research.s1_mature_20261018 import admission, run
+from research.s1_mature_20261018 import admission, final_artifacts, run
+
+
+def _final_transport(tmp_path: Path) -> dict:
+    sources = final_artifacts.source_manifest(final_artifacts.SOURCES)
+    receipts = {}
+    for arm in ("n3", "n1"):
+        receipt = tmp_path / f"{arm}-size.json"
+        receipt.write_text(
+            json.dumps(
+                {
+                    "schema": final_artifacts.SIZE_SCHEMA,
+                    "status": "PASS",
+                    "arm": arm,
+                    "source_manifest": sources,
+                    "production_contract_validated": True,
+                    "export_contract": final_artifacts.PROTOCOL,
+                    "measured_final_bundle_bytes": 13_000_000,
+                    "final_bundle_bytes_upper_bound": 64 * 1024**2,
+                    "telemetry_log_allowance_bytes": 1_000_000,
+                    "artifact_files": sorted(final_artifacts.REQUIRED_ARTIFACT_FILES),
+                }
+            )
+        )
+        receipts[arm] = {"path": str(receipt), "sha256": admission.sha256(receipt)}
+    acceptance = tmp_path / "acceptance.json"
+    acceptance.write_text(
+        json.dumps(
+            {
+                "qualified": True,
+                "s1_final_artifact_transfer": {
+                    "status": "PASS",
+                    "hardware": "L4",
+                    "protocol": final_artifacts.PROTOCOL,
+                    "verified_on_mac": True,
+                    "transport_source_sha256": sources["research/s1_mature_20261018/train.py"],
+                    "transport_source_manifest": final_artifacts.source_manifest(
+                        final_artifacts.CLI_SOURCES
+                    ),
+                    "exported_bytes": 13_000_000,
+                    "elapsed_seconds": 13,
+                    "bytes_per_second_lower_bound": 1_000_000,
+                    "final_artifact_size_receipts": receipts,
+                },
+            }
+        )
+    )
+    return {
+        "schema": final_artifacts.SCHEMA,
+        "status": "PASS",
+        "source_manifest": sources,
+        "cli_acceptance_receipt": {"path": str(acceptance), "sha256": admission.sha256(acceptance)},
+    }
 
 
 def test_preregistration_requires_prospective_approval_line(tmp_path: Path) -> None:
@@ -37,6 +89,7 @@ def test_liabilities_reject_wrong_arm_timing() -> None:
             )
     bound = admission.liabilities(good)
     assert len(bound) == 10
+    assert not set(bound).intersection({"retry-n3", "retry-n1"})
     assert bound["n3-0"]["gpu_allocation_hours"] == pytest.approx(65 / 60)
     assert bound["n1-0"]["units"] == pytest.approx(141 / 30)
     good[0]["timeout_minutes"] = 136
@@ -56,19 +109,46 @@ def test_final_export_recovery_rejects_path_escape(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("number", [float("nan"), float("inf"), float("-inf")])
 def test_pricing_rejects_nonfinite_bounds(tmp_path: Path, number: float) -> None:
+    training = tmp_path / "training.json"
+    training.write_text(
+        json.dumps(
+            {
+                "status": "PASS",
+                "counter_admission": "PASS",
+                "identity": {
+                    "source_manifest": {
+                        relative: admission.sha256(admission.ROOT / relative)
+                        for relative in (
+                            "research/redesign_m3c_20261008/train_m3c.py",
+                            "research/s1_mature_20261018/train.py",
+                        )
+                    }
+                },
+            }
+        )
+    )
+    evaluation = tmp_path / "evaluation.json"
+    evaluation.write_text(
+        json.dumps(
+            {
+                "schema": "s1-eval-timing/v1",
+                "status": "completed",
+                "episode_count": 10,
+                "identity": {"source_manifest": {}},
+            }
+        )
+    )
     receipt = tmp_path / "pricing.json"
     receipt.write_text(
         __import__("json").dumps(
             {
                 "status": "PASS",
-                "complete_upper_bound": {"mac_worker_hours": number, "elapsed_hours": 1},
-                "full_replay_transport": {
-                    "status": "PASS",
-                    "source_sha256": "a",
-                    "timing_receipt_sha256": "b",
-                    "snapshot_bytes": 4 * 1024**3,
-                    "per_run_gpu_hours_upper_bound": 1,
+                "evidence": {
+                    name: {"path": str(item), "sha256": admission.sha256(item)}
+                    for name, item in (("training", training), ("evaluation", evaluation))
                 },
+                "complete_upper_bound": {"mac_worker_hours": number, "elapsed_hours": 1},
+                "final_artifact_transport": _final_transport(tmp_path),
             }
         )
     )
@@ -76,7 +156,7 @@ def test_pricing_rejects_nonfinite_bounds(tmp_path: Path, number: float) -> None
         admission.priced_mac_bound(receipt)
 
 
-def test_pricing_requires_current_counter_sources_and_measured_transfer(tmp_path: Path) -> None:
+def test_pricing_requires_current_counter_sources_and_bound_final_transfer(tmp_path: Path) -> None:
     sources = {
         relative: admission.sha256(admission.ROOT / relative)
         for relative in (
@@ -109,7 +189,7 @@ def test_pricing_requires_current_counter_sources_and_measured_transfer(tmp_path
                         for name, item in (("training", training), ("evaluation", evaluation))
                     },
                     "complete_upper_bound": {"mac_worker_hours": 1, "elapsed_hours": 1},
-                    "full_replay_transport": {"status": "PASS"},
+                    "final_artifact_transport": _final_transport(tmp_path),
                 }
             )
         )
@@ -126,5 +206,24 @@ def test_pricing_requires_current_counter_sources_and_measured_transfer(tmp_path
             }
         )
     )
-    with pytest.raises(admission.AdmissionRefused, match="transport qualification"):
-        admission.priced_mac_bound(priced())
+    bound = admission.priced_mac_bound(priced())
+    assert bound["per_arm_gpu_hours"]["n3"] > 30 / 60
+    assert bound["per_arm_gpu_hours"]["n1"] > 68 / 60
+
+
+def test_primary_forecast_fits_caps_without_pre_funding_optional_reruns() -> None:
+    from research.s1_mature_20261018 import ledger, price
+
+    root = admission.ROOT / "research/s1_mature_20261018"
+    forecast = price.forecast(
+        root / "EVAL_PREFLIGHT_FINAL.json", root / "TRAIN_PREFLIGHT_FINAL_ONLY.json"
+    )
+    hard = forecast["primary_hard_reservation"]
+    assert hard["gpu_allocation_hours"] == pytest.approx(5 * (65 + 141) / 60 + 2)
+    assert hard["units"] == pytest.approx(38.333333333333336)
+    assert all(hard[key] <= cap for key, cap in ledger.USABLE_CAPS.items())
+    assert forecast["conditional_reruns"]["pre_funded"] is False
+    assert forecast["conditional_planning_forecast"]["known_base_plus_cleanup_gpu_hours"] == 12.8
+    assert forecast["complete_upper_bound"] is None  # Missing live transfer qualification.
+    assert forecast["status"] == "REFUSED"
+    assert not any("exceeds usable" in reason for reason in forecast["refusal_reasons"])

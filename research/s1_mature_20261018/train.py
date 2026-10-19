@@ -52,44 +52,10 @@ def _safe_extract(archive: Path, destination: Path) -> None:
         tar.extractall(destination, filter="data")
 
 
-def reassemble_and_extract(index_path: Path, exports_root: Path, destination: Path) -> Path:
-    """Verify a manually selected transport snapshot and safely reconstruct it.
-
-    This is deliberately only a recovery preparation primitive.  A new approved
-    manifest is still required to run ``--resume-full-state``; it never retries
-    or allocates a runtime itself.
-    """
-    index = json.loads(index_path.read_text())
-    if index.get("schema") != "s1-chunked-export/v1" or destination.exists():
-        raise RuntimeError("invalid export index or non-fresh recovery destination")
-    chunks = index.get("chunks")
-    if not isinstance(chunks, list) or not chunks:
-        raise RuntimeError("export index lacks chunks")
-    archive = destination.with_suffix(".tar.gz")
-    with archive.open("xb") as combined:
-        for entry in chunks:
-            name, digest = entry.get("path"), entry.get("sha256")
-            if not isinstance(name, str) or Path(name).name != name or not isinstance(digest, str):
-                raise RuntimeError("unsafe export chunk index")
-            part = exports_root / name
-            if not part.is_file() or sha256_file(part) != digest:
-                raise RuntimeError(f"missing or changed export chunk: {name}")
-            shutil.copyfileobj(part.open("rb"), combined)
-    if sha256_file(archive) != index.get("archive_sha256"):
-        archive.unlink(missing_ok=True)
-        raise RuntimeError("reassembled archive digest mismatch")
-    destination.mkdir()
-    _safe_extract(archive, destination)
-    manifests = list(destination.rglob("manifest.json"))
-    if len(manifests) != 1 or not (manifests[0].parent / "state.pt").is_file():
-        raise RuntimeError("recovery archive is not one complete full-state snapshot")
-    return manifests[0].parent
-
-
 def _complete_export(source: Path, destination: Path) -> None:
     """Copy an immutable file then atomically publish hash and completion marker."""
     if not source.is_file() or source.stat().st_size > MAX_EXPORT_BYTES:
-        raise RuntimeError(f"export absent or exceeds 2 GiB: {source}")
+        raise RuntimeError(f"export absent or exceeds final artifact cap: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".partial")
     shutil.copyfile(source, temporary)
@@ -104,17 +70,41 @@ def _complete_export(source: Path, destination: Path) -> None:
     destination.with_name(destination.name + ".complete").touch(exist_ok=False)
 
 
-def _archive_directory(source: Path, archive: Path) -> None:
+FINAL_FILES = frozenset(
+    {
+        "final.pth",
+        "target.pth",
+        "summary.json",
+        "s1-training-provenance.json",
+        "log.jsonl",
+        "telemetry.jsonl",
+        "manifest.jsonl",
+        "runtime-parity.json",
+        "outcome.json",
+        "t22-cuda.json",
+        "t24-cuda.json",
+    }
+)
+
+
+def _archive_final(run_dir: Path, archive: Path) -> None:
+    """Archive only final weights and evidence, excluding replay and partial weights."""
     temporary = archive.with_suffix(archive.suffix + ".partial")
     with tarfile.open(temporary, "w:gz", compresslevel=6) as tar:
-        tar.add(source, arcname=source.name, recursive=True)
+        for name in sorted(FINAL_FILES):
+            source = run_dir / name
+            if source.is_file():
+                tar.add(source, arcname=f"run/{name}", recursive=False)
     os.replace(temporary, archive)
 
 
 def _publish_chunked(
-    archive: Path, exports: Path, stem: str, *, chunk_size: int = 1536 * 1024**2
+    archive: Path, exports: Path, stem: str, *, chunk_size: int | None = None
 ) -> None:
     """Publish a reassemblable archive as immutable chunks plus a checked index."""
+    chunk_size = MAX_EXPORT_BYTES if chunk_size is None else chunk_size
+    if archive.stat().st_size + 4096 > MAX_EXPORT_BYTES:
+        raise RuntimeError("final artifact exceeds aggregate export cap including index allowance")
     if chunk_size <= 0 or chunk_size > MAX_EXPORT_BYTES:
         raise RuntimeError("invalid transport chunk size")
     chunks: list[dict[str, object]] = []
@@ -147,41 +137,6 @@ def _publish_chunked(
     )
     _complete_export(index, exports / index.name)
     index.unlink()
-
-
-def _snapshot_exports(full_state: Path, exports: Path, seen: set[str]) -> None:
-    for manifest in sorted(full_state.glob("snapshot-*/manifest.json")):
-        snapshot = manifest.parent
-        key = snapshot.name
-        if key in seen:
-            continue
-        # A manifest is committed last by AsyncCheckpointer.  Confirm its single state file digest.
-        try:
-            value = json.loads(manifest.read_text())
-        except FileNotFoundError:
-            continue  # Retention retired this snapshot before pin acquisition.
-        item = value["files"][0]
-        state = snapshot / item["name"]
-        staging_root = full_state / f".transport-{key}"
-        staging = staging_root / key
-        staging.mkdir(parents=True, exist_ok=False)
-        try:
-            # Full-state retention may remove this directory while a multi-GiB
-            # archive is being produced.  A hard link pins the verified inode.
-            try:
-                os.link(state, staging / item["name"])
-            except FileNotFoundError:
-                continue
-            if sha256_file(staging / item["name"]) != item["sha256"]:
-                raise RuntimeError(f"full-state checksum mismatch: {snapshot}")
-            (staging / "manifest.json").write_text(json.dumps(value, sort_keys=True) + "\n")
-            archive = full_state / f"{key}.tar.gz"
-            _archive_directory(staging, archive)
-        finally:
-            shutil.rmtree(staging_root, ignore_errors=True)
-        _publish_chunked(archive, exports, f"full-state-{key}")
-        archive.unlink()
-        seen.add(key)
 
 
 def _decision_count(run_dir: Path) -> int:
@@ -339,7 +294,7 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
         raise RuntimeError("demo archive does not contain margin.json")
     # The supervisor imports each output-relative file under its local exports/.
     # A second runtime exports/ prefix would produce exports/exports/ on the Mac.
-    run_dir, full_state, exports = work / "run", work / "full-state", output
+    run_dir, exports = work / "run", output
     started = time.monotonic()
     parity_receipt = work / "runtime-parity.json"
     if not smoke:
@@ -404,7 +359,6 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
         "${S1_INIT_PATH}": str(init),
         "${S1_DEMO_DIR}": str(demo_dir),
         "${S1_RUN_DIR}": str(run_dir),
-        "${S1_FULL_STATE_DIR}": str(full_state),
     }
     command = [replacements.get(token, token) for token in command]
     if smoke:
@@ -416,8 +370,6 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
         _replace_option(command, "--worlds", "8")
         _replace_option(command, "--actors", "2")
         _replace_option(command, "--learner-seats", "3")
-        _replace_option(command, "--checkpoint-every", "6000")
-        _replace_option(command, "--full-state-every", "6000")
         _replace_option(command, "--ring-dir", str(work / "rings"))
         _replace_option(command, "--namespace", f"s1-preflight-smoke/seed-{seed}")
         command.extend(["--replay", "2048", "--demo-capacity", "2048", "--warmup", "256"])
@@ -435,7 +387,7 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
     shutdown_requested = False
 
     def request_checkpoint(_signum: int, _frame: object) -> None:
-        """Convert supervisor SIGUSR1 into a trainer interrupt and final snapshot."""
+        """Convert supervisor SIGUSR1 into a trainer interrupt; never export a partial."""
         nonlocal shutdown_requested
         shutdown_requested = True
         if child.poll() is None:
@@ -449,16 +401,13 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
     previous_usr1 = signal.signal(signal.SIGUSR1, request_checkpoint)
     previous_term = signal.signal(signal.SIGTERM, terminate_child)
     previous_int = signal.signal(signal.SIGINT, terminate_child)
-    seen: set[str] = set()
     progress = output / "progress.json"
     try:
         while child.poll() is None:
-            _snapshot_exports(full_state, exports, seen)
             _write_progress(
                 progress, phase="training", started=started, child=child, run_dir=run_dir
             )
             time.sleep(120)
-        _snapshot_exports(full_state, exports, seen)
     finally:
         signal.signal(signal.SIGUSR1, previous_usr1)
         signal.signal(signal.SIGTERM, previous_term)
@@ -474,6 +423,9 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
     if not summary.is_file():
         raise RuntimeError("training did not write summary.json")
     data = json.loads(summary.read_text())
+    for fixture in ("t22-cuda.json", "t24-cuda.json"):
+        if (work / fixture).is_file():
+            shutil.copyfile(work / fixture, run_dir / fixture)
     if parity_receipt.is_file():
         shutil.copyfile(parity_receipt, run_dir / "runtime-parity.json")
     if data.get("halt"):
@@ -481,10 +433,10 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
             run_dir, data, arm, seed, root / "repo/research/redesign_m3c_20261008/train_m3c.py"
         )
         final_archive = work / "s1-final.tar.gz"
-        _archive_directory(run_dir, final_archive)
+        _archive_final(run_dir, final_archive)
         _publish_chunked(final_archive, exports, "s1-final")
         return
-    if child.returncode or not final.is_file():
+    if child.returncode or not final.is_file() or not (run_dir / "target.pth").is_file():
         raise RuntimeError("training did not produce a clean final")
     expected_decisions = 12_000 if smoke else TRAINING_DECISIONS
     if (
@@ -507,15 +459,28 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
         or rows != 256 * updates + debt
         or debt < 0
         or int(data.get("transition_budget_overshoot", -1)) > actors * worlds * seats - 1
-        or data.get("full_state_complete") is not True
+        or data.get("full_state_complete") is not None
+        or data.get("full_state_events") != []
     ):
-        raise RuntimeError("training counter, actor, ring, or full-state receipt is incomplete")
+        raise RuntimeError("training counter, actor, ring, or final-only receipt is incomplete")
+    if not smoke:
+        required_evidence = (
+            "log.jsonl",
+            "telemetry.jsonl",
+            "manifest.jsonl",
+            "runtime-parity.json",
+            "t22-cuda.json",
+            "t24-cuda.json",
+        )
+        if any(not (run_dir / name).is_file() for name in required_evidence):
+            raise RuntimeError("terminal export lacks required telemetry, logs or parity receipts")
     provenance = {
         "schema": "s1-training-provenance/v1",
         "arm": arm.upper(),
         "training_seed": seed,
         "endpoint": expected_decisions,
         "checkpoint_sha256": sha256_file(final),
+        "target_checkpoint_sha256": sha256_file(run_dir / "target.pth"),
         "summary_sha256": sha256_file(summary),
         "init_sha256": sha256_file(init),
         "namespace": env["S1_TRAINING_NAMESPACE"],
@@ -546,13 +511,13 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
                 )
             },
         },
-        "full_state_exports": sorted(seen),
+        "export_policy": "final-online-target-only-no-resume",
     }
     (run_dir / "s1-training-provenance.json").write_text(
         json.dumps(provenance, sort_keys=True) + "\n"
     )
     final_archive = work / "s1-final.tar.gz"
-    _archive_directory(run_dir, final_archive)
+    _archive_final(run_dir, final_archive)
     _publish_chunked(final_archive, exports, "s1-final")
     _write_progress(progress, phase="complete", started=started, child=child, run_dir=run_dir)
 

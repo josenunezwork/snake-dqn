@@ -1,0 +1,117 @@
+{
+  "complete_upper_bound": null,
+  "conditional_planning_forecast": {
+    "conditional_training_gpu_hours": 9.8,
+    "conditional_transport_gpu_hours": null,
+    "elapsed_hours": null,
+    "gpu_allocation_hours": null,
+    "interpretation": "optional planning scenario only; not an admission reservation",
+    "known_base_gpu_hours_before_setup_export_cleanup": 11.8,
+    "known_base_plus_cleanup_gpu_hours": 12.8,
+    "known_base_plus_cleanup_units": 25.6,
+    "known_base_units_before_setup_export_cleanup": 23.6,
+    "known_cleanup_gpu_hours": 1.0,
+    "mac_worker_hours": 15.865672889600198,
+    "pre_funded": false,
+    "primary_training_gpu_hours": 8.166666666666666,
+    "primary_transport_gpu_hours": null,
+    "reruns": {
+      "n1": 1,
+      "n3": 1
+    },
+    "units": null
+  },
+  "conditional_reruns": {
+    "admission": "spent + outstanding + remaining primary liabilities + full rerun worst case must fit every usable cap at launch; otherwise arm INCOMPLETE",
+    "maximum_per_arm": {
+      "n1": 1,
+      "n3": 1
+    },
+    "per_attempt_hard_liability": {
+      "n1": {
+        "elapsed_hours": 2.35,
+        "gpu_allocation_hours": 2.35,
+        "mac_worker_hours": 0.0,
+        "units": 4.7
+      },
+      "n3": {
+        "elapsed_hours": 1.0833333333333333,
+        "gpu_allocation_hours": 1.0833333333333333,
+        "mac_worker_hours": 0.0,
+        "units": 2.1666666666666665
+      }
+    },
+    "pre_funded": false
+  },
+  "dispatch_authorized": false,
+  "evidence": {
+    "evaluation": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/EVAL_PREFLIGHT_FINAL.json",
+      "sha256": "8181d170ce3f8c523ca48449830cb9079bf567d667f89d654135afaab48f3188"
+    },
+    "training": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/TRAIN_PREFLIGHT_FINAL_ONLY.json",
+      "sha256": "94eeaa59467c9434cb8350bf67344c5bb2d353daac7f595a042667cbc0a75b9e"
+    }
+  },
+  "final_artifact_transport": {
+    "conditional_attempts": 12,
+    "conditional_export_cap_bytes": 805306368,
+    "excluded_by_registration": "full-state, replay, optimizer, actor, RNG, and mid-run checkpoint exports; they cannot support an exact resume or decision.",
+    "export_liability_formula": "final_bundle_bytes_upper_bound / measured_export_bytes_per_second_lower_bound",
+    "measured_export_bytes_per_second_lower_bound": null,
+    "per_attempt_export_cap_bytes": 67108864,
+    "primary_attempts": 10,
+    "primary_export_cap_bytes": 671088640,
+    "required_cli_acceptance_field": "s1_final_artifact_transfer.bytes_per_second_lower_bound",
+    "status": "UNQUALIFIED"
+  },
+  "mac_pricing": {
+    "audit_and_preflight_worker_hours": 2,
+    "episode_factor": 2,
+    "max_measured_episode_seconds": 8.311568334000185,
+    "startup_seconds_per_identity": 600
+  },
+  "next_step": "Obtain the current-source CLI acceptance receipt for final-only L4 exports, then obtain prospective registration approval and fresh admission evidence before dispatch.",
+  "nominal_caps": {
+    "elapsed_hours": 48.0,
+    "gpu_allocation_hours": 25.0,
+    "mac_worker_hours": 24.0,
+    "units": 60.0
+  },
+  "primary_hard_reservation": {
+    "elapsed_hours": 27.099503111466767,
+    "gpu_allocation_hours": 19.166666666666668,
+    "mac_worker_hours": 15.865672889600198,
+    "units": 38.333333333333336
+  },
+  "production_counter_qualification": {
+    "required_invariant": "overshoot <= actors * worlds * learner_seats - 1",
+    "status": "PASS",
+    "tiny_export_roundtrip_is_not_production_qualification": true
+  },
+  "qualified_q0b_planning": {
+    "estimated_training_gpu_hours": 8.166666666666666,
+    "estimated_training_units_at_2_per_hour": 16.333333333333332,
+    "evidence": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/q0q1_20261017/Q0B_A3_REQUALIFICATION_20261018.md",
+      "sha256": "e3587a53f23a62db866c7fbd6a64ea3b8f76271984c311c815d5300fdc6e86f5"
+    },
+    "limitation": "Historical training estimates exclude final-only transfer; the current receipt must bind final size and measured CLI throughput.",
+    "n1_estimate_minutes": 68,
+    "n3_estimate_minutes": 30
+  },
+  "refusal_reasons": [
+    "Final-only L4 export liability is unqualified; no finite complete upper bound is admitted."
+  ],
+  "registration_status": "DRAFT_PENDING_OWNER_REVIEW",
+  "schema": "s1-mature-pricing/v1",
+  "status": "REFUSED",
+  "training_preflight_status": "PASS",
+  "usable_caps": {
+    "elapsed_hours": 38.4,
+    "gpu_allocation_hours": 20.0,
+    "mac_worker_hours": 19.2,
+    "units": 48.0
+  }
+}

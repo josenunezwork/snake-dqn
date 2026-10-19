@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+from typing import Iterator
 
 import pytest
 
@@ -94,3 +95,20 @@ def _restore_game_config(_restore_module_game_config):
         yield
     finally:
         game_config._current_config = before
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Collection imports every test module in every xdist worker."""
+    from tests.openmp_runtime import assert_single_libomp
+
+    assert_single_libomp()
+
+
+@pytest.fixture(autouse=True)
+def _single_openmp_runtime() -> "Iterator[None]":
+    """Check lazy imports too, before and after each test's fixture lifetime."""
+    from tests.openmp_runtime import assert_single_libomp
+
+    assert_single_libomp()
+    yield
+    assert_single_libomp()

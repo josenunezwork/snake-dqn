@@ -4,7 +4,7 @@
     "reserve_units": 0,
     "unit_cap": 2.0
   },
-  "commit": "9a18e66120c0b869044f609a9c48dd5df338a281",
+  "commit": "f9bb1055d3e7fdbc74689b94a49e8547e4f34c15",
   "env": {
     "PYTHONUNBUFFERED": "1",
     "S1_ARM": "n3",
@@ -52,8 +52,8 @@
   ],
   "job_id": "s1-mature-n3-3055723932",
   "lease_seconds": 180.0,
-  "max_export_bytes": 2147483648,
-  "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n3-3055723932",
+  "max_export_bytes": 67108864,
+  "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-final-only/training/s1-mature-n3-3055723932",
   "requirements": {
     "allowed_gpus": [
       "L4"

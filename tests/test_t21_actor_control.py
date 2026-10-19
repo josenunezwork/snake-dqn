@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from research.redesign_m3c_20261008 import train_m3c as T
+from tests.actor_telemetry import WALL_CLOCK_ACTOR_FIELDS
 
 
 class _Stop:
@@ -156,7 +157,7 @@ def _assert_messages_equal(expected, actual) -> None:
     for frame, (left, right) in enumerate(zip(expected, actual)):
         assert left.keys() == right.keys(), frame
         for key, value in left.items():
-            if key in {"env_s", "timing"}:
+            if key in WALL_CLOCK_ACTOR_FIELDS:
                 continue
             other = right[key]
             if isinstance(value, np.ndarray):

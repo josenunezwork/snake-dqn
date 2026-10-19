@@ -1,0 +1,59 @@
+{
+  "counter_admission": "PASS",
+  "dispatch_authorized": false,
+  "export_roundtrip": "PASS",
+  "fixture": {
+    "actor_exitcodes": [
+      0,
+      0
+    ],
+    "actors": 2,
+    "actual_learner_decisions": 12000,
+    "adapter_wall_seconds": 120.3,
+    "archive": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-preflight-03/recovered-final.tar.gz",
+      "sha256": "cd5839054e7b39b5b747ec4aab6117e25ae2c25c846dc0479ab5350db33ca1b4"
+    },
+    "artifact_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-preflight-03",
+    "emitted_replay_rows": 11760,
+    "full_state_complete": null,
+    "full_state_events": [],
+    "learner_seats": 3,
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-preflight-03/adapter.log",
+      "sha256": "573ab1fdc5e3dbba13c26215543b9d8ac39d2263e3df188ea6c3a2c29154263e"
+    },
+    "measured_export_bytes": 12180957,
+    "nstep_accounting_reconciled": true,
+    "observed_overshoot": 0,
+    "pending_update_debt": 240,
+    "registered_overshoot_bound": 47,
+    "ring_overrun_rows": 0,
+    "summary": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-preflight-03/s1-work/run/summary.json",
+      "sha256": "4a598dcf7eec198e3af97ad6d6bfef3dab406a75d9cd4328c9f1fb3c04267f00"
+    },
+    "target_checkpoint": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-preflight-03/s1-work/run/target.pth",
+      "sha256": "838b580cc77aaaecb0a776384f9873a194d099471c7fde26fb72b7389b8acd38"
+    },
+    "updates": 45,
+    "worlds": 8
+  },
+  "identity": {
+    "source_manifest": {
+      "research/redesign_m3c_20261008/train_m3c.py": "c8aa8fd8f3f4e6eb81925d8e9967bc44ec380d4c0f12f178f2c3be0d37ab6e28",
+      "research/s1_mature_20261018/final_artifacts.py": "2cbb088417626918249db48a45e3827eea6ce93ae52d782094f9a29ff353adbe",
+      "research/s1_mature_20261018/manifests.py": "d16b97c7f7876aeeae4ce70fb7e1aa0a24dbb0b46396a8107730ed59db920ff3",
+      "research/s1_mature_20261018/train.py": "f56be45e9b3d32d81845e3335269540808048a5251cbae715489a4ace06251f2"
+    }
+  },
+  "limitations": [
+    "12000 decisions / 2 actors / 8 worlds / reduced replay CPU fixture; not an 8M L4 size or throughput measurement",
+    "Periodic log/telemetry windows are not reached by this tiny fixture; production requires both",
+    "CPU torch.compile falls back to eager; no CUDA or L4 qualification is claimed"
+  ],
+  "schema": "s1-training-preflight/v1",
+  "status": "PASS",
+  "supersedes_for_current_adapter": "TRAIN_PREFLIGHT_BARRIER_FIX.json; historical bytes preserved"
+}

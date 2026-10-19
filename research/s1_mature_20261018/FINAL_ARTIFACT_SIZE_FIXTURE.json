@@ -1,0 +1,50 @@
+{
+  "archive": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-preflight-03/recovered-final.tar.gz",
+    "sha256": "cd5839054e7b39b5b747ec4aab6117e25ae2c25c846dc0479ab5350db33ca1b4"
+  },
+  "archive_payload_bytes": {
+    "final.pth": 6566741,
+    "manifest.jsonl": 331,
+    "s1-training-provenance.json": 16866,
+    "summary.json": 13173,
+    "target.pth": 6562677
+  },
+  "artifact_files": [
+    "final.pth",
+    "manifest.jsonl",
+    "s1-training-provenance.json",
+    "summary.json",
+    "target.pth"
+  ],
+  "cli_measured_throughput": null,
+  "conditional_export_cap_bytes": 805306368,
+  "dispatch_authorized": false,
+  "enforced_per_attempt_export_cap_bytes": 67108864,
+  "hardware": "Mac CPU",
+  "limitations": [
+    "12000 decisions / 2 actors / 8 worlds / reduced replay CPU fixture; not an 8M L4 size or throughput measurement",
+    "Periodic log/telemetry windows are not reached by this tiny fixture; production requires both",
+    "CPU torch.compile falls back to eager; no CUDA or L4 qualification is claimed"
+  ],
+  "log": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-preflight-03/adapter.log",
+    "sha256": "573ab1fdc5e3dbba13c26215543b9d8ac39d2263e3df188ea6c3a2c29154263e"
+  },
+  "max_reruns_per_recipe": 1,
+  "measured_final_bundle_bytes": 12180957,
+  "primary_export_cap_bytes": 671088640,
+  "production_contract_validated": false,
+  "schema": "s1-final-artifact-size-fixture/v1",
+  "source_manifest": {
+    "research/redesign_m3c_20261008/train_m3c.py": "c8aa8fd8f3f4e6eb81925d8e9967bc44ec380d4c0f12f178f2c3be0d37ab6e28",
+    "research/s1_mature_20261018/final_artifacts.py": "2cbb088417626918249db48a45e3827eea6ce93ae52d782094f9a29ff353adbe",
+    "research/s1_mature_20261018/manifests.py": "d16b97c7f7876aeeae4ce70fb7e1aa0a24dbb0b46396a8107730ed59db920ff3",
+    "research/s1_mature_20261018/train.py": "f56be45e9b3d32d81845e3335269540808048a5251cbae715489a4ace06251f2"
+  },
+  "status": "FIXTURE_ONLY",
+  "summary": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-preflight-03/s1-work/run/summary.json",
+    "sha256": "4a598dcf7eec198e3af97ad6d6bfef3dab406a75d9cd4328c9f1fb3c04267f00"
+  }
+}

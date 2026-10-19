@@ -1,7 +1,7 @@
-"""Price the fixed S1 plan locally; unknown full-state liability is a refusal.
+"""Price the fixed S1 plan locally; unknown final-export liability is a refusal.
 
 This command never contacts Colab. A small CPU adapter smoke cannot qualify the
-production full-state counter boundary or a multi-GiB RPC transfer on an L4.
+production counter boundary or final-export transfer from an L4.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from research.s1_mature_20261018 import bank, checkpoint_sizing, ledger
+from research.s1_mature_20261018 import bank, final_artifacts, ledger
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -28,9 +28,8 @@ def forecast(
     eval_path: Path,
     training_path: Path,
     transport_path: Path | None = None,
-    sizing_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Calculate the conditional forecast and keep unresolved liability explicit."""
+    """Price primary admission and disclose optional reruns without pre-funding them."""
     timing, training = json.loads(eval_path.read_text()), json.loads(training_path.read_text())
     allocation = bank.load_world_bank()
     if timing.get("status") != "completed" or timing.get("episode_count", 0) < 10:
@@ -55,13 +54,6 @@ def forecast(
     episode_worker_hours = 1920 * 2 * max(samples) / 3600
     mac_hours = episode_worker_hours + 15 * 2 * 600 / 3600 + 2.0
     mac_elapsed = mac_hours / 2
-    training_gpu = 5 * ((60 + 5) + (136 + 5)) / 60
-    conservative = {
-        "units": 2 * training_gpu + 4,
-        "gpu_allocation_hours": training_gpu + 2,
-        "mac_worker_hours": mac_hours,
-        "elapsed_hours": training_gpu + 2 + mac_elapsed,
-    }
     reasons = []
     counter_pass = training.get("status") == "PASS" and training.get("counter_admission") == "PASS"
     counter_sources = training.get("identity", {}).get("source_manifest", {})
@@ -76,58 +68,81 @@ def forecast(
         reasons.append("Real M3-C training preflight has not passed the unchanged counter bound.")
     transport: dict[str, Any] = {
         "status": "UNQUALIFIED",
-        "complete_upper_bound": None,
         "measured_export_bytes_per_second_lower_bound": None,
-        "required_cli_acceptance_field": "s1_full_replay_transfer.bytes_per_second_lower_bound",
-        "capacity": {arm: checkpoint_sizing.capacity(arm) for arm in ("n3", "n1")},
-        "export_liability_formula": "5 * (4 * archive_N3_bytes + final_N3_bytes + "
-        "4 * archive_N1_bytes + final_N1_bytes) / measured_export_bytes_per_second_lower_bound",
-        "archive_bound_formula": "ceil(snapshot_bytes_upper_bound * 1.01) + 1 MiB",
-        "snapshot_count_per_run": 4,
-        "snapshot_targets": list(checkpoint_sizing.SNAPSHOTS),
-        "additional_liability": "full-size snapshot capture/serialization/hash/archive/chunk/copy "
-        "preparation for every snapshot and final archive; deferred barrier packets included",
+        "required_cli_acceptance_field": "s1_final_artifact_transfer.bytes_per_second_lower_bound",
+        "export_liability_formula": "final_bundle_bytes_upper_bound / "
+        "measured_export_bytes_per_second_lower_bound",
+        "excluded_by_registration": "full-state, replay, optimizer, actor, RNG, and mid-run "
+        "checkpoint exports; they cannot support an exact resume or decision.",
+        "per_attempt_export_cap_bytes": final_artifacts.MAX_FINAL_EXPORT_BYTES,
+        "primary_attempts": 10,
+        "conditional_attempts": 12,
+        "primary_export_cap_bytes": 10 * final_artifacts.MAX_FINAL_EXPORT_BYTES,
+        "conditional_export_cap_bytes": 12 * final_artifacts.MAX_FINAL_EXPORT_BYTES,
     }
-    sizing_path = (
-        sizing_path or ROOT / "research/s1_mature_20261018/CHECKPOINT_SIZE_MEASUREMENT.json"
-    )
-    if sizing_path.is_file():
-        sizes = json.loads(sizing_path.read_text())
-        for arm in ("n3", "n1"):
-            if (
-                sizes["arms"][arm]["fixed_capacity_array_bytes"]
-                != checkpoint_sizing.capacity(arm)["fixed_capacity_array_bytes"]
-            ):
-                raise ValueError(f"{arm} sizing receipt no longer matches the production capacity")
-        transport["checkpoint_size_receipt"] = binding(sizing_path)
-        transport["checkpoint_planning_sizes"] = sizes["arms"]
-        transport["ten_run_snapshot_export_bytes_planning_upper_bound"] = 5 * sum(
-            item["four_snapshot_export_bytes_planning_upper_bound"]
-            for item in sizes["arms"].values()
-        )
-        transport["snapshot_export_gpu_hours_formula"] = (
-            f"{transport['ten_run_snapshot_export_bytes_planning_upper_bound']} / "
-            "measured_export_bytes_per_second_lower_bound / 3600; "
-            "plus ten final archives and all preparation"
-        )
     if transport_path is not None:
         try:
-            transport = checkpoint_sizing.transport_bound(
-                json.loads(transport_path.read_text()), timing_sha256=binding(eval_path)["sha256"]
-            )
+            transport = final_artifacts.transport_bound(json.loads(transport_path.read_text()))
         except (ValueError, TypeError, KeyError, OSError) as exc:
-            reasons.append(f"Full-replay transport refused: {exc}")
+            reasons.append(f"Final-artifact transport refused: {exc}")
     if transport.get("status") != "PASS":
         reasons.append(
-            "Full-size L4 full-replay checkpoint/export liability is unqualified; "
+            "Final-only L4 export liability is unqualified; "
             "no finite complete upper bound is admitted."
         )
     else:
         for arm, row in transport["qualified_arms"].items():
-            if row["per_run_gpu_hours_upper_bound"] > (60 if arm == "n3" else 136) / 60:
-                reasons.append(f"{arm} training plus preparation/export exceeds unchanged timeout")
-    exceeded = [key for key, value in conservative.items() if value > ledger.USABLE_CAPS[key]]
-    reasons.extend(f"Conditional forecast exceeds usable {key}" for key in exceeded)
+            base = (30 if arm == "n3" else 68) / 60
+            if (
+                base + row["transport_seconds_upper_bound"] / 3600
+                > (60 if arm == "n3" else 136) / 60
+            ):
+                reasons.append(f"{arm} training plus final-only export exceeds unchanged timeout")
+    qualified_transport = transport.get("status") == "PASS"
+    per_arm_transport = (
+        {
+            arm: transport["qualified_arms"][arm]["transport_seconds_upper_bound"] / 3600
+            for arm in ("n3", "n1")
+        }
+        if qualified_transport
+        else None
+    )
+    # Primary plan: five N3 and five N1 runs.  Conditional case: one additional
+    # from-scratch run of each recipe, allowed only after an operational failure.
+    primary_training = 5 * (30 + 68) / 60
+    conditional_training = 6 * (30 + 68) / 60
+    primary_transport = 5 * sum(per_arm_transport.values()) if per_arm_transport else None
+    conditional_transport = 6 * sum(per_arm_transport.values()) if per_arm_transport else None
+    planning = {
+        "units": (
+            2 * (conditional_training + conditional_transport) + 4
+            if conditional_transport is not None
+            else None
+        ),
+        "gpu_allocation_hours": (
+            conditional_training + conditional_transport + 2
+            if conditional_transport is not None
+            else None
+        ),
+        "mac_worker_hours": mac_hours,
+        "elapsed_hours": (
+            conditional_training + conditional_transport + 2 + mac_elapsed
+            if conditional_transport is not None
+            else None
+        ),
+    }
+    # The ledger reserves hard manifest timeout plus a separate five-minute
+    # cleanup tail.  Export transport must fit the timeout above, so it is not
+    # added a second time here.
+    hard_training = 5 * ((60 + 5) + (136 + 5)) / 60
+    hard_reservation = {
+        "units": 2 * hard_training + 4,
+        "gpu_allocation_hours": hard_training + 2,
+        "mac_worker_hours": mac_hours,
+        "elapsed_hours": hard_training + 2 + mac_elapsed,
+    }
+    exceeded = [key for key, value in hard_reservation.items() if value > ledger.USABLE_CAPS[key]]
+    reasons.extend(f"Primary admission forecast exceeds usable {key}" for key in exceeded)
     return {
         "schema": "s1-mature-pricing/v1",
         "status": "REFUSED" if reasons else "PASS",
@@ -143,11 +158,41 @@ def forecast(
             "n1_estimate_minutes": 68,
             "estimated_training_gpu_hours": 5 * (30 + 68) / 60,
             "estimated_training_units_at_2_per_hour": 2 * 5 * (30 + 68) / 60,
-            "limitation": "Historical training estimates exclude the newly required "
-            "full-replay transport qualification.",
+            "limitation": "Historical training estimates exclude final-only transfer; the current "
+            "receipt must bind final size and measured CLI throughput.",
         },
-        "conditional_reserved_forecast": conservative,
-        "full_replay_transport": transport,
+        "conditional_planning_forecast": {
+            **planning,
+            "primary_training_gpu_hours": primary_training,
+            "primary_transport_gpu_hours": primary_transport,
+            "conditional_training_gpu_hours": conditional_training,
+            "conditional_transport_gpu_hours": conditional_transport,
+            "known_base_gpu_hours_before_setup_export_cleanup": conditional_training + 2,
+            "known_base_units_before_setup_export_cleanup": 2 * (conditional_training + 2),
+            "known_cleanup_gpu_hours": 12 * 5 / 60,
+            "known_base_plus_cleanup_gpu_hours": conditional_training + 2 + 12 * 5 / 60,
+            "known_base_plus_cleanup_units": 2 * (conditional_training + 2 + 12 * 5 / 60),
+            "reruns": {"n3": 1, "n1": 1},
+            "pre_funded": False,
+            "interpretation": "optional planning scenario only; not an admission reservation",
+        },
+        "primary_hard_reservation": hard_reservation,
+        "conditional_reruns": {
+            "pre_funded": False,
+            "maximum_per_arm": {"n3": 1, "n1": 1},
+            "admission": "spent + outstanding + remaining primary liabilities + full rerun "
+            "worst case must fit every usable cap at launch; otherwise arm INCOMPLETE",
+            "per_attempt_hard_liability": {
+                arm: {
+                    "units": 2 * (timeout + 5) / 60,
+                    "gpu_allocation_hours": (timeout + 5) / 60,
+                    "mac_worker_hours": 0.0,
+                    "elapsed_hours": (timeout + 5) / 60,
+                }
+                for arm, timeout in (("n3", 60), ("n1", 136))
+            },
+        },
+        "final_artifact_transport": transport,
         "production_counter_qualification": {
             "status": "PASS" if counter_pass else "REFUSED",
             "required_invariant": "overshoot <= actors * worlds * learner_seats - 1",
@@ -159,15 +204,15 @@ def forecast(
             "startup_seconds_per_identity": 600,
             "audit_and_preflight_worker_hours": 2,
         },
-        "complete_upper_bound": None if reasons else conservative,
+        "complete_upper_bound": None if reasons else hard_reservation,
         "usable_caps": ledger.USABLE_CAPS,
         "nominal_caps": ledger.NOMINAL_CAPS,
         "refusal_reasons": reasons,
         "registration_status": "DRAFT_PENDING_OWNER_REVIEW",
         "training_preflight_status": training.get("status"),
-        "next_step": "Qualify production-size snapshot preparation and CLI acceptance measured "
-        "L4 export throughput inside unchanged timeouts and envelopes "
-        "before approval and admission.",
+        "next_step": "Obtain the current-source CLI acceptance receipt for final-only L4 exports, "
+        "then "
+        "obtain prospective registration approval and fresh admission evidence before dispatch.",
     }
 
 
@@ -176,12 +221,9 @@ def main() -> int:
     parser.add_argument("--eval-preflight", type=Path, required=True)
     parser.add_argument("--training-preflight", type=Path, required=True)
     parser.add_argument("--transport-receipt", type=Path)
-    parser.add_argument("--checkpoint-sizing", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    result = forecast(
-        args.eval_preflight, args.training_preflight, args.transport_receipt, args.checkpoint_sizing
-    )
+    result = forecast(args.eval_preflight, args.training_preflight, args.transport_receipt)
     with args.out.open("x") as stream:
         json.dump(result, stream, sort_keys=True, indent=2, allow_nan=False)
         stream.write("\n")

@@ -21,7 +21,7 @@ TRAINING_DECISIONS = 8_000_000
 L4_RATE_UNITS_PER_HOUR = 2.0
 ESTIMATE_MINUTES = {"n3": 30, "n1": 68}
 TIMEOUT_MINUTES = {"n3": 60, "n1": 136}
-MAX_EXPORT_BYTES = 2 * 1024**3
+MAX_EXPORT_BYTES = 64 * 1024**2
 
 
 class ManifestRefused(ValueError):
@@ -114,13 +114,10 @@ def training_command(arm: str, seed: int) -> list[str]:
         "--learner-seats",
         str(seats),
         "--checkpoint-every",
-        "500000",
+        "9000000",
         "--full-state-every",
-        "2000000",
-        "--full-state-replay",
-        "full",
-        "--ckpt-local-dir",
-        "${S1_FULL_STATE_DIR}",
+        "0",
+        "--final-target-weights",
         "--reward",
         "mass",
         "--mass-kappa",

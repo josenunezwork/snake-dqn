@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
-from research.s1_mature_20261018 import bank, checkpoint_sizing, ledger, manifests
+from research.s1_mature_20261018 import bank, final_artifacts, ledger, manifests
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = "s1-mature-admission-plan/v1"
@@ -87,9 +87,10 @@ def require_approved_preregistration(path: Path) -> dict[str, str]:
 
 
 def liabilities(manifest_rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, float]]:
-    """Return registered worst-case reservations including one five-minute cleanup tail."""
+    """Reserve the ten primary attempts only; reruns are conditional at launch."""
+    rows = list(manifest_rows)
     output: dict[str, dict[str, float]] = {}
-    for row in manifest_rows:
+    for row in rows:
         job, requirements = row.get("job_id"), row.get("requirements", {})
         arm = str(row.get("env", {}).get("S1_ARM", ""))
         est, timeout = requirements.get("est_minutes"), row.get("timeout_minutes")
@@ -170,21 +171,21 @@ def priced_mac_bound(path: Path) -> dict[str, Any]:
         raise AdmissionRefused("pricing receipt lacks finite Mac and elapsed bounds") from exc
     if not math.isfinite(mac) or not math.isfinite(elapsed) or mac < 0 or elapsed < 0:
         raise AdmissionRefused("pricing upper bounds must be nonnegative")
-    # A small timing fixture does not price the new multi-GiB full-state recovery
-    # path.  The transport qualification must measure the actual archive/chunk
-    # protocol and bind its source and >=10 disjoint timing episodes.
-    transport = value.get("full_replay_transport")
+    # The final-only transport receipt binds the current source, measured final
+    # bundle sizes, and a verified L4-to-Mac acceptance transfer.  It contains
+    # no full trainer state and cannot be used as an exact-resume qualification.
+    transport = value.get("final_artifact_transport")
     if not isinstance(transport, dict) or transport.get("status") != "PASS":
-        raise AdmissionRefused("full-replay transport is unqualified; S1 admission is refused")
+        raise AdmissionRefused("final-artifact transport is unqualified; S1 admission is refused")
     try:
-        qualified = checkpoint_sizing.transport_bound(transport, timing_sha256=evaluation["sha256"])
+        qualified = final_artifacts.transport_bound(transport)
     except (ValueError, KeyError, TypeError, OSError) as exc:
         raise AdmissionRefused(str(exc)) from exc
     return {
         "mac_worker_hours": mac,
         "elapsed_hours": elapsed,
         "per_arm_gpu_hours": {
-            arm: item["per_run_gpu_hours_upper_bound"]
+            arm: (30 if arm == "n3" else 68) / 60 + item["transport_seconds_upper_bound"] / 3600
             for arm, item in qualified["qualified_arms"].items()
         },
     }
@@ -233,18 +234,18 @@ def prepare(args: argparse.Namespace) -> Path:
         "elapsed_hours": mac_bound["elapsed_hours"],
     }
     training = {key: sum(item[key] for item in liability.values()) for key in ledger.DIMENSIONS}
-    # The timeout reservation must dominate the measured full-state transport
+    # The timeout reservation must dominate the measured final-only transport
     # bound for each run; otherwise the supposedly inclusive estimate is false.
     for row in rows:
         arm = row["env"]["S1_ARM"]
         # Cleanup is reserved separately; the actual job timeout must cover
-        # training AND all snapshot preparation, archives and measured exports.
+        # training and the final decision artifact transfer.
         if float(row["timeout_minutes"]) / 60 < mac_bound["per_arm_gpu_hours"][arm]:
             raise AdmissionRefused(
-                "registered job timeout does not cover training plus full-replay transport"
+                "registered job timeout does not cover training plus final-artifact transport"
             )
     # Acceptance is a conservative two GPU/allocation hours inside its four-unit
-    # allowance.  Full-state/export slack is already reserved per job above.
+    # allowance. Final export slack is already reserved per job above.
     complete = {
         "units": training["units"] + ACCEPTANCE_UNITS,
         "gpu_allocation_hours": training["gpu_allocation_hours"] + 2.0,
@@ -296,8 +297,12 @@ def prepare(args: argparse.Namespace) -> Path:
         "complete_upper_bound": complete,
         "run_rules": {
             "serialized": True,
-            "snapshot_before_every_job": True,
-            "no_retries": True,
+            "operational_reruns_pre_funded": False,
+            "operational_rerun_admission": "full-worst-case-within-all-usable-caps-at-launch",
+            "operational_reruns_max": {"n3": 1, "n1": 1},
+            "operational_rerun_mode": "from-scratch-identical-seed-and-recipe-before-efficacy-look",
+            "no_exact_resume": True,
+            "no_intermediate_checkpoint_selection": True,
             "no_outcome_analysis_before_full_bank_and_independent_audit": True,
             "mac_workers_max": 2,
             "single_thread_per_worker": True,

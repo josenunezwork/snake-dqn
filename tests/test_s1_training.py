@@ -86,9 +86,11 @@ def test_commands_freeze_mature_schedule_and_qualified_collection_settings() -> 
         assert ["--schedule-package", "mature"] == command[
             command.index("--schedule-package") : command.index("--schedule-package") + 2
         ]
-        assert ["--full-state-replay", "full"] == command[
-            command.index("--full-state-replay") : command.index("--full-state-replay") + 2
-        ]
+        assert command[command.index("--full-state-every") + 1] == "0"
+        assert int(command[command.index("--checkpoint-every") + 1]) > 8_000_000 + 2303
+        assert "--final-target-weights" in command
+        assert "--full-state-replay" not in command
+        assert "--ckpt-local-dir" not in command
         assert "--compile-learner" in command
         assert command[command.index("--compile-learner") + 1] == "reduce-overhead"
         assert command[command.index("--worlds") + 1] == "128"
@@ -139,7 +141,7 @@ def test_chunked_export_is_reassemblable_and_immutable(
     # Use tiny chunks to exercise the split/index protocol without a multi-GiB fixture.
     import research.s1_mature_20261018.train as train
 
-    monkeypatch.setattr(train, "MAX_EXPORT_BYTES", 4096)
+    monkeypatch.setattr(train, "MAX_EXPORT_BYTES", 16384)
     source = tmp_path / "snapshot.tar.gz"
     source.write_bytes(b"abcdef" * 1000)
     exports = tmp_path / "exports"
@@ -153,39 +155,28 @@ def test_chunked_export_is_reassemblable_and_immutable(
         assert output.with_name(output.name + ".complete").is_file()
 
 
-def test_recovered_snapshot_is_discoverable_by_real_trainer_loader(tmp_path: Path) -> None:
-    from research.redesign_m3c_20261008 import async_checkpoint
+def test_final_archive_excludes_replay_and_intermediate_weights(tmp_path: Path) -> None:
+    import tarfile
+
     from research.s1_mature_20261018 import train
 
-    source = tmp_path / "full-state"
-    snapshot = source / "snapshot-00000000000000012345-abcdef01"
-    snapshot.mkdir(parents=True)
-    state = snapshot / "state.pt"
-    state.write_bytes(b"transport fixture; loader verifies identity before deserialization")
-    (snapshot / "manifest.json").write_text(
-        json.dumps(
-            {
-                "schema": async_checkpoint.SCHEMA,
-                "snapshot": snapshot.name,
-                "transitions": 12345,
-                "created_ns": 1,
-                "files": [
-                    {
-                        "name": "state.pt",
-                        "sha256": train.sha256_file(state),
-                        "size_bytes": state.stat().st_size,
-                    }
-                ],
-                "metadata": {},
-            }
-        )
-    )
-    exports = tmp_path / "exports"
-    train._snapshot_exports(source, exports, set())
-    index = exports / f"full-state-{snapshot.name}.index.json"
-    recovered = train.reassemble_and_extract(index, exports, tmp_path / "recovered")
-    assert recovered.name == snapshot.name
-    assert len(async_checkpoint.discover_snapshots(recovered.parent, verify=True)) == 1
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    for name in ("final.pth", "target.pth", "summary.json", "ckpt_500k.pth", "state.pt"):
+        (run_dir / name).write_bytes(b"fixture")
+    archive = tmp_path / "final.tar.gz"
+    train._archive_final(run_dir, archive)
+    with tarfile.open(archive) as tar:
+        assert set(tar.getnames()) == {"run/final.pth", "run/target.pth", "run/summary.json"}
+
+
+def test_target_weights_flag_is_opt_in_and_recorded() -> None:
+    from research.redesign_m3c_20261008 import train_m3c as trainer
+
+    args = trainer.default_args()
+    assert trainer.m3c_flags(args) == {}
+    args.final_target_weights = True
+    assert trainer.m3c_flags(args) == {"final_target_weights": True}
 
 
 def test_supervisor_inventory_does_not_double_the_export_directory(tmp_path: Path) -> None:
@@ -198,3 +189,14 @@ def test_supervisor_inventory_does_not_double_the_export_directory(tmp_path: Pat
     records = runtime._exports(tmp_path, 4096)
     assert records
     assert all(Path(item["path"]).parent == Path(".") for item in records)
+
+
+def test_final_export_refuses_aggregate_cap_before_publishing(tmp_path: Path) -> None:
+    from research.s1_mature_20261018 import train
+
+    source = tmp_path / "final.tar.gz"
+    source.write_bytes(b"x" * train.MAX_EXPORT_BYTES)
+    exports = tmp_path / "exports"
+    with pytest.raises(RuntimeError, match="aggregate export cap"):
+        train._publish_chunked(source, exports, "s1-final")
+    assert not exports.exists()

@@ -1,3 +1,14 @@
+# Current S1 final-only handoff
+
+This DRAFT review handoff is superseded prospectively by
+[FINAL_EXPORT_STATUS_20261018.md](FINAL_EXPORT_STATUS_20261018.md).
+Current manifests are final-only and pinned in
+`MANIFEST_VALIDATION_FINAL_ONLY.json`. The older evidence below records the
+full-state design that was replaced before S1 data; it does not qualify the
+current adapter or authorize a launch.
+
+---
+
 # Published manifest validation
 
 Ten real CLI-schema review manifests are in `jobs_review/`, five per arm. All

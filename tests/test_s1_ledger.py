@@ -126,7 +126,10 @@ def prepared(tmp_path: Path):
         acceptance_review_path=review,
         account_snapshot_path=snap,
         history_refs=history,
-        planned_liabilities={"train-a": bound(), "train-b": bound()},
+        planned_liabilities={
+            "train-a": bound(),
+            "train-b": bound(16, 8, 0, 8),
+        },
     )
     return ledger, tmp_path, snap
 
@@ -253,7 +256,7 @@ def test_cli_receipt_charges_full_request_even_if_provider_debit_lags(prepared):
     summary = ledger.status()
     assert summary["spent"]["units"] == 10  # 2-unit acceptance + full 8-unit request.
     assert summary["outstanding"] == bound(0, 0, 0, 0)
-    assert summary["remaining"]["units"] == 8
+    assert summary["remaining"]["units"] == 16
 
 
 def test_failed_release_and_unknown_interval_keep_reservation_outstanding(prepared):
@@ -307,6 +310,132 @@ def test_canonical_manifest_must_preserve_reserved_identity_and_budget(prepared)
     )
     with pytest.raises(Refused, match="differs"):
         ledger.settle("train-a", receipt)
+
+
+@pytest.mark.parametrize("insufficient", [None, *bound().keys(), "elapsed_gap", "balance"])
+def test_manual_operational_retry_is_one_per_arm_and_semantically_identical(prepared, insufficient):
+    worker_ledger, root, _ = prepared
+    source = dump(
+        root / "source-n3.json",
+        {
+            "job_id": "train-a",
+            "commit": "a" * 40,
+            "script": "research/s1_mature_20261018/train.sh",
+            "env": {"S1_ARM": "n3", "S1_SEED": "7", "S1_TRAINING_NAMESPACE": "ns"},
+            "requirements": {"gpu": "L4"},
+            "timeout_minutes": 120,
+            "output_dir": str(root / "original-out"),
+            "inputs": [{"dest": "seed-bank.json", "sha256": "b" * 64}],
+            "budget": {"rate_units_per_hour": 2},
+        },
+    )
+    worker_ledger.reserve("train-a", bound(), source)
+    receipt = dump(
+        root / "lost.json",
+        {
+            "status": "INCOMPLETE",
+            "stop_verified": True,
+            "cleanup_error": None,
+            "endpoint": "exact-endpoint",
+            "manifest_sha256": digest(source),
+            "usage_before": {"balance": 100},
+            "usage_after": {"balance": 99},
+            "elapsed_seconds": 10,
+            "verified_final_export": False,
+        },
+    )
+    review = dump(
+        root / "review-operational.json",
+        {
+            "schema": "s1-operational-failure-review/v1",
+            "status": "PASS",
+            "job_id": "train-a",
+            "manifest_sha256": digest(source),
+            "receipt_sha256": digest(receipt),
+            "failure_classification": "transfer_failure",
+            "no_efficacy_look": True,
+            "mac_final_evaluation_planned": True,
+            "verified_final_export": False,
+            "tripwire": False,
+            "integrity_failure": False,
+            "parity_failure": False,
+            "hash_failure": False,
+            "counter_failure": False,
+        },
+    )
+    worker_ledger.reconcile_operational_failure("train-a", receipt, review)
+    retry = json.loads(source.read_text())
+    retry.update(
+        {
+            "job_id": "retry-n3",
+            "output_dir": str(root / "fresh-out"),
+            "attempt": {"kind": "manual-operational-rerun", "of": "train-a"},
+        }
+    )
+    retry_path = dump(root / "retry.json", retry)
+    assert "retry-n3" not in worker_ledger.status()["planned_jobs"]
+    if insufficient:
+        state = json.loads(worker_ledger.path.read_text())
+        if insufficient in bound():
+            spent = worker_ledger.status()["spent"][insufficient]
+            state["planned"]["train-b"][insufficient] = (
+                state["usable_caps"][insufficient]
+                - spent
+                + (0.01 if insufficient == "mac_worker_hours" else -0.01)
+            )
+        elif insufficient == "elapsed_gap":
+            worker_ledger.clock = lambda: 1_000_000 + 39 * 3600
+            snapshot = json.loads((root / "account.json").read_text())
+            snapshot["captured_at"] = worker_ledger.clock()
+            fresh = dump(root / "fresh-account.json", snapshot)
+        else:
+            snapshot = json.loads((root / "account.json").read_text())
+            snapshot["balance_units"] = 16  # Remaining primary fits; rerun does not.
+            fresh = dump(root / "fresh-account.json", snapshot)
+        worker_ledger.path.write_text(json.dumps(state))
+        options = (
+            {"account_snapshot_path": fresh} if insufficient in {"balance", "elapsed_gap"} else {}
+        )
+        with pytest.raises(Refused, match="N3 INCOMPLETE"):
+            worker_ledger.reserve_manual_retry("train-a", "retry-n3", retry_path, **options)
+        refused = json.loads(worker_ledger.path.read_text())
+        assert refused["incomplete_arms"]["n3"]["status"] == "INCOMPLETE"
+        if insufficient == "elapsed_gap":
+            assert "usable elapsed_hours" in refused["incomplete_arms"]["n3"]["reason"]
+        assert refused["outstanding"] == {}
+        assert refused["planned"] == state["planned"]
+        assert refused["settled"] == state["settled"]
+        return
+    worker_ledger.reserve_manual_retry("train-a", "retry-n3", retry_path)
+    assert worker_ledger.status()["outstanding_jobs"] == ["retry-n3"]
+    with pytest.raises(Refused, match="unavailable"):
+        worker_ledger.reserve_manual_retry("train-a", "retry-n3", retry_path)
+
+
+def test_operational_retry_refuses_integrity_failure_or_verified_final(prepared):
+    worker_ledger, root, _ = prepared
+    target = manifest(root / "manifest.json")
+    worker_ledger.reserve("train-a", bound(), target)
+    receipt = dump(
+        root / "lost.json",
+        {
+            "status": "INCOMPLETE",
+            "stop_verified": True,
+            "cleanup_error": None,
+            "endpoint": "e",
+            "manifest_sha256": digest(target),
+            "usage_before": {"balance": 1},
+            "usage_after": {"balance": 1},
+            "elapsed_seconds": 1,
+            "verified_final_export": True,
+        },
+    )
+    review = dump(
+        root / "operational-review.json",
+        {"schema": "s1-operational-failure-review/v1", "status": "PASS"},
+    )
+    with pytest.raises(Refused, match="verified final"):
+        worker_ledger.reconcile_operational_failure("train-a", receipt, review)
 
 
 @pytest.mark.parametrize(
