@@ -1,7 +1,7 @@
 """Bounded-memory transport over the official Colab CLI ContentsClient.
 
 The installed CLI base64-encodes a complete file. This adapter constrains each
-ContentsClient request to ``CHUNK_BYTES`` and uses the selected kernel only to
+ContentsClient request to a bounded upload/download chunk and uses the selected kernel only to
 assemble or split already-uploaded local files. It never sends OAuth material
 to the runtime.
 """
@@ -12,13 +12,22 @@ import hashlib
 import json
 import math
 import os
+import subprocess
 import tempfile
+import time
 import uuid
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Protocol
 
-CHUNK_BYTES = 8 * 1024 * 1024
+# Uploads travel through ContentsClient JSON/base64 PUTs, where smaller writes
+# are materially more reliable on a fresh VM.  Downloads do not have that
+# failure mode, so retain the established 8 MiB bound for export recovery.
+UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024
+DOWNLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 CONTENTS_ATTEMPTS = 3
+# The supervisor supplies one shared deadline for every job input.  Direct
+# callers retain this five-minute cap rather than allowing an unbounded upload.
+UPLOAD_TOTAL_TIMEOUT_SECONDS = 5 * 60
 
 
 class TransferError(RuntimeError):
@@ -50,8 +59,53 @@ def _timeout(size: int) -> float:
     return float(min(120, max(60, 15 + math.ceil(size / (512 * 1024)))))
 
 
+def _is_retryable_contents_error(exc: BaseException) -> bool:
+    """Return whether a failed ContentsClient request may safely be repeated.
+
+    ``CLI.call`` turns command failures into ``Refused`` strings, so importing
+    its exception type here would create a dependency cycle.  Keep this narrow:
+    only connection and timeout language emitted by requests/the CLI qualifies.
+    Authentication, path, quota, and kernel errors must fail on their first
+    observation.
+    """
+    if isinstance(exc, (ConnectionError, TimeoutError, subprocess.TimeoutExpired)):
+        return True
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "connection reset",
+            "connection aborted",
+            "connection refused",
+            "connection error",
+            "connectionerror",
+            "nameresolutionerror",
+            "failed to resolve",
+            "remotedisconnected",
+            "network is unreachable",
+            "temporarily unavailable",
+            "timed out",
+            "timeout",
+        )
+    )
+
+
+def _bounded_timeout(timeout: float, deadline: float | None) -> float:
+    if deadline is None:
+        return timeout
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TransferError("total upload time cap reached")
+    return min(timeout, remaining)
+
+
 def _contents_call(
-    cli: _CLI, args: tuple[str, ...], timeout: float, renew: Callable[[], None] | None
+    cli: _CLI,
+    args: tuple[str, ...],
+    timeout: float,
+    renew: Callable[[], None] | None,
+    *,
+    deadline: float | None = None,
 ) -> None:
     """Retry only an idempotent ContentsClient transfer, at most three times.
 
@@ -65,14 +119,19 @@ def _contents_call(
         if renew:
             renew()
         try:
-            cli.call(*args, timeout=timeout)
+            cli.call(*args, timeout=_bounded_timeout(timeout, deadline))
+        except Exception as exc:
+            failure = exc
+            if not _is_retryable_contents_error(exc):
+                raise
+        else:
+            # Renewal is a separate mutating RPC.  Never mistake its failure
+            # for a failed idempotent ContentsClient write and retry the write.
             if renew:
                 renew()
             return
-        except BaseException as exc:
-            failure = exc
     assert failure is not None
-    raise failure
+    raise TransferError("ContentsClient transient retry budget exhausted") from failure
 
 
 def _rpc(cli: _CLI, operation: str, spec: dict[str, Any], timeout: float) -> Any:
@@ -147,16 +206,50 @@ if not path.name.startswith('.snake-transfer-'):
 path.mkdir(parents=True, exist_ok=False)
 result = True
 """.replace("PAYLOAD", payload)
+    elif operation == "VERIFY_FILE":
+        code = """# SNAKE_TRANSFER_VERIFY_FILE
+import hashlib
+from pathlib import Path
+spec = PAYLOAD
+path = Path(spec['path'])
+hash_ = hashlib.sha256()
+with path.open('rb') as source:
+    while block := source.read(1024 * 1024):
+        hash_.update(block)
+result = {'sha256': hash_.hexdigest(), 'size': path.stat().st_size}
+""".replace("PAYLOAD", payload)
     else:  # pragma: no cover
         raise AssertionError(operation)
     return cli.rpc(code, timeout=timeout)
 
 
-def _cleanup(cli: _CLI, path: str, renew: Callable[[], None] | None) -> None:
+def _verify_remote_file(
+    cli: _CLI, remote: str, size: int, digest: str, *, deadline: float | None = None
+) -> None:
+    """Require the runtime to hash the published file before accepting upload."""
+    reply = _rpc(
+        cli,
+        "VERIFY_FILE",
+        {"path": remote},
+        _bounded_timeout(_timeout(min(size, UPLOAD_CHUNK_BYTES)), deadline),
+    )
+    if not isinstance(reply, dict) or reply.get("sha256") != digest or reply.get("size") != size:
+        raise TransferError("remote upload digest or size mismatch")
+
+
+def _cleanup(
+    cli: _CLI,
+    path: str,
+    renew: Callable[[], None] | None,
+    *,
+    deadline: float | None = None,
+) -> None:
     try:
+        if deadline is not None and time.monotonic() >= deadline:
+            return
         if renew:
             renew()
-        _rpc(cli, "REMOVE_TREE", {"path": path}, 60)
+        _rpc(cli, "REMOVE_TREE", {"path": path}, _bounded_timeout(60, deadline))
         if renew:
             renew()
     except Exception:
@@ -173,33 +266,51 @@ def _staging(remote: str, ident: str) -> tuple[str, str]:
     return f"{parent}/{base}", f"{parent}/{base}.assembling"
 
 
-def upload_file(cli: _CLI, local: Path, remote: str, renew: Callable[[], None]) -> str:
+def upload_file(
+    cli: _CLI,
+    local: Path,
+    remote: str,
+    renew: Callable[[], None],
+    *,
+    deadline: float | None = None,
+) -> str:
     """Chunk-upload an immutable local input then atomically publish it remotely."""
     local = Path(local)
     if not local.is_file():
         raise TransferError(f"upload source is not a file: {local}")
     size, digest = local.stat().st_size, _digest(local)
-    if size <= CHUNK_BYTES:
+    deadline = deadline if deadline is not None else time.monotonic() + UPLOAD_TOTAL_TIMEOUT_SECONDS
+    if size <= UPLOAD_CHUNK_BYTES:
         _contents_call(
-            cli, ("upload", "-s", cli.session, str(local), remote), _timeout(size), renew
+            cli,
+            ("upload", "-s", cli.session, str(local), remote),
+            _timeout(size),
+            renew,
+            deadline=deadline,
         )
         if _digest(local) != digest or local.stat().st_size != size:
             raise TransferError("upload source changed during transfer")
+        _verify_remote_file(cli, remote, size, digest, deadline=deadline)
         return digest
     ident = uuid.uuid4().hex
     parts, temporary = _staging(remote, ident)
-    chunks = math.ceil(size / CHUNK_BYTES)
+    chunks = math.ceil(size / UPLOAD_CHUNK_BYTES)
     try:
         # ContentsClient PUT does not create missing parents.  This is a
         # single non-retried mutation; an uncertain RPC fences later assembly.
         renew()
-        _rpc(cli, "CREATE_DIR", {"path": parts}, _timeout(CHUNK_BYTES))
+        _rpc(
+            cli,
+            "CREATE_DIR",
+            {"path": parts},
+            _bounded_timeout(_timeout(UPLOAD_CHUNK_BYTES), deadline),
+        )
         renew()
         with tempfile.TemporaryDirectory(prefix="snake-colab-upload-") as directory:
             chunk = Path(directory) / "chunk"
             with local.open("rb") as source:
                 for index in range(chunks):
-                    data = source.read(CHUNK_BYTES)
+                    data = source.read(UPLOAD_CHUNK_BYTES)
                     if not data:
                         raise TransferError("source changed while upload was read")
                     chunk.write_bytes(data)
@@ -208,6 +319,7 @@ def upload_file(cli: _CLI, local: Path, remote: str, renew: Callable[[], None]) 
                         ("upload", "-s", cli.session, str(chunk), f"{parts}/{index:08d}.part"),
                         _timeout(len(data)),
                         renew,
+                        deadline=deadline,
                     )
         if _digest(local) != digest or local.stat().st_size != size:
             raise TransferError("upload source changed during transfer")
@@ -223,7 +335,7 @@ def upload_file(cli: _CLI, local: Path, remote: str, renew: Callable[[], None]) 
                 "sha256": digest,
                 "size": size,
             },
-            _timeout(CHUNK_BYTES),
+            _bounded_timeout(_timeout(UPLOAD_CHUNK_BYTES), deadline),
         )
         renew()
         if (
@@ -232,10 +344,11 @@ def upload_file(cli: _CLI, local: Path, remote: str, renew: Callable[[], None]) 
             or reply.get("size") != size
         ):
             raise TransferError("kernel did not acknowledge immutable upload assembly")
+        _verify_remote_file(cli, remote, size, digest, deadline=deadline)
         return digest
     finally:
-        _cleanup(cli, parts, renew)
-        _cleanup(cli, temporary, renew)
+        _cleanup(cli, parts, renew, deadline=deadline)
+        _cleanup(cli, temporary, renew, deadline=deadline)
 
 
 def prepare_download(
@@ -247,7 +360,7 @@ def prepare_download(
     expected_sha256: str | None = None,
 ) -> PreparedDownload:
     """Split an export while the kernel is idle, before long-running work begins."""
-    if type(size) is not int or size <= CHUNK_BYTES:
+    if type(size) is not int or size <= DOWNLOAD_CHUNK_BYTES:
         raise TransferError("prepare_download is only for files larger than a transfer chunk")
     if expected_sha256 is None or len(expected_sha256) != 64:
         raise TransferError("prepare_download requires immutable expected_sha256")
@@ -260,15 +373,15 @@ def prepare_download(
         {
             "source": remote,
             "parts": parts,
-            "chunk_bytes": CHUNK_BYTES,
+            "chunk_bytes": DOWNLOAD_CHUNK_BYTES,
             "size": size,
             "sha256": expected_sha256,
         },
-        _timeout(CHUNK_BYTES),
+        _timeout(DOWNLOAD_CHUNK_BYTES),
     )
     if renew:
         renew()
-    count = math.ceil(size / CHUNK_BYTES)
+    count = math.ceil(size / DOWNLOAD_CHUNK_BYTES)
     if (
         not isinstance(reply, dict)
         or reply.get("sha256") != expected_sha256
@@ -301,7 +414,7 @@ def download_file(
         raise TransferError("download expected_sha256 must be lowercase SHA-256")
     local = Path(local)
     local.parent.mkdir(parents=True, exist_ok=True)
-    if size <= CHUNK_BYTES:
+    if size <= DOWNLOAD_CHUNK_BYTES:
         _contents_call(
             cli, ("download", "-s", cli.session, remote, str(local)), _timeout(size), renew
         )
@@ -320,7 +433,7 @@ def download_file(
             try:
                 for index in range(plan.chunks):
                     part = Path(str(temporary) + f".{index}")
-                    expected_size = min(CHUNK_BYTES, size - index * CHUNK_BYTES)
+                    expected_size = min(DOWNLOAD_CHUNK_BYTES, size - index * DOWNLOAD_CHUNK_BYTES)
                     _contents_call(
                         cli,
                         (

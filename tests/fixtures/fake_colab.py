@@ -9,11 +9,13 @@ It intentionally implements only the commands used by ``research.colab_cli``.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -149,6 +151,39 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
     root = _root_from_code(code)
     local_root = _remote(session, root)
     local_root.mkdir(parents=True, exist_ok=True)
+    if "SNAKE_SOURCE_DELIVERY" in code:
+        # Execute the actual uploaded source helper. Only the network/git
+        # boundary is faked; identity checks and fallback extraction are real.
+        plan = ast.literal_eval(re.search(r"plan=(\{[^\n]+\})", code).group(1))
+        repository = Path(__file__).resolve().parents[2]
+
+        def fake_source_run(argv: list[str], *, cwd: Path, timeout: float) -> str:
+            if "fetch" in argv:
+                state.setdefault("source_fetches", []).append(argv)
+                if MODE == "github_unreachable":
+                    raise subprocess.CalledProcessError(128, argv, "Could not resolve host")
+                return ""
+            if "rev-parse" in argv:
+                expression = plan["commit"]
+                if argv[-1].endswith("^{tree}"):
+                    expression += "^{tree}"
+                if MODE == "github_identity_mismatch":
+                    return "0" * 40
+                return subprocess.check_output(
+                    ["git", "rev-parse", expression], cwd=repository, text=True
+                ).strip()
+            if "checkout" in argv:
+                (local_root / "repo" / "fetched-source").write_text(plan["commit"])
+            return ""
+
+        code = code.replace(f"root=Path({root!r})", f"root=Path({str(local_root)!r})")
+        code = code.replace(
+            "s.loader.exec_module(mod)",
+            "s.loader.exec_module(mod); mod._run = fake_source_run",
+        )
+        exec(compile(code, "<fake-source-delivery>", "exec"), {"fake_source_run": fake_source_run})
+        _save(state)
+        return
     if "spec.json" in code and "runtime.py" in code and "subprocess.Popen" in code:
         generation_match = re.search(r"'generation': '([^']+)'", code)
         generation = generation_match.group(1) if generation_match else "fake-generation"
@@ -282,6 +317,12 @@ def main(argv: list[str]) -> int:
         print(f"Stopped {session}")
     elif op == "upload":
         source, destination = command[-2:]
+        if MODE == "upload_transient" and not state.get("upload_failed_once"):
+            state["upload_failed_once"] = True
+            _remote(session, destination).write_bytes(Path(source).read_bytes()[:3])
+            _save(state)
+            print("ConnectionError: connection reset after partial PUT", file=sys.stderr)
+            return 1
         shutil.copyfile(source, _remote(session, destination))
         print(f"Uploaded {destination}")
     elif op == "download":

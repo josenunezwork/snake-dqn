@@ -18,7 +18,6 @@ import os
 import re
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 import uuid
@@ -246,6 +245,16 @@ class CLI:
         self.oauth_python = os.environ.get("SNAKE_COLAB_OAUTH_PYTHON", OAUTH_PYTHON)
         self.renew: Callable[[], Any] | None = None
 
+    @contextlib.contextmanager
+    def limit_deadline(self, deadline: float) -> Iterator[None]:
+        """Bound a transfer phase, including renewals and RPC transport grace."""
+        original = self.deadline
+        self.deadline = min(original if original is not None else math.inf, deadline)
+        try:
+            yield
+        finally:
+            self.deadline = original
+
     def call(self, *args: str, timeout: float = 45) -> str:
         if self.deadline is not None and args[0] not in {"stop", "sessions"}:
             timeout = min(timeout, self.deadline - time.monotonic())
@@ -452,23 +461,6 @@ def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit:
         os.replace(marker, Path(str(target) + ".complete"))
 
 
-def build_bundle(commit: str, directory: Path) -> Path:
-    """Archive only committed source; reject links and traversal before upload."""
-    bundle = directory / "source.tar"
-    subprocess.run(
-        ["git", "archive", "--format=tar", "-o", str(bundle), commit],
-        cwd=REPO,
-        check=True,
-        timeout=60,
-    )
-    with tarfile.open(bundle) as archive:
-        for item in archive:
-            safe_relative(item.name.rstrip("/"))
-            if not (item.isfile() or item.isdir()):
-                raise Refused("source bundle contains links/special files")
-    return bundle
-
-
 class Broker:
     """One account allocator, parallel independently supervised lanes."""
 
@@ -497,8 +489,10 @@ class Broker:
             write_once(output / "manifest.json", m)
             staging = output / "staging"
             staging.mkdir()
-            build_bundle(m["commit"], staging)
-            for name in ("runtime.py", "bootstrap.sh", "release.py"):
+            from research.colab_cli.source import prepare
+
+            prepare(REPO, m, staging)
+            for name in ("runtime.py", "bootstrap.sh", "release.py", "source.py"):
                 data = subprocess.check_output(
                     ["git", "show", f"{m['commit']}:research/colab_cli/{name}"],
                     cwd=REPO,
@@ -875,11 +869,10 @@ class Broker:
         root = "/content/snake-cli/" + generation
         with contextlib.nullcontext():
             staging = output / "staging"
-            source = staging / "source.tar"
             # Runtime code comes from the same pinned commit as the job, never
             # the working tree. Embed its small watchdog in the very first RPC.
             pinned = {}
-            for name in ("runtime.py", "bootstrap.sh", "release.py"):
+            for name in ("runtime.py", "bootstrap.sh", "release.py", "source.py"):
                 path = staging / name
                 pinned[name] = path
             wait_code = (
@@ -994,43 +987,81 @@ class Broker:
                         "output": output,
                     },
                 )
+            from research.colab_cli.transfers import UPLOAD_TOTAL_TIMEOUT_SECONDS, upload_file
+
+            upload_deadline = time.monotonic() + UPLOAD_TOTAL_TIMEOUT_SECONDS
             local_files = [
-                (source, "source.tar", sha256(source)),
                 (pinned["bootstrap.sh"], "bootstrap.sh", ""),
+                (pinned["source.py"], "source.py", ""),
             ]
             local_files += [
                 (Path(i["path"]), "inputs/" + i["dest"], i["sha256"]) for i in m.get("inputs", [])
             ]
             checks = {}
-            for path, dest, digest in local_files:
-                if path.stat().st_size > m["max_export_bytes"]:
-                    raise Refused("upload exceeds bounded transfer size")
-                digest = digest or sha256(path)
-                renew()
-                cli.rpc(
-                    "from pathlib import Path\n"
-                    f"parent=Path({(root + '/' + dest)!r}).parent\n"
-                    "parent.mkdir(parents=True,exist_ok=True)\nresult=True"
-                )
-                from research.colab_cli.transfers import upload_file
+            with cli.limit_deadline(upload_deadline):
+                for path, dest, digest in local_files:
+                    if path.stat().st_size > m["max_export_bytes"]:
+                        raise Refused("upload exceeds bounded transfer size")
+                    digest = digest or sha256(path)
+                    renew()
+                    cli.rpc(
+                        "from pathlib import Path\n"
+                        f"parent=Path({(root + '/' + dest)!r}).parent\n"
+                        "parent.mkdir(parents=True,exist_ok=True)\nresult=True"
+                    )
+                    upload_file(cli, path, root + "/" + dest, renew=renew, deadline=upload_deadline)
+                    checks[dest] = digest
+                checks["runtime.py"] = sha256(pinned["runtime.py"])
+                checks["release.py"] = sha256(pinned["release.py"])
+                # The runtime downloads source directly from GitHub, rather than
+                # passing every committed evidence blob through ContentsClient.
+                plan = json.loads((staging / "source-plan.json").read_text())
 
-                upload_file(cli, path, root + "/" + dest, renew=renew)
-                checks[dest] = digest
-            checks["runtime.py"] = sha256(pinned["runtime.py"])
-            checks["release.py"] = sha256(pinned["release.py"])
-            write_once(output / "input-hashes.json", checks)
-            # Extraction and process launch are short RPCs. Never bootstrap in the kernel.
+                def deliver_source(operation: str) -> Any:
+                    renew()
+                    result = cli.rpc(
+                        "# SNAKE_SOURCE_DELIVERY\n"
+                        "import importlib.util\nfrom pathlib import Path\n"
+                        f"root=Path({root!r})\nplan={plan!r}\n"
+                        "s=importlib.util.spec_from_file_location("
+                        "'snake_source',root/'source.py')\n"
+                        "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
+                        f"result=mod.{operation}(root,plan)",
+                        timeout=90,
+                    )
+                    renew()
+                    return result
+
+                delivery = deliver_source("fetch")
+                if not isinstance(delivery, dict):
+                    raise Refused("source delivery returned no identity evidence")
+                if delivery.get("transport") == "fallback_required":
+                    path = staging / "source.tar.gz"
+                    upload_file(
+                        cli, path, root + "/source.tar.gz", renew=renew, deadline=upload_deadline
+                    )
+                    checks["source.tar.gz"] = sha256(path)
+                    delivery = deliver_source("install_fallback")
+                if (
+                    not isinstance(delivery, dict)
+                    or delivery.get("transport") not in {"github", "fallback"}
+                    or delivery.get("commit") != plan["commit"]
+                    or delivery.get("tree") != plan["tree"]
+                ):
+                    raise Refused("source delivery commit/tree identity mismatch")
+                write_once(output / "source-delivery.json", delivery)
+                write_once(output / "input-hashes.json", checks)
+            # Hardware admission and process launch are short RPCs. Bootstrap
+            # runs in the lease-fenced child, never in the notebook kernel.
             code = (
-                "import hashlib, json, os, subprocess, sys, tarfile, time\n"
+                "import hashlib, json, os, subprocess, sys, time\n"
                 "from pathlib import Path\n"
                 f"root=Path({root!r})\nchecks={checks!r}\n"
                 "for rel, expected in checks.items():\n"
                 "    with (root/rel).open('rb') as f:\n"
                 "        assert hashlib.file_digest(f, 'sha256').hexdigest()==expected, rel\n"
                 f"assert (os.cpu_count() or 1)>={m['requirements']['min_vcpu']}\n"
-                "repo=root/'repo'\nrepo.mkdir(exist_ok=False)\n"
-                "with tarfile.open(root/'source.tar') as archive:\n"
-                "    archive.extractall(repo, filter='data')\n"
+                "repo=root/'repo'\nassert repo.is_dir()\n"
                 "(root/'ready.json').write_text(json.dumps({'ready':True}))\n"
                 "result={'ready':True}"
             )

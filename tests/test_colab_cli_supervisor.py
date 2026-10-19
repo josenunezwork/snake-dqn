@@ -132,6 +132,7 @@ def _isolate_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
             "research/colab_cli/runtime.py",
             "research/colab_cli/bootstrap.sh",
             "research/colab_cli/release.py",
+            "research/colab_cli/source.py",
             "research/colab_cli/acceptance_probe.sh",
         ],
         cwd=REPO,
@@ -613,6 +614,26 @@ def test_cli_call_caps_subprocess_timeout_at_session_deadline(
     assert seen["env"]["SNAKE_COLAB_NOTEBOOK_HASH"]
 
 
+def test_upload_phase_caps_outer_rpc_grace_and_restores_session_deadline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cli = supervisor.CLI("fake-colab", tmp_path / "lane-sessions.json", "session")
+    cli.deadline = 1000.0
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: 100.0)
+    seen = []
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(kwargs["timeout"])
+        return subprocess.CompletedProcess(args, 0, stdout="no kernel acknowledgment", stderr="")
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    with pytest.raises(supervisor.Refused, match="not acknowledged"):
+        with cli.limit_deadline(103.0):
+            cli.rpc("result=True", timeout=60)
+    assert seen == [3.0]
+    assert cli.deadline == 1000.0
+
+
 def test_backup_is_invoked_only_after_verified_remote_stop_and_receipt_hash(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -751,9 +772,83 @@ def test_600_mib_snapshot_roundtrip_uses_bounded_fake_cli_requests(
     assert supervisor.sha256(target) == digest
     uploads = [e for e in _events(tmp_path) if e["argv"][4] == "upload"]
     downloads = [e for e in _events(tmp_path) if e["argv"][4] == "download"]
-    assert len(uploads) == len(downloads) == 75
-    assert max(e["upload_bytes"] for e in uploads) <= 8 * 1024 * 1024
+    assert len(uploads) == 300
+    assert len(downloads) == 75
+    assert max(e["upload_bytes"] for e in uploads) <= 2 * 1024 * 1024
     assert not list((tmp_path / "remote").rglob("*.part"))
+
+
+def test_chunk_retry_overwrites_partial_put_through_fake_binary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.colab_cli import transfers
+
+    binary = _fake_env(monkeypatch, tmp_path, mode="upload_transient")
+    cli = supervisor.CLI(binary, tmp_path / "session.json", "retry-transfer")
+    source = tmp_path / "input.payload"
+    source.write_bytes(b"immutable-input" * 1000)
+    monkeypatch.setattr(transfers, "UPLOAD_CHUNK_BYTES", 2048)
+    digest = transfers.upload_file(cli, source, "/content/input.bin", renew=lambda: None)
+    remote = tmp_path / "remote" / cli.session / "content/input.bin"
+    assert remote.read_bytes() == source.read_bytes()
+    assert supervisor.sha256(remote) == digest
+    uploads = [event for event in _events(tmp_path) if event["argv"][4] == "upload"]
+    assert uploads[0]["argv"][-1] == uploads[1]["argv"][-1]
+    assert len(uploads) == 9
+    assert max(event["upload_bytes"] for event in uploads) <= 2048
+
+
+@pytest.mark.parametrize(
+    "mode,transport", [("normal", "github"), ("github_unreachable", "fallback")]
+)
+def test_runtime_source_delivery_with_fake_binary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str, transport: str
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path, mode=mode)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
+    manifest = _manifest(tmp_path)
+    supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    output = Path(manifest["output_dir"])
+    delivery = json.loads((output / "source-delivery.json").read_text())
+    assert delivery["transport"] == transport
+    assert delivery["commit"] == manifest["commit"]
+    assert (
+        delivery["tree"]
+        == subprocess.check_output(
+            ["git", "rev-parse", f"{manifest['commit']}^{{tree}}"], text=True
+        ).strip()
+    )
+    state = json.loads((tmp_path / "fake-state.json").read_text())
+    assert len(state["source_fetches"]) == 1
+    assert state["source_fetches"][0][-1] == manifest["commit"]
+    assert state["source_fetches"][0][-2] == "https://github.com/josenunezwork/snake-dqn.git"
+    archives = [
+        event
+        for event in _events(tmp_path)
+        if event["argv"][4] == "upload" and event["argv"][-1].endswith("source.tar.gz")
+    ]
+    assert len(archives) == (1 if transport == "fallback" else 0)
+    assert (output / "staging/source.tar.gz").stat().st_size < 2 * 1024 * 1024
+    receipt = json.loads((output / "receipt.json").read_text())
+    assert receipt["status"] == "PASS"
+    assert receipt["stop_verified"] is True
+    _assert_transport(tmp_path)
+
+
+def test_github_identity_mismatch_refuses_without_uploading_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path, mode="github_identity_mismatch")
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
+    manifest = _manifest(tmp_path)
+    with pytest.raises(supervisor.Refused, match="identity"):
+        supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    receipt = json.loads((Path(manifest["output_dir"]) / "receipt.json").read_text())
+    assert receipt["stop_verified"] is True
+    assert not any(
+        event["argv"][4] == "upload" and event["argv"][-1].endswith("source.tar.gz")
+        for event in _events(tmp_path)
+    )
 
 
 def test_waiting_for_account_lock_renews_active_runtime_lease(tmp_path: Path) -> None:

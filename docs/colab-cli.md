@@ -10,6 +10,31 @@ research workload through it until the bounded acceptance run in
 [`research/colab_cli/ACCEPTANCE.md`](../research/colab_cli/ACCEPTANCE.md)
 passes and its artifacts receive independent review.
 
+## Acceptance status: first CPU evidence, not a full qualification
+
+The first live CPU acceptance attempt began on 2026-10-18 at 19:41 PT. Its
+run directory is
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance/acceptance-1792377693`.
+The rate-calibration gate passed with an observed CPU rate of **0.08 units per
+hour**. Cleanup also passed for that allocation: the receipt recorded
+`stop_verified: true`, and the final account query found no assignments left.
+
+This is useful evidence for CPU rate calibration and release cleanup only. It
+is not a full acceptance pass: before the runtime became ready, the former
+whole-commit source upload stalled. That archive was about 166 MiB (171 MB of
+tracked source, including research evidence blobs), and it was sent as 8 MiB
+base64 JSON requests through the CLI Contents client. The remaining source
+delivery, runtime bootstrap, export, and L4 acceptance gates still need their
+own evidence. The AC/lid launch guards fixed in commits `73aef4b6` and
+`a721e354` remain part of the supported launcher path.
+
+The observed 0.08 units/hour rate does not lower the conservative CPU priced
+ceiling of 0.5 units/hour. Admission, reserves, and per-session caps continue
+to use the ceiling; the observed rate is recorded for calibration and later
+drift checks. See
+[`colab-cli-pricing-notes-2026-10-18.md`](colab-cli-pricing-notes-2026-10-18.md)
+for the dated evidence and rationale.
+
 ## Scope and prerequisites
 
 Use this path for every **new** Colab job. The operator needs an approved
@@ -43,12 +68,19 @@ For one job, the supervisor:
    priced ceiling plus tolerance, and then treats drift from that observed
    rate as a hard refusal. The priced ceiling remains the admission and cap
    rate.
-3. Uploads the commit-pinned source bundle and hash-bound inputs, starts one
-   lease-fenced runtime child, and reads its immutable state. A polling RPC
-   has an actual process timeout and a completion nonce. If an RPC is uncertain,
-   the broker does not resubmit work to a possibly busy kernel; it uses the
-   file transport and can resume RPC polling only after independent backend
-   evidence says the kernel is idle.
+3. Delivers the exact pinned source and hash-bound inputs, starts one
+   lease-fenced runtime child, and reads its immutable state. The normal source
+   path lets the runtime shallow-fetch the declared commit from the public
+   `josenunezwork/snake-dqn` GitHub repository. It verifies both the commit SHA
+   and the tree ID recorded by the Mac for that commit before it can bootstrap.
+   An identity mismatch is a refusal, never a reason to try another revision
+   or fall back to an uploaded archive. If GitHub is unreachable, the runtime
+   may instead receive the staged sparse bundle described in
+   [Source delivery on a fresh VM](#source-delivery-on-a-fresh-vm). A polling
+   RPC has an actual process timeout and a completion nonce. If an RPC is
+   uncertain, the broker does not resubmit work to a possibly busy kernel; it
+   uses the file transport and can resume RPC polling only after independent
+   backend evidence says the kernel is idle.
 4. Imports only completed immutable exports: payload, SHA-256 sidecar, and
    completion marker. Files move in bounded 8 MiB chunks; an 8 MiB Contents
    call is bounded to 60 seconds. Renewals are throttled to at most one every
@@ -92,6 +124,7 @@ The manifest is one JSON object with these required fields.
 | `timeout_minutes` | At least 3 minutes and at least twice `est_minutes`; includes setup, export, stop, and idle time. |
 | `output_dir` | Fresh absolute job-private Mac directory. Existing paths are refused. |
 | `inputs` | Local `path`, expected `sha256`, and runtime `dest` for every non-repository input. |
+| `source_paths` | Optional, explicit repository-relative sparse-fallback allowlist that replaces the defaults. Required bootstrap, job-script, requirements, and project-metadata files remain included. Paths must be narrow files or directories; the repository root and a broad `research/` root are refused. |
 | `budget` | Positive `unit_cap`, `rate_units_per_hour`, `reserve_units`, and, when other assignments exist, `other_assignments`. |
 | `lease_seconds` | 180 through 600 seconds; default 180. |
 | `max_export_bytes` | Positive per-export maximum, at most 2 GiB. |
@@ -134,6 +167,70 @@ The job launcher must make units resumable, write progress with completed,
 total, and elapsed time about every two minutes, and publish a complete
 optimizer, replay, actor, target, RNG, and counter state before marking an
 export complete. Weights alone are not an exact resume.
+
+## Source delivery on a fresh VM
+
+The runtime normally obtains the pinned source itself, rather than receiving a
+tar archive of the whole Mac checkout. Before allocation, the Mac resolves the
+manifest's 40-character commit and records its Git tree ID. The runtime then
+performs a shallow fetch of that exact commit from the public GitHub repository
+within a 60-second fetch operation budget. It must confirm its checked-out
+commit and `HEAD^{tree}` against the Mac-recorded values before it runs the
+bootstrap or job script. The supervisor gives this RPC a 90-second bound.
+
+Only a GitHub-unreachable result permits the fallback. A missing commit,
+checksum/tree mismatch, or malformed repository result refuses the job; it
+does not silently use a locally constructed archive. The job receipt writes
+`source-delivery.json`, including whether delivery used `github` or `fallback`
+and the verified commit and tree. The pre-allocation staging area writes
+`source-plan.json`, which inventories and hashes the planned fallback source.
+
+The sparse fallback contains only the default allowlist:
+
+- `src/`
+- `research/colab_cli/`
+- the job's own research directory
+- root `requirements*.txt`, `requirements/` when present, and `pyproject.toml`
+
+Set `source_paths` only when the default does not describe the pinned runtime
+dependencies. It replaces the default allowlist (while the required bootstrap,
+job-script, requirements, and project-metadata files remain included). It is
+an allowlist, not a way to transfer the complete repository. The compressed
+archive and its unpacked source must each be at most 32 MiB. A plan that
+exceeds either limit is refused before allocation. The fallback archive is
+built before allocation but is uploaded only after the runtime reports GitHub
+unreachable. Mac-only inputs remain separate entries in `inputs` and are
+always bound by their declared SHA-256 digests.
+
+For example, a job whose script and required bootstrap files do not cover its
+small shared helper can add an explicit narrow allowlist entry:
+
+```json
+{
+  "source_paths": [
+    "src",
+    "research/shared_runtime_helper.py"
+  ]
+}
+```
+
+The helper must exist in the pinned commit. Adding a broad directory merely to
+avoid declaring the dependency is refused.
+
+## Runtime input uploads
+
+Normal GitHub source delivery leaves only Mac-only inputs and the conditional
+sparse fallback to upload. The supervisor transfers those files in 2 MiB
+chunks. Each chunk is written to an idempotent offset/part path, has a bounded
+retry only for connection or timeout failures, and is assembled only after the
+complete file's SHA-256 and size are checked. The whole upload is also subject
+to a five-minute total transfer-time cap; exhausting it refuses the job before
+an unbounded Contents-client request can continue.
+
+This retry rule does not apply to allocation, `exec`, stop, or other uncertain
+mutating kernel operations. The transfer receipt records the verified digest
+of each completed upload. A source or input whose final digest differs from
+its plan is rejected.
 
 ## Lease expiry and runtime-side release
 
