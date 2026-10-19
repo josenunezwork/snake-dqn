@@ -1,0 +1,30 @@
+{
+  "schema": "s1-owner-authorization/v1",
+  "study": "s1_mature_20261018",
+  "authorization_source": "Owner chat 2026-10-18 approximately 7:35 PM PT, supplied verbatim in the implementation request",
+  "option_chosen": "2 variants, 60 credits (Recommended)",
+  "option_description": "League-collection vs task-aligned collection, both with the mature schedule; 5 seeds x 8M each on one L4; Mac eval. Caps 60 credits / 25 GPU-h (48 / 20 usable). Expected ~15-20 credits.",
+  "nominal_caps": {
+    "units": 60,
+    "gpu_allocation_hours": 25,
+    "mac_worker_hours": 24,
+    "elapsed_hours": 48
+  },
+  "usable_caps": {
+    "units": 48,
+    "gpu_allocation_hours": 20,
+    "mac_worker_hours": 19.2,
+    "elapsed_hours": 38.4
+  },
+  "acceptance_units_included_maximum": 4,
+  "registration_status": "DRAFT_PENDING_OWNER_REVIEW",
+  "dispatch_authorized_by_this_file": false,
+  "conditions": [
+    "Claude must mark the complete preregistration approved before study dispatch",
+    "The separately reviewed CLI supervisor must pass its live acceptance",
+    "Every usable cap must fit the complete inclusive upper-bound forecast",
+    "One L4 study run at a time through research.colab_cli.supervisor only",
+    "No automatic retries, replacements, extensions, cap raises, or reserve borrowing"
+  ],
+  "q1_status": "INCOMPLETE for budget; historical ledger preserved separately; this is a new study"
+}

@@ -1,0 +1,33 @@
+{
+  "schema": "s1-training-preflight/v1",
+  "status": "REFUSED",
+  "counter_admission": "FAIL",
+  "export_roundtrip": "PASS",
+  "reason": "Full-state snapshot barriers can make actual learner decisions exceed the registered K*W*N-1 counter bound; no production study admission is allowed.",
+  "fixtures": {
+    "failed_counter": {
+      "command": "COLAB_CLI_ROOT=<tmp>/root COLAB_INPUT_DIR=<tmp>/inputs COLAB_OUTPUT_DIR=<tmp>/output S1_REGISTRATION_STATUS=DRAFT_PENDING_OWNER_REVIEW S1_OWNER_RELEASE=DRAFT_PENDING_OWNER_REVIEW S1_TRAINING_NAMESPACE=s1-preflight-smoke/seed-991001 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 ./venv/bin/python -m research.s1_mature_20261018.train --arm n3 --seed 991001 --root <tmp>/root --smoke",
+      "elapsed_seconds": 124,
+      "target_learner_decisions": 12000,
+      "actual_learner_decisions": 12048,
+      "actors": 2,
+      "worlds": 8,
+      "learner_seats": 3,
+      "registered_overshoot_bound": 47,
+      "observed_overshoot": 48,
+      "summary_sha256": "c57f0b447d68ad32791c32c8d5519a5cefecbc1bf01b0d28b921e1755b98af35",
+      "log_sha256": "933d92629be7766112ce7d280ef4ff29db6fb9d2c0222a1c47b05428f5fe3f43",
+      "artifact_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/preflight/failed-counter"
+    },
+    "export_only": {
+      "command": "same adapter fixture with --smoke and target 12001; this fixture exercises export/recovery only and is not admission evidence",
+      "elapsed_seconds": 125,
+      "actual_learner_decisions": 12048,
+      "summary_sha256": "d94995239b3bd8e50620538358aef5032530157e8a1326c5b2bfa8878f16f9cc",
+      "log_sha256": "a1b9749364fb5449a3abb433ece1170e681a2e0b2868124f88908c23b91dd947",
+      "recovered_snapshot": "snapshot-00000000000000012048-165bcb57",
+      "recovered_state_sha256": "966a197baf3e6ddd21a82dda0d257cbb551421fb7ec528baeda23d5bd6b345d7",
+      "artifact_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/preflight/export-only"
+    }
+  }
+}

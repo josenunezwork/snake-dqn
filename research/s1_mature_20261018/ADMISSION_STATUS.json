@@ -1,0 +1,67 @@
+{
+  "complete_upper_bound": null,
+  "conditional_reserved_forecast": {
+    "elapsed_hours": 26.599503111466767,
+    "gpu_allocation_hours": 19.166666666666668,
+    "mac_worker_hours": 14.865672889600198,
+    "units": 38.333333333333336
+  },
+  "dispatch_authorized": false,
+  "evidence": {
+    "evaluation": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/EVAL_PREFLIGHT_FINAL.json",
+      "sha256": "8181d170ce3f8c523ca48449830cb9079bf567d667f89d654135afaab48f3188"
+    },
+    "training": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/TRAIN_PREFLIGHT.json",
+      "sha256": "d8683437d587af5211a96dcd134395c88a6f5217891e24b17f7bca522910792d"
+    }
+  },
+  "full_replay_transport": {
+    "complete_upper_bound": null,
+    "status": "UNQUALIFIED"
+  },
+  "mac_pricing": {
+    "audit_and_preflight_worker_hours": 1,
+    "episode_factor": 2,
+    "max_measured_episode_seconds": 8.311568334000185,
+    "startup_seconds_per_identity": 600
+  },
+  "next_step": "Resolve the counter compatibility and qualify the complete full-size transport bound prospectively inside the unchanged envelopes before approval and admission.",
+  "nominal_caps": {
+    "elapsed_hours": 48.0,
+    "gpu_allocation_hours": 25.0,
+    "mac_worker_hours": 24.0,
+    "units": 60.0
+  },
+  "production_counter_qualification": {
+    "required_invariant": "overshoot <= actors * worlds * learner_seats - 1",
+    "status": "REFUSED",
+    "tiny_export_roundtrip_is_not_production_qualification": true
+  },
+  "qualified_q0b_planning": {
+    "estimated_training_gpu_hours": 8.166666666666666,
+    "estimated_training_units_at_2_per_hour": 16.333333333333332,
+    "evidence": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/q0q1_20261017/Q0B_A3_REQUALIFICATION_20261018.md",
+      "sha256": "e3587a53f23a62db866c7fbd6a64ea3b8f76271984c311c815d5300fdc6e86f5"
+    },
+    "limitation": "Historical training estimates exclude the newly required full-replay transport qualification.",
+    "n1_estimate_minutes": 68,
+    "n3_estimate_minutes": 30
+  },
+  "refusal_reasons": [
+    "Full-size L4 full-replay checkpoint/export liability is unqualified; no finite complete upper bound is admitted.",
+    "The real 12000-decision smoke exceeded the inherited K*W*N-1 counter bound during full-state barrier drain; the inherited production invariant is unchanged."
+  ],
+  "registration_status": "DRAFT_PENDING_OWNER_REVIEW",
+  "schema": "s1-mature-pricing/v1",
+  "status": "REFUSED",
+  "training_preflight_status": "REFUSED",
+  "usable_caps": {
+    "elapsed_hours": 38.4,
+    "gpu_allocation_hours": 20.0,
+    "mac_worker_hours": 19.2,
+    "units": 48.0
+  }
+}

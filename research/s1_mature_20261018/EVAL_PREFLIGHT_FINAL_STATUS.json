@@ -1,0 +1,43 @@
+{
+  "schema": "s1-eval-preflight-status/v1",
+  "status": "COMPLETE_CAPACITY_ONLY",
+  "receipt": "EVAL_PREFLIGHT_FINAL.json",
+  "receipt_sha256": "8181d170ce3f8c523ca48449830cb9079bf567d667f89d654135afaab48f3188",
+  "purpose": "Mac evaluation capacity measurement and serial-parallel identity proof; no scored S1 outcome is reported here.",
+  "fixture": {
+    "registered_disjoint_worlds": 10,
+    "executions": 20,
+    "parallel_workers": 2,
+    "math_threads_per_worker": 1,
+    "parallel_episode_seconds_sum": 67.20746316600707,
+    "parallel_episode_seconds_max": 8.311568334000185,
+    "serial_episode_seconds_sum": 63.67646725002851,
+    "serial_episode_seconds_max": 7.901619666998158,
+    "ordered_parallel_rows_byte_identical_to_serial": true
+  },
+  "wall_clock_observation": {
+    "process_observed_start_to_receipt_publication_seconds": 154,
+    "partials_created_utc": "2026-10-18T19:34:33-0700",
+    "receipt_published_utc": "2026-10-18T19:36:14-0700",
+    "partial_to_receipt_seconds": 101,
+    "includes": [
+      "initial simulator context construction",
+      "spawned-worker startup",
+      "parallel and serial fixture execution",
+      "partial persistence",
+      "receipt serialization"
+    ],
+    "contention_note": "The repository-wide pytest -n4 run was concurrent; retain this observed wall time as a conservative preflight observation, not a clean throughput claim."
+  },
+  "forecast_inputs": {
+    "scored_episode_count": 1920,
+    "conservative_per_episode_seconds": 8.311568334000185,
+    "episode_worker_hours_upper_bound": 4.432836444800099,
+    "two_worker_episode_elapsed_hours_upper_bound": 2.2164182224000494,
+    "setup_wall_seconds_observed": 154,
+    "source_manifest": {
+      "evaluate_py_sha256": "7c056e0439580b607534dd7e2234f30b67c3ee81fbba5cb15458ee8c29603d41",
+      "bank_py_sha256": "e673a16f174c8018f6ab11bdcae88db5c2ea8a81d8a1470b3b2e130cec7b97a0"
+    }
+  }
+}
