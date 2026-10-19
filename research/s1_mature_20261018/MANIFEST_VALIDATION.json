@@ -1,0 +1,131 @@
+{
+  "colab_allocations": 0,
+  "command": "./venv/bin/python -m research.s1_mature_20261018.review_jobs --commit 9a18e66120c0b869044f609a9c48dd5df338a281 --out /Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/jobs_review --output-root /Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched",
+  "commit": "9a18e66120c0b869044f609a9c48dd5df338a281",
+  "count": 10,
+  "dispatch_authorized": false,
+  "jobs": [
+    {
+      "arm": "n1",
+      "est_minutes": 68,
+      "job_id": "s1-mature-n1-1125234883",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n1-1125234883",
+      "path": "research/s1_mature_20261018/jobs_review/s1-mature-n1-1125234883.json",
+      "seed": 1125234883,
+      "sha256": "61ea89f808da742c73b54221273261463700b904b49cc8d9ff5d649bf8ad9b53",
+      "timeout_minutes": 136,
+      "unit_cap": 4.533333333333333
+    },
+    {
+      "arm": "n1",
+      "est_minutes": 68,
+      "job_id": "s1-mature-n1-1783343308",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n1-1783343308",
+      "path": "research/s1_mature_20261018/jobs_review/s1-mature-n1-1783343308.json",
+      "seed": 1783343308,
+      "sha256": "d03b50322191661d3340a2630162de6c3e00af7acdcdea5e09159dd839a32288",
+      "timeout_minutes": 136,
+      "unit_cap": 4.533333333333333
+    },
+    {
+      "arm": "n1",
+      "est_minutes": 68,
+      "job_id": "s1-mature-n1-1809856951",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n1-1809856951",
+      "path": "research/s1_mature_20261018/jobs_review/s1-mature-n1-1809856951.json",
+      "seed": 1809856951,
+      "sha256": "8e3004e1455f3a493352fac5585f616c4a3d0e5fafd92dfa5062e3cc964a38a8",
+      "timeout_minutes": 136,
+      "unit_cap": 4.533333333333333
+    },
+    {
+      "arm": "n1",
+      "est_minutes": 68,
+      "job_id": "s1-mature-n1-223213833",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n1-223213833",
+      "path": "research/s1_mature_20261018/jobs_review/s1-mature-n1-223213833.json",
+      "seed": 223213833,
+      "sha256": "cd7e29bd9ac9cb0aee43c53aceb11885778707bbb1701c46d7f9c9631da914ec",
+      "timeout_minutes": 136,
+      "unit_cap": 4.533333333333333
+    },
+    {
+      "arm": "n1",
+      "est_minutes": 68,
+      "job_id": "s1-mature-n1-3055723932",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n1-3055723932",
+      "path": "research/s1_mature_20261018/jobs_review/s1-mature-n1-3055723932.json",
+      "seed": 3055723932,
+      "sha256": "cd1e501f83d4b7a78c137693d961a1e6e5615a32aaa77cd9afb64e638a2f4e51",
+      "timeout_minutes": 136,
+      "unit_cap": 4.533333333333333
+    },
+    {
+      "arm": "n3",
+      "est_minutes": 30,
+      "job_id": "s1-mature-n3-1125234883",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n3-1125234883",
+      "path": "research/s1_mature_20261018/jobs_review/s1-mature-n3-1125234883.json",
+      "seed": 1125234883,
+      "sha256": "4c2dcb4ec90584929482d28f44a54bb9864c1f473471a8985518b92a648407af",
+      "timeout_minutes": 60,
+      "unit_cap": 2.0
+    },
+    {
+      "arm": "n3",
+      "est_minutes": 30,
+      "job_id": "s1-mature-n3-1783343308",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n3-1783343308",
+      "path": "research/s1_mature_20261018/jobs_review/s1-mature-n3-1783343308.json",
+      "seed": 1783343308,
+      "sha256": "0be8bb055c77df2afb2a7580fe7d178d8f1beb3d75f9a89c03b5ee62c15baa98",
+      "timeout_minutes": 60,
+      "unit_cap": 2.0
+    },
+    {
+      "arm": "n3",
+      "est_minutes": 30,
+      "job_id": "s1-mature-n3-1809856951",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n3-1809856951",
+      "path": "research/s1_mature_20261018/jobs_review/s1-mature-n3-1809856951.json",
+      "seed": 1809856951,
+      "sha256": "f93bc269ff87c2b59c20e8b3d1e558a6ad503ea3c3415bbe56fa277733f47baf",
+      "timeout_minutes": 60,
+      "unit_cap": 2.0
+    },
+    {
+      "arm": "n3",
+      "est_minutes": 30,
+      "job_id": "s1-mature-n3-223213833",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n3-223213833",
+      "path": "research/s1_mature_20261018/jobs_review/s1-mature-n3-223213833.json",
+      "seed": 223213833,
+      "sha256": "b646ecbf99e461d72875c0c2b31aefecbda004df649d03bdd4b232605ea142d4",
+      "timeout_minutes": 60,
+      "unit_cap": 2.0
+    },
+    {
+      "arm": "n3",
+      "est_minutes": 30,
+      "job_id": "s1-mature-n3-3055723932",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n3-3055723932",
+      "path": "research/s1_mature_20261018/jobs_review/s1-mature-n3-3055723932.json",
+      "seed": 3055723932,
+      "sha256": "ad799cc7aa0e4d2e35061b1a062ad854cb361f1d7e61435ed1a97819b0cd2c61",
+      "timeout_minutes": 60,
+      "unit_cap": 2.0
+    }
+  ],
+  "note": "Passed research.colab_cli.supervisor.validate without account or remote calls. Runtime DRAFT flags remain hard-blocked. Production manifests must be freshly generated only after complete admission.",
+  "requirements": {
+    "allowed_gpus": [
+      "L4"
+    ],
+    "gpu": "L4",
+    "lease_seconds": 180,
+    "max_export_bytes": 2147483648,
+    "min_vcpu": 12
+  },
+  "schema": "s1-review-manifest-validation/v1",
+  "status": "VALIDATED_DRAFT_ONLY"
+}
