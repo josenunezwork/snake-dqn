@@ -21,18 +21,25 @@ from research.phase0_search_20261019.teacher import (
 from research.t3_rollout_labels_20261015 import bank_engine
 
 
-def scores(
+def prefix_trace(
     source: bank_engine.CapturedWorld,
     actions: list[int],
     config: SearchConfig,
     decision: int,
     *,
     common_random: bool = True,
-    leaf: str = "max",
-) -> dict[int, float]:
-    """Evaluate ``action x rollout`` independent rows in one SIMD continuation."""
-    if leaf not in ("max", "value"):
-        raise ValueError("leaf must be max or value")
+    horizons: list[int] | None = None,
+) -> dict:
+    """Record exact CRN mass/Q prefixes during ONE full continuation.
+
+    Prefix Q is read at the next Watch selection boundary, after lifecycle
+    preparation but before movement. That same read selects the next action;
+    lifecycle preparation is never repeated just to collect a prefix.
+    """
+    horizons = sorted(set(horizons or [config.horizon]) | {config.horizon})
+    if min(horizons) < 1 or max(horizons) > config.horizon:
+        raise ValueError("prefix horizons must be within the full horizon")
+    checkpoints = {}
     from src.simd_env.eval_engine import _dispatch_actions
 
     branches = [(action, rollout) for action in actions for rollout in range(config.rollouts)]
@@ -53,9 +60,11 @@ def scores(
     runtime.observe_step(sim)
     mass = np.where(sim.alive[:, 0], sim.length[:, 0], 0).astype(np.float64)
     active = sim.alive[:, 0].copy()
-    for _ in range(1, config.horizon):
+    for completed in range(1, config.horizon):
         if not active.any():
             break
+        prefix_q = np.zeros((sim.E, 6), dtype=np.float64)
+        prefix_legal = np.zeros((sim.E, 6), dtype=bool)
 
         def choose(prepared: Any) -> np.ndarray:
             runtime.prepare(prepared)
@@ -80,13 +89,18 @@ def scores(
                     source.kinds,
                 )
                 q, legal, select_mask = _q_and_legal(row, int(env))
+                prefix_q[int(env)] = q
+                prefix_legal[int(env)] = legal
                 choice = _mask_argmax(q, select_mask)
                 if config.epsilon and float(rngs[int(env)].random()) < config.epsilon:
                     choice = int(rngs[int(env)].choice(np.flatnonzero(legal)))
                 grid[int(env), 0] = choice
             return grid
 
+        prefix_mass = mass.copy() if completed in horizons else None
         sim.step_with_policy(choose, active_env_mask=active)
+        if completed in horizons:
+            checkpoints[completed] = _checkpoint(prefix_mass, prefix_q, prefix_legal)
         runtime.observe_step(sim)
         mass += np.where(sim.alive[:, 0] & active, sim.length[:, 0], 0)
         active &= sim.alive[:, 0]
@@ -118,19 +132,55 @@ def scores(
             sim.step_with_policy(leaf_selector, active_env_mask=live)
         except _LeafReady:
             pass
-    totals = mass + config.leaf_scale * np.where(
-        live,
-        np.array(
-            [
-                (q.mean() if leaf == "value" else np.max(q[m])) if m.any() else 0.0
-                for q, m in zip(leaf_q, leaf_legal)
-            ]
-        ),
-        0.0,
-    )
+    final = _checkpoint(mass, leaf_q, leaf_legal)
+    for horizon in horizons:
+        # An all-dead batch terminates early: remaining mass is zero, so every
+        # subsequent requested prefix has this same cumulative total.
+        checkpoints.setdefault(horizon, final)
+    return {
+        "branches": branches,
+        "checkpoints": checkpoints,
+        "horizon": config.horizon,
+        "rollouts": config.rollouts,
+    }
+
+
+def _checkpoint(mass: np.ndarray, q: np.ndarray, legal: np.ndarray) -> dict:
+    live = legal.any(axis=1)
+    maximum = np.zeros(len(q), dtype=np.float64)
+    maximum[live] = np.max(np.where(legal[live], q[live], -np.inf), axis=1)
+    return {"mass": mass.copy(), "max": maximum, "value": np.where(live, q.mean(axis=1), 0.0)}
+
+
+def trace_scores(trace: dict, horizon: int, rollouts: int, leaf: str, scale: float) -> dict:
+    """Reduce a stored prefix in segment-frames; scale has segment-frames/Q units."""
+    if leaf not in ("max", "value") or not 0 < rollouts <= trace["rollouts"]:
+        raise ValueError("invalid leaf or rollout prefix")
+    checkpoint = trace["checkpoints"][horizon]
+    totals = checkpoint["mass"] + scale * checkpoint[leaf]
     return {
         action: float(
-            np.mean([totals[index] for index, pair in enumerate(branches) if pair[0] == action])
+            np.mean(
+                [
+                    totals[i]
+                    for i, (a, n) in enumerate(trace["branches"])
+                    if a == action and n < rollouts
+                ]
+            )
         )
-        for action in actions
+        for action in dict.fromkeys(a for a, _ in trace["branches"])
     }
+
+
+def scores(
+    source: bank_engine.CapturedWorld,
+    actions: list[int],
+    config: SearchConfig,
+    decision: int,
+    *,
+    common_random: bool = True,
+    leaf: str = "max",
+) -> dict[int, float]:
+    """Independent-search compatibility oracle, retaining the original RNG draws."""
+    trace = prefix_trace(source, actions, config, decision, common_random=common_random)
+    return trace_scores(trace, config.horizon, config.rollouts, leaf, config.leaf_scale)

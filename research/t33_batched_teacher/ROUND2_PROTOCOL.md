@@ -14,7 +14,10 @@ a nonnegative through-origin least-squares slope from live prefix Q to remaining
 full-horizon mass, pooling action/rollout samples on calibration decisions only.
 Report scale 0, scale 1, and that fitted slope, in-sample agreement/regret and
 sample counts; no automatic recipe selection or out-of-sample quality claim.
-Dead-prefix Q and remainder are zero. Cache eligible index inventories with
+Dead-prefix Q and remainder are zero. Uniform reservoir sampling retains at most the requested number of prepared
+snapshots during one bare replay (fixed seed 20261019); it changes the sample
+indices from the older two-pass rng.choice sampler. Cache eligible/selected
+index inventories with
 world/bank/checkpoint/source identities, not inferred filesystem state.
 
 Native pools are capped at four locally, with one thread per concurrent lane.

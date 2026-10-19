@@ -10,7 +10,7 @@ import multiprocessing
 import platform
 import sys
 import time
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +67,15 @@ def compare(world: Any, settings: dict, choices: list[dict], gate: float | None)
     q, legal, select = teacher._q_and_legal(world)
     actions = list(map(int, np.flatnonzero(legal)))
     started = time.perf_counter()
-    full = reference.scores(world, actions, config, decision, common_random=True)
+    trace = reference.prefix_trace(
+        world,
+        actions,
+        config,
+        decision,
+        common_random=True,
+        horizons=[v["horizon"] for v in choices],
+    )
+    full = reference.trace_scores(trace, config.horizon, config.rollouts, "max", config.leaf_scale)
     legacy = teacher._reference_scores(world, actions, config, decision)
     winner = max(full, key=full.__getitem__)
     old_winner = max(legacy, key=legacy.__getitem__)
@@ -77,8 +85,13 @@ def compare(world: Any, settings: dict, choices: list[dict], gate: float | None)
         before = time.perf_counter()
         searched = gate is None or margin < gate
         if searched:
-            cheap = replace(config, **{k: v for k, v in variant.items() if k not in ("id", "leaf")})
-            scores = reference.scores(world, actions, cheap, decision, leaf=variant["leaf"])
+            scores = reference.trace_scores(
+                trace,
+                variant["horizon"],
+                variant["rollouts"],
+                variant["leaf"],
+                variant["leaf_scale"],
+            )
             action = max(scores, key=scores.__getitem__)
         else:
             scores = {}
@@ -105,13 +118,24 @@ def compare(world: Any, settings: dict, choices: list[dict], gate: float | None)
         "legacy_action": old_winner,
         "legacy_scores": legacy,
         "variants": result,
+        "prefix_trace": {
+            "branches": trace["branches"],
+            "checkpoints": {
+                str(h): {k: a.tolist() for k, a in c.items()}
+                for h, c in trace["checkpoints"].items()
+            },
+            "horizon": trace["horizon"],
+            "rollouts": trace["rollouts"],
+        },
+        "prefix_method": "single-full-CRN-run",
         "seconds": time.perf_counter() - started,
     }
 
 
 def task(payload: tuple) -> list[dict]:
     """One world per single-thread worker; stream samples rather than clone a bank."""
-    row, checkpoint, count, settings, choices, gate, smoke = payload
+    row, checkpoint, count, settings, choices, gate, smoke, *cache_arg = payload
+    cache_root = Path(cache_arg[0]) if cache_arg and cache_arg[0] else None
     teacher.configure_cpu()
     from research.phase0_search_20261019.runner import operational_guard
 
@@ -122,18 +146,93 @@ def task(payload: tuple) -> list[dict]:
         selected = {0}
     else:
         world = teacher.build_world(row, checkpoint)
-        eligible = []
-        for decision in range(5000 - settings["horizon"] + 1):
-            if not world.sim.alive[0, 0]:
-                break
-            diag = teacher.step_world(world)
-            if diag["length"] >= 600 or diag["margin"] < 0:
-                eligible.append(decision)
-        if len(eligible) < count:
-            raise ValueError(f"not enough searched decisions in {row['world_id']}")
-        rng = np.random.default_rng(np.random.SeedSequence([20261019, row["world_seed"]]))
-        selected = set(map(int, rng.choice(eligible, count, replace=False)))
-        world = teacher.build_world(row, checkpoint)
+        cache_key = hashlib.sha256(
+            json.dumps(
+                {
+                    "row": row,
+                    "checkpoint": sha(Path(checkpoint)),
+                    "count": count,
+                    "horizon": settings["horizon"],
+                    "source": identity()["source_sha256"],
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        cache = cache_root / (cache_key + ".json") if cache_root else None
+        if cache is not None and cache.exists():
+            cached = json.loads(cache.read_text())
+            eligible, picked = cached.get("eligible"), cached.get("selected")
+            if (
+                cached.get("key") != cache_key
+                or not isinstance(eligible, list)
+                or any(type(v) is not int for v in eligible)
+                or eligible != sorted(set(eligible))
+                or any(v < 0 or v > 5000 - settings["horizon"] for v in eligible)
+                or not isinstance(picked, list)
+                or len(set(picked)) != count
+                or len(picked) != count
+                or not set(picked) <= set(eligible)
+            ):
+                raise ValueError("invalid identity-bound eligible inventory")
+            selected = set(picked)
+        else:
+            # Uniform reservoir sampling keeps at most count prepared snapshots.
+            # This visits the bare trajectory once, instead of enumerating all
+            # eligible indices then replaying the entire trajectory a second time.
+            eligible = []
+            reservoir = []
+            rng = np.random.default_rng(np.random.SeedSequence([20261019, row["world_seed"]]))
+
+            class Reservoir:
+                def choose(self, prepared_world: Any) -> tuple[int, dict]:
+                    q, legal, select = teacher._q_and_legal(prepared_world)
+                    decision = int(prepared_world.sim.frame[0]) - 1
+                    length = int(prepared_world.sim.length[0, 0])
+                    margin = teacher._margin(q, legal)
+                    if length >= 600 or margin < 0:
+                        eligible.append(decision)
+                        index = len(eligible) - 1
+                        replace_index = index if index < count else int(rng.integers(index + 1))
+                        if replace_index < count:
+                            snapshot = (decision, prepared_world.clone())
+                            if replace_index == len(reservoir):
+                                reservoir.append(snapshot)
+                            else:
+                                reservoir[replace_index] = snapshot
+                    return teacher._mask_argmax(q, select), {"searched": False, "scores": {}}
+
+            for _ in range(5000 - settings["horizon"] + 1):
+                if not world.sim.alive[0, 0]:
+                    break
+                teacher.step_world(world, Reservoir())
+            if len(reservoir) != count:
+                raise ValueError(f"not enough searched decisions in {row['world_id']}")
+            if cache is not None:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                bank.write_create(
+                    cache,
+                    {
+                        "key": cache_key,
+                        "eligible": eligible,
+                        "selected": sorted(d for d, _ in reservoir),
+                    },
+                )
+            for _, snapshot in sorted(reservoir, key=lambda item: item[0]):
+                result = compare(snapshot, settings, choices, gate)
+                output.append({"world_id": row["world_id"], "mix": row["mix"], **result})
+                print(
+                    json.dumps(
+                        {
+                            "event": "ablation_decision",
+                            "world": row["world_id"],
+                            "done": len(output),
+                            "total": count,
+                        }
+                    ),
+                    flush=True,
+                )
+                operational_guard()
+            return output
 
     class Collector:
         def choose(self, prepared_world: Any) -> tuple[int, dict]:
@@ -179,6 +278,60 @@ def summarize(rows: list[dict]) -> dict:
     return result
 
 
+def calibrate(rows: list[dict]) -> dict:
+    """Fit physical leaf units and report in-sample 0/1/fitted diagnostics.
+
+    No intercept: a dead row has Q=0 and zero remaining mass. A nonnegative
+    least-squares slope is the fixed prospective rule; no outcome selects it.
+    """
+    output = {}
+    for variant in rows[0]["variants"]:
+        h, n, leaf = variant["horizon"], variant["rollouts"], variant["leaf"]
+        xs, ys = [], []
+        traces = []
+        for row in rows:
+            raw = row["prefix_trace"]
+            trace = {
+                **raw,
+                "checkpoints": {
+                    int(k): {name: np.asarray(a) for name, a in c.items()}
+                    for k, c in raw["checkpoints"].items()
+                },
+            }
+            traces.append(trace)
+            keep = np.array([r < n for _, r in trace["branches"]])
+            prefix = trace["checkpoints"][h]
+            xs.extend(prefix[leaf][keep])
+            ys.extend((trace["checkpoints"][trace["horizon"]]["mass"] - prefix["mass"])[keep])
+        x, y = np.asarray(xs), np.asarray(ys)
+        denominator = float(x @ x)
+        slope = max(0.0, float(x @ y) / denominator) if denominator else 0.0
+        reports = {}
+        for name, scale in (("zero", 0.0), ("one", 1.0), ("fitted", slope)):
+            matches, regrets = [], []
+            for row, trace in zip(rows, traces):
+                scores = reference.trace_scores(trace, h, n, leaf, scale)
+                action = max(scores, key=scores.__getitem__)
+                full = row["reference_scores"]
+                matches.append(action == row["reference_action"])
+                regrets.append(full[row["reference_action"]] - full[action])
+            reports[name] = {
+                "scale": scale,
+                "agreement": float(np.mean(matches)),
+                "regret": float(np.mean(regrets)),
+            }
+        output[variant["id"]] = {
+            "units": "segment-frames per raw network-Q unit",
+            "fit": "nonnegative through-origin least squares; in-sample descriptive only",
+            "samples": len(x),
+            "nonzero_q_samples": int(np.count_nonzero(x)),
+            "scale": slope,
+            "rmse": float(np.sqrt(np.mean((y - slope * x) ** 2))),
+            "reports": reports,
+        }
+    return output
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, default=B8)
@@ -192,6 +345,9 @@ def main() -> int:
     parser.add_argument("--reference-rollouts", type=int, default=8)
     parser.add_argument("--leaf-scale", type=float, default=1.0)
     parser.add_argument("--margin-gate", type=float)
+    parser.add_argument(
+        "--eligible-cache", type=Path, help="identity-bound reusable eligible decision inventories"
+    )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     if args.out.exists():
@@ -218,9 +374,15 @@ def main() -> int:
             choices,
             args.margin_gate,
             args.smoke,
+            str(args.eligible_cache) if args.eligible_cache else None,
         )
         for r in rows
     ]
+    if any(
+        v["horizon"] > args.reference_horizon or v["rollouts"] > args.reference_rollouts
+        for v in choices
+    ):
+        parser.error("variant H/N must be prefixes of reference H/N")
     binding = identity()
     started = time.perf_counter()
     if args.workers == 1:
@@ -250,6 +412,7 @@ def main() -> int:
         "margin_gate": args.margin_gate,
         "rows": results,
         "summary": summarize(results),
+        "leaf_calibration": calibrate(results),
     }
     bank.write_create(args.out, receipt)
     print(json.dumps(receipt["summary"], sort_keys=True), flush=True)
