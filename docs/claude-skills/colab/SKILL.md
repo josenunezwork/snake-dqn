@@ -38,6 +38,11 @@ work (Q1, the notebook workers) alone until it finishes. Design and guardrails:
   -> verify release; transfers buffer whole files -> bound sizes/timeouts; idle kernels are reclaimed (no
   keep-alive daemon since 2026-09-25) but still bill until stopped.
 - Never use `colab drivemount` / `colab auth` (human-interactive). No Drive on runtimes for CLI jobs.
+- `colab stop` only works for sessions the CLI created; notebook runtimes show as `[?]` in `sessions`. To release
+  one, the owner runs the library unassign (`colab_cli.common.state.client.unassign(endpoint)`, script pattern in
+  research/colab_cli) — Claude's own direct unassign was blocked by the auto-mode classifier ("Interfere With
+  Workloads") on 2026-10-18, so ask the owner (or a permission rule) instead of retrying. Measured 2026-10-18: one
+  L4 alone = 1.54 u/h.
 - `colab url -s NAME` attaches the web UI to a CLI session (for the owner to look) without a new allocation.
 - The <=4-unit acceptance plan is expected after Q1 and independent review (CPU <=20 min, then L4 <=30 min).
   Until it passes, no new research allocation is qualified.
