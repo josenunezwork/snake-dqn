@@ -1,6 +1,8 @@
 # Phase 0 search-teacher premise test
 
-Status: **DRAFT_PENDING_OWNER_REVIEW**. Implementation and disjoint local CPU
+**Status: APPROVED_PHASE0_20261019.** Approved by Claude (planner) 2026-10-19 ~13:05 PT under the owner's chat approval ("APPROVE", ~12:30 PT) of the search-teacher path, before any selection data. Protocol and settings exactly as registered below (N=8, H=128, eps .02, margin threshold 0, length gate 600, leaf scale 1); resource envelope: Mac only, six one-thread CPU workers (batched CPU teacher), 432,000 s wall cap, first cap wins; no Colab/RunPod for this attempt.
+
+Original status: **DRAFT_PENDING_OWNER_REVIEW**. Implementation and disjoint local CPU
 preflight only are authorized. Selection gameplay requires Claude's separate approval
 of the final hash-bound plan. No training, allocation, dispatch, serving or release
 is authorized by this document. This is development evidence, never a strict gate.
