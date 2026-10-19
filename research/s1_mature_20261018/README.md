@@ -6,6 +6,15 @@ The owner's two-variant budget authorization is recorded verbatim in
 `OWNER_AUTHORIZATION.json`. Dispatch retains the independent review, published
 source, fresh account evidence and ledger guards.
 
+The owner-approved execution amendment
+[`PREREGISTRATION_AMENDMENT_01_PARALLEL.md`](PREREGISTRATION_AMENDMENT_01_PARALLEL.md)
+permits up to three L4 lanes with unchanged science and resource caps. Parallel
+plans must bind that amendment. The historical serialized estimates below remain
+preserved; a parallel plan recomputes only the elapsed upper bound. See
+[`PARALLEL_LANES_OPERATOR_20261019.md`](PARALLEL_LANES_OPERATOR_20261019.md) for the
+handoff boundary and operator sequence. The new scheduler cannot overlap the
+already-running dispatch-04, even when asked to exclude its current job.
+
 **Current offline pricing admission: PASS.** See
 `ADMISSION_STATUS_ACCEPTANCE_RUN9.json`, which supersedes earlier admission
 status snapshots. Final-only CLI acceptance run 9 is hash-bound by absolute path,
@@ -36,14 +45,17 @@ authorized fresh Mac strict gate. It does not change serving.
 
 - `bank.py`, `WORLD_BANK.json`, `SEED_AUDIT.json`: shared allocation, training
   namespaces, disjoint operational fixtures, and historical collision coverage.
-- `manifests.py`, `train.sh`, `train.py`: ten serialized L4 manifests, the real
+- `manifests.py`, `train.sh`, `train.py`: ten primary L4 manifests, the real
   M3-C trainer adapter, progress, and immutable final-artifact transport.
 - `evaluate.py`, `analyze.py`: single-thread Mac worker pool, resumable hashed
   world units, fixed-order merge, final-look statistics and decisions.
 - `ledger.py`: durable study-wide reservations and receipt reconciliation.
 - `admission.py`, `run.py`, `launch.sh`, `rerun.py`: complete-plan admission,
-  serialized execution and explicit manual operational replacement after all
-  prerequisites pass.
+  governed serial or parallel execution and explicit manual operational
+  replacement after all prerequisites pass; parallel recovery limits are
+  documented in the operator handoff.
+- `prepare_parallel_handoff.py`: fresh read-only account evidence and the
+  operator's explicit legacy-dispatcher exit attestation, without allocation.
 
 The protected `research/colab_cli` and `research/q0q1_20261017` implementations
 are consumed as read-only dependencies. Q1's historical ledger and A2/A3/A5

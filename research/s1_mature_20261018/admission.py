@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = "s1-mature-admission-plan/v1"
 APPROVAL = manifests.APPROVAL
 ACCEPTANCE_UNITS = 4.0
+PARALLEL_APPROVAL = "APPROVED_S1_PARALLEL_20261019"
+MAX_LANES = 3
 
 
 class AdmissionRefused(RuntimeError):
@@ -219,6 +221,25 @@ def require_approved_preregistration(path: Path) -> dict[str, str]:
     return {"path": str(path.resolve()), "sha256": sha256(path)}
 
 
+def require_approved_parallel_amendment(path: Path) -> dict[str, str]:
+    """Bind the prospective operational amendment required for parallel lanes."""
+    text = path.read_text()
+    marker = f"**Status: {PARALLEL_APPROVAL}.**"
+    approved = any(
+        line.strip() == marker or line.strip().startswith(marker + " ")
+        for line in text.splitlines()[:12]
+    )
+    if not approved:
+        raise AdmissionRefused("parallel amendment lacks the prospective approval status line")
+    return {"path": str(path.resolve()), "sha256": sha256(path)}
+
+
+def _lanes(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_LANES:
+        raise AdmissionRefused(f"lanes must be an integer from 1 through {MAX_LANES}")
+    return value
+
+
 def liabilities(manifest_rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, float]]:
     """Reserve the ten primary attempts only; reruns are conditional at launch."""
     rows = list(manifest_rows)
@@ -248,8 +269,9 @@ def _input(value: str) -> manifests.ExternalInput:
     return manifests.ExternalInput(name, Path(path), dest)
 
 
-def priced_mac_bound(path: Path) -> dict[str, Any]:
+def priced_mac_bound(path: Path, *, lanes: int = 1) -> dict[str, Any]:
     """Read the completed real-entrypoint pricing receipt, never a hand estimate."""
+    lanes = _lanes(lanes)
     value = json.loads(path.read_text())
     if value.get("status") != "PASS":
         raise AdmissionRefused("Mac preflight/evaluation pricing receipt is not PASS")
@@ -304,6 +326,9 @@ def priced_mac_bound(path: Path) -> dict[str, Any]:
         raise AdmissionRefused("pricing receipt lacks finite Mac and elapsed bounds") from exc
     if not math.isfinite(mac) or not math.isfinite(elapsed) or mac < 0 or elapsed < 0:
         raise AdmissionRefused("pricing upper bounds must be nonnegative")
+    priced_lanes = value.get("parallel_lanes", 1)
+    if priced_lanes != lanes:
+        raise AdmissionRefused("pricing receipt lane count differs from the prepared plan")
     # The final-only transport receipt binds the current source, measured final
     # bundle sizes, and a verified L4-to-Mac acceptance transfer.  It contains
     # no full trainer state and cannot be used as an exact-resume qualification.
@@ -318,6 +343,8 @@ def priced_mac_bound(path: Path) -> dict[str, Any]:
         "cli_acceptance_receipt": qualified["cli_acceptance_receipt"],
         "mac_worker_hours": mac,
         "elapsed_hours": elapsed,
+        "lanes": lanes,
+        "elapsed_schedule": value.get("elapsed_schedule"),
         "per_arm_gpu_hours": {
             arm: (30 if arm == "n3" else 68) / 60 + item["transport_seconds_upper_bound"] / 3600
             for arm, item in qualified["qualified_arms"].items()
@@ -327,9 +354,16 @@ def priced_mac_bound(path: Path) -> dict[str, Any]:
 
 def prepare(args: argparse.Namespace) -> Path:
     repo, out = args.repo.resolve(), args.out.resolve()
+    lanes = _lanes(getattr(args, "lanes", 1))
     published_ref = getattr(args, "published_ref", "origin/main")
     commit = published_commit(repo, published_ref)
     prereg = require_approved_preregistration(args.preregistration.resolve())
+    amendment = None
+    if lanes > 1:
+        amendment_path = getattr(args, "parallel_amendment", None)
+        if amendment_path is None:
+            raise AdmissionRefused("parallel lanes require an approved hash-bound amendment")
+        amendment = require_approved_parallel_amendment(Path(amendment_path).resolve())
     seed_value, audit_value = json.loads(args.seed_bank.read_text()), json.loads(
         args.seed_audit.read_text()
     )
@@ -358,7 +392,7 @@ def prepare(args: argparse.Namespace) -> Path:
     }
     if getattr(args, "input_delivery", "contents") == "public-release":
         parsed_inputs = [item.from_release() for item in parsed_inputs]
-    mac_bound = priced_mac_bound(args.pricing.resolve())
+    mac_bound = priced_mac_bound(args.pricing.resolve(), lanes=lanes)
     acceptance = mac_bound["cli_acceptance_receipt"]
     parsed_inputs.append(
         manifests.ExternalInput(
@@ -393,11 +427,14 @@ def prepare(args: argparse.Namespace) -> Path:
             )
     # Acceptance is a conservative two GPU/allocation hours inside its four-unit
     # allowance. Final export slack is already reserved per job above.
+    training_schedule = ledger.parallel_elapsed_schedule(
+        {row["job_id"]: liability[row["job_id"]] for row in rows}, lanes
+    )
     complete = {
         "units": training["units"] + ACCEPTANCE_UNITS,
         "gpu_allocation_hours": training["gpu_allocation_hours"] + 2.0,
         "mac_worker_hours": mac_bound["mac_worker_hours"],
-        "elapsed_hours": training["elapsed_hours"] + 2.0,
+        "elapsed_hours": training_schedule["makespan_hours"] + 2.0 + mac_bound["elapsed_hours"],
     }
     if complete["units"] > 48:
         raise AdmissionRefused("training plus acceptance upper bound exceeds usable units")
@@ -442,6 +479,7 @@ def prepare(args: argparse.Namespace) -> Path:
         "commit": commit,
         "published_ref": published_ref,
         "preregistration": prereg,
+        **({"parallel_amendment": amendment} if amendment is not None else {}),
         "source_closure": source_closure(repo, commit),
         "source_packaging": packaging,
         "input_staging": staging,
@@ -457,8 +495,10 @@ def prepare(args: argparse.Namespace) -> Path:
         },
         "pricing_receipt": {"path": str(args.pricing.resolve()), "sha256": sha256(args.pricing)},
         "complete_upper_bound": complete,
+        "elapsed_schedule": training_schedule,
         "run_rules": {
-            "serialized": True,
+            "lanes": lanes,
+            "serialized": lanes == 1,
             "operational_reruns_pre_funded": False,
             "operational_rerun_admission": "full-worst-case-within-all-usable-caps-at-launch",
             "operational_reruns_max": {"n3": 1, "n1": 1},
@@ -489,6 +529,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--world-bank", type=Path, required=True)
     p.add_argument("--seed-audit", type=Path, required=True)
     p.add_argument("--pricing", type=Path, required=True)
+    p.add_argument("--lanes", type=int, default=1)
+    p.add_argument("--parallel-amendment", type=Path)
     p.add_argument("--artifact-root", type=Path, required=True)
     p.add_argument("--manifest-dir", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)

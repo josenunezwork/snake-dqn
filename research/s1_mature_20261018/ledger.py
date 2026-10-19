@@ -9,6 +9,7 @@ keeps the full reservation outstanding.
 from __future__ import annotations
 
 import argparse
+import copy
 import fcntl
 import hashlib
 import json
@@ -38,6 +39,7 @@ NOMINAL_CAPS = {
 }
 SNAPSHOT_MAX_AGE_SECONDS = 15 * 60
 DIMENSIONS = tuple(USABLE_CAPS)
+MAX_PARALLEL_LANES = 3
 OPERATIONAL_FAILURES = frozenset({"disconnect", "transfer_failure", "runtime_reclaim"})
 PREALLOCATION_REFUSAL_SCHEMA = "s1-preallocation-refusal/v1"
 STAGING_FAILURE_REVIEW_SCHEMA = "s1-pretraining-staging-failure-review/v1"
@@ -47,6 +49,51 @@ STAGING_CORRECTION_SCHEMA = "s1-staging-charge-correction/v1"
 
 class Refused(RuntimeError):
     """Evidence or the worst-case budget does not admit the requested action."""
+
+
+class LaneNotReady(Refused):
+    """A reserved lane has not yet produced its broker-owned active record."""
+
+
+def parallel_elapsed_schedule(jobs: Mapping[str, Mapping[str, Any]], lanes: int) -> dict[str, Any]:
+    """Return a deterministic, indivisible-job upper-bound schedule.
+
+    The caller supplies the already interleaved job order.  Long jobs are never
+    fractionally divided: each next job goes to the least-loaded lane, with the
+    lane name breaking ties.  This is a schedule bound, not an authorization to
+    start a runtime.
+    """
+    if (
+        isinstance(lanes, bool)
+        or not isinstance(lanes, int)
+        or not 1 <= lanes <= MAX_PARALLEL_LANES
+    ):
+        raise Refused(f"parallel lanes must be an integer from 1 through {MAX_PARALLEL_LANES}")
+    assignments = {f"lane-{index}": [] for index in range(1, lanes + 1)}
+    lane_elapsed = {lane: 0.0 for lane in assignments}
+    job_elapsed: list[float] = []
+    for job_id, liability in jobs.items():
+        if not isinstance(job_id, str) or not job_id:
+            raise Refused("parallel schedule job IDs must be nonempty strings")
+        bound = _bound(liability, f"parallel schedule {job_id}")
+        lane = min(lane_elapsed, key=lambda name: (lane_elapsed[name], name))
+        assignments[lane].append(job_id)
+        lane_elapsed[lane] += bound["elapsed_hours"]
+        job_elapsed.append(bound["elapsed_hours"])
+    scheduled_makespan = max(lane_elapsed.values(), default=0.0)
+    total = sum(lane_elapsed.values())
+    largest = max(job_elapsed, default=0.0)
+    # Dispatchers may claim the next job when any lane frees, rather than obey
+    # these informational queues.  Graham's list-scheduling bound remains safe
+    # for every such work-conserving ordering of indivisible jobs.
+    makespan = total / lanes + (1.0 - 1.0 / lanes) * largest
+    return {
+        "lanes": lanes,
+        "assignments": assignments,
+        "lane_elapsed_hours": lane_elapsed,
+        "scheduled_makespan_hours": scheduled_makespan,
+        "makespan_hours": makespan,
+    }
 
 
 def sha256(path: Path) -> str:
@@ -294,12 +341,85 @@ class Ledger:
             self._verify_invariants(state, require_snapshot=True)
             return self._summary(state)
 
+    def preview_parallel(self, amendment_path: str | Path, *, lanes: int) -> dict[str, Any]:
+        """Check proposed parallel caps without changing the persisted ledger."""
+        with self._locked() as state:
+            proposed = copy.deepcopy(state)
+            self._configure_parallel_state(proposed, amendment_path, lanes=lanes)
+            return self._summary(proposed)
+
+    def configure_parallel(self, amendment_path: str | Path, *, lanes: int) -> dict[str, Any]:
+        """Bind the approved pre-data amendment before switching ledger modes.
+
+        This intentionally requires an empty outstanding set.  A legacy serial
+        dispatcher has neither endpoint attribution nor atomic claims, so it
+        cannot safely share a live ledger with a new parallel dispatcher.
+        """
+        with self._locked() as state:
+            self._configure_parallel_state(state, amendment_path, lanes=lanes)
+            return self._summary(state)
+
+    def _configure_parallel_state(
+        self, state: dict[str, Any], amendment_path: str | Path, *, lanes: int
+    ) -> None:
+        if (
+            isinstance(lanes, bool)
+            or not isinstance(lanes, int)
+            or not 1 <= lanes <= MAX_PARALLEL_LANES
+        ):
+            raise Refused(f"parallel lanes must be an integer from 1 through {MAX_PARALLEL_LANES}")
+        self._verify_static_evidence(state)
+        if state["outstanding"]:
+            raise Refused(
+                "parallel mode requires a quiescent ledger with no outstanding reservation"
+            )
+        amendment = self._parallel_amendment(amendment_path)
+        existing = state.get("parallel")
+        requested = {"amendment": amendment, "lanes": lanes}
+        if existing is not None and existing != requested:
+            raise Refused("parallel mode is already bound to another amendment or lane count")
+        state["parallel"] = requested
+        state["events"].append({"kind": "configure_parallel", "at": self.clock(), **requested})
+        # Check all caps against the prospective schedule. Applying the old
+        # serial forecast first would reject a valid elapsed-time amendment.
+        self._verify_invariants(state, require_snapshot=False)
+
+    def record_parallel_account_snapshot(self, path: str | Path) -> dict[str, Any]:
+        """Bind a fresh account reading that attributes every live S1 lane.
+
+        The binding is derived from broker-owned ``active-*.json`` records and
+        each reserved manifest's output directory.  Caller supplied job/end-point
+        maps are deliberately not accepted: an unaccounted or foreign endpoint
+        blocks the next allocation.
+        """
+        with self._locked() as state:
+            self._verify_static_evidence(state)
+            self._parallel_config(state)
+            remaining = sum(x["units"] for x in state["planned"].values()) + sum(
+                x["bound"]["units"] for x in state["outstanding"].values()
+            )
+            state["account_snapshot"] = self._parallel_snapshot(
+                path, state, remaining_units=remaining
+            )
+            state["events"].append(
+                {
+                    "kind": "parallel_account_snapshot",
+                    "at": self.clock(),
+                    "evidence": state["account_snapshot"],
+                }
+            )
+            self._verify_invariants(state, require_snapshot=True)
+            return self._summary(state)
+
     def reserve(
         self, job_id: str, worst_case: Mapping[str, Any], manifest_path: str | Path
     ) -> dict[str, Any]:
         """Atomically move exactly one registered job from planned to outstanding."""
         with self._locked() as state:
             self._verify_invariants(state, require_snapshot=True)
+            manifest = json.loads(Path(manifest_path).read_text())
+            if "parallel" in state and manifest.get("kind") != "mac":
+                raise Refused("parallel-configured ledger requires an atomic parallel claim")
             if job_id not in state["planned"]:
                 raise Refused("job is not an unstarted registered liability")
             worst = _bound(worst_case, "worst_case")
@@ -316,6 +436,57 @@ class Ledger:
             self._verify_invariants(state, require_snapshot=True)
             state["events"].append({"kind": "reserve", "job_id": job_id, "at": self.clock()})
             return self._summary(state)
+
+    def reserve_parallel(
+        self, job_id: str, worst_case: Mapping[str, Any], manifest_path: str | Path
+    ) -> dict[str, Any]:
+        """Atomically reserve a parallel lane after broker-account attribution."""
+        with self._locked() as state:
+            self._verify_invariants(state, require_snapshot=True)
+            parallel = self._parallel_config(state)
+            self._reserve_parallel_locked(state, job_id, worst_case, manifest_path, parallel)
+            return self._summary(state)
+
+    def claim_next(
+        self,
+        ordered_job_ids: list[str] | tuple[str, ...],
+        liabilities: Mapping[str, Mapping[str, Any]],
+        manifest_paths: Mapping[str, str | Path],
+        *,
+        account_snapshot_path: str | Path,
+    ) -> str | None:
+        """Select and reserve one eligible job under the ledger lock.
+
+        This is the only parallel pick primitive.  It makes double-picks across
+        worker processes impossible and leaves halted-arm work in ``planned``.
+        """
+        with self._locked() as state:
+            self._verify_static_evidence(state)
+            parallel = self._parallel_config(state)
+            remaining = sum(x["units"] for x in state["planned"].values()) + sum(
+                x["bound"]["units"] for x in state["outstanding"].values()
+            )
+            state["account_snapshot"] = self._parallel_snapshot(
+                account_snapshot_path, state, remaining_units=remaining
+            )
+            for job_id in ordered_job_ids:
+                if job_id not in state["planned"]:
+                    continue
+                if liabilities.get(job_id) != state["planned"][job_id]:
+                    raise Refused(
+                        "parallel claim liability differs from immutable registered liability"
+                    )
+                manifest_path = manifest_paths.get(job_id)
+                if manifest_path is None:
+                    raise Refused("parallel claim lacks the selected manifest")
+                if self._arm_halted(state, job_id, manifest_path):
+                    continue
+                self._reserve_parallel_locked(
+                    state, job_id, liabilities[job_id], manifest_path, parallel
+                )
+                return job_id
+            self._verify_invariants(state, require_snapshot=True)
+            return None
 
     def settle(self, job_id: str, receipt_path: str | Path) -> dict[str, Any]:
         """Settle a CLI job only when a terminal supervisor receipt proves disappearance."""
@@ -353,7 +524,7 @@ class Ledger:
             entry = state["outstanding"].get(job_id)
             if entry is None:
                 raise Refused("no outstanding reservation for job")
-            receipt = self._operational_receipt(receipt_path, entry["manifest"])
+            receipt = self._operational_receipt(receipt_path, entry)
             review = self._operational_review(review_path, job_id, receipt_path, entry["manifest"])
             actual = self._operational_actual(receipt, entry)
             state["settled"][job_id] = {
@@ -945,6 +1116,193 @@ class Ledger:
             raise Refused("account balance cannot cover all remaining S1 unit liabilities")
         return self._evidence(path)
 
+    @staticmethod
+    def _parallel_amendment(path: str | Path) -> dict[str, str]:
+        evidence = Ledger._evidence(path)
+        text = Path(evidence["path"]).read_text()
+        if "**Status: APPROVED_S1_PARALLEL_20261019.**" not in text:
+            raise Refused("parallel mode requires the approved S1 parallel amendment")
+        return evidence
+
+    def _parallel_config(self, state: Mapping[str, Any]) -> Mapping[str, Any]:
+        parallel = state.get("parallel")
+        if not isinstance(parallel, Mapping):
+            raise Refused("parallel reservation requires a hash-bound amendment configuration")
+        amendment = parallel.get("amendment")
+        self._verify_bound_file(amendment, "parallel amendment")
+        if self._parallel_amendment(amendment["path"]) != amendment:
+            raise Refused("parallel amendment identity changed")
+        lanes = parallel.get("lanes")
+        if (
+            isinstance(lanes, bool)
+            or not isinstance(lanes, int)
+            or not 1 <= lanes <= MAX_PARALLEL_LANES
+        ):
+            raise Refused("parallel configuration lane count is invalid")
+        return parallel
+
+    def _parallel_snapshot(
+        self, path: str | Path, state: Mapping[str, Any], *, remaining_units: float
+    ) -> dict[str, str]:
+        """Validate snapshot/broker records against outstanding manifest outputs."""
+        data = json.loads(Path(path).read_text())
+        captured = _number(data.get("captured_at"), "account snapshot captured_at")
+        age = self.clock() - captured
+        if age < -60 or age > SNAPSHOT_MAX_AGE_SECONDS:
+            raise Refused("account snapshot is stale")
+        if data.get("assignments_known") is not True:
+            raise Refused("unknown account assignment state blocks admission")
+        assignments = _number(
+            data.get("active_assignments", data.get("assignments")),
+            "account snapshot active_assignments",
+        )
+        if assignments != int(assignments):
+            raise Refused("account assignments must be an exact integer")
+        balance = _number(
+            data.get("balance_units", data.get("balance")), "account snapshot balance"
+        )
+        if balance < remaining_units:
+            raise Refused("account balance cannot cover all remaining S1 unit liabilities")
+        records = data.get("active_records")
+        sessions = data.get("sessions")
+        if not isinstance(records, list) or not isinstance(sessions, Mapping):
+            raise Refused("parallel snapshot requires broker active records and session endpoints")
+        active: dict[str, Mapping[str, Any]] = {}
+        for record in records:
+            if not isinstance(record, Mapping):
+                raise Refused("parallel snapshot active record is malformed")
+            endpoint, output = record.get("endpoint"), record.get("output")
+            if (
+                not isinstance(endpoint, str)
+                or not endpoint
+                or not isinstance(output, str)
+                or not output
+            ):
+                raise Refused("parallel snapshot active record lacks endpoint or output")
+            declared_rate = _number(
+                record.get("rate_units_per_hour"), "parallel active record rate"
+            )
+            observed_rate = _number(
+                record.get("observed_rate_units_per_hour", declared_rate),
+                "parallel active record observed rate",
+            )
+            if declared_rate <= 0 or observed_rate <= 0:
+                raise Refused("parallel snapshot active record rate must be positive")
+            if endpoint in active:
+                raise Refused("parallel snapshot repeats an active endpoint")
+            active[endpoint] = record
+        if set(sessions) != set(active) or any(
+            not isinstance(value, str) or not value for value in sessions.values()
+        ):
+            raise Refused("parallel snapshot sessions do not exactly match active broker endpoints")
+        if any(record.get("session") != sessions[endpoint] for endpoint, record in active.items()):
+            raise Refused("parallel snapshot broker record session differs from account session")
+        if assignments != len(active):
+            raise Refused("parallel snapshot assignment count disagrees with broker active records")
+        lanes = self._parallel_config(state)["lanes"]
+        if assignments > lanes:
+            raise Refused("parallel snapshot exceeds the configured S1 lane count")
+        expected_outputs: list[str] = []
+        for entry in state["outstanding"].values():
+            self._verify_bound_file(entry.get("manifest"), "outstanding manifest")
+            manifest = json.loads(Path(entry["manifest"]["path"]).read_text())
+            if manifest.get("kind") == "mac":
+                continue
+            output = manifest.get("output_dir")
+            if not isinstance(output, str) or not output:
+                raise Refused("outstanding manifest lacks an output directory")
+            expected_outputs.append(output)
+        active_outputs = {str(record["output"]) for record in active.values()}
+        expected_outputs_set = set(expected_outputs)
+        if len(expected_outputs) != len(expected_outputs_set):
+            raise Refused("parallel snapshot has duplicate outstanding output directories")
+        if active_outputs < expected_outputs_set:
+            raise LaneNotReady("reserved parallel lane is awaiting its broker active record")
+        if active_outputs != expected_outputs_set:
+            raise Refused("parallel snapshot has an unknown assignment or misses a live S1 lane")
+        # A provider rate without an active endpoint is ambiguous.  With live
+        # lanes supervisor accounting owns the rate reconciliation per receipt.
+        rate = _number(
+            data.get("usage_rate_units_per_hour", data.get("rate")), "account snapshot rate"
+        )
+        if not active and rate != 0:
+            raise Refused("zero assignments with nonzero provider rate is unknown debit")
+        observed_total = sum(
+            _number(
+                record.get("observed_rate_units_per_hour", record["rate_units_per_hour"]),
+                "parallel active record observed rate",
+            )
+            for record in active.values()
+        )
+        if abs(rate - observed_total) > 0.05:
+            raise Refused(
+                "parallel snapshot provider rate is not explained by broker active records"
+            )
+        return self._evidence(path)
+
+    def _reserve_parallel_locked(
+        self,
+        state: dict[str, Any],
+        job_id: str,
+        worst_case: Mapping[str, Any],
+        manifest_path: str | Path,
+        parallel: Mapping[str, Any],
+    ) -> None:
+        if job_id not in state["planned"]:
+            raise Refused("job is not an unstarted registered liability")
+        worst = _bound(worst_case, "worst_case")
+        if worst != state["planned"][job_id]:
+            raise Refused("reservation must equal the immutable registered liability")
+        if len(state["outstanding"]) >= parallel["lanes"]:
+            raise Refused("configured parallel lane count is already reserved")
+        self._manifest_fits(Path(manifest_path), job_id, worst)
+        state["outstanding"][job_id] = {
+            "bound": state["planned"].pop(job_id),
+            "manifest": self._evidence(manifest_path),
+            "reserved_at": self.clock(),
+            "parallel": True,
+        }
+        # The supervisor has not allocated yet.  A parallel account snapshot
+        # cannot claim this just-reserved lane has an endpoint until its broker
+        # ``active-*.json`` record exists; the next claim must bind that record.
+        self._verify_invariants(state, require_snapshot=False)
+        state["events"].append({"kind": "reserve_parallel", "job_id": job_id, "at": self.clock()})
+
+    def _arm_halted(self, state: Mapping[str, Any], job_id: str, manifest_path: str | Path) -> bool:
+        manifest = json.loads(Path(manifest_path).read_text())
+        arm = manifest.get("env", {}).get("S1_ARM")
+        if arm not in {"n1", "n3"}:
+            raise Refused(f"parallel claim {job_id} is not an S1 training arm")
+        return arm in state.get("incomplete_arms", {}) or arm in state.get("halted_arms", {})
+
+    def halt_arm(self, arm: str, outcome_path: str | Path) -> dict[str, Any]:
+        """Atomically prevent later parallel claims for a KILL/tripwire arm."""
+        if arm not in {"n1", "n3"}:
+            raise Refused("only S1 N1/N3 arms can be halted")
+        with self._locked() as state:
+            self._verify_static_evidence(state)
+            self._parallel_config(state)
+            outcome = json.loads(Path(outcome_path).read_text())
+            if outcome.get("arm") != arm or not (
+                outcome.get("status") == "KILL" or outcome.get("tripwire") is True
+            ):
+                raise Refused("parallel arm halt requires a bound KILL or tripwire outcome")
+            evidence = self._evidence(outcome_path)
+            existing = state.setdefault("halted_arms", {}).get(arm)
+            if existing is None:
+                state["halted_arms"][arm] = evidence
+            state["events"].append(
+                {
+                    "kind": "halt_arm",
+                    "arm": arm,
+                    "at": self.clock(),
+                    "outcome": evidence,
+                    "first_for_arm": existing is None,
+                }
+            )
+            self._verify_invariants(state, require_snapshot=False)
+            return self._summary(state)
+
     def _verify_static_evidence(self, state: Mapping[str, Any]) -> None:
         # The original qualification remains immutable historical evidence when a
         # transport repair changes its source bytes.  A later requalification, if
@@ -964,6 +1322,8 @@ class Ledger:
                 raise Refused("current acceptance review evidence identity changed")
             if current_started_at != float(state["created_at"]):
                 raise Refused("current acceptance review resets the frozen study start")
+        if "parallel" in state:
+            self._parallel_config(state)
         for group in ("acceptance_review",):
             item = state[group]
             if sha256(Path(item["path"])) != item["sha256"]:
@@ -971,6 +1331,10 @@ class Ledger:
         for name, item in state["history_refs"].items():
             if sha256(Path(item["path"])) != item["sha256"]:
                 raise Refused(f"historical reference changed: {name}")
+        for arm, item in state.get("halted_arms", {}).items():
+            if arm not in {"n1", "n3"}:
+                raise Refused("unknown halted S1 arm")
+            self._verify_bound_file(item, f"halted {arm} outcome")
         snapshot = state["account_snapshot"]
         if sha256(Path(snapshot["path"])) != snapshot["sha256"]:
             raise Refused("account snapshot evidence changed")
@@ -1001,6 +1365,17 @@ class Ledger:
                 )
         corrections = set()
         for event in state.get("events", []):
+            if event.get("kind") == "halt_arm":
+                if event.get("arm") not in {"n1", "n3"}:
+                    raise Refused("halt event names an unknown S1 arm")
+                outcome = event.get("outcome")
+                self._verify_bound_file(outcome, "halt event outcome")
+                data = json.loads(Path(outcome["path"]).read_text())
+                if data.get("arm") != event["arm"] or not (
+                    data.get("status") == "KILL" or data.get("tripwire") is True
+                ):
+                    raise Refused("halt event outcome no longer proves a KILL or tripwire")
+                continue
             if event.get("kind") == "staging_charge_correction":
                 self._verify_bound_file(event.get("review"), "staging correction review")
                 settlement_id = event.get("settlement_id", "")
@@ -1042,7 +1417,7 @@ class Ledger:
             raise Refused("receipt lacks endpoint or terminal evidence")
         return data
 
-    def _operational_receipt(self, path: str | Path, manifest: Mapping[str, str]) -> dict[str, Any]:
+    def _operational_receipt(self, path: str | Path, entry: Mapping[str, Any]) -> dict[str, Any]:
         """Validate a supervisor-stop receipt for a non-scientific lost attempt."""
         receipt_path = Path(path).resolve(strict=True)
         data = json.loads(receipt_path.read_text())
@@ -1052,12 +1427,12 @@ class Ledger:
             raise Refused("operational failure cleanup is unverified")
         if not data.get("endpoint"):
             raise Refused("operational failure receipt lacks endpoint evidence")
-        self._receipt_manifest_bound(receipt_path, data, manifest)
+        self._receipt_manifest_bound(receipt_path, data, entry["manifest"])
         # A present, fully verified final is decisive; a partial export index is not.
         final = data.get("verified_final_export")
         if final is True:
             raise Refused("verified final export exists; a retry cannot be prepared")
-        self._operational_actual(data, {"bound": {key: math.inf for key in DIMENSIONS}})
+        self._operational_actual(data, entry)
         return data
 
     def _staging_receipt(self, path: str | Path, manifest: Mapping[str, str]) -> dict[str, Any]:
@@ -1316,6 +1691,62 @@ class Ledger:
             raise Refused("preallocation dispatch log does not prove the source symlink refusal")
         return value
 
+    @staticmethod
+    def _parallel_accounting(
+        receipt: Mapping[str, Any], entry: Mapping[str, Any], *, allow_precheck: bool = False
+    ) -> bool:
+        """Require reconciled per-lane evidence before ignoring shared raw debit."""
+        parallel = entry.get("parallel") is True
+        if not parallel:
+            return False
+        accounting = receipt.get("accounting")
+        if not isinstance(accounting, Mapping):
+            raise Refused("parallel settlement lacks reconciled lane accounting")
+        endpoint = accounting.get("allocated_endpoint")
+        crosscheck = accounting.get("last_crosscheck")
+        if (
+            not isinstance(endpoint, str)
+            or not endpoint
+            or endpoint != receipt.get("endpoint")
+            or accounting.get("unaccounted_endpoints") != []
+        ):
+            raise Refused("parallel settlement lacks reconciled lane accounting")
+        manifest = json.loads(Path(entry["manifest"]["path"]).read_text())
+        priced_rate = _number(
+            manifest.get("budget", {}).get("rate_units_per_hour"), "parallel manifest priced rate"
+        )
+        own_rate = _number(accounting.get("own_rate_units_per_hour"), "parallel receipt own rate")
+        observed_rate = _number(
+            accounting.get("observed_rate_units_per_hour"), "parallel receipt observed rate"
+        )
+        if own_rate <= 0 or observed_rate <= 0 or abs(own_rate - priced_rate) > 1e-9:
+            raise Refused("parallel settlement accounting rate is not bound to its manifest")
+        unit_cap = _number(accounting.get("unit_cap"), "parallel receipt unit cap")
+        if unit_cap <= 0 or unit_cap > entry["bound"]["units"] + 1e-9:
+            raise Refused("parallel settlement accounting unit cap exceeds its reservation")
+        if not isinstance(accounting.get("assignments"), list):
+            raise Refused("parallel settlement lacks accounted baseline assignments")
+        _number(accounting.get("baseline_rate_units_per_hour"), "parallel receipt baseline rate")
+        calibration = accounting.get("calibration")
+        if not isinstance(calibration, Mapping) or calibration.get("status") != "PASS":
+            raise Refused("parallel settlement lacks passing rate calibration")
+        if crosscheck is None and allow_precheck:
+            # Upload/fixture failures can occur after rate calibration but before
+            # the first polling crosscheck.  The calibrated endpoint, manifest
+            # price, and known baseline still support a full-reservation charge.
+            return True
+        if not isinstance(crosscheck, Mapping):
+            raise Refused("parallel settlement lacks reconciled lane accounting")
+        _number(
+            crosscheck.get("attributable_account_debit_units"),
+            "parallel receipt attributable account debit",
+        )
+        _number(
+            accounting.get("integrated_accounted_other_units"),
+            "parallel receipt integrated other-lane debit",
+        )
+        return True
+
     def _cli_actual(self, receipt: Mapping[str, Any], entry: Mapping[str, Any]) -> dict[str, float]:
         bound = entry["bound"]
         before, after = receipt.get("usage_before"), receipt.get("usage_after")
@@ -1326,6 +1757,13 @@ class Ledger:
         )
         if debit < 0:
             raise Refused("account balance increased; receipt cannot price this allocation")
+        parallel = self._parallel_accounting(receipt, entry)
+        # The ledger schema is deliberately backwards compatible: a receipt
+        # from a serial reservation retains its original raw-debit guard.  In
+        # parallel mode raw account debit contains other lanes, so receipt
+        # accounting must prove those endpoints were reconciled and the ledger
+        # charges this lane's full reserved liability instead.
+        #
         elapsed = max(
             _number(receipt.get("elapsed_seconds"), "receipt elapsed_seconds") / 3600,
             (self.clock() - float(entry["reserved_at"])) / 3600,
@@ -1336,11 +1774,13 @@ class Ledger:
             "mac_worker_hours": 0.0,
             "elapsed_hours": elapsed,
         }
-        if any(actual[key] > bound[key] + 1e-9 for key in DIMENSIONS):
+        if any(
+            actual[key] > bound[key] + 1e-9 for key in DIMENSIONS if key != "units" or not parallel
+        ):
             raise Refused("receipt exceeds reserved worst case")
         # Provider balance can lag or include unrelated account work.  Do not release a
         # request-to-disappearance reservation based on an apparently small debit.
-        actual["units"] = max(actual["units"], bound["units"])
+        actual["units"] = bound["units"] if parallel else max(actual["units"], bound["units"])
         return actual
 
     def _operational_actual(
@@ -1360,14 +1800,17 @@ class Ledger:
         )
         if debit < 0:
             raise Refused("account balance increased; receipt cannot price this allocation")
+        parallel = self._parallel_accounting(receipt, entry)
         elapsed = _number(receipt.get("elapsed_seconds"), "receipt elapsed_seconds") / 3600
         actual = {
-            "units": max(debit, bound["units"]),
+            "units": bound["units"] if parallel else max(debit, bound["units"]),
             "gpu_allocation_hours": elapsed,
             "mac_worker_hours": 0.0,
             "elapsed_hours": elapsed,
         }
-        if any(actual[key] > bound[key] + 1e-9 for key in DIMENSIONS):
+        if any(
+            actual[key] > bound[key] + 1e-9 for key in DIMENSIONS if key != "units" or not parallel
+        ):
             raise Refused("receipt exceeds reserved worst case")
         return actual
 
@@ -1388,17 +1831,19 @@ class Ledger:
         )
         if debit < 0:
             raise Refused("account balance increased; receipt cannot price this allocation")
-        for label, usage in (("usage_before", before), ("usage_after", after)):
-            assignments = _number(
-                usage.get("assignments", usage.get("active_assignments")),
-                f"receipt {label} assignments",
-            )
-            rate = _number(
-                usage.get("rate", usage.get("usage_rate_units_per_hour")),
-                f"receipt {label} rate",
-            )
-            if assignments != 0 or rate != 0:
-                raise Refused("staging spend is ambiguous with another account assignment")
+        parallel = self._parallel_accounting(receipt, entry, allow_precheck=True)
+        if not parallel:
+            for label, usage in (("usage_before", before), ("usage_after", after)):
+                assignments = _number(
+                    usage.get("assignments", usage.get("active_assignments")),
+                    f"receipt {label} assignments",
+                )
+                rate = _number(
+                    usage.get("rate", usage.get("usage_rate_units_per_hour")),
+                    f"receipt {label} rate",
+                )
+                if assignments != 0 or rate != 0:
+                    raise Refused("staging spend is ambiguous with another account assignment")
         self._verify_bound_file(entry.get("manifest"), "settlement manifest")
         manifest = json.loads(Path(entry["manifest"]["path"]).read_text())
         rate = _number(manifest.get("budget", {}).get("rate_units_per_hour"), "priced rate")
@@ -1406,12 +1851,16 @@ class Ledger:
         if rate <= 0 or elapsed <= 0:
             raise Refused("settlement requires a positive priced rate and allocation interval")
         actual = {
-            "units": max(debit, rate * elapsed),
+            "units": entry["bound"]["units"] if parallel else max(debit, rate * elapsed),
             "gpu_allocation_hours": elapsed,
             "mac_worker_hours": 0.0,
             "elapsed_hours": elapsed,
         }
-        if any(actual[key] > entry["bound"][key] + 1e-9 for key in DIMENSIONS):
+        if any(
+            actual[key] > entry["bound"][key] + 1e-9
+            for key in DIMENSIONS
+            if key != "units" or not parallel
+        ):
             raise Refused("staging receipt exceeds reserved worst case")
         return actual
 
@@ -1472,9 +1921,21 @@ class Ledger:
             remaining = sum(x["units"] for x in state["planned"].values()) + sum(
                 x["bound"]["units"] for x in state["outstanding"].values()
             )
-            self._snapshot(snapshot["path"], require_zero=True, remaining_units=remaining)
-        if len(state["outstanding"]) > 1:
-            raise Refused("ledger records more than one active S1 job")
+            parallel_training = False
+            if "parallel" in state:
+                for entry in state["outstanding"].values():
+                    manifest = json.loads(Path(entry["manifest"]["path"]).read_text())
+                    if manifest.get("kind") != "mac":
+                        parallel_training = True
+                        break
+            if parallel_training:
+                self._parallel_snapshot(snapshot["path"], state, remaining_units=remaining)
+            else:
+                self._snapshot(snapshot["path"], require_zero=True, remaining_units=remaining)
+        parallel = state.get("parallel")
+        max_outstanding = parallel["lanes"] if isinstance(parallel, Mapping) else 1
+        if len(state["outstanding"]) > max_outstanding:
+            raise Refused("ledger records more active S1 jobs than its lane limit")
         totals = self._totals(state)["projected_total"]
         for key, cap in USABLE_CAPS.items():
             if totals[key] > cap + 1e-9:
@@ -1493,6 +1954,8 @@ class Ledger:
             "study_started_at": state["created_at"],
             "ledger_initialized_at": state["ledger_initialized_at"],
         }
+        if "parallel" in state:
+            summary["parallel"] = dict(state["parallel"])
         summary.update(self._totals(state))
         return summary
 
@@ -1517,12 +1980,34 @@ class Ledger:
         projected = {key: sum(result[group][key] for group in result) for key in DIMENSIONS}
         # Real time since initialization is irrevocably consumed, including gaps between jobs.
         wall_elapsed = max(0.0, (self.clock() - float(state["created_at"])) / 3600)
-        projected["elapsed_hours"] = max(
-            projected["elapsed_hours"],
-            wall_elapsed
-            + result["outstanding"]["elapsed_hours"]
-            + result["remaining"]["elapsed_hours"],
-        )
+        residual: dict[str, Mapping[str, Any]] = {}
+        residual.update({name: item["bound"] for name, item in state["outstanding"].items()})
+        residual.update(state["planned"])
+        if "parallel" in state:
+            lanes = self._parallel_config(state)["lanes"]
+            training = {
+                name: bound
+                for name, bound in residual.items()
+                if bound["units"] > 0 or bound["gpu_allocation_hours"] > 0
+            }
+            mac_elapsed = sum(
+                bound["elapsed_hours"]
+                for bound in residual.values()
+                if bound["units"] == 0 and bound["gpu_allocation_hours"] == 0
+            )
+            residual_elapsed = (
+                parallel_elapsed_schedule(training, lanes)["makespan_hours"] + mac_elapsed
+            )
+        else:
+            residual_elapsed = sum(item["elapsed_hours"] for item in residual.values())
+        if "parallel" in state:
+            # Unlike units/GPU/Mac worker-hours, elapsed is study wall time.
+            # Sum of completed lane intervals would falsely charge overlap.
+            projected["elapsed_hours"] = wall_elapsed + residual_elapsed
+        else:
+            projected["elapsed_hours"] = max(
+                projected["elapsed_hours"], wall_elapsed + residual_elapsed
+            )
         result["projected_total"] = projected
         return result
 

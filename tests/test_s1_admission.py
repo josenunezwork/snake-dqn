@@ -32,6 +32,35 @@ def test_preregistration_requires_prospective_approval_line(tmp_path: Path) -> N
     assert admission.require_approved_preregistration(draft)["sha256"] == admission.sha256(draft)
 
 
+def test_parallel_amendment_is_approved_and_hash_bound(tmp_path: Path) -> None:
+    amendment = tmp_path / "PREREGISTRATION_AMENDMENT_01_PARALLEL.md"
+    amendment.write_text("**Status: DRAFT.**\n")
+    with pytest.raises(admission.AdmissionRefused, match="parallel amendment"):
+        admission.require_approved_parallel_amendment(amendment)
+    amendment.write_text("**Status: APPROVED_S1_PARALLEL_20261019.** Pre-data approval.\n")
+    assert admission.require_approved_parallel_amendment(amendment) == {
+        "path": str(amendment.resolve()),
+        "sha256": admission.sha256(amendment),
+    }
+
+
+def test_parallel_prepare_requires_amendment_before_rendering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(admission, "published_commit", lambda repo, ref: "a" * 40)
+    with pytest.raises(admission.AdmissionRefused, match="parallel lanes require"):
+        admission.prepare(
+            __import__("argparse").Namespace(
+                repo=admission.ROOT,
+                out=tmp_path / "plan.json",
+                published_ref="origin/t31-colab-safety-20261018",
+                preregistration=admission.ROOT / "research/s1_mature_20261018/PREREGISTRATION.md",
+                lanes=2,
+                parallel_amendment=None,
+            )
+        )
+
+
 def test_liabilities_reject_wrong_arm_timing() -> None:
     good = []
     for arm, minutes, timeout in (("n3", 30, 60), ("n1", 68, 136)):
@@ -186,6 +215,28 @@ def test_primary_forecast_fits_caps_without_pre_funding_optional_reruns() -> Non
     assert forecast["complete_upper_bound"] is None  # Missing live transfer qualification.
     assert forecast["status"] == "REFUSED"
     assert not any("exceeds usable" in reason for reason in forecast["refusal_reasons"])
+
+
+def test_parallel_pricing_recomputes_elapsed_without_changing_spend_caps() -> None:
+    from research.s1_mature_20261018 import price
+
+    root = admission.ROOT / "research/s1_mature_20261018"
+    serial = price.forecast(
+        root / "EVAL_PREFLIGHT_FINAL.json", root / "TRAIN_PREFLIGHT_DISPATCH03.json"
+    )
+    parallel = price.forecast(
+        root / "EVAL_PREFLIGHT_FINAL.json",
+        root / "TRAIN_PREFLIGHT_DISPATCH03.json",
+        lanes=3,
+    )
+    assert parallel["parallel_lanes"] == 3
+    assert parallel["elapsed_schedule"]["lanes"] == 3
+    assert (
+        parallel["primary_hard_reservation"]["elapsed_hours"]
+        < serial["primary_hard_reservation"]["elapsed_hours"]
+    )
+    for key in ("units", "gpu_allocation_hours", "mac_worker_hours"):
+        assert parallel["primary_hard_reservation"][key] == serial["primary_hard_reservation"][key]
 
 
 def test_prepare_matches_pricing_and_uploads_bound_acceptance(

@@ -29,8 +29,12 @@ def forecast(
     training_path: Path,
     transport_path: Path | None = None,
     acceptance_path: Path | None = None,
+    *,
+    lanes: int = 1,
 ) -> dict[str, Any]:
     """Price primary admission and disclose optional reruns without pre-funding them."""
+    if isinstance(lanes, bool) or not isinstance(lanes, int) or not 1 <= lanes <= 3:
+        raise ValueError("lanes must be an integer from 1 through 3")
     timing, training = json.loads(eval_path.read_text()), json.loads(training_path.read_text())
     allocation = bank.load_world_bank()
     if timing.get("status") != "completed" or timing.get("episode_count", 0) < 10:
@@ -142,16 +146,31 @@ def forecast(
     # cleanup tail.  Export transport must fit the timeout above, so it is not
     # added a second time here.
     hard_training = 5 * ((60 + 5) + (136 + 5)) / 60
+    # Keep this explicit n3/n1 order in sync with manifests.make_manifests().
+    # It balances the two recipes across lanes while binding one concrete,
+    # conservative schedule rather than treating total work / lanes as a bound.
+    hard_jobs = {
+        f"s1-mature-{arm}-{seed}": {
+            "units": 2 * (timeout + 5) / 60,
+            "gpu_allocation_hours": (timeout + 5) / 60,
+            "mac_worker_hours": 0.0,
+            "elapsed_hours": (timeout + 5) / 60,
+        }
+        for seed in bank.TRAINING_SEEDS
+        for arm, timeout in (("n3", 60), ("n1", 136))
+    }
+    elapsed_schedule = ledger.parallel_elapsed_schedule(hard_jobs, lanes)
     hard_reservation = {
         "units": 2 * hard_training + 4,
         "gpu_allocation_hours": hard_training + 2,
         "mac_worker_hours": mac_hours,
-        "elapsed_hours": hard_training + 2 + mac_elapsed,
+        "elapsed_hours": elapsed_schedule["makespan_hours"] + 2 + mac_elapsed,
     }
     exceeded = [key for key, value in hard_reservation.items() if value > ledger.USABLE_CAPS[key]]
     reasons.extend(f"Primary admission forecast exceeds usable {key}" for key in exceeded)
     return {
         "schema": "s1-mature-pricing/v1",
+        "parallel_lanes": lanes,
         "status": "REFUSED" if reasons else "PASS",
         "dispatch_authorized": False,
         "evidence": {
@@ -193,6 +212,7 @@ def forecast(
             "interpretation": "optional planning scenario only; not an admission reservation",
         },
         "primary_hard_reservation": hard_reservation,
+        "elapsed_schedule": elapsed_schedule,
         "conditional_reruns": {
             "pre_funded": False,
             "maximum_per_arm": {"n3": 1, "n1": 1},
@@ -251,10 +271,15 @@ def main() -> int:
     parser.add_argument("--training-preflight", type=Path, required=True)
     parser.add_argument("--transport-receipt", type=Path)
     parser.add_argument("--acceptance-result", type=Path)
+    parser.add_argument("--lanes", type=int, default=1)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     result = forecast(
-        args.eval_preflight, args.training_preflight, args.transport_receipt, args.acceptance_result
+        args.eval_preflight,
+        args.training_preflight,
+        args.transport_receipt,
+        args.acceptance_result,
+        lanes=args.lanes,
     )
     with args.out.open("x") as stream:
         json.dump(result, stream, sort_keys=True, indent=2, allow_nan=False)

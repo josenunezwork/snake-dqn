@@ -13,6 +13,7 @@ from research.s1_mature_20261018 import manifests
 from research.s1_mature_20261018.ledger import (
     Ledger,
     Refused,
+    parallel_elapsed_schedule,
     validate_staging_continuation,
 )
 
@@ -150,6 +151,213 @@ def manifest(path: Path, job_id="train-a") -> Path:
             "budget": {"rate_units_per_hour": 2},
         },
     )
+
+
+def parallel_amendment(root: Path) -> Path:
+    path = root / "parallel-amendment.md"
+    path.write_text("# S1 parallel lanes\n\n**Status: APPROVED_S1_PARALLEL_20261019.**\n")
+    return path
+
+
+def parallel_snapshot(root: Path, *, now: float, records: list[dict]) -> Path:
+    return dump(
+        root / f"parallel-account-{len(records)}.json",
+        {
+            "captured_at": now,
+            "balance_units": 1174.37,
+            "usage_rate_units_per_hour": sum(row["rate_units_per_hour"] for row in records),
+            "active_assignments": len(records),
+            "assignments_known": True,
+            "active_records": records,
+            "sessions": {row["endpoint"]: row["session"] for row in records},
+        },
+    )
+
+
+def parallel_manifest(path: Path, job_id: str) -> Path:
+    value = json.loads(manifest(path, job_id).read_text())
+    value["output_dir"] = str(path.parent / f"output-{job_id}")
+    value["env"] = {"S1_ARM": "n3" if job_id.endswith("a") else "n1"}
+    return dump(path, value)
+
+
+def test_parallel_mode_binds_amendment_and_requires_broker_known_lanes(prepared):
+    worker_ledger, root, _ = prepared
+    amendment = parallel_amendment(root)
+    worker_ledger.configure_parallel(amendment, lanes=2)
+    first = parallel_manifest(root / "parallel-a.json", "train-a")
+    worker_ledger.record_parallel_account_snapshot(
+        parallel_snapshot(root, now=1_000_000.0, records=[])
+    )
+    worker_ledger.reserve_parallel("train-a", bound(), first)
+
+    unknown = parallel_snapshot(
+        root,
+        now=1_000_000.0,
+        records=[
+            {
+                "endpoint": "foreign-endpoint",
+                "session": "foreign",
+                "output": "/unknown/output",
+                "rate_units_per_hour": 2,
+            }
+        ],
+    )
+    with pytest.raises(Refused, match="unknown assignment|misses a live S1 lane"):
+        worker_ledger.record_parallel_account_snapshot(unknown)
+
+    known = parallel_snapshot(
+        root,
+        now=1_000_000.0,
+        records=[
+            {
+                "endpoint": "endpoint-a",
+                "session": "snake-a",
+                "output": json.loads(first.read_text())["output_dir"],
+                "rate_units_per_hour": 2,
+            }
+        ],
+    )
+    worker_ledger.record_parallel_account_snapshot(known)
+    second = parallel_manifest(root / "parallel-b.json", "train-b")
+    worker_ledger.reserve_parallel("train-b", bound(16, 8, 0, 8), second)
+    assert worker_ledger.status()["outstanding_jobs"] == ["train-a", "train-b"]
+
+
+def test_parallel_schedule_uses_dynamic_list_scheduling_upper_bound():
+    schedule = parallel_elapsed_schedule(
+        {"a": bound(elapsed=8), "b": bound(elapsed=4), "c": bound(elapsed=4)}, 2
+    )
+    assert schedule["scheduled_makespan_hours"] == 8
+    assert schedule["makespan_hours"] == 12
+    with pytest.raises(Refused, match="lanes"):
+        parallel_elapsed_schedule({}, 4)
+
+
+def test_parallel_handoff_recomputes_elapsed_without_resetting_start(prepared):
+    worker, root, _ = prepared
+    worker.clock = lambda: 1_000_000.0 + 27 * 3600
+    with pytest.raises(Refused, match="elapsed_hours"):
+        worker.status()
+    before = worker.path.read_bytes()
+    amendment = parallel_amendment(root)
+    preview = worker.preview_parallel(amendment, lanes=3)
+    assert preview["projected_total"]["elapsed_hours"] == pytest.approx(27 + 12 / 3 + 2 * 8 / 3)
+    assert worker.path.read_bytes() == before
+    configured = worker.configure_parallel(amendment, lanes=3)
+    assert configured["study_started_at"] == 1_000_000.0
+    assert configured["projected_total"]["units"] == preview["projected_total"]["units"]
+
+
+def test_parallel_claim_is_atomic_and_never_double_picks(prepared):
+    worker_ledger, root, _ = prepared
+    worker_ledger.configure_parallel(parallel_amendment(root), lanes=2)
+    first = parallel_manifest(root / "claim-a.json", "train-a")
+    worker_ledger.record_parallel_account_snapshot(
+        parallel_snapshot(root, now=1_000_000.0, records=[])
+    )
+    worker_ledger.reserve_parallel("train-a", bound(), first)
+    snapshot = parallel_snapshot(
+        root,
+        now=1_000_000.0,
+        records=[
+            {
+                "endpoint": "endpoint-a",
+                "session": "snake-a",
+                "output": json.loads(first.read_text())["output_dir"],
+                "rate_units_per_hour": 2,
+            }
+        ],
+    )
+    second = parallel_manifest(root / "claim-b.json", "train-b")
+
+    def claim():
+        try:
+            return worker_ledger.claim_next(
+                ["train-b"],
+                {"train-b": bound(16, 8, 0, 8)},
+                {"train-b": second},
+                account_snapshot_path=snapshot,
+            )
+        except Refused:
+            return "refused"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: claim(), range(2)))
+    assert outcomes.count("train-b") == 1
+    assert worker_ledger.status()["outstanding_jobs"] == ["train-a", "train-b"]
+
+
+def test_parallel_lane_cap_refuses_a_fourth_live_reservation(prepared):
+    worker_ledger, root, _ = prepared
+    # Add two registered primary liabilities before the amendment is bound; this
+    # models a four-job immutable plan without changing any active reservation.
+    state = json.loads(worker_ledger.path.read_text())
+    state["planned"].update({"train-c": bound(4, 2, 0, 2), "train-d": bound(4, 2, 0, 2)})
+    dump(worker_ledger.path, state)
+    worker_ledger.configure_parallel(parallel_amendment(root), lanes=3)
+    records = []
+    for job_id in ("train-a", "train-b", "train-c"):
+        manifest_path = parallel_manifest(root / f"{job_id}.json", job_id)
+        worker_ledger.record_parallel_account_snapshot(
+            parallel_snapshot(root, now=1_000_000.0, records=records)
+        )
+        worker_ledger.reserve_parallel(job_id, state["planned"][job_id], manifest_path)
+        records.append(
+            {
+                "endpoint": f"endpoint-{job_id}",
+                "session": f"snake-{job_id}",
+                "output": json.loads(manifest_path.read_text())["output_dir"],
+                "rate_units_per_hour": 2,
+            }
+        )
+    worker_ledger.record_parallel_account_snapshot(
+        parallel_snapshot(root, now=1_000_000.0, records=records)
+    )
+    fourth = parallel_manifest(root / "train-d.json", "train-d")
+    with pytest.raises(Refused, match="lane count"):
+        worker_ledger.reserve_parallel("train-d", bound(4, 2, 0, 2), fourth)
+    assert worker_ledger.status()["outstanding_jobs"] == ["train-a", "train-b", "train-c"]
+
+
+def test_parallel_settlement_uses_lane_accounting_not_raw_account_debit(prepared):
+    worker_ledger, root, _ = prepared
+    worker_ledger.configure_parallel(parallel_amendment(root), lanes=2)
+    source = parallel_manifest(root / "settle-a.json", "train-a")
+    worker_ledger.record_parallel_account_snapshot(
+        parallel_snapshot(root, now=1_000_000.0, records=[])
+    )
+    worker_ledger.reserve_parallel("train-a", bound(), source)
+    receipt = dump(
+        root / "parallel-receipt.json",
+        {
+            "status": "PASS",
+            "stop_verified": True,
+            "error": None,
+            "cleanup_error": None,
+            "endpoint": "endpoint-a",
+            "terminal": {"done": True},
+            "manifest_sha256": digest(source),
+            # Includes another lane's debit and would exceed this lane bound.
+            "usage_before": {"balance": 100},
+            "usage_after": {"balance": 1},
+            "elapsed_seconds": 1,
+            "accounting": {
+                "allocated_endpoint": "endpoint-a",
+                "unaccounted_endpoints": [],
+                "assignments": [],
+                "baseline_rate_units_per_hour": 0,
+                "own_rate_units_per_hour": 2,
+                "observed_rate_units_per_hour": 2,
+                "unit_cap": 8,
+                "calibration": {"status": "PASS"},
+                "integrated_accounted_other_units": 50,
+                "last_crosscheck": {"attributable_account_debit_units": 1},
+            },
+        },
+    )
+    worker_ledger.settle("train-a", receipt)
+    assert worker_ledger.status()["spent"]["units"] == 10
 
 
 def test_reservation_is_atomic_and_one_active_job(prepared):
@@ -442,6 +650,117 @@ def test_operational_retry_refuses_integrity_failure_or_verified_final(prepared)
     )
     with pytest.raises(Refused, match="verified final"):
         worker_ledger.reconcile_operational_failure("train-a", receipt, review)
+
+
+def test_parallel_operational_failure_uses_lane_accounting_and_refuses_missing_accounting(prepared):
+    worker_ledger, root, _ = prepared
+    worker_ledger.configure_parallel(parallel_amendment(root), lanes=2)
+    source = parallel_manifest(root / "parallel-lost-a.json", "train-a")
+    worker_ledger.record_parallel_account_snapshot(
+        parallel_snapshot(root, now=1_000_000.0, records=[])
+    )
+    worker_ledger.reserve_parallel("train-a", bound(), source)
+    receipt = dump(
+        root / "parallel-lost-a-receipt.json",
+        {
+            "status": "INCOMPLETE",
+            "stop_verified": True,
+            "cleanup_error": None,
+            "endpoint": "endpoint-a",
+            "manifest_sha256": digest(source),
+            # This is account-wide debit, including a healthy sibling lane.
+            "usage_before": {"balance": 100, "assignments": 2, "rate": 4},
+            "usage_after": {"balance": 1, "assignments": 1, "rate": 2},
+            "elapsed_seconds": 1,
+            "verified_final_export": False,
+            "accounting": {
+                "allocated_endpoint": "endpoint-a",
+                "unaccounted_endpoints": [],
+                "assignments": [],
+                "baseline_rate_units_per_hour": 0,
+                "own_rate_units_per_hour": 2,
+                "observed_rate_units_per_hour": 2,
+                "unit_cap": 8,
+                "calibration": {"status": "PASS"},
+                "integrated_accounted_other_units": 50,
+                "last_crosscheck": {"attributable_account_debit_units": 1},
+            },
+        },
+    )
+    review = dump(
+        root / "parallel-lost-a-review.json",
+        {
+            "schema": "s1-operational-failure-review/v1",
+            "status": "PASS",
+            "job_id": "train-a",
+            "manifest_sha256": digest(source),
+            "receipt_sha256": digest(receipt),
+            "failure_classification": "transfer_failure",
+            "no_efficacy_look": True,
+            "mac_final_evaluation_planned": True,
+            "verified_final_export": False,
+            "tripwire": False,
+            "integrity_failure": False,
+            "parity_failure": False,
+            "hash_failure": False,
+            "counter_failure": False,
+        },
+    )
+    summary = worker_ledger.reconcile_operational_failure("train-a", receipt, review)
+    assert summary["spent"]["units"] == 10
+
+    next_source = parallel_manifest(root / "parallel-lost-b.json", "train-b")
+    worker_ledger.record_parallel_account_snapshot(
+        parallel_snapshot(root, now=1_000_000.0, records=[])
+    )
+    worker_ledger.reserve_parallel("train-b", bound(16, 8, 0, 8), next_source)
+    missing = dict(json.loads(receipt.read_text()))
+    missing.update({"endpoint": "endpoint-b", "manifest_sha256": digest(next_source)})
+    missing.pop("accounting")
+    missing_receipt = dump(root / "parallel-lost-b-receipt.json", missing)
+    missing_review = dict(json.loads(review.read_text()))
+    missing_review.update(
+        {
+            "job_id": "train-b",
+            "manifest_sha256": digest(next_source),
+            "receipt_sha256": digest(missing_receipt),
+        }
+    )
+    missing_review_path = dump(root / "parallel-lost-b-review.json", missing_review)
+    with pytest.raises(Refused, match="reconciled lane accounting"):
+        worker_ledger.reconcile_operational_failure("train-b", missing_receipt, missing_review_path)
+    assert worker_ledger.status()["outstanding_jobs"] == ["train-b"]
+
+
+def test_parallel_staging_and_qualification_charge_reserved_lane_units(prepared):
+    worker_ledger, root, _ = prepared
+    source = manifest(root / "parallel-staging-manifest.json")
+    entry = {"bound": bound(), "manifest": worker_ledger._evidence(source), "parallel": True}
+    receipt = {
+        "endpoint": "endpoint-a",
+        "usage_before": {"balance": 100, "assignments": 2, "rate": 4},
+        "usage_after": {"balance": 1, "assignments": 1, "rate": 2},
+        "elapsed_seconds": 10,
+        "accounting": {
+            "allocated_endpoint": "endpoint-a",
+            "unaccounted_endpoints": [],
+            "assignments": [],
+            "baseline_rate_units_per_hour": 0,
+            "own_rate_units_per_hour": 2,
+            "observed_rate_units_per_hour": 2,
+            "unit_cap": 8,
+            "calibration": {"status": "PASS"},
+            "integrated_accounted_other_units": 50,
+            "last_crosscheck": None,
+        },
+    }
+    actual = worker_ledger._staging_actual(receipt, entry)
+    assert actual["units"] == 8
+    assert actual["gpu_allocation_hours"] == pytest.approx(10 / 3600)
+    missing = dict(receipt)
+    missing.pop("accounting")
+    with pytest.raises(Refused, match="reconciled lane accounting"):
+        worker_ledger._staging_actual(missing, entry)
 
 
 def test_preallocation_refusal_restores_same_job_without_consuming_retry(prepared):

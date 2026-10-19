@@ -1,13 +1,15 @@
-"""Serialized post-acceptance S1 dispatcher.
+"""Operator-controlled S1 dispatcher with up to three independent L4 lanes.
 
 This is intentionally an operator program, never an autonomous background loop:
-one invocation handles one immutable prepared plan and stops on the first failed
-receipt.  It invokes only the Colab supervisor wrapper, never ``colab`` itself.
+one invocation handles one immutable prepared plan. A failed lane fences new
+claims while submitted healthy jobs finish. It invokes only the Colab supervisor
+wrapper, never ``colab`` itself.
 """
 
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -15,9 +17,12 @@ import signal
 import subprocess
 import sys
 import tarfile
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from research.s1_mature_20261018 import admission, audit, bank, evaluate, ledger, rerun
 
@@ -227,15 +232,36 @@ def _staging_continuation(
     worker_ledger.status()  # Recheck nested receipts and all caps before any account request.
 
 
-def _snapshot(path: Path, *, colab: Path, account_config: Path) -> Path:
+def _snapshot(
+    path: Path, *, colab: Path, account_config: Path, include_active_records: bool = False
+) -> Path:
     """Capture fresh account state through the supervisor's guarded CLI wrapper."""
-    from research.colab_cli.supervisor import CLI
+    from research.colab_cli import supervisor
 
     if path.exists():
         raise admission.AdmissionRefused(f"refusing to replace account snapshot: {path}")
-    cli = CLI(str(colab), account_config)
-    usage, sessions = cli.usage(), cli.sessions()
-    value = {
+    cli = supervisor.CLI(str(colab), account_config)
+    cli.deadline = time.monotonic() + 300
+    # Snapshotting and the active-record inventory must share the broker's
+    # account mutation lock.  Otherwise an allocator could move between usage,
+    # sessions and record reads, producing a false lane identity.
+    with supervisor.account_locked(cli):
+        usage, sessions = cli.usage(), cli.sessions()
+        records = []
+        if include_active_records:
+            pending = sorted(supervisor.ACCOUNT_ROOT.glob("pending-*.json"))
+            if pending:
+                raise admission.AdmissionRefused(
+                    "unresolved broker pending allocation blocks an account snapshot"
+                )
+            for record in sorted(supervisor.ACCOUNT_ROOT.glob("active-*.json")):
+                try:
+                    records.append(_read(record))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise admission.AdmissionRefused(
+                        f"invalid active supervisor record: {record}"
+                    ) from exc
+    value: dict[str, Any] = {
         "schema": "s1-account-snapshot/v1",
         "captured_at": time.time(),
         "balance_units": usage["balance"],
@@ -244,12 +270,429 @@ def _snapshot(path: Path, *, colab: Path, account_config: Path) -> Path:
         "assignments_known": True,
         "sessions": sessions,
     }
+    if include_active_records:
+        # These are the supervisor's create-only records, not an inferred map
+        # from a display name.  The parallel ledger cross-checks their output
+        # paths and endpoints against its own outstanding reservations.
+        value["active_records"] = records
     if len(sessions) != value["active_assignments"]:
         raise admission.AdmissionRefused(
             "usage/session assignment counts disagree; account state is unknown"
         )
     admission.write_once(path, value)
     return path
+
+
+@contextmanager
+def _dispatch_lock(ledger_path: Path) -> Iterator[None]:
+    """Exclude another parallel coordinator for the entire dispatch/evaluation."""
+    lock_path = ledger_path.with_name(f"{ledger_path.name}.dispatch.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise admission.AdmissionRefused(
+                "another S1 parallel dispatcher holds the dispatch lock"
+            ) from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _parallel_amendment(plan: dict[str, Any], lanes: int) -> Path:
+    """Return the hash-bound amendment after checking the prepared lane limit."""
+    item = plan.get("parallel_amendment")
+    rules = plan.get("run_rules", {})
+    if not isinstance(item, dict) or not isinstance(rules, dict):
+        raise admission.AdmissionRefused("parallel dispatch requires a hash-bound amendment")
+    path = Path(item.get("path", ""))
+    if not path.is_file() or admission.sha256(path) != item.get("sha256"):
+        raise admission.AdmissionRefused("parallel amendment is absent or its bytes changed")
+    if rules.get("lanes") != lanes or rules.get("serialized") is not False:
+        raise admission.AdmissionRefused(
+            "prepared run rules do not authorize the requested lane count"
+        )
+    return path
+
+
+def _parallel_handoff(
+    path: Path, *, plan_path: Path, previous_plan: Path, ledger_path: Path, snapshot: Path
+) -> None:
+    """Check an explicit, immutable operator handoff from the legacy dispatcher.
+
+    A receipt cannot prove that a detached legacy process exited.  The explicit
+    attestation makes that residual operator observation visible and binds it
+    to the old plan, ledger and independently captured zero-assignment state.
+    """
+    value = _read(path)
+    if value.get("schema") != "s1-parallel-handoff/v1" or value.get("status") != "QUIESCENT":
+        raise admission.AdmissionRefused("parallel continuation needs a QUIESCENT handoff record")
+    if value.get("legacy_dispatcher_exited") is not True:
+        raise admission.AdmissionRefused(
+            "handoff does not attest that the legacy dispatcher exited"
+        )
+    for key, target in (
+        ("plan", plan_path),
+        ("previous_plan", previous_plan),
+        ("ledger", ledger_path),
+        ("zero_snapshot", snapshot),
+    ):
+        item = value.get(key)
+        if not isinstance(item, dict) or Path(item.get("path", "")).resolve() != target.resolve():
+            raise admission.AdmissionRefused(f"handoff does not bind {key}")
+        if admission.sha256(target) != item.get("sha256"):
+            raise admission.AdmissionRefused(f"handoff {key} bytes changed")
+    snapshot_value = _read(snapshot)
+    if (
+        snapshot_value.get("assignments_known") is not True
+        or snapshot_value.get("active_assignments") != 0
+        or snapshot_value.get("sessions") != {}
+        or snapshot_value.get("active_records") not in ([], None)
+    ):
+        raise admission.AdmissionRefused("handoff snapshot does not prove zero account assignments")
+
+
+def _parallel_resume(
+    args: argparse.Namespace, plan: dict[str, Any], worker_ledger: ledger.Ledger
+) -> tuple[dict[str, Any], list[dict[str, Any]], set[str]]:
+    """Recover settled legacy finals after a verified, zero-assignment handoff.
+
+    The historical plan is evidence only: it is deliberately not checked against
+    today's published source.  New manifests must retain each job's frozen
+    scientific identity, while recovery uses the old manifest that actually
+    produced the bound receipt and export.
+    """
+    assert args.previous_plan is not None
+    old = _read(args.previous_plan.resolve())
+    if old.get("schema") != admission.SCHEMA or old.get("status") != "PREPARED_NOT_DISPATCHED":
+        raise admission.AdmissionRefused(
+            "previous parallel plan is not immutable prepared evidence"
+        )
+    for key in ("preregistration", "world_bank", "seed_audit", "liabilities", "acceptance"):
+        if old.get(key) != plan.get(key):
+            raise admission.AdmissionRefused(f"parallel continuation changes frozen {key}")
+    old_rules, new_rules = dict(old.get("run_rules", {})), dict(plan.get("run_rules", {}))
+    for rules in (old_rules, new_rules):
+        rules.pop("lanes", None)
+        rules.pop("serialized", None)
+    if old_rules != new_rules:
+        raise admission.AdmissionRefused("parallel continuation changes frozen run rules")
+    old_mac, new_mac = old.get("mac_manifest"), plan.get("mac_manifest")
+    if not isinstance(old_mac, dict) or not isinstance(new_mac, dict):
+        raise admission.AdmissionRefused("parallel continuation lacks a Mac manifest")
+    for item in (old_mac, new_mac):
+        if admission.sha256(Path(item["path"])) != item.get("sha256"):
+            raise admission.AdmissionRefused("parallel continuation Mac manifest bytes changed")
+    if _read(Path(old_mac["path"])) != _read(Path(new_mac["path"])):
+        raise admission.AdmissionRefused("parallel continuation changes Mac evaluation manifest")
+    before_closure, after_closure = old.get("source_closure"), plan.get("source_closure")
+    if not isinstance(before_closure, dict) or not isinstance(after_closure, dict):
+        raise admission.AdmissionRefused("parallel continuation lacks complete source closures")
+    allowed_exact = {
+        "research/s1_mature_20261018/run.py",
+        "research/s1_mature_20261018/ledger.py",
+        "research/s1_mature_20261018/admission.py",
+        "research/s1_mature_20261018/price.py",
+        "research/s1_mature_20261018/prepare_parallel_handoff.py",
+        "research/s1_mature_20261018/README.md",
+        "research/s1_mature_20261018/PREREGISTRATION_AMENDMENT_01_PARALLEL.md",
+        "research/s1_mature_20261018/PARALLEL_LANES_OPERATOR_20261019.md",
+    }
+    for name in set(before_closure) | set(after_closure):
+        if before_closure.get(name) == after_closure.get(name):
+            continue
+        if (
+            name in allowed_exact
+            or name.startswith("docs/research/specs/")
+            or name.startswith("tests/test_s1_")
+        ):
+            continue
+        raise admission.AdmissionRefused(
+            f"parallel continuation changes non-operational source closure entry {name}"
+        )
+    old_paths = dict(_manifest_paths(old))
+    new_paths = dict(_manifest_paths(plan))
+    if set(old_paths) != set(new_paths):
+        raise admission.AdmissionRefused("parallel continuation changes registered jobs")
+    old_root = Path(_read(next(iter(old_paths.values())))["output_dir"]).parents[1]
+    rerun._no_efficacy_artifacts(old_root)
+    rerun._no_efficacy_artifacts(args.artifact_root.resolve())
+    for job_id, old_path in old_paths.items():
+        before, after = _read(old_path), _read(new_paths[job_id])
+        if ledger.frozen_manifest_identity(before) != ledger.frozen_manifest_identity(after):
+            raise admission.AdmissionRefused(
+                f"parallel continuation changes scientific manifest {job_id}"
+            )
+    state = _read(args.ledger.resolve())
+    if state.get("outstanding"):
+        raise admission.AdmissionRefused(
+            "parallel continuation has an outstanding legacy reservation"
+        )
+    allowed_prefixes = ("staging-failure:", "qualification-failure:")
+    allowed = {"cli-acceptance", "cli-acceptance-requalification"} | set(old_paths)
+    if any(
+        key not in allowed and not key.startswith(allowed_prefixes)
+        for key in state.get("settled", {})
+    ):
+        raise admission.AdmissionRefused(
+            "parallel continuation has unsupported settled retry/failure state"
+        )
+    settled_primary = set(state.get("settled", {})) & set(old_paths)
+    expected_planned = set(old_paths) - settled_primary | {"mac-final-evaluation"}
+    if set(state.get("planned", {})) != expected_planned:
+        raise admission.AdmissionRefused(
+            "ledger planned jobs do not match the quiescent legacy handoff"
+        )
+    if any(state["planned"][job] != plan["liabilities"].get(job) for job in expected_planned):
+        raise admission.AdmissionRefused("ledger planned bounds differ from the parallel plan")
+    recovered: dict[str, Any] = {}
+    outcomes: list[dict[str, Any]] = []
+    halted: set[str] = set()
+    for job_id in sorted(settled_primary):
+        entry = state["settled"][job_id]
+        receipt = Path(entry.get("receipt", {}).get("path", ""))
+        # Re-validate the original bound receipt before accepting its final.
+        worker_ledger._receipt(
+            receipt, {"path": str(old_paths[job_id]), "sha256": admission.sha256(old_paths[job_id])}
+        )
+        record, outcome = _recover_training(old_paths[job_id], args.artifact_root.resolve())
+        recovered[job_id] = record
+        if outcome is not None:
+            outcomes.append(outcome)
+            halted.add(outcome["arm"].upper())
+    return recovered, outcomes, halted
+
+
+def _parallel_dispatch(
+    args: argparse.Namespace,
+    plan: dict[str, Any],
+    paths: list[tuple[str, Path]],
+    packaging: dict[str, Any],
+) -> None:
+    """Run independent S1 jobs through up to three scheduler lanes.
+
+    Reservations are claimed under the ledger lock.  The process-wide dispatch
+    lock and the in-process halt lock ensure a verified arm tripwire prevents
+    any *new* same-arm claim; jobs already submitted by another lane are left
+    alone to finish and retain their evidence.
+    """
+    lanes = int(args.lanes)
+    amendment = _parallel_amendment(plan, lanes)
+    by_job = dict(paths)
+    manifest_rows = {job: _read(path) for job, path in paths}
+    order = [job for job, _ in paths]
+    worker_ledger = ledger.Ledger(args.ledger.resolve())
+    with _dispatch_lock(args.ledger.resolve()):
+        recovered: dict[str, Any] = {}
+        outcomes: list[dict[str, Any]] = []
+        halted: set[str] = set()
+        if args.parallel_handoff is not None:
+            if args.previous_plan is None:
+                raise admission.AdmissionRefused("--parallel-handoff requires --previous-plan")
+            # The handoff is deliberately checked before creating any new
+            # snapshot or reservation.  Its snapshot establishes the exact
+            # zero-assignment boundary after the old loop exited.
+            _parallel_handoff(
+                args.parallel_handoff.resolve(),
+                plan_path=args.plan.resolve(),
+                previous_plan=args.previous_plan.resolve(),
+                ledger_path=args.ledger.resolve(),
+                snapshot=args.handoff_snapshot.resolve(),
+            )
+            if worker_ledger.preview_parallel(amendment, lanes=lanes)["outstanding_jobs"]:
+                raise admission.AdmissionRefused(
+                    "parallel handoff has an outstanding legacy reservation"
+                )
+            fresh = _snapshot(
+                (args.snapshots / "handoff-recheck.json").resolve(),
+                colab=args.colab,
+                account_config=args.account_config,
+                include_active_records=True,
+            )
+            fresh_value = _read(fresh)
+            if (
+                fresh_value["active_assignments"] != 0
+                or fresh_value["sessions"] != {}
+                or fresh_value["active_records"] != []
+            ):
+                raise admission.AdmissionRefused(
+                    "account changed after the quiescent handoff; refusing parallel takeover"
+                )
+            recovered, outcomes, halted = _parallel_resume(args, plan, worker_ledger)
+        else:
+            initial = _snapshot(
+                (args.snapshots / "initial.json").resolve(),
+                colab=args.colab,
+                account_config=args.account_config,
+                include_active_records=True,
+            )
+            worker_ledger.initialize(
+                acceptance_review_path=args.acceptance_review.resolve(),
+                account_snapshot_path=initial,
+                history_refs=_history(args.history),
+                planned_liabilities=plan["liabilities"],
+            )
+        worker_ledger.configure_parallel(amendment, lanes=lanes)
+        result_lock = threading.Lock()
+        claim_lock = threading.Lock()
+        claimed_live: set[str] = set()
+        errors: list[BaseException] = []
+
+        def record_error(exc: BaseException) -> None:
+            with result_lock:
+                if not any(previous is exc for previous in errors):
+                    errors.append(exc)
+
+        @contextmanager
+        def claim_boundary() -> Iterator[None]:
+            with claim_lock:
+                try:
+                    yield
+                except BaseException as exc:
+                    # Publish the failure before another claimant can enter,
+                    # including failures discovered while verifying a final.
+                    record_error(exc)
+                    raise
+
+        def lane(lane_number: int) -> None:
+            sequence = 0
+            while True:
+                with result_lock:
+                    if errors:
+                        return
+                    eligible = [
+                        job
+                        for job in order
+                        if manifest_rows[job]["env"]["S1_ARM"].upper() not in halted
+                    ]
+                if not eligible:
+                    return
+                # A reservation is not eligible to justify another account
+                # assignment until its supervisor has written a calibrated
+                # active record.  This bounded read-only wait is not an
+                # allocation retry; a failed first launch remains outstanding.
+                ready_deadline = time.monotonic() + 300
+                while True:
+                    with claim_boundary():
+                        with result_lock:
+                            if errors:
+                                return
+                        snapshot = _snapshot(
+                            (args.snapshots / f"parallel-l{lane_number}-{sequence}.json").resolve(),
+                            colab=args.colab,
+                            account_config=args.account_config,
+                            include_active_records=True,
+                        )
+                        sequence += 1
+                        snapshot_value = _read(snapshot)
+                        active_outputs = {
+                            record.get("output")
+                            for record in snapshot_value["active_records"]
+                            if isinstance(record, dict)
+                        }
+                        required_outputs = {
+                            manifest_rows[job]["output_dir"] for job in claimed_live
+                        }
+                        if not active_outputs <= required_outputs:
+                            raise admission.AdmissionRefused(
+                                "parallel account snapshot has an unknown active assignment"
+                            )
+                        if required_outputs <= active_outputs:
+                            with result_lock:
+                                if errors:
+                                    return
+                                eligible = [
+                                    job
+                                    for job in order
+                                    if manifest_rows[job]["env"]["S1_ARM"].upper() not in halted
+                                ]
+                                job_id = worker_ledger.claim_next(
+                                    eligible,
+                                    plan["liabilities"],
+                                    by_job,
+                                    account_snapshot_path=snapshot,
+                                )
+                        else:
+                            job_id = None
+                        if job_id is not None:
+                            claimed_live.add(job_id)
+                            break
+                        if not required_outputs <= active_outputs:
+                            if time.monotonic() >= ready_deadline:
+                                raise admission.AdmissionRefused(
+                                    "claimed parallel lane never obtained "
+                                    "a calibrated active record"
+                                )
+                            pending_readiness = True
+                        else:
+                            pending_readiness = False
+                    if not pending_readiness:
+                        return
+                    time.sleep(2)
+                manifest_path = by_job[job_id]
+                try:
+                    admission.delivery_preflight([manifest_rows[job_id]], packaging)
+                    state = (args.state_root / job_id).resolve()
+                    state.parent.mkdir(parents=True, exist_ok=True)
+                    subprocess.run(
+                        [
+                            str(args.supervisor),
+                            "--state-dir",
+                            str(state),
+                            "--colab",
+                            str(args.colab),
+                            "run",
+                            str(manifest_path),
+                        ],
+                        check=True,
+                    )
+                    with claim_boundary():
+                        worker_ledger.settle(
+                            job_id, Path(manifest_rows[job_id]["output_dir"]) / "receipt.json"
+                        )
+                        claimed_live.discard(job_id)
+                        record, outcome = _recover_training(
+                            manifest_path, args.artifact_root.resolve()
+                        )
+                        with result_lock:
+                            recovered[job_id] = record
+                            if outcome is not None:
+                                outcomes.append(outcome)
+                                halted.add(outcome["arm"].upper())
+                                halt_path = args.artifact_root / "parallel-halts" / f"{job_id}.json"
+                                admission.write_once(
+                                    halt_path,
+                                    {
+                                        "arm": outcome["arm"].lower(),
+                                        "status": "KILL",
+                                        "source_outcome": outcome["evidence"]["summary"],
+                                    },
+                                )
+                                worker_ledger.halt_arm(outcome["arm"].lower(), halt_path)
+                except (
+                    BaseException
+                ) as exc:  # reservation intentionally remains outstanding on failure
+                    record_error(exc)
+                    return
+
+        def guarded_lane(lane_number: int) -> None:
+            try:
+                lane(lane_number)
+            except BaseException as exc:
+                # Account/readiness/claim failures happen before a supervisor
+                # subprocess starts. They must fence new claims just like a
+                # failed running job, without cancelling healthy subprocesses.
+                record_error(exc)
+
+        with ThreadPoolExecutor(max_workers=lanes, thread_name_prefix="s1-lane") as pool:
+            futures = [pool.submit(guarded_lane, index + 1) for index in range(lanes)]
+            for future in futures:
+                future.result()
+        if errors:
+            raise errors[0]
+        _finish_evaluation(args, plan, worker_ledger, recovered, outcomes)
 
 
 def _safe_extract_final(archive: Path, destination: Path) -> tuple[Path | None, Path | None, Path]:
@@ -591,6 +1034,9 @@ def _finish_evaluation(
 
 def dispatch(args: argparse.Namespace) -> None:
     plan = _verify_plan(args.plan.resolve(), args.repo.resolve())
+    prepared_lanes = plan.get("run_rules", {}).get("lanes")
+    if prepared_lanes is not None and prepared_lanes != getattr(args, "lanes", 1):
+        raise admission.AdmissionRefused("requested lane count differs from prepared run rules")
     expected_root = Path(_read(Path(plan["manifests"][0]["path"]))["output_dir"]).parents[1]
     if args.artifact_root.resolve() != expected_root:
         raise admission.AdmissionRefused(
@@ -606,6 +1052,13 @@ def dispatch(args: argparse.Namespace) -> None:
         args.repo.resolve(), [_read(path) for _, path in paths]
     )
     admission.delivery_preflight([_read(path) for _, path in paths], packaging)
+    if getattr(args, "lanes", 1) > 1:
+        if getattr(args, "continue_preallocation", False) or getattr(
+            args, "continue_staging", False
+        ):
+            raise admission.AdmissionRefused("parallel dispatch has its own quiescent-handoff path")
+        _parallel_dispatch(args, plan, paths, packaging)
+        return
     continuing = getattr(args, "continue_preallocation", False)
     staging = getattr(args, "continue_staging", False)
     if continuing:
@@ -821,11 +1274,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--evaluate-only", action="store_true")
+    parser.add_argument("--lanes", type=int, default=1, choices=range(1, 4))
+    parser.add_argument(
+        "--parallel-handoff",
+        type=Path,
+        help="create-only QUIESCENT handoff after the legacy dispatcher has exited",
+    )
+    parser.add_argument("--handoff-snapshot", type=Path)
     parser.add_argument("--continue", dest="continue_dispatch", action="store_true")
     parser.add_argument("--retry-record", type=Path)
     parser.add_argument("--continue-preallocation", action="store_true")
     parser.add_argument("--continue-staging", action="store_true")
     parser.add_argument("--previous-plan", type=Path)
+    # It is intentionally parsed only to produce a precise refusal.  Removing
+    # the legacy job from the new scheduler cannot fence its loaded serial loop.
+    parser.add_argument("--exclude-running", metavar="JOB")
     parser.add_argument("--repo", type=Path, default=admission.ROOT)
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--acceptance-review", type=Path, required=True)
@@ -852,6 +1315,19 @@ def main(argv: list[str] | None = None) -> int:
         help="dedicated supervisor account config, never a job lane config",
     )
     args = parser.parse_args(argv)
+    if args.exclude_running is not None:
+        parser.error(
+            "--exclude-running is unsafe with the legacy serial dispatcher; "
+            "use a verified quiescent handoff after it exits"
+        )
+    if args.lanes > 1 and args.continue_dispatch:
+        parser.error("--lanes cannot be combined with --continue")
+    if args.parallel_handoff is not None and args.lanes == 1:
+        parser.error("--parallel-handoff requires --lanes 2 or 3")
+    if args.parallel_handoff is not None and (
+        args.previous_plan is None or args.handoff_snapshot is None
+    ):
+        parser.error("--parallel-handoff requires --previous-plan and --handoff-snapshot")
     if (
         sum(
             (
