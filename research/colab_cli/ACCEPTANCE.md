@@ -155,6 +155,38 @@ the named acceptance phase, and the elapsed wait before it declines to
 resubmit a possibly busy kernel operation. The diagnostic does not turn an
 uncertain completion into success.
 
+## Supplied acceptance evidence: run 7 is INCOMPLETE
+
+Run 7 used source `84eedcba`, profile `final-only`, and directory
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance/acceptance-1792394444`.
+Its `acceptance-result.json` and CPU/L4 `receipt.json` files show CPU **PASS**
+with every CPU gate observed and stop verified. L4 was **INCOMPLETE** after
+259 seconds of its 30-minute cap, with stop verified and
+`Refused('deadline reached during telemetry recovery')`. A heartbeat upload
+took 41.5 seconds, followed by an exec that consumed its full 120-second
+timeout. The probe never reached `transfer_ready`; no final download was
+attempted, and both final-artifact-download and mac-loss-watchdog-unassign
+remain INCOMPLETE.
+
+The code confirms that telemetry formerly shared one 120-second allowance
+between the exec attempt and recovery: a full exec timeout left no time for
+independent kernel-idle proof, regardless of the manifest lease. Telemetry
+now has a separate **300-second total operation budget**, with each exec
+still bounded to **120 seconds**, at most three attempts, and independent
+idle proof required before resubmission. Explicit shorter caller budgets,
+whole-session wall limits, and priced unit limits still win.
+Per-attempt deadlines are passed directly to exec rather than temporarily
+narrowing the shared session deadline, so they cannot starve independent
+Contents heartbeat uploads. Contents heartbeats continue through transport
+stalls; the L4 **180-second lease is unchanged**, including the deliberate
+Mac-loss exercise, and its
+VM-side checkpoint and assignment-disappearance gate still requires release
+within **300 seconds after lease expiry**, before broker fallback cleanup.
+This avoids extending actual Mac-loss spending to solve a read-recovery
+budget problem. No unit cap, allocation count, or qualification gate changes.
+Offline Fake-Colab regression coverage does not qualify a live acceptance
+run or admit S1; run 7 remains INCOMPLETE.
+
 Any missing artifact, incomplete provider-rate calibration, unaccounted
 session, unexplained provider-rate change, timeout ambiguity, backend
 persistence, cleanup error, or supervisor feature that cannot produce the

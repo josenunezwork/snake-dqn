@@ -1247,7 +1247,7 @@ def test_calibration_allows_six_healthy_twenty_second_reads(
     assert receipt["accounting"]["calibration"]["samples"][-1]["elapsed_seconds"] >= 130
 
 
-def test_poll_rpc_completion_grace_cannot_extend_shared_read_budget(
+def test_poll_rpc_completion_grace_cannot_extend_per_attempt_budget(
     monkeypatch, tmp_path: Path
 ) -> None:
     cli = supervisor.CLI("fake", tmp_path / "config", "owned")

@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from research.colab_cli import acceptance, supervisor
+from research.colab_cli import acceptance, cli_guard, policy, supervisor
 
 REPO = Path(__file__).resolve().parents[1]
 FAKE = REPO / "tests" / "fixtures" / "fake_colab.py"
@@ -469,6 +469,127 @@ def test_full_acceptance_tolerates_ninety_second_launcher_ack(
         == 0
     )
     _assert_safe(tmp_path, plan)
+
+
+@pytest.mark.parametrize("exec_timeouts", [1, 3])
+def test_run7_l4_heartbeat_stall_then_exec_timeout_has_bounded_idle_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    pinned_repo: Path,
+    _isolate_account: _TransportClock,
+    exec_timeouts: int,
+) -> None:
+    """Replay run 7 through both real acceptance arms, exports and watchdog."""
+    binary = _fake_env(monkeypatch, tmp_path, {})
+    plan = _pinned_plan(tmp_path, pinned_repo)
+    clock = _isolate_account
+    original_observe = acceptance.AcceptanceObserver.__call__
+    original_idle = cli_guard.kernel_idle
+    original_rpc = supervisor.CLI.rpc
+    order: list[str] = []
+    recovery_started: list[float] = []
+    recovery_finished: list[float] = []
+    recovered = [False]
+
+    def idle(*args: Any, **kwargs: Any) -> bool:
+        result = original_idle(*args, **kwargs)
+        order.append("idle" if result else "busy")
+        return result
+
+    def rpc(cli: supervisor.CLI, *args: Any, **kwargs: Any) -> Any:
+        tracking = bool(recovery_started and not recovery_finished and not recovered[0])
+        if tracking:
+            # The first attempt may fail, but no subsequent exec may be
+            # dispatched until the authenticated helper has proved idle.
+            if order:
+                assert order[-1] == "idle"
+            order.append("exec")
+        result = original_rpc(cli, *args, **kwargs)
+        if tracking:
+            recovered[0] = True
+        return result
+
+    def observe(observer: acceptance.AcceptanceObserver, stage: str, context: dict) -> None:
+        if stage == "ready" and context["manifest"]["requirements"]["gpu"] == "L4":
+            cli = context["cli"]
+            assert context["manifest"]["lease_seconds"] == 180
+            monkeypatch.setenv(
+                "FAKE_COLAB_FAULT_PLAN",
+                json.dumps(
+                    {
+                        "max_latency_seconds": 41,
+                        "schedule": [
+                            {"call": "upload", "fault": "latency", "latency_seconds": 41},
+                            *[{"call": "exec", "fault": "timeout"}] * exec_timeouts,
+                        ],
+                    }
+                ),
+            )
+            # Same independent Contents transport as the production daemon.
+            # Following polling must survive this stall and one full exec
+            # timeout without changing the runtime lease or spending caps.
+            cli._put_lease(context["root"], context["generation"], 60)
+            recovery_started.append(clock.now)
+            try:
+                original_observe(observer, stage, context)
+            finally:
+                recovery_finished.append(clock.now)
+            return
+        original_observe(observer, stage, context)
+
+    monkeypatch.setattr(cli_guard, "kernel_idle", idle)
+    monkeypatch.setattr(supervisor.CLI, "rpc", rpc)
+    monkeypatch.setattr(acceptance.AcceptanceObserver, "__call__", observe)
+    rc = acceptance.execute(
+        plan,
+        state_dir=tmp_path / "state",
+        colab=binary,
+        review_token=acceptance.REVIEW_TOKEN,
+        oauth_python=str(HELPER),
+    )
+    _assert_safe(tmp_path, plan)
+    run_dir = Path(plan["jobs"][0]["manifest"]).parent.parent
+    result = json.loads((run_dir / "acceptance-result.json").read_text())
+    receipt = json.loads((run_dir / "outputs/l4/receipt.json").read_text())
+    state = json.loads((tmp_path / "fake-state.json").read_text())
+    events = [json.loads(line) for line in (tmp_path / "fake-calls.jsonl").read_text().splitlines()]
+    stalls = [event for event in events if event.get("fault")]
+    assert stalls[0]["argv"][-1].endswith("/lease-heartbeat.json")
+    assert stalls[0]["fault"]["virtual_latency_seconds"] == 41
+    assert stalls[1]["fault"]["virtual_latency_seconds"] == 120
+    assert order[:3] == ["exec", "idle", "exec"]
+    assert state["allocation_count"] == 2
+    assert receipt["stop_verified"] is True
+    assert receipt["cleanup_error"] is None
+    assert all(
+        call["timeout_seconds"] <= 120
+        for call in receipt["cli_calls"]
+        if call["command"] == "exec" and call["status"] == "failed"
+    )
+    gates = {gate["id"]: gate for gate in result["final_plan"]["gates"]}
+    if exec_timeouts == 1:
+        assert rc == 0 and result["qualified"] is True
+        assert gates["final-artifact-download"]["status"] == "OBSERVED"
+        download = gates["final-artifact-download"]["evidence_record"]
+        assert download["exported_bytes"] == 64 * 1024 * 1024
+        assert download["verified_on_mac"] is True
+        artifact = run_dir / "outputs/l4/exports/final-artifact.bin"
+        assert artifact.stat().st_size == download["exported_bytes"]
+        assert supervisor.sha256(artifact) == download["sha256"]
+        watchdog = gates["mac-loss-watchdog-unassign"]["evidence_record"]
+        assert watchdog["lease_seconds"] == 180
+        assert watchdog["release_bound_seconds"] == 300
+        assert watchdog["checkpoint_exported_during_grace"] is True
+        assert watchdog["observed_after_lease_seconds"] <= 300
+        assert state["watchdog_released"] == [receipt["session"]]
+    else:
+        assert rc == 1 and result["qualified"] is False
+        assert receipt["status"] == "INCOMPLETE"
+        assert "TimeoutExpired" in receipt["error"] or "deadline" in receipt["error"]
+        assert recovery_finished[0] - recovery_started[0] == pytest.approx(policy.TELEMETRY_SECONDS)
+        assert len(stalls) == 4  # One upload stall, then three bounded attempts.
+        assert gates["final-artifact-download"]["status"] == "INCOMPLETE"
+        assert gates["mac-loss-watchdog-unassign"]["status"] == "INCOMPLETE"
 
 
 def test_slow_concurrent_heartbeat_cannot_hide_foreground_deadline(

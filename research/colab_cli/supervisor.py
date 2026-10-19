@@ -459,8 +459,10 @@ class CLI:
             result[key] = float(match[1])
         return result
 
-    def rpc(self, code: str, timeout: float = policy.RPC_SECONDS) -> Any:
-        """A nonce response proves kernel completion even when CLI exits zero."""
+    def rpc(
+        self, code: str, timeout: float = policy.RPC_SECONDS, *, completion_grace: float = 10
+    ) -> Any:
+        """Prove completion by nonce, with optional transport acknowledgement grace."""
         if self.exec_uncertain:
             raise Refused("previous exec uncertain/busy; refusing to resubmit to kernel")
         nonce = "SNAKE_RPC_" + uuid.uuid4().hex
@@ -484,7 +486,7 @@ class CLI:
                     handle.name,
                     "--timeout",
                     str(timeout),
-                    timeout=timeout + 10,
+                    timeout=timeout + completion_grace,
                 )
                 matches = re.findall(re.escape(nonce) + r"(\{[^\n]*\})", output)
                 if not matches:
@@ -497,10 +499,11 @@ class CLI:
             raise Refused(f"kernel error despite CLI exit zero: {reply.get('error')}")
         return reply["value"]
 
-    def poll_rpc(self, code: str, timeout: float = policy.RPC_SECONDS) -> Any:
+    def poll_rpc(self, code: str, timeout: float = policy.TELEMETRY_SECONDS) -> Any:
         """Retry idempotent telemetry only after independent kernel-idle proof.
 
-        All attempts, idle probes, and backoff share one operation budget.
+        Each exec is bounded by RPC_SECONDS; all attempts, idle probes, and
+        backoff share one separate operation budget, clipped to session caps.
         Neither a kernel error nor an exhausted deadline is a retry trigger.
         """
         from research.colab_cli.cli_guard import kernel_idle
@@ -515,8 +518,10 @@ class CLI:
             if remaining <= 0:
                 raise Refused("deadline reached during telemetry recovery")
             try:
-                with self.limit_deadline(deadline):
-                    return self.rpc(code, remaining)
+                attempt_seconds = min(policy.RPC_SECONDS, remaining)
+                # Bound this call directly: narrowing shared self.deadline here
+                # would also starve the independent Contents heartbeat thread.
+                return self.rpc(code, attempt_seconds, completion_grace=0)
             except (Refused, subprocess.SubprocessError):
                 if not self.exec_uncertain or attempt == policy.ATTEMPTS - 1:
                     raise
