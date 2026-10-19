@@ -97,4 +97,17 @@ def test_runtime_requirements_cover_imported_test_helpers() -> None:
     assert "-r ../../requirements.txt" in requirements
     assert "pytest>=9.0.0,<10.0.0" in requirements
     assert "tests/test_t22_random_safe.py" in manifests.RUNTIME_SOURCE_PATHS
-    assert "research/q0q1_20261017" in manifests.RUNTIME_SOURCE_PATHS
+    assert "research/q0q1_20261017/q0b_cuda_fixtures.py" in manifests.RUNTIME_SOURCE_PATHS
+    assert "research/q0q1_20261017/results" not in manifests.RUNTIME_SOURCE_PATHS
+
+
+def test_runtime_fallback_excludes_historical_result_payloads() -> None:
+    from research.colab_cli import source
+
+    for relative in (
+        "research/q0q1_20261017/results/q0_mass_audit_receipt.json",
+        "research/t23_r0_screen_20261017/WORLD_BANK.json",
+        "research/t23_r0_screen_20261017/parity/mac.json.gz",
+        "research/s1_mature_20261018/WORLD_BANK.json",
+    ):
+        assert not source._matches(relative, list(manifests.RUNTIME_SOURCE_PATHS)), relative

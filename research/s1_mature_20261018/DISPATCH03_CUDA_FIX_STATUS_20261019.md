@@ -20,6 +20,19 @@ the trainer's M2 guard imports, the deployment config, and the serving modules
 that supply the frozen pool's v8 source pins. Those source files are copied;
 serving behavior and pins are unchanged.
 
+Final offline admission also caught the broad research directories pulling
+historical result payloads into the sparse archive, exceeding the conservative
+staging estimate. The runtime inventory now names the needed S1, Q0/Q1, T23 and
+identity files explicitly, excluding those result/bank/reference payloads.
+The registered bank and Mac reference still arrive as hash-bound inputs. This
+follow-up changes only the fallback inventory; `train.py`, `train_m3c.py`, the
+training command and the counter-smoke evidence remain unchanged.
+The narrowed local snapshot contains 283 files / 4,901,436 unpacked bytes and a
+1,224,101-byte fallback archive. Its Contents forecast is 236.70 seconds and
+public-input forecast is 154.31 seconds, each below its separate 300-second cap
+(391.01 seconds combined). `local-smoke-02/staging-preflight.json` records the
+priced staging proof; the published candidate records its own exact inventory.
+
 The Mac packaging preflight now runs the real `--cpu-preflight` fixture
 entrypoint and the existing Q1 `--verify-reference` comparison in both a full
 commit archive (the GitHub-equivalent layout) and the exact supervisor sparse
@@ -154,9 +167,9 @@ not new S1 outcome data or CUDA qualification.
   expected stale training-receipt source bindings; the old receipt was preserved.
 - Final S1 run after the fresh smoke receipt:
   `SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 venv/bin/python -m pytest -q -n 4 tests/test_s1_*.py`:
-  **177 passed in 18.76 seconds**, including the two repaired pricing checks and
+  **178 passed in 19.02 seconds**, including the two repaired pricing checks and
   all final diagnostic/settlement regressions. These completed runs cover all
-  **525 distinct tests** in the final selected files.
+  **526 distinct tests** in the final selected files.
 - Tiny real adapter entrypoint: **exit 0, 120.49 seconds**, 12,000 decisions,
   actor exits `[0, 0]`, zero overshoot against bound 47, 11,760 replay rows,
   45 updates, debt 240, reconciled n-step accounting and no ring overruns. The
