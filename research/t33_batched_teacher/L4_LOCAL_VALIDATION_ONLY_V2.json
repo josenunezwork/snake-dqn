@@ -1,0 +1,72 @@
+{
+  "budget": {
+    "rate_units_per_hour": 2.0,
+    "reserve_units": 0.4,
+    "unit_cap": 2.0
+  },
+  "claim": "LOCAL_UPLOAD_PREFLIGHT_ONLY",
+  "commit": "7cbf8e974a6e7cbe9cce638ddd1f216e07305f34",
+  "env": {
+    "NUMBA_NUM_THREADS": "12",
+    "PYTHONUNBUFFERED": "1",
+    "T33_DEVICE": "cuda",
+    "T33_FALLBACK_WORLDS": "64",
+    "T33_HORIZON": "128",
+    "T33_INPUT_MODE": "local-preflight",
+    "T33_ROLLOUTS": "8",
+    "T33_SECONDS": "1200",
+    "T33_THREADS": "12",
+    "T33_WORLDS": "256,1024,4096"
+  },
+  "inputs": [
+    {
+      "dest": "B8_s3_final.pth",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/B8_s3_final.pth",
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+    },
+    {
+      "dest": "checkpoints/champion_a5_freespace_20260621.pth",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+      "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+    },
+    {
+      "dest": "checkpoints/best_apex_fs.pth",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth",
+      "sha256": "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+    },
+    {
+      "dest": "checkpoints/best_apex_stage1_fs.pth",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth",
+      "sha256": "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+    },
+    {
+      "dest": "checkpoints/best_apex_pre_fs.pth",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth",
+      "sha256": "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+    },
+    {
+      "dest": "checkpoints/frp3_m3_s12_u60000_20261005.pth",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
+      "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+    }
+  ],
+  "job_id": "t33-batched-teacher-l4-throughput",
+  "lease_seconds": 180,
+  "max_export_bytes": 16777216,
+  "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t33-batched-teacher/l4-local-validation-only-v2",
+  "requirements": {
+    "allowed_gpus": [
+      "L4"
+    ],
+    "est_minutes": 30,
+    "gpu": "L4",
+    "min_vcpu": 12
+  },
+  "script": "research/t33_batched_teacher/bench.sh",
+  "timeout_minutes": 60,
+  "transport": {
+    "dispatch_ready": false,
+    "mode": "local_upload_preflight",
+    "status": "LOCAL_ONLY_NOT_A_PRODUCTION_CLAIM"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "budget": {
+    "rate_units_per_hour": 2.0,
+    "reserve_units": 0.4,
+    "unit_cap": 2.0
+  },
+  "claim": "DRAFT_NO_ALLOCATION_AUTHORIZED",
+  "commit": "21ac014ecd1b0e224e7f0528934c4bb20407724d",
+  "env": {
+    "NUMBA_NUM_THREADS": "12",
+    "PYTHONUNBUFFERED": "1",
+    "T33_DEVICE": "cuda",
+    "T33_FALLBACK_WORLDS": "64",
+    "T33_HORIZON": "128",
+    "T33_INPUT_MODE": "public",
+    "T33_ROLLOUTS": "8",
+    "T33_SECONDS": "1200",
+    "T33_THREADS": "12",
+    "T33_WORLDS": "256,1024,4096"
+  },
+  "inputs": [
+    {
+      "dest": "public-inputs.json",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-batched-teacher/research/t33_batched_teacher/PUBLIC_INPUTS.json",
+      "sha256": "d9ad8e7d08eb9ae4c00574d3fbb1d84c5158dc46ba4e8db2805d7b9a4da4a065"
+    }
+  ],
+  "job_id": "t33-batched-teacher-l4-throughput",
+  "lease_seconds": 180,
+  "max_export_bytes": 16777216,
+  "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t33-batched-teacher/l4-throughput-v1",
+  "requirements": {
+    "allowed_gpus": [
+      "L4"
+    ],
+    "est_minutes": 30,
+    "gpu": "L4",
+    "min_vcpu": 12
+  },
+  "script": "research/t33_batched_teacher/bench.sh",
+  "timeout_minutes": 60,
+  "transport": {
+    "dispatch_ready": false,
+    "mode": "public_release_urls",
+    "publishing_pending": true,
+    "status": "PUBLICATION_BLOCKED"
+  }
+}
