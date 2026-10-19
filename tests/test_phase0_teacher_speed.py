@@ -263,7 +263,7 @@ def test_observation_deduplication_reconstructs_exact_input_bytes() -> None:
 
 
 def test_near_score_tie_reruns_frozen_reference(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A leaf-score margin inside the float32 bound returns the CPU reference result."""
+    """A leaf-score margin inside the configured tie threshold uses the CPU reference."""
     from src.simd_env import eval_engine
 
     sim = SimpleNamespace(

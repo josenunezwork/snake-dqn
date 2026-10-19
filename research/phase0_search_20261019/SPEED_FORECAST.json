@@ -1,0 +1,170 @@
+{
+  "distillation_1m_equal_mix": {
+    "mac_single_core_hours": 360.02079671258497,
+    "mac_six_worker_wall_hours": 128.9753909638154,
+    "runpod_32_vcpu_hours_2_4x_core_slowdown": 27.00155975344387,
+    "runpod_usd_at_historical_0_89_to_0_95_per_hour": [
+      24.031388180565045,
+      25.651481765771678
+    ]
+  },
+  "input_sha256": {
+    "research/phase0_search_20261019/PROFILE_MPS_FINAL.json": "579ffa4a4f2feb535914758edf5b224e2c9a26f0f6d5022f1d9dfcb95612c655",
+    "research/phase0_search_20261019/SPEED_CALIBRATION.json": "5fe2ba1651c6a023c816de41fe6269464bbeb071bedd62ede20c958f35fb08a3",
+    "research/phase0_search_20261019/SPEED_SCALING_1.json": "767e587d69456c7d660365d8ec7c9c530a5898f5da9e68a12515da2f8a54c743",
+    "research/phase0_search_20261019/SPEED_SCALING_6.json": "30b4aa8880da5107f1cc4899f7d9ee596b170fbcc0a2da5171c174d11f0e1937",
+    "research/phase0_search_20261019/SPEED_TIMING_CPU.json": "6b9a9beccf92b9b15cf4e6c56418dfc7aa8d24e988057136a252eeda890eba05",
+    "research/phase0_search_20261019/SPEED_TIMING_MPS.json": "3a8d3b97d34057bc60d18dc7b7d423f3528b32a437503a9452f4806e2e85bdcf"
+  },
+  "l4_12_vcpu_scenarios": {
+    "distillation_1m_equal_mix": {
+      "0.5": {
+        "gpu_service_hours": 58.46430955528005,
+        "host_hours": 112.81852896482397,
+        "units_at_historical_2_per_hour": [
+          225.63705792964794,
+          342.565677040208
+        ],
+        "wall_hours_overlap_to_serial": [
+          112.81852896482397,
+          171.282838520104
+        ]
+      },
+      "1.0": {
+        "gpu_service_hours": 116.9286191105601,
+        "host_hours": 112.81852896482397,
+        "units_at_historical_2_per_hour": [
+          233.8572382211202,
+          459.49429615076815
+        ],
+        "wall_hours_overlap_to_serial": [
+          116.9286191105601,
+          229.74714807538408
+        ]
+      },
+      "2.0": {
+        "gpu_service_hours": 233.8572382211202,
+        "host_hours": 112.81852896482397,
+        "units_at_historical_2_per_hour": [
+          467.7144764422404,
+          693.3515343718884
+        ],
+        "wall_hours_overlap_to_serial": [
+          233.8572382211202,
+          346.6757671859442
+        ]
+      }
+    },
+    "phase0": {
+      "0.5": {
+        "gpu_service_hours": 15.254330121840919,
+        "host_hours": 26.332371700769773,
+        "units_at_historical_2_per_hour": [
+          52.664743401539546,
+          83.17340364522138
+        ],
+        "wall_hours_overlap_to_serial": [
+          26.332371700769773,
+          41.58670182261069
+        ]
+      },
+      "1.0": {
+        "gpu_service_hours": 30.508660243681838,
+        "host_hours": 26.332371700769773,
+        "units_at_historical_2_per_hour": [
+          61.017320487363676,
+          113.68206388890323
+        ],
+        "wall_hours_overlap_to_serial": [
+          30.508660243681838,
+          56.841031944451615
+        ]
+      },
+      "2.0": {
+        "gpu_service_hours": 61.017320487363676,
+        "host_hours": 26.332371700769773,
+        "units_at_historical_2_per_hour": [
+          122.03464097472735,
+          174.6993843762669
+        ],
+        "wall_hours_overlap_to_serial": [
+          61.017320487363676,
+          87.34969218813345
+        ]
+      }
+    }
+  },
+  "limitations": [
+    "Synthetic timing bodies; search changes visitation/survival. One bare calibration world per mix.",
+    "Mac scaling includes startup for six tasks, not steady-state whole-bank scaling.",
+    "Remote hardware/rates/setup/transfers not measured; no remote action performed.",
+    "L4 service time is 0.5/1/2 times measured Mac MPS forward time: sensitivity only, not an L4 benchmark.",
+    "Remote ranges exclude setup/export; add 20 percent reserve before any authorized scheduling.",
+    "Distillation assumes one million already-selected search decisions in equal mix proportions; excludes collection/training/I/O.",
+    "N/H and length-gate alternatives change the policy and need prospective owner approval and new evidence.",
+    "CPU/MPS fixture equality does not qualify universal trajectory identity or serving."
+  ],
+  "long_fixture_seconds_cpu": {
+    "frozen": 1.3839221875095973,
+    "mixed": 1.468228250494576,
+    "scripted": 1.036074166491744
+  },
+  "long_fixture_seconds_mps": {
+    "frozen": 1.2735221670009196,
+    "mixed": 1.1641306255041854,
+    "scripted": 0.8010251254891045
+  },
+  "phase0": {
+    "mac_cloud_rental_usd": 0,
+    "mac_single_core_hours": 91.25416975916299,
+    "mac_six_worker_wall_hours": 32.6912843070074,
+    "mac_wall_hours_with_20pct_reserve": 39.22954116840888,
+    "runpod_32_vcpu_hours_2_4x_core_slowdown": 6.844062731937224,
+    "runpod_speedup_vs_mac_scenario": 4.776590394833226,
+    "runpod_usd_at_historical_0_89_to_0_95_per_hour": [
+      6.09121583142413,
+      6.501859595340362
+    ]
+  },
+  "producer_sha256": "dfd47300b518f16b21008ca24175c3831fa93ff2c84b671e5c8a771e84e50caa",
+  "proposals_not_adopted": {
+    "N6_H96": {
+      "branch_frame_ratio": 0.5625,
+      "linear_work_mac_wall_hours_distillation": 72.54865741714617,
+      "linear_work_mac_wall_hours_phase0": 18.474008650182732
+    },
+    "length_gate800": {
+      "calibration_fraction": 0.2201642495194828,
+      "mac_wall_hours_phase0_scenario": 17.522210910717725,
+      "searched_decisions_total": 149952
+    }
+  },
+  "schema": "phase0-teacher-speed-forecast/v1",
+  "search_config": {
+    "epsilon": 0.02,
+    "horizon": 128,
+    "leaf_scale": 1.0,
+    "length_gate": 600,
+    "margin_threshold": 0.0,
+    "rollouts": 8
+  },
+  "searched_decisions_by_mix": {
+    "frozen": 35616,
+    "mixed": 64672,
+    "scripted": 175968
+  },
+  "searched_decisions_total": 276256,
+  "serving_planner_descriptive_only": {
+    "cpu": {
+      "amortized_search_ms_at_old_calibration_fraction": 562.4326288814498,
+      "forced_search_ms_equal_mix": 1296.0748681653058,
+      "times_41ms_tick": 31.611582150373312
+    },
+    "mps": {
+      "amortized_search_ms_at_old_calibration_fraction": 468.47554367398334,
+      "forced_search_ms_equal_mix": 1079.55930599807,
+      "times_41ms_tick": 26.33071478044073
+    }
+  },
+  "six_task_measured_scaling_speedup": 2.791391396623797
+}

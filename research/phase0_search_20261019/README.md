@@ -7,9 +7,19 @@ this implementation task. All measured data are disjoint preflight evidence.
 `teacher.py` takes the world constructor from T3's captured strict evaluator
 and retains its terminal-hero GridBatchSim, Watch preparation order and carried
 Vector61 opponent state. Search evaluates every legal first action. The bare B8
-outer action retains rowwise advisory-mask inference and no veto. Rollout batch
-forwards are part of the search policy recipe; their Q values are not claimed
-bit-identical to rowwise inference.
+outer action retains rowwise advisory-mask inference and no veto. The default
+CPU continuation path builds one numba observation batch and makes one B8
+batch forward per step, reusing exactly byte-identical neural inputs.
+Worlds and epsilon RNG streams remain independent. Frozen opponents retain
+shared batched policies. `SearchTeacher(config, implementation="reference")`
+selects the preserved old scorer; `device="mps"` or `device="cuda"` explicitly
+selects accelerator B8 forwards, retaining the CPU oracle for near ties.
+Batch Q values are not claimed bit-identical to rowwise inference.
+
+The speed follow-up is documented in [SPEED_REPORT.md](SPEED_REPORT.md), with
+exclusive category profiles in [PROFILE.md](PROFILE.md) and reproducible
+conditional forecasts in `SPEED_FORECAST.json`. The original preflight below
+is historical; its immutable receipt and registered values are preserved.
 
 The score is an undiscounted sum of realized post-transition logical mass for H
 frames, zero after death, plus `leaf_scale * max_legal Q_B8` at the next prepared

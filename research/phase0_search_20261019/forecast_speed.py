@@ -22,12 +22,15 @@ def _load(path: Path) -> dict[str, Any]:
 
 
 def long_times(receipt: dict[str, Any]) -> dict[str, float]:
-    """Median searched-decision time over the L800/L1500 preflight fixtures."""
+    """Original L800/L1500 average, using each length's three-round median."""
     return {
-        mix: statistics.median(
-            row["seconds"]
-            for row in receipt["rows"]
-            if row["mix"] == mix and row["length"] in (800, 1500)
+        mix: statistics.mean(
+            statistics.median(
+                row["seconds"]
+                for row in receipt["rows"]
+                if row["mix"] == mix and row["length"] == length
+            )
+            for length in (800, 1500)
         )
         for mix in MIX_COUNTS
     }
@@ -189,6 +192,7 @@ def main() -> None:
     names = ("timing", "mps_timing", "scaling_one", "scaling_six", "calibration", "mps_profile")
     paths = {name: getattr(args, name) for name in names}
     result = forecast(**{name: _load(path) for name, path in paths.items()})
+    result["producer_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     result["input_sha256"] = {
         str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths.values()
     }
