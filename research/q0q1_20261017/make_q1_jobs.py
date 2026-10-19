@@ -22,6 +22,7 @@ from typing import Any, Mapping
 from research.q0q1_20261017 import (
     inventory_receipt,
     owner_admission,
+    q0_accounting,
     q1_bank,
     q1_evaluate,
     q1_parity,
@@ -30,7 +31,7 @@ from research.q0q1_20261017 import (
 from research.q0q1_20261017.qualification import PACKET_SCHEMA, validate_packet
 
 OWNER_RELEASE = "APPROVED_Q0Q1_20261017"
-AMENDMENT = "A2"
+AMENDMENT = "A3"
 OWNER_ADMISSION_SCHEMA = "q0q1-owner-admission/v1"
 DRIVE_ROOT = "/content/drive/MyDrive/t16_colab"
 Q0_MASS_JOB_ID = "q0-audit-t23-mass-a100r5"
@@ -90,6 +91,10 @@ def _qualified_receipt(path: Path, hardware: str) -> tuple[dict[str, Any], dict[
         _number(receipt.get(field), f"Q0b {hardware} receipt.{field}")
     for field in ("observed_gpu_hours", "observed_cpu_hours"):
         _number(receipt.get(field), f"Q0b {hardware} receipt.{field}", positive=False)
+    if receipt.get("requalification") is not None:
+        from research.q0q1_20261017.requalify_q0b import validate_receipt
+
+        validate_receipt(receipt)
     return receipt, dict(packet)
 
 
@@ -133,19 +138,19 @@ def _validate_owner_admission(path: Path) -> dict[str, Any]:
 
 
 def _study_plan(
-    l4: Mapping[str, Any], a100: Mapping[str, Any], q0_accounting: Mapping[str, Any]
+    l4: Mapping[str, Any], a100: Mapping[str, Any], q0_accounting_data: Mapping[str, Any]
 ) -> dict[str, Any]:
     """Build the A1 forecast only from observed Q0b metadata, never defaults."""
     metadata = (l4, a100)
-    q0_units = _number(q0_accounting.get("q0_units"), "Q0 accounting q0_units")
+    q0_units = _number(q0_accounting_data.get("q0_units"), "Q0 accounting q0_units")
     q0_gpu = _number(
-        q0_accounting.get("q0_gpu_hours"), "Q0 accounting q0_gpu_hours", positive=False
+        q0_accounting_data.get("q0_gpu_hours"), "Q0 accounting q0_gpu_hours", positive=False
     )
     q0_cpu = _number(
-        q0_accounting.get("q0_cpu_hours"), "Q0 accounting q0_cpu_hours", positive=False
+        q0_accounting_data.get("q0_cpu_hours"), "Q0 accounting q0_cpu_hours", positive=False
     )
     cpu_rate = _number(
-        q0_accounting.get("cpu_unit_rate_per_hour"), "Q0 accounting cpu_unit_rate_per_hour"
+        q0_accounting_data.get("cpu_unit_rate_per_hour"), "Q0 accounting cpu_unit_rate_per_hour"
     )
     for total, field in (
         (q0_units, "observed_units"),
@@ -169,7 +174,7 @@ def _study_plan(
     attempt_overhead = _number(attempt_overhead, "L4 q1_attempt_overhead_seconds", positive=True)
     q1_gpu_overhead_hours = 20 * attempt_overhead / 3600
     eval_job_overhead = _number(
-        q0_accounting.get("cpu_eval_job_overhead_seconds"),
+        q0_accounting_data.get("cpu_eval_job_overhead_seconds"),
         "Q0 accounting cpu_eval_job_overhead_seconds",
     )
     # Evaluation has 100 immutable shards with four-world parity probes. Training
@@ -180,11 +185,7 @@ def _study_plan(
         "owner_release": OWNER_RELEASE,
         "amendment": AMENDMENT,
         "dispatch": True,
-        "a1_envelope": {
-            "q0_units_cap": 40.0,
-            "combined_units_cap": 175.0,
-            "reserve_fraction": 0.20,
-        },
+        "a3_envelope": q0_accounting.validate_a3_envelope(q0_accounting_data),
         "q1_training_hardware": "L4",
         "q0_units": q0_units,
         "q0_gpu_hours": q0_gpu,
@@ -305,7 +306,20 @@ def make_jobs(
         raise ValueError("L4 packet does not bind the supplied runtime parity receipt")
     _validate_owner_admission(owner_admission_path)
     accounting = _json_object(q0_accounting_path, "Q0 observed accounting")
+    if accounting.get("schema") != q0_accounting.SCHEMA or accounting.get("status") not in {
+        "COMPLETE",
+        "COMPLETE_WITH_CONSERVATIVE_BOUNDS",
+    }:
+        raise ValueError("Q0 accounting is not complete inclusive terminal accounting")
+    # The final dynamic cap must include the completed L4 and original A100 attempts.
+    for job_id in (q0b_l4_job_id, q0b_a100_job_id):
+        if not any(
+            row.get("id") == job_id and row.get("conservative_upper_bound") is False
+            for row in accounting.get("attempts", [])
+        ):
+            raise ValueError(f"Q0 accounting lacks completed packet attempt {job_id}")
     plan = _study_plan(l4, a100, accounting)
+    plan["q0_accounting_sha256"] = sha256_file(q0_accounting_path)
     from research.q0q1_20261017.qualification import validate_admission
 
     result = validate_admission(l4_packet, plan)
@@ -313,7 +327,7 @@ def make_jobs(
         result.get("status") != "ADMITTED_FOR_DISPATCH"
         or result.get("dispatch_authorized") is not True
     ):
-        raise ValueError(f"A1 forecast is not admitted for dispatch: {result.get('errors')}")
+        raise ValueError(f"A3 forecast is not admitted for dispatch: {result.get('errors')}")
     measured = validate_packet(l4_packet).get("measured_cells", {})
     for cell in ("restart/n3", "mature/n3", "restart/n1", "mature/n1"):
         speed = measured.get(cell, {}).get("decisions_per_second")
@@ -334,6 +348,21 @@ def make_jobs(
         parity_owner_admission_sha256=sha256_file(owner_admission_path),
     )
     jobs = [job for job in queue_jobs.build_jobs(commit, bindings) if job["id"].startswith("q1-")]
+    repaired_a100 = False
+    if a100.get("requalification") is not None:
+        from research.q0q1_20261017.requalify_q0b import validate_receipt
+
+        if validate_receipt(a100) != q0b_a100_job_id:
+            raise ValueError("A3 receipt does not replace the supplied A100 job")
+        proof = a100["requalification"]
+        if not any(
+            row.get("id") == q0b_a100_job_id
+            and row.get("claim_sha256") == proof["claim_sha256"]
+            and row.get("closure_sha256") == proof["terminal_sha256"]
+            for row in accounting["attempts"]
+        ):
+            raise ValueError("Q0 accounting does not bind the re-qualified A100 queue evidence")
+        repaired_a100 = True
     for job in jobs:
         job["env"]["Q0Q1_REGISTRATION_STATUS"] = OWNER_RELEASE
         job["env"]["Q0Q1_OWNER_RELEASE"] = OWNER_RELEASE
@@ -350,7 +379,7 @@ def make_jobs(
                     Q0_INIT_JOB_ID,
                     *preserved,
                     q0b_l4_job_id,
-                    q0b_a100_job_id,
+                    *([] if repaired_a100 else [q0b_a100_job_id]),
                 ]
             )
         )

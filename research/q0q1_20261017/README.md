@@ -20,7 +20,7 @@ draft historical examples; use `jobs_approved/` and the generator below.
 
 | Item | Purpose | Status |
 |---|---|---|
-| `PREREGISTRATION.md` | Frozen-before-data Q0/Q1 hypothesis, qualification gates, factorial, evaluation and decision rules | A2 with attribution erratum; A1 envelope unchanged |
+| `PREREGISTRATION.md` | Frozen-before-data Q0/Q1 hypothesis, qualification gates, factorial, evaluation and decision rules | A3 inclusive budget and lag operationalization; A2 attribution erratum retained |
 | `q1_bank.py` | Creates Q1's five fresh 64/32/32 H5000 terminal-hero banks and their pre-data collision audit | Committed allocation/audit; no runtime or evaluation has run |
 | `q1_evaluate.py` | CPU shard evaluator for A--D and the one reusable B8 identity on the same registered bank | Implementation; development only |
 | `q1_parity.py` | Four-world Mac/Colab diagnostic parity comparison | Implementation; a passing probe would not be a strict gate |
@@ -95,95 +95,95 @@ Do not repair these by rerunning or silently changing the workload:
 For the complete outcome order, preservation rule, and deterministic selection
 tie-break, use [PREREGISTRATION.md](PREREGISTRATION.md#q1-analysis-and-ordered-decisions).
 
-## Non-interactive Q1 operator sequence (2026-10-18)
+## A3 operator sequence (2026-10-18)
 
-Q0 mass uses `q0/audit-t23-mass-a100r5/result.tar.gz`; Q0 init uses
-`q0/audit-b8-init-a100r6/result.tar.gz`. The init r6 audit is COMPLETE.
-The capacity attempts are `q0b-capacity-a100-20261018r6` and
-`q0b-capacity-l4-20261018r6`; wait for **both** packets to be QUALIFIED.
-The L4 runtime still needs the owner's Drive authorization click. Do not enqueue
-old r2/r3/r4/r5 replacements or rerun an audit already COMPLETE.
+A3 is appended to the registration after the A100 r6 diagnostic. It raises Q0's
+unit cap to the final receipt-backed inclusive Q0 total T, including all failed
+attempts, A100 r6 and the upcoming L4 r7. The combined envelope becomes T+135;
+usable combined units are T+100, preserving the original 35-unit reserve (20%
+of the original 175) and Q1 headroom. Runtime caps and efficacy endpoints remain
+unchanged. The numeric final cap cannot be known until L4 terminates. The A3
+owner admission supersedes A1/A2 for new admission; older files remain immutable.
 
-The admission directory already holds the hash-bound `inventory-receipt.json`,
-`mac-parity-reference.json`, and `observed-pricing.json`. Keep them immutable.
-The inventory receipt SHA-256 is
-`2f9d74980fc8ed6a683deb52c4933eaf0516bdbcb3dea072d1b27d03ced542aa`.
-A2's admission is `OWNER_ADMISSION_20261018_A2.json`, bound to the complete
-registration including its append-only authorization erratum. The original A1
-admission remains unchanged and deliberately fails current-binding validation.
-Both the generator and runtime validate the latest registration amendment and
-its digest. A2 retains A1's 40-unit Q0 and 175-unit combined envelope, 20% reserve,
-and every other cap.
+Policy lag counts published weight versions. Under the pinned recipe, one
+publication is 12 finalized optimizer updates. A3 tolerates a mean increase
+strictly below 1/12 of a publication only if p95 does not increase; ingestion age
+p95 still cannot exceed 110% of control. This operational rule was written after
+r6's zero-tolerance failure. It does not prove identical acting-weight histories.
 
-Run this sequence from the clean published checkout after both packets qualify.
-It has no prompts. `q0_accounting` reads every Q0/Q0b claim and attempt receipt
-since the study date (including attempts after UTC midnight), including failed
-generations, and prints the charged seconds,
-hardware, price, and evidence behind each contribution. Pending jobs carry no
-attempt debit; active or unaccountable claims block final accounting. Setup,
-execution, copy/export and cleanup inside an attempt are included in its inclusive
-queue elapsed time. Missing terminal evidence is never silently treated as zero.
-The measured CPU overhead receipt records three real Mac runs of the empty
-evaluator shard, with staging, archive publication and cleanup; no selection
-world is scored. The budget uses three times the slowest Mac run for projected
-x86 work, plus the largest receipt-backed queue setup/prelude (an A100 proxy),
-plus the registered 60-second export/analysis/cleanup reserve. These forecast
-components are disclosed separately from direct measurements. Per-episode
-gameplay/parity cost still comes from the qualifying runtime receipt.
-The abandoned CPU claim is conservatively bounded by its worker's explicit idle
-heartbeat; mass r2 generation 0 is bounded by the operator's recorded verified
-runtime disconnection. Neither is presented as an exact terminal measurement.
-The current pricing file describes A100 5.3 units/hour as observed, L4 2.0 as an
-owner-supplied planning rate, and CPU 0.5 as a conservative estimate. Those
-provenance limits and all conservative bounds remain disclosed in the accounting
-artifact; rates in a file named "observed" do not become observations
-by virtue of that filename.
+The original A100 archive and failed queue receipt remain unchanged. The Mac-only
+`requalify_q0b` tool verifies the retained packet, source, parity, pricing, claim
+and terminal times, re-runs all packet checks, and writes a create-only archive
+at `q0b/capacity-a100-20261018r6-a3/result.tar.gz`. The tool uses actual inclusive
+claim-to-terminal time for setup/export/cleanup and records zero separately billed
+CPU allocation for the GPU attempt. Q1 overhead conservatively includes all
+outside-measurement time plus four parity worlds, maximum cell startup and 60s.
+No GPU work, gameplay or model training is rerun. Q1 accepts this verified repair
+without a `done` dependency on the failed A100 job; all other dependencies remain.
+
+Use the published A3 worktree and the primary venv. Do not enqueue old L4 r6.
+The following two operator commands cancel its pending generation and enqueue
+the new create-only L4 r7. This implementation has NOT executed either command.
 
 ```bash
 set -euo pipefail
-cd /Users/josenunez/Projects/ml/snake-dqn-q1-admission
+cd /Users/josenunez/Projects/ml/snake-dqn-q0q1-a3
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 DRIVE='/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/t16_colab'
+q() { "$PY" research/colab_queue/q.py --drive-root "$DRIVE" "$@"; }
+q cancel q0b-capacity-l4-20261018r6 --reason 'Superseded by A3 pinned L4 r7; no r6 GPU work'
+q enqueue /Users/josenunez/Projects/ml/snake-dqn-q0q1-a3/research/q0q1_20261017/jobs_approved/q0b-capacity-l4-20261018r7.json
+```
+
+L4 requires the owner's Drive mount. The 3/6 actors and 12 vCPUs remain fixed.
+Four observed A100 cell launcher durations are 516.431, 502.374, 497.433 and
+497.693 seconds; each contains 120s warmup and two >=180s windows. The measurement
+lasted 2247.269s; final inclusive duration comes from terminal queue evidence.
+Retain `est_minutes=50`, queue `timeout_minutes=100` (2x estimate), and the
+binding 3600s inclusive packet cap. The A100 timing is a planning proxy for L4,
+not a measured L4 speed promise. A slow L4 packet remains INCOMPLETE.
+
+After L4 r7 is QUALIFIED, run the complete admission sequence below. It charges
+every attempt since the study date, including failed generations and post-midnight
+claims. Pending claims are not debit; active/unclosed claims block accounting.
+The generator additionally requires exact terminal L4 and A100 packet entries,
+complete accounting and the exact A3 envelope. Pricing provenance remains A100
+5.3 units/h observed, L4 2.0 owner planning rate, CPU 0.5 conservative estimate.
+The two historical abandoned claims retain disclosed conservative closure bounds.
+CPU overhead uses three times measured Mac staging/publish/cleanup plus maximum
+observed queue prelude/setup and a 60s export/analysis reserve. Unknown rates or
+missing accounting are never zero-filled. All outputs are create-only.
+
+```bash
 ADMISSION="$DRIVE/q0q1-20261017/admission"
-JOBS="$DRIVE/q0q1-20261017/q1/jobs_approved"
+JOBS="$DRIVE/q0q1-20261017/q1/jobs_approved_a3"
 export SNAKE_CKPT_DIR=/Users/josenunez/Projects/ml/snake-dqn/saved_snakes
 export SNAKE_DQN_DEVICE=cpu
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
-
 "$PY" -m research.q0q1_20261017.q0_accounting \
-  --drive-root "$DRIVE" \
-  --pricing "$ADMISSION/observed-pricing.json" \
-  --out "$ADMISSION/observed-q0-accounting.json"
-
+  --drive-root "$DRIVE" --pricing "$ADMISSION/observed-pricing.json" \
+  --out "$ADMISSION/observed-q0-accounting-a3-final.json"
 "$PY" -m research.q0q1_20261017.make_q1_jobs \
   --commit "$(git rev-parse HEAD)" \
   --inventory-receipt "$ADMISSION/inventory-receipt.json" \
   --q0-mass-archive "$DRIVE/q0q1-20261017/q0/audit-t23-mass-a100r5/result.tar.gz" \
   --q0-init-archive "$DRIVE/q0q1-20261017/q0/audit-b8-init-a100r6/result.tar.gz" \
-  --q0b-l4-receipt "$DRIVE/q0q1-20261017/q0b/capacity-l4-20261018r6/result.tar.gz" \
-  --q0b-a100-receipt "$DRIVE/q0q1-20261017/q0b/capacity-a100-20261018r6/result.tar.gz" \
+  --q0b-l4-receipt "$DRIVE/q0q1-20261017/q0b/capacity-l4-20261018r7/result.tar.gz" \
+  --q0b-a100-receipt "$DRIVE/q0q1-20261017/q0b/capacity-a100-20261018r6-a3/result.tar.gz" \
   --mac-parity-reference "$ADMISSION/mac-parity-reference.json" \
-  --q0-accounting "$ADMISSION/observed-q0-accounting.json" \
-  --q0b-l4-job-id q0b-capacity-l4-20261018r6 \
+  --q0-accounting "$ADMISSION/observed-q0-accounting-a3-final.json" \
+  --q0b-l4-job-id q0b-capacity-l4-20261018r7 \
   --q0b-a100-job-id q0b-capacity-a100-20261018r6 \
+  --drive-output-dir /content/drive/MyDrive/t16_colab/q0q1-20261017/q1/jobs_approved_a3 \
   --out-dir "$JOBS"
 ```
 
-Both tools refuse to overwrite existing outputs. The generator verifies both Q0
-COMPLETE receipts, both qualified four-cell packets, identical source/recipe
-bindings, inventory exclusions, Mac/runtime parity, current A2 owner admission,
-and the complete A1-envelope forecast. It writes exactly 20 training and 100
-evaluation manifests, copied evidence and the study plan. An INCOMPLETE packet,
-unaccountable attempt, failed parity, or over-cap forecast stops the sequence.
-Preserve such evidence; do not fill missing numbers, retry, replace seeds, change
-actors, or substitute a checkpoint to make admission pass.
-
-Wait for the generated evidence and study plan to synchronize to Drive before
-running this separate enqueue block. The sequence stops on the first error:
+The generator writes exactly 20 training and 100 evaluation manifests after all
+identity, parity, capacity and budget checks pass. Wait for Drive synchronization,
+then enqueue in this order as a separate operator action:
 
 ```bash
-q() { "$PY" research/colab_queue/q.py --drive-root "$DRIVE" "$@"; }
 for job in "$JOBS"/q1-train-*.json; do q enqueue "$job"; done
 for job in "$JOBS"/q1-eval-b8-*.json; do q enqueue "$job"; done
 for arm in a b c d; do
@@ -191,17 +191,9 @@ for arm in a b c d; do
 done
 ```
 
-Keep at most three runtimes, initially two qualified L4 learners and one CPU
-worker. Q1 remains one L4 cohort; A100 measures the registered comparison only.
-Each evaluation job uses one CPU thread per world, with parallelism across the
-100 immutable shards. A passing four-world parity probe is development evidence.
-No command here promotes a checkpoint or changes serving.
-
-**Budget evidence at this repair:** closed attempt receipts plus the two explicit
-closure bounds already charge approximately **63.59 units** before A100 r6 and
-L4 r6. This exceeds the unchanged **40-unit Q0 cap**. Qualification alone does
-not clear that cap. The commands above preserve that refusal; no budget change
-or dispatch is authorized by this tooling repair.
+Keep at most three runtimes: initially two qualified L4 learners and one CPU
+worker. Q1 remains one L4 cohort. A100 is comparison evidence only. No command
+here promotes a checkpoint or changes serving.
 
 ## Historical draft manifests and local verification
 

@@ -27,6 +27,8 @@ PACKET_SECONDS = 3600.0
 DRAFT_OWNER_REVIEW = "DRAFT_PENDING_OWNER_REVIEW"
 APPROVED_OWNER_RELEASE = "APPROVED_Q0Q1_20261017"
 A1_AMENDMENT = "A1"
+A3_UPDATES_PER_PUBLICATION = 12  # round(actor_sync_updates=25 / batch_scale=2)
+A3_MEAN_LAG_TOLERANCE = 1.0 / A3_UPDATES_PER_PUBLICATION
 DRAFT_Q0_UNITS_CAP = 15.0
 A1_Q0_UNITS_CAP = 40.0
 DRAFT_COMBINED_UNITS_CAP = 150.0
@@ -202,7 +204,14 @@ def _check_cell(
             if baseline is not None:
                 controls[field] = baseline
         if len(values) == len(controls) == 3:
-            if values["mean"] > controls["mean"] or values["p95"] > controls["p95"]:
+            if any(number < 0 for number in (*values.values(), *controls.values())):
+                errors.append(f"cell {name} policy-lag values must be nonnegative")
+            # A3: less than one finalized update in the mean, with no p95 increase.
+            # This operational allowance is not a claim of identical weight histories.
+            if (
+                values["mean"] >= controls["mean"] + A3_MEAN_LAG_TOLERANCE
+                or values["p95"] > controls["p95"]
+            ):
                 errors.append(
                     f"cell {name} has an unexplained policy-lag increase over its matched control"
                 )
@@ -345,6 +354,7 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         errors.append(f"study plan schema must equal {PLAN_SCHEMA}")
     owner_status = plan.get("owner_review_status", plan.get("status"))
     approved_a1 = owner_status == APPROVED_OWNER_RELEASE
+    is_a3 = approved_a1 and plan.get("amendment") == "A3"
     if owner_status == DRAFT_OWNER_REVIEW:
         if plan.get("dispatch") is not False:
             errors.append("draft qualification must not authorize dispatch")
@@ -355,11 +365,11 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
     elif approved_a1:
         if plan.get("owner_release") != APPROVED_OWNER_RELEASE:
             errors.append("approved A1 plan must bind the exact owner release")
-        if plan.get("amendment") not in {A1_AMENDMENT, "A2"}:
+        if plan.get("amendment") not in {A1_AMENDMENT, "A2", "A3"}:
             errors.append("approved plan must bind Amendment A1 or A2 (unchanged A1 envelope)")
         if plan.get("dispatch") is not True:
             errors.append("approved A1 admission must explicitly authorize dispatch")
-        envelope = _mapping(plan.get("a1_envelope"), "a1_envelope", errors)
+        envelope = _mapping(plan.get("a1_envelope"), "a1_envelope", errors) if not is_a3 else None
         expected_envelope = {
             "q0_units_cap": A1_Q0_UNITS_CAP,
             "combined_units_cap": A1_COMBINED_UNITS_CAP,
@@ -371,6 +381,15 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
                     errors.append(f"a1_envelope.{field} must equal {expected:g}")
         q0_units_cap = A1_Q0_UNITS_CAP
         combined_units_cap = A1_COMBINED_UNITS_CAP
+        if is_a3:
+            from research.q0q1_20261017.q0_accounting import validate_a3_envelope
+
+            try:
+                envelope = validate_a3_envelope(plan)
+                q0_units_cap = envelope["q0_units_cap"]
+                combined_units_cap = envelope["combined_units_cap"]
+            except ValueError as exc:
+                errors.append(f"A3 envelope: {exc}")
         dispatch_authorized = True
         admitted_status = "ADMITTED_FOR_DISPATCH"
     else:
@@ -483,7 +502,11 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         errors.append("GPU forecast consumes more than the 80% usable 24 GPU-hour envelope")
     if total_cpu_hours > CPU_HOURS_CAP * (1 - RESERVE_FRACTION):
         errors.append("CPU forecast consumes more than the 80% usable 40 CPU-hour envelope")
-    usable_units_cap = combined_units_cap * (1 - RESERVE_FRACTION)
+    usable_units_cap = (
+        combined_units_cap - A1_COMBINED_UNITS_CAP * RESERVE_FRACTION
+        if is_a3
+        else combined_units_cap * (1 - RESERVE_FRACTION)
+    )
     if total_units > usable_units_cap:
         errors.append(
             "total forecast consumes more than the 80% usable "

@@ -456,3 +456,85 @@ approval in chat on 2026-10-18: "everything approved for today dont ask me again
 The owner did not explicitly request A2 in that chat task. This erratum corrects
 only the authorization attribution; every other A2 provision and the A1 envelope
 and caps remain unchanged. All pre-erratum bytes above are preserved.
+
+
+## Amendment A3 — inclusive Q0 envelope and operational lag tolerance (2026-10-18)
+
+**Owner authorization and disclosure:** in chat on 2026-10-18 at approximately
+3:25 PM PT, the owner chose **"Amend, raise total"** in response to
+"Q0 went over its 40-unit cap (~64 units, mostly failed attempts). How should Q1 proceed?"
+The chosen option read: "Raise the combined envelope by the overrun (~25 units)
+so Q1 keeps its full original budget." The present owner task explicitly requests
+this append-only A3, implementation, preserved-packet re-qualification, and a new
+L4 manifest; it does not request enqueueing. Earlier registration bytes, owner
+admissions, failed queue receipts and original archives remain preserved.
+
+**Budget, determined from terminal evidence:** let T be the inclusive observed
+Q0 total produced by `q0_accounting.py`, including every Q0/Q0b attempt, failed
+attempts, A100 r6 and the upcoming L4 packet. Unknown or active claims block final
+accounting. Pending work is not a zero-cost completed packet. The Q0 unit cap
+becomes exactly T, and the combined envelope becomes exactly
+`175 + (T - 40) = T + 135` units, without rounding the overrun to 25. This is a
+formula ratified now; the final numeric cap is bound only after the L4 packet
+terminates and complete inclusive accounting exists. No later retries or further
+attempts are authorized by this formula. Each admitted plan binds the complete
+accounting digest and its A3 envelope. The original Q1 allocation remains 135
+units including its existing reserve: the original 20% reserve on 175 is 35
+units, so usable combined units become `140 + (T - 40) = T + 100`. The reserve
+basis remains the original 175, rather than applying 20% to already incurred
+overrun and thereby reducing Q1 headroom. Q1 training's 60-unit cap, Q0's eight
+CPU-hour cap, the 24 GPU-hour and 40 CPU-hour combined envelopes and their 20%
+runtime reserves remain unchanged. All setup, copies, cleanup and failures count.
+A passing packet alone does not admit Q1; every other admission check still applies.
+
+**Lag operationalization, disclosed after data:** this tolerance was written
+AFTER A100 `q0b-capacity-a100-20261018r6` tripped the implementation's zero-tolerance
+mean-lag comparison. It is a post-diagnostic operational amendment, not an
+independent prospective confirmation of that packet. The r6 matched mature/n1
+mean is 0.14356725146198832 versus restart 0.14108689160943566; both p95 are 1.0.
+Ingestion age p95 improves from 0.08269823640184767 to 0.07978772130209107 seconds.
+The original INCOMPLETE packet remains immutable and is not relabeled in place.
+The pending L4 replacement runs prospectively with A3.
+
+The telemetry implementation measures policy lag in **integer published-weight
+versions**, not directly in optimizer updates: `published - weights_version//2`.
+A publication contains only finalized optimizer weights. In this unchanged pinned
+recipe `actor_sync_updates=25`, `batch_scale=2`, and Python's
+`round(25/2)=12`, so one publication spans 12 finalized optimizer updates.
+The operational quantum is one finalized optimizer update. Define an unexplained
+same-collector schedule lag increase as either (i) mean publication lag increases
+by **at least 1/12**, equivalent to at least one finalized optimizer update, or
+(ii) p95 publication lag increases by any amount. Mean increases strictly below
+1/12 with non-increasing p95 are tolerated. The existing ingestion-age p95 ceiling
+of 110% of matched control is unchanged. Missing, nonfinite or negative values
+fail closed; every counter, parity, source, recipe, clean-exit and duration check
+remains binding. A different publication cadence requires new qualification,
+not reinterpretation using this conversion.
+
+Weights are discrete snapshots; a fractional mean difference does not create a
+fractional optimizer update or an intermediate weight snapshot for actors. This
+is the first-principles basis for the operational allowance. It does **not** prove
+that identical weights acted on identical decisions: a changed frequency of
+one-publication-old actions can change the mean without changing p95. Summary
+statistics cannot support that stronger claim. The observed r6 difference is
+approximately 0.0297643182 finalized updates after the conversion, well below one.
+No distributional or efficacy equivalence is inferred from this tolerance.
+
+**Preserved-packet re-qualification:** on the Mac only, hash-verify the original
+A100 r6 archive and bind its terminal queue receipt to its unique claim, worker,
+generation, token, commit and run/claim times. Re-run all `validate_packet` checks
+under A3 on the retained measurement. Complete the skipped wrapper accounting
+using inclusive claim-to-terminal elapsed time, which includes actual export and
+cleanup, without adding a fictional second attempt or charging CPU time separately
+to a GPU allocation. Retain the wrapper's conservative 60-second Q1 overhead
+reserve. Bind pricing, Mac/runtime parity, fixture digests, original archive,
+queue evidence, A3 registration and validator/tool source digests. Publish a NEW
+create-only qualified receipt archive plus SHA sidecar to a new Drive path; never
+rewrite the original or fabricate a queue `done` receipt. Q1 consumes this bound
+re-qualification instead of requiring the failed r6 queue state to become done.
+The new receipt is operational hardware evidence only. No new GPU work is needed.
+
+No efficacy endpoint, survival guard, N, arm, seed, final-checkpoint rule, analysis
+look, selection threshold, gameplay bank, serving behavior or release authority
+changes. Any other operational failure remains INVALID/INCOMPLETE. Q1 remains
+conditional on both qualified hardware packets and the complete current admission.

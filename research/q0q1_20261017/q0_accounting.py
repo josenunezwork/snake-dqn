@@ -30,6 +30,11 @@ SCHEMA = "q0q1-observed-q0-accounting/v1"
 PRICING_SCHEMA = "q0q1-observed-pricing/v1"
 OVERHEAD_SCHEMA = "q0q1-cpu-eval-overhead/v1"
 DEFAULT_DATE = "2026-10-18"
+BASELINE_Q0_UNITS_CAP = 40.0
+BASELINE_COMBINED_UNITS_CAP = 175.0
+Q1_ORIGINAL_UNITS_CAP = 135.0
+RESERVE_FRACTION = 0.20
+BASELINE_RESERVE_UNITS = BASELINE_COMBINED_UNITS_CAP * RESERVE_FRACTION
 DEFAULT_DRIVE_ROOT = (
     "/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/"
     "My Drive/t16_colab"
@@ -39,6 +44,66 @@ DEFAULT_OVERHEAD = Path(__file__).with_name("CPU_EVAL_OVERHEAD_MAC_20261018.json
 
 class AccountingError(ValueError):
     """Accounting cannot be completed from the immutable operational evidence."""
+
+
+def _same_number(actual: Any, expected: float) -> bool:
+    """Compare derived JSON numbers without admitting a material rounding change."""
+    return (
+        not isinstance(actual, bool)
+        and isinstance(actual, (int, float))
+        and math.isfinite(actual)
+        and math.isclose(float(actual), expected, rel_tol=0.0, abs_tol=1e-9)
+    )
+
+
+def validate_a3_envelope(accounting: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the exact A3 budget derivation bound into observed accounting.
+
+    Amendment A3 raises the combined cap by the *observed* Q0 overrun.  It does
+    not recompute the reserve as 20 percent of that larger cap: doing so would
+    consume part of Q1's original usable headroom.  The 35-unit reserve remains
+    the 20 percent reservation of the original 175-unit envelope.
+    """
+    # The generator copies this pair into the hash-bound study plan.  Keep the
+    # algebra validator usable for that derived plan as well as the original
+    # accounting receipt; callers that consume raw accounting must separately
+    # require its complete terminal-attempt status.
+    schema = accounting.get("schema")
+    if schema not in (None, SCHEMA, "q0q1-study-budget/v1"):
+        raise AccountingError("A3 envelope requires observed Q0 accounting or study-plan schema")
+    q0_units = _finite(accounting.get("q0_units"), "Q0 accounting q0_units", positive=True)
+    envelope = accounting.get("a3_envelope")
+    if not isinstance(envelope, Mapping):
+        raise AccountingError("Q0 accounting lacks an A3 envelope")
+    overrun = q0_units - BASELINE_Q0_UNITS_CAP
+    expected = {
+        "amendment": "A3",
+        "baseline_q0_units_cap": BASELINE_Q0_UNITS_CAP,
+        "observed_q0_units": q0_units,
+        "q0_units_cap": q0_units,
+        "q1_original_units_cap": Q1_ORIGINAL_UNITS_CAP,
+        "baseline_combined_units_cap": BASELINE_COMBINED_UNITS_CAP,
+        "reserve_fraction": RESERVE_FRACTION,
+        "reserve_basis_combined_units": BASELINE_COMBINED_UNITS_CAP,
+        "reserve_units": BASELINE_RESERVE_UNITS,
+        "q1_dispatch_headroom_units": Q1_ORIGINAL_UNITS_CAP - BASELINE_RESERVE_UNITS,
+        "q0_overrun_units": overrun,
+        "combined_units_cap": BASELINE_COMBINED_UNITS_CAP + overrun,
+        "combined_dispatch_limit_units": q0_units
+        + (Q1_ORIGINAL_UNITS_CAP - BASELINE_RESERVE_UNITS),
+    }
+    if envelope.get("amendment") != "A3":
+        raise AccountingError("Q0 accounting A3 envelope has the wrong amendment")
+    for name, value in expected.items():
+        if name == "amendment":
+            continue
+        if not _same_number(envelope.get(name), value):
+            raise AccountingError(f"Q0 accounting A3 envelope has invalid {name}")
+    if overrun <= 0:
+        raise AccountingError("A3 envelope requires observed Q0 units above the 40-unit cap")
+    if not isinstance(envelope.get("derivation"), str) or not envelope["derivation"]:
+        raise AccountingError("Q0 accounting A3 envelope lacks its derivation")
+    return dict(envelope)
 
 
 def sha256_file(path: Path) -> str:
@@ -356,7 +421,7 @@ def build_accounting(
     # 2--3x slower per-core CPU than this Mac, so use the conservative endpoint
     # for a CPU evaluation-job forecast; export reserve is registered at 60 s.
     cpu_overhead = 3.0 * overhead["max_seconds"] + observed_queue_setup + 60.0
-    return {
+    result = {
         "schema": SCHEMA,
         "since_date_utc": since_date.isoformat(),
         "status": (
@@ -394,6 +459,33 @@ def build_accounting(
             "plus 60s export/analysis/cleanup reserve"
         ),
     }
+    q0_overrun = units - BASELINE_Q0_UNITS_CAP
+    result["a3_envelope"] = {
+        "amendment": "A3",
+        "baseline_q0_units_cap": BASELINE_Q0_UNITS_CAP,
+        "observed_q0_units": units,
+        "q0_units_cap": units,
+        "q1_original_units_cap": Q1_ORIGINAL_UNITS_CAP,
+        "baseline_combined_units_cap": BASELINE_COMBINED_UNITS_CAP,
+        "reserve_fraction": RESERVE_FRACTION,
+        "reserve_basis_combined_units": BASELINE_COMBINED_UNITS_CAP,
+        "reserve_units": BASELINE_RESERVE_UNITS,
+        "q1_dispatch_headroom_units": Q1_ORIGINAL_UNITS_CAP - BASELINE_RESERVE_UNITS,
+        "q0_overrun_units": q0_overrun,
+        "combined_units_cap": BASELINE_COMBINED_UNITS_CAP + q0_overrun,
+        "combined_dispatch_limit_units": units + (Q1_ORIGINAL_UNITS_CAP - BASELINE_RESERVE_UNITS),
+        "derivation": (
+            "A3: q0_units_cap=observed_q0_units; combined_units_cap="
+            "175+(observed_q0_units-40); reserve_units=0.20*175=35; "
+            "combined_dispatch_limit_units=observed_q0_units+(135-35)."
+        ),
+    }
+    # A3 is a raised-cap amendment.  Preserve ordinary accounting for fixtures
+    # and diagnostics below the historical cap, but never let them become a
+    # dispatch budget: consumers must call this validator before admission.
+    if units > BASELINE_Q0_UNITS_CAP:
+        validate_a3_envelope(result)
+    return result
 
 
 def measure_cpu_eval_overhead(

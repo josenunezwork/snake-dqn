@@ -21,6 +21,7 @@ import pytest
 from research.q0q1_20261017 import inventory_receipt
 from research.q0q1_20261017 import make_q1_jobs as generator
 from research.q0q1_20261017 import q0b_measure, queue_jobs, run_queue_job
+from tests.test_make_q1_jobs import _a3_accounting
 from tests.test_q1_parity import _receipt as parity_receipt
 from tests.test_q1_qualification import _packet as qualification_packet
 
@@ -155,7 +156,7 @@ def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
     accounting.write_text(
         json.dumps(
             {
-                "q0_units": 20.0,
+                **_a3_accounting("q0b-measure-l4", "q0b-measure-a100"),
                 "q0_gpu_hours": 2.0,
                 "q0_cpu_hours": 2.0,
                 "cpu_unit_rate_per_hour": 0.5,
@@ -163,7 +164,7 @@ def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
             }
         )
     )
-    # Use the immutable production A2 admission, including its real binding.
+    # Use the immutable production A3 admission, including its real binding.
     owner = generator.owner_admission.DEFAULT_ADMISSION.resolve()
     # Retain the real producer/consumer binding logic while substituting only
     # the Mac-only inventory scans with passing synthetic audit outcomes.

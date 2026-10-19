@@ -306,3 +306,72 @@ def test_default_lower_bound_includes_later_utc_rollover_attempt(tmp_path):
     )
     assert result["since_date_utc"] == "2026-10-18"
     assert len(result["attempts"]) == 1
+
+
+def test_a3_envelope_preserves_the_original_q1_headroom_and_reserve(tmp_path):
+    """The higher combined cap must not turn the fixed reserve into Q1 spend."""
+    for index in range(120):
+        token = f"{index:032x}"
+        job_id = f"q0b-capacity-a100-r{index}"
+        claim(tmp_path, job_id=job_id, token=token)
+        terminal(tmp_path, job_id=job_id, token=token)
+    result = subject.build_accounting(
+        drive_root=tmp_path, pricing_path=pricing(tmp_path), overhead_path=overhead(tmp_path)
+    )
+    envelope = subject.validate_a3_envelope(result)
+    assert result["q0_units"] == pytest.approx(63.6)
+    assert envelope["q0_units_cap"] == pytest.approx(63.6)
+    assert envelope["q0_overrun_units"] == pytest.approx(23.6)
+    assert envelope["combined_units_cap"] == pytest.approx(198.6)
+    assert envelope["reserve_fraction"] == 0.20
+    assert envelope["reserve_basis_combined_units"] == 175.0
+    assert envelope["reserve_units"] == 35.0
+    assert envelope["q1_dispatch_headroom_units"] == 100.0
+    assert envelope["combined_dispatch_limit_units"] == pytest.approx(163.6)
+
+
+def test_a3_envelope_refuses_a_tampered_reserve_or_under_cap_accounting(tmp_path):
+    for index in range(120):
+        token = f"{index:032x}"
+        job_id = f"q0b-capacity-a100-r{index}"
+        claim(tmp_path, job_id=job_id, token=token)
+        terminal(tmp_path, job_id=job_id, token=token)
+    result = subject.build_accounting(
+        drive_root=tmp_path, pricing_path=pricing(tmp_path), overhead_path=overhead(tmp_path)
+    )
+    result["a3_envelope"]["reserve_units"] = 35.01
+    with pytest.raises(subject.AccountingError, match="invalid reserve_units"):
+        subject.validate_a3_envelope(result)
+
+    low_result = {
+        "schema": subject.SCHEMA,
+        "q0_units": 39.0,
+        "a3_envelope": {
+            **result["a3_envelope"],
+            "observed_q0_units": 39.0,
+            "q0_units_cap": 39.0,
+            "q0_overrun_units": -1.0,
+            "combined_units_cap": 174.0,
+            "combined_dispatch_limit_units": 139.0,
+            "reserve_units": 35.0,
+        },
+    }
+    with pytest.raises(subject.AccountingError, match="above the 40-unit cap"):
+        subject.validate_a3_envelope(low_result)
+
+
+def test_a3_envelope_accepts_a_hash_bound_study_plan_view(tmp_path):
+    for index in range(120):
+        token = f"{index:032x}"
+        job_id = f"q0b-capacity-a100-r{index}"
+        claim(tmp_path, job_id=job_id, token=token)
+        terminal(tmp_path, job_id=job_id, token=token)
+    accounting = subject.build_accounting(
+        drive_root=tmp_path, pricing_path=pricing(tmp_path), overhead_path=overhead(tmp_path)
+    )
+    plan = {
+        "schema": "q0q1-study-budget/v1",
+        "q0_units": accounting["q0_units"],
+        "a3_envelope": accounting["a3_envelope"],
+    }
+    assert subject.validate_a3_envelope(plan) == accounting["a3_envelope"]

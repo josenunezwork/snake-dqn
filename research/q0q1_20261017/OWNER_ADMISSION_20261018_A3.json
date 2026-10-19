@@ -1,0 +1,18 @@
+{
+  "amendment": "A3",
+  "authorization_source": "Owner decision in chat on 2026-10-18 at approximately 3:25 PM PT: 'Amend, raise total' to 'Q0 went over its 40-unit cap (~64 units, mostly failed attempts). How should Q1 proceed?' The chosen option read: 'Raise the combined envelope by the overrun (~25 units) so Q1 keeps its full original budget.'",
+  "authorized_at": "2026-10-18",
+  "binding_requirements": {
+    "a3_envelope": "required complete inclusive observed-Q0 accounting with the exact A3 formula, bound by digest",
+    "q0b_a100_receipt": "required qualified, hash-bound A3 re-qualification receipt",
+    "q0b_l4_receipt": "required qualified, hash-bound terminal-packet receipt",
+    "runtime_parity_receipt": "required passing, hash-bound receipt",
+    "study_plan": "required A3-envelope, hash-bound forecast"
+  },
+  "owner_release": "APPROVED_Q0Q1_20261017",
+  "q1_dispatch_is_conditional_on": "complete inclusive Q0 accounting, both qualified Q0b packets, bound Mac and runtime parity, and an A3-envelope forecast",
+  "registration_path": "research/q0q1_20261017/PREREGISTRATION.md",
+  "registration_sha256": "0b056540089473549493fc1d706796c912739e97d095bcc67843fa6c29309461",
+  "schema": "q0q1-owner-admission/v1",
+  "status": "OWNER_ADMITTED"
+}

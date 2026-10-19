@@ -26,20 +26,19 @@ def _receipt(*, rate: float = 0.5) -> dict:
 def test_study_plan_requires_observed_nonzero_cpu_debit_and_matches_packets() -> None:
     l4, a100 = _receipt(), _receipt()
     accounting = {
-        "q0_units": 20.0,
+        "q0_units": 64.0,
         "q0_gpu_hours": 1.0,
         "q0_cpu_hours": 2.0,
         "cpu_unit_rate_per_hour": 0.5,
         "cpu_eval_job_overhead_seconds": 3.0,
     }
+    accounting.update(_a3_accounting())
     plan = subject._study_plan(l4, a100, accounting)
     assert plan["owner_release"] == subject.OWNER_RELEASE
-    assert plan["amendment"] == "A2"
-    assert plan["a1_envelope"] == {
-        "q0_units_cap": 40.0,
-        "combined_units_cap": 175.0,
-        "reserve_fraction": 0.20,
-    }
+    assert plan["amendment"] == "A3"
+    assert plan["a3_envelope"]["q0_units_cap"] == 64.0
+    assert plan["a3_envelope"]["combined_units_cap"] == 199.0
+    assert plan["a3_envelope"]["reserve_units"] == 35.0
     accounting["cpu_unit_rate_per_hour"] = 0.0
     with pytest.raises(ValueError, match="cpu"):
         subject._study_plan(l4, a100, accounting)
@@ -57,7 +56,7 @@ def _current_test_owner(tmp_path: Path) -> Path:
 
 def test_owner_admission_binds_current_registration_bytes(tmp_path) -> None:
     admission = subject._validate_owner_admission(_current_test_owner(tmp_path))
-    assert admission["amendment"] == "A2"
+    assert admission["amendment"] == "A3"
     assert admission["status"] == "OWNER_ADMITTED"
     assert admission["owner_release"] == subject.OWNER_RELEASE
 
@@ -83,7 +82,7 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
     accounting.write_text(
         json.dumps(
             {
-                "q0_units": 20.0,
+                "q0_units": 64.0,
                 "q0_gpu_hours": 1.0,
                 "q0_cpu_hours": 2.0,
                 "cpu_unit_rate_per_hour": 0.5,
@@ -91,6 +90,7 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
             }
         )
     )
+    accounting.write_text(json.dumps({**json.loads(accounting.read_text()), **_a3_accounting()}))
     packet = {
         "runtime": {"cpu_cores": 12},
         "cells": [
@@ -158,7 +158,7 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
     assert {
         job["requirements"]["min_vcpu"] for job in jobs if job["id"].startswith("q1-train-")
     } == {12}
-    assert plan["q0_units"] == 20.0
+    assert plan["q0_units"] == 64.0
     assert plan["q1_cpu_overhead_hours"] == 100 * (4 * 2 + 3) / (3600 * 0.8)
     import hashlib
 
@@ -182,8 +182,35 @@ def test_new_registration_amendment_invalidates_old_admission(tmp_path):
     registration = tmp_path / "registration.md"
     registration.write_bytes(subject.owner_admission.REGISTRATION.read_bytes())
     with registration.open("a") as stream:
-        stream.write("\n## Amendment A3 - test only\n")
+        stream.write("\n## Amendment A4 - test only\n")
     admission = json.loads(subject.owner_admission.DEFAULT_ADMISSION.read_text())
     admission["registration_sha256"] = subject.sha256_file(registration)
-    with pytest.raises(ValueError, match="approved A3"):
+    with pytest.raises(ValueError, match="approved A4"):
         subject.owner_admission.validate(admission, registration)
+
+
+def _a3_accounting(l4_id="q0b-l4", a100_id="q0b-a100"):
+    return {
+        "schema": subject.q0_accounting.SCHEMA,
+        "status": "COMPLETE",
+        "q0_units": 64.0,
+        "attempts": [
+            {"id": job_id, "conservative_upper_bound": False} for job_id in (l4_id, a100_id)
+        ],
+        "a3_envelope": {
+            "amendment": "A3",
+            "baseline_q0_units_cap": 40.0,
+            "observed_q0_units": 64.0,
+            "q0_units_cap": 64.0,
+            "q1_original_units_cap": 135.0,
+            "baseline_combined_units_cap": 175.0,
+            "reserve_fraction": 0.2,
+            "reserve_basis_combined_units": 175.0,
+            "reserve_units": 35.0,
+            "q1_dispatch_headroom_units": 100.0,
+            "q0_overrun_units": 24.0,
+            "combined_units_cap": 199.0,
+            "combined_dispatch_limit_units": 164.0,
+            "derivation": "synthetic inclusive fixture",
+        },
+    }

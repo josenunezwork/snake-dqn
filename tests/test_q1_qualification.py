@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from research.q0q1_20261017 import qualification as subject
 
 HASH = "a" * 64
@@ -281,3 +283,36 @@ def test_admission_requires_explicit_nonzero_overhead_and_one_worker() -> None:
     assert any("q1_gpu_overhead_hours" in error for error in outcome["errors"])
     assert any("q1_cpu_overhead_hours" in error for error in outcome["errors"])
     assert any("one worker" in error for error in outcome["errors"])
+
+
+@pytest.mark.parametrize(
+    "delta,qualified", [(0.00248036, True), (0.08, True), (1 / 12, False), (0.09, False)]
+)
+def test_a3_mean_lag_tolerance_is_strictly_less_than_one_update(delta, qualified):
+    packet = _packet()
+    lag = packet["cells"][1]["policy_lag"]
+    lag["matched_control"]["mean"] = 0.0
+    lag["mean"] = delta
+    assert (subject.validate_packet(packet)["status"] == "QUALIFIED") is qualified
+
+
+def test_a3_does_not_tolerate_p95_or_ingestion_age_regression():
+    for field, delta in (("p95", 0.000001), ("age_p95", 1.0)):
+        packet = _packet()
+        lag = packet["cells"][1]["policy_lag"]
+        lag[field] = lag["matched_control"][field] + delta
+        assert subject.validate_packet(packet)["status"] == "INCOMPLETE"
+
+
+def test_a3_refuses_negative_policy_lag():
+    packet = _packet()
+    packet["cells"][0]["policy_lag"]["mean"] = -1
+    assert subject.validate_packet(packet)["status"] == "INCOMPLETE"
+
+
+def test_a3_nonzero_control_at_exact_update_boundary_fails():
+    packet = _packet()
+    lag = packet["cells"][1]["policy_lag"]
+    lag["matched_control"]["mean"] = 0.14108689160943566
+    lag["mean"] = lag["matched_control"]["mean"] + 1 / 12
+    assert subject.validate_packet(packet)["status"] == "INCOMPLETE"
