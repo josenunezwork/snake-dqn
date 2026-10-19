@@ -38,6 +38,21 @@ MODE = os.environ.get("FAKE_COLAB_MODE", "normal")
 ACCEPTANCE_MODE = MODE == "acceptance"
 
 
+def _acceptance_profile(code: str) -> str:
+    """Read the profile from the immutable runtime spec embedded by the broker.
+
+    The fake must exercise the same profile selection that reaches the remote
+    launcher; a process environment value here would only test the fixture.
+    """
+    match = re.search(r"['\"]COLAB_ACCEPTANCE_PROFILE['\"]:\s*['\"]([^'\"]+)", code)
+    if match is None:
+        # The production default is final-only. Keeping that default here also
+        # prevents an omitted manifest environment binding from silently
+        # exercising the old full-state fixture.
+        return "final-only"
+    return match.group(1)
+
+
 def _load() -> dict[str, Any]:
     if not STATE.exists():
         return {"balance": 1178.30, "rate": 6.84, "sessions": {}, "exec_count": {}}
@@ -346,7 +361,9 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         # Execute the actual uploaded source helper. Only the network/git
         # boundary is faked; identity checks and fallback extraction are real.
         plan = ast.literal_eval(re.search(r"plan=(\{[^\n]+\})", code).group(1))
-        repository = Path(__file__).resolve().parents[2]
+        repository = Path(
+            os.environ.get("FAKE_COLAB_SOURCE_REPO", Path(__file__).resolve().parents[2])
+        )
 
         def fake_source_run(argv: list[str], *, cwd: Path, timeout: float) -> str:
             if "fetch" in argv:
@@ -382,23 +399,38 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         generation = generation_match.group(1) if generation_match else "fake-generation"
         output = local_root / "output"
         output.mkdir(parents=True, exist_ok=True)
-        checkpoint = b"fixture-toy-checkpoint"
-        checkpoint_digest = hashlib.sha256(checkpoint).hexdigest()
-        toy_resume = {
-            "exact": True,
-            "scope": "fixture only; not evidence for a trainer",
-            "uninterrupted_sha256": checkpoint_digest,
-            "steps": 9,
-        }
-        fixtures: dict[str, bytes] = {
-            "busy-snapshot.bin": (
-                b"s" * (9 * 1024 * 1024 + 17) if ACCEPTANCE_MODE else b"fixture-snapshot"
-            ),
-            "toy-checkpoint.pkl": checkpoint,
-            "toy-resume.json": json.dumps(toy_resume).encode(),
-            "checkpoint-overhead.json": b'{"overhead_percent":0.0}',
-            "intentional-child-failure.json": b'{"exit_code":23}',
-        }
+        profile = _acceptance_profile(code)
+        if profile not in {"final-only", "full-state"}:
+            raise SystemExit(f"unsupported acceptance profile: {profile}")
+        is_l4 = "-l4" in session
+        if profile == "final-only":
+            # This is deliberately the real S1 admission payload size.  The
+            # supervisor's transfer and local SHA verification remain real;
+            # only the provider boundary is faked.
+            artifact_name = "final-artifact.bin" if is_l4 else "client-job.bin"
+            artifact_size = 64 * 1024 * 1024 if is_l4 else 4096
+            fixtures = {
+                artifact_name: b"f" * artifact_size,
+                "intentional-child-failure.json": b'{"exit_code":23}',
+            }
+        else:
+            checkpoint = b"fixture-toy-checkpoint"
+            checkpoint_digest = hashlib.sha256(checkpoint).hexdigest()
+            toy_resume = {
+                "exact": True,
+                "scope": "fixture only; not evidence for a trainer",
+                "uninterrupted_sha256": checkpoint_digest,
+                "steps": 9,
+            }
+            fixtures = {
+                "busy-snapshot.bin": (
+                    b"s" * (9 * 1024 * 1024 + 17) if ACCEPTANCE_MODE else b"fixture-snapshot"
+                ),
+                "toy-checkpoint.pkl": checkpoint,
+                "toy-resume.json": json.dumps(toy_resume).encode(),
+                "checkpoint-overhead.json": b'{"overhead_percent":0.0}',
+                "intentional-child-failure.json": b'{"exit_code":23}',
+            }
         exports: list[dict[str, Any]] = []
         for name, payload in fixtures.items():
             target = output / name
@@ -445,11 +477,42 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
                     "pid": 4242,
                     "execution_id": "fixture-execution",
                     "snapshot": {
-                        "path": "busy-snapshot.bin",
-                        "bytes": len(fixtures["busy-snapshot.bin"]),
-                        "sha256": hashlib.sha256(fixtures["busy-snapshot.bin"]).hexdigest(),
+                        "path": (
+                            "final-artifact.bin"
+                            if profile == "final-only" and is_l4
+                            else (
+                                "client-job.bin" if profile == "final-only" else "busy-snapshot.bin"
+                            )
+                        ),
+                        "bytes": len(
+                            fixtures[
+                                (
+                                    "final-artifact.bin"
+                                    if profile == "final-only" and is_l4
+                                    else (
+                                        "client-job.bin"
+                                        if profile == "final-only"
+                                        else "busy-snapshot.bin"
+                                    )
+                                )
+                            ]
+                        ),
+                        "sha256": hashlib.sha256(
+                            fixtures[
+                                (
+                                    "final-artifact.bin"
+                                    if profile == "final-only" and is_l4
+                                    else (
+                                        "client-job.bin"
+                                        if profile == "final-only"
+                                        else "busy-snapshot.bin"
+                                    )
+                                )
+                            ]
+                        ).hexdigest(),
                     },
                     "measurement": {"overhead_percent": 0.0},
+                    "profile": profile,
                 }
                 if ACCEPTANCE_MODE
                 else {}

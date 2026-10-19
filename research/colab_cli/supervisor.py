@@ -145,8 +145,9 @@ def positive(value: Any, name: str) -> float:
     return float(value)
 
 
-def validate(manifest: dict[str, Any], repo: Path = REPO) -> dict[str, Any]:
+def validate(manifest: dict[str, Any], repo: Path | None = None) -> dict[str, Any]:
     """Validate inputs and a conservatively priced whole-session envelope."""
+    repo = REPO if repo is None else repo
     m = json.loads(json.dumps(manifest))
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", m.get("job_id", "")):
         raise Refused("job_id must be a short lowercase identifier")
@@ -235,6 +236,9 @@ def validate(manifest: dict[str, Any], repo: Path = REPO) -> dict[str, Any]:
     m["max_export_bytes"] = int(positive(m.get("max_export_bytes", 1024**3), "max_export_bytes"))
     if m["max_export_bytes"] > 2 * 1024**3:
         raise Refused("maximum artifact size is 2 GiB (transferred in bounded chunks)")
+    from research.colab_cli.admission import check_study_manifest
+
+    check_study_manifest(m, repo)
     return m
 
 

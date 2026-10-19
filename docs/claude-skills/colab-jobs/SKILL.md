@@ -49,11 +49,41 @@ Every new job kind goes through `research/colab_cli/` (see `docs/colab-cli.md` f
 5. Never trust a CLI exit code alone: check the job's receipt (status, hashes, counters), locally verified exports,
    spend ledger, and endpoint disappearance.
 6. Import results into the repo doc, commit + push to main, report to the owner (Pacific time).
-The first use of the supervisor requires its <=4-unit acceptance test to pass.
+The first use of the supervisor requires a <=4-unit acceptance pass in the
+applicable profile. `final-only` is the default and is the required profile for
+S1 and other jobs that export terminal weights and receipts only. It retains
+account-assignment-spend, rate calibration, fresh OAuth refresh, silence timeout,
+URL no-second-allocation, small-job client-loss/reconnect, failure/corrupt-export,
+L4 Mac-loss watchdog unassignment, and backend-stop disappearance. It also
+requires a complete exactly 64 MiB final-artifact download, SHA-256 verification,
+and an observed bytes/second lower bound. Its receipt records busy full snapshot,
+exact resume, and checkpoint overhead as `NOT_REQUIRED`, not `PASS`.
 
-The L4 acceptance arm simulates a Mac disconnect by suppressing renewal. It passes only if the exact assignment
-disappears from backend sessions within 300 seconds after lease expiry, before broker fallback cleanup. A missing artifact, credential
-scope/expiry failure, unaccounted assignment, lingering VM, cleanup error, or timeout ambiguity is `INCOMPLETE`.
+S1 admission needs a `final-only` PASS bound to the current source and supplied
+in its manifest as the hash-bound input destination `cli-acceptance-result.json`.
+A prepared plan, another profile or source, and any `INCOMPLETE` result are not
+admission evidence. Use `full-state` before a job uses a mid-run full-state
+snapshot or claims exact resume; it retains shared operational gates and adds
+the 600 MiB busy-snapshot/client-loss, exact-resume, and <=2%
+checkpoint-overhead gates. The exact-64-MiB download is `NOT_REQUIRED` there.
+
+Run profiles through `research/colab_cli/launch.sh`, never a direct mutating
+Colab command:
+
+```bash
+"$LAUNCH" acceptance --profile final-only --state-dir "$SUPERVISOR_STATE"
+"$LAUNCH" acceptance --profile final-only --state-dir "$SUPERVISOR_STATE" \
+  --execute-after-review --review-token COLAB_CLI_ACCEPTANCE_REVIEWED
+```
+
+The L4 acceptance arm simulates a Mac disconnect by suppressing renewal. It
+passes only if the exact assignment disappears from backend sessions within 300
+seconds after lease expiry, before broker fallback cleanup. A missing artifact,
+credential scope/expiry failure, unaccounted assignment, lingering VM, cleanup
+error, or timeout ambiguity is `INCOMPLETE`. Run 6 at `fe0fd684` was
+`INCOMPLETE`: a 600 MiB busy-snapshot/client-loss phase waited 1,157 seconds and
+then `_wait_file` refused to resubmit. Its `stop_verified: true` record does not
+qualify either profile.
 
 Everything below documents the **legacy Q1-only** notebook/Drive path, still needed only to run and babysit the
 already-authorized Q1 work. It must not be used to create or route a new Colab job.

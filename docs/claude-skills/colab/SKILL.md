@@ -45,7 +45,18 @@ work (Q1, the notebook workers) alone until it finishes. Design and guardrails:
   L4 alone = 1.54 u/h.
 - `colab url -s NAME` attaches the web UI to a CLI session (for the owner to look) without a new allocation.
 - The <=4-unit acceptance plan is expected after Q1 and independent review (CPU <=20 min, then L4 <=30 min).
-  Until it passes, no new research allocation is qualified.
+  `final-only` is the default profile: it is required for S1 and terminal-only
+  exports, keeps every operational safety gate, and adds an exactly 64 MiB
+  hash-verified final download with a recorded bytes/second lower bound. It
+  records the 600 MiB busy snapshot, exact resume, and checkpoint-overhead rows
+  as `NOT_REQUIRED`. S1 needs a current-source-bound `final-only` PASS uploaded
+  as hash-bound `cli-acceptance-result.json`; no plan or different-profile
+  result admits it. `full-state` is required before mid-run full snapshots or
+  exact-resume claims, retains shared operational gates, and adds the three
+  full-state gates; the 64 MiB download is `NOT_REQUIRED` there. Run the reviewed
+  profile through `launch.sh acceptance --profile final-only`; until it passes,
+  no new research allocation is qualified. Run 6 at `fe0fd684` was `INCOMPLETE`
+  and cannot qualify either profile.
 
 ## GPUs (2026-10-18)
 

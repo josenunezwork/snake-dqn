@@ -1,81 +1,161 @@
 # Colab CLI acceptance qualification
 
-This is the mandatory, bounded qualification before routing a new research job through `research.colab_cli`. It implements the operating-model advice dated 2026-10-18. It is not a study run, does not alter the Q1 Drive queue, and does not constitute a live pass until the records below exist and are independently reviewed.
+This is the mandatory, bounded qualification before routing a new research job
+through `research.colab_cli`. It is not a study run, does not alter the Q1 Drive
+queue, and does not become a pass until its create-only records exist and
+receive independent review.
 
-Use the supplied 2026-10-18 18:38 PT account context only as a preparation baseline: 1,174.37 compute units, aggregate usage 0.00 units/hour, and zero active assignments. It is not a current measurement. Before execution the supervisor queries `colab --auth oauth2 usage` and `sessions`. Every assignment already present must appear in a reviewed endpoint-to-rate map (or a current broker record); an unknown endpoint is a refusal. The receipt records the session-attributed acceptance spend and the priced baseline of those other assignments, cross-checked against the account balance delta. The account-wide maximum remains three assignments.
+There are two acceptance profiles. The CLI defaults to `final-only`. Every plan
+and execution result records the selected profile and the current source
+identity it is bound to; a PASS from a different source identity does not admit
+a later source revision.
 
-The whole qualification has a hard cap of 4.0 units, including a 0.8-unit (20%) reserve; only 3.2 units are usable. The first wall-clock or unit cap reached stops the relevant job. CPU is at most 20 minutes with a conservative priced upper bound of 0.5 units/hour by default; L4 is at most 30 minutes with a conservative priced upper bound of 2.0 units/hour by default. The `--cpu-rate`/`--cpu-rate-units-per-hour` and `--l4-rate`/`--l4-rate-units-per-hour` options override those *pricing ceilings* before allocation. They are used for admission, liability reservation, and the hard session cap, never replaced by a lower provider observation. There are no retries, purchases, replacement allocations, or automatic CPU/L4 fallback.
+| Profile | When it is required | Qualification boundary |
+| --- | --- | --- |
+| `final-only` (default) | S1 and terminal-artifact-only jobs | Requires all operational safety gates plus a measured, hash-verified download of one exactly 64 MiB final artifact. It does not qualify snapshots or resume. |
+| `full-state` | Before a job uses a mid-run full-state snapshot or claims exact resume | Requires the shared operational safety gates and the 600 MiB busy-snapshot/client-loss, exact-resume, and checkpoint-overhead gates. |
 
-After each allocation, the supervisor performs one bounded provider-rate calibration: up to 120 seconds, three stable positive reads, five seconds apart, with stability within 0.01 units/hour. It subtracts the reconciled rate of every other accounted assignment from the provider account rate, allowing provider lag. The resulting observed rate must be at or below the priced ceiling plus 0.05 units/hour. A missing, nonpositive, unstable, unexplained, or over-ceiling observation stops the arm and leaves qualification `INCOMPLETE`. Once calibration passes, later provider-rate drift is checked against the observed rate, while pricing and caps remain bound to the conservative priced ceiling. The acceptance result records both values and its calibration samples for CPU and L4; CPU's measured rate is an output, not an input.
+S1 exports only terminal weights and receipts, with a 64 MiB per-attempt bound;
+it has no mid-run full-state snapshot and makes no exact-resume claim. Its
+pre-allocation admission validator requires a `final-only` PASS bound to the
+current source. The S1 manifest must upload that acceptance result as the
+hash-bound input destination `cli-acceptance-result.json`. A prepared plan, a
+`NOT_REQUIRED` full-state row, a different-profile result, or a PASS bound to
+another source does not admit S1.
+
+## Caps and account boundary
+
+Use the supplied 2026-10-18 18:38 PT account context only as a preparation
+baseline: 1,174.37 compute units, aggregate usage 0.00 units/hour, and zero
+active assignments. It is not a current measurement. Before execution the
+supervisor queries `colab --auth oauth2 usage` and `sessions`. Every assignment
+already present must appear in a reviewed endpoint-to-rate map (or a current
+broker record); an unknown endpoint is a refusal. The account-wide maximum
+remains three assignments.
+
+The whole qualification has a hard cap of 4.0 units, including a 0.8-unit
+(20%) reserve; only 3.2 units are usable. The first wall-clock or unit cap
+reached stops the relevant job. CPU is at most 20 minutes with a conservative
+priced upper bound of 0.5 units/hour by default; L4 is at most 30 minutes with
+a conservative priced upper bound of 2.0 units/hour by default. The
+`--cpu-rate`/`--cpu-rate-units-per-hour` and
+`--l4-rate`/`--l4-rate-units-per-hour` options override those *pricing
+ceilings* before allocation. They are used for admission, liability
+reservation, and the hard session cap, never replaced by a lower provider
+observation. There are no retries, purchases, replacement allocations, or
+automatic CPU/L4 fallback.
+
+After each allocation, the supervisor performs one bounded provider-rate
+calibration: up to 120 seconds, three stable positive reads, five seconds
+apart, with stability within 0.01 units/hour. It subtracts the reconciled rate
+of every other accounted assignment from the provider account rate, allowing
+provider lag. The resulting observed rate must be at or below the priced
+ceiling plus 0.05 units/hour. A missing, nonpositive, unstable, unexplained,
+or over-ceiling observation stops the arm and leaves qualification
+`INCOMPLETE`. Once calibration passes, later provider-rate drift is checked
+against the observed rate, while pricing and caps remain bound to the
+conservative priced ceiling.
 
 ## Prepare only
 
-This creates unique, absolute output directories, pinned manifests, input hashes, and a `NOT_RUN` plan. It never invokes `colab`.
+Preparation creates unique absolute output directories, pinned manifests,
+input hashes, and a `NOT_RUN` plan. It never invokes `colab`. Use the profile
+explicitly when preparing review material, even though `final-only` is the
+default.
 
 ```sh
 LAUNCH=/Users/josenunez/Projects/ml/snake-dqn/research/colab_cli/launch.sh
 "$LAUNCH" acceptance \
+  --profile final-only \
   --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance
 ```
 
-The default plan prices CPU as `20 / 60 * 0.5` and L4 as `30 / 60 * 2.0 = 1.0`; both must fit the usable 3.2 units. Use a reviewed `--other-assignments /absolute/path/other-assignments.json` only when current `sessions` is nonempty; that JSON must list every pre-existing endpoint and its reviewed positive rate. Re-run preparation rather than reuse any manifest or output directory.
+The default plan prices CPU as `20 / 60 * 0.5` and L4 as
+`30 / 60 * 2.0 = 1.0`; both must fit the usable 3.2 units. Use a reviewed
+`--other-assignments /absolute/path/other-assignments.json` only when current
+`sessions` is nonempty; that JSON must list every pre-existing endpoint and its
+reviewed positive rate. Re-run preparation rather than reuse any manifest or
+output directory.
 
-The probe calibrates a fixed deterministic synthetic useful-work loop, then runs the same fixed count before and after the 600 MiB immutable snapshot/export handoff. `checkpoint-overhead.json` records calibration samples, fixed iteration count, baseline, second pass, snapshot-write time, and computed overhead. This measures transport behavior only; it does not establish trainer throughput or exact trainer resume. The priced remote allowance is CPU `0.5 / 3` plus L4 `1.0` unit by default, and the measured synthetic overhead must be at most 2% for the acceptance gate to pass.
+No remote duration or debit was measured by preparation. A Mac preflight on
+2026-10-18 measured three real units of 1,000 deterministic toy updates at
+0.021951, 0.022130, and 0.022009 seconds with one worker. These are transport
+fixtures, not M3-C training estimates.
 
-## Step costs and timing evidence
+## Execute after independent review only
 
-No remote duration or debit was measured by this implementation task. A Mac preflight on 2026-10-18 measured
-three real units of 1,000 deterministic toy updates at **0.021951, 0.022130, and 0.022009 seconds**, one worker.
-The runtime repeats that calibration on its actual CPU and uses the same fixed update count for both
-approximately 90-second passes. These are transport fixtures, not M3-C training estimates.
-
-For every billed step record `seconds * priced_rate / 3600`; `r` below is the CPU pricing ceiling. These expected
-planning allowances are not measurements or additional caps. Overlapping work is charged once. Setup, deliberate
-idle time, export tails, and cleanup all count against the arm's whole-session cap. Exhaustion fails qualification
-without another allocation.
-
-| Step | Expected allowance | CPU expected units | L4 expected units | Measurement artifact |
-| --- | ---: | ---: | ---: | --- |
-| Mac archive/hash validation | Before allocation | 0 | 0 | `input-hashes.json` |
-| Allocation, Python/wheel/dependency setup | Up to 8 min | `8*r/60` | 0.267 | usage/elapsed and bootstrap log |
-| Calibration + fixed baseline | About 90 s plus calibration | `r/40` plus calibration | 0.050 plus calibration | `checkpoint-overhead.json` |
-| Snapshot creation, paired work, busy transfer/client loss | About 120 s, overlapping | `r/30` | 0.067 | observer timings, hashes, transfer ack |
-| Silent kernel execution | 65 s, overlaps baseline | `65*r/3600` | 0.036 | observer timeout/elapsed |
-| Separate silent child fixture | 65 s | `65*r/3600` | 0.036 | `silence.json` |
-| Child exit, imported toy resume, final verification | About 30 s | `r/120` | 0.017 | child/resume/receipt artifacts |
-| L4 lease-loss checkpoint and unassignment | About 201 s; L4 only | Not applicable | 0.112 | verified checkpoint and backend absence |
-| CPU whole-session maximum | 20 min | **`r/3`** | Not applicable | receipt and account debit |
-| L4 whole-session maximum | 30 min | Not applicable | **1.0** | receipt and account debit |
-
-The CPU acceptance lease is 300 seconds for the intentional 120-second busy-kernel/client-loss exercise. The L4
-fault arm uses a separate 180-second lease. This qualification does not alter any pre-existing assignment.
-OAuth refresh occurs in memory on the Mac. The watchdog receives only a short-lived, narrowly scoped release
-credential generated for that runtime; the owner's refresh token and token file are never uploaded or rewritten.
-
-## Execute after review only
-
-After Q1 is complete and an independent reviewer accepts the generated plan, the operator may run the same command with the exact review marker below. This calls the supervisor sequentially, first CPU then L4, using `new/exec/download/stop`; it does not use `drivemount`, runtime `auth`, or browser clicks.
+After Q1 is complete and an independent reviewer accepts the generated plan,
+the operator may execute the reviewed `final-only` profile. This calls the
+supervisor sequentially, first CPU then L4, using `new`/`exec`/`download`/`stop`;
+it does not use `drivemount`, runtime `auth`, or browser clicks.
 
 ```sh
 "$LAUNCH" acceptance \
+  --profile final-only \
   --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance \
-  --execute-after-review --review-token COLAB_CLI_ACCEPTANCE_REVIEWED
+  --execute-after-review \
+  --review-token COLAB_CLI_ACCEPTANCE_REVIEWED
 ```
 
-The probe pauses at its hash-bound transfer-ready state while the Mac performs the bounded one-way snapshot export handoff, then resumes the same measured loop. That one export is the paired checkpoint-overhead measurement. The later full upload/download roundtrip is recorded separately as transport-integrity evidence, outside that overhead gate. It separately exports a toy full-state checkpoint; the runtime-side resume entrypoint reloads it and continues the remaining deterministic steps for an independent hash comparison. The command writes a create-only `acceptance-result.json` beside the initial `acceptance-plan.json`; the plan is never rewritten. A process exit of zero is not evidence of a kernel success.
+The command writes a create-only `acceptance-result.json` beside the initial
+`acceptance-plan.json`; the plan is never rewritten. A process exit of zero is
+not evidence of kernel success.
+
+### `final-only` required gates
 
 | Gate | Required evidence | Pass condition |
 | --- | --- | --- |
-| Fresh credentials | New Terminal `whoami` and `usage` after token refresh | Reusable OAuth works without a browser prompt. |
-| Busy full snapshot transfer | One-way handoff timing plus separately timed full roundtrip, with local SHA-256 verification and atomic rename | The paired overhead covers only the required export; roundtrip hashes match while the kernel has a supervised child. |
-| Silence timeout | Probe has a gap greater than 60 seconds and supervisor records an explicit timeout | Timeout is bounded and does not blindly resubmit execution. |
+| Accounted concurrent spend | `account-assignment-spend` ledger | Every pre-existing endpoint has a reviewed positive rate; the receipt separates acceptance elapsed-rate charge from the measured other-assignment baseline. |
+| Rate calibration | CPU and L4 calibration samples and receipt fields | Stable positive, baseline-subtracted observed rate is within the priced ceiling plus tolerance; caps remain the priced ceiling. |
+| Fresh OAuth refresh | New Terminal `whoami` and `usage` after token refresh | Reusable OAuth works without a browser prompt. |
+| Silence timeout | Small job has a gap greater than 60 seconds and the supervisor records an explicit timeout | Timeout is bounded and does not blindly resubmit execution. |
 | Browser attachment | `sessions` before and after `url` | Same assignment; `url` creates no second allocation. |
-| Client loss/reconnect | Generation fence, remote job identity, and one completion record | Reconnect observes the existing job without duplicate work. |
-| Failure/corrupt export | Intentional child exit receipt and corrupt-download rejection record | Failure is terminal and wrong hash never becomes a local artifact. |
-| Exact resume | Full-state hash for uninterrupted and resumed runs | Optimizer, replay, actors, target, RNG, and counters match; weights alone are insufficient. |
-| Accounted concurrent spend | `account-assignment-spend` ledger | Every pre-existing endpoint has a reviewed positive rate; receipt separates acceptance elapsed-rate charge from the measured other-assignment baseline. |
-| Mac loss watchdog | Exported checkpoint during the 15-second grace plus backend endpoint disappearance within 300 seconds | Simulated Mac renewal loss leaves the VM-side release path to checkpoint and unassign. The exact endpoint must disappear before broker fallback cleanup; a `?` label or trainer exit alone fails. |
-| Checkpoint overhead | Paired fixed-count synthetic-work baseline and transfer pass | Measured paired transport overhead is at most 2%; this is not a trainer-throughput claim. |
-| Backend release | `stop`, then independent `sessions`/`status` observation | Assignment disappears; a successful CLI exit alone is insufficient. |
+| Client loss/reconnect | Small-job generation fence, remote job identity, and one completion record | Reconnect observes the existing job without duplicate work. |
+| Failure and corrupt export | Intentional child-exit receipt and corrupt-download rejection record | Failure is terminal and a wrong hash never becomes a local artifact. |
+| Final artifact download | Exactly 64 MiB immutable final artifact, SHA-256 sidecar, completion marker, verified local hash, and recorded bytes/second lower bound | The complete final-sized artifact downloads, verifies, and records the throughput lower bound used for S1 admission. |
+| Mac-loss watchdog unassign | L4 lease expiry, checkpoint/grace evidence, and backend endpoint disappearance within 300 seconds | Simulated Mac renewal loss causes the VM-side release path to checkpoint and unassign before broker fallback cleanup; a `?` label or trainer exit alone fails. |
+| Backend stop disappearance | `stop`, then independent `sessions`/`status` observation | The exact assignment disappears; a successful CLI exit alone is insufficient. |
 
-Any missing artifact, incomplete provider-rate calibration, unaccounted session, unexplained provider-rate change, timeout ambiguity, backend persistence, cleanup error, or supervisor feature that cannot produce the listed evidence is `INCOMPLETE` and fails qualification. Do not route research workloads through the CLI until every row is verified.
+The `final-only` receipt must record `busy-full-snapshot`, `exact-resume`,
+and `checkpoint-overhead` as `NOT_REQUIRED`, not as `PASS`. This profile
+neither uploads a 600 MiB snapshot nor establishes full-state transport,
+trainer resume, or checkpoint-overhead behavior.
+
+### `full-state` extension
+
+Run `--profile full-state` before a job uses mid-run full-state snapshots or
+asserts exact resume. It retains the shared operational safety gates and
+requires the 600 MiB busy-snapshot/client-loss transfer, an uninterrupted
+versus resumed full-state hash comparison (optimizer, replay, actors, target,
+RNG, and counters; weights alone are insufficient), and the paired
+fixed-count checkpoint-overhead measurement at or below 2%. The exactly-64-MiB
+final-artifact download is the S1 `final-only` admission measurement and is
+`NOT_REQUIRED` in `full-state`. Missing required evidence makes the profile
+`INCOMPLETE`.
+
+## Supplied acceptance evidence: run 6 is INCOMPLETE
+
+Live acceptance run 6 used source commit `fe0fd684` and directory
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance/acceptance-1792384051`.
+It ended `INCOMPLETE` after 1,157 seconds during the busy 600 MiB
+full-snapshot/client-loss phase: `acceptance_faults.py:447` (`_wait_file`)
+raised `Refused('kernel completion file not observed; refusing exec resubmission')`.
+Observed gates were account-assignment-spend, fresh-oauth-refresh,
+silence-timeout, url-no-second-allocation, failure-and-corrupt-export, and
+`stop_verified: true`. Small uploads achieved only about 2--8 kB/s effective
+throughput (about 1.3--1.7 seconds per few-KiB file), where per-call overhead
+dominated.
+
+These observations do not qualify either profile. In particular, run 6 did
+not PASS `final-only`, did not measure the required 64 MiB final-download
+throughput lower bound, and cannot admit S1.
+
+When a completion file is absent, the refusal now identifies the remote file,
+the named acceptance phase, and the elapsed wait before it declines to
+resubmit a possibly busy kernel operation. The diagnostic does not turn an
+uncertain completion into success.
+
+Any missing artifact, incomplete provider-rate calibration, unaccounted
+session, unexplained provider-rate change, timeout ambiguity, backend
+persistence, cleanup error, or supervisor feature that cannot produce the
+listed evidence is `INCOMPLETE` and fails the selected profile.

@@ -10,7 +10,7 @@ research workload through it until the bounded acceptance run in
 [`research/colab_cli/ACCEPTANCE.md`](../research/colab_cli/ACCEPTANCE.md)
 passes and its artifacts receive independent review.
 
-## Acceptance status: first CPU evidence, not a full qualification
+## Acceptance status: no profile is qualified
 
 The first live CPU acceptance attempt began on 2026-10-18 at 19:41 PT. Its
 run directory is
@@ -34,6 +34,17 @@ to use the ceiling; the observed rate is recorded for calibration and later
 drift checks. See
 [`colab-cli-pricing-notes-2026-10-18.md`](colab-cli-pricing-notes-2026-10-18.md)
 for the dated evidence and rationale.
+
+Live acceptance run 6 used commit `fe0fd684` and directory
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance/acceptance-1792384051`.
+It ended `INCOMPLETE` after 1,157 seconds during the busy 600 MiB
+full-snapshot/client-loss phase, when `acceptance_faults.py:447` (`_wait_file`)
+raised `Refused('kernel completion file not observed; refusing exec resubmission')`.
+It observed account-assignment-spend, fresh-oauth-refresh, silence-timeout,
+url-no-second-allocation, failure-and-corrupt-export, and `stop_verified: true`.
+Those observations do not constitute a profile pass. Small uploads achieved
+about 2--8 kB/s effective throughput (roughly 1.3--1.7 seconds per few-KiB
+file), where per-call overhead dominated.
 
 ## Scope and prerequisites
 
@@ -345,7 +356,7 @@ Read-only account evidence is available after a supervisor action:
 "$COLAB_BIN" --auth oauth2 sessions
 ```
 
-## Required acceptance before live research
+## Acceptance profiles required before live research
 
 The acceptance plan stays within 4 units including its reserve. CPU pricing
 defaults to a conservative 0.5 units/hour and L4 pricing defaults to 2.0
@@ -364,6 +375,40 @@ See [`research/colab_cli/ACCEPTANCE.md`](../research/colab_cli/ACCEPTANCE.md)
 for the reviewed prepare and execute commands, pricing ceilings, artifacts,
 and all gates. Do not execute the live command until that separate review has
 occurred.
+
+The default profile is `final-only`. It is the admission prerequisite for S1,
+which exports terminal weights and receipts only, has a 64 MiB per-attempt
+export bound, and makes no exact-resume claim. A `final-only` PASS must be bound
+to the current source and uploaded into the S1 manifest as the hash-bound input
+destination `cli-acceptance-result.json`; a plan, another profile, another
+source identity, or an `INCOMPLETE` result cannot admit the job.
+
+`final-only` retains account-assignment-spend, provider rate calibration,
+fresh-oauth-refresh, silence-timeout, url-no-second-allocation,
+small-job client-loss-reconnect, failure-and-corrupt-export, the L4
+Mac-loss-watchdog-unassign fault, and backend-stop-disappearance. It also
+requires an end-to-end download of exactly 64 MiB with an immutable completion
+set, local SHA-256 verification, and recorded bytes/second lower bound. Its
+receipt records `busy-full-snapshot`, `exact-resume`, and
+`checkpoint-overhead` as `NOT_REQUIRED`, rather than `PASS`.
+
+`full-state` is required later, before a job uses a mid-run full-state snapshot
+or claims exact resume. It retains the shared operational safety gates and adds
+the 600 MiB busy-snapshot/client-loss transfer, exact full-state continuation
+comparison, and the at-most-2% checkpoint-overhead gate. The exact-64-MiB
+download is the `final-only` S1-admission measurement and is `NOT_REQUIRED` in
+`full-state`.
+
+After independent plan review, the exact final-only execution command is:
+
+```sh
+LAUNCH=/Users/josenunez/Projects/ml/snake-dqn/research/colab_cli/launch.sh
+"$LAUNCH" acceptance \
+  --profile final-only \
+  --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance \
+  --execute-after-review \
+  --review-token COLAB_CLI_ACCEPTANCE_REVIEWED
+```
 
 ## Human-only credential actions
 

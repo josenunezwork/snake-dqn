@@ -113,9 +113,41 @@ tmux new-session -d -s colab-cli-<lane>-<attempt> \
 `launch.sh` is foreground, applies AC/open-lid guards and `caffeinate -is`, and belongs inside the caller-owned
 prepared tmux service. `status` is read-only and does not prove exact provider hardware capability. `recover` only
 accepts a broker-owned account `pending-*.json` or `active-*.json`; never infer an identity from the sessions list.
-The <=4-unit acceptance must pass before a production allocation. Its L4 Mac-disconnect fault requires the exact
-assignment to disappear from sessions within 300 seconds after lease expiry, before broker fallback cleanup; the
-total bound includes lease, grace, terminal allowance, and the 130-second release window. Anything else is a failure.
+The <=4-unit acceptance has two profiles. `final-only` is the default and is
+required before S1 or another terminal-artifact-only job. It keeps every
+operational safety gate: account-assignment-spend, provider-rate calibration,
+fresh-oauth-refresh, silence-timeout, url-no-second-allocation, small-job
+client-loss-reconnect, failure-and-corrupt-export, L4 Mac-loss-watchdog-unassign,
+and backend-stop-disappearance. It also requires an exactly 64 MiB immutable
+final-artifact download with a SHA-256 verification and recorded bytes/second
+lower bound. Record `busy-full-snapshot`, `exact-resume`, and
+`checkpoint-overhead` as `NOT_REQUIRED`, not `PASS`, in this profile.
+
+S1 admission requires a current-source-bound `final-only` PASS. Its manifest
+uploads the result as a hash-bound input whose destination is
+`cli-acceptance-result.json`; a plan, a different profile/source identity, or
+an `INCOMPLETE` result does not admit it. Use `full-state` before a job uses a
+mid-run full-state snapshot or claims exact resume. That profile retains the
+shared operational gates and requires the 600 MiB busy-snapshot/client-loss
+transfer, exact full-state continuation evidence, and the <=2%
+checkpoint-overhead gate. The exact-64-MiB download is `NOT_REQUIRED` there.
+
+Prepare or execute the default profile through the launcher, never directly:
+
+```bash
+"$LAUNCH" acceptance --profile final-only --state-dir "$SUPERVISOR_STATE"
+"$LAUNCH" acceptance --profile final-only --state-dir "$SUPERVISOR_STATE" \
+  --execute-after-review --review-token COLAB_CLI_ACCEPTANCE_REVIEWED
+```
+
+The L4 Mac-disconnect fault requires the exact assignment to disappear from
+sessions within 300 seconds after lease expiry, before broker fallback cleanup;
+the total bound includes lease, grace, terminal allowance, and the 130-second
+release window. Anything else is a failure. Run 6 at `fe0fd684` was
+`INCOMPLETE`, not a profile pass: its 600 MiB busy-snapshot/client-loss phase
+ended after 1,157 seconds when `_wait_file` refused to resubmit after the kernel
+completion file was not observed. Its `stop_verified: true` observation does
+not qualify S1.
 
 Use `"$COLAB_BIN" --auth oauth2 usage` and `sessions` for read-only account evidence. See `docs/colab-cli.md` and
 `docs/research/advice/2026-10-18_colab_cli_operating_model.md` for operator guidance and acceptance boundaries.

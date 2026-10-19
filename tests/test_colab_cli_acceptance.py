@@ -19,8 +19,9 @@ def _repo_with_probe(tmp_path: Path) -> Path:
     target = repo / "research" / "colab_cli"
     target.mkdir(parents=True)
     source = Path(__file__).parents[1] / "research" / "colab_cli"
-    for name in ("acceptance_probe.py", "acceptance_probe.sh"):
-        shutil.copy2(source / name, target / name)
+    for path in source.iterdir():
+        if path.is_file() and path.suffix in {".py", ".sh"}:
+            shutil.copy2(path, target / path.name)
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     subprocess.run(["git", "add", "."], cwd=repo, check=True)
     subprocess.run(
@@ -46,7 +47,11 @@ def test_plan_defaults_to_conservative_cpu_price_and_keeps_job_output_fresh(tmp_
     plan = record["plan"]
     assert plan["status"] == "NOT_RUN"
     assert plan["limits"]["usable_units"] == 3.2
-    assert len(plan["gates"]) == 11
+    assert len(plan["gates"]) == 13
+    assert plan["profile"] == "final-only"
+    assert {
+        g["id"] for g in plan["gates"] if g["status"] == "NOT_REQUIRED"
+    } == acceptance.FULL_STATE_GATES
     for job in plan["jobs"]:
         payload = json.loads(Path(job["manifest"]).read_text())
         assert payload["requirements"]["gpu"] in {"cpu", "L4"}
@@ -345,7 +350,9 @@ def test_probe_writes_verified_exports_and_toy_resume_is_not_trainer_evidence(
     monkeypatch.setattr(acceptance_probe, "benchmark", lambda _iterations: 0.01)
     monkeypatch.setattr(acceptance_probe, "await_control", lambda _root, _name: None)
     output = tmp_path / "output"
-    acceptance_probe.suite(output, silence_seconds=61, snapshot_bytes=1024 * 1024)
+    acceptance_probe.suite(
+        output, silence_seconds=61, snapshot_bytes=1024 * 1024, profile="full-state"
+    )
 
     for artifact in output.glob("*"):
         if artifact.suffix not in {".sha256", ".complete"}:
@@ -378,7 +385,7 @@ def test_resume_entrypoint_reloads_exported_toy_checkpoint(
     monkeypatch.setattr(acceptance_probe, "benchmark", lambda _iterations: 0.01)
     monkeypatch.setattr(acceptance_probe, "await_control", lambda _root, _name: None)
     output = tmp_path / "output"
-    acceptance_probe.suite(output, silence_seconds=61, snapshot_bytes=1)
+    acceptance_probe.suite(output, silence_seconds=61, snapshot_bytes=1, profile="full-state")
     resumed = tmp_path / "resumed.json"
     result = subprocess.run(
         [
@@ -404,13 +411,17 @@ def test_cpu_failure_writes_final_result_and_does_not_spend_l4(
 ) -> None:
     repo = _repo_with_probe(tmp_path)
     record = acceptance.build_plan(repo, tmp_path / "state", 1.0)
+    monkeypatch.setattr(supervisor, "REPO", repo)
     calls: list[str] = []
 
     class Observer:
         records: dict[str, dict[str, object]] = {}
 
-        def __init__(self, _oauth_python: str) -> None:
+        def __init__(self, _oauth_python: str, profile: str = "final-only") -> None:
             self.records = {}
+
+        def _record(self, name: str, **evidence: object) -> None:
+            self.records[name] = dict(evidence)
 
         def write(self, _output: Path) -> None:
             return None
@@ -445,9 +456,10 @@ def test_expected_l4_watchdog_refusal_records_or_rejects_provider_rate_calibrati
     """The expected watchdog exception still needs its own measured rate evidence."""
     repo = _repo_with_probe(tmp_path)
     record = acceptance.build_plan(repo, tmp_path / "state", 0.5)
+    monkeypatch.setattr(supervisor, "REPO", repo)
 
     class Observer:
-        def __init__(self, _oauth_python: str) -> None:
+        def __init__(self, _oauth_python: str, profile: str = "final-only") -> None:
             self.records: dict[str, dict[str, object]] = {}
 
         def _record(self, name: str, **evidence: object) -> None:
@@ -506,3 +518,73 @@ def test_expected_l4_watchdog_refusal_records_or_rejects_provider_rate_calibrati
     # This focused double does not fabricate every acceptance gate, so the
     # overall qualification stays incomplete even when the L4 arm passes.
     assert rc == 1
+
+
+@pytest.mark.parametrize("profile", ["final-only", "full-state"])
+def test_profile_inventory_and_plan_binding(tmp_path: Path, profile: str) -> None:
+    repo = _repo_with_probe(tmp_path)
+    plan = acceptance.build_plan(repo, tmp_path / "state", profile=profile)["plan"]
+    acceptance.verify_plan_sources(plan, repo)
+    omitted = {gate["id"] for gate in plan["gates"] if not gate["required"]}
+    assert omitted == (
+        acceptance.FULL_STATE_GATES if profile == "final-only" else {"final-artifact-download"}
+    )
+    for row in plan["jobs"]:
+        env = json.loads(Path(row["manifest"]).read_text())["env"]
+        assert env["COLAB_ACCEPTANCE_PROFILE"] == profile
+    (repo / "research/colab_cli/acceptance_probe.py").write_text("# changed\n")
+    with pytest.raises(supervisor.Refused, match="source changed"):
+        acceptance.verify_plan_sources(plan, repo)
+    plan["source_manifest"] = acceptance.source_manifest(repo)
+    with pytest.raises(supervisor.Refused, match="differs from pinned commit"):
+        acceptance.verify_plan_sources(plan, repo)
+
+
+@pytest.mark.parametrize("arm,expected_bytes", [("cpu", 4096), ("L4", 64 * 1024 * 1024)])
+def test_final_only_probe_has_no_full_state_or_resume(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, arm: str, expected_bytes: int
+) -> None:
+    monkeypatch.setenv("COLAB_ACCEPTANCE_ARM", arm)
+    monkeypatch.setattr(acceptance_probe.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(acceptance_probe, "await_control", lambda _root, _name: None)
+    monkeypatch.setattr(
+        acceptance_probe, "benchmark", lambda _iterations: pytest.fail("full-state benchmark ran")
+    )
+    output = tmp_path / "output"
+    acceptance_probe.suite(output, silence_seconds=61, snapshot_bytes=600 * 1024 * 1024)
+    name = "final-artifact.bin" if arm == "L4" else "client-job.bin"
+    assert (output / name).stat().st_size == expected_bytes
+    assert not (output / "busy-snapshot.bin").exists()
+    assert not (output / "toy-checkpoint.pkl").exists()
+    assert not (output / "checkpoint-overhead.json").exists()
+
+
+def test_wait_file_timeout_names_remote_phase_and_elapsed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.colab_cli.acceptance_faults import AcceptanceObserver
+
+    now = [10.0]
+    monkeypatch.setattr("research.colab_cli.acceptance_faults.time.monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        "research.colab_cli.acceptance_faults.time.sleep",
+        lambda seconds: now.__setitem__(0, now[0] + seconds),
+    )
+    cli = supervisor.CLI("unused", tmp_path / "config", "session")
+    cli.deadline, cli.priced_deadline = 30, 20
+
+    def missing(*_args: object, **_kwargs: object) -> None:
+        raise supervisor.Refused("404 not found")
+
+    monkeypatch.setattr(cli, "call", missing)
+    with pytest.raises(
+        supervisor.Refused, match="client-loss completion.*client-finished.json.*10.000s"
+    ):
+        AcceptanceObserver._wait_file(
+            cli,
+            "/content/client-finished.json",
+            tmp_path / "marker",
+            50,
+            phase="client-loss completion",
+        )
+    assert now[0] == 20

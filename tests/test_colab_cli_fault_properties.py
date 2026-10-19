@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import threading
@@ -98,9 +99,48 @@ def _fake_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, plan: dict[str, A
     return str(FAKE)
 
 
-def _pinned_plan(tmp_path: Path) -> dict[str, Any]:
+@pytest.fixture
+def pinned_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Commit the exact acceptance source bytes used by the offline run.
+
+    Acceptance intentionally refuses a dirty source tree.  The test therefore
+    exercises that guard against a temporary committed checkout rather than
+    weakening the source-binding check for the local fake provider.
+    """
+    repository = tmp_path / "pinned-repo"
+    shutil.copytree(REPO / "research" / "colab_cli", repository / "research" / "colab_cli")
+    for name in ("pyproject.toml", "requirements.txt", "requirements-dev.txt"):
+        source = REPO / name
+        if source.is_file():
+            shutil.copy2(source, repository / name)
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=acceptance-test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "pinned acceptance source",
+        ],
+        cwd=repository,
+        check=True,
+    )
+    monkeypatch.setattr(supervisor, "REPO", repository)
+    monkeypatch.setenv("FAKE_COLAB_SOURCE_REPO", str(repository))
+    return repository
+
+
+def _pinned_plan(
+    tmp_path: Path, pinned_repo: Path, *, profile: str = "final-only"
+) -> dict[str, Any]:
     """Use a real committed source bundle, with a fresh acceptance output root."""
-    return acceptance.build_plan(REPO, tmp_path / "acceptance", None)["plan"]
+    return acceptance.build_plan(pinned_repo, tmp_path / "acceptance", None, profile=profile)[
+        "plan"
+    ]
 
 
 def _assert_safe(tmp_path: Path, plan: dict[str, Any]) -> None:
@@ -204,6 +244,7 @@ def _isolate_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Transp
 def test_acceptance_fault_classes_never_orphan_or_repeat_mutations(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    pinned_repo: Path,
     call: str,
     fault: str,
     phase: str,
@@ -218,7 +259,7 @@ def test_acceptance_fault_classes_never_orphan_or_repeat_mutations(
             "schedule": [{"call": call, "fault": fault, "phase": phase}],
         },
     )
-    plan = _pinned_plan(tmp_path)
+    plan = _pinned_plan(tmp_path, pinned_repo)
     rc = acceptance.execute(
         plan,
         state_dir=tmp_path / "state",
@@ -242,7 +283,7 @@ def test_acceptance_fault_classes_never_orphan_or_repeat_mutations(
 
 @pytest.mark.parametrize("seed", range(24))
 def test_seeded_random_fault_property_preserves_broker_safety(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, seed: int
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pinned_repo: Path, seed: int
 ) -> None:
     """Randomized call classes cover latency and transient responses offline."""
     binary = _fake_env(
@@ -265,7 +306,7 @@ def test_seeded_random_fault_property_preserves_broker_safety(
             },
         },
     )
-    plan = _pinned_plan(tmp_path)
+    plan = _pinned_plan(tmp_path, pinned_repo)
     rc = acceptance.execute(
         plan,
         state_dir=tmp_path / "state",
@@ -277,12 +318,13 @@ def test_seeded_random_fault_property_preserves_broker_safety(
     _assert_safe(tmp_path, plan)
 
 
-def test_full_acceptance_anchor_reaches_every_gate(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("profile", ("final-only", "full-state"))
+def test_acceptance_anchor_reaches_every_profile_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pinned_repo: Path, profile: str
 ) -> None:
-    """A no-fault seed reaches PASS through both actual Broker arms."""
+    """A no-fault seed reaches PASS through both actual Broker arms per profile."""
     binary = _fake_env(monkeypatch, tmp_path, {"seed": 0, "max_latency_seconds": 0})
-    plan = _pinned_plan(tmp_path)
+    plan = _pinned_plan(tmp_path, pinned_repo, profile=profile)
     rc = acceptance.execute(
         plan,
         state_dir=tmp_path / "state",
@@ -295,14 +337,41 @@ def test_full_acceptance_anchor_reaches_every_gate(
         (Path(plan["jobs"][0]["manifest"]).parent.parent / "acceptance-result.json").read_text()
     )
     assert result["qualified"] is True
+    assert result["profile"] == profile
+    assert result["final_plan"]["profile"] == profile
     assert {gate["id"] for gate in result["final_plan"]["gates"]} == {
-        gate["id"] for gate in acceptance.review_gates()
+        gate["id"] for gate in acceptance.review_gates(profile)
     }
     _assert_safe(tmp_path, plan)
     state = json.loads((tmp_path / "fake-state.json").read_text())
     events = [json.loads(line) for line in (tmp_path / "fake-calls.jsonl").read_text().splitlines()]
     operations = {event.get("transfer_operation") for event in events}
-    assert {"DOWNLOAD_SPLIT", "UPLOAD_ASSEMBLE"} <= operations
+    gates = {gate["id"]: gate for gate in result["final_plan"]["gates"]}
+    if profile == "final-only":
+        assert "DOWNLOAD_SPLIT" in operations
+        assert "UPLOAD_ASSEMBLE" not in operations
+        for gate in {"busy-full-snapshot", "exact-resume", "checkpoint-overhead"}:
+            assert gates[gate]["required"] is False
+            assert gates[gate]["status"] == "NOT_REQUIRED"
+        assert gates["final-artifact-download"]["required"] is True
+        assert gates["final-artifact-download"]["status"] == "OBSERVED"
+        l4_output = Path(plan["jobs"][1]["manifest"]).parent.parent / "outputs" / "l4"
+        artifact = l4_output / "exports" / "final-artifact.bin"
+        assert artifact.stat().st_size == 64 * 1024 * 1024
+        evidence = gates["final-artifact-download"]["evidence_record"]
+        assert evidence["exported_bytes"] == artifact.stat().st_size
+        assert evidence["sha256"] == supervisor.sha256(artifact)
+        assert evidence["bytes_per_second_lower_bound"] > 0
+        assert (
+            json.loads(Path(plan["jobs"][0]["manifest"]).read_text())["env"][
+                "COLAB_ACCEPTANCE_PROFILE"
+            ]
+            == "final-only"
+        )
+    else:
+        assert {"DOWNLOAD_SPLIT", "UPLOAD_ASSEMBLE"} <= operations
+        assert gates["final-artifact-download"]["required"] is False
+        assert gates["final-artifact-download"]["status"] == "NOT_REQUIRED"
     assert len(state["watchdog_released"]) == 1
     assert "l4" in state["watchdog_released"][0]
     assert [
@@ -376,7 +445,9 @@ def test_injected_latency_exhausts_shared_timeout_instead_of_restarting(
     assert cli.call_records[0]["elapsed_seconds"] == pytest.approx(10)
 
 
-def test_full_acceptance_tolerates_ninety_second_launcher_ack(monkeypatch, tmp_path: Path) -> None:
+def test_full_acceptance_tolerates_ninety_second_launcher_ack(
+    monkeypatch, tmp_path: Path, pinned_repo: Path
+) -> None:
     binary = _fake_env(
         monkeypatch,
         tmp_path,
@@ -386,7 +457,7 @@ def test_full_acceptance_tolerates_ninety_second_launcher_ack(monkeypatch, tmp_p
             "schedule": [{"call": "exec", "fault": "latency", "latency_seconds": 90}],
         },
     )
-    plan = _pinned_plan(tmp_path)
+    plan = _pinned_plan(tmp_path, pinned_repo)
     assert (
         acceptance.execute(
             plan,
