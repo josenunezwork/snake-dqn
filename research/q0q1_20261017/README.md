@@ -97,6 +97,8 @@ tie-break, use [PREREGISTRATION.md](PREREGISTRATION.md#q1-analysis-and-ordered-d
 
 ## A3 operator sequence (2026-10-18)
 
+Actual preserved A100 recovery, archive hashes and preflight evidence: [A3 operational receipt](Q0B_A3_REQUALIFICATION_20261018.md).
+
 A3 is appended to the registration after the A100 r6 diagnostic. It raises Q0's
 unit cap to the final receipt-backed inclusive Q0 total T, including all failed
 attempts, A100 r6 and the upcoming L4 r7. The combined envelope becomes T+135;
