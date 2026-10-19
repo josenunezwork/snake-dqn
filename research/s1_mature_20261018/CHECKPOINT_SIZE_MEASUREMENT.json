@@ -1,0 +1,589 @@
+{
+  "arms": {
+    "n1": {
+      "actor_raw_array_tensor_bytes_projection_per_actor": 159237084,
+      "actors": 3,
+      "all_state_raw_bytes_projection": 10000057788,
+      "arm": "n1",
+      "assumptions": [
+        "Actor non-network arrays scale linearly from observed worlds to 128 worlds",
+        "Default protocol-2 NumPy payload expansion is bounded by 2 bytes per raw byte",
+        "64 MiB Python/RNG/pickle framing allowance per actor plus learner; provisional",
+        "At most three deferred packets per actor with 1 KiB per driven row allowance",
+        "No compression credit; gzip/tar/chunk/index framing gets 1 percent plus 1 MiB"
+      ],
+      "complete_upper_bound": null,
+      "deferred_packet_raw_bytes_planning_allowance": 1179648,
+      "demonstration_buffer_bytes": 0,
+      "demonstration_reason": "bv8 sets demos=None; anchors are on-policy labels",
+      "excluded": "actor simulator/runtime/n-step state, networks, optimizer, RNG, Python objects and pickle/zip framing",
+      "fill_independent": true,
+      "fixed_capacity_array_bytes": 9481840816,
+      "fixed_capacity_array_gib": 8.83065240085125,
+      "fixed_noncapacity_raw_bytes_observed": 39326072,
+      "four_snapshot_export_bytes_planning_upper_bound": 81889140476,
+      "label_array_bytes": 4800000,
+      "label_capacity": 300000,
+      "learner_seats": 1,
+      "planning_allowances_require_full_size_validation": true,
+      "production_size_measured": false,
+      "protocol2_array_payload_upper_bound_bytes": 18963681632,
+      "python_and_serializer_framing_bytes_planning_allowance": 268435456,
+      "replay_array_bytes": 16000000,
+      "replay_capacity": 500000,
+      "ring_array_bytes": 9461040816,
+      "ring_fields": [
+        {
+          "dtype": "|u1",
+          "name": "local",
+          "row_bytes": 6727,
+          "row_shape": [
+            7,
+            31,
+            31
+          ]
+        },
+        {
+          "dtype": "|u1",
+          "name": "global",
+          "row_bytes": 5476,
+          "row_shape": [
+            4,
+            37,
+            37
+          ]
+        },
+        {
+          "dtype": "<f4",
+          "name": "scalars",
+          "row_bytes": 240,
+          "row_shape": [
+            60
+          ]
+        },
+        {
+          "dtype": "|b1",
+          "name": "mask",
+          "row_bytes": 6,
+          "row_shape": [
+            6
+          ]
+        }
+      ],
+      "ring_margin_rows": 2048,
+      "ring_row_bytes": 12449,
+      "ring_rows_per_actor": 253328,
+      "serialized_checkpoint_bytes_planning_upper_bound": 20268551032,
+      "serialized_checkpoint_gib_planning_upper_bound": 18.876559130847454,
+      "snapshot_archive_bytes_planning_upper_bound": 20472285119,
+      "snapshot_targets": [
+        2000000,
+        4000000,
+        6000000,
+        8000000
+      ],
+      "worlds_per_actor": 128
+    },
+    "n3": {
+      "actor_raw_array_tensor_bytes_projection_per_actor": 159237084,
+      "actors": 6,
+      "all_state_raw_bytes_projection": 11105121360,
+      "arm": "n3",
+      "assumptions": [
+        "Actor non-network arrays scale linearly from observed worlds to 128 worlds",
+        "Default protocol-2 NumPy payload expansion is bounded by 2 bytes per raw byte",
+        "64 MiB Python/RNG/pickle framing allowance per actor plus learner; provisional",
+        "At most three deferred packets per actor with 1 KiB per driven row allowance",
+        "No compression credit; gzip/tar/chunk/index framing gets 1 percent plus 1 MiB"
+      ],
+      "complete_upper_bound": null,
+      "deferred_packet_raw_bytes_planning_allowance": 7077888,
+      "demonstration_buffer_bytes": 0,
+      "demonstration_reason": "bv8 sets demos=None; anchors are on-policy labels",
+      "excluded": "actor simulator/runtime/n-step state, networks, optimizer, RNG, Python objects and pickle/zip framing",
+      "fill_independent": true,
+      "fixed_capacity_array_bytes": 10103294896,
+      "fixed_capacity_array_gib": 9.409426614642143,
+      "fixed_noncapacity_raw_bytes_observed": 39326072,
+      "four_snapshot_export_bytes_planning_upper_bound": 91631413568,
+      "label_array_bytes": 4800000,
+      "label_capacity": 300000,
+      "learner_seats": 3,
+      "planning_allowances_require_full_size_validation": true,
+      "production_size_measured": false,
+      "protocol2_array_payload_upper_bound_bytes": 20206589792,
+      "python_and_serializer_framing_bytes_planning_allowance": 469762048,
+      "replay_array_bytes": 16000000,
+      "replay_capacity": 500000,
+      "ring_array_bytes": 10082494896,
+      "ring_fields": [
+        {
+          "dtype": "|u1",
+          "name": "local",
+          "row_bytes": 6727,
+          "row_shape": [
+            7,
+            31,
+            31
+          ]
+        },
+        {
+          "dtype": "|u1",
+          "name": "global",
+          "row_bytes": 5476,
+          "row_shape": [
+            4,
+            37,
+            37
+          ]
+        },
+        {
+          "dtype": "<f4",
+          "name": "scalars",
+          "row_bytes": 240,
+          "row_shape": [
+            60
+          ]
+        },
+        {
+          "dtype": "|b1",
+          "name": "mask",
+          "row_bytes": 6,
+          "row_shape": [
+            6
+          ]
+        }
+      ],
+      "ring_margin_rows": 6144,
+      "ring_row_bytes": 12449,
+      "ring_rows_per_actor": 134984,
+      "serialized_checkpoint_bytes_planning_upper_bound": 22680004768,
+      "serialized_checkpoint_gib_planning_upper_bound": 21.12240043282509,
+      "snapshot_archive_bytes_planning_upper_bound": 22907853392,
+      "snapshot_targets": [
+        2000000,
+        4000000,
+        6000000,
+        8000000
+      ],
+      "worlds_per_actor": 128
+    }
+  },
+  "complete_upper_bound": null,
+  "local_serializer_observation": {
+    "actor_network_bytes": [
+      6553052,
+      6553052
+    ],
+    "actor_raw_array_tensor_bytes": [
+      16095804,
+      16095804
+    ],
+    "archive": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/preflight/failed-counter/output/exports/full-state-snapshot-00000000000000012048-81553026.part-000",
+      "sha256": "bb1f5d2ffcf7d38ef873dcffbabdf8cb886815371b9742c2c0b193faa200aaa5"
+    },
+    "archive_bytes": 46008697,
+    "demonstrations_absent": true,
+    "fixed_noncapacity_raw_bytes": 39326072,
+    "learner_decisions": 12048,
+    "limitation": "Observed tiny 2-actor, 8-world fixture; not production-size or L4 qualification",
+    "raw_array_tensor_bytes": 130162896,
+    "recipe": {
+      "actor_impl": "vectorized",
+      "actor_queue_frames": "2",
+      "actor_sync_updates": "25",
+      "actors": "2",
+      "all_snakes_learner": "False",
+      "anchor_boost_weight": "1.0",
+      "anchor_floor": "0.1",
+      "anchor_floor_at": "15000000",
+      "anchor_hold": "8000000",
+      "anchor_mode": "v8margin",
+      "anchor_start": "0.1",
+      "arm_halt_file": "None",
+      "batch_scale": "2",
+      "boost_halt_low_length_rate": "0.01",
+      "boost_halt_rate": "0.02",
+      "collection_profile": "legacy",
+      "compile_actor": "off",
+      "compile_learner": "reduce-overhead",
+      "compile_learner_scope": "loss",
+      "death_mass_mult": "0.0",
+      "death_value": "None",
+      "demo_capacity": "2048",
+      "demo_initial_shards": "30",
+      "demo_rounds": "10,11,12",
+      "eps_end": "0.01",
+      "eps_end_at": "5000000",
+      "eps_start": "0.01",
+      "frozen_frac": "0.25",
+      "gamma_anneal_end": "6000000",
+      "gamma_end": "0.998",
+      "gamma_hold": "2000000",
+      "gamma_start": "0.998",
+      "gather_threads": "3",
+      "kill_scale": "0.0",
+      "label_bank": "None",
+      "label_bank_counter_mode": "inert",
+      "label_bank_counter_ratio": "None",
+      "label_bank_frac": "0.0",
+      "label_bank_margin_scale": "1.0",
+      "label_bank_outside": "None",
+      "label_bank_outside_margin_scale": "1.0",
+      "label_capacity": "300000",
+      "label_frac": "1.0",
+      "league_b8_checkpoint": "/tmp/s1-adapter-smoke.K3KeoP/inputs/B8_s3_final.pth",
+      "league_checkpoint_dir": "None",
+      "learner_fast": "True",
+      "learner_precision": "fp32",
+      "learner_seats": "3",
+      "lr_scale": "none",
+      "mass_kappa": "1.0",
+      "mixed_frac": "0.25",
+      "namespace": "s1-preflight-smoke/seed-991001",
+      "obs_pack": "False",
+      "obs_version": "bv8",
+      "onpolicy_labels": "True",
+      "opp_forward": "None",
+      "replay": "2048",
+      "restart_bank": "None",
+      "restart_frac": "0.0",
+      "return_bank": "None",
+      "return_contrast_epsilon": "0.0",
+      "return_early_warning_config": "None",
+      "return_frac": "0.0",
+      "return_gradient_telemetry": "False",
+      "return_huber_delta": "None",
+      "return_mode": "level",
+      "return_weight": "1.0",
+      "reward": "mass",
+      "schedule_package": "mature",
+      "seed": "991001",
+      "segment_frames": "5000",
+      "shield": "none",
+      "shield_full_until": "8000000",
+      "shield_off_at": "16000000",
+      "td_huber_delta": "1.0",
+      "tight_cost": "0.0",
+      "tight_min_len": "600",
+      "tight_telemetry": "False",
+      "update_every": "1",
+      "v61_backend": "numba",
+      "v8_backend": "None",
+      "warmup": "256",
+      "worlds": "8"
+    },
+    "state_pt_bytes": 144477261,
+    "top_level_raw_array_tensor_bytes": {
+      "counters": 64,
+      "extra": 45297752,
+      "labels": 4800000,
+      "online": 6553052,
+      "optimizer": 13106208,
+      "replay": 65536,
+      "replay_mode": 0,
+      "rings": 53779680,
+      "rng": 7552,
+      "schedules": 0,
+      "schema": 0,
+      "target": 6553052
+    }
+  },
+  "measured_export_bytes_per_second_lower_bound": null,
+  "measured_production_capacity_serialization": {
+    "n1": {
+      "array_inventory": [
+        {
+          "copies": 3,
+          "dtype": "|u1",
+          "kind": "rings",
+          "name": "local",
+          "raw_bytes_per_array": 1704137456,
+          "serialized_bytes_per_array": 1730521965,
+          "shape": [
+            253328,
+            7,
+            31,
+            31
+          ]
+        },
+        {
+          "copies": 3,
+          "dtype": "|u1",
+          "kind": "rings",
+          "name": "global",
+          "raw_bytes_per_array": 1387224128,
+          "serialized_bytes_per_array": 1681086061,
+          "shape": [
+            253328,
+            4,
+            37,
+            37
+          ]
+        },
+        {
+          "copies": 3,
+          "dtype": "<f4",
+          "kind": "rings",
+          "name": "scalars",
+          "raw_bytes_per_array": 60798720,
+          "serialized_bytes_per_array": 75539693,
+          "shape": [
+            253328,
+            60
+          ]
+        },
+        {
+          "copies": 3,
+          "dtype": "|b1",
+          "kind": "rings",
+          "name": "mask",
+          "raw_bytes_per_array": 1519968,
+          "serialized_bytes_per_array": 1521389,
+          "shape": [
+            253328,
+            6
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<i8",
+          "kind": "replay",
+          "name": "s",
+          "raw_bytes_per_array": 4000000,
+          "serialized_bytes_per_array": 4249517,
+          "shape": [
+            500000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<i8",
+          "kind": "replay",
+          "name": "a",
+          "raw_bytes_per_array": 4000000,
+          "serialized_bytes_per_array": 4001453,
+          "shape": [
+            500000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<f4",
+          "kind": "replay",
+          "name": "R",
+          "raw_bytes_per_array": 2000000,
+          "serialized_bytes_per_array": 3012717,
+          "shape": [
+            500000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<f4",
+          "kind": "replay",
+          "name": "disc",
+          "raw_bytes_per_array": 2000000,
+          "serialized_bytes_per_array": 2001453,
+          "shape": [
+            500000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<i8",
+          "kind": "replay",
+          "name": "nxt",
+          "raw_bytes_per_array": 4000000,
+          "serialized_bytes_per_array": 4247533,
+          "shape": [
+            500000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<i8",
+          "kind": "labels",
+          "name": "ids",
+          "raw_bytes_per_array": 2400000,
+          "serialized_bytes_per_array": 4711021,
+          "shape": [
+            300000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<i8",
+          "kind": "labels",
+          "name": "a",
+          "raw_bytes_per_array": 2400000,
+          "serialized_bytes_per_array": 2401453,
+          "shape": [
+            300000
+          ]
+        }
+      ],
+      "elapsed_mac_seconds": 3.830932249999023,
+      "l4_preparation_time_qualified": false,
+      "method": "real torch.save default protocol2, production shapes, np.resize of observed values",
+      "production_trajectory": false,
+      "raw_capacity_array_bytes": 9481840816,
+      "serialized_capacity_array_bytes": 10490632471,
+      "standalone_array_archive_framing_included": true
+    },
+    "n3": {
+      "array_inventory": [
+        {
+          "copies": 6,
+          "dtype": "|u1",
+          "kind": "rings",
+          "name": "local",
+          "raw_bytes_per_array": 908037368,
+          "serialized_bytes_per_array": 922102445,
+          "shape": [
+            134984,
+            7,
+            31,
+            31
+          ]
+        },
+        {
+          "copies": 6,
+          "dtype": "|u1",
+          "kind": "rings",
+          "name": "global",
+          "raw_bytes_per_array": 739172384,
+          "serialized_bytes_per_array": 895755309,
+          "shape": [
+            134984,
+            4,
+            37,
+            37
+          ]
+        },
+        {
+          "copies": 6,
+          "dtype": "<f4",
+          "kind": "rings",
+          "name": "scalars",
+          "raw_bytes_per_array": 32396160,
+          "serialized_bytes_per_array": 40251629,
+          "shape": [
+            134984,
+            60
+          ]
+        },
+        {
+          "copies": 6,
+          "dtype": "|b1",
+          "kind": "rings",
+          "name": "mask",
+          "raw_bytes_per_array": 809904,
+          "serialized_bytes_per_array": 811373,
+          "shape": [
+            134984,
+            6
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<i8",
+          "kind": "replay",
+          "name": "s",
+          "raw_bytes_per_array": 4000000,
+          "serialized_bytes_per_array": 4249517,
+          "shape": [
+            500000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<i8",
+          "kind": "replay",
+          "name": "a",
+          "raw_bytes_per_array": 4000000,
+          "serialized_bytes_per_array": 4001453,
+          "shape": [
+            500000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<f4",
+          "kind": "replay",
+          "name": "R",
+          "raw_bytes_per_array": 2000000,
+          "serialized_bytes_per_array": 3012717,
+          "shape": [
+            500000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<f4",
+          "kind": "replay",
+          "name": "disc",
+          "raw_bytes_per_array": 2000000,
+          "serialized_bytes_per_array": 2001453,
+          "shape": [
+            500000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<i8",
+          "kind": "replay",
+          "name": "nxt",
+          "raw_bytes_per_array": 4000000,
+          "serialized_bytes_per_array": 4247533,
+          "shape": [
+            500000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<i8",
+          "kind": "labels",
+          "name": "ids",
+          "raw_bytes_per_array": 2400000,
+          "serialized_bytes_per_array": 4711021,
+          "shape": [
+            300000
+          ]
+        },
+        {
+          "copies": 1,
+          "dtype": "<i8",
+          "kind": "labels",
+          "name": "a",
+          "raw_bytes_per_array": 2400000,
+          "serialized_bytes_per_array": 2401453,
+          "shape": [
+            300000
+          ]
+        }
+      ],
+      "elapsed_mac_seconds": 2.0169784169993363,
+      "l4_preparation_time_qualified": false,
+      "method": "real torch.save default protocol2, production shapes, np.resize of observed values",
+      "production_trajectory": false,
+      "raw_capacity_array_bytes": 10103294896,
+      "serialized_capacity_array_bytes": 11178149683,
+      "standalone_array_archive_framing_included": true
+    }
+  },
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "schema": "s1-full-state-capacity/v1",
+  "scope": "Exact production allocation formula measured on Mac and actual small-fixture torch serializer observation; no production checkpoint or L4 transfer claim",
+  "source_manifest": {
+    "research/redesign_m3c_20261008/actor_snapshot.py": "816061d0554ae1354db253947884de5f1ea36a5334aba9010a4ecad1b7e8ac3b",
+    "research/redesign_m3c_20261008/async_checkpoint.py": "54a98f3cd1dda80ccb94885f56bda9847944ee89c5d380f90a1ee8b7f893531b",
+    "research/redesign_m3c_20261008/execution_snapshot.py": "05c91c09e80994a2a836b8415c30415efda5267d1f6bfd3a1c03591641ba12d0",
+    "research/redesign_m3c_20261008/train_m3c.py": "e54f615b2a445661d96baaef85861dcb6dd5f11a53b88d9772e3584cdb8048a1",
+    "research/s1_mature_20261018/checkpoint_sizing.py": "7b53dbc3a50fdd101f5bf5d9d399c8e3953a7b09a0df26b4bdea2df128754f3f",
+    "research/s1_mature_20261018/manifests.py": "d1607127d631197f451303216079a8079efe0f85a1c252037d5a03120ffe6b4a",
+    "research/s1_mature_20261018/train.py": "1156301a0c25533c1ff9bcb75057ecb8e6eaae84b70c0767f04bcf59ab744089"
+  },
+  "status": "CAPACITY_MEASURED_TRANSPORT_UNQUALIFIED"
+}

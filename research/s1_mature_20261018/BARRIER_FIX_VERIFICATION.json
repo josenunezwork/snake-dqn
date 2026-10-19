@@ -1,0 +1,162 @@
+{
+  "admission": {
+    "complete_upper_bound": null,
+    "counter": "PASS",
+    "dispatch_authorized": false,
+    "remaining": [
+      "source-bound independent full-horizon checkpoint size proof",
+      "production-size L4 snapshot/final preparation measurements",
+      "qualified CLI acceptance throughput and independent review",
+      "complete registration approval and fresh account admission evidence"
+    ],
+    "transport": "UNQUALIFIED"
+  },
+  "branch": "s1-mature-20261018",
+  "broad_gate": {
+    "baseline_commit": "474b3c2e233b167f071f9c5b9ea729ca39222371",
+    "baseline_log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-05/baseline-failures.log",
+      "sha256": "b9ee2d4269c2750478e99830e2a27ba96fd5c8c248df02197e2e7eaa9199f25c"
+    },
+    "baseline_nodes": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-05/baseline-nodes.json",
+      "sha256": "ed096dbe9c00d81ccf0605db3cb4cf12790b01b58377a6dc277d480a7837aaf7"
+    },
+    "baseline_subset_failed": 36,
+    "baseline_subset_passed": 2,
+    "baseline_subset_seconds": 19.93,
+    "command": "/usr/bin/caffeinate -dims env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -m pytest -q -n 3 -m 'not slow'",
+    "comparison": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-05/baseline-comparison.json",
+      "sha256": "a63d86c49cb60451620641b9e8da08c293af2eb443225408c5e40555e7f1b1e7"
+    },
+    "failed": 38,
+    "interpretation": "36 failures reproduced at original HEAD. Fifteen CLI supervisor failures are cleared by the imported public update and passing combined CLI/S1 suite. Two additional bulk-run NumPy assertion-rendering worker crashes in test_t21_actor_snapshot.py did not reproduce in the baseline subset; all three actor-snapshot tests pass in the focused current suite. Full-suite green is not claimed.",
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-03/full-suite.log",
+      "sha256": "4cbdb78e04ee5507e601420573a76f7ddb312e3c5922e79007312d9045f1979c"
+    },
+    "passed": 7839,
+    "seconds": 443.04,
+    "skipped": 25,
+    "source_scope": "Before importing 4be6500b source-delivery update; before final transport-bound regression additions",
+    "warnings": 7
+  },
+  "checks": [
+    {
+      "command": "env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -m pytest -q -m 'not slow' tests/test_s1_*.py tests/test_m3c_trainer.py tests/test_q1_trainer.py tests/test_q1_parity.py tests/test_q1_collector_oracles.py tests/test_q1_a4_compatibility.py tests/test_t21_full_state.py tests/test_t21_multi_integration.py tests/test_t21_execution_snapshot.py tests/test_t21_actor_snapshot.py tests/test_t21_demo_snapshot.py tests/test_obs_pack.py tests/test_t17_gather.py tests/test_perf_learner.py tests/test_perf_actor.py",
+      "deselected": 6,
+      "log": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-05/focused-tests.log",
+        "sha256": "67dc2c603adc03077fb2334bbf2a06464304fea14595961f94f8f6a551e94749"
+      },
+      "name": "integrated_m3c_q1_s1_parity",
+      "passed": 270,
+      "seconds": 52.41
+    },
+    {
+      "command": "./venv/bin/python -m pytest -q tests/test_s1_checkpoint_sizing.py tests/test_s1_admission.py tests/test_s1_dispatch.py tests/test_s1_ledger.py",
+      "name": "final_transport_bound_regressions",
+      "passed": 45,
+      "seconds": 0.95
+    },
+    {
+      "command": "env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -m pytest -q -m 'not slow' tests/test_colab_cli*.py tests/test_s1_*.py",
+      "live_colab_commands": 0,
+      "log": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-05/post-merge-tests.log",
+        "sha256": "9981316120f39c0cae58607e2f2834713551bd2f5b04f2d03ea0a6a218d3c7f9"
+      },
+      "name": "combined_published_cli_and_s1",
+      "note": "CLI tests use the fake CLI; published source-delivery changes were imported, not edited.",
+      "passed": 190,
+      "seconds": 215.46
+    },
+    {
+      "command": "make PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python lint",
+      "log": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/barrier-fix-05/core-lint.log",
+        "sha256": "1fa08de482a5e2d9f66c9390346abaf97bb0a2bf9aecf6f65ca31511d6dbf7d0"
+      },
+      "name": "core_lint",
+      "status": "PASS"
+    },
+    {
+      "command": "./venv/bin/python -m black --check --line-length 100 research/redesign_m3c_20261008/train_m3c.py research/s1_mature_20261018 tests/test_s1_*.py",
+      "name": "scoped_black",
+      "status": "PASS"
+    },
+    {
+      "command": "./venv/bin/python -m isort --profile black --check-only research/redesign_m3c_20261008/train_m3c.py research/s1_mature_20261018 tests/test_s1_*.py",
+      "name": "scoped_isort",
+      "status": "PASS"
+    },
+    {
+      "command": "./venv/bin/python -m flake8 research/redesign_m3c_20261008/train_m3c.py research/s1_mature_20261018 tests/test_s1_*.py",
+      "name": "scoped_flake8",
+      "status": "PASS"
+    },
+    {
+      "command": "bash -n research/s1_mature_20261018/train.sh research/s1_mature_20261018/launch.sh",
+      "name": "shell_syntax",
+      "status": "PASS"
+    },
+    {
+      "command": "git diff --check",
+      "name": "diff_whitespace",
+      "status": "PASS"
+    }
+  ],
+  "evidence": {
+    "ADMISSION_STATUS_BARRIER_FIX.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/ADMISSION_STATUS_BARRIER_FIX.json",
+      "sha256": "223e546d8f7212ff006b4ba0e55d0ee34c1c47e262fb7c6f9b55bcf8002bc060"
+    },
+    "CHECKPOINT_SIZE_MEASUREMENT.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/CHECKPOINT_SIZE_MEASUREMENT.json",
+      "sha256": "91d48fae8ef5fb1baeaf317984dff2e68144d91250392898fe143d07924241f7"
+    },
+    "TRAIN_PREFLIGHT_BARRIER_FIX.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/TRAIN_PREFLIGHT_BARRIER_FIX.json",
+      "sha256": "f958da1018ea1537fd0629edb0fabc1be3e4539099e8b58fa965233f341bd0bb"
+    }
+  },
+  "independent_review": {
+    "resolved": [
+      "held packets must return to learner after a nonterminal capture",
+      "do not prefill bounded process queues on resume",
+      "omit ring-dependent pending packets on replay-none continuation",
+      "validate routing before shared-memory allocation",
+      "compare frozen no-barrier learner trajectories",
+      "exercise actual loop with delayed marker and nonterminal packet identities",
+      "require full-horizon size proof covering protocol-2 expansion plus all additional state"
+    ],
+    "status": "NO_OPEN_ACTIONABLE_FINDINGS"
+  },
+  "integrated_public_base": "4be6500b6874cf100e12e446b8b7ab934c3171ad",
+  "original_head": "474b3c2e233b167f071f9c5b9ea729ca39222371",
+  "protected_scope": {
+    "authored_changes_in_research_colab_cli": false,
+    "authored_changes_in_research_q0q1": false,
+    "live_colab_commands": 0,
+    "original_hash_bound_document_changes": false,
+    "released_checkpoint_changes": false,
+    "serving_pin_changes": false,
+    "tmux_changes": false
+  },
+  "schema": "s1-barrier-fix-verification/v1",
+  "scope": "Operational engineering verification only; no scientific study result or dispatch approval",
+  "source_manifest": {
+    "research/redesign_m3c_20261008/train_m3c.py": "e54f615b2a445661d96baaef85861dcb6dd5f11a53b88d9772e3584cdb8048a1",
+    "research/s1_mature_20261018/admission.py": "2d103875ac4b682a14b76a2d5f6f941ebb9d43f2ff239594f377c36f82d5e610",
+    "research/s1_mature_20261018/checkpoint_sizing.py": "7b53dbc3a50fdd101f5bf5d9d399c8e3953a7b09a0df26b4bdea2df128754f3f",
+    "research/s1_mature_20261018/price.py": "b2e293fb1b5eb184302d5439c5fbfec3abec9002ff40412ccc9a9ae4e31b661d",
+    "research/s1_mature_20261018/train.py": "1156301a0c25533c1ff9bcb75057ecb8e6eaae84b70c0767f04bcf59ab744089",
+    "tests/test_s1_admission.py": "f45ee6a0484e233380c6a3061691c8fbebdbd4ffa6c31b68eca8c0cc7d7f3f3e",
+    "tests/test_s1_checkpoint_barrier.py": "9b03be398c1dab6e0d2c08677550009767ffd337fe7958b4acc88bf103bdcf19",
+    "tests/test_s1_checkpoint_sizing.py": "1d57b2d855eb094f472075a7b8a6cebb3656f434f3d062df2610d95bb7479b66",
+    "tests/test_s1_no_barrier_oracle.py": "6d2b1b3667b54527bdb7f2784e615d31fe7472d7d2156a7c0dfe4a8c1c47f699"
+  },
+  "status": "FOCUSED_CHECKS_PASS_BROAD_GATE_NOT_GREEN",
+  "worktree": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature"
+}

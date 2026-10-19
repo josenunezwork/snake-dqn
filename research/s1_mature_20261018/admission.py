@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
-from research.s1_mature_20261018 import bank, ledger, manifests
+from research.s1_mature_20261018 import bank, checkpoint_sizing, ledger, manifests
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = "s1-mature-admission-plan/v1"
@@ -114,7 +114,7 @@ def _input(value: str) -> manifests.ExternalInput:
     return manifests.ExternalInput(name, Path(path), dest)
 
 
-def priced_mac_bound(path: Path) -> dict[str, float]:
+def priced_mac_bound(path: Path) -> dict[str, Any]:
     """Read the completed real-entrypoint pricing receipt, never a hand estimate."""
     value = json.loads(path.read_text())
     if value.get("status") != "PASS":
@@ -139,6 +139,18 @@ def priced_mac_bound(path: Path) -> dict[str, float]:
     )
     if training_value.get("status") != "PASS" or training_value.get("counter_admission") != "PASS":
         raise AdmissionRefused("real M3-C training preflight has not passed counter admission")
+    expected_training_sources = (
+        "research/redesign_m3c_20261008/train_m3c.py",
+        "research/s1_mature_20261018/train.py",
+    )
+    training_sources = training_value.get("identity", {}).get("source_manifest", {})
+    if any(
+        training_sources.get(relative) != sha256(ROOT / relative)
+        for relative in expected_training_sources
+    ):
+        raise AdmissionRefused(
+            "counter preflight trainer/adapter source identity changed or is absent"
+        )
     if (
         evaluation_value.get("schema") != "s1-eval-timing/v1"
         or evaluation_value.get("status") != "completed"
@@ -164,26 +176,18 @@ def priced_mac_bound(path: Path) -> dict[str, float]:
     transport = value.get("full_replay_transport")
     if not isinstance(transport, dict) or transport.get("status") != "PASS":
         raise AdmissionRefused("full-replay transport is unqualified; S1 admission is refused")
-    required = (
-        "source_sha256",
-        "timing_receipt_sha256",
-        "snapshot_bytes",
-        "per_run_gpu_hours_upper_bound",
-    )
-    if (
-        any(not transport.get(key) for key in required)
-        or int(transport["snapshot_bytes"]) < 4 * 1024**3
-    ):
-        raise AdmissionRefused("full-replay transport receipt lacks a qualified full-size bound")
-    if (
-        transport["source_sha256"] != sha256(ROOT / "research/s1_mature_20261018/train.py")
-        or transport["timing_receipt_sha256"] != evaluation["sha256"]
-    ):
-        raise AdmissionRefused("full-replay qualification source or timing binding changed")
-    gpu = float(transport["per_run_gpu_hours_upper_bound"])
-    if not math.isfinite(gpu) or gpu < 0:
-        raise AdmissionRefused("full-replay transport GPU bound must be nonnegative")
-    return {"mac_worker_hours": mac, "elapsed_hours": elapsed, "per_run_gpu_hours": gpu}
+    try:
+        qualified = checkpoint_sizing.transport_bound(transport, timing_sha256=evaluation["sha256"])
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        raise AdmissionRefused(str(exc)) from exc
+    return {
+        "mac_worker_hours": mac,
+        "elapsed_hours": elapsed,
+        "per_arm_gpu_hours": {
+            arm: item["per_run_gpu_hours_upper_bound"]
+            for arm, item in qualified["qualified_arms"].items()
+        },
+    }
 
 
 def prepare(args: argparse.Namespace) -> Path:
@@ -231,14 +235,14 @@ def prepare(args: argparse.Namespace) -> Path:
     training = {key: sum(item[key] for item in liability.values()) for key in ledger.DIMENSIONS}
     # The timeout reservation must dominate the measured full-state transport
     # bound for each run; otherwise the supposedly inclusive estimate is false.
-    if any(
-        item["gpu_allocation_hours"] < mac_bound["per_run_gpu_hours"]
-        for job, item in liability.items()
-        if job.startswith("s1-mature-")
-    ):
-        raise AdmissionRefused(
-            "registered job timeout does not cover qualified full-replay transport"
-        )
+    for row in rows:
+        arm = row["env"]["S1_ARM"]
+        # Cleanup is reserved separately; the actual job timeout must cover
+        # training AND all snapshot preparation, archives and measured exports.
+        if float(row["timeout_minutes"]) / 60 < mac_bound["per_arm_gpu_hours"][arm]:
+            raise AdmissionRefused(
+                "registered job timeout does not cover training plus full-replay transport"
+            )
     # Acceptance is a conservative two GPU/allocation hours inside its four-unit
     # allowance.  Full-state/export slack is already reserved per job above.
     complete = {
