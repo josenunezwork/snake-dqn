@@ -82,6 +82,12 @@ def test_q1_graph_uses_final_pin_shared_b8_and_all_required_dependencies():
     assert all(
         job["requirements"]["gpu"] == "L4" for job in jobs if job["id"].startswith("q1-train")
     )
+    evaluations = [job for job in jobs if job["id"].startswith("q1-eval")]
+    assert evaluations
+    assert {job["requirements"]["gpu"] for job in evaluations} == {"cpu"}
+    assert {job["requirements"]["min_vcpu"] for job in evaluations} == {8}
+    assert {job["env"]["Q1_EVAL_WORKERS"] for job in evaluations} == {"auto"}
+    assert {tuple(job["output_subdirs"]) for job in evaluations} == {("evaluation-partials",)}
     assert {job["timeout_minutes"] for job in jobs if job["id"].startswith("q1-train")} == {90}
 
 

@@ -18,9 +18,9 @@ from unittest.mock import patch
 
 import pytest
 
-from research.q0q1_20261017 import inventory_receipt
+from research.q0q1_20261017 import a4_compatibility, inventory_receipt
 from research.q0q1_20261017 import make_q1_jobs as generator
-from research.q0q1_20261017 import q0b_measure, queue_jobs, run_queue_job
+from research.q0q1_20261017 import q0b_measure, q1_evaluate, q1_parity, queue_jobs, run_queue_job
 from tests.test_make_q1_jobs import _a3_accounting
 from tests.test_q1_parity import _receipt as parity_receipt
 from tests.test_q1_qualification import _packet as qualification_packet
@@ -89,6 +89,39 @@ def _config_bindings(packet: dict, tmp_path: Path) -> None:
     packet["config"] = bindings
 
 
+def _a4_timing_receipt(current_mac: dict) -> dict:
+    """Produce only the non-decision fields the real A4 timing validator reads.
+
+    The row digests deliberately agree across frozen-A3 serial, current serial,
+    and the process-pool result.  A separate evaluator test runs that identity
+    proof with real worlds; this fixture verifies the admission wiring.
+    """
+    bank = q1_evaluate.q1_bank.load_world_bank()
+    rows = ["c" * 64 for _ in bank["parity_worlds"]]
+    current_source = q1_evaluate.source_manifest()
+    return {
+        "schema": "q1-eval-timing-probe/v1",
+        "status": "completed",
+        "purpose": "capacity measurement only; not Q1 decision evidence",
+        "world_count": len(rows),
+        "parity_world_count": len(rows),
+        "repeats": 1,
+        "workers": 3,
+        "elapsed_seconds": 2.0,
+        "runtime": {"system": "Darwin", "cpu_threads": 1, "gpu_used": False},
+        "source_manifest": current_source,
+        "historical_source_manifest": a4_compatibility.historical_source_manifest(current_source),
+        "bank_sha256": hashlib.sha256(generator.canonical(bank).encode()).hexdigest(),
+        "b8_sha256": q1_evaluate.B8_SHA256,
+        "parity_sha256": hashlib.sha256(generator.canonical(current_mac).encode()).hexdigest(),
+        "row_sha256": rows,
+        "serial_row_sha256": rows,
+        "historical_row_sha256": rows,
+        "unit_elapsed_seconds": [1.0] * len(rows),
+        "serial_unit_elapsed_seconds": [1.0] * len(rows),
+    }
+
+
 def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
     drive = tmp_path / "drive"
     mass = _write_archive(
@@ -100,11 +133,29 @@ def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
         {"schema": "q0-b8-init-fidelity/v1", "status": "COMPLETE"},
     )
 
+    # Preserve the frozen A3 receipt separately: its source closure and Mac
+    # artifact must never be relabelled as process-pool evidence.
     runtime = tmp_path / "runtime-parity.json"
     runtime_value = parity_receipt()
+    historical_source = a4_compatibility.historical_source_manifest()
+    historical_mac_value = copy.deepcopy(runtime_value["reference"])
+    historical_mac_value["source_sha256"] = hashlib.sha256(
+        q1_parity.canonical(historical_source).encode()
+    ).hexdigest()
+    runtime_value["source_manifest"] = historical_source
+    runtime_value["reference"] = historical_mac_value
+    runtime_value["runtime_artifact"] = copy.deepcopy(historical_mac_value)
+    runtime_value["comparison"] = q1_parity.compare_artifacts(
+        historical_mac_value, runtime_value["runtime_artifact"]
+    )
     runtime.write_text(json.dumps(runtime_value, sort_keys=True) + "\n")
-    mac = tmp_path / "mac-parity-reference.json"
-    mac.write_text(json.dumps(runtime_value["reference"], sort_keys=True) + "\n")
+    historical_mac = tmp_path / "historical-mac-parity-reference.json"
+    historical_mac.write_text(json.dumps(historical_mac_value, sort_keys=True) + "\n")
+    current_mac_value = parity_receipt()["reference"]
+    current_mac = tmp_path / "current-mac-parity-reference.json"
+    current_mac.write_text(json.dumps(current_mac_value, sort_keys=True) + "\n")
+    timing = tmp_path / "cpu-timing-receipt.json"
+    timing.write_text(json.dumps(_a4_timing_receipt(current_mac_value), sort_keys=True) + "\n")
 
     b8 = tmp_path / "B8_s3_final.pth"
     t22 = tmp_path / "t22.json"
@@ -191,7 +242,9 @@ def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
         "l4": l4,
         "a100": a100,
         "runtime": runtime,
-        "mac": mac,
+        "historical_mac": historical_mac,
+        "current_mac": current_mac,
+        "timing": timing,
         "accounting": accounting,
         "owner": owner,
         "inventory": inventory,
@@ -212,8 +265,12 @@ def _cli_args(evidence: dict[str, Path | dict], out: Path, drive_output_dir: Pat
         str(evidence["init"]),
         "--runtime-parity-receipt",
         str(evidence["runtime"]),
-        "--mac-parity-reference",
-        str(evidence["mac"]),
+        "--historical-mac-parity-reference",
+        str(evidence["historical_mac"]),
+        "--current-mac-parity-reference",
+        str(evidence["current_mac"]),
+        "--cpu-timing-receipt",
+        str(evidence["timing"]),
         "--inventory-receipt",
         str(evidence["inventory"]),
         "--q0-accounting",
@@ -254,6 +311,10 @@ def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, 
     assert {json.loads(path.read_text())["env"]["Q0Q1_OWNER_RELEASE"] for path in jobs} == {
         APPROVED
     }
+    plan = json.loads((out / "study-plan.json").read_text())
+    assert plan["amendment"] == "A4"
+    assert plan["cpu_workers"] >= 2
+    assert plan["cpu_colab_slowdown_factor"] == 3.0
 
     # Materialize the generator's Drive-visible evidence and plan at the paths
     # bound into each job.  Every SHA is checked against the actual bytes.
@@ -263,7 +324,9 @@ def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, 
         "q0b-l4-receipt.json",
         "q0b-a100-receipt.json",
         "runtime-parity.json",
-        "mac-parity-reference.json",
+        "historical-mac-parity-reference.json",
+        "current-mac-parity-reference.json",
+        "cpu-timing-receipt.json",
         "owner-admission.json",
         "inventory-receipt.json",
     ):
@@ -281,6 +344,8 @@ def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, 
             "Q0Q1_STUDY_PLAN",
             "Q1_RUNTIME_PARITY_RECEIPT",
             "Q1_MAC_PARITY_REFERENCE",
+            "Q1_HISTORICAL_MAC_PARITY_REFERENCE",
+            "Q1_CPU_TIMING_RECEIPT",
             "Q0Q1_PARITY_OWNER_ADMISSION",
             "Q0Q1_Q0B_A100_RECEIPT",
         ):
@@ -296,6 +361,8 @@ def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, 
     [
         "study-plan",
         "mac",
+        "historical-mac",
+        "timing",
         "source",
         "packet",
         "q0",
@@ -326,6 +393,8 @@ def test_admission_rejects_mutated_bound_evidence(monkeypatch, tmp_path, mutatio
         "inventory": Path(env["Q0Q1_BANK_INVENTORY_RECEIPT"]),
         "study-plan": Path(env["Q0Q1_STUDY_PLAN"]),
         "mac": Path(env["Q1_MAC_PARITY_REFERENCE"]),
+        "historical-mac": Path(env["Q1_HISTORICAL_MAC_PARITY_REFERENCE"]),
+        "timing": Path(env["Q1_CPU_TIMING_RECEIPT"]),
         "source": Path(env["Q0Q1_Q0B_L4_RECEIPT"]),
         "packet": Path(env["Q0Q1_Q0B_L4_RECEIPT"]),
         "q0": evidence["drive"] / "q0q1-20261017/q0/audit-t23-mass-a100r5/result.tar.gz",

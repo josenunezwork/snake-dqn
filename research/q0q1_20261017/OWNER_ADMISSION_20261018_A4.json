@@ -1,0 +1,19 @@
+{
+  "amendment": "A4",
+  "authorization_source": "Owner decision in chat on 2026-10-18 at approximately 6:40 PM PT, verbatim option chosen: 'Raise to 37 GPU-h (Recommended)' described: 'Amendment A4: GPU-hour limit 24 -> 37 (keeps the 20% reserve over the 29.5 forecast); credits, seeds, recipe unchanged. Also fix CPU eval parallelism so CPU-hours fit the existing limit. Q1 can start tonight.'",
+  "authorized_at": "2026-10-18",
+  "binding_requirements": {
+    "a3_envelope": "required complete inclusive observed-Q0 accounting with the exact A3 formula, bound by digest",
+    "cpu_evaluation": "required deterministic fixed-order process pool, serial-versus-parallel byte-identity proof, measured Mac real-entrypoint receipt, and 3x conservative Colab per-core slowdown factor",
+    "q0b_a100_receipt": "required qualified, hash-bound A3 re-qualification receipt",
+    "q0b_l4_receipt": "required qualified, hash-bound terminal-packet receipt",
+    "runtime_parity_receipt": "required passing, hash-bound receipt",
+    "study_plan": "required A3-envelope, A4 GPU-cap, hash-bound forecast"
+  },
+  "owner_release": "APPROVED_Q0Q1_20261017",
+  "q1_dispatch_is_conditional_on": "complete inclusive Q0 accounting, both qualified Q0b packets, bound Mac and runtime parity, and an A4 forecast with deterministic parallel CPU evaluation",
+  "registration_path": "research/q0q1_20261017/PREREGISTRATION.md",
+  "registration_sha256": "2be7a357b41530c15975c927bd31ed78efe7fd992da4a134311165b0313c51af",
+  "schema": "q0q1-owner-admission/v1",
+  "status": "OWNER_ADMITTED"
+}

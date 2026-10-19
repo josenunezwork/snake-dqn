@@ -182,17 +182,42 @@ def admission_checks(env: Mapping[str, str]) -> None:
         runtime = _bound_json_bytes(
             env["Q1_RUNTIME_PARITY_RECEIPT"], env["Q1_RUNTIME_PARITY_RECEIPT_SHA256"]
         )
-        q1_parity.validate_runtime_receipt(
-            runtime,
-            bank_sha256=_canonical_sha(q1_bank.load_world_bank()),
-            b8_sha256=q1_evaluate.B8_SHA256,
-            source_manifest=q1_evaluate.source_manifest(),
-        )
         reference = _bound_json_bytes(
             env["Q1_MAC_PARITY_REFERENCE"], env["Q1_MAC_PARITY_REFERENCE_SHA256"]
         )
-        if runtime.get("reference") != reference:
-            raise RuntimeError("runtime parity does not bind the supplied Mac reference")
+        if plan.get("amendment") == "A4":
+            from research.q0q1_20261017 import a4_compatibility, make_q1_jobs
+
+            timing = _bound_json_bytes(
+                env["Q1_CPU_TIMING_RECEIPT"], env["Q1_CPU_TIMING_RECEIPT_SHA256"]
+            )
+            old_mac = _bound_json_bytes(
+                env["Q1_HISTORICAL_MAC_PARITY_REFERENCE"],
+                env["Q1_HISTORICAL_MAC_PARITY_REFERENCE_SHA256"],
+            )
+            bridge = a4_compatibility.validate_historical_parity(
+                runtime, old_mac, reference, timing
+            )
+            if plan.get("a4_historical_parity_bridge") != bridge:
+                raise RuntimeError("A4 historical parity bridge differs from the admitted plan")
+            for field, expected in make_q1_jobs.cpu_forecast(packet, timing).items():
+                if plan.get(field) != expected:
+                    raise RuntimeError(f"CPU forecast differs from measured evidence: {field}")
+            if kind == "q1_eval" and env.get("Q1_EVAL_WORKERS") != "auto":
+                raise RuntimeError("A4 evaluation requires the bounded automatic CPU worker count")
+            if plan.get("cpu_timing_receipt_sha256") != env["Q1_CPU_TIMING_RECEIPT_SHA256"]:
+                raise RuntimeError("CPU timing receipt differs from the admitted plan")
+            if kind == "q1_eval" and q1_evaluate.default_workers() < plan["cpu_workers"]:
+                raise RuntimeError("runtime cannot hold the forecast CPU worker floor")
+        else:
+            q1_parity.validate_runtime_receipt(
+                runtime,
+                bank_sha256=_canonical_sha(q1_bank.load_world_bank()),
+                b8_sha256=q1_evaluate.B8_SHA256,
+                source_manifest=q1_evaluate.source_manifest(),
+            )
+            if runtime.get("reference") != reference:
+                raise RuntimeError("runtime parity does not bind the supplied Mac reference")
     if kind == "q1_train":
         collector = "n1" if env["Q1_ARM"] in ("C", "D") else "n3"
         cells = packet.get("cells", [])
@@ -432,6 +457,19 @@ def command(env: Mapping[str, str], local_root: Path) -> list[str]:
             env["Q1_SHARD"],
             "--parity-receipt",
             env["Q1_EVAL_PARITY_RECEIPT"],
+            *(
+                []
+                if env.get("Q1_EVAL_WORKERS", "auto") == "auto"
+                else ["--workers", env["Q1_EVAL_WORKERS"]]
+            ),
+            *(
+                []
+                if "QUEUE_OUTPUT_DIR" not in env
+                else [
+                    "--partials-export",
+                    str(Path(env["QUEUE_OUTPUT_DIR"]) / "evaluation-partials"),
+                ]
+            ),
             *([] if env["Q1_ARM"] == "B8" else ["--provenance", env["Q1_TRAINING_PROVENANCE"]]),
         ]
     raise RuntimeError(f"unknown Q0/Q1 job kind: {kind!r}")
@@ -500,7 +538,11 @@ def _scientific_done(kind: str, local_root: Path, env: Mapping[str, str] | None 
             raise RuntimeError(f"Q0b did not qualify: {outcome['errors']}")
         return
     if kind == "q1_eval":
-        candidates = list((local_root / "evaluation").rglob("*.json"))
+        candidates = [
+            path
+            for path in (local_root / "evaluation").rglob("shard-*.json")
+            if ".partials" not in str(path)
+        ]
         if not candidates:
             raise RuntimeError("evaluation did not produce a shard receipt")
         value = json.loads(candidates[0].read_text())
@@ -679,8 +721,48 @@ def validate_output_directory(output: Path, env: Mapping[str, str]) -> None:
         allowed.add(
             f"g{env['QUEUE_GENERATION']}.{env['QUEUE_WORKER_ID']}.{env['QUEUE_CLAIM_TOKEN']}.log"
         )
-    if any(path.name not in allowed or not path.is_file() for path in output.iterdir()):
+
+    def allowed_entry(path: Path) -> bool:
+        if env.get("Q0Q1_JOB_KIND") == "q1_eval" and path.name == "evaluation-partials":
+            return path.is_dir() and not path.is_symlink() and not any(path.iterdir())
+        return path.name in allowed and path.is_file()
+
+    if any(not allowed_entry(path) for path in output.iterdir()):
         raise RuntimeError("QUEUE_OUTPUT_DIR contains prior or foreign attempt artifacts")
+
+
+def stage_evaluation_partials(env: Mapping[str, str], local: Path) -> None:
+    """Import reviewed completed units from a bound prior archive into a fresh attempt."""
+    if "Q1_RESUME_ARCHIVE" not in env:
+        return
+    from research.q0q1_20261017 import q1_evaluate
+
+    archive = Path(env["Q1_RESUME_ARCHIVE"])
+    if sha256_file(archive) != env.get("Q1_RESUME_ARCHIVE_SHA256"):
+        raise RuntimeError("Q1 resume archive SHA-256 mismatch")
+    index, count = q1_evaluate._split(env["Q1_SHARD"])
+    receipt = q1_evaluate.receipt_path(local, int(env["Q1_SEED"]), env["Q1_ARM"], index, count)
+    directory, _ = q1_evaluate._partial_paths(receipt)
+    prefix = "attempt/" + str(directory.relative_to(local)) + "/"
+    with tarfile.open(archive, "r:gz") as stream:
+        members = [
+            member
+            for member in stream.getmembers()
+            if member.name.startswith(prefix) and member.isfile()
+        ]
+        names = [member.name[len(prefix) :] for member in members]
+        if "manifest.json" not in names or len(names) != len(set(names)):
+            raise RuntimeError("Q1 resume archive lacks one partial manifest")
+        if any(not re.fullmatch(r"manifest\.json|world-[0-9]{4}\.json", name) for name in names):
+            raise RuntimeError("Q1 resume archive contains unsafe partial members")
+        directory.mkdir(parents=True)
+        for member, name in zip(members, names):
+            source = stream.extractfile(member)
+            if source is None:
+                raise RuntimeError("Q1 resume archive member is unreadable")
+            (directory / name).write_bytes(source.read())
+    # Full source/bank/checkpoint/world identity and unit hashes are checked by
+    # the evaluator after fresh parity, before any imported row can be used.
 
 
 def run(env: Mapping[str, str] | None = None) -> int:
@@ -740,6 +822,7 @@ def run(env: Mapping[str, str] | None = None) -> int:
                     raise RuntimeError(f"current training CUDA {fixture} fixture failed")
         if env["Q0Q1_JOB_KIND"] == "q1_eval":
             run_env["Q1_TRAINING_FINAL"] = stage_training_final(run_env, local)
+            stage_evaluation_partials(run_env, local)
         if env["Q0Q1_JOB_KIND"] in {"q1_train", "q1_eval"}:
             parity = subprocess.run(
                 [

@@ -25,6 +25,17 @@ def _receipt(*, rate: float = 0.5) -> dict:
     }
 
 
+def _timing() -> dict:
+    """Synthetic A4 probe: four serial worlds, then two parallel repeats."""
+    return {
+        "workers": 3,
+        "world_count": 8,
+        "elapsed_seconds": 3.0,
+        "unit_elapsed_seconds": [1.0] * 8,
+        "serial_unit_elapsed_seconds": [1.0] * 4,
+    }
+
+
 def test_study_plan_requires_observed_nonzero_cpu_debit_and_matches_packets() -> None:
     l4, a100 = _receipt(), _receipt()
     accounting = {
@@ -35,18 +46,20 @@ def test_study_plan_requires_observed_nonzero_cpu_debit_and_matches_packets() ->
         "cpu_eval_job_overhead_seconds": 3.0,
     }
     accounting.update(_a3_accounting())
-    plan = subject._study_plan(l4, a100, accounting)
+    plan = subject._study_plan(l4, a100, accounting, _timing())
     assert plan["owner_release"] == subject.OWNER_RELEASE
-    assert plan["amendment"] == "A3"
+    assert plan["amendment"] == "A4"
+    assert plan["cpu_workers"] == 7
+    assert plan["cpu_colab_slowdown_factor"] == 3.0
     assert plan["a3_envelope"]["q0_units_cap"] == 64.0
     assert plan["a3_envelope"]["combined_units_cap"] == 199.0
     assert plan["a3_envelope"]["reserve_units"] == 35.0
     accounting["cpu_unit_rate_per_hour"] = 0.0
     with pytest.raises(ValueError, match="cpu"):
-        subject._study_plan(l4, a100, accounting)
+        subject._study_plan(l4, a100, accounting, _timing())
     accounting["cpu_unit_rate_per_hour"] = 0.6
     with pytest.raises(ValueError, match="does not match"):
-        subject._study_plan(l4, a100, accounting)
+        subject._study_plan(l4, a100, accounting, _timing())
 
 
 def _current_test_owner(tmp_path: Path) -> Path:
@@ -58,7 +71,7 @@ def _current_test_owner(tmp_path: Path) -> Path:
 
 def test_owner_admission_binds_current_registration_bytes(tmp_path) -> None:
     admission = subject._validate_owner_admission(_current_test_owner(tmp_path))
-    assert admission["amendment"] == "A3"
+    assert admission["amendment"] == "A4"
     assert admission["status"] == "OWNER_ADMITTED"
     assert admission["owner_release"] == subject.OWNER_RELEASE
 
@@ -79,12 +92,21 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(
     l4 = tmp_path / "l4.json"
     a100 = tmp_path / "a100.json"
     runtime = tmp_path / "runtime.json"
-    mac = tmp_path / "mac.json"
+    historical_mac = tmp_path / "historical-mac.json"
+    current_mac = tmp_path / "current-mac.json"
+    timing = tmp_path / "timing.json"
     accounting = tmp_path / "accounting.json"
     inventory = tmp_path / "inventory.json"
     inventory.write_text("{}")
     owner = _current_test_owner(tmp_path)
-    for path, value in ((l4, {}), (a100, {}), (runtime, {}), (mac, {})):
+    for path, value in (
+        (l4, {}),
+        (a100, {}),
+        (runtime, {}),
+        (historical_mac, {}),
+        (current_mac, {}),
+        (timing, {}),
+    ):
         path.write_text(json.dumps(value))
     accounting.write_text(
         json.dumps(
@@ -146,6 +168,11 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(
     )
     monkeypatch.setattr(subject, "_validate_runtime_receipt", lambda path: {"reference": {}})
     monkeypatch.setattr(subject, "_validate_mac_reference", lambda path: {})
+    monkeypatch.setattr(subject, "_validate_timing_receipt", lambda path, current: _timing())
+    monkeypatch.setattr(
+        "research.q0q1_20261017.a4_compatibility.validate_historical_parity",
+        lambda runtime, old, current, probe: {},
+    )
     monkeypatch.setattr(
         "research.q0q1_20261017.qualification.validate_admission",
         lambda packet, plan: {"status": "ADMITTED_FOR_DISPATCH", "dispatch_authorized": True},
@@ -166,7 +193,9 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(
             l4_receipt_path=l4,
             a100_receipt_path=a100,
             runtime_receipt_path=runtime,
-            mac_reference_path=mac,
+            historical_mac_reference_path=historical_mac,
+            current_mac_reference_path=current_mac,
+            cpu_timing_receipt_path=timing,
             owner_admission_path=owner.resolve(),
             q0_accounting_path=accounting,
             inventory_receipt_path=inventory,
@@ -195,7 +224,12 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(
         job["requirements"]["min_vcpu"] for job in jobs if job["id"].startswith("q1-train-")
     } == {12}
     assert plan["q0_units"] == 64.0
-    assert plan["q1_cpu_overhead_hours"] == 100 * (4 * 2 + 3) / (3600 * 0.8)
+    assert plan["q1_cpu_overhead_hours"] == 100 * (4 * 3 + 3) / 3600
+    eval_jobs = [job for job in jobs if job["id"].startswith("q1-eval-")]
+    assert {job["requirements"]["min_vcpu"] for job in eval_jobs} == {8}
+    assert {job["requirements"]["gpu"] for job in eval_jobs} == {"cpu"}
+    assert {job["env"]["Q1_EVAL_WORKERS"] for job in eval_jobs} == {"auto"}
+    assert all(job["output_subdirs"] == ["evaluation-partials"] for job in eval_jobs)
 
     assert (
         jobs[0]["env"]["Q0Q1_STUDY_PLAN_SHA256"]
@@ -217,10 +251,10 @@ def test_new_registration_amendment_invalidates_old_admission(tmp_path):
     registration = tmp_path / "registration.md"
     registration.write_bytes(subject.owner_admission.REGISTRATION.read_bytes())
     with registration.open("a") as stream:
-        stream.write("\n## Amendment A4 - test only\n")
+        stream.write("\n## Amendment A5 - test only\n")
     admission = json.loads(subject.owner_admission.DEFAULT_ADMISSION.read_text())
     admission["registration_sha256"] = subject.sha256_file(registration)
-    with pytest.raises(ValueError, match="approved A4"):
+    with pytest.raises(ValueError, match="approved A5"):
         subject.owner_admission.validate(admission, registration)
 
 
