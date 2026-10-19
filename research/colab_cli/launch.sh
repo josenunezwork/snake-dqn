@@ -13,8 +13,8 @@ if [ "${1:-}" = --check ]; then
   printf '%s\n' "AC + open-lid guard; caffeinate -is $PY -m $MODULE $*"
   exit 0
 fi
-pmset -g batt | rg -q 'AC Power' || { echo 'refusing: Mac is on battery' >&2; exit 2; }
-ioreg -r -k AppleClamshellState | rg -q '"AppleClamshellState" = No' || {
+pmset -g batt | grep -q 'AC Power' || { echo 'refusing: Mac is on battery' >&2; exit 2; }
+ioreg -r -k AppleClamshellState | grep -q '"AppleClamshellState" = No' || {
   echo 'refusing: lid is closed or its state is unknown' >&2; exit 2;
 }
 cd "$REPO"
