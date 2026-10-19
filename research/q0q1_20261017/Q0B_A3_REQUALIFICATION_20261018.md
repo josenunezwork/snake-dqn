@@ -88,15 +88,32 @@ The estimate remains 50 minutes, timeout 100 minutes; the stricter inclusive
 packet cap remains 3600s. A100 is a disclosed proxy for L4's timing, not an L4
 qualification. No additional CPU-bound loop or simulator source changed.
 
-The real Mac `q0b_measure` entrypoint exercised 69 oracle tests on real staged B8,
+The real Mac `q0b_measure` entrypoint exercised 70 oracle tests on real staged B8,
 demo and parity inputs, then returned INCOMPLETE at the CUDA/environment fixture
-guard. Repeating its output directory was refused. This is an honest Mac
+guard. The final invocation used the L4 r7 manifest environment, current project
+venv and default registered oracle argv (70 passed in 5.30s; total 6.733s). Its
+exact argv is preserved at
+`/var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/q0b-a3-final-preflight-4j499dv5/command.json`. Repeating its output directory was refused. This is an honest Mac
 preflight; it does not manufacture CUDA qualification. Recovery itself ran for
 real against the preserved CUDA packet and published the archive above.
-Targeted qualification/accounting/generator/integration/queue tests: 120 passed.
+Targeted qualification/accounting/generator/integration/queue tests: 121 passed.
+The final Q0/Q1 package also passed 220 tests with four workers. An earlier
+whole-repository non-slow run overlapped construction of the new test module and
+reported 17 failures, 7,631 passes and 26 skips. Eight were in that module; the
+finished module subsequently passed in both serial and parallel package runs.
+Remaining failures are outside the changed implementation: actor message-key
+parity expectations, missing frontend build, serving fallback expectations,
+queue process control under concurrent load and native NumPy crashes. The broad
+suite is not green; see `/tmp/q0q1-a3-full-tests.log` for the complete evidence.
+Eight non-A3 failures reproduced on the pre-A3 `ad33f390` checkout at
+`/tmp/snake-dqn-baseline-ad33.S3prMJ` (8 failed in 12.32s with `--tb=no`). They
+cover M6 actor-message keys (3), T21 actor continuation (2), T4 actor-message keys,
+T15's absent frontend build and served-checkpoint fallback expectations. The
+queue cancellation test passed focused reruns on both current and baseline
+checkouts (1 passed each); its full-run PermissionError was transient.
+No training, simulator or serving source was changed to work around those failures.
 Black, isort and flake8 passed for the research package and changed tests; the
-repository `make ... lint` passed. The final full-suite result is recorded in the
-operator handoff.
+repository `make ... lint` passed. The final operator handoff distinguishes these targeted gates from the broad run.
 
 See [README.md](README.md#a3-operator-sequence-2026-10-18) for the complete
 post-L4 accounting, Q1 materialization and dependency-ordered enqueue sequence.

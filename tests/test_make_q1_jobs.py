@@ -68,7 +68,10 @@ def test_a2_rejects_the_immutable_pre_a2_production_owner_admission() -> None:
         )
 
 
-def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("repaired_a100", [False, True])
+def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(
+    monkeypatch, tmp_path, repaired_a100
+) -> None:
     l4 = tmp_path / "l4.json"
     a100 = tmp_path / "a100.json"
     runtime = tmp_path / "runtime.json"
@@ -100,10 +103,19 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
     }
     l4_receipt = _receipt()
     l4_receipt["runtime_parity_receipt_sha256"] = subject.sha256_file(runtime)
+    a100_value = _receipt()
+    if repaired_a100:
+        a100_value["requalification"] = {"claim_sha256": "c" * 64, "terminal_sha256": "d" * 64}
+        accounting_value = json.loads(accounting.read_text())
+        accounting_value["attempts"][1].update(claim_sha256="c" * 64, closure_sha256="d" * 64)
+        accounting.write_text(json.dumps(accounting_value))
+        monkeypatch.setattr(
+            "research.q0q1_20261017.requalify_q0b.validate_receipt", lambda value: "q0b-a100"
+        )
     monkeypatch.setattr(
         subject,
         "_qualified_receipt",
-        lambda path, hardware: (l4_receipt if hardware == "L4" else _receipt(), packet),
+        lambda path, hardware: (l4_receipt if hardware == "L4" else a100_value, packet),
     )
     monkeypatch.setattr(
         subject,
@@ -146,7 +158,8 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(monkeypatch
     assert len(jobs) == 120
     assert sum(job["id"].startswith("q1-train-") for job in jobs) == 20
     assert all(job["env"]["Q0Q1_OWNER_RELEASE"] == subject.OWNER_RELEASE for job in jobs)
-    assert all({"q0b-l4", "q0b-a100"} <= set(job["depends_on"]) for job in jobs)
+    assert all("q0b-l4" in job["depends_on"] for job in jobs)
+    assert all(("q0b-a100" not in job["depends_on"]) == repaired_a100 for job in jobs)
     assert all(subject.Q0_MASS_JOB_ID in job["depends_on"] for job in jobs)
     assert all(job["env"]["Q0Q1_Q0B_A100_RECEIPT_SHA256"] for job in jobs)
     assert all(

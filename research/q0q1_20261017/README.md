@@ -137,6 +137,19 @@ q cancel q0b-capacity-l4-20261018r6 --reason 'Superseded by A3 pinned L4 r7; no 
 q enqueue /Users/josenunez/Projects/ml/snake-dqn-q0q1-a3/research/q0q1_20261017/jobs_approved/q0b-capacity-l4-20261018r7.json
 ```
 
+The A100 recovery has already run successfully; preserve its output. For an
+independent replay of the Mac-only recovery to a fresh review directory, use the
+same original archive and exact queue evidence (an existing destination is refused):
+
+```bash
+"$PY" -m research.q0q1_20261017.requalify_q0b \
+  --archive "$DRIVE/q0q1-20261017/q0b/capacity-a100-20261018r6/result.tar.gz" \
+  --claim "$DRIVE/queue/claimed/q0b-capacity-a100-20261018r6/g0.291b7018260c-c3915164906b4032af56cf8f2c1d17b4.1555b50b6783474894f6a1e5ee667fdf.json" \
+  --terminal "$DRIVE/queue/failed/q0b-capacity-a100-20261018r6/g0.1555b50b6783474894f6a1e5ee667fdf.json" \
+  --drive-root "$DRIVE" \
+  --out-dir /tmp/q0b-a100-r6-a3-independent-review
+```
+
 L4 requires the owner's Drive mount. The 3/6 actors and 12 vCPUs remain fixed.
 Four observed A100 cell launcher durations are 516.431, 502.374, 497.433 and
 497.693 seconds; each contains 120s warmup and two >=180s windows. The measurement
