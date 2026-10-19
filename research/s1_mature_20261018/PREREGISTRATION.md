@@ -1,5 +1,7 @@
 # DRAFT_PENDING_OWNER_REVIEW — S1 mature collection screen (2026-10-18)
 
+**Status: APPROVED_S1_MATURE_20261018.** Approved by Claude (planner) 2026-10-18 ~21:00 PT under the owner authorization quoted below, before any S1 training or evaluation data. Dispatch still requires the independently passed CLI live acceptance (final-artifact throughput), fresh account evidence and a PASS admission plan.
+
 This is a prospective **new** study. It is DRAFT until Claude inserts
 `**Status: APPROVED_S1_MATURE_20261018.**` within the first twelve lines while
 preserving this DRAFT header; no package artifact, including
