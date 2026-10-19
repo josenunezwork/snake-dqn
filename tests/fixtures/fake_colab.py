@@ -10,8 +10,11 @@ It intentionally implements only the commands used by ``research.colab_cli``.
 from __future__ import annotations
 
 import ast
+import base64
 import fcntl
 import hashlib
+import importlib.util
+import io
 import json
 import os
 import random
@@ -22,6 +25,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
 
 
 def _env_path(name: str) -> Path:
@@ -443,6 +447,48 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         generation = generation_match.group(1) if generation_match else "fake-generation"
         output = local_root / "output"
         output.mkdir(parents=True, exist_ok=True)
+        # Run the pinned production HTTP/size/hash/atomic-install helper, faking
+        # only urlopen. The outer broker and its release receipt remain real.
+        launch_spec = next(
+            (
+                ast.literal_eval(node)
+                for node in ast.walk(ast.parse(code))
+                if isinstance(node, ast.Dict)
+                and any(
+                    isinstance(key, ast.Constant) and key.value == "public_inputs"
+                    for key in node.keys
+                )
+            ),
+            {},
+        )
+        public_rows = launch_spec.get("public_inputs", [])
+        public_failure = None
+        if public_rows:
+            encoded = re.search(r"base64.b64decode\('([A-Za-z0-9+/=]+)'\)", code).group(1)
+            runtime_path = local_root / "runtime.py"
+            runtime_path.write_bytes(base64.b64decode(encoded))
+            module_spec = importlib.util.spec_from_file_location(
+                "fake_pinned_runtime", runtime_path
+            )
+            module = importlib.util.module_from_spec(module_spec)
+            module_spec.loader.exec_module(module)
+            payload = base64.b64decode(os.environ["FAKE_COLAB_PUBLIC_INPUT_BYTES"])
+            fault = os.environ.get("FAKE_COLAB_PUBLIC_INPUT_FAULT", "")
+
+            def public_reply(*_args: Any, **_kwargs: Any) -> io.BytesIO:
+                time.sleep(0.02)  # Delayed completion must precede any trainer marker.
+                if fault == "timeout":
+                    raise URLError("fixture network timeout")
+                return io.BytesIO(b"x" * len(payload) if fault == "mismatch" else payload)
+
+            module.urlopen = public_reply
+            try:
+                verified = module._fetch_public_inputs(local_root, public_rows)
+                (local_root / "public-inputs-verified.json").write_text(json.dumps(verified))
+                state.setdefault("public_inputs_verified", {})[session] = verified
+            except RuntimeError as exc:
+                public_failure = str(exc)
+                state.setdefault("public_input_failures", {})[session] = public_failure
         profile = _acceptance_profile(code)
         if profile not in {"final-only", "full-state"}:
             raise SystemExit(f"unsupported acceptance profile: {profile}")
@@ -475,6 +521,8 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
                 "checkpoint-overhead.json": b'{"overhead_percent":0.0}',
                 "intentional-child-failure.json": b'{"exit_code":23}',
             }
+        if public_failure:
+            fixtures = {}
         exports: list[dict[str, Any]] = []
         for name, payload in fixtures.items():
             target = output / name
@@ -493,6 +541,8 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
             "reason": None,
             "exports": exports,
         }
+        if public_failure:
+            terminal.update(status="failed", returncode=74, reason="public_input_fetch_failed")
         if MODE in {"corrupt_download", "export_success"}:
             payload = b"GOOD"
             checkpoint = output / "checkpoint.bin"
@@ -566,6 +616,11 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         _reply(code, {"pid": 4242})
         _save(state)
         return
+
+    if "checks=" in code and "ready.json" in code:
+        if session in state.get("public_inputs_verified", {}):
+            assert (local_root / "public-inputs-verified.json").is_file()
+            state.setdefault("trainer_starts", []).append(session)
 
     if "read_state" in code:
         runtime = state.setdefault("runtime", {}).get(session)

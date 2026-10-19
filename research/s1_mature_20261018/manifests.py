@@ -22,6 +22,7 @@ L4_RATE_UNITS_PER_HOUR = 2.0
 ESTIMATE_MINUTES = {"n3": 30, "n1": 68}
 TIMEOUT_MINUTES = {"n3": 60, "n1": 136}
 MAX_EXPORT_BYTES = 64 * 1024**2
+RELEASE_BASE = "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019"
 
 
 class ManifestRefused(ValueError):
@@ -30,17 +31,26 @@ class ManifestRefused(ValueError):
 
 @dataclass(frozen=True)
 class ExternalInput:
-    """A supervisor-uploaded immutable input."""
+    """Immutable local evidence, optionally delivered from the approved release."""
 
     name: str
     path: Path
     dest: str
+    url: str | None = None
 
-    def as_manifest(self) -> dict[str, str]:
+    def as_manifest(self) -> dict[str, Any]:
         path = self.path.resolve(strict=True)
         if not path.is_file():
             raise ManifestRefused(f"input is not a regular file: {path}")
-        return {"path": str(path), "sha256": sha256_file(path), "dest": self.dest}
+        row = {"sha256": sha256_file(path), "dest": self.dest}
+        if self.url is not None:
+            return {**row, "url": self.url, "size_bytes": path.stat().st_size}
+        return {**row, "path": str(path)}
+
+    def from_release(self) -> ExternalInput:
+        """Retain the registered bytes while changing only their transport."""
+        name = "SEED_BANK.json" if self.dest == "seed-bank.json" else self.dest
+        return ExternalInput(self.name, self.path, self.dest, f"{RELEASE_BASE}/{name}")
 
 
 def sha256_file(path: Path) -> str:

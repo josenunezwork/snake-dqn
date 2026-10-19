@@ -104,8 +104,92 @@ def packaging_preflight(repo: Path, rows: Iterable[dict[str, Any]]) -> dict[str,
             "files": len(plan["files"]),
             "inventory_sha256": hashlib.sha256(canonical(plan["files"]).encode()).hexdigest(),
             "fallback_unpacked_size": plan["fallback_unpacked_size"],
+            "fallback_size": plan["fallback_size"],
         }
     return {"status": "PASS", "builder": "research.colab_cli.source.prepare", "jobs": results}
+
+
+def staging_preflight(
+    rows: Iterable[dict[str, Any]],
+    packaging: dict[str, Any],
+    *,
+    release_bytes_per_second: float = 1024**2,
+) -> dict[str, Any]:
+    """Refuse staging forecasts beyond the transfer cap before ledger reservation.
+
+    Contents uses half the slow dispatch-02 observation (13 KB/s). Release
+    delivery reserves 1 MiB/s with a twofold margin plus five seconds per GET.
+    These are admission floors, not a claim of measured VM release goodput;
+    independent bounded transfers still fail closed when the network is slower.
+    """
+    from research.colab_cli.inputs import PUBLIC_INPUT_FETCH_TOTAL_TIMEOUT_SECONDS
+    from research.colab_cli.transfers import UPLOAD_TOTAL_TIMEOUT_SECONDS
+
+    if not math.isfinite(release_bytes_per_second) or release_bytes_per_second <= 0:
+        raise AdmissionRefused("release staging rate must be finite and positive")
+    jobs = {}
+    for row in rows:
+        inputs = row.get("inputs", [])
+        if not any("url" in item for item in inputs):
+            continue
+        uploads, fetched, fetches = 0, 0, 0
+        for item in inputs:
+            if "url" in item:
+                size = item.get("size_bytes")
+                if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+                    raise AdmissionRefused("release inputs need a positive pinned size")
+                fetched += size
+                fetches += 1
+            else:
+                size = Path(item["path"]).stat().st_size
+                if size > 100_000:
+                    raise AdmissionRefused("S1 Contents evidence exceeds 100 KB")
+                uploads += size
+        fallback = packaging["jobs"][row["job_id"]]["fallback_size"]
+        # Include the bounded source fallback plus helper/bootstrap metadata.
+        uploaded = uploads + fallback + 100_000
+        contents_seconds = 30 + uploaded / 6_500
+        fetch_seconds = 2 * fetched / release_bytes_per_second + 5 * fetches
+        if (
+            contents_seconds >= UPLOAD_TOTAL_TIMEOUT_SECONDS
+            or fetch_seconds >= PUBLIC_INPUT_FETCH_TOTAL_TIMEOUT_SECONDS
+        ):
+            raise AdmissionRefused("estimated input staging exceeds its transfer cap")
+        jobs[row["job_id"]] = {
+            "release_bytes": fetched,
+            "contents_bytes_upper_bound": uploaded,
+            "contents_seconds_upper_bound": contents_seconds,
+            "release_seconds_upper_bound": fetch_seconds,
+            "estimated_seconds_upper_bound": contents_seconds + fetch_seconds,
+            "contents_cap_seconds": UPLOAD_TOTAL_TIMEOUT_SECONDS,
+            "release_cap_seconds": PUBLIC_INPUT_FETCH_TOTAL_TIMEOUT_SECONDS,
+            "cap_seconds": UPLOAD_TOTAL_TIMEOUT_SECONDS + PUBLIC_INPUT_FETCH_TOTAL_TIMEOUT_SECONDS,
+        }
+    return {
+        "status": "PASS",
+        "basis": "2x release 1 MiB/s floor; 2x observed dispatch-02 Contents 13 KB/s; setup slack",
+        "jobs": jobs,
+    }
+
+
+def delivery_preflight(rows: list[dict[str, Any]], packaging: dict[str, Any]) -> dict[str, Any]:
+    """Hash all release bytes on the Mac before any account or ledger operation."""
+    from research.colab_cli import inputs
+
+    public = [item for row in rows for item in row.get("inputs", []) if "url" in item]
+    if not public:
+        return {"status": "NOT_REQUIRED"}
+    staging_preflight(rows, packaging)
+    try:
+        verified = inputs.preflight(public)
+    except (inputs.InputError, OSError, ValueError) as exc:
+        raise AdmissionRefused(f"release input preflight refused: {exc}") from exc
+    rate = min([1024**2] + [item["bytes_per_second"] for item in verified])
+    return {
+        "status": "PASS",
+        "verified_inputs": verified,
+        "staging": staging_preflight(rows, packaging, release_bytes_per_second=rate),
+    }
 
 
 def require_approved_preregistration(path: Path) -> dict[str, str]:
@@ -255,6 +339,12 @@ def prepare(args: argparse.Namespace) -> Path:
         raise AdmissionRefused(
             "supervisor seed-bank input must be the exact registered seed-bank bytes"
         )
+    local_inputs = {
+        item.dest: {"path": str(item.path.resolve()), "sha256": item.as_manifest()["sha256"]}
+        for item in parsed_inputs
+    }
+    if getattr(args, "input_delivery", "contents") == "public-release":
+        parsed_inputs = [item.from_release() for item in parsed_inputs]
     mac_bound = priced_mac_bound(args.pricing.resolve())
     acceptance = mac_bound["cli_acceptance_receipt"]
     parsed_inputs.append(
@@ -307,6 +397,16 @@ def prepare(args: argparse.Namespace) -> Path:
     if out.exists() or args.manifest_dir.exists():
         raise AdmissionRefused("plan or manifest directory already exists")
     packaging = packaging_preflight(repo, rows)
+    staging = staging_preflight(rows, packaging)
+    for row in rows:
+        job_staging = staging["jobs"].get(row["job_id"])
+        if job_staging is not None:
+            required = (
+                mac_bound["per_arm_gpu_hours"][row["env"]["S1_ARM"]]
+                + job_staging["estimated_seconds_upper_bound"] / 3600
+            )
+            if required > row["timeout_minutes"] / 60:
+                raise AdmissionRefused("training, staging and final transport exceed job timeout")
     args.manifest_dir.mkdir(parents=True)
     written: list[dict[str, str]] = []
     for row in rows:
@@ -331,6 +431,8 @@ def prepare(args: argparse.Namespace) -> Path:
         "preregistration": prereg,
         "source_closure": source_closure(repo, commit),
         "source_packaging": packaging,
+        "input_staging": staging,
+        "local_inputs": local_inputs,
         "world_bank": {"path": str(args.world_bank.resolve()), "sha256": sha256(args.world_bank)},
         "seed_audit": {"path": str(args.seed_audit.resolve()), "sha256": sha256(args.seed_audit)},
         "manifests": written,
@@ -378,7 +480,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--manifest-dir", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--input", action="append", default=[], metavar="NAME:PATH:DEST")
+    p.add_argument(
+        "--input-delivery", choices=("contents", "public-release"), default="public-release"
+    )
+    check = sub.add_parser("preflight-inputs", help="verify release assets without account access")
+    check.add_argument("--plan", type=Path, required=True)
+    check.add_argument("--repo", type=Path, default=ROOT)
+    check.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.command == "preflight-inputs":
+        from research.s1_mature_20261018 import run
+
+        plan = json.loads(args.plan.read_text())
+        rows = [json.loads(path.read_text()) for _, path in run._manifest_paths(plan)]
+        result = delivery_preflight(rows, packaging_preflight(args.repo, rows))
+        write_once(args.out, result)
+        print(args.out)
+        return 0
     if args.command == "prepare":
         print(prepare(args))
         return 0

@@ -9,7 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from research.s1_mature_20261018.ledger import Ledger, Refused
+from research.s1_mature_20261018.ledger import (
+    Ledger,
+    Refused,
+    validate_staging_continuation,
+)
 
 
 def dump(path: Path, value: dict) -> Path:
@@ -32,6 +36,7 @@ def transport_sources() -> list[dict[str, str]]:
             "release.py",
             "transfers.py",
             "cli_guard.py",
+            "inputs.py",
             "bootstrap.sh",
             "launch.sh",
         )
@@ -632,8 +637,147 @@ def test_nested_acceptance_and_supervisor_bindings_are_rechecked(prepared):
     review["receipts"][0]["sha256"] = digest(nested)
     review["supervisor_sha256"] = "0" * 64
     review_path.write_text(json.dumps(review))
-    with pytest.raises(Refused, match="current supervisor"):
+    with pytest.raises(Refused, match="evidence identity changed"):
         ledger.status()
+
+
+def test_pretraining_staging_failure_charges_actual_and_restores_same_job(prepared):
+    worker_ledger, root, _ = prepared
+    source = manifest(root / "staging-manifest.json")
+    worker_ledger.reserve("train-a", bound(), source)
+    receipt = dump(
+        root / "staging-receipt.json",
+        {
+            "status": "INCOMPLETE",
+            "stop_verified": True,
+            "cleanup_error": None,
+            "endpoint": "l4-endpoint",
+            "terminal": None,
+            "exports": [],
+            "error": "upload /content/snake/inputs/league.tar.gz timed out",
+            "manifest_sha256": digest(source),
+            "usage_before": {"balance": 100, "assignments": 0, "rate": 0},
+            "usage_after": {"balance": 99.8, "assignments": 0, "rate": 0},
+            "elapsed_seconds": 10,
+        },
+    )
+    review = dump(
+        root / "staging-review.json",
+        {
+            "schema": "s1-pretraining-staging-failure-review/v1",
+            "status": "PASS",
+            "job_id": "train-a",
+            "manifest_sha256": digest(source),
+            "receipt_sha256": digest(receipt),
+            "failure_classification": "pretraining_staging_failure",
+            "owner_approved": True,
+            "trainer_process_started": False,
+            "exports_present": False,
+        },
+    )
+    summary = worker_ledger.settle_pretraining_staging_failure("train-a", receipt, review)
+    assert summary["outstanding_jobs"] == []
+    assert "train-a" in summary["planned_jobs"]
+    assert summary["spent"]["units"] == pytest.approx(2.2)
+    state = json.loads(worker_ledger.path.read_text())
+    settled = state["settled"]["staging-failure:train-a"]
+    assert settled["actual"]["gpu_allocation_hours"] == pytest.approx(10 / 3600)
+    assert settled["original_bound"] == bound()
+    event = state["events"][-1]
+    assert event["kind"] == "pretraining_staging_failure"
+    assert event["manifest"]["sha256"] == digest(source)
+
+
+@pytest.mark.parametrize("field, value", [("terminal", {"started": True}), ("exports", ["x"])])
+def test_pretraining_staging_failure_refuses_trainer_or_exports(prepared, field, value):
+    worker_ledger, root, _ = prepared
+    source = manifest(root / "staging-manifest.json")
+    worker_ledger.reserve("train-a", bound(), source)
+    receipt_value = {
+        "status": "INCOMPLETE",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "endpoint": "l4-endpoint",
+        "terminal": None,
+        "exports": [],
+        "error": "upload /content/snake/inputs/league.tar.gz timed out",
+        "manifest_sha256": digest(source),
+        "usage_before": {"balance": 100, "assignments": 0, "rate": 0},
+        "usage_after": {"balance": 100, "assignments": 0, "rate": 0},
+        "elapsed_seconds": 1,
+    }
+    receipt_value[field] = value
+    receipt = dump(root / "staging-receipt.json", receipt_value)
+    review = dump(root / "staging-review.json", {})
+    with pytest.raises(Refused, match="trainer start|exports exist"):
+        worker_ledger.settle_pretraining_staging_failure("train-a", receipt, review)
+    assert worker_ledger.status()["outstanding_jobs"] == ["train-a"]
+
+
+def test_staging_continuation_preserves_input_science_and_binds_fresh_acceptance(tmp_path: Path):
+    bank = tmp_path / "bank.bin"
+    bank.write_bytes(b"bank")
+    old_acceptance = tmp_path / "old-acceptance.json"
+    old_acceptance.write_text("old")
+    fresh_acceptance = tmp_path / "fresh-acceptance.json"
+    fresh_acceptance.write_text("fresh")
+    old = {
+        "job_id": "s1-mature-n3-7",
+        "commit": "a" * 40,
+        "output_dir": "/old/out",
+        "inputs": [
+            {"dest": "bank.bin", "path": str(bank), "sha256": digest(bank)},
+            {
+                "dest": "cli-acceptance-result.json",
+                "path": str(old_acceptance),
+                "sha256": digest(old_acceptance),
+            },
+        ],
+    }
+    refreshed = {
+        **old,
+        "commit": "b" * 40,
+        "output_dir": "/fresh/out",
+        "inputs": [
+            {
+                "dest": "bank.bin",
+                "url": "https://example.invalid/bank.bin",
+                "sha256": digest(bank),
+                "size_bytes": bank.stat().st_size,
+            },
+            {
+                "dest": "cli-acceptance-result.json",
+                "path": str(fresh_acceptance),
+                "sha256": digest(fresh_acceptance),
+                "size_bytes": fresh_acceptance.stat().st_size,
+            },
+        ],
+    }
+    with pytest.raises(Refused, match="reviewed binding"):
+        validate_staging_continuation(old, refreshed)
+    validate_staging_continuation(
+        old,
+        refreshed,
+        acceptance_result={"path": str(fresh_acceptance), "sha256": digest(fresh_acceptance)},
+    )
+    refreshed["inputs"][0]["sha256"] = "0" * 64
+    with pytest.raises(Refused, match="frozen input identity"):
+        validate_staging_continuation(
+            old,
+            refreshed,
+            acceptance_result={"path": str(fresh_acceptance), "sha256": digest(fresh_acceptance)},
+        )
+
+
+def test_requalify_acceptance_is_idempotent_and_charges_new_review(prepared):
+    worker_ledger, root, _ = prepared
+    state = json.loads(worker_ledger.path.read_text())
+    review = Path(state["acceptance_review"]["path"])
+    first = worker_ledger.requalify_acceptance(review)
+    second = worker_ledger.requalify_acceptance(review)
+    assert first == second
+    state = json.loads(worker_ledger.path.read_text())
+    assert "cli-acceptance-requalification" in state["settled"]
 
 
 def test_zero_assignments_with_nonzero_rate_refuses_new_snapshot(prepared):

@@ -219,10 +219,25 @@ def validate(manifest: dict[str, Any], repo: Path | None = None) -> dict[str, An
     m["env"] = env
     destinations = set()
     for item in m.get("inputs", []):
+        if not isinstance(item, dict):
+            raise Refused("input must be an object")
         dest = safe_relative(item["dest"])
         if dest in destinations:
             raise Refused("duplicate input destination")
         destinations.add(dest)
+        if "url" in item:
+            if "path" in item:
+                raise Refused("public input cannot also name a local path")
+            from research.colab_cli.inputs import InputError, validate_public_input
+
+            try:
+                public = validate_public_input(item)
+            except InputError as exc:
+                raise Refused(str(exc)) from exc
+            if public["size_bytes"] > 2 * 1024**3:
+                raise Refused("public input exceeds 2 GiB bounded delivery limit")
+            item.update(public)
+            continue
         path = Path(item["path"]).expanduser().resolve(strict=True)
         if not path.is_file() or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"]):
             raise Refused("input must be a file with SHA256")
@@ -240,6 +255,19 @@ def validate(manifest: dict[str, Any], repo: Path | None = None) -> dict[str, An
 
     check_study_manifest(m, repo)
     return m
+
+
+def input_preflight(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    """Verify public input bytes on the Mac before reserving or allocating."""
+    from research.colab_cli.inputs import InputError, preflight
+
+    rows = [item for item in manifest.get("inputs", []) if "url" in item]
+    if not rows:
+        return []
+    try:
+        return preflight(rows)
+    except InputError as exc:
+        raise Refused(str(exc)) from exc
 
 
 class CLI:
@@ -705,6 +733,9 @@ class Broker:
 
     def run(self, manifest: dict[str, Any], retained: dict[str, Any] | None = None) -> None:
         m = validate(manifest)
+        # Public release assets are re-checked for every job immediately before
+        # this broker can reserve units or request an assignment.
+        public_preflight = input_preflight(m)
         job = m["job_id"]
         lane = self.state_dir / job
         with locked(ACCOUNT_ROOT / f"lane-{job}.lock", blocking=False):
@@ -712,6 +743,8 @@ class Broker:
             output = Path(m["output_dir"])
             output.mkdir(parents=True, exist_ok=False)
             write_once(output / "manifest.json", m)
+            if public_preflight:
+                write_once(output / "public-input-preflight.json", {"inputs": public_preflight})
             staging = output / "staging"
             staging.mkdir()
             from research.colab_cli.source import prepare
@@ -1129,6 +1162,11 @@ class Broker:
                 "lease_seconds": m["lease_seconds"],
                 "checkpoint_grace_seconds": 15,
                 "max_export_bytes": m["max_export_bytes"],
+                "public_inputs": [
+                    {key: item[key] for key in ("url", "sha256", "size_bytes", "dest")}
+                    for item in m.get("inputs", [])
+                    if "url" in item
+                ],
                 "release_endpoint": json.loads(cli.config.read_text())[cli.session]["endpoint"],
             }
             if retained is not None:
@@ -1245,7 +1283,9 @@ class Broker:
                 (pinned["source.py"], "source.py", ""),
             ]
             local_files += [
-                (Path(i["path"]), "inputs/" + i["dest"], i["sha256"]) for i in m.get("inputs", [])
+                (Path(i["path"]), "inputs/" + i["dest"], i["sha256"])
+                for i in m.get("inputs", [])
+                if "path" in i
             ]
             checks = {}
             for path, dest, digest in local_files:

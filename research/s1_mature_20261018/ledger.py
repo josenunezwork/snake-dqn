@@ -38,6 +38,7 @@ SNAPSHOT_MAX_AGE_SECONDS = 15 * 60
 DIMENSIONS = tuple(USABLE_CAPS)
 OPERATIONAL_FAILURES = frozenset({"disconnect", "transfer_failure", "runtime_reclaim"})
 PREALLOCATION_REFUSAL_SCHEMA = "s1-preallocation-refusal/v1"
+STAGING_FAILURE_REVIEW_SCHEMA = "s1-pretraining-staging-failure-review/v1"
 
 
 class Refused(RuntimeError):
@@ -83,6 +84,83 @@ def _atomic_write(path: Path, value: Mapping[str, Any]) -> None:
                 os.close(directory)
         finally:
             temporary.unlink(missing_ok=True)
+
+
+def _frozen_input_identity(item: Any, *, allow_source_path: bool) -> dict[str, Any]:
+    """Return the scientific identity of one input independently of its transport."""
+    if not isinstance(item, Mapping):
+        raise Refused("manifest input must be an object")
+    dest, digest = item.get("dest"), item.get("sha256")
+    if not isinstance(dest, str) or not dest or not isinstance(digest, str) or len(digest) != 64:
+        raise Refused("manifest input lacks destination or SHA-256")
+    size = item.get("size_bytes")
+    if size is None and allow_source_path:
+        source = item.get("path")
+        if not isinstance(source, str) or not Path(source).is_file():
+            raise Refused("old manifest input lacks a readable source size")
+        if sha256(Path(source)) != digest:
+            raise Refused("old manifest input bytes no longer match its SHA-256")
+        size = Path(source).stat().st_size
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        raise Refused("manifest input lacks a nonnegative size_bytes")
+    return {"dest": dest, "sha256": digest, "size_bytes": size}
+
+
+def frozen_manifest_identity(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize a manifest for a source/transport-only S1 continuation check.
+
+    Commit and output directory identify a new prepared execution.  Input paths and
+    URLs are delivery details; destination, SHA-256, and byte count are scientific
+    identity.  Old path manifests obtain their immutable size from the bound file.
+    """
+    value = dict(manifest)
+    value.pop("commit", None)
+    value.pop("output_dir", None)
+    inputs = value.pop("inputs", None)
+    if not isinstance(inputs, list):
+        raise Refused("manifest inputs must be a list")
+    frozen = [_frozen_input_identity(item, allow_source_path=True) for item in inputs]
+    if len({item["dest"] for item in frozen}) != len(frozen):
+        raise Refused("manifest input destinations must be unique")
+    value["inputs"] = sorted(frozen, key=lambda item: item["dest"])
+    return value
+
+
+def validate_staging_continuation(
+    previous: Mapping[str, Any],
+    refreshed: Mapping[str, Any],
+    *,
+    acceptance_result: Mapping[str, Any] | None = None,
+) -> None:
+    """Refuse any continuation that changes S1 science instead of input transport.
+
+    A fresh final-only acceptance may replace only ``cli-acceptance-result.json``;
+    it must exactly match the review's hash-bound acceptance-result evidence.
+    """
+    old = frozen_manifest_identity(previous)
+    new = frozen_manifest_identity(refreshed)
+    old_inputs, new_inputs = old.pop("inputs"), new.pop("inputs")
+    if old != new:
+        raise Refused("refreshed manifest changes frozen scientific identity")
+    old_by_dest = {item["dest"]: item for item in old_inputs}
+    new_by_dest = {item["dest"]: item for item in new_inputs}
+    if set(old_by_dest) != set(new_by_dest):
+        raise Refused("refreshed manifest changes frozen input destinations")
+    for dest, old_item in old_by_dest.items():
+        new_item = new_by_dest[dest]
+        if dest == "cli-acceptance-result.json" and old_item != new_item:
+            if not isinstance(acceptance_result, Mapping):
+                raise Refused("fresh acceptance result requires a reviewed binding")
+            candidate = next((row for row in refreshed["inputs"] if row.get("dest") == dest), None)
+            if (
+                not isinstance(candidate, Mapping)
+                or new_item["sha256"] != acceptance_result.get("sha256")
+                or candidate.get("path") != acceptance_result.get("path")
+            ):
+                raise Refused("fresh acceptance result differs from its reviewed binding")
+            continue
+        if old_item != new_item:
+            raise Refused("refreshed manifest changes frozen input identity")
 
 
 class Ledger:
@@ -266,6 +344,75 @@ class Ledger:
             state["events"].append(
                 {"kind": "operational_failure", "job_id": job_id, "at": self.clock()}
             )
+            return self._summary(state)
+
+    def settle_pretraining_staging_failure(
+        self, job_id: str, receipt_path: str | Path, review_path: str | Path
+    ) -> dict[str, Any]:
+        """Charge a reviewed input-staging failure and return the same job to planned.
+
+        This is deliberately narrower than an operational rerun.  It accepts only
+        a failure before the trainer started and before any export existed, so the
+        original job id and seed remain the next planned attempt.
+        """
+        with self._locked() as state:
+            self._verify_static_evidence(state)
+            entry = state["outstanding"].get(job_id)
+            if entry is None:
+                raise Refused("no outstanding reservation for job")
+            receipt = self._staging_receipt(receipt_path, entry["manifest"])
+            review = self._staging_failure_review(
+                review_path, job_id, receipt_path, entry["manifest"]
+            )
+            actual = self._staging_actual(receipt, entry)
+            settlement_id = f"staging-failure:{job_id}"
+            if settlement_id in state["settled"]:
+                raise Refused("pre-training staging failure is already settled")
+            state["settled"][settlement_id] = {
+                "actual": actual,
+                "receipt": self._evidence(receipt_path),
+                "source_manifest": entry["manifest"],
+                "staging_failure_review": self._evidence(review_path),
+                "failure_classification": review["failure_classification"],
+                "original_bound": entry["bound"],
+                "settled_at": self.clock(),
+            }
+            state["planned"][job_id] = entry["bound"]
+            del state["outstanding"][job_id]
+            self._verify_invariants(state, require_snapshot=False)
+            state["events"].append(
+                {
+                    "kind": "pretraining_staging_failure",
+                    "job_id": job_id,
+                    "at": self.clock(),
+                    "manifest": entry["manifest"],
+                    "receipt": self._evidence(receipt_path),
+                    "review": self._evidence(review_path),
+                }
+            )
+            return self._summary(state)
+
+    def requalify_acceptance(self, acceptance_review_path: str | Path) -> dict[str, Any]:
+        """Bind a fresh current-source acceptance review without resetting the study clock."""
+        with self._locked() as state:
+            self._verify_static_evidence(state)
+            if state["outstanding"]:
+                raise Refused("cannot requalify acceptance while a job is outstanding")
+            review, actual, study_started_at = self._review_acceptance(acceptance_review_path)
+            if "current_acceptance_review" in state:
+                if review == state["current_acceptance_review"]:
+                    return self._summary(state)
+                raise Refused("current-source acceptance has already been requalified")
+            if study_started_at != float(state["created_at"]):
+                raise Refused("requalified acceptance cannot reset the frozen study start")
+            state["current_acceptance_review"] = review
+            state["settled"]["cli-acceptance-requalification"] = {
+                "actual": actual,
+                "receipt": review,
+                "settled_at": self.clock(),
+            }
+            self._verify_invariants(state, require_snapshot=False)
+            state["events"].append({"kind": "requalify_acceptance", "at": self.clock()})
             return self._summary(state)
 
     def validate_preallocation_continuation(
@@ -508,7 +655,7 @@ class Ledger:
             return self._summary(state)
 
     def _review_acceptance(
-        self, path: str | Path
+        self, path: str | Path, *, require_current_source: bool = True
     ) -> tuple[dict[str, str], dict[str, float], float]:
         data = json.loads(Path(path).read_text())
         if data.get("schema") != REVIEW_SCHEMA or data.get("status") != "PASS":
@@ -532,7 +679,9 @@ class Ledger:
         if study_started_at > self.clock():
             raise Refused("study_started_at cannot be in the future")
         root = Path(__file__).resolve().parents[2]
-        if data["supervisor_sha256"] != sha256(root / "research/colab_cli/supervisor.py"):
+        if require_current_source and data["supervisor_sha256"] != sha256(
+            root / "research/colab_cli/supervisor.py"
+        ):
             raise Refused("acceptance review is not bound to the current supervisor source")
         required_transport = (
             "supervisor.py",
@@ -544,12 +693,22 @@ class Ledger:
             "bootstrap.sh",
             "launch.sh",
         )
+        if require_current_source:
+            required_transport += ("inputs.py",)
         sources = data["transport_sources"]
         if not isinstance(sources, list):
             raise Refused("acceptance review lacks transport source manifest")
         seen = set()
         for item in sources:
-            self._verify_bound_file(item, "transport source")
+            if require_current_source:
+                self._verify_bound_file(item, "transport source")
+            elif (
+                not isinstance(item, Mapping)
+                or not isinstance(item.get("path"), str)
+                or not isinstance(item.get("sha256"), str)
+                or len(item["sha256"]) != 64
+            ):
+                raise Refused("historical transport source binding is malformed")
             target = Path(item["path"]).resolve()
             try:
                 relative = str(target.relative_to(root / "research/colab_cli"))
@@ -656,13 +815,24 @@ class Ledger:
         return self._evidence(path)
 
     def _verify_static_evidence(self, state: Mapping[str, Any]) -> None:
-        # Re-open the wrapper: its nested reviewed receipts and current supervisor
-        # identity matter just as much as the wrapper's own bytes.
-        review, _, study_started_at = self._review_acceptance(state["acceptance_review"]["path"])
+        # The original qualification remains immutable historical evidence when a
+        # transport repair changes its source bytes.  A later requalification, if
+        # present, is the only evidence required to match current source.
+        review, _, study_started_at = self._review_acceptance(
+            state["acceptance_review"]["path"], require_current_source=False
+        )
         if review != state["acceptance_review"]:
             raise Refused("acceptance review evidence identity changed")
         if study_started_at != float(state["created_at"]):
             raise Refused("reviewed study start differs from frozen ledger start")
+        if "current_acceptance_review" in state:
+            current, _, current_started_at = self._review_acceptance(
+                state["current_acceptance_review"]["path"]
+            )
+            if current != state["current_acceptance_review"]:
+                raise Refused("current acceptance review evidence identity changed")
+            if current_started_at != float(state["created_at"]):
+                raise Refused("current acceptance review resets the frozen study start")
         for group in ("acceptance_review",):
             item = state[group]
             if sha256(Path(item["path"])) != item["sha256"]:
@@ -676,9 +846,16 @@ class Ledger:
         for job_id, item in state["settled"].items():
             if sha256(Path(item["receipt"]["path"])) != item["receipt"]["sha256"]:
                 raise Refused(f"settled receipt evidence changed: {job_id}")
-            for name in ("source_manifest", "operational_failure_review"):
+            for name in ("source_manifest", "operational_failure_review", "staging_failure_review"):
                 if name in item and sha256(Path(item[name]["path"])) != item[name]["sha256"]:
                     raise Refused(f"settled {name} evidence changed: {job_id}")
+            if "staging_failure_review" in item:
+                self._staging_failure_review(
+                    item["staging_failure_review"]["path"],
+                    job_id.removeprefix("staging-failure:"),
+                    item["receipt"]["path"],
+                    item["source_manifest"],
+                )
         for event in state.get("events", []):
             if event.get("kind") != "preallocation_refusal":
                 continue
@@ -725,6 +902,26 @@ class Ledger:
         if final is True:
             raise Refused("verified final export exists; a retry cannot be prepared")
         self._operational_actual(data, {"bound": {key: math.inf for key in DIMENSIONS}})
+        return data
+
+    def _staging_receipt(self, path: str | Path, manifest: Mapping[str, str]) -> dict[str, Any]:
+        """Validate receipt facts that prove failure before trainer launch."""
+        receipt_path = Path(path).resolve(strict=True)
+        data = json.loads(receipt_path.read_text())
+        if data.get("status") != "INCOMPLETE" or data.get("stop_verified") is not True:
+            raise Refused("staging failure lacks verified stop/disappearance")
+        if data.get("cleanup_error") is not None or not data.get("endpoint"):
+            raise Refused("staging failure cleanup or endpoint evidence is incomplete")
+        self._receipt_manifest_bound(receipt_path, data, manifest)
+        if data.get("terminal") is not None:
+            raise Refused("trainer start or terminal evidence makes staging settlement ineligible")
+        if data.get("trainer_process_started") is True:
+            raise Refused("trainer start evidence makes staging settlement ineligible")
+        if data.get("exports") != []:
+            raise Refused("exports exist or are ambiguous; staging settlement is ineligible")
+        error = data.get("error")
+        if not isinstance(error, str) or "upload" not in error.lower() or "/inputs/" not in error:
+            raise Refused("receipt does not prove an input-staging failure")
         return data
 
     @staticmethod
@@ -790,6 +987,25 @@ class Ledger:
         )
         if any(value.get(name) is not False for name in prohibited):
             raise Refused("scientific or integrity failure cannot consume the retry")
+        return value
+
+    def _staging_failure_review(
+        self, path: str | Path, job_id: str, receipt_path: str | Path, manifest: Mapping[str, str]
+    ) -> dict[str, Any]:
+        """Verify the owner-approved classification without allowing an inferred retry."""
+        value = json.loads(Path(path).resolve(strict=True).read_text())
+        if (
+            value.get("schema") != STAGING_FAILURE_REVIEW_SCHEMA
+            or value.get("status") != "PASS"
+            or value.get("job_id") != job_id
+            or value.get("manifest_sha256") != manifest["sha256"]
+            or value.get("receipt_sha256") != sha256(Path(receipt_path))
+            or value.get("failure_classification") != "pretraining_staging_failure"
+            or value.get("owner_approved") is not True
+            or value.get("trainer_process_started") is not False
+            or value.get("exports_present") is not False
+        ):
+            raise Refused("staging failure review lacks owner-approved no-training evidence")
         return value
 
     def _preallocation_refusal_review(
@@ -884,6 +1100,40 @@ class Ledger:
             raise Refused("receipt exceeds reserved worst case")
         return actual
 
+    def _staging_actual(
+        self, receipt: Mapping[str, Any], entry: Mapping[str, Any]
+    ) -> dict[str, float]:
+        """Charge reconciled provider debit and elapsed staging time, never the whole request."""
+        before, after = receipt.get("usage_before"), receipt.get("usage_after")
+        if not isinstance(before, Mapping) or not isinstance(after, Mapping):
+            raise Refused("receipt lacks final account usage; reservation remains outstanding")
+        debit = _number(before.get("balance"), "receipt usage_before.balance") - _number(
+            after.get("balance"), "receipt usage_after.balance"
+        )
+        if debit < 0:
+            raise Refused("account balance increased; receipt cannot price this allocation")
+        for label, usage in (("usage_before", before), ("usage_after", after)):
+            assignments = _number(
+                usage.get("assignments", usage.get("active_assignments")),
+                f"receipt {label} assignments",
+            )
+            rate = _number(
+                usage.get("rate", usage.get("usage_rate_units_per_hour")),
+                f"receipt {label} rate",
+            )
+            if assignments != 0 or rate != 0:
+                raise Refused("staging spend is ambiguous with another account assignment")
+        elapsed = _number(receipt.get("elapsed_seconds"), "receipt elapsed_seconds") / 3600
+        actual = {
+            "units": debit,
+            "gpu_allocation_hours": elapsed,
+            "mac_worker_hours": 0.0,
+            "elapsed_hours": elapsed,
+        }
+        if any(actual[key] > entry["bound"][key] + 1e-9 for key in DIMENSIONS):
+            raise Refused("staging receipt exceeds reserved worst case")
+        return actual
+
     @staticmethod
     def _manifest_fits(path: Path, job_id: str, bound: Mapping[str, float]) -> None:
         manifest = json.loads(path.read_text())
@@ -931,6 +1181,11 @@ class Ledger:
     def _verify_invariants(self, state: Mapping[str, Any], *, require_snapshot: bool) -> None:
         self._verify_static_evidence(state)
         if require_snapshot:
+            # A historical review permits conservative settlement only.  New
+            # allocation evidence must be bound to current source, either by the
+            # original review before a source change or a fresh requalification.
+            source_review = state.get("current_acceptance_review", state["acceptance_review"])
+            self._review_acceptance(source_review["path"])
             snapshot = state["account_snapshot"]
             # Re-parse the captured bytes; the hash above catches any substitution.
             remaining = sum(x["units"] for x in state["planned"].values()) + sum(
@@ -1001,6 +1256,12 @@ def main() -> None:
     reconcile.add_argument("--before-snapshot", type=Path, required=True)
     reconcile.add_argument("--fresh-snapshot", type=Path, required=True)
     reconcile.add_argument("--supervisor-state-dir", type=Path, required=True)
+    staging = subparsers.add_parser("settle-pretraining-staging-failure")
+    staging.add_argument("job_id")
+    staging.add_argument("--receipt", type=Path, required=True)
+    staging.add_argument("--review", type=Path, required=True)
+    requalify = subparsers.add_parser("requalify-acceptance")
+    requalify.add_argument("--review", type=Path, required=True)
     args = parser.parse_args()
     worker_ledger = Ledger(args.ledger)
     if args.command == "status":
@@ -1009,6 +1270,12 @@ def main() -> None:
         result = worker_ledger.validate_preallocation_continuation(
             args.job_id, args.refreshed_manifest
         )
+    elif args.command == "settle-pretraining-staging-failure":
+        result = worker_ledger.settle_pretraining_staging_failure(
+            args.job_id, args.receipt, args.review
+        )
+    elif args.command == "requalify-acceptance":
+        result = worker_ledger.requalify_acceptance(args.review)
     else:
         result = worker_ledger.reconcile_preallocation_refusal(
             args.job_id,

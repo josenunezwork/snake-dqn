@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
 import json
@@ -1263,3 +1264,56 @@ def test_poll_rpc_completion_grace_cannot_extend_per_attempt_budget(
     monkeypatch.setattr(supervisor.subprocess, "run", invoke)
     assert cli.poll_rpc("result=True") is True
     assert cli.deadline == 500
+
+
+@pytest.mark.parametrize("fault", ["", "mismatch", "timeout"])
+def test_public_release_broker_delivery_and_verified_cleanup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fault: str
+) -> None:
+    """The fake provider runs pinned fetching; the real broker proves disappearance."""
+    import io
+
+    from research.colab_cli import inputs
+
+    binary = _fake_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    payload = b"release-input"
+    manifest = _manifest(tmp_path)
+    manifest["inputs"] = [
+        {
+            "url": "https://example.test/release/input.bin",
+            "dest": "input.bin",
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "size_bytes": len(payload),
+        }
+    ]
+    monkeypatch.setenv("FAKE_COLAB_PUBLIC_INPUT_BYTES", base64.b64encode(payload).decode())
+    monkeypatch.setenv("FAKE_COLAB_PUBLIC_INPUT_FAULT", fault)
+
+    def mac_preflight(row):
+        return inputs.preflight(row["inputs"], opener=lambda *_args, **_kwargs: io.BytesIO(payload))
+
+    monkeypatch.setattr(supervisor, "input_preflight", mac_preflight)
+    if fault:
+        with pytest.raises(supervisor.Refused, match="INCOMPLETE"):
+            supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    else:
+        supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
+    assert receipt["stop_verified"] is True
+    assert receipt["status"] == ("INCOMPLETE" if fault else "PASS")
+    assert supervisor.CLI(binary, tmp_path / "status.json").sessions() == {}
+    state = json.loads((tmp_path / "fake-state.json").read_text())
+    if fault:
+        assert not state.get("trainer_starts")
+        assert receipt["exports"] == []
+        failures = list(state["public_input_failures"].values())
+        assert len(failures) == 1
+        assert ("mismatch" if fault == "mismatch" else "timeout") in failures[0]
+    else:
+        assert state.get("trainer_starts") == [receipt["session"]]
+        root = (
+            tmp_path / "remote" / receipt["session"] / "content/snake-cli" / receipt["generation"]
+        )
+        assert (root / "inputs/input.bin").read_bytes() == payload
+    _assert_transport(tmp_path)

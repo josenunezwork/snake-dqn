@@ -139,6 +139,82 @@ def _preallocation_continuation(
         raise admission.AdmissionRefused("previous plan is not the reconciled original manifest")
 
 
+def _staging_continuation(
+    args: argparse.Namespace, plan: dict[str, Any], paths: list[tuple[str, Path]]
+) -> None:
+    """Admit the same planned seeds after reviewed staging settlement and requalification."""
+    old = _read(args.previous_plan.resolve())
+    if old.get("schema") != admission.SCHEMA or old.get("status") != "PREPARED_NOT_DISPATCHED":
+        raise admission.AdmissionRefused("previous plan is not a prepared S1 plan")
+    for key in (
+        "preregistration",
+        "world_bank",
+        "seed_audit",
+        "liabilities",
+        "complete_upper_bound",
+        "run_rules",
+        "acceptance",
+    ):
+        if old.get(key) != plan.get(key):
+            raise admission.AdmissionRefused(f"staging repair changes frozen plan {key}")
+    old_paths = _manifest_paths(old)
+    if [job for job, _ in old_paths] != [job for job, _ in paths]:
+        raise admission.AdmissionRefused("staging repair changes job identities/order")
+    pricing = admission.priced_mac_bound(Path(plan["pricing_receipt"]["path"]))
+    review = _read(args.acceptance_review)
+    acceptance = review.get("acceptance_result")
+    if acceptance != pricing["cli_acceptance_receipt"]:
+        raise admission.AdmissionRefused("fresh pricing and acceptance review differ")
+    for (_, previous), (job, current) in zip(old_paths, paths):
+        before, after = _read(previous), _read(current)
+        ledger.validate_staging_continuation(before, after, acceptance_result=acceptance)
+        evidence = [
+            item for item in after["inputs"] if item["dest"] == "cli-acceptance-result.json"
+        ]
+        if len(evidence) != 1 or {k: evidence[0].get(k) for k in ("path", "sha256")} != acceptance:
+            raise admission.AdmissionRefused(
+                "manifest lacks the freshly reviewed acceptance result"
+            )
+        output = Path(after["output_dir"])
+        if not output.is_absolute() or output.exists():
+            raise admission.AdmissionRefused("staging repair requires fresh absolute outputs")
+    for mac in (old["mac_manifest"], plan["mac_manifest"]):
+        if admission.sha256(Path(mac["path"])) != mac["sha256"]:
+            raise admission.AdmissionRefused("Mac evaluation manifest changed")
+    if _read(Path(old["mac_manifest"]["path"])) != _read(Path(plan["mac_manifest"]["path"])):
+        raise admission.AdmissionRefused("staging repair changes Mac evaluation")
+    state = _read(args.ledger)
+    staging = {
+        key: value
+        for key, value in state.get("settled", {}).items()
+        if key.startswith("staging-failure:")
+    }
+    allowed = {"cli-acceptance", "cli-acceptance-requalification"} | set(staging)
+    if (
+        state.get("outstanding")
+        or state.get("planned") != plan["liabilities"]
+        or state.get("manual_retries")
+        or state.get("incomplete_arms")
+        or set(state.get("settled", {})) - allowed
+        or not staging
+    ):
+        raise admission.AdmissionRefused("staging repair requires a fully planned settled ledger")
+    originals = {
+        job: {"path": str(path), "sha256": admission.sha256(path)} for job, path in old_paths
+    }
+    for key, entry in staging.items():
+        if entry.get("source_manifest") != originals.get(key.removeprefix("staging-failure:")):
+            raise admission.AdmissionRefused("previous plan is not the settled staging manifest")
+    worker_ledger = ledger.Ledger(args.ledger.resolve())
+    bound_review = {
+        "path": str(args.acceptance_review.resolve()),
+        "sha256": admission.sha256(args.acceptance_review),
+    }
+    if state.get("current_acceptance_review") != bound_review:
+        worker_ledger.requalify_acceptance(args.acceptance_review.resolve())
+    worker_ledger.status()  # Recheck nested receipts and all caps before any account request.
+
+
 def _snapshot(path: Path, *, colab: Path, account_config: Path) -> Path:
     """Capture fresh account state through the supervisor's guarded CLI wrapper."""
     from research.colab_cli.supervisor import CLI
@@ -343,7 +419,18 @@ def _recover_training(manifest_path: Path, root: Path) -> tuple[dict[str, Any], 
 def _evaluate_all(plan: dict[str, Any], root: Path, bank_path: Path) -> Path:
     """Only after all ten final exports are settled, write all 15 final shards."""
     inputs = _read(Path(plan["manifests"][0]["path"]))["inputs"]
-    b8 = next(Path(item["path"]) for item in inputs if item["dest"] == "B8_s3_final.pth")
+    b8_input = next(item for item in inputs if item["dest"] == "B8_s3_final.pth")
+    if "url" in b8_input:
+        local = plan.get("local_inputs", {}).get("B8_s3_final.pth", {})
+        b8 = Path(local.get("path", ""))
+        if (
+            local.get("sha256") != b8_input["sha256"]
+            or not b8.is_file()
+            or admission.sha256(b8) != b8_input["sha256"]
+        ):
+            raise admission.AdmissionRefused("local evaluation B8 differs from the pinned release")
+    else:
+        b8 = Path(b8_input["path"])
     shards: list[dict[str, Any]] = []
     recovered = _read(root / "recovered-training.json")
     outcomes = json.loads((root / "training-outcomes.json").read_text())
@@ -503,13 +590,20 @@ def dispatch(args: argparse.Namespace) -> None:
             "dispatcher requires the reviewed supervisor wrapper in its pinned repo"
         )
     paths = _manifest_paths(plan)
-    admission.packaging_preflight(args.repo.resolve(), [_read(path) for _, path in paths])
+    packaging = admission.packaging_preflight(
+        args.repo.resolve(), [_read(path) for _, path in paths]
+    )
+    admission.delivery_preflight([_read(path) for _, path in paths], packaging)
     continuing = getattr(args, "continue_preallocation", False)
+    staging = getattr(args, "continue_staging", False)
     if continuing:
         _preallocation_continuation(args, plan, paths)
         rerun._no_efficacy_artifacts(args.artifact_root.resolve())
+    if staging:
+        rerun._no_efficacy_artifacts(args.artifact_root.resolve())
+        _staging_continuation(args, plan, paths)
     worker_ledger = ledger.Ledger(args.ledger.resolve())
-    if not continuing:
+    if not (continuing or staging):
         worker_ledger.initialize(
             acceptance_review_path=args.acceptance_review.resolve(),
             account_snapshot_path=_snapshot(
@@ -524,6 +618,7 @@ def dispatch(args: argparse.Namespace) -> None:
     for job_id, manifest_path in paths:
         if _read(manifest_path)["env"]["S1_ARM"].upper() in halted:
             continue  # Unspent liabilities stay reserved in the immutable original plan.
+        admission.delivery_preflight([_read(manifest_path)], packaging)
         # Each capture must be independently fresh and prove no foreign active assignment.
         snapshot = _snapshot(
             (args.snapshots / f"before-{job_id}.json").resolve(),
@@ -620,8 +715,11 @@ def continue_dispatch(args: argparse.Namespace) -> None:
     ):
         raise admission.AdmissionRefused("manual rerun liability was already consumed")
     paths = _manifest_paths(plan)
-    admission.packaging_preflight(
+    packaging = admission.packaging_preflight(
         args.repo.resolve(), [_read(path) for _, path in paths] + [_read(retry_manifest)]
+    )
+    admission.delivery_preflight(
+        [_read(path) for _, path in paths] + [_read(retry_manifest)], packaging
     )
     replacements: dict[str, Path] = {}
     for entry in state.get("settled", {}).values():
@@ -651,6 +749,7 @@ def continue_dispatch(args: argparse.Namespace) -> None:
         colab=args.colab,
         account_config=args.account_config,
     )
+    admission.delivery_preflight([_read(retry_manifest)], packaging)
     worker_ledger.reserve_manual_retry(
         source_id, retry_id, retry_manifest, account_snapshot_path=snapshot
     )
@@ -680,6 +779,7 @@ def continue_dispatch(args: argparse.Namespace) -> None:
                 account_config=args.account_config,
             )
             worker_ledger.record_account_snapshot(snapshot)
+            admission.delivery_preflight([_read(manifest_path)], packaging)
             worker_ledger.reserve(job_id, plan["liabilities"][job_id], manifest_path)
             job_state = (args.state_root / job_id).resolve()
             if job_state.exists():
@@ -712,6 +812,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--continue", dest="continue_dispatch", action="store_true")
     parser.add_argument("--retry-record", type=Path)
     parser.add_argument("--continue-preallocation", action="store_true")
+    parser.add_argument("--continue-staging", action="store_true")
     parser.add_argument("--previous-plan", type=Path)
     parser.add_argument("--repo", type=Path, default=admission.ROOT)
     parser.add_argument("--ledger", type=Path, required=True)
@@ -739,10 +840,22 @@ def main(argv: list[str] | None = None) -> int:
         help="dedicated supervisor account config, never a job lane config",
     )
     args = parser.parse_args(argv)
-    if sum((args.evaluate_only, args.continue_dispatch, args.continue_preallocation)) > 1:
+    if (
+        sum(
+            (
+                args.evaluate_only,
+                args.continue_dispatch,
+                args.continue_preallocation,
+                args.continue_staging,
+            )
+        )
+        > 1
+    ):
         parser.error("evaluation and continuation modes are mutually exclusive")
     if args.continue_preallocation and args.previous_plan is None:
         parser.error("--continue-preallocation requires --previous-plan")
+    if args.continue_staging and args.previous_plan is None:
+        parser.error("--continue-staging requires --previous-plan")
     if args.evaluate_only:
         plan = _read(args.plan)
         _evaluate_all(plan, args.artifact_root.resolve(), Path(plan["world_bank"]["path"]))

@@ -101,11 +101,204 @@ def test_lease_expiry_stops_owned_child_writes_receipt_and_unassigns(
     monkeypatch.setattr(runtime, "_require_release_safety", lambda *_: None)
     monkeypatch.setattr(runtime, "_unassign", lambda *_: calls.append("unassign"))
     monkeypatch.setattr(runtime, "_release_credential_expiring", lambda *_: False)
+    monkeypatch.setattr(runtime, "_release_credential_expiring", lambda *_: False)
 
     assert runtime.supervise(spec) != 0
     terminal = json.loads((root / "terminal.json").read_text())
     assert terminal["reason"] == "lease_expired"
     assert terminal["status"] == "failed"
+    assert calls == ["unassign"]
+
+
+def test_public_input_fetch_verifies_before_the_trainer_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    payload = b"published-input"
+    digest = hashlib.sha256(payload).hexdigest()
+
+    class Reply:
+        def __init__(self) -> None:
+            self.offset = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, _size: int) -> bytes:
+            value = payload[self.offset :]
+            self.offset = len(payload)
+            return value
+
+    monkeypatch.setattr(runtime, "urlopen", lambda *_args, **_kwargs: Reply())
+    verified = runtime._fetch_public_inputs(
+        root,
+        [
+            {
+                "url": "https://example.test/release/input.bin",
+                "dest": "nested/input.bin",
+                "sha256": digest,
+                "size_bytes": len(payload),
+            }
+        ],
+    )
+
+    assert verified == [{"dest": "nested/input.bin", "sha256": digest, "size_bytes": len(payload)}]
+    assert (root / "inputs/nested/input.bin").read_bytes() == payload
+    assert not list((root / "inputs/nested").glob("*.part"))
+
+
+def test_public_input_hash_mismatch_leaves_no_published_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+
+    class Reply:
+        def __init__(self) -> None:
+            self.done = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, _size: int) -> bytes:
+            if self.done:
+                return b""
+            self.done = True
+            return b"wrong-bytes"
+
+    monkeypatch.setattr(runtime, "urlopen", lambda *_args, **_kwargs: Reply())
+    with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
+        runtime._fetch_public_inputs(
+            root,
+            [
+                {
+                    "url": "https://example.test/release/input.bin",
+                    "dest": "input.bin",
+                    "sha256": "0" * 64,
+                    "size_bytes": len(b"wrong-bytes"),
+                }
+            ],
+        )
+    assert not (root / "inputs/input.bin").exists()
+    assert not list((root / "inputs").glob("*.part"))
+
+
+def test_fetch_wrapper_accepts_parent_output_and_execs_only_after_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "output").mkdir()  # This is deliberately created by the parent supervisor.
+    payload = b"published-input"
+    digest = hashlib.sha256(payload).hexdigest()
+    spec = {
+        "job_id": "job",
+        "generation": "g",
+        "root": str(root),
+        "command": ["trainer", "--run"],
+        "env": {},
+        "public_inputs": [
+            {
+                "url": "https://example.test/release/input.bin",
+                "dest": "input.bin",
+                "sha256": digest,
+                "size_bytes": len(payload),
+            }
+        ],
+    }
+    spec_path = root / "spec.json"
+    _write_json(spec_path, spec)
+    observed: list[object] = []
+
+    class Reply:
+        def __init__(self) -> None:
+            self.done = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, _size: int) -> bytes:
+            if self.done:
+                return b""
+            self.done = True
+            return payload
+
+    monkeypatch.setattr(runtime, "_validate_spec", lambda value, **_kwargs: value)
+    monkeypatch.setattr(runtime, "urlopen", lambda *_args, **_kwargs: Reply())
+    monkeypatch.setattr(runtime.os, "execvpe", lambda *args: observed.append(args))
+    with pytest.raises(AssertionError, match="unexpectedly returned"):
+        runtime._fetch_inputs_then_exec(spec_path)
+    assert (root / "public-inputs-verified.json").is_file()
+    assert (root / "inputs/input.bin").read_bytes() == payload
+    assert observed and observed[0][0] == "trainer"
+
+
+@pytest.mark.parametrize("fault", ["mismatch", "timeout"])
+def test_public_input_failure_refuses_before_trainer_and_unassigns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    root = tmp_path / fault
+    root.mkdir()
+    started = tmp_path / "trainer-started"
+    spec = {
+        "job_id": "job",
+        "generation": "g",
+        "root": str(root),
+        "command": [
+            sys.executable,
+            "-c",
+            f"from pathlib import Path; Path({str(started)!r}).touch()",
+        ],
+        "env": {},
+        "timeout_seconds": 60,
+        "lease_seconds": 10,
+        "checkpoint_grace_seconds": 0.1,
+        "max_export_bytes": 100,
+        "release_endpoint": "unitendpoint",
+        "public_inputs": [
+            {
+                "url": "https://example.test/release/input.bin",
+                "dest": "input.bin",
+                "sha256": "0" * 64,
+                "size_bytes": 1,
+            }
+        ],
+    }
+    calls: list[str] = []
+    monkeypatch.setattr(runtime, "_validate_spec", lambda value: value)
+    monkeypatch.setattr(runtime, "_require_release_safety", lambda *_: None)
+    monkeypatch.setattr(runtime, "_unassign", lambda *_: calls.append("unassign"))
+    monkeypatch.setattr(runtime, "_release_credential_expiring", lambda *_: False)
+    if fault == "mismatch":
+        command = [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; import sys; "
+            f"Path({str(root / 'public-input-fetch-failed.json')!r}).write_text('failed'); "
+            "sys.exit(74)",
+        ]
+    else:
+        command = [sys.executable, "-c", "import time; time.sleep(60)"]
+        monkeypatch.setattr(runtime, "PUBLIC_INPUT_FETCH_TOTAL_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(runtime, "_runtime_child_command", lambda *_args: command)
+
+    assert runtime.supervise(spec) != 0
+    terminal = json.loads((root / "terminal.json").read_text())
+    assert (
+        terminal["reason"] == f"public_input_fetch_{'failed' if fault == 'mismatch' else 'timeout'}"
+    )
+    assert terminal["exports"] == []
+    assert not started.exists()
     assert calls == ["unassign"]
 
 
