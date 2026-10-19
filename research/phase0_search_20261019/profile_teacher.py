@@ -43,6 +43,8 @@ CATEGORY_NAMES = (
     "frozen_opponent_forward",
     "scripted_opponent_logic",
     "clone_snapshot",
+    "v8_features",
+    "frozen_runtime",
 )
 
 
@@ -57,10 +59,13 @@ class CategoryTimer:
     def wrap(self, function: Callable[..., Any]) -> Callable[..., Any]:
         def wrapped(*args: Any, **kwargs: Any) -> Any:
             started = time.perf_counter()
+            children_before = sum(self.elapsed.values())
             try:
                 return function(*args, **kwargs)
             finally:
-                self.elapsed[self.name] += time.perf_counter() - started
+                duration = time.perf_counter() - started
+                children = sum(self.elapsed.values()) - children_before
+                self.elapsed[self.name] += duration - children
                 self.calls[self.name] += 1
 
         wrapped.__name__ = getattr(function, "__name__", self.name)
@@ -108,6 +113,7 @@ def _instrument(elapsed: dict[str, float], calls: dict[str, int]) -> Iterator[No
     import src.simd_env.ego2s_policy as ego2s_policy
     import src.simd_env.ego_raster as ego_raster
     import src.simd_env.fast_anchors as fast_anchors
+    import src.simd_env.v8_nb as v8_nb
     import src.simd_env.vector61_policy as vector61_policy
 
     wrappers = (
@@ -116,6 +122,9 @@ def _instrument(elapsed: dict[str, float], calls: dict[str, int]) -> Iterator[No
         (vector61_policy.Vector61SimdPolicy, "q_values", "frozen_opponent_forward"),
         (fast_anchors.FastProfileAnchorSimdPolicy, "actions", "scripted_opponent_logic"),
         (teacher, "_replicate", "clone_snapshot"),
+        (v8_nb, "v8_decide", "v8_features"),
+        (vector61_policy.Vector61Runtime, "prepare", "frozen_runtime"),
+        (vector61_policy.Vector61Runtime, "observe_step", "frozen_runtime"),
     )
     patches = []
     for owner, attribute, name in wrappers:
@@ -278,7 +287,9 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         "measurements": measurements,
         "category_definition": {
             "sim_stepping": "BatchSim.step elapsed time",
-            "observation_building": "ego_raster.build_ego_raster elapsed time",
+            "observation_building": "ego_raster.build_ego_raster excluding nested v8 feature time",
+            "v8_features": "v8_nb.v8_decide for hero bv8 observation features",
+            "frozen_runtime": "Vector61Runtime.prepare and observe_step, including carry features",
             "b8_forward": "ego2s_policy.forward_q elapsed time, including device synchronization",
             "frozen_opponent_forward": "Vector61SimdPolicy.q_values elapsed time",
             "scripted_opponent_logic": "FastProfileAnchorSimdPolicy.actions elapsed time",
@@ -287,8 +298,8 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         },
         "limitations": [
             "The L=800 serpentine is a timing fixture, not a gameplay outcome.",
-            "Frozen-opponent runtime preparation and vector61 featurization remain in "
-            "Python residual.",
+            "Categories use exclusive elapsed time: "
+            "nested v8 time is removed from observation time.",
             "Reference implementation is CPU-only; requested non-CPU device is used "
             "only for batched implementation.",
         ],
