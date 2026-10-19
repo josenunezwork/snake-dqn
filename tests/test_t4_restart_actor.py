@@ -14,6 +14,11 @@ import pytest
 from research.redesign_m3c_20261008 import train_m3c as T
 from research.t4_snapshot_restart_20261016 import snapshots as S
 from research.t4_snapshot_restart_20261016.actor import RestartActorTelemetry
+from tests.actor_telemetry import (
+    WALL_CLOCK_ACTOR_FIELDS,
+    assert_post_baseline_actor_telemetry,
+    without_post_baseline_actor_telemetry,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_v8_nb import HAVE_CKPT  # noqa: E402
@@ -303,9 +308,12 @@ def test_restart_default_actor_trace_matches_frozen_pre_t6_baseline(tmp_path, mo
     ref_messages, ref_ring = _run_actor(baseline, tmp_path / "base", init, 50)
     got_messages, got_ring = _run_actor(T, tmp_path / "current", init, 50)
     assert len(ref_messages) == len(got_messages)
+    # The Q0b accounting fields postdate the frozen baseline; they are checked on their own.
+    assert_post_baseline_actor_telemetry(got_messages, "current")
     for index, (ref, got) in enumerate(zip(ref_messages, got_messages)):
+        got = without_post_baseline_actor_telemetry(got)
         assert ref.keys() == got.keys(), index
-        for key in ref.keys() - {"env_s", "timing", "j"}:
+        for key in ref.keys() - WALL_CLOCK_ACTOR_FIELDS - {"j"}:
             if isinstance(ref[key], np.ndarray):
                 assert ref[key].dtype == got[key].dtype
                 assert ref[key].shape == got[key].shape

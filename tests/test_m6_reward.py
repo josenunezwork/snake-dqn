@@ -27,6 +27,11 @@ import numpy as np
 import pytest
 
 from research.redesign_m3c_20261008 import train_m3c as T
+from tests.actor_telemetry import (
+    WALL_CLOCK_ACTOR_FIELDS,
+    assert_post_baseline_actor_telemetry,
+    without_post_baseline_actor_telemetry,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_v8_nb import HAVE_CKPT  # noqa: E402
@@ -405,7 +410,7 @@ def _grow_bodies(monkeypatch, mod):
     monkeypatch.setattr(mod, "build_segment", grown_segment)
 
 
-def _assert_msgs_equal(ref, got, ctx, skip=("env_s", "timing", "j")):
+def _assert_msgs_equal(ref, got, ctx, skip=WALL_CLOCK_ACTOR_FIELDS | {"j"}):
     assert len(ref) == len(got), ctx
     for f, (a, b) in enumerate(zip(ref, got)):
         assert a.keys() == b.keys(), (ctx, f, sorted(a.keys() ^ b.keys()))
@@ -466,11 +471,18 @@ def test_levers_off_is_the_pre_m6_actor_bitwise(tmp_path, monkeypatch, recipe):
     for name in ("new-default", "new-explicit-zero"):
         msgs, ring = runs[name]
         _assert_boost_length_telemetry(msgs, name)
-        # The length-bucket fields were added after BASE_REV.  Everything in the legacy
-        # actor payload, including arrays and signed float zeros, must remain bitwise equal.
+        assert_post_baseline_actor_telemetry(msgs, name)
+        # The length-bucket and Q0b accounting fields were added after BASE_REV.  Everything
+        # in the legacy actor payload, including arrays and signed float zeros, must remain
+        # bitwise equal.
         _assert_msgs_equal(
             ref_msgs,
-            [{k: v for k, v in msg.items() if k not in _BOOST_LENGTH_TELEMETRY} for msg in msgs],
+            [
+                without_post_baseline_actor_telemetry(
+                    {k: v for k, v in msg.items() if k not in _BOOST_LENGTH_TELEMETRY}
+                )
+                for msg in msgs
+            ],
             name,
         )
         for k in ref_ring:

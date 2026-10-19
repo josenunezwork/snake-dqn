@@ -41,6 +41,13 @@ def test_parity_plan_matches_protocol_horizons_and_roster_sizes():
     assert run.PARITY_PLAN == ((5000, 6), (5000, 8), (10000, 12))
 
 
+_DIST = run.REPO / "web/frontend/dist"
+
+
+@pytest.mark.skipif(
+    not (_DIST.is_dir() and any(path.is_file() for path in _DIST.rglob("*"))),
+    reason="needs a built frontend bundle (gitignored): run `npm run build` in web/frontend",
+)
 def test_source_closure_binds_html_css_and_the_actual_built_ui_bundle():
     bound = run.sources()
     assert "web/frontend/index.html" in bound

@@ -639,12 +639,19 @@ class TestLiveStack:
     def test_manual_load_after_b8_fallback_restores_the_requested_v7_variant(
         self, monkeypatch, use_pins, shipped, champion_default
     ):
+        import web.backend.session as session_module
+
+        # load_checkpoint resolves basenames inside the running checkout's saved_snakes/,
+        # which is gitignored and empty in worktrees and clones; CHAMPION lives in the main
+        # checkout, so resolve the manual load there.
+        monkeypatch.setattr(session_module, "SAVED_DIR", str(MAIN_SAVED))
         use_pins(filled(shipped))
         monkeypatch.setenv(ENV_CHECKPOINT, registry.NAME_B8_S3)
         monkeypatch.setenv(ENV_VARIANT, "v7")
         sess = GameSession()
         assert sess.safety_veto_state()["variant"] == "v8"
         sess.load_checkpoint(registry.CHAMPION_FILENAME)
+        assert sess.last_error is None
         state = sess.safety_veto_state()
         assert sess.served_checkpoint is None
         assert state["variant"] == "v7" and state["active"] is True
