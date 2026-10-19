@@ -27,6 +27,7 @@ PACKET_SECONDS = 3600.0
 DRAFT_OWNER_REVIEW = "DRAFT_PENDING_OWNER_REVIEW"
 APPROVED_OWNER_RELEASE = "APPROVED_Q0Q1_20261017"
 A1_AMENDMENT = "A1"
+A4_AMENDMENT = "A4"
 A3_UPDATES_PER_PUBLICATION = 12  # round(actor_sync_updates=25 / batch_scale=2)
 A3_MEAN_LAG_TOLERANCE = 1.0 / A3_UPDATES_PER_PUBLICATION
 DRAFT_Q0_UNITS_CAP = 15.0
@@ -34,6 +35,7 @@ A1_Q0_UNITS_CAP = 40.0
 DRAFT_COMBINED_UNITS_CAP = 150.0
 A1_COMBINED_UNITS_CAP = 175.0
 GPU_HOURS_CAP = 24.0
+A4_GPU_HOURS_CAP = 37.0
 CPU_HOURS_CAP = 40.0
 Q0_CPU_HOURS_CAP = 8.0
 RESERVE_FRACTION = 0.20
@@ -354,7 +356,10 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         errors.append(f"study plan schema must equal {PLAN_SCHEMA}")
     owner_status = plan.get("owner_review_status", plan.get("status"))
     approved_a1 = owner_status == APPROVED_OWNER_RELEASE
-    is_a3 = approved_a1 and plan.get("amendment") == "A3"
+    amendment = plan.get("amendment")
+    is_a3 = approved_a1 and amendment == "A3"
+    is_a4 = approved_a1 and amendment == A4_AMENDMENT
+    uses_a3_envelope = is_a3 or is_a4
     if owner_status == DRAFT_OWNER_REVIEW:
         if plan.get("dispatch") is not False:
             errors.append("draft qualification must not authorize dispatch")
@@ -365,11 +370,15 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
     elif approved_a1:
         if plan.get("owner_release") != APPROVED_OWNER_RELEASE:
             errors.append("approved A1 plan must bind the exact owner release")
-        if plan.get("amendment") not in {A1_AMENDMENT, "A2", "A3"}:
-            errors.append("approved plan must bind Amendment A1 or A2 (unchanged A1 envelope)")
+        if amendment not in {A1_AMENDMENT, "A2", "A3", A4_AMENDMENT}:
+            errors.append("approved plan must bind Amendment A1, A2, A3, or A4")
         if plan.get("dispatch") is not True:
             errors.append("approved A1 admission must explicitly authorize dispatch")
-        envelope = _mapping(plan.get("a1_envelope"), "a1_envelope", errors) if not is_a3 else None
+        envelope = (
+            _mapping(plan.get("a1_envelope"), "a1_envelope", errors)
+            if not uses_a3_envelope
+            else None
+        )
         expected_envelope = {
             "q0_units_cap": A1_Q0_UNITS_CAP,
             "combined_units_cap": A1_COMBINED_UNITS_CAP,
@@ -381,7 +390,7 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
                     errors.append(f"a1_envelope.{field} must equal {expected:g}")
         q0_units_cap = A1_Q0_UNITS_CAP
         combined_units_cap = A1_COMBINED_UNITS_CAP
-        if is_a3:
+        if uses_a3_envelope:
             from research.q0q1_20261017.q0_accounting import validate_a3_envelope
 
             try:
@@ -421,8 +430,23 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         plan.get("cpu_seconds_per_episode"), "cpu_seconds_per_episode", errors, positive=True
     )
     workers = _finite_number(plan.get("cpu_workers"), "cpu_workers", errors, positive=True)
-    if workers is not None and workers != 1:
-        errors.append("Q1 CPU accounting requires one worker per runtime")
+    if workers is not None and (not workers.is_integer() or workers > 10):
+        errors.append("cpu_workers must be an integer no greater than 10")
+    if is_a4:
+        if workers is not None and workers < 2:
+            errors.append("Amendment A4 requires a deterministic parallel CPU worker pool")
+        slowdown = _finite_number(
+            plan.get("cpu_colab_slowdown_factor"),
+            "cpu_colab_slowdown_factor",
+            errors,
+            positive=True,
+        )
+        if slowdown is not None and slowdown != 3.0:
+            errors.append(
+                "Amendment A4 requires the conservative 3x Colab per-core slowdown factor"
+            )
+    elif workers is not None and workers != 1:
+        errors.append("Q1 CPU accounting requires one worker per runtime before Amendment A4")
     efficiency = _finite_number(
         plan.get("cpu_worker_efficiency"), "cpu_worker_efficiency", errors, positive=True
     )
@@ -498,13 +522,17 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         + (float(cpu_overhead) if cpu_overhead is not None else 0.0)
         + (float(q0_cpu_hours) if q0_cpu_hours is not None else 0.0)
     )
-    if total_gpu_hours > GPU_HOURS_CAP * (1 - RESERVE_FRACTION):
-        errors.append("GPU forecast consumes more than the 80% usable 24 GPU-hour envelope")
+    gpu_hours_cap = A4_GPU_HOURS_CAP if is_a4 else GPU_HOURS_CAP
+    usable_gpu_hours_cap = gpu_hours_cap * (1 - RESERVE_FRACTION)
+    if total_gpu_hours > usable_gpu_hours_cap:
+        errors.append(
+            "GPU forecast consumes more than the 80% usable " f"{gpu_hours_cap:g} GPU-hour envelope"
+        )
     if total_cpu_hours > CPU_HOURS_CAP * (1 - RESERVE_FRACTION):
         errors.append("CPU forecast consumes more than the 80% usable 40 CPU-hour envelope")
     usable_units_cap = (
         combined_units_cap - A1_COMBINED_UNITS_CAP * RESERVE_FRACTION
-        if is_a3
+        if uses_a3_envelope
         else combined_units_cap * (1 - RESERVE_FRACTION)
     )
     if total_units > usable_units_cap:
@@ -528,6 +556,8 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
             "q0_gpu_hours": q0_gpu_hours,
             "q0_cpu_hours": q0_cpu_hours,
             "total_gpu_hours_including_q0": total_gpu_hours,
+            "gpu_hours_cap": gpu_hours_cap,
+            "usable_gpu_hours_cap": usable_gpu_hours_cap,
             "total_cpu_hours_including_q0": total_cpu_hours,
             "total_units_including_q0": total_units,
             "reserve_fraction": RESERVE_FRACTION,

@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import subprocess
 import tarfile
 import tempfile
@@ -31,13 +32,16 @@ from research.q0q1_20261017 import (
 from research.q0q1_20261017.qualification import PACKET_SCHEMA, validate_packet
 
 OWNER_RELEASE = "APPROVED_Q0Q1_20261017"
-AMENDMENT = "A3"
+AMENDMENT = "A4"
 OWNER_ADMISSION_SCHEMA = "q0q1-owner-admission/v1"
 DRIVE_ROOT = "/content/drive/MyDrive/t16_colab"
 Q0_MASS_JOB_ID = "q0-audit-t23-mass-a100r5"
 Q0_INIT_JOB_ID = "q0-audit-b8-init-a100r6"
 Q0_MASS_ARCHIVE_DIR = "q0q1-20261017/q0/audit-t23-mass-a100r5"
 Q0_INIT_ARCHIVE_DIR = "q0q1-20261017/q0/audit-b8-init-a100r6"
+CPU_FORECAST_WORKERS = 7
+CPU_COLAB_SLOWDOWN_FACTOR = 3.0
+CPU_MAX_EFFICIENCY = 0.8
 
 
 def canonical(value: Any) -> str:
@@ -137,10 +141,116 @@ def _validate_owner_admission(path: Path) -> dict[str, Any]:
     return admission
 
 
-def _study_plan(
-    l4: Mapping[str, Any], a100: Mapping[str, Any], q0_accounting_data: Mapping[str, Any]
+def _timing_number(value: Any, label: str) -> float:
+    """Read a positive finite timing field without permitting boolean values."""
+    return _number(value, f"Q1 timing receipt {label}")
+
+
+def _validate_timing_receipt(
+    path: Path, current_mac_reference: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """Build the A1 forecast only from observed Q0b metadata, never defaults."""
+    """Validate the non-decision Mac capacity receipt used by Amendment A4.
+
+    The probe's serial rows are the oracle for its process-pool rows.  It is
+    deliberately separate from scored Q1 artifacts, but still binds the exact
+    current evaluator, registered bank, B8 bytes, and current Mac parity trace.
+    """
+    receipt = _json_object(path, "Q1 CPU timing receipt")
+    bank_sha = hashlib.sha256(canonical(q1_bank.load_world_bank()).encode()).hexdigest()
+    source = q1_evaluate.source_manifest()
+    if (
+        receipt.get("schema") != "q1-eval-timing-probe/v1"
+        or receipt.get("status") != "completed"
+        or receipt.get("bank_sha256") != bank_sha
+        or receipt.get("b8_sha256") != q1_evaluate.B8_SHA256
+        or receipt.get("source_manifest") != source
+    ):
+        raise ValueError("Q1 CPU timing receipt is not bound to the current registered identity")
+    parity_sha = receipt.get("parity_sha256")
+    if not isinstance(parity_sha, str) or re.fullmatch(r"[0-9a-f]{64}", parity_sha) is None:
+        # Keep this explicit even though the malformed value is not otherwise
+        # consumed: it is the binding to the local full parity receipt.
+        raise ValueError("Q1 CPU timing receipt lacks its local parity receipt SHA-256")
+    runtime = receipt.get("runtime")
+    if not isinstance(runtime, Mapping) or runtime.get("system") != "Darwin":
+        raise ValueError("Q1 CPU timing receipt must originate on the Mac")
+    workers = receipt.get("workers")
+    worlds = receipt.get("world_count")
+    if (
+        isinstance(workers, bool)
+        or not isinstance(workers, int)
+        or workers < 2
+        or isinstance(worlds, bool)
+        or not isinstance(worlds, int)
+        or worlds < 3
+    ):
+        raise ValueError("Q1 CPU timing receipt requires at least three units and a parallel pool")
+    _timing_number(receipt.get("elapsed_seconds"), "elapsed_seconds")
+    parallel_times = receipt.get("unit_elapsed_seconds")
+    serial_times = receipt.get("serial_unit_elapsed_seconds")
+    parallel_rows = receipt.get("row_sha256")
+    serial_rows = receipt.get("serial_row_sha256")
+    if (
+        not isinstance(parallel_times, list)
+        or len(parallel_times) != worlds
+        or not isinstance(parallel_rows, list)
+        or len(parallel_rows) != worlds
+        or not isinstance(serial_times, list)
+        or len(serial_times) < 3
+        or not isinstance(serial_rows, list)
+        or len(serial_rows) != len(serial_times)
+        or parallel_rows[: len(serial_rows)] != serial_rows
+    ):
+        raise ValueError(
+            "Q1 CPU timing receipt lacks byte-identical serial and parallel probe rows"
+        )
+    for index, value in enumerate(parallel_times):
+        _timing_number(value, f"unit_elapsed_seconds[{index}]")
+    for index, value in enumerate(serial_times):
+        _timing_number(value, f"serial_unit_elapsed_seconds[{index}]")
+    if not all(
+        isinstance(value, str) and len(value) == 64 for value in parallel_rows + serial_rows
+    ):
+        raise ValueError("Q1 CPU timing receipt has malformed row SHA-256 values")
+    return receipt
+
+
+def cpu_forecast(l4: Mapping[str, Any], timing: Mapping[str, Any]) -> dict[str, float | int]:
+    """Derive the A4 CPU estimate from immutable packet and timing evidence."""
+    existing_cpu_seconds = _number(l4.get("cpu_seconds_per_episode"), "L4 cpu_seconds_per_episode")
+    serial_times = timing["serial_unit_elapsed_seconds"]
+    serial_seconds = sum(float(value) for value in serial_times) / len(serial_times)
+    # The historical single-world forecast remains a floor.  The new probe is
+    # independently slowed threefold for Colab before it can lower that floor.
+    cpu_seconds = max(existing_cpu_seconds, CPU_COLAB_SLOWDOWN_FACTOR * serial_seconds)
+    serial_total = sum(float(value) for value in serial_times)
+    measured_speedup = (
+        serial_total
+        * (len(timing["unit_elapsed_seconds"]) / len(serial_times))
+        / float(timing["elapsed_seconds"])
+    )
+    # The three-slot probe does not establish seven-core scaling.  Keep the
+    # lower of the 80% reserve and its observed normalized speedup.
+    efficiency = min(CPU_MAX_EFFICIENCY, measured_speedup / float(timing["workers"]))
+    if efficiency <= 0:
+        raise ValueError("Q1 timing receipt yields no positive parallel efficiency")
+    return {
+        "cpu_seconds_per_episode": cpu_seconds,
+        "cpu_workers": CPU_FORECAST_WORKERS,
+        "cpu_worker_efficiency": efficiency,
+        "cpu_colab_slowdown_factor": CPU_COLAB_SLOWDOWN_FACTOR,
+        "cpu_timing_measurement_workers": int(timing["workers"]),
+        "cpu_timing_measured_speedup": measured_speedup,
+    }
+
+
+def _study_plan(
+    l4: Mapping[str, Any],
+    a100: Mapping[str, Any],
+    q0_accounting_data: Mapping[str, Any],
+    timing: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build the A4 forecast only from measured Q0b and Mac timing evidence."""
     metadata = (l4, a100)
     q0_units = _number(q0_accounting_data.get("q0_units"), "Q0 accounting q0_units")
     q0_gpu = _number(
@@ -166,10 +276,8 @@ def _study_plan(
         raise ValueError("Q0b packets disagree on the observed CPU debit rate")
     if cpu_rate not in cpu_rates:
         raise ValueError("Q0 accounting CPU debit rate does not match the measured Q0b packets")
-    cpu_seconds = _number(l4.get("cpu_seconds_per_episode"), "L4 cpu_seconds_per_episode")
-    efficiency = _number(l4.get("cpu_worker_efficiency"), "L4 cpu_worker_efficiency")
-    if efficiency > 1:
-        raise ValueError("L4 cpu_worker_efficiency cannot exceed 1")
+    cpu = cpu_forecast(l4, timing)
+    cpu_seconds = float(cpu["cpu_seconds_per_episode"])
     attempt_overhead = l4.get("q1_attempt_overhead_seconds")
     attempt_overhead = _number(attempt_overhead, "L4 q1_attempt_overhead_seconds", positive=True)
     q1_gpu_overhead_hours = 20 * attempt_overhead / 3600
@@ -192,11 +300,11 @@ def _study_plan(
         "q0_cpu_hours": q0_cpu,
         "q1_gpu_overhead_hours": q1_gpu_overhead_hours,
         "q1_training_attempt_overhead_seconds": attempt_overhead,
-        "q1_cpu_overhead_hours": 100 * (4 * cpu_seconds + eval_job_overhead) / (3600 * efficiency),
+        # Four parity worlds and staging/export happen serially in each job;
+        # only the 32 scored worlds benefit from the worker-pool efficiency.
+        "q1_cpu_overhead_hours": 100 * (4 * cpu_seconds + eval_job_overhead) / 3600,
         "cpu_unit_rate_per_hour": cpu_rate,
-        "cpu_seconds_per_episode": cpu_seconds,
-        "cpu_workers": 1,
-        "cpu_worker_efficiency": efficiency,
+        **cpu,
         "evaluation_episodes": 3200,
         "runs_per_arm": 5,
         "decisions_per_run": 8_000_000,
@@ -276,7 +384,9 @@ def make_jobs(
     l4_receipt_path: Path,
     a100_receipt_path: Path,
     runtime_receipt_path: Path,
-    mac_reference_path: Path,
+    historical_mac_reference_path: Path,
+    current_mac_reference_path: Path,
+    cpu_timing_receipt_path: Path,
     owner_admission_path: Path,
     q0_accounting_path: Path,
     inventory_receipt_path: Path,
@@ -298,10 +408,21 @@ def make_jobs(
         "config"
     ) != l4_packet.get("config"):
         raise ValueError("Q0b hardware comparison must bind identical sources and recipes")
-    runtime_receipt = _validate_runtime_receipt(runtime_receipt_path)
-    mac_reference = _validate_mac_reference(mac_reference_path)
-    if runtime_receipt.get("reference") != mac_reference:
-        raise ValueError("runtime parity receipt does not embed the supplied Mac reference")
+    historical_mac_reference = _json_object(
+        historical_mac_reference_path, "historical Mac parity reference"
+    )
+    current_mac_reference = _validate_mac_reference(current_mac_reference_path)
+    timing = _validate_timing_receipt(cpu_timing_receipt_path, current_mac_reference)
+    # A4 bridges the pre-pool runtime receipt to the current process-pool
+    # evaluator through an explicit, independently validated historical oracle.
+    from research.q0q1_20261017 import a4_compatibility
+
+    bridge = a4_compatibility.validate_historical_parity(
+        _json_object(runtime_receipt_path, "runtime parity receipt"),
+        historical_mac_reference,
+        current_mac_reference,
+        timing,
+    )
     if l4.get("runtime_parity_receipt_sha256") != sha256_file(runtime_receipt_path):
         raise ValueError("L4 packet does not bind the supplied runtime parity receipt")
     _validate_owner_admission(owner_admission_path)
@@ -318,8 +439,10 @@ def make_jobs(
             for row in accounting.get("attempts", [])
         ):
             raise ValueError(f"Q0 accounting lacks completed packet attempt {job_id}")
-    plan = _study_plan(l4, a100, accounting)
+    plan = _study_plan(l4, a100, accounting, timing)
     plan["q0_accounting_sha256"] = sha256_file(q0_accounting_path)
+    plan["cpu_timing_receipt_sha256"] = sha256_file(cpu_timing_receipt_path)
+    plan["a4_historical_parity_bridge"] = bridge
     from research.q0q1_20261017.qualification import validate_admission
 
     result = validate_admission(l4_packet, plan)
@@ -327,7 +450,10 @@ def make_jobs(
         result.get("status") != "ADMITTED_FOR_DISPATCH"
         or result.get("dispatch_authorized") is not True
     ):
-        raise ValueError(f"A3 forecast is not admitted for dispatch: {result.get('errors')}")
+        raise ValueError(
+            "A4 forecast is not admitted for dispatch: "
+            f"{result.get('errors')}; forecast={canonical(result.get('forecast'))}"
+        )
     measured = validate_packet(l4_packet).get("measured_cells", {})
     for cell in ("restart/n3", "mature/n3", "restart/n1", "mature/n1"):
         speed = measured.get(cell, {}).get("decisions_per_second")
@@ -342,8 +468,8 @@ def make_jobs(
         study_plan_sha256=hashlib.sha256(pretty_json(plan)).hexdigest(),
         runtime_parity_receipt=str(runtime_receipt_path),
         runtime_parity_receipt_sha256=sha256_file(runtime_receipt_path),
-        mac_parity_reference=str(mac_reference_path),
-        mac_parity_reference_sha256=sha256_file(mac_reference_path),
+        mac_parity_reference=str(current_mac_reference_path),
+        mac_parity_reference_sha256=sha256_file(current_mac_reference_path),
         parity_owner_admission=str(owner_admission_path),
         parity_owner_admission_sha256=sha256_file(owner_admission_path),
     )
@@ -375,6 +501,12 @@ def make_jobs(
         job["env"]["Q0Q1_OWNER_RELEASE"] = OWNER_RELEASE
         job["env"]["Q0Q1_Q0B_A100_RECEIPT"] = str(a100_receipt_path)
         job["env"]["Q0Q1_Q0B_A100_RECEIPT_SHA256"] = sha256_file(a100_receipt_path)
+        job["env"]["Q1_HISTORICAL_MAC_PARITY_REFERENCE"] = str(historical_mac_reference_path)
+        job["env"]["Q1_HISTORICAL_MAC_PARITY_REFERENCE_SHA256"] = sha256_file(
+            historical_mac_reference_path
+        )
+        job["env"]["Q1_CPU_TIMING_RECEIPT"] = str(cpu_timing_receipt_path)
+        job["env"]["Q1_CPU_TIMING_RECEIPT_SHA256"] = sha256_file(cpu_timing_receipt_path)
         job["env"].update(inventory_env)
         job["env"]["Q0Q1_MASS_ARCHIVE_DIR"] = Q0_MASS_ARCHIVE_DIR
         job["env"]["Q0Q1_INIT_ARCHIVE_DIR"] = Q0_INIT_ARCHIVE_DIR
@@ -398,8 +530,35 @@ def make_jobs(
             )
         )
         if job["id"].startswith("q1-train-"):
-            job["timeout_minutes"] = math.ceil(
-                (5100 + plan["q1_training_attempt_overhead_seconds"] + 60) / 60
+            cell = "restart/n1" if job["env"]["Q1_ARM"] in ("C", "D") else "restart/n3"
+            if job["env"]["Q1_ARM"] in ("B", "D"):
+                cell = cell.replace("restart", "mature")
+            speed = measured[cell]["decisions_per_second"]
+            estimate_seconds = (
+                8_000_000 / float(speed) + plan["q1_training_attempt_overhead_seconds"]
+            )
+            job["requirements"]["est_minutes"] = max(1, math.ceil(estimate_seconds / 60))
+            job["timeout_minutes"] = max(
+                2 * job["requirements"]["est_minutes"],
+                math.ceil((5100 + plan["q1_training_attempt_overhead_seconds"] + 60) / 60),
+            )
+        elif job["id"].startswith("q1-eval-"):
+            job["requirements"]["gpu"] = "cpu"
+            job["requirements"]["min_vcpu"] = 8
+            job["env"]["Q1_EVAL_WORKERS"] = "auto"
+            job["output_subdirs"] = ["evaluation-partials"]
+            # 32 scored worlds plus serial parity and published-overhead reserve;
+            # timeout remains at least twice the generated estimate.
+            seconds = (
+                32
+                * plan["cpu_seconds_per_episode"]
+                / plan["cpu_workers"]
+                / plan["cpu_worker_efficiency"]
+                + plan["q1_cpu_overhead_hours"] * 3600 / 100
+            )
+            job["requirements"]["est_minutes"] = max(1, math.ceil(seconds / 60))
+            job["timeout_minutes"] = max(
+                2 * job["requirements"]["est_minutes"], math.ceil(2 * seconds / 60)
             )
     runtime = l4_packet.get("runtime", {})
     cores = runtime.get("cpu_cores") if isinstance(runtime, Mapping) else None
@@ -453,7 +612,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--q0-mass-archive", type=Path, required=True)
     parser.add_argument("--q0-init-archive", type=Path, required=True)
     parser.add_argument("--runtime-parity-receipt", type=Path)
-    parser.add_argument("--mac-parity-reference", type=Path, required=True)
+    parser.add_argument("--historical-mac-parity-reference", type=Path, required=True)
+    parser.add_argument("--current-mac-parity-reference", type=Path, required=True)
+    parser.add_argument("--cpu-timing-receipt", type=Path, required=True)
     parser.add_argument(
         "--q0-accounting",
         type=Path,
@@ -505,7 +666,13 @@ def main(argv: list[str] | None = None) -> int:
         member_suffix="runtime-parity.json",
     )
     inventory = _stage_evidence(args.inventory_receipt, evidence / "inventory-receipt.json")
-    mac = _stage_evidence(args.mac_parity_reference, evidence / "mac-parity-reference.json")
+    historical_mac = _stage_evidence(
+        args.historical_mac_parity_reference, evidence / "historical-mac-parity-reference.json"
+    )
+    current_mac = _stage_evidence(
+        args.current_mac_parity_reference, evidence / "current-mac-parity-reference.json"
+    )
+    timing = _stage_evidence(args.cpu_timing_receipt, evidence / "cpu-timing-receipt.json")
     owner = _stage_evidence(args.owner_admission, evidence / "owner-admission.json")
     accounting = _stage_evidence(args.q0_accounting, evidence / "observed-q0-accounting.json")
     jobs, plan = make_jobs(
@@ -513,7 +680,9 @@ def main(argv: list[str] | None = None) -> int:
         l4_receipt_path=l4,
         a100_receipt_path=a100,
         runtime_receipt_path=runtime,
-        mac_reference_path=mac,
+        historical_mac_reference_path=historical_mac,
+        current_mac_reference_path=current_mac,
+        cpu_timing_receipt_path=timing,
         owner_admission_path=owner,
         q0_accounting_path=accounting,
         inventory_receipt_path=inventory,
@@ -528,7 +697,9 @@ def main(argv: list[str] | None = None) -> int:
         str(l4): f"{drive_evidence}/q0b-l4-receipt.json",
         str(a100): f"{drive_evidence}/q0b-a100-receipt.json",
         str(runtime): f"{drive_evidence}/runtime-parity.json",
-        str(mac): f"{drive_evidence}/mac-parity-reference.json",
+        str(historical_mac): f"{drive_evidence}/historical-mac-parity-reference.json",
+        str(current_mac): f"{drive_evidence}/current-mac-parity-reference.json",
+        str(timing): f"{drive_evidence}/cpu-timing-receipt.json",
         str(owner): f"{drive_evidence}/owner-admission.json",
     }
     for job in jobs:
@@ -536,6 +707,13 @@ def main(argv: list[str] | None = None) -> int:
             if value in replacement:
                 job["env"][key] = replacement[value]
     (args.out_dir / "study-plan.json").write_bytes(pretty_json(plan))
+    (args.out_dir / "a4-compatibility.json").write_bytes(
+        pretty_json(plan["a4_historical_parity_bridge"])
+    )
+    l4_packet = _qualified_receipt(l4, "L4")[1]
+    from research.q0q1_20261017.qualification import validate_admission
+
+    (args.out_dir / "admission.json").write_bytes(pretty_json(validate_admission(l4_packet, plan)))
     for job in jobs:
         (args.out_dir / f"{job['id']}.json").write_text(
             json.dumps(job, indent=2, sort_keys=True) + "\n"

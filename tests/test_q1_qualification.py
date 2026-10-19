@@ -285,6 +285,72 @@ def test_admission_requires_explicit_nonzero_overhead_and_one_worker() -> None:
     assert any("one worker" in error for error in outcome["errors"])
 
 
+def _approved_a4_plan() -> dict:
+    plan = _approved_a1_plan()
+    plan["amendment"] = subject.A4_AMENDMENT
+    plan["a3_envelope"] = {
+        "amendment": "A3",
+        "baseline_q0_units_cap": 40.0,
+        "observed_q0_units": 64.0,
+        "q0_units_cap": 64.0,
+        "q1_original_units_cap": 135.0,
+        "baseline_combined_units_cap": 175.0,
+        "reserve_fraction": 0.2,
+        "reserve_basis_combined_units": 175.0,
+        "reserve_units": 35.0,
+        "q1_dispatch_headroom_units": 100.0,
+        "q0_overrun_units": 24.0,
+        "combined_units_cap": 199.0,
+        "combined_dispatch_limit_units": 164.0,
+        "derivation": "test A3 envelope retained by A4",
+    }
+    plan.pop("a1_envelope")
+    plan["cpu_workers"] = 7
+    plan["cpu_colab_slowdown_factor"] = 3.0
+    return plan
+
+
+def test_a4_raises_only_gpu_cap_and_admits_deterministic_parallel_workers() -> None:
+    packet = _packet()
+    for cell in packet["cells"]:
+        for window in cell["scored_windows"]:
+            window["learner_decisions"] = 1_440_000
+    plan = _approved_a4_plan()
+    plan["q0_gpu_hours"] = 18.5
+    plan["q0_units"] = 64
+    outcome = subject.validate_admission(packet, plan)
+    assert outcome["status"] == "ADMITTED_FOR_DISPATCH", outcome["errors"]
+    assert outcome["forecast"]["gpu_hours_cap"] == 37.0
+    assert outcome["forecast"]["usable_gpu_hours_cap"] == 29.6
+    assert outcome["forecast"]["q1_evaluation_cpu_hours"] == 3200 * 10 / (3600 * 7 * 0.8)
+
+
+@pytest.mark.parametrize("workers", [1, 2.5, 11])
+def test_a4_refuses_nonparallel_or_noninteger_cpu_worker_counts(workers) -> None:
+    plan = _approved_a4_plan()
+    plan["cpu_workers"] = workers
+    outcome = subject.validate_admission(_packet(), plan)
+    assert outcome["status"] == "REFUSED"
+    assert any("worker" in error for error in outcome["errors"])
+
+
+def test_pre_a4_plan_still_refuses_parallel_cpu_workers() -> None:
+    plan = _approved_a1_plan()
+    plan["cpu_workers"] = 7
+    outcome = subject.validate_admission(_packet(), plan)
+    assert outcome["status"] == "REFUSED"
+    assert any("before Amendment A4" in error for error in outcome["errors"])
+
+
+@pytest.mark.parametrize("slowdown", [None, 2.0, 3.1])
+def test_a4_requires_exact_conservative_threefold_colab_slowdown(slowdown) -> None:
+    plan = _approved_a4_plan()
+    plan["cpu_colab_slowdown_factor"] = slowdown
+    outcome = subject.validate_admission(_packet(), plan)
+    assert outcome["status"] == "REFUSED"
+    assert any("slowdown" in error for error in outcome["errors"])
+
+
 @pytest.mark.parametrize(
     "delta,qualified", [(0.00248036, True), (0.08, True), (1 / 12, False), (0.09, False)]
 )

@@ -204,14 +204,19 @@ def build_jobs(commit: str, bindings: Bindings, *, eval_shards: int = 4) -> list
         for shard_index in range(eval_shards):
             selector = f"{shard_index}/{eval_shards}"
             b8_id = f"q1-eval-b8-{seed}-s{shard_index}of{eval_shards}"
-            base_env = {"Q1_SEED": str(seed), "Q1_SHARD": selector, **common}
+            base_env = {
+                "Q1_SEED": str(seed),
+                "Q1_SHARD": selector,
+                "Q1_EVAL_WORKERS": "auto",
+                **common,
+            }
             jobs.append(
                 _job(
                     job_id=b8_id,
                     commit=commit,
                     kind="q1_eval",
                     gpu="cpu",
-                    min_vcpu=2,
+                    min_vcpu=8,
                     est_minutes=120,
                     depends_on=q0_dependencies,
                     output_dir=(
@@ -231,7 +236,7 @@ def build_jobs(commit: str, bindings: Bindings, *, eval_shards: int = 4) -> list
                         commit=commit,
                         kind="q1_eval",
                         gpu="cpu",
-                        min_vcpu=2,
+                        min_vcpu=8,
                         est_minutes=120,
                         depends_on=(*q0_dependencies, train_ids[arm, seed], b8_id),
                         output_dir=(
@@ -247,6 +252,9 @@ def build_jobs(commit: str, bindings: Bindings, *, eval_shards: int = 4) -> list
                         priority=60,
                     )
                 )
+    for job in jobs:
+        if job["env"]["Q0Q1_JOB_KIND"] == "q1_eval":
+            job["output_subdirs"] = ["evaluation-partials"]
     ids = [job["id"] for job in jobs]
     if len(ids) != len(set(ids)):
         raise AssertionError("Q0/Q1 generator made duplicate IDs")

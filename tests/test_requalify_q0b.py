@@ -324,6 +324,26 @@ def test_validate_receipt_rejects_changed_measurement_cells(prepared):
         subject.validate_receipt(receipt)
 
 
+def test_validate_receipt_rejects_stale_a3_registration_prefix(prepared):
+    archive, claim, terminal, drive = prepared
+    receipt, _ = subject.qualify(
+        archive_path=archive, claim_path=claim, terminal_path=terminal, drive_root=drive
+    )
+    receipt["requalification"]["registration_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="stale A3 re-qualification provenance"):
+        subject.validate_receipt(receipt)
+
+
+def test_validate_receipt_accepts_pinned_historical_l4_tool_and_current_a3_prefix(prepared):
+    archive, claim, terminal, drive = prepared
+    receipt, _ = subject.qualify(
+        archive_path=archive, claim_path=claim, terminal_path=terminal, drive_root=drive
+    )
+    receipt["requalification"]["tool_sha256"] = subject.HISTORICAL_A3_TOOL_SHA256
+    assert subject._current_registration_has_a3_prefix()
+    assert subject.validate_receipt(receipt) == subject.PRESERVED_ATTEMPTS[receipt["hardware"]][0]
+
+
 def test_generated_archive_is_accepted_by_stage_evidence_and_qualified_receipt(prepared, tmp_path):
     archive, claim, terminal, drive = prepared
     receipt, payload = subject.qualify(

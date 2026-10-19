@@ -26,6 +26,11 @@ PRESERVED_ATTEMPTS = {
 # Preserve admission of the immutable A100 A3 archive produced before L4 support.
 LEGACY_A100_TOOL_SHA256 = "44f7d8376e3ee4edc7827415a43bb665e173c5406322d865c32ff2c8f99e98fe"
 R6_COMMIT = "98cb709b6febba82aa424b51796e1730e893ca77"
+# A3 evidence is immutable.  These are the bytes that governed the preserved
+# r6 packets, rather than the append-only A4 registration and current validator.
+A3_REGISTRATION_SHA256 = "0b056540089473549493fc1d706796c912739e97d095bcc67843fa6c29309461"
+A3_QUALIFICATION_SHA256 = "fee21f4d3208b19888c6253a4482bebba551cae04c7486118fc46e242a24b44a"
+HISTORICAL_A3_TOOL_SHA256 = "e40f686bd9d5187eb87603d5ffac1388eb3c4610f1c3da81286044424b0e9b4e"
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -44,6 +49,27 @@ def preserved_attempt(original: dict) -> tuple[str, str]:
 
 def digest(value: Any) -> str:
     return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+def _a3_registration_prefix() -> bytes:
+    """Read the immutable A3 registration bytes from the recorded commit."""
+    completed = subprocess.run(
+        ["git", "show", "17a927c9:research/q0q1_20261017/PREREGISTRATION.md"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+    )
+    if (
+        completed.returncode
+        or hashlib.sha256(completed.stdout).hexdigest() != A3_REGISTRATION_SHA256
+    ):
+        raise ValueError("cannot recover the exact immutable A3 registration prefix")
+    return completed.stdout
+
+
+def _current_registration_has_a3_prefix() -> bool:
+    """A4 is append-only, so preserved A3 provenance needs its original prefix intact."""
+    return owner_admission.REGISTRATION.read_bytes().startswith(_a3_registration_prefix())
 
 
 def archive_objects(archive_path: Path) -> dict[str, dict]:
@@ -199,8 +225,8 @@ def qualify(
         "original_measurement_raw": objects["attempt/measurement/receipt.json"]["raw"].decode(),
         "claim": claim,
         "terminal": terminal,
-        "registration_sha256": sha256_file(owner_admission.REGISTRATION),
-        "validator_sha256": sha256_file(Path(qualification.__file__)),
+        "registration_sha256": A3_REGISTRATION_SHA256,
+        "validator_sha256": A3_QUALIFICATION_SHA256,
         "tool_sha256": sha256_file(Path(__file__)),
         "measurement_content_sha256": digest(
             {k: receipt[k] for k in ("source", "config", "cells", "parity")}
@@ -230,7 +256,7 @@ def validate_receipt(receipt: dict) -> str:
     proof = receipt.get("requalification", {})
     hardware = receipt.get("hardware")
     attempt = PRESERVED_ATTEMPTS.get(hardware)
-    allowed_tools = {sha256_file(Path(__file__))}
+    allowed_tools = {sha256_file(Path(__file__)), HISTORICAL_A3_TOOL_SHA256}
     if hardware == "A100":
         allowed_tools.add(LEGACY_A100_TOOL_SHA256)
     if (
@@ -238,8 +264,9 @@ def validate_receipt(receipt: dict) -> str:
         or proof.get("status") != "QUALIFIED_FROM_PRESERVED_MEASUREMENT"
         or attempt is None
         or proof.get("job_id") != attempt[0]
-        or proof.get("registration_sha256") != sha256_file(owner_admission.REGISTRATION)
-        or proof.get("validator_sha256") != sha256_file(Path(qualification.__file__))
+        or proof.get("registration_sha256") != A3_REGISTRATION_SHA256
+        or proof.get("validator_sha256") != A3_QUALIFICATION_SHA256
+        or not _current_registration_has_a3_prefix()
         or proof.get("tool_sha256") not in allowed_tools
         or proof.get("measurement_content_sha256")
         != digest({k: receipt.get(k) for k in ("source", "config", "cells", "parity")})
