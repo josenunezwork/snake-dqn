@@ -1,0 +1,67 @@
+{
+  "budget": {
+    "rate_units_per_hour": 2.0,
+    "reserve_units": 0,
+    "unit_cap": 2.0
+  },
+  "commit": "9a18e66120c0b869044f609a9c48dd5df338a281",
+  "env": {
+    "PYTHONUNBUFFERED": "1",
+    "S1_ARM": "n3",
+    "S1_OWNER_RELEASE": "DRAFT_PENDING_OWNER_REVIEW",
+    "S1_REGISTRATION_STATUS": "DRAFT_PENDING_OWNER_REVIEW",
+    "S1_SEED": "1783343308",
+    "S1_TRAINING_NAMESPACE": "s1-mature-20261018/train/n3/seed-1783343308"
+  },
+  "inputs": [
+    {
+      "dest": "B8_s3_final.pth",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/B8_s3_final.pth",
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+    },
+    {
+      "dest": "demo.tar.gz",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/demo.tar.gz",
+      "sha256": "a5d030d534c689676168429c5e518bb5e5acd172ebbc49e59d0b01ff83525926"
+    },
+    {
+      "dest": "league.tar.gz",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/league.tar.gz",
+      "sha256": "e2c691063bd2d6f4c3ec396b4d4520b1eb367c4f0814517b7b74d6e4db0f4186"
+    },
+    {
+      "dest": "mac-parity-reference.json",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/mac-parity-reference.json",
+      "sha256": "267ce9d7d88a071c1839f0be687e82ff1f27adeb9a7cf1f04dfc825d12ac485c"
+    },
+    {
+      "dest": "parity-bank.json",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/parity-bank.json",
+      "sha256": "d637a0610c0dfbbcc52f3800dd39255975bdb9728a92811b6ece9342fd82dc40"
+    },
+    {
+      "dest": "q0b-l4.json",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/q0b-l4.json",
+      "sha256": "e66dc4fe06227b3f0046c517c4fb819c52558a54bc0c0f2ed8ce17ea2d2ef53a"
+    },
+    {
+      "dest": "seed-bank.json",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/SEED_BANK.json",
+      "sha256": "8e9c1352c1961a7436858038f09d988bca6e247257ff5d0b82a5520bb4bbdcb6"
+    }
+  ],
+  "job_id": "s1-mature-n3-1783343308",
+  "lease_seconds": 180.0,
+  "max_export_bytes": 2147483648,
+  "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/review-not-dispatched/s1-mature-n3-1783343308",
+  "requirements": {
+    "allowed_gpus": [
+      "L4"
+    ],
+    "est_minutes": 30,
+    "gpu": "L4",
+    "min_vcpu": 12
+  },
+  "script": "research/s1_mature_20261018/train.sh",
+  "timeout_minutes": 60
+}

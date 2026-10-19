@@ -1,0 +1,8 @@
+{
+  "schema": "s1-seed-bank/v1",
+  "study": "s1_mature_20261018",
+  "namespace": "s1-mature-training-seed-block/20261018/v2",
+  "seeds": [223213833, 3055723932, 1783343308, 1125234883, 1809856951],
+  "world_bank": "research/s1_mature_20261018/WORLD_BANK.json",
+  "collision_audit": "research/s1_mature_20261018/SEED_AUDIT.json"
+}
