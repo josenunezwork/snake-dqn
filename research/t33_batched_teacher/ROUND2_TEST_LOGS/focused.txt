@@ -1,0 +1,50 @@
+Final focused files: ['tests/test_canonical_watch_scripted_anchor.py', 'tests/test_ego_raster.py', 'tests/test_ego_raster_bv8.py', 'tests/test_eval_anchors.py', 'tests/test_grid_sim_nb.py', 'tests/test_grid_sim_parity.py', 'tests/test_simd_vector61.py', 'tests/test_simd_vector61_policy.py', 'tests/test_simd_vector61_v5_veto.py', 'tests/test_simd_vector61_v7v8_veto.py', 'tests/test_t24_v8_bodymap.py', 'tests/test_t33_ablation.py', 'tests/test_t33_ablation_execution.py', 'tests/test_t33_benchmark.py', 'tests/test_t33_inference.py', 'tests/test_t33_manifest.py', 'tests/test_t33_observations.py', 'tests/test_t33_round2_anchors.py', 'tests/test_t33_round2_features.py', 'tests/test_t33_round2_parallel.py', 'tests/test_t33_round2_pipeline.py', 'tests/test_t33_round2_prefix.py', 'tests/test_t33_round2_sim_obs.py', 'tests/test_t33_round2_teacher.py', 'tests/test_t33_runtime.py', 'tests/test_t33_teacher.py', 'tests/test_t33_teacher_integration.py', 'tests/test_vector61_nb.py']
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-batched-teacher
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 535 items / 3 deselected / 532 selected
+
+tests/test_canonical_watch_scripted_anchor.py ..........                 [  1%]
+tests/test_ego_raster.py .........................................       [  9%]
+tests/test_ego_raster_bv8.py ..........                                  [ 11%]
+tests/test_eval_anchors.py ..                                            [ 11%]
+tests/test_grid_sim_nb.py .....                                          [ 12%]
+tests/test_grid_sim_parity.py .......................................... [ 20%]
+......................................................                   [ 30%]
+tests/test_simd_vector61.py ....................                         [ 34%]
+tests/test_simd_vector61_policy.py ................                      [ 37%]
+tests/test_simd_vector61_v5_veto.py .................................... [ 44%]
+.                                                                        [ 44%]
+tests/test_simd_vector61_v7v8_veto.py .................................. [ 50%]
+........................................................................ [ 64%]
+........................................................................ [ 78%]
+.................sss..                                                   [ 82%]
+tests/test_t24_v8_bodymap.py ..............                              [ 84%]
+tests/test_t33_ablation.py .......                                       [ 86%]
+tests/test_t33_ablation_execution.py .                                   [ 86%]
+tests/test_t33_benchmark.py .....                                        [ 87%]
+tests/test_t33_inference.py ....                                         [ 87%]
+tests/test_t33_manifest.py ......                                        [ 89%]
+tests/test_t33_observations.py ...........s                              [ 91%]
+tests/test_t33_round2_anchors.py ...                                     [ 91%]
+tests/test_t33_round2_features.py ....                                   [ 92%]
+tests/test_t33_round2_parallel.py s.                                     [ 93%]
+tests/test_t33_round2_pipeline.py ....                                   [ 93%]
+tests/test_t33_round2_prefix.py ...                                      [ 94%]
+tests/test_t33_round2_sim_obs.py .....                                   [ 95%]
+tests/test_t33_round2_teacher.py ...........                             [ 97%]
+tests/test_t33_runtime.py ..                                             [ 97%]
+tests/test_t33_teacher.py ..                                             [ 98%]
+tests/test_t33_teacher_integration.py ........                           [ 99%]
+tests/test_vector61_nb.py ..                                             [100%]
+
+=========================== short test summary info ============================
+SKIPPED [3] tests/test_simd_vector61_v7v8_veto.py:785: plays episodes; set SNAKE_SIMD_ROLLOUT_PARITY=1 to run
+SKIPPED [1] tests/test_t33_observations.py:100: requires explicit two-thread authorization
+SKIPPED [1] tests/test_t33_round2_parallel.py:19: run serialized with NUMBA_NUM_THREADS>=2
+=========== 527 passed, 5 skipped, 3 deselected in 166.12s (0:02:46) ===========
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!
