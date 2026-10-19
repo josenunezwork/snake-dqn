@@ -10,7 +10,11 @@ or complete-budget admission.
 and decision evidence, with a 64 MiB aggregate artifact cap per attempt. No
 mid-run checkpoint, replay transfer, or exact resume is part of this study.
 See `FINAL_EXPORT_STATUS_20261018.md` for the current design, measurements and
-conditional forecast. The trainer's full-state barrier correction is preserved
+conditional forecast. See `ADMISSION_STATUS_CONDITIONAL_RERUNS.json` for the
+current primary-only hard reservation (19.1667 GPU-hours / 20 usable). Optional
+reruns are never pre-funded; their full worst case must fit all usable caps at
+explicit launch, otherwise the affected arm is recorded INCOMPLETE. S1 remains
+DRAFT and final-only L4 transfer qualification is still required. The trainer's full-state barrier correction is preserved
 for other consumers. Earlier barrier/capacity/admission receipts remain
 historical evidence; they do not qualify this final-only adapter.
 No S1 data or Colab allocation was produced by this change.
@@ -60,8 +64,12 @@ further dispatch. First cap wins. One expressly prepared from-scratch replacemen
 per recipe arm is allowed for a verified operational loss before final export
 and before any efficacy look. Both attempts charge the same envelope. No
 automatic retries, extensions, seed replacements, cap raises or reserve borrowing.
-The twelve worst-case attempt slots plus acceptance reserve 22.6 GPU-hours,
-above 20 usable; admission correctly refuses that hard upper bound.
+Admission reserves ten primary worst-case attempts plus acceptance: 19.1667
+GPU-hours, within 20 usable. Each optional rerun is reserved atomically at its
+explicit launch against spent, outstanding and all remaining primary/evaluation
+liabilities. An unfunded rerun records that arm INCOMPLETE and launches nothing.
+The earlier twelve-slot 22.6-hour refusal is historical. Admission still refuses
+without qualified final-only L4 transfer evidence.
 
 The owner-supplied account context is 1,174.37 units, zero usage rate, and zero
 active assignments. It is historical context: the launcher requires fresh

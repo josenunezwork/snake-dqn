@@ -128,8 +128,7 @@ def prepared(tmp_path: Path):
         history_refs=history,
         planned_liabilities={
             "train-a": bound(),
-            "train-b": bound(),
-            "retry-n3": bound(),
+            "train-b": bound(16, 8, 0, 8),
         },
     )
     return ledger, tmp_path, snap
@@ -313,7 +312,8 @@ def test_canonical_manifest_must_preserve_reserved_identity_and_budget(prepared)
         ledger.settle("train-a", receipt)
 
 
-def test_manual_operational_retry_is_one_per_arm_and_semantically_identical(prepared):
+@pytest.mark.parametrize("insufficient", [None, *bound().keys(), "elapsed_gap", "balance"])
+def test_manual_operational_retry_is_one_per_arm_and_semantically_identical(prepared, insufficient):
     worker_ledger, root, _ = prepared
     source = dump(
         root / "source-n3.json",
@@ -373,6 +373,39 @@ def test_manual_operational_retry_is_one_per_arm_and_semantically_identical(prep
         }
     )
     retry_path = dump(root / "retry.json", retry)
+    assert "retry-n3" not in worker_ledger.status()["planned_jobs"]
+    if insufficient:
+        state = json.loads(worker_ledger.path.read_text())
+        if insufficient in bound():
+            spent = worker_ledger.status()["spent"][insufficient]
+            state["planned"]["train-b"][insufficient] = (
+                state["usable_caps"][insufficient]
+                - spent
+                + (0.01 if insufficient == "mac_worker_hours" else -0.01)
+            )
+        elif insufficient == "elapsed_gap":
+            worker_ledger.clock = lambda: 1_000_000 + 39 * 3600
+            snapshot = json.loads((root / "account.json").read_text())
+            snapshot["captured_at"] = worker_ledger.clock()
+            fresh = dump(root / "fresh-account.json", snapshot)
+        else:
+            snapshot = json.loads((root / "account.json").read_text())
+            snapshot["balance_units"] = 16  # Remaining primary fits; rerun does not.
+            fresh = dump(root / "fresh-account.json", snapshot)
+        worker_ledger.path.write_text(json.dumps(state))
+        options = (
+            {"account_snapshot_path": fresh} if insufficient in {"balance", "elapsed_gap"} else {}
+        )
+        with pytest.raises(Refused, match="N3 INCOMPLETE"):
+            worker_ledger.reserve_manual_retry("train-a", "retry-n3", retry_path, **options)
+        refused = json.loads(worker_ledger.path.read_text())
+        assert refused["incomplete_arms"]["n3"]["status"] == "INCOMPLETE"
+        if insufficient == "elapsed_gap":
+            assert "usable elapsed_hours" in refused["incomplete_arms"]["n3"]["reason"]
+        assert refused["outstanding"] == {}
+        assert refused["planned"] == state["planned"]
+        assert refused["settled"] == state["settled"]
+        return
     worker_ledger.reserve_manual_retry("train-a", "retry-n3", retry_path)
     assert worker_ledger.status()["outstanding_jobs"] == ["retry-n3"]
     with pytest.raises(Refused, match="unavailable"):

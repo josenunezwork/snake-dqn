@@ -133,7 +133,12 @@ failure, or ambiguous cause is ineligible. Reconcile request-to-disappearance
 elapsed time and debit, and prove runtime release before any replacement can
 launch. Unknown intervals or release evidence block further allocation. Do not
 retry automatically. The same budget includes both failed and replacement
-attempts, with one replacement liability per arm reserved before first launch.
+attempts. Admission reserves the complete worst case for the ten primary
+attempts only; optional operational reruns are conditional, never pre-funded.
+At the moment an operational rerun would start, the ledger must atomically
+reserve its full unchanged worst-case liability, including cleanup, together
+with spent amounts, all outstanding liabilities and the complete remaining
+primary/evaluation liabilities within **every** usable cap.
 A second operational failure in that arm, or insufficient remaining budget,
 leaves that arm INCOMPLETE; no second exception or efficacy look is allowed.
 Other integrity failures retain INVALID precedence. Preserve all failed bytes.
@@ -172,13 +177,16 @@ current transport/adapter sources and final-size receipts before admission.
 
 Conditional training planning is `6 * (30 + 68) / 60 = 9.8 GPU-hours` including
 one possible rerun per arm, before acceptance, setup, final export and cleanup.
-Hard manifest estimates/timeouts remain N3 30/60 minutes and N1 68/136 minutes;
-reserving every timeout plus a five-minute cleanup tail, and two acceptance
-GPU-hours, gives `6 * (65 + 141) / 60 + 2 = 22.6 GPU-hours` and `45.2 units`
-at 2 units/hour. Thus the hard upper bound **exceeds 20 usable GPU-hours** even
-though units fit 48. Admission remains REFUSED until a prospective reviewed
-execution design fits all caps; this DRAFT does not reduce timeouts, spend the
-withheld reserve or raise caps to hide that conflict.
+This optional scenario is planning only, never a pre-funded entitlement.
+Hard manifest estimates/timeouts remain N3 30/60 minutes and N1 68/136 minutes.
+Admission reserves the ten primary timeouts plus five-minute cleanup tails and
+two acceptance GPU-hours: `5 * (65 + 141) / 60 + 2 = 19.1666666667 GPU-hours`,
+or `38.3333333333 units` at 2 units/hour. Mac worker time is 15.8656728896 hours;
+serialized elapsed time is 27.0995031115 hours. These fit all usable caps, but
+final-only L4 throughput qualification remains required for admission. The prior
+22.6 GPU-hour / 45.2-unit reservation included both optional reruns and is
+superseded by this primary-only rule. Caps, timeouts, the withheld reserve and
+the worst-case-reservation principle are unchanged.
 
 New Colab work uses only `research/colab_cli` after its independent live
 acceptance. No Drive queue, direct `colab` operation, runtime retention,
@@ -213,3 +221,16 @@ all RL.
   DRAFT status, seeds, recipes, endpoint, statistical thresholds, fixed look,
   overshoot bounds, serving boundary and all historical evidence. Record the
   resulting 22.6-hour hard reservation refusal explicitly.
+
+- 2026-10-18 (Claude planner decision, S1 **DRAFT, pre-data**): make
+  operational reruns conditional and never pre-funded. Supersede only the prior
+  requirement to reserve both optional reruns before first launch, recorded in
+  `ADMISSION_STATUS_FINAL_ONLY.json` (commit `e5dd9bb3`). Reserve all ten primary
+  attempts at admission; reserve a rerun's complete unchanged worst case only at
+  its explicit launch if spent plus all outstanding and remaining liabilities
+  fit every usable cap, otherwise record the affected arm INCOMPLETE. This is a
+  prospective edit to the unratified DRAFT, before S1 training/evaluation data;
+  it is not ratification or dispatch authorization. Preserve caps, timeouts,
+  20% reserve, worst-case accounting, seeds, recipes, endpoint, thresholds,
+  fixed look, identities, counter bounds and serving boundary. The earlier
+  change-log entry and historical refusal receipts remain as history.

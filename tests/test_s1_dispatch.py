@@ -10,7 +10,7 @@ from research.s1_mature_20261018 import admission, run
 
 
 @pytest.mark.parametrize("tripwire", [False, True])
-@pytest.mark.parametrize("continuation", [False, True, "prior_retry"])
+@pytest.mark.parametrize("continuation", [False, True, "prior_retry", "refused"])
 def test_serial_dispatch_completes_the_registered_look_or_skips_only_killed_arm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tripwire: bool, continuation: bool | str
 ) -> None:
@@ -68,8 +68,10 @@ def test_serial_dispatch_completes_the_registered_look_or_skips_only_killed_arm(
         def status(self):
             return {}
 
-        def reserve_manual_retry(self, source, job, path):
+        def reserve_manual_retry(self, source, job, path, **_):
             assert source == manifests[1]["job_id"]
+            if continuation == "refused":
+                raise run.ledger.Refused("N1 INCOMPLETE: insufficient budget")
             self.reserve(job, None, path)
 
         def initialize(self, **_):
@@ -181,7 +183,7 @@ def test_serial_dispatch_completes_the_registered_look_or_skips_only_killed_arm(
                     manifests[0]["job_id"]: prior_entry,
                     source_id: {"operational_failure_review": {"sha256": "review"}},
                 },
-                "planned": {"retry-n1": {}},
+                "planned": {},
             },
         )
         if continuation == "prior_retry":
@@ -196,6 +198,12 @@ def test_serial_dispatch_completes_the_registered_look_or_skips_only_killed_arm(
             args.ledger.write_text(json.dumps(state))
         monkeypatch.setattr(run, "_retry_record", lambda *_: record)
         args.retry_record = tmp_path / "record.json"
+        if continuation == "refused":
+            with pytest.raises(run.ledger.Refused, match="N1 INCOMPLETE"):
+                run.continue_dispatch(args)
+            assert not any(isinstance(event, tuple) for event in events)
+            assert not evaluations
+            return
         run.continue_dispatch(args)
         assert "initialize" not in events
         if continuation == "prior_retry":

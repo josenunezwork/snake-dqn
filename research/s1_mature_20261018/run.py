@@ -529,7 +529,6 @@ def continue_dispatch(args: argparse.Namespace) -> None:
     worker_ledger = ledger.Ledger(args.ledger.resolve())
     source_id, retry_id = record["source_job_id"], record["retry_job_id"]
     retry_manifest = Path(record["retry_manifest"]["path"])
-    worker_ledger.status()  # Revalidate all settled receipts before any new allocation.
     state = json.loads(args.ledger.read_text())
     source_entry = state.get("settled", {}).get(source_id, {})
     if (
@@ -537,7 +536,11 @@ def continue_dispatch(args: argparse.Namespace) -> None:
         != record["operational_failure_review"]["sha256"]
     ):
         raise admission.AdmissionRefused("manual rerun record is not the reconciled ledger failure")
-    if retry_id not in state.get("planned", {}):
+    if (
+        retry_id in state.get("settled", {})
+        or retry_id in state.get("outstanding", {})
+        or retry_id.removeprefix("retry-") in state.get("incomplete_arms", {})
+    ):
         raise admission.AdmissionRefused("manual rerun liability was already consumed")
     paths = _manifest_paths(plan)
     replacements: dict[str, Path] = {}
@@ -568,8 +571,9 @@ def continue_dispatch(args: argparse.Namespace) -> None:
         colab=args.colab,
         account_config=args.account_config,
     )
-    worker_ledger.record_account_snapshot(snapshot)
-    worker_ledger.reserve_manual_retry(source_id, retry_id, retry_manifest)
+    worker_ledger.reserve_manual_retry(
+        source_id, retry_id, retry_manifest, account_snapshot_path=snapshot
+    )
     command = [
         str(args.supervisor),
         "--state-dir",

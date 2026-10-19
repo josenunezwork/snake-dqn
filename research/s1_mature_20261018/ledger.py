@@ -131,6 +131,8 @@ class Ledger:
                 job: _bound(bound, f"planned_liabilities.{job}")
                 for job, bound in planned_liabilities.items()
             }
+            if any(job.startswith("retry-") for job in planned):
+                raise Refused("operational reruns are conditional, never pre-funded")
             if not planned or len(planned) != len(set(planned)):
                 raise Refused("at least one uniquely named planned liability is required")
             review, acceptance_actual, study_started_at = self._review_acceptance(
@@ -255,6 +257,7 @@ class Ledger:
                 "source_manifest": entry["manifest"],
                 "operational_failure_review": self._evidence(review_path),
                 "failure_classification": review["failure_classification"],
+                "original_bound": entry["bound"],
                 "settled_at": self.clock(),
             }
             del state["outstanding"][job_id]
@@ -265,11 +268,17 @@ class Ledger:
             return self._summary(state)
 
     def reserve_manual_retry(
-        self, source_job_id: str, retry_job_id: str, manifest_path: str | Path
+        self,
+        source_job_id: str,
+        retry_job_id: str,
+        manifest_path: str | Path,
+        *,
+        account_snapshot_path: str | Path | None = None,
     ) -> dict[str, Any]:
-        """Consume the one arm-level retry liability after a reviewed operational loss."""
+        """Atomically admit a conditional rerun, or record the arm INCOMPLETE."""
+        refusal = None
         with self._locked() as state:
-            self._verify_invariants(state, require_snapshot=True)
+            self._verify_static_evidence(state)
             source = state["settled"].get(source_job_id)
             if not source or "operational_failure_review" not in source:
                 raise Refused("manual retry requires a reconciled operational failure")
@@ -283,28 +292,51 @@ class Ledger:
             if arm not in {"n1", "n3"}:
                 raise Refused("manual retry source is not an S1 training arm")
             expected = f"retry-{arm}"
-            if retry_job_id != expected or retry_job_id not in state["planned"]:
+            if (
+                retry_job_id != expected
+                or retry_job_id in state["settled"]
+                or retry_job_id in state["outstanding"]
+                or arm in state.get("incomplete_arms", {})
+            ):
                 raise Refused("the single registered retry liability for this arm is unavailable")
             if state["outstanding"]:
                 raise Refused("one active S1 job maximum; reconcile the existing reservation first")
             retry_path = Path(manifest_path)
             self._retry_manifest_fits(source_manifest, retry_path, retry_job_id)
             state["outstanding"][retry_job_id] = {
-                "bound": state["planned"].pop(retry_job_id),
+                "bound": _bound(source.get("original_bound", {}), "original_bound"),
                 "manifest": self._evidence(retry_path),
                 "reserved_at": self.clock(),
                 "retry_of": source_job_id,
             }
-            self._verify_invariants(state, require_snapshot=True)
+            try:
+                if account_snapshot_path is not None:
+                    state["account_snapshot"] = self._snapshot(
+                        account_snapshot_path, require_zero=True
+                    )
+                self._verify_invariants(state, require_snapshot=True)
+            except Refused as exc:
+                del state["outstanding"][retry_job_id]
+                refusal = f"{arm.upper()} INCOMPLETE: conditional rerun reservation refused: {exc}"
+                state.setdefault("incomplete_arms", {})[arm] = {
+                    "status": "INCOMPLETE",
+                    "source_job_id": source_job_id,
+                    "reason": str(exc),
+                    "at": self.clock(),
+                }
             state["events"].append(
                 {
-                    "kind": "reserve_manual_retry",
+                    "kind": "refuse_manual_retry" if refusal else "reserve_manual_retry",
                     "job_id": retry_job_id,
                     "source_job_id": source_job_id,
                     "at": self.clock(),
                 }
             )
-            return self._summary(state)
+            summary = self._summary(state)
+        # Persist the refusal under the same lock before reporting it to the caller.
+        if refusal:
+            raise Refused(refusal)
+        return summary
 
     def settle_mac(self, job_id: str, receipt_path: str | Path) -> dict[str, Any]:
         """Settle a Mac-only evaluation receipt; units/GPU must remain exactly zero."""
@@ -722,6 +754,7 @@ class Ledger:
             "usable_caps": dict(USABLE_CAPS),
             "nominal_caps": dict(NOMINAL_CAPS),
             "planned_jobs": sorted(state["planned"]),
+            "incomplete_arms": state.get("incomplete_arms", {}),
             "outstanding_jobs": sorted(state["outstanding"]),
             "settled_jobs": sorted(state["settled"]),
             "study_started_at": state["created_at"],

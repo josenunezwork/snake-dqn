@@ -29,12 +29,7 @@ def forecast(
     training_path: Path,
     transport_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Calculate the conditional forecast and keep unresolved liability explicit.
-
-    The conditional case reserves one from-scratch operational rerun for each
-    recipe.  It is a budget liability, not permission to resume or to select an
-    intermediate checkpoint.
-    """
+    """Price primary admission and disclose optional reruns without pre-funding them."""
     timing, training = json.loads(eval_path.read_text()), json.loads(training_path.read_text())
     allocation = bank.load_world_bank()
     if timing.get("status") != "completed" or timing.get("episode_count", 0) < 10:
@@ -139,7 +134,7 @@ def forecast(
     # The ledger reserves hard manifest timeout plus a separate five-minute
     # cleanup tail.  Export transport must fit the timeout above, so it is not
     # added a second time here.
-    hard_training = 6 * ((60 + 5) + (136 + 5)) / 60
+    hard_training = 5 * ((60 + 5) + (136 + 5)) / 60
     hard_reservation = {
         "units": 2 * hard_training + 4,
         "gpu_allocation_hours": hard_training + 2,
@@ -147,7 +142,7 @@ def forecast(
         "elapsed_hours": hard_training + 2 + mac_elapsed,
     }
     exceeded = [key for key, value in hard_reservation.items() if value > ledger.USABLE_CAPS[key]]
-    reasons.extend(f"Conditional forecast exceeds usable {key}" for key in exceeded)
+    reasons.extend(f"Primary admission forecast exceeds usable {key}" for key in exceeded)
     return {
         "schema": "s1-mature-pricing/v1",
         "status": "REFUSED" if reasons else "PASS",
@@ -178,8 +173,25 @@ def forecast(
             "known_base_plus_cleanup_gpu_hours": conditional_training + 2 + 12 * 5 / 60,
             "known_base_plus_cleanup_units": 2 * (conditional_training + 2 + 12 * 5 / 60),
             "reruns": {"n3": 1, "n1": 1},
+            "pre_funded": False,
+            "interpretation": "optional planning scenario only; not an admission reservation",
         },
-        "conditional_hard_reservation": hard_reservation,
+        "primary_hard_reservation": hard_reservation,
+        "conditional_reruns": {
+            "pre_funded": False,
+            "maximum_per_arm": {"n3": 1, "n1": 1},
+            "admission": "spent + outstanding + remaining primary liabilities + full rerun "
+            "worst case must fit every usable cap at launch; otherwise arm INCOMPLETE",
+            "per_attempt_hard_liability": {
+                arm: {
+                    "units": 2 * (timeout + 5) / 60,
+                    "gpu_allocation_hours": (timeout + 5) / 60,
+                    "mac_worker_hours": 0.0,
+                    "elapsed_hours": (timeout + 5) / 60,
+                }
+                for arm, timeout in (("n3", 60), ("n1", 136))
+            },
+        },
         "final_artifact_transport": transport,
         "production_counter_qualification": {
             "status": "PASS" if counter_pass else "REFUSED",
@@ -200,7 +212,7 @@ def forecast(
         "training_preflight_status": training.get("status"),
         "next_step": "Obtain the current-source CLI acceptance receipt for final-only L4 exports, "
         "then "
-        "resolve the conditional one-rerun-per-arm hard-reservation cap conflict before admission.",
+        "obtain prospective registration approval and fresh admission evidence before dispatch.",
     }
 
 

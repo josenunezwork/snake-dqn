@@ -88,8 +88,8 @@ def test_liabilities_reject_wrong_arm_timing() -> None:
                 }
             )
     bound = admission.liabilities(good)
-    assert len(bound) == 12
-    assert set(bound).issuperset({"retry-n3", "retry-n1"})
+    assert len(bound) == 10
+    assert not set(bound).intersection({"retry-n3", "retry-n1"})
     assert bound["n3-0"]["gpu_allocation_hours"] == pytest.approx(65 / 60)
     assert bound["n1-0"]["units"] == pytest.approx(141 / 30)
     good[0]["timeout_minutes"] = 136
@@ -209,3 +209,21 @@ def test_pricing_requires_current_counter_sources_and_bound_final_transfer(tmp_p
     bound = admission.priced_mac_bound(priced())
     assert bound["per_arm_gpu_hours"]["n3"] > 30 / 60
     assert bound["per_arm_gpu_hours"]["n1"] > 68 / 60
+
+
+def test_primary_forecast_fits_caps_without_pre_funding_optional_reruns() -> None:
+    from research.s1_mature_20261018 import ledger, price
+
+    root = admission.ROOT / "research/s1_mature_20261018"
+    forecast = price.forecast(
+        root / "EVAL_PREFLIGHT_FINAL.json", root / "TRAIN_PREFLIGHT_FINAL_ONLY.json"
+    )
+    hard = forecast["primary_hard_reservation"]
+    assert hard["gpu_allocation_hours"] == pytest.approx(5 * (65 + 141) / 60 + 2)
+    assert hard["units"] == pytest.approx(38.333333333333336)
+    assert all(hard[key] <= cap for key, cap in ledger.USABLE_CAPS.items())
+    assert forecast["conditional_reruns"]["pre_funded"] is False
+    assert forecast["conditional_planning_forecast"]["known_base_plus_cleanup_gpu_hours"] == 12.8
+    assert forecast["complete_upper_bound"] is None  # Missing live transfer qualification.
+    assert forecast["status"] == "REFUSED"
+    assert not any("exceeds usable" in reason for reason in forecast["refusal_reasons"])

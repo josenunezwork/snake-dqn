@@ -87,12 +87,7 @@ def require_approved_preregistration(path: Path) -> dict[str, str]:
 
 
 def liabilities(manifest_rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, float]]:
-    """Return hard reservations, including one operational rerun per recipe.
-
-    The retry entries are reservations only.  A later runtime is still subject
-    to the registration's from-scratch, same-seed/recipe, and no-efficacy-look
-    rules.  Each uses the unchanged manifest timeout and cleanup tail.
-    """
+    """Reserve the ten primary attempts only; reruns are conditional at launch."""
     rows = list(manifest_rows)
     output: dict[str, dict[str, float]] = {}
     for row in rows:
@@ -112,16 +107,6 @@ def liabilities(manifest_rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, 
         }
     if len(output) != 10:
         raise AdmissionRefused("S1 requires exactly ten registered training jobs")
-    for arm in ("n3", "n1"):
-        sample = next(item for item in rows if item["env"]["S1_ARM"] == arm)
-        timeout = float(sample["timeout_minutes"])
-        hours = (timeout + 5.0) / 60.0
-        output[f"retry-{arm}"] = {
-            "units": hours * 2.0,
-            "gpu_allocation_hours": hours,
-            "mac_worker_hours": 0.0,
-            "elapsed_hours": hours,
-        }
     return output
 
 
@@ -312,6 +297,8 @@ def prepare(args: argparse.Namespace) -> Path:
         "complete_upper_bound": complete,
         "run_rules": {
             "serialized": True,
+            "operational_reruns_pre_funded": False,
+            "operational_rerun_admission": "full-worst-case-within-all-usable-caps-at-launch",
             "operational_reruns_max": {"n3": 1, "n1": 1},
             "operational_rerun_mode": "from-scratch-identical-seed-and-recipe-before-efficacy-look",
             "no_exact_resume": True,
