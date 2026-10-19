@@ -123,7 +123,7 @@ def test_two_distinct_real_sources_match_oracle_and_preserve_source_state(
     oracle: ModuleType, timing_rows: dict[str, dict[str, Any]]
 ) -> None:
     """A two-source call agrees with individually scored Phase 0 fixtures."""
-    config = phase0_teacher.SearchConfig(rollouts=1, horizon=4, epsilon=0.02, length_gate=0)
+    config = phase0_teacher.SearchConfig(rollouts=1, horizon=4, epsilon=0.0, length_gate=0)
     worlds = [
         _prepared_world(timing_rows["scripted"], 800),
         _prepared_world(timing_rows["frozen"], 800),
@@ -150,7 +150,7 @@ def test_full_real_n8_h128_source_matches_frozen_oracle(
     oracle: ModuleType, timing_rows: dict[str, dict[str, Any]], mix: str
 ) -> None:
     """The registered full search agrees on one real fixture, including deaths."""
-    config = phase0_teacher.SearchConfig(rollouts=8, horizon=128, epsilon=0.02, length_gate=0)
+    config = phase0_teacher.SearchConfig(rollouts=8, horizon=128, epsilon=0.0, length_gate=0)
     world = _prepared_world(timing_rows[mix], 800)
     before = _source_digest(world)
     candidate_teacher = BatchedTeacher(config, common_random=False)
@@ -168,7 +168,7 @@ def test_two_source_concat_isolation_and_repeat_determinism(
     timing_rows: dict[str, dict[str, Any]],
 ) -> None:
     """Grouping two distinct policy rosters cannot change either source result."""
-    config = phase0_teacher.SearchConfig(rollouts=2, horizon=16, epsilon=0.02, length_gate=0)
+    config = phase0_teacher.SearchConfig(rollouts=2, horizon=16, epsilon=0.0, length_gate=0)
     combined_worlds = [
         _prepared_world(timing_rows["mixed"], 800),
         _prepared_world(timing_rows["frozen"], 800),
@@ -220,7 +220,7 @@ def test_prepared_seam_and_illegal_rows_are_explicitly_enforced(
 def test_crn_teacher_matches_rowwise_calibration_reference(timing_rows, leaf) -> None:
     from research.t33_batched_teacher import reference
 
-    config = phase0_teacher.SearchConfig(rollouts=2, horizon=8, epsilon=0.5, length_gate=0)
+    config = phase0_teacher.SearchConfig(rollouts=2, horizon=8, epsilon=0.0, length_gate=0)
     worlds = [_prepared_world(timing_rows[mix], 800) for mix in ("scripted", "frozen")]
     search = BatchedTeacher(config, common_random=True, leaf=leaf)
     actions, diagnostics = search.choose(worlds)
