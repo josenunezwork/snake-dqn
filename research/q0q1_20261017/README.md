@@ -193,3 +193,11 @@ It validates each arm separately. Missing or corrupt evidence makes that arm
 `INVALID/INCOMPLETE`; a verified scientific tripwire makes it `KILL`. No subset
 of surviving seeds supplies an arm interval. Contrasts requiring an incomplete
 arm are unavailable. Shared B8 failures invalidate every dependent arm.
+
+## Amendment A4 admission (2026-10-18)
+
+The new [A4 admission and operator handoff](Q1_A4_ADMISSION_20261018.md) supersedes
+the A3 runtime-budget refusal for Q1 dispatch preparation. It records the raised
+37 GPU-hour cap, real serial/pool identity and measured forecast, 120 validated
+manifest paths, runtime plan, test limitations, and exact enqueue commands.
+No Q1 jobs were enqueued. Earlier A3 evidence remains unchanged.
