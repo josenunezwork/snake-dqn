@@ -10,6 +10,7 @@ import hashlib
 import math
 import re
 import signal
+import ssl
 import threading
 import time
 from contextlib import contextmanager
@@ -84,6 +85,12 @@ def preflight(
         raise InputError("public input request timeout must be finite and positive")
     if not math.isfinite(total_timeout_seconds) or total_timeout_seconds <= 0:
         raise InputError("public input total timeout must be finite and positive")
+    try:
+        import certifi
+    except ImportError:
+        context = ssl.create_default_context()
+    else:
+        context = ssl.create_default_context(cafile=certifi.where())
     deadline = time.monotonic() + total_timeout_seconds
     results: list[dict[str, Any]] = []
     seen: set[tuple[str, str, int]] = set()
@@ -104,7 +111,9 @@ def preflight(
                 try:
                     request = Request(row["url"], headers={"Accept-Encoding": "identity"})
                     with opener(
-                        request, timeout=min(timeout_seconds, max(0.1, deadline - started))
+                        request,
+                        timeout=min(timeout_seconds, max(0.1, deadline - started)),
+                        context=context,
                     ) as reply:
                         while True:
                             if time.monotonic() >= deadline:

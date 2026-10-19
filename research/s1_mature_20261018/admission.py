@@ -184,7 +184,11 @@ def delivery_preflight(rows: list[dict[str, Any]], packaging: dict[str, Any]) ->
         verified = inputs.preflight(public)
     except (inputs.InputError, OSError, ValueError) as exc:
         raise AdmissionRefused(f"release input preflight refused: {exc}") from exc
-    rate = min([1024**2] + [item["bytes_per_second"] for item in verified])
+    # Small objects measure request latency, already covered by five seconds per
+    # GET in staging_preflight, rather than sustained transfer goodput.
+    rate = min(
+        [1024**2] + [item["bytes_per_second"] for item in verified if item["size_bytes"] >= 1024**2]
+    )
     return {
         "status": "PASS",
         "verified_inputs": verified,

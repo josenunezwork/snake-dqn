@@ -169,9 +169,39 @@ def test_live_preflight_uses_measured_slow_rate_to_refuse_staging(
         ],
     }
     packaging = {"jobs": {"job": {"fallback_size": 1}}}
-    monkeypatch.setattr(inputs, "preflight", lambda _: [{"bytes_per_second": 13_000}])
+    monkeypatch.setattr(
+        inputs,
+        "preflight",
+        lambda _: [{"size_bytes": 62_552_352, "bytes_per_second": 13_000}],
+    )
     with pytest.raises(admission.AdmissionRefused, match="exceeds its transfer cap"):
         admission.delivery_preflight([row], packaging)
+
+
+@pytest.mark.parametrize("large_rate", [2 * 1024**2, 512 * 1024])
+def test_delivery_preflight_ignores_tiny_file_latency(
+    monkeypatch: pytest.MonkeyPatch, large_rate: float
+) -> None:
+    from research.colab_cli import inputs
+
+    verified = [
+        {"size_bytes": 330, "bytes_per_second": 110},
+        {"size_bytes": 52_000, "bytes_per_second": 26_000},
+        {"size_bytes": 62_552_352, "bytes_per_second": large_rate},
+    ]
+    row = {
+        "job_id": "job",
+        "inputs": [
+            {"url": manifests.RELEASE_BASE + f"/{i}", "size_bytes": item["size_bytes"]}
+            for i, item in enumerate(verified)
+        ],
+    }
+    packaging = {"jobs": {"job": {"fallback_size": 1}}}
+    monkeypatch.setattr(inputs, "preflight", lambda _: verified)
+    result = admission.delivery_preflight([row], packaging)
+    assert result["status"] == "PASS"
+    expected = 2 * sum(item["size_bytes"] for item in verified) / min(1024**2, large_rate) + 15
+    assert result["staging"]["jobs"]["job"]["release_seconds_upper_bound"] == expected
 
 
 @pytest.mark.parametrize("change", [None, "seed", "acceptance", "unsettled", "wrong_original"])
