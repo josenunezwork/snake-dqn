@@ -195,6 +195,57 @@ def test_normal_job_stops_and_verifies_backend_release(
     _assert_transport(tmp_path)
 
 
+def test_renewal_after_initial_staging_deadline_uses_fresh_contents_transfer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A credential rotation after five minutes must not inherit staging's cap.
+
+    This exercises the real broker through the subprocess-backed fake binary.
+    ``ready`` is emitted only after the bounded initial input staging phase, so
+    advancing the monotonic clock here reproduces an otherwise healthy runtime
+    that needs a later credential renewal.
+    """
+    binary = _fake_env(monkeypatch, tmp_path, mode="export_success")
+    monotonic = [0.0]
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: monotonic[0])
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    manifest = _manifest(tmp_path)
+    manifest["timeout_minutes"] = 10.0
+    manifest["budget"]["unit_cap"] = 2.0
+    renewed: list[bool] = []
+
+    def observer(event: str, context: dict[str, object]) -> None:
+        if event != "ready":
+            return
+        cli = context["cli"]
+        # Stage uploads had their 300-second collective deadline at t=0. A
+        # now-expired credential forces the later direct ContentsClient PUT.
+        monotonic[0] = 301.0
+        cli.release_credential["expires_at"] = 0
+        renewed.append(True)
+
+    supervisor.Broker(tmp_path / "lanes", binary, observer=observer).run(manifest)
+
+    assert renewed == [True]
+    receipt = json.loads((tmp_path / "job-output" / "receipt.json").read_text())
+    assert receipt["status"] == "PASS"
+    credential_puts = [
+        row for row in receipt["contents_transfers"] if "-release.json" in row["remote"]
+    ]
+    assert len(credential_puts) >= 2  # initial credential plus the post-staging renewal
+    assert credential_puts[-1]["status"] == "completed"
+    assert credential_puts[-1]["bytes_per_second"] > 0
+    logical_download = next(row for row in receipt["transfers"] if row["direction"] == "download")
+    raw_download = next(
+        row for row in receipt["contents_transfers"] if row["direction"] == "download"
+    )
+    assert logical_download["status"] == "verified"
+    assert logical_download["bytes_per_second"] > 0
+    assert raw_download["status"] == "completed"
+    assert raw_download["bytes_per_second"] > 0
+    assert all("total upload time cap" not in str(row) for row in receipt["transfers"])
+
+
 @pytest.mark.parametrize("baseline", [False, True])
 def test_l4_observed_rate_below_priced_ceiling_calibrates_and_passes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, baseline: bool
@@ -614,6 +665,24 @@ def test_cli_call_caps_subprocess_timeout_at_session_deadline(
     assert seen["env"]["SNAKE_COLAB_NOTEBOOK_HASH"]
 
 
+def test_cli_call_caps_subprocess_timeout_at_priced_deadline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cli = supervisor.CLI("fake-colab", tmp_path / "lane-sessions.json", "session")
+    cli.deadline = 1000.0
+    cli.priced_deadline = 101.25
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: 100.0)
+    seen: dict[str, object] = {}
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(args, 0, stdout="Colab CLI 0.7.4\n", stderr="")
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    assert cli.call("usage", timeout=45) == "Colab CLI 0.7.4\n"
+    assert seen["timeout"] == pytest.approx(1.25)
+
+
 def test_upload_phase_caps_outer_rpc_grace_and_restores_session_deadline(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -760,6 +829,26 @@ def test_600_mib_snapshot_roundtrip_uses_bounded_fake_cli_requests(
 
     binary = _fake_env(monkeypatch, tmp_path)
     cli = supervisor.CLI(binary, tmp_path / "large-session.json", "large-transfer")
+    # Initial staging completes at t=0.  The later snapshot transfer starts
+    # after the old five-minute staging cap and takes another ten simulated
+    # minutes; its own size-scaled deadline must govern it.
+    clock = [0.0]
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock[0])
+    staging = tmp_path / "initial-staging.bin"
+    staging.write_bytes(b"staged")
+    transfers.upload_file(
+        cli, staging, "/content/snake-cli/transfer-proof/staged.bin", lambda: None
+    )
+    clock[0] = 301.0
+    real_call = cli.call
+
+    def slow_upload(*args: str, **kwargs: object) -> str:
+        result = real_call(*args, **kwargs)
+        if args[0] == "upload":
+            clock[0] += 2.0
+        return result
+
+    cli.call = slow_upload  # type: ignore[method-assign]
     source = tmp_path / "600mib.snapshot"
     size = 600 * 1024 * 1024
     with source.open("wb") as stream:
@@ -770,9 +859,20 @@ def test_600_mib_snapshot_roundtrip_uses_bounded_fake_cli_requests(
     transfers.download_file(cli, remote, target, size, expected_sha256=digest)
     assert target.stat().st_size == size
     assert supervisor.sha256(target) == digest
+    later_upload = cli.transfer_records[-2]
+    assert later_upload["direction"] == "upload"
+    assert later_upload["elapsed_seconds"] == pytest.approx(600.0)
+    assert later_upload["bytes_per_second"] > 0
+    downloaded = cli.transfer_records[-1]
+    assert downloaded["direction"] == "download"
+    assert downloaded["bytes_per_second"] > 0
+    assert any(
+        record["direction"] == "download" and record["bytes_per_second"] > 0
+        for record in cli.contents_transfers
+    )
     uploads = [e for e in _events(tmp_path) if e["argv"][4] == "upload"]
     downloads = [e for e in _events(tmp_path) if e["argv"][4] == "download"]
-    assert len(uploads) == 300
+    assert len(uploads) == 301  # One staged control file, then 300 snapshot chunks.
     assert len(downloads) == 75
     assert max(e["upload_bytes"] for e in uploads) <= 2 * 1024 * 1024
     assert not list((tmp_path / "remote").rglob("*.part"))

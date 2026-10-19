@@ -223,14 +223,38 @@ Normal GitHub source delivery leaves only Mac-only inputs and the conditional
 sparse fallback to upload. The supervisor transfers those files in 2 MiB
 chunks. Each chunk is written to an idempotent offset/part path, has a bounded
 retry only for connection or timeout failures, and is assembled only after the
-complete file's SHA-256 and size are checked. The whole upload is also subject
-to a five-minute total transfer-time cap; exhausting it refuses the job before
+complete file's SHA-256 and size are checked. Initial input PUTs share a
+five-minute staging deadline; exhausting it refuses the job before
 an unbounded Contents-client request can continue.
 
 This retry rule does not apply to allocation, `exec`, stop, or other uncertain
 mutating kernel operations. The transfer receipt records the verified digest
 of each completed upload. A source or input whose final digest differs from
 its plan is rejected.
+
+The staging deadline is never installed as the session deadline. Lease and
+credential renewals and kernel RPCs retain their own timeout and the session
+cap. Each later upload or download starts a fresh transfer deadline of
+`max(300, 120 + size_bytes / 524288)` seconds, including bounded retries. A
+600 MiB roundtrip upload therefore has 1,320 seconds, subject to the remaining
+whole-session wall and unit limits. Small credential/control PUTs have the same
+minimum allowance and at most three idempotent Contents attempts, without a
+kernel verification RPC. Credential rotation first refreshes the lease, caps
+the PUT budget to leave a 90-second lease margin (including token mint time),
+and refreshes the lease again in the single rotation RPC. This lease cap may
+shorten the transfer allowance. Mutating RPCs are never retried.
+
+`receipt.json.transfers` contains one record per immutable file upload/download:
+`direction`, `remote`, `size_bytes`, `elapsed_seconds`, `bytes_per_second`,
+`call_site`, and `status`. A `verified` rate is file bytes divided by elapsed
+time including hashing, retry, renewal, and assembly/split overhead. Failed
+transfers have a null rate and cannot support export-liability estimates.
+Use verified **download** records for checkpoint export liability; upload
+rates describe the opposite direction. `contents_transfers` separately records
+every Contents request attempt, including telemetry, credentials, sidecars,
+and markers. Its `completed` rates measure subprocess transport only and do
+not establish file integrity. Reconnects preserve both record lists. Transfer
+errors name the remote operation and the source caller's file and line.
 
 ## Lease expiry and runtime-side release
 

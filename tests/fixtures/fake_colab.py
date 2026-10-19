@@ -197,7 +197,7 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
             "reason": None,
             "exports": [],
         }
-        if MODE == "corrupt_download":
+        if MODE in {"corrupt_download", "export_success"}:
             payload = b"GOOD"
             checkpoint = output / "checkpoint.bin"
             checkpoint.write_bytes(payload)
@@ -205,7 +205,7 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
             (output / "checkpoint.bin.sha256").write_text(digest + "\n")
             (output / "checkpoint.bin.complete").write_text("complete\n")
             terminal["exports"] = [
-                {"path": "output/checkpoint.bin", "size": len(payload), "sha256": digest}
+                {"path": "checkpoint.bin", "size": len(payload), "sha256": digest}
             ]
         state.setdefault("runtime", {})[session] = {
             "root": root,

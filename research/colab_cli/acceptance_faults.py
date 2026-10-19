@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from research.colab_cli import supervisor
+from research.colab_cli.transfers import upload_contents, upload_file
 
 WATCHDOG_DISAPPEARANCE_BOUND_SECONDS = 300
 WATCHDOG_DISAPPEARANCE_POLL_SECONDS = 10
@@ -225,14 +226,7 @@ class AcceptanceObserver:
         ack = output / ".acceptance-transfer-done"
         ack.write_text("complete\n")
         try:
-            cli.call(
-                "upload",
-                "-s",
-                cli.session,
-                str(ack),
-                root + "/acceptance-transfer-done",
-                timeout=10,
-            )
+            upload_contents(cli, ack, root + "/acceptance-transfer-done")
         finally:
             ack.unlink(missing_ok=True)
         transfer_finished = time.time()
@@ -343,6 +337,8 @@ class AcceptanceObserver:
         reconnected.accounting = cli.accounting
         reconnected.renew = cli.renew
         reconnected.release_credential = cli.release_credential
+        reconnected.transfer_records = cli.transfer_records
+        reconnected.contents_transfers = cli.contents_transfers
         context["cli"] = reconnected
         observed = self._state(context)
         after_identity = {key: observed["probe"][key] for key in identity}
@@ -459,9 +455,7 @@ class AcceptanceObserver:
         cli.rpc(
             "from pathlib import Path\n" f"Path({fault_root!r}).mkdir(exist_ok=False)\nresult=True"
         )
-        cli.call(
-            "upload", "-s", cli.session, str(checkpoint), fault_root + "/input.pkl", timeout=20
-        )
+        upload_file(cli, checkpoint, fault_root + "/input.pkl", renew=cli.renew)
         result = cli.rpc(
             "import hashlib,subprocess\nfrom pathlib import Path\n"
             f"p=Path({fault_root!r})\n"

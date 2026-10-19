@@ -24,6 +24,7 @@ class FakeCLI:
         (self.remote / "content").mkdir()
         self.calls: list[tuple[str, ...]] = []
         self.rpc_codes: list[str] = []
+        self.transfer_records: list[dict[str, object]] = []
         self.corrupt_download = corrupt_download
         self.transient_failures = transient_failures
 
@@ -189,6 +190,86 @@ def test_upload_refuses_expired_shared_deadline(tmp_path: Path) -> None:
             deadline=transfers.time.monotonic() - 0.01,
         )
     assert not cli.calls
+
+
+def test_later_upload_gets_its_own_deadline_and_records_throughput(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A post-staging transfer must not inherit the already-expired staging cap."""
+    source = tmp_path / "resume.bin"
+    source.write_bytes(b"resume-input" * 100)
+    cli = FakeCLI(tmp_path / "remote")
+    # Simulate a renewal/resume upload more than five minutes after initial
+    # input staging.  A default transfer deadline is created at this instant.
+    now = 301.0
+    monkeypatch.setattr(transfers.time, "monotonic", lambda: now)
+
+    digest = transfers.upload_file(cli, source, "/content/resume.bin", lambda: None)
+
+    assert digest == hashlib.sha256(source.read_bytes()).hexdigest()
+    assert cli._path("/content/resume.bin").read_bytes() == source.read_bytes()
+    assert cli.transfer_records[-1]["direction"] == "upload"
+    assert cli.transfer_records[-1]["remote"] == "/content/resume.bin"
+    assert cli.transfer_records[-1]["size_bytes"] == source.stat().st_size
+    assert cli.transfer_records[-1]["elapsed_seconds"] >= 0
+    assert cli.transfer_records[-1]["bytes_per_second"] > 0
+    assert cli.transfer_records[-1]["status"] == "verified"
+    assert cli.transfer_records[-1]["call_site"]
+
+
+def test_expired_staging_deadline_reports_transfer_call_site(tmp_path: Path) -> None:
+    source = tmp_path / "small"
+    source.write_bytes(b"small")
+    cli = FakeCLI(tmp_path / "remote")
+
+    with pytest.raises(
+        transfers.TransferError,
+        match=(
+            r"upload /content/small called at .*test_colab_cli_transfers.py.*"
+            r"total upload time cap reached at upload /content/small"
+        ),
+    ):
+        transfers.upload_file(
+            cli,
+            source,
+            "/content/small",
+            lambda: None,
+            deadline=transfers.time.monotonic() - 0.01,
+        )
+
+
+def test_control_upload_retry_budget_obeys_renewal_lease_ceiling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Renewal credentials get retries, but cannot consume the whole lease."""
+    source = tmp_path / "credential.json"
+    source.write_text('{"access_token":"short-lived"}')
+    now = [301.0]
+    seen_timeouts: list[float] = []
+
+    class SlowTransientCLI(FakeCLI):
+        def call(self, *args: str, timeout: float = 45) -> str:
+            seen_timeouts.append(timeout)
+            now[0] += min(60.0, timeout)
+            raise RuntimeError("ContentsClient connection reset")
+
+    monkeypatch.setattr(transfers.time, "monotonic", lambda: now[0])
+    cli = SlowTransientCLI(tmp_path / "remote")
+
+    with pytest.raises(
+        transfers.TransferError,
+        match=(
+            r"control upload /content/release.json called at .*test_colab_cli_transfers.py.*"
+            r"total upload time cap reached"
+        ),
+    ):
+        transfers.upload_contents(cli, source, "/content/release.json", deadline=391.0)
+
+    # First attempt has its normal chunk allowance, the retry is clipped to
+    # the 30 seconds left in the 90-second renewal window, and a third PUT is
+    # refused before it can begin.
+    assert seen_timeouts == [60.0, 30.0]
+    assert now[0] == pytest.approx(391.0)
 
 
 def test_upload_and_download_chunk_sizes_are_separate() -> None:
