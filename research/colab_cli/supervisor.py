@@ -107,6 +107,11 @@ def validate(manifest: dict[str, Any], repo: Path = REPO) -> dict[str, Any]:
     commit = m.get("commit", "")
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise Refused("commit must be a full 40-character SHA")
+    kind = subprocess.run(
+        ["git", "cat-file", "-t", commit], cwd=repo, capture_output=True, text=True, timeout=10
+    )
+    if kind.returncode or kind.stdout.strip() != "commit":
+        raise Refused("commit SHA must identify a Git commit object")
     script = safe_relative(m.get("script", ""))
     if not script.endswith(".sh"):
         raise Refused("script must be a pinned Bash .sh entrypoint")

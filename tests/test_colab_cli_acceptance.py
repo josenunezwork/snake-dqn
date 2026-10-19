@@ -57,6 +57,17 @@ def test_plan_requires_known_cpu_price_and_keeps_job_output_fresh(tmp_path: Path
         supervisor.validate(payload, repo)
 
 
+def test_manifest_rejects_tree_sha_in_place_of_pinned_commit(tmp_path: Path) -> None:
+    repo = _repo_with_probe(tmp_path)
+    plan = acceptance.build_plan(repo, tmp_path / "state", 1.0)["plan"]
+    payload = json.loads(Path(plan["jobs"][0]["manifest"]).read_text())
+    payload["commit"] = subprocess.check_output(
+        ["git", "rev-parse", "HEAD^{tree}"], cwd=repo, text=True
+    ).strip()
+    with pytest.raises(supervisor.Refused, match="Git commit object"):
+        supervisor.validate(payload, repo)
+
+
 def test_probe_writes_verified_exports_and_toy_resume_is_not_trainer_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
