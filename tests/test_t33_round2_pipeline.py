@@ -51,3 +51,37 @@ def test_illegal_raw_argmax_flips_do_not_fail_qualification() -> None:
     assert report["raw_agreement"] == 0.0
     assert report["masked_agreement"] == 1.0
     assert report["threshold_pass"]
+
+
+def test_ab_pipeline_matches_its_isolated_cpu_lanes() -> None:
+    from research.phase0_search_20261019 import teacher
+    from research.t33_batched_teacher import ablation
+    from research.t33_batched_teacher.benchmark import prepared
+    from research.t33_batched_teacher.pipeline import DoubleBufferedTeacher
+
+    if not ablation.B8.exists():
+        pytest.skip("local B8 inventory absent")
+    # Phase0 configure_cpu pins the process-wide Numba environment to one.
+    # Preserve an already initialized pool ceiling for the surrounding tests.
+    import os
+
+    import numba
+
+    ceiling = numba.config.NUMBA_NUM_THREADS
+    teacher.configure_cpu()
+    os.environ["NUMBA_NUM_THREADS"] = str(ceiling)
+    numba.config.reload_config()
+    worlds = [
+        prepared(ablation.fixture(row, ablation.B8, 800))
+        for row in ablation.calibration_rows(smoke=True)[:2]
+    ]
+    pipeline = DoubleBufferedTeacher(
+        worlds[0].hero.net, teacher.SearchConfig(horizon=3, rollouts=2, length_gate=0), device="cpu"
+    )
+    concurrent = pipeline.choose([worlds[0]], [worlds[1]])
+    sequential = tuple(lane.choose([world]) for lane, world in zip(pipeline.lanes, worlds))
+    for (actions, diagnostics), (expected_actions, expected_diagnostics) in zip(
+        concurrent, sequential
+    ):
+        assert actions.tobytes() == expected_actions.tobytes()
+        assert diagnostics[0]["scores"] == expected_diagnostics[0]["scores"]

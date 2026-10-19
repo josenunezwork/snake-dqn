@@ -1,0 +1,16 @@
+{
+  "schema": "t33-round2-observation-microbench/v1",
+  "baseline_commit": "f76820776e39a6a53c13197f6f0948aa7c6a95f4",
+  "baseline_source_sha256": {
+    "research/t33_batched_teacher/observations.py": "7021762029d3aee0164b6cda54dbd33fd07f10812ff77670ee31fbf33992633c",
+    "research/t33_batched_teacher/observation_kernels.py": "8170d9caf14aea6894bff49521bd8d940118e2b077af30a1151797a11bd54519"
+  },
+  "candidate_source_sha256": {
+    "research/t33_batched_teacher/observations.py": "558ac9a70a5cbca6d73ffb997d14ab2dff529beea1c61c14e8ef2fc492d186af",
+    "research/t33_batched_teacher/observation_kernels.py": "02afb6d1e254808ffb5c2e3080b0bb495fa0ee99dba3cd89d43c2321b3cbdcb5"
+  },
+  "shape": {"envs": 64, "snakes": 3, "selected_rows": 192, "builds_per_round": 10},
+  "baseline_rows_per_s": [132594.3956826001, 132457.94263166425, 132728.06581917792],
+  "candidate_rows_per_s": [134079.38252969488, 140175.40159171278, 138830.3096786805],
+  "notes": "Both arms use the current GridBatchSim state and canonical raster/v8 helpers. Frozen T33 observation modules were loaded privately from git show, with Numba cache disabled only because in-memory source has no cache locator. One native thread, nice 10, OMP/MKL/NUMBA/VECLIB caps set to one. This measures the T33 slab/write boundary; it does not attribute changes in shared upstream helpers."
+}

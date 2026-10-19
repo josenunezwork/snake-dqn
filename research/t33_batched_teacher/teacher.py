@@ -55,6 +55,17 @@ def _policy_key(policy: Any) -> tuple[Any, ...]:
     )
 
 
+def _mask_views(sim: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Internal mask reads avoid copying every resident environment per call."""
+    if hasattr(sim, "action_mask_views"):
+        return sim.action_mask_views()
+    return (
+        sim.get_legal_action_mask(),
+        sim.get_advisory_action_mask(),
+        sim.get_resolved_action_mask(),
+    )
+
+
 def _clone_mutable(value: Any) -> Any:
     """Clone one environment value without recursively copying immutable tuples.
 
@@ -408,10 +419,14 @@ def _predrawn_epsilon(
 
     Streams are keyed by source seed/decision and action (except under CRN),
     preserving a source's stream when it is batched with other worlds.  The
-    draw order intentionally differs from Phase 0's lazy Generator calls.
+    draw order intentionally differs from Phase 0's lazy Generator calls. For
+    registered H <= 128, each stream draws a canonical 128-step tensor then
+    slices it, making H32/H64 exact H128 prefixes for every rollout. Horizons
+    above 128 intentionally define a new schedule family.
     """
     u = np.empty((len(layout.source), horizon), dtype=np.float64)
     v = np.empty_like(u)
+    draw_horizon = 128 if horizon <= 128 else horizon
     for source_index, world in enumerate(sources):
         rows_for_source = np.flatnonzero(layout.source == source_index)
         for action in range(NUM_ACTIONS):
@@ -426,9 +441,9 @@ def _predrawn_epsilon(
             )
             # Shape has rollout before horizon so each rollout owns a distinct
             # contiguous stream and all rows are drawn even while still leaves.
-            draws = rng.random((len(rows), horizon, 2))
-            u[rows] = draws[..., 0]
-            v[rows] = draws[..., 1]
+            draws = rng.random((len(rows), draw_horizon, 2))
+            u[rows] = draws[:, :horizon, 0]
+            v[rows] = draws[:, :horizon, 1]
     return u, v
 
 
@@ -560,8 +575,8 @@ class BatchedTeacher:
             raise ValueError("all source worlds must use byte-identical hero network weights")
         legal, select, decisions = [], [], []
         for world in worlds:
-            domain = world.sim.get_legal_action_mask()[0, 0].astype(bool)
-            advisory = world.sim.get_advisory_action_mask()[0, 0].astype(bool)
+            domain = _mask_views(world.sim)[0][0, 0].astype(bool)
+            advisory = _mask_views(world.sim)[1][0, 0].astype(bool)
             if not advisory.any():
                 advisory[:3] = domain[:3]
             legal.append(domain)
@@ -632,7 +647,7 @@ class BatchedTeacher:
             if hasattr(policy, "q_values") and hasattr(policy, "runtime"):
                 continue
             result = policy.actions(
-                sim.get_resolved_action_mask()[slots[:, 0], slots[:, 1], :],
+                _mask_views(sim)[2][slots[:, 0], slots[:, 1], :],
                 sim,
                 slots,
             )
@@ -661,6 +676,9 @@ class BatchedTeacher:
                 for world, q, m in zip(merged.sources, initial_q, legal)
             ],
             dtype=bool,
+        )
+        eligible &= np.asarray(
+            [bool(w.sim.alive[0, 0]) and bool(m.any()) for w, m in zip(merged.sources, legal)]
         )
         active = layout.active & eligible[layout.source]
         grid = np.ones((sim.E, sim.S), dtype=np.int64)
@@ -751,8 +769,8 @@ class BatchedTeacher:
                     merged.sources[0].hero.net,
                     resident_rows=sim.E,
                 )
-                masks = prepared.get_advisory_action_mask()[hero_envs, 0].astype(bool)
-                legal_masks = prepared.get_legal_action_mask()[hero_envs, 0].astype(bool)
+                masks = _mask_views(prepared)[1][hero_envs, 0].astype(bool)
+                legal_masks = _mask_views(prepared)[0][hero_envs, 0].astype(bool)
                 missing = ~masks.any(axis=1)
                 masks[missing, :3] = legal_masks[missing, :3]
                 picked = np.where(masks, q.astype(np.float64), -np.inf).argmax(axis=1)
@@ -801,7 +819,7 @@ class BatchedTeacher:
                     merged.sources[0].hero.net,
                     resident_rows=sim.E,
                 )
-                captured["masks"] = prepared.get_legal_action_mask()[hero_envs, 0].astype(bool)
+                captured["masks"] = _mask_views(prepared)[0][hero_envs, 0].astype(bool)
                 # This is a Watch-boundary read.  Do not consume a movement or
                 # advance any inactive row merely to obtain the leaf value.
                 raise _LeafReady

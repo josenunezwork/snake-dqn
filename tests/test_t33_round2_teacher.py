@@ -8,8 +8,8 @@ import numpy as np
 
 from research.phase0_search_20261019 import teacher as phase0
 from research.t33_batched_teacher.teacher import (
-    BranchLayout,
     BatchedTeacher,
+    BranchLayout,
     _copy_environment,
     _predrawn_epsilon,
     merge_worlds,
@@ -123,6 +123,7 @@ def _epsilon_oracle(worlds, layout, decisions, horizon, common_random):
     """Independent direct construction of the documented T33 draw tensor."""
     u = np.empty((len(layout.source), horizon))
     v = np.empty_like(u)
+    draw_horizon = 128 if horizon <= 128 else horizon
     for source, world in enumerate(worlds):
         for action in range(6):
             rows = np.flatnonzero((layout.source == source) & (layout.action == action))
@@ -132,8 +133,8 @@ def _epsilon_oracle(worlds, layout, decisions, horizon, common_random):
             rng = np.random.default_rng(
                 np.random.SeedSequence([world.seed, decisions[source], stream_action, 20261019])
             )
-            draws = rng.random((len(rows), horizon, 2))
-            u[rows], v[rows] = draws[..., 0], draws[..., 1]
+            draws = rng.random((len(rows), draw_horizon, 2))
+            u[rows], v[rows] = draws[:, :horizon, 0], draws[:, :horizon, 1]
     return u, v
 
 
@@ -171,6 +172,24 @@ def test_epsilon_oracle_crn_ordering_and_rollout_prefix() -> None:
         np.testing.assert_array_equal(actual[0][source_zero], reordered[0][reordered_one])
 
 
+def test_epsilon_horizons_are_prefixes_through_registered_h128() -> None:
+    """H32/H64 reads are exact prefixes of the H128 stream for all rollouts."""
+    worlds = [type("World", (), {"seed": 701})(), type("World", (), {"seed": 702})()]
+    layout = BranchLayout(
+        source=np.repeat(np.arange(2), 6 * 3),
+        action=np.tile(np.repeat(np.arange(6), 3), 2),
+        rollout=np.tile(np.arange(3), 12),
+        active=np.ones(36, dtype=bool),
+    )
+    for common_random in (False, True):
+        h32 = _predrawn_epsilon(worlds, layout, [51, 52], 32, common_random)
+        h64 = _predrawn_epsilon(worlds, layout, [51, 52], 64, common_random)
+        h128 = _predrawn_epsilon(worlds, layout, [51, 52], 128, common_random)
+        for index in range(2):
+            np.testing.assert_array_equal(h32[index], h128[index][:, :32])
+            np.testing.assert_array_equal(h64[index], h128[index][:, :64])
+
+
 def test_merge_pads_food_mirrors_and_rejects_overlapping_source_body() -> None:
     """Different food capacities gather safely while invalid source grids fail closed."""
     first, second = _world(), _world("frozen")
@@ -193,3 +212,16 @@ def test_lazy_epsilon_zero_matches_one_rollout_scores() -> None:
     eager_config = phase0.SearchConfig(rollouts=1, horizon=8, epsilon=0.0, length_gate=0)
     _, eager_diag = BatchedTeacher(eager_config, common_random=False).choose([_world()])
     assert lazy_diag[0]["scores"] == eager_diag[0]["scores"]
+
+
+def test_dead_source_does_not_search_empty_legal_domain() -> None:
+    world = _world()
+    world.sim.alive[0, 0] = False
+    world.sim._rebuild_env_grids(0)
+    world.sim._refresh_action_masks()
+    actions, diagnostics = BatchedTeacher(
+        phase0.SearchConfig(rollouts=2, horizon=3, length_gate=0)
+    ).choose([world])
+    assert actions.shape == (1,)
+    assert diagnostics[0]["searched"] is False
+    assert diagnostics[0]["scores"] == {}

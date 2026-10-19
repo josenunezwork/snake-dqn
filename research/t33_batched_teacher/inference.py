@@ -86,6 +86,8 @@ class FixedInference:
             "vector_calls": 0,
             "vector_h2d_s": 0.0,
             "vector_gpu_s": 0.0,
+            "vector_wall_s": 0.0,
+            "vector_rows": 0,
         }
 
     def profile(self) -> dict[str, Any]:
@@ -169,6 +171,7 @@ class FixedInference:
     @torch.inference_mode()
     def vector_q(self, policy: Any, states: np.ndarray) -> np.ndarray:
         """Batch frozen Vector61 opponents with a fixed shape per checkpoint."""
+        started = time.perf_counter()
         # The teacher has already verified checkpoint identity when grouping.
         identity = str(getattr(policy, "checkpoint_path", id(policy)))
         key = (identity, len(states))
@@ -199,6 +202,8 @@ class FixedInference:
             self.counters["vector_h2d_s"] += events[0].elapsed_time(events[1]) / 1000
             self.counters["vector_gpu_s"] += events[1].elapsed_time(events[2]) / 1000
         self.counters["vector_calls"] += 1
+        self.counters["vector_rows"] += len(states)
+        self.counters["vector_wall_s"] += time.perf_counter() - started
         return result
 
 

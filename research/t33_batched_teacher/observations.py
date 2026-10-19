@@ -65,6 +65,7 @@ class ObservationBuffer:
             "global": self.global_,
             "scalars": self.scalars,
         }
+        self._last_built = 0
         self.zero_()
 
     @staticmethod
@@ -78,16 +79,28 @@ class ObservationBuffer:
     def build(self, sim, rows: np.ndarray) -> Dict[str, np.ndarray]:
         """Build exact Bv8 observations for ``rows`` into the reusable slab.
 
-        Destination row ``i`` corresponds to ``rows[i]``.  The full slab is
-        cleared first so dead sources and unused destinations cannot leak a
-        previous decision's observation.  Local and global planes are written
+        Destination row ``i`` corresponds to ``rows[i]``.  Only rows which can
+        hold stale bytes are cleared, so a resident batch is not memset on every
+        search tick.  Local and global planes are written
         directly into the slab by per-row ``prange`` wrappers; scalar helpers
         retain their canonical implementations because they are not rasters.
         """
         selected = np.ascontiguousarray(np.asarray(rows, dtype=np.int64).reshape(-1, 2))
         if len(selected) > self.rows:
             raise ValueError(f"received {len(selected)} rows for capacity {self.rows}")
-        self.zero_()
+        count = len(selected)
+        # Geometry writers are sparse (outside pixels and dead sources remain
+        # untouched).  Clear the selected prefix, then clear only a stale tail
+        # when a smaller selection follows a larger one.
+        if count:
+            self.local[:count].fill(0)
+            self.global_[:count].fill(0)
+            self.scalars[:count].fill(0.0)
+        if count < self._last_built:
+            self.local[count : self._last_built].fill(0)
+            self.global_[count : self._last_built].fill(0)
+            self.scalars[count : self._last_built].fill(0.0)
+        self._last_built = count
         if not len(selected):
             return self.arrays
         view = sim.ego_view()
@@ -104,7 +117,7 @@ class ObservationBuffer:
         self._write_enemy_next(view, cfg, selected)
         base = _scalars(view, cfg, selected)
         b = b_scalars(view, selected, "numba")
-        v8, _ = v8_scalars(sim, selected)
+        v8, _ = v8_scalars(sim, selected, membership="owner_pad")
         self.scalars[: len(selected)] = np.concatenate((base, b, v8), axis=1)
         return self.arrays
 
@@ -151,7 +164,6 @@ class ObservationBuffer:
         drow, dcol = _offset_rc(cfg.global_size, cfg.global_size // 2, cfg.global_size // 2)
         write_global_prange(
             counts,
-            np.ascontiguousarray(counts.sum(axis=1, dtype=np.int64)),
             food_counts,
             np.ascontiguousarray(view.alive, dtype=np.bool_),
             np.ascontiguousarray(view.direction, dtype=np.int64),

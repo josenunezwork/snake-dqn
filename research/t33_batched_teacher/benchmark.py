@@ -145,7 +145,10 @@ def prepared(world: Any) -> Any:
     try:
         world.sim.step_with_policy(select)
     except Ready:
-        pass
+        # The selector has observed the fully prepared lifecycle seam. The
+        # simulator sets this flag only after a successful selector return;
+        # this intentional capture abort must mark the same prepared boundary.
+        world.sim._policy_phase_prepared = True
     return world
 
 

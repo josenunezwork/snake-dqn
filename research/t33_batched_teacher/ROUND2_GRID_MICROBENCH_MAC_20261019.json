@@ -1,0 +1,16 @@
+{
+  "schema": "t33-round2-grid-microbench/v1",
+  "baseline_commit": "f76820776e39a6a53c13197f6f0948aa7c6a95f4",
+  "baseline_sha256": "6f186bb66933ad5609ee43206054f127afd4c6071a609dd9e51d02d9cd567cd7",
+  "candidate_sha256": "bf9e50aa1a03f4e7324f5091e4b0631c97edbbd4f0267e662b642f26abb2c38f",
+  "candidate_source_sha256": {
+    "src/simd_env/grid_sim.py": "bf9e50aa1a03f4e7324f5091e4b0631c97edbbd4f0267e662b642f26abb2c38f",
+    "src/simd_env/grid_sim_nb.py": "c0101017f6ab42e43cccccf9a414ed11ae37c802b6bfe56c7464baa09d2d2490",
+    "research/t33_batched_teacher/observations.py": "20aac8abebb38580cb8d9c7fa159f9b5d1c670dd0458329a6526dac6e92b5525",
+    "research/t33_batched_teacher/observation_kernels.py": "45c0e89daf53bcb6d23682fc91a13884a4dae4aff01bc5972611577043ed56f3"
+  },
+  "shape": {"envs": 48, "snakes": 3, "steps_per_round": 80},
+  "baseline_numpy_rows_per_s": [7085.436245517558, 7118.598267996747, 6987.385857565392],
+  "candidate_numba_rows_per_s": [7340.616393340767, 7301.882361380758, 7692.04767006197],
+  "notes": "Frozen baseline is loaded with git show into an in-memory private module and run jit=False; candidate uses GridBatchSim jit=True with compiled ordered head stamping. OMP/MKL/NUMBA/VECLIB threads were all one; nice 10."
+}

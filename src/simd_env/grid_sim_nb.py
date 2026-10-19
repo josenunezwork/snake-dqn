@@ -25,6 +25,61 @@ _DY = np.array([-1, 0, 1, 0], dtype=np.int64)
 
 
 @njit(cache=True, nogil=True)
+def corpse_queue_compact(old, old_n, old_corpse, incoming, incoming_n, cap, out, out_corpse):
+    """Numeric ordered corpse queue; Python owns collection reconstruction.
+
+    ``old_corpse`` is aligned with ordered food.  The output preserves surviving
+    old order followed by surviving append order, including an evicted/re-added
+    cell moving to the tail.  Grid membership remains the caller's O(1) dedup
+    authority.
+    """
+    limit = old_n + incoming_n
+    keep = np.ones(limit, dtype=np.bool_)
+    cells = np.empty((limit, 2), dtype=np.int64)
+    corpse = np.zeros(limit, dtype=np.bool_)
+    for i in range(old_n):
+        cells[i] = old[i]
+        corpse[i] = old_corpse[i]
+    n = old_n
+    queue = np.empty(limit, dtype=np.int64)
+    qhead = 0
+    qtail = 0
+    for i in range(old_n):
+        if corpse[i]:
+            queue[qtail] = i
+            qtail += 1
+    nc = qtail
+    for j in range(incoming_n):
+        x, y = incoming[j, 0], incoming[j, 1]
+        exists = False
+        for i in range(n):
+            if keep[i] and cells[i, 0] == x and cells[i, 1] == y:
+                exists = True
+                break
+        if exists:
+            continue
+        cells[n, 0] = x
+        cells[n, 1] = y
+        corpse[n] = True
+        queue[qtail] = n
+        qtail += 1
+        n += 1
+        nc += 1
+        if nc > cap:
+            victim = queue[qhead]
+            qhead += 1
+            keep[victim] = False
+            nc -= 1
+    w = 0
+    for i in range(n):
+        if keep[i]:
+            out[w] = cells[i]
+            out_corpse[w] = corpse[i]
+            w += 1
+    return w
+
+
+@njit(cache=True, nogil=True)
 def _action_masks_kernel(
     owner_pad: np.ndarray,  # (E, Hp, Wp) int16
     slot_pad: np.ndarray,  # (E, Hp, Wp) int32
@@ -35,6 +90,7 @@ def _action_masks_kernel(
     head_ptr: np.ndarray,
     seg_count: np.ndarray,
     length: np.ndarray,
+    active: np.ndarray,
     alive: np.ndarray,
     direction: np.ndarray,
     heads: np.ndarray,  # (E, S, 2)
@@ -47,6 +103,8 @@ def _action_masks_kernel(
 ) -> None:
     E, S = alive.shape
     for e in range(E):
+        if not active[e]:
+            continue
         for s in range(S):
             for a in range(6):
                 out[e, s, a] = False
@@ -102,7 +160,7 @@ def _action_masks_kernel(
 def action_masks(sim) -> np.ndarray:
     """``(E, S, 6)`` advisory masks of a :class:`GridBatchSim` (== the NumPy version)."""
     owner_pad, slot_pad, _ = sim.get_padded_grids()
-    out = np.empty((sim.E, sim.S, 6), dtype=np.bool_)
+    out = sim._last_mask.copy()
     _action_masks_kernel(
         owner_pad,
         slot_pad,
@@ -113,6 +171,7 @@ def action_masks(sim) -> np.ndarray:
         np.ascontiguousarray(sim.head_ptr, dtype=np.int64),
         np.ascontiguousarray(sim.seg_count, dtype=np.int64),
         np.ascontiguousarray(sim.length, dtype=np.int64),
+        np.ascontiguousarray(sim._active_envs(), dtype=np.bool_),
         np.ascontiguousarray(sim.alive, dtype=np.bool_),
         np.ascontiguousarray(sim.direction, dtype=np.int64),
         np.ascontiguousarray(sim.heads(), dtype=np.int64),
@@ -276,3 +335,154 @@ def detect_collisions(sim, n_trav: np.ndarray) -> dict:
         out["event_env"],
     )
     return out
+
+
+@njit(cache=True, nogil=True)
+def _write_new_heads_kernel(
+    owner: np.ndarray,
+    slot: np.ndarray,
+    coarse: np.ndarray,
+    trav: np.ndarray,
+    trav_valid: np.ndarray,
+    n_trav: np.ndarray,
+    head_ptr: np.ndarray,
+    cap: int,
+    coarse_cell: int,
+    grid_w: int,
+    grid_h: int,
+) -> None:
+    """Ordered scalar equivalent of GridBatchSim's former ``ufunc.at`` writes.
+
+    ``t`` remains outermost, matching the original vectorized traversal. Event
+    environments are rebuilt immediately after the move, so only conflict-free
+    rows survive; keeping this order still makes the transient bookkeeping
+    exactly equivalent for diagnostics and non-event worlds.
+    """
+    E, S = n_trav.shape
+    for t in range(2):
+        for e in range(E):
+            for s in range(S):
+                if not trav_valid[e, s, t] or n_trav[e, s] <= 0:
+                    continue
+                x = trav[e, s, t, 0]
+                y = trav[e, s, t, 1]
+                if x < 0 or x >= grid_w or y < 0 or y >= grid_h:
+                    continue
+                block_r = y // coarse_cell
+                block_c = x // coarse_cell
+                old = owner[e, y, x]
+                if old >= 0:
+                    coarse[e, old, block_r, block_c] -= 1
+                k = n_trav[e, s] - 1 - t
+                ring = (head_ptr[e, s] - k) % cap
+                owner[e, y, x] = s
+                slot[e, y, x] = ring
+                coarse[e, s, block_r, block_c] += 1
+
+
+def write_new_heads(sim, n_trav: np.ndarray) -> None:
+    """Compiled ordered head stamping, bitwise equal to the NumPy path."""
+    _write_new_heads_kernel(
+        sim._owner,
+        sim._slot,
+        sim._csnake,
+        np.ascontiguousarray(sim._trav, dtype=np.int64),
+        np.ascontiguousarray(sim._trav_valid, dtype=np.bool_),
+        np.ascontiguousarray(n_trav, dtype=np.int64),
+        np.ascontiguousarray(sim.head_ptr, dtype=np.int64),
+        int(sim.cap),
+        int(sim.COARSE_CELL) if hasattr(sim, "COARSE_CELL") else 8,
+        int(sim.grid_w),
+        int(sim.grid_h),
+    )
+
+
+@njit(cache=True, nogil=True)
+def _pop_tails_kernel(owner, coarse, old_tail, popped, coarse_cell):
+    """Ordered scalar equivalent of the three former coarse ``subtract.at`` calls."""
+    E, S = popped.shape
+    for p in range(3):
+        for e in range(E):
+            for s in range(S):
+                if popped[e, s] <= p:
+                    continue
+                x = old_tail[p, e, s, 0]
+                y = old_tail[p, e, s, 1]
+                if owner[e, y, x] == s:
+                    owner[e, y, x] = -1
+                    coarse[e, s, y // coarse_cell, x // coarse_cell] -= 1
+
+
+def pop_tails(sim, old_tail: np.ndarray, popped: np.ndarray) -> None:
+    """Compiled grid-tail removal preserving the original p-major order."""
+    _pop_tails_kernel(
+        sim._owner,
+        sim._csnake,
+        np.ascontiguousarray(old_tail, dtype=np.int64),
+        np.ascontiguousarray(popped, dtype=np.int64),
+        8,
+    )
+
+
+@njit(cache=True, nogil=True)
+def _consume_uncontested_kernel(
+    food,
+    coarse,
+    ambient_count,
+    length,
+    trav,
+    first,
+    ate,
+    fast_envs,
+    ambient_ate,
+    corpse_ate,
+    food_array,
+    food_n,
+    food_version,
+):
+    """Numeric updates for unique train-mode food claims, preserving e/s order."""
+    for e in range(ate.shape[0]):
+        if not fast_envs[e]:
+            continue
+        for s in range(ate.shape[1]):
+            if not ate[e, s]:
+                continue
+            t = first[e, s]
+            x, y = trav[e, s, t, 0], trav[e, s, t, 1]
+            is_corpse = food[e, y, x] == 2
+            food[e, y, x] = 0
+            coarse[e, y // 8, x // 8] -= 1
+            if not is_corpse:
+                ambient_count[e] -= 1
+            length[e, s] += 1
+            ambient_ate[e, s] = not is_corpse
+            corpse_ate[e, s] = is_corpse
+
+        write = 0
+        for i in range(food_n[e]):
+            x, y = food_array[e, i, 0], food_array[e, i, 1]
+            if food[e, y, x] > 0:
+                food_array[e, write, 0] = x
+                food_array[e, write, 1] = y
+                write += 1
+        food_n[e] = write
+        food_version[e] += 1
+
+
+def consume_uncontested(sim, first, ate, fast_envs, ambient_ate, corpse_ate) -> None:
+    """Commit noncontested numeric food updates without consuming RNG."""
+    _consume_uncontested_kernel(
+        sim._food,
+        sim._cfood,
+        sim._amb_count,
+        sim.length,
+        sim._trav,
+        first,
+        ate,
+        fast_envs,
+        ambient_ate,
+        corpse_ate,
+        sim._food_array,
+        sim._food_n,
+        sim._food_version,
+    )

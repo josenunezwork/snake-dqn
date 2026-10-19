@@ -8,14 +8,39 @@ which avoids the shared-scratch bug that invalidated earlier threaded kernels.
 
 from __future__ import annotations
 
+import threading
+
 import numba
 import numpy as np
 from numba import njit, prange
 
-from src.simd_env.ego_raster_nb import _global_kernel, _local_kernel
+from src.simd_env.ego_raster_nb import _local_kernel
+
+_LOCAL_SCRATCH = threading.local()
 
 
-@njit(cache=True, nogil=True, parallel=True)
+def _local_workspace(size: int, reach_steps: int, parts: int) -> tuple:
+    key = (size, reach_steps, parts)
+    cache = getattr(_LOCAL_SCRATCH, "cache", None)
+    if cache is None:
+        cache = _LOCAL_SCRATCH.cache = {}
+    if key not in cache:
+        n = size * size
+        cache[key] = tuple(
+            np.empty((parts, count), dtype=dtype)
+            for count, dtype in (
+                (n, np.int64),
+                (n, np.bool_),
+                (n, np.int64),
+                (reach_steps + 2, np.int64),
+                (4 * n + 1, np.int64),
+                (4 * n + 1, np.int64),
+                (n, np.int64),
+            )
+        )
+    return cache[key]
+
+
 def write_local_prange(
     owner: np.ndarray,
     slot: np.ndarray,
@@ -36,8 +61,14 @@ def write_local_prange(
     reach_steps: int,
     out: np.ndarray,
 ) -> None:
-    """Write six local planes into ``out``; every prange lane owns scratch."""
-    for index in prange(rows.shape[0]):
+    """Write locals with persistent, disjoint per-partition flood scratch.
+
+    Scratch belongs to this Python caller and is reused across builds. Every
+    live row fully overwrites the TTL/wall inputs and reach resets its queues.
+    """
+    parts = min(len(rows), numba.get_num_threads())
+    workspace = _local_workspace(size, reach_steps, max(1, parts))
+    if parts <= 1:
         _local_kernel(
             owner,
             slot,
@@ -47,7 +78,7 @@ def write_local_prange(
             alive,
             direction,
             heads,
-            rows[index : index + 1],
+            rows,
             table,
             size,
             head_row,
@@ -56,14 +87,96 @@ def write_local_prange(
             stride,
             cap,
             reach_steps,
-            out[index : index + 1],
+            out,
+            tuple(a[0] for a in workspace),
+        )
+        return
+    _write_local_chunks(
+        owner,
+        slot,
+        food,
+        head_ptr,
+        length,
+        alive,
+        direction,
+        heads,
+        rows,
+        table,
+        size,
+        head_row,
+        head_col,
+        pad,
+        stride,
+        cap,
+        reach_steps,
+        out,
+        parts,
+        workspace,
+    )
+
+
+@njit(cache=True, nogil=True, parallel=True)
+def _write_local_chunks(
+    owner,
+    slot,
+    food,
+    head_ptr,
+    length,
+    alive,
+    direction,
+    heads,
+    rows,
+    table,
+    size,
+    head_row,
+    head_col,
+    pad,
+    stride,
+    cap,
+    reach_steps,
+    out,
+    parts,
+    workspace,
+):
+    """Invoke the canonical local kernel over persistent private-scratch chunks."""
+    total = rows.shape[0]
+    for part in prange(parts):
+        begin = part * total // parts
+        end = (part + 1) * total // parts
+        _local_kernel(
+            owner,
+            slot,
+            food,
+            head_ptr,
+            length,
+            alive,
+            direction,
+            heads,
+            rows[begin:end],
+            table,
+            size,
+            head_row,
+            head_col,
+            pad,
+            stride,
+            cap,
+            reach_steps,
+            out[begin:end],
+            (
+                workspace[0][part],
+                workspace[1][part],
+                workspace[2][part],
+                workspace[3][part],
+                workspace[4][part],
+                workspace[5][part],
+                workspace[6][part],
+            ),
         )
 
 
 @njit(cache=True, nogil=True, parallel=True)
 def write_global_prange(
     counts: np.ndarray,
-    total: np.ndarray,
     food_counts: np.ndarray,
     alive: np.ndarray,
     direction: np.ndarray,
@@ -74,21 +187,46 @@ def write_global_prange(
     cell: int,
     out: np.ndarray,
 ) -> None:
-    """Write four global planes into ``out`` in independent destination rows."""
+    """Write four global planes without materializing an ``(E, Hc, Wc)`` total.
+
+    The canonical global kernel accepts a pre-reduced per-env count grid.  T33
+    only needs a handful of blocks per selected observer, so reducing all
+    environments first is both an allocation and a bandwidth tax.  Summing the
+    (small, fixed) snake axis at the addressed block is exact and keeps each
+    destination row independent for ``prange``.
+    """
     for index in prange(rows.shape[0]):
-        _global_kernel(
-            counts,
-            total,
-            food_counts,
-            alive,
-            direction,
-            heads,
-            rows[index : index + 1],
-            drow,
-            dcol,
-            cell,
-            out[index : index + 1],
-        )
+        env = rows[index, 0]
+        observer = rows[index, 1]
+        if not alive[env, observer]:
+            continue
+        hc = counts.shape[2]
+        wc = counts.shape[3]
+        hr = heads[env, observer, 1] // cell
+        hcol = heads[env, observer, 0] // cell
+        heading = direction[env, observer]
+        for pixel in range(drow.shape[1]):
+            br = hr + drow[heading, pixel]
+            bc = hcol + dcol[heading, pixel]
+            if br < 0 or br >= hc or bc < 0 or bc >= wc:
+                out[index, 3, pixel] = 255
+                continue
+            own = counts[env, observer, br, bc]
+            total = 0
+            for snake in range(counts.shape[1]):
+                total += counts[env, snake, br, bc]
+            if own > 255:
+                own = 255
+            sub = own if own < total else total
+            enemy = total - sub
+            if enemy > 255:
+                enemy = 255
+            food = food_counts[env, br, bc]
+            if food > 255:
+                food = 255
+            out[index, 0, pixel] = own
+            out[index, 1, pixel] = enemy
+            out[index, 2, pixel] = food
 
 
 @njit(cache=True, nogil=True, parallel=True)
