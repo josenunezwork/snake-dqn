@@ -187,6 +187,76 @@ budget problem. No unit cap, allocation count, or qualification gate changes.
 Offline Fake-Colab regression coverage does not qualify a live acceptance
 run or admit S1; run 7 remains INCOMPLETE.
 
+## Supplied acceptance evidence: run 8 and stall diagnosis
+
+Run 8 used source `2e38e645`, profile `final-only`, and directory
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance/acceptance-1792395748`.
+Its CPU receipt is **PASS** (249.65 seconds, stop verified). Its L4 receipt is
+**INCOMPLETE** (247.05 seconds, stop verified): the release-credential PUT
+took 42.06 seconds, an early heartbeat PUT failed, and the bootstrap PUT took
+19.75 seconds. Heartbeats took 39.40 seconds and then about one second each
+while the verification exec consumed its entire 120-second allowance. The
+bootstrap transfer failed after 142.19 seconds with
+`deadline reached during telemetry recovery`. Neither the 64 MiB download nor
+the watchdog gate ran. The source-delivery, hardware, and job-poll records
+were never reached on L4; the allocated-usage/calibration evidence does not
+prove a ready runtime or a completed probe.
+
+The run 3--8 receipts give the following comparison. Runs 3--6 reached only
+CPU; they supply no L4 comparison. These are historical measurements, not
+current provider observations.
+
+| Run / directory suffix | CPU evidence | L4 evidence |
+| --- | --- | --- |
+| 3 / `1792377693` | INCOMPLETE at 64.37 s: Contents write timeout | Not run |
+| 4 / `1792378723` | INCOMPLETE at 853.15 s: total upload cap; source and hardware recorded | Not run |
+| 5 / `1792380711` | INCOMPLETE at 169.72 s: 30 s exec client timeout | Not run |
+| 6 / `1792384051` | INCOMPLETE at 1,156.91 s: missing completion file, no resubmission; long transfers | Not run |
+| 7 / `1792394444` | PASS at 237.07 s | INCOMPLETE at 259.13 s: 120 s telemetry exec timeout after slow heartbeats; source/hardware recorded |
+| 8 / `1792395748` | PASS at 249.65 s; small PUTs about 0.43 s; intentional silence exec completed in 75.86 s | INCOMPLETE during bootstrap upload verification, before ready |
+
+**Diagnosis:** the provider-side cause remains unresolved. The CPU passes in
+runs 7--8 had fast Contents transport and completed the intentional silence
+exercise; they do not demonstrate that CPU recovered from the same 120-second
+exec hang. Earlier CPU failures show the transport problem is not exclusive
+to L4. Slow heartbeat PUTs overlap the L4 failures, but call records contain
+elapsed durations and completion order, not server-side request or kernel
+lifecycle traces. They cannot establish PUT/exec contention, a GPU kernel
+restart, or plain provider latency. Run 8 failed before `ready.json` releases
+the child to bootstrap, so dependency installation cannot explain that
+particular hang. Run 7 reached hardware admission and does not settle that
+hypothesis for its later polling stall. Job/poll evidence cannot fill these
+gaps: there is no L4 terminal probe or successful download in either run.
+
+The actionable local defect was a **120-second total recovery budget** passed
+by upload verification, despite telemetry already allowing 300 seconds. The
+same verified-idle recovery now covers reads and idempotent controls throughout
+staging and probe polling. Each exec still has a 120-second bound, and the
+300-second operation allowance is clipped to the existing transfer, explicit
+caller, wall, and priced-unit deadlines. Contents PUTs retain the existing
+shared five-minute staging ceiling. No timeout resets a transfer clock.
+
+Non-idempotent operations (runtime launch, source delivery, credential
+rotation, ready publication, upload assembly, and export splitting) use a
+UUID operation record outside the generation root. Before changing anything,
+they create and sync a `started` record; they atomically publish a synced
+`completed` result before acknowledging the exec. After independent idle proof,
+recovery returns that cached result or performs the first dispatch if no record
+exists. A started record without a completed result refuses: kernel-idle proof
+alone never authorizes repeating a mutation. These records last for the VM
+lifetime. Heartbeats remain independent of exec; serializing them behind a
+blocked exec would defeat the existing lease protection.
+
+The run-8 Fake-Colab replay was also run against an isolated copy of
+`2e38e645`: CPU passed, L4 refused during `bootstrap.sh` verification with
+`deadline reached during telemetry recovery`, and stop verified. The same
+sequence passes on the fix, including the 64 MiB verified final artifact and
+watchdog-disappearance checks. Mutation-fence and over-budget tests exercise
+the refusal boundaries. These offline results do not establish the provider
+cause, qualify the changed source for live use,
+or admit S1. Run 8 remains **INCOMPLETE**; all unit/wall/lease/allocation caps,
+hash checks, final-download, watchdog, and verified-stop gates are unchanged.
+
 Any missing artifact, incomplete provider-rate calibration, unaccounted
 session, unexplained provider-rate change, timeout ambiguity, backend
 persistence, cleanup error, or supervisor feature that cannot produce the

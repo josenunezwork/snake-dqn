@@ -179,7 +179,10 @@ def _assert_safe(tmp_path: Path, plan: dict[str, Any]) -> None:
             assert value.get("cleanup_error") is None
         else:
             assert not value["stop_verified"]
-            assert state.get("allocation_count", 0) == 0
+            # A later arm can fail before allocating after CPU has completed.
+            # Refuse a missing endpoint only if this receipt's own session was
+            # actually allocated; earlier arms retain their release receipts.
+            assert value["session"] not in allocation_names
     assert allocated_receipts == set(allocation_names), "allocated arm lacks its release receipt"
 
 
@@ -276,9 +279,15 @@ def test_acceptance_fault_classes_never_orphan_or_repeat_mutations(
     ambiguous = fault != "latency" or any(e.get("fault", {}).get("timed_out") for e in events)
     if call in {"new", "exec"} and phase == "post" and ambiguous:
         state = json.loads((tmp_path / "fake-state.json").read_text())
-        assert state["allocation_count"] == 1
-        if call == "exec":
-            assert sum(state["job_launches"].values()) == 1
+        if call == "new":
+            assert state["allocation_count"] == 1
+        else:
+            # A durably completed launch can now recover its lost acknowledgement
+            # and continue to the separately planned L4 arm. Each arm still
+            # allocates once and launches its child exactly once.
+            assert rc == 0
+            assert state["allocation_count"] == 2
+            assert list(state["job_launches"].values()) == [1, 1]
 
 
 @pytest.mark.parametrize("seed", range(24))
@@ -556,7 +565,7 @@ def test_run7_l4_heartbeat_stall_then_exec_timeout_has_bounded_idle_recovery(
     stalls = [event for event in events if event.get("fault")]
     assert stalls[0]["argv"][-1].endswith("/lease-heartbeat.json")
     assert stalls[0]["fault"]["virtual_latency_seconds"] == 41
-    assert stalls[1]["fault"]["virtual_latency_seconds"] == 120
+    assert stalls[1]["fault"]["virtual_latency_seconds"] == pytest.approx(120)
     assert order[:3] == ["exec", "idle", "exec"]
     assert state["allocation_count"] == 2
     assert receipt["stop_verified"] is True

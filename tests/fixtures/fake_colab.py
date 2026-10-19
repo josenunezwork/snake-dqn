@@ -105,7 +105,9 @@ def _call_class(op: str) -> str:
     }.get(op, "read")
 
 
-def _fault_for(state: dict[str, Any], op: str) -> dict[str, Any] | None:
+def _fault_for(
+    state: dict[str, Any], op: str, *, session: str = "", command: list[str] | None = None
+) -> dict[str, Any] | None:
     """Pick one reproducible fake transport fault without waiting in real time.
 
     ``FAKE_COLAB_FAULT_PLAN`` supports an exact ``schedule`` for regression
@@ -123,16 +125,28 @@ def _fault_for(state: dict[str, Any], op: str) -> dict[str, Any] | None:
     call_class = _call_class(op)
     selected: dict[str, Any] | None = None
     used = state.setdefault("fault_schedule_used", [])
+    command_text = " ".join(command or ())
+    if op == "exec" and command and "-f" in command:
+        try:
+            command_text += "\n" + Path(command[command.index("-f") + 1]).read_text()
+        except OSError:
+            # The real CLI will report a missing script; a fault selector must
+            # not obscure that product error.
+            pass
     for index, entry in enumerate(plan.get("schedule", [])):
         if index in used:
             continue
-        if ("at" not in entry or int(entry["at"]) == number) and entry.get(
-            "call", entry.get("class")
-        ) in {
-            op,
-            call_class,
-            "any",
-        }:
+        if (
+            ("at" not in entry or int(entry["at"]) == number)
+            and entry.get("call", entry.get("class"))
+            in {
+                op,
+                call_class,
+                "any",
+            }
+            and (not entry.get("session_contains") or str(entry["session_contains"]) in session)
+            and (not entry.get("contains") or str(entry["contains"]) in command_text)
+        ):
             selected = dict(entry)
             used.append(index)
             break
@@ -187,6 +201,15 @@ def _remote(session: str, remote_path: str) -> Path:
     path = REMOTE / session / remote_path.lstrip("/")
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _cache_recoverable(record: Path | None, result: Any) -> None:
+    """Finish the fake-side durable record for shortcut-only kernel paths."""
+    if record is None:
+        return
+    temporary = record.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"status": "completed", "result": result}, sort_keys=True))
+    os.replace(temporary, record)
 
 
 def _nonce(code: str) -> str:
@@ -263,6 +286,27 @@ def _tick(state: dict[str, Any], now: float) -> None:
 
 
 def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
+    # Most fixture paths execute the broker's wrapper verbatim.  A few
+    # acceptance shortcuts model a detached runtime instead; give those paths
+    # the same durable acknowledgement behavior without ever writing /content
+    # on the Mac running the test.
+    record_match = re.search(
+        r"_snake_record=_SnakePath\((['\"])(/content/\.snake-rpc-[0-9a-f]+\.json)\1\)", code
+    )
+    recoverable_record: Path | None = None
+    if record_match:
+        remote_record = _remote(session, record_match.group(2))
+        recoverable_record = remote_record
+        if remote_record.exists():
+            saved = json.loads(remote_record.read_text())
+            if saved.get("status") == "completed":
+                _reply(code, saved["result"])
+                _save(state)
+                return
+        # Transfer and source-delivery paths run this wrapper themselves.  Map
+        # only its record so their ``open('x')`` and atomic replace remain real
+        # filesystem operations in the fake endpoint namespace.
+        code = code.replace(record_match.group(2), str(remote_record))
     count = int(state.setdefault("exec_count", {}).get(session, 0))
     state["exec_count"][session] = count + 1
     if MODE in {"busy_exec", "poll_hiccup"} and count == 0:
@@ -518,6 +562,7 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
                 else {}
             ),
         }
+        _cache_recoverable(recoverable_record, {"pid": 4242})
         _reply(code, {"pid": 4242})
         _save(state)
         return
@@ -548,6 +593,7 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         _save(state)
         return
 
+    _cache_recoverable(recoverable_record, True)
     _reply(code, True)
     _save(state)
 
@@ -574,7 +620,7 @@ def _main(argv: list[str]) -> int:
     now = float(os.environ.get("FAKE_COLAB_NOW", "0"))
     if ACCEPTANCE_MODE:
         _tick(state, now)
-    fault = _fault_for(state, op)
+    fault = _fault_for(state, op, session=session, command=command)
     budget = float(os.environ.get("FAKE_COLAB_TIMEOUT", "120"))
     if fault and (fault["fault"] == "timeout" or fault["virtual_latency_seconds"] > budget):
         fault["virtual_latency_seconds"] = budget

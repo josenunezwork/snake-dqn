@@ -499,8 +499,43 @@ class CLI:
             raise Refused(f"kernel error despite CLI exit zero: {reply.get('error')}")
         return reply["value"]
 
+    def recoverable_rpc(self, code: str, timeout: float = policy.TELEMETRY_SECONDS) -> Any:
+        """Recover an acknowledgement without repeating a committed mutation.
+
+        One durable UUID record fences the operation across verified-idle
+        retries. A completed record returns its saved result; a started record
+        without a result is ambiguous and refuses. The operation may start only
+        when its record does not exist, never merely because the kernel is idle.
+        """
+        record = "/content/.snake-rpc-" + uuid.uuid4().hex + ".json"
+        guarded = (
+            "# SNAKE_RECOVERABLE_RPC\n"
+            "import json as _snake_json, os as _snake_os\n"
+            "from pathlib import Path as _SnakePath\n"
+            f"_snake_record=_SnakePath({record!r})\n"
+            "if _snake_record.exists():\n"
+            "    _snake_saved=_snake_json.loads(_snake_record.read_text())\n"
+            "    if _snake_saved.get('status') != 'completed':\n"
+            "        raise RuntimeError('operation started without durable completion; '\n"
+            "                           'refusing replay')\n"
+            "    result=_snake_saved['result']\n"
+            "else:\n"
+            "    with _snake_record.open('x') as _snake_handle:\n"
+            "        _snake_json.dump({'status':'started'},_snake_handle)\n"
+            "        _snake_handle.flush()\n"
+            "        _snake_os.fsync(_snake_handle.fileno())\n"
+            + "\n".join("    " + line for line in code.splitlines())
+            + "\n    _snake_temporary=_snake_record.with_suffix('.tmp')\n"
+            "    with _snake_temporary.open('x') as _snake_handle:\n"
+            "        _snake_json.dump({'status':'completed','result':result},_snake_handle)\n"
+            "        _snake_handle.flush()\n"
+            "        _snake_os.fsync(_snake_handle.fileno())\n"
+            "    _snake_os.replace(_snake_temporary,_snake_record)\n"
+        )
+        return self.poll_rpc(guarded, timeout=timeout)
+
     def poll_rpc(self, code: str, timeout: float = policy.TELEMETRY_SECONDS) -> Any:
-        """Retry idempotent telemetry only after independent kernel-idle proof.
+        """Recover idempotent reads/controls only after independent kernel-idle proof.
 
         Each exec is bounded by RPC_SECONDS; all attempts, idle probes, and
         backoff share one separate operation budget, clipped to session caps.
@@ -1136,7 +1171,7 @@ class Broker:
             # A PUT before root creation safely returns 404 and is retried at
             # the next heartbeat; it never creates a runtime or kernel job.
             cli.start_lease(root, generation, m["lease_seconds"])
-            cli.rpc(initial, timeout=policy.RPC_SECONDS)
+            cli.recoverable_rpc(initial)
             cli.current_root = root
             # Runtime writes state before Popen; wait through file downloads,
             # never by queuing another exec behind an uncertain/busy kernel.
@@ -1172,12 +1207,11 @@ class Broker:
                     )
                     credential_deadline = time.monotonic() + cli.remaining_seconds(150)
                     upload_credential(credential_deadline)
-                    cli.rpc(
+                    cli.recoverable_rpc(
                         "from pathlib import Path\n"
                         f"p=Path({credential_remote!r})\np.chmod(0o600)\n"
                         f"p.replace(Path({root!r})/'release-credential.json')\n"
-                        f"result=mod.read_state({root!r},{generation!r},renew=True)",
-                        timeout=policy.RPC_SECONDS,
+                        "result=True",
                     )
                 self.renew_retained(cli, retained)
                 renewal.update(at=time.monotonic(), state=result)
@@ -1219,7 +1253,7 @@ class Broker:
                     raise Refused("upload exceeds bounded transfer size")
                 digest = digest or sha256(path)
                 renew()
-                cli.rpc(
+                cli.poll_rpc(
                     "from pathlib import Path\n"
                     f"parent=Path({(root + '/' + dest)!r}).parent\n"
                     "parent.mkdir(parents=True,exist_ok=True)\nresult=True"
@@ -1234,7 +1268,7 @@ class Broker:
 
             def deliver_source(operation: str) -> Any:
                 renew()
-                result = cli.rpc(
+                result = cli.recoverable_rpc(
                     "# SNAKE_SOURCE_DELIVERY\n"
                     "import importlib.util\nfrom pathlib import Path\n"
                     f"root=Path({root!r})\nplan={plan!r}\n"
@@ -1242,7 +1276,6 @@ class Broker:
                     "'snake_source',root/'source.py')\n"
                     "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
                     f"result=mod.{operation}(root,plan)",
-                    timeout=policy.SOURCE_RPC_SECONDS,
                 )
                 renew()
                 return result
@@ -1298,7 +1331,7 @@ class Broker:
                 "(root/'ready.json').write_text(json.dumps({'ready':True,'hardware':gpu}))\n"
                 "result={'ready':True,'hardware':gpu}",
             )
-            admitted = cli.rpc(code, timeout=policy.RPC_SECONDS)
+            admitted = cli.recoverable_rpc(code)
             write_once(output / "hardware.json", admitted)
             if self.observer:
                 self.observer(
@@ -1366,8 +1399,7 @@ class Broker:
                     raise Refused("immutable snapshot metadata changed")
                 export_file(cli, root, entry, output, m["max_export_bytes"])
                 exported[entry["path"]] = entry
-                cli.rpc(f"result=mod.read_state({root!r},{generation!r},renew=True)")
-                self.renew_retained(cli, retained)
+                renew(force=True)
             if state.get("terminal"):
                 terminal = state["terminal"]
                 write_once(output / "terminal.json", terminal)
@@ -1414,7 +1446,7 @@ class Broker:
     def renew_retained(cli: CLI, retained: dict[str, Any] | None) -> None:
         """Renew completed-job watchdogs only while approved useful work follows."""
         for old_root, generation in (retained or {}).get("completed", []):
-            cli.rpc(
+            cli.poll_rpc(
                 "import json,time\nfrom pathlib import Path\n"
                 f"p=Path({old_root!r})/'lease.json'\nlease=json.loads(p.read_text())\n"
                 f"assert lease['generation']=={generation!r}\n"
