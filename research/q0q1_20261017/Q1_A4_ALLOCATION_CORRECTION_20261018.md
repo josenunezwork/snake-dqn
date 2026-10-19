@@ -92,8 +92,8 @@ The complete upper-bound forecast is therefore:
 | Resource | Q0 allocation bound + Q1 | Usable limit | Nominal cap | Decision |
 | --- | ---: | ---: | ---: | --- |
 | GPU-hours | 105.62604035010915 | 36 | 45 | REFUSE |
-| CPU-hours | 51.30276825512439 | 32 | 40 | REFUSE |
-| Units | 362.5527981611139 | 168.63035524611342 | 203.63035524611342 | REFUSE |
+| CPU-hours | 51.3027682551244 | 32 | 40 | REFUSE |
+| Units | 362.55279816111386 | 168.63035524611342 | 203.63035524611342 | REFUSE |
 
 Q0's historical unit and CPU caps also fail under these bounds. The large
 unknown intervals are an evidence limitation, not a reason to increase a cap
