@@ -19,9 +19,27 @@ from research.q0q1_20261017.make_q1_jobs import canonical, pretty_json, sha256_f
 from research.q0q1_20261017.q0b_queue import bound_input, observed_pricing
 
 SCHEMA = "q0q1-a3-requalification/v1"
-JOB_ID = "q0b-capacity-a100-20261018r6"
+PRESERVED_ATTEMPTS = {
+    "A100": ("q0b-capacity-a100-20261018r6", "mature/n1"),
+    "L4": ("q0b-capacity-l4-20261018r6", "mature/n3"),
+}
+# Preserve admission of the immutable A100 A3 archive produced before L4 support.
+LEGACY_A100_TOOL_SHA256 = "44f7d8376e3ee4edc7827415a43bb665e173c5406322d865c32ff2c8f99e98fe"
 R6_COMMIT = "98cb709b6febba82aa424b51796e1730e893ca77"
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def preserved_attempt(original: dict) -> tuple[str, str]:
+    """Select only the two disclosed pre-A3 r6 hardware/failure identities."""
+    hardware = original.get("hardware")
+    if hardware not in PRESERVED_ATTEMPTS:
+        raise ValueError("A3 preserved-packet repair is limited to A100 r6 and L4 r6")
+    job_id, cell = PRESERVED_ATTEMPTS[hardware]
+    if original.get("qualification", {}).get("errors") != [
+        f"cell {cell} has an unexplained policy-lag increase over its matched control"
+    ]:
+        raise ValueError("original packet did not fail solely on the disclosed lag check")
+    return hardware, job_id
 
 
 def digest(value: Any) -> str:
@@ -69,13 +87,7 @@ def qualify(
 ) -> tuple[dict, dict[str, bytes]]:
     objects = archive_objects(archive_path)
     original = objects["attempt/measurement/receipt.json"]["value"]
-    if original.get("hardware") != "A100":
-        raise ValueError("A3 preserved-packet repair is limited to A100 r6")
-    old_errors = original.get("qualification", {}).get("errors")
-    if old_errors != [
-        "cell mature/n1 has an unexplained policy-lag increase over its matched control"
-    ]:
-        raise ValueError("original packet did not fail solely on the disclosed lag check")
+    hardware, job_id = preserved_attempt(original)
     if original.get("source") != q0b_measure.measurement_source_manifest():
         raise ValueError("preserved measurement source differs from the current pinned recipe")
     result = qualification.validate_packet(original)
@@ -87,16 +99,16 @@ def qualify(
         if claim.get(field) is None or claim[field] != terminal.get(field):
             raise ValueError(f"queue claim/terminal mismatch: {field}")
     if (
-        claim["id"] != JOB_ID
+        claim["id"] != job_id
         or terminal.get("status") != "failed"
         or terminal.get("exit_code") != 64
-        or terminal.get("gpu") != "A100"
+        or terminal.get("gpu") != hardware
         or terminal.get("verified_commit") != R6_COMMIT
         or terminal.get("commit") != R6_COMMIT
-        or claim.get("capabilities", {}).get("gpu") != "A100"
-        or objects["attempt/queue-attempt-receipt.json"]["value"].get("job_id") != JOB_ID
+        or claim.get("capabilities", {}).get("gpu") != hardware
+        or objects["attempt/queue-attempt-receipt.json"]["value"].get("job_id") != job_id
     ):
-        raise ValueError("queue evidence does not identify the preserved failed A100 r6 attempt")
+        raise ValueError("queue evidence does not identify the preserved failed r6 attempt")
     claimed = dt.datetime.fromisoformat(claim["created_at"].replace("Z", "+00:00"))
     if claimed.tzinfo is None:
         raise ValueError("queue claim time lacks timezone")
@@ -122,7 +134,7 @@ def qualify(
     reference_path, reference = bound_input(
         drive_root, "q0q1-20261017/admission/mac-parity-reference.json"
     )
-    rate, cpu_rate = observed_pricing(pricing, "A100")
+    rate, cpu_rate = observed_pricing(pricing, hardware)
     if (
         original.get("unit_rate_per_hour") != rate
         or original.get("observed_cpu_unit_rate_per_hour") != cpu_rate
@@ -174,7 +186,7 @@ def qualify(
         "schema": SCHEMA,
         "amendment": "A3",
         "status": "QUALIFIED_FROM_PRESERVED_MEASUREMENT",
-        "job_id": JOB_ID,
+        "job_id": job_id,
         "original_queue_status": "failed",
         "original_archive_sha256": sha256_file(archive_path),
         "original_measurement_sha256": hashlib.sha256(
@@ -216,13 +228,19 @@ def qualify(
 def validate_receipt(receipt: dict) -> str:
     """Verify the A3 repair provenance before omitting its failed queue dependency."""
     proof = receipt.get("requalification", {})
+    hardware = receipt.get("hardware")
+    attempt = PRESERVED_ATTEMPTS.get(hardware)
+    allowed_tools = {sha256_file(Path(__file__))}
+    if hardware == "A100":
+        allowed_tools.add(LEGACY_A100_TOOL_SHA256)
     if (
         proof.get("schema") != SCHEMA
         or proof.get("status") != "QUALIFIED_FROM_PRESERVED_MEASUREMENT"
-        or proof.get("job_id") != JOB_ID
+        or attempt is None
+        or proof.get("job_id") != attempt[0]
         or proof.get("registration_sha256") != sha256_file(owner_admission.REGISTRATION)
         or proof.get("validator_sha256") != sha256_file(Path(qualification.__file__))
-        or proof.get("tool_sha256") != sha256_file(Path(__file__))
+        or proof.get("tool_sha256") not in allowed_tools
         or proof.get("measurement_content_sha256")
         != digest({k: receipt.get(k) for k in ("source", "config", "cells", "parity")})
     ):
@@ -253,6 +271,10 @@ def validate_receipt(receipt: dict) -> str:
     claim, terminal, original = (
         raw_values[k] for k in ("claim", "terminal", "original_measurement")
     )
+    if preserved_attempt(original) != (hardware, attempt[0]):
+        raise ValueError("re-qualification original hardware mismatch")
+    if original.get("source") != q0b_measure.measurement_source_manifest():
+        raise ValueError("preserved measurement source differs from the current pinned recipe")
     if proof.get("claim") != claim or proof.get("terminal") != terminal:
         raise ValueError("re-qualification embedded queue evidence mismatch")
     if proof.get("amendment") != "A3" or proof.get("original_queue_status") != "failed":
@@ -261,7 +283,7 @@ def validate_receipt(receipt: dict) -> str:
         if claim.get(field) is None or claim[field] != terminal.get(field):
             raise ValueError("re-qualification queue identity mismatch")
     if (
-        claim["id"] != JOB_ID
+        claim["id"] != attempt[0]
         or terminal.get("status") != "failed"
         or terminal.get("exit_code") != 64
     ):
@@ -282,7 +304,8 @@ def validate_receipt(receipt: dict) -> str:
     ):
         raise ValueError("re-qualification queue time mismatch")
     if (
-        terminal.get("gpu") != "A100"
+        terminal.get("gpu") != hardware
+        or claim.get("capabilities", {}).get("gpu") != hardware
         or terminal.get("verified_commit") != R6_COMMIT
         or terminal.get("commit") != R6_COMMIT
     ):
@@ -336,7 +359,7 @@ def validate_receipt(receipt: dict) -> str:
         raise ValueError("re-qualification inclusive stage mismatch")
     if qualification.validate_packet(receipt)["status"] != "QUALIFIED":
         raise ValueError("re-qualification packet no longer qualifies")
-    return JOB_ID
+    return attempt[0]
 
 
 def main(argv: list[str] | None = None) -> int:

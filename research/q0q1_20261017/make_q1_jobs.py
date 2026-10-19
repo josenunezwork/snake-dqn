@@ -348,21 +348,28 @@ def make_jobs(
         parity_owner_admission_sha256=sha256_file(owner_admission_path),
     )
     jobs = [job for job in queue_jobs.build_jobs(commit, bindings) if job["id"].startswith("q1-")]
-    repaired_a100 = False
-    if a100.get("requalification") is not None:
+    repaired_jobs = set()
+    for hardware, receipt, job_id in (
+        ("L4", l4, q0b_l4_job_id),
+        ("A100", a100, q0b_a100_job_id),
+    ):
+        if receipt.get("requalification") is None:
+            continue
         from research.q0q1_20261017.requalify_q0b import validate_receipt
 
-        if validate_receipt(a100) != q0b_a100_job_id:
-            raise ValueError("A3 receipt does not replace the supplied A100 job")
-        proof = a100["requalification"]
+        if validate_receipt(receipt) != job_id:
+            raise ValueError(f"A3 receipt does not replace the supplied {hardware} job")
+        proof = receipt["requalification"]
         if not any(
-            row.get("id") == q0b_a100_job_id
+            row.get("id") == job_id
             and row.get("claim_sha256") == proof["claim_sha256"]
             and row.get("closure_sha256") == proof["terminal_sha256"]
             for row in accounting["attempts"]
         ):
-            raise ValueError("Q0 accounting does not bind the re-qualified A100 queue evidence")
-        repaired_a100 = True
+            raise ValueError(
+                f"Q0 accounting does not bind the re-qualified {hardware} queue evidence"
+            )
+        repaired_jobs.add(job_id)
     for job in jobs:
         job["env"]["Q0Q1_REGISTRATION_STATUS"] = OWNER_RELEASE
         job["env"]["Q0Q1_OWNER_RELEASE"] = OWNER_RELEASE
@@ -371,15 +378,22 @@ def make_jobs(
         job["env"].update(inventory_env)
         job["env"]["Q0Q1_MASS_ARCHIVE_DIR"] = Q0_MASS_ARCHIVE_DIR
         job["env"]["Q0Q1_INIT_ARCHIVE_DIR"] = Q0_INIT_ARCHIVE_DIR
-        preserved = [item for item in job["depends_on"] if not item.startswith("q0-audit-")]
+        preserved = [
+            item
+            for item in job["depends_on"]
+            if not item.startswith("q0-audit-") and item not in repaired_jobs
+        ]
         job["depends_on"] = list(
             dict.fromkeys(
                 [
                     Q0_MASS_JOB_ID,
                     Q0_INIT_JOB_ID,
                     *preserved,
-                    q0b_l4_job_id,
-                    *([] if repaired_a100 else [q0b_a100_job_id]),
+                    *(
+                        job_id
+                        for job_id in (q0b_l4_job_id, q0b_a100_job_id)
+                        if job_id not in repaired_jobs
+                    ),
                 ]
             )
         )

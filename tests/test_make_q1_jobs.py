@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -69,8 +71,10 @@ def test_a2_rejects_the_immutable_pre_a2_production_owner_admission() -> None:
 
 
 @pytest.mark.parametrize("repaired_a100", [False, True])
+@pytest.mark.parametrize("repaired_l4", [False, True])
+@pytest.mark.parametrize("accounting_matches", [False, True])
 def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(
-    monkeypatch, tmp_path, repaired_a100
+    monkeypatch, tmp_path, repaired_a100, repaired_l4, accounting_matches
 ) -> None:
     l4 = tmp_path / "l4.json"
     a100 = tmp_path / "a100.json"
@@ -104,14 +108,25 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(
     l4_receipt = _receipt()
     l4_receipt["runtime_parity_receipt_sha256"] = subject.sha256_file(runtime)
     a100_value = _receipt()
-    if repaired_a100:
-        a100_value["requalification"] = {"claim_sha256": "c" * 64, "terminal_sha256": "d" * 64}
-        accounting_value = json.loads(accounting.read_text())
-        accounting_value["attempts"][1].update(claim_sha256="c" * 64, closure_sha256="d" * 64)
-        accounting.write_text(json.dumps(accounting_value))
-        monkeypatch.setattr(
-            "research.q0q1_20261017.requalify_q0b.validate_receipt", lambda value: "q0b-a100"
-        )
+    for index, repaired, receipt, job_id in (
+        (0, repaired_l4, l4_receipt, "q0b-l4"),
+        (1, repaired_a100, a100_value, "q0b-a100"),
+    ):
+        if repaired:
+            receipt["requalification"] = {
+                "job_id": job_id,
+                "claim_sha256": "c" * 64,
+                "terminal_sha256": "d" * 64,
+            }
+            accounting_value = json.loads(accounting.read_text())
+            accounting_value["attempts"][index].update(
+                claim_sha256="c" * 64, closure_sha256=("d" if accounting_matches else "e") * 64
+            )
+            accounting.write_text(json.dumps(accounting_value))
+    monkeypatch.setattr(
+        "research.q0q1_20261017.requalify_q0b.validate_receipt",
+        lambda value: value["requalification"]["job_id"],
+    )
     monkeypatch.setattr(
         subject,
         "_qualified_receipt",
@@ -140,25 +155,33 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(
         lambda packet, command: None,
     )
     monkeypatch.setattr(subject.inventory_receipt, "load_receipt_audit", lambda *a, **kw: {})
-    jobs, plan = subject.make_jobs(
-        commit="a" * 40,
-        l4_receipt_path=l4,
-        a100_receipt_path=a100,
-        runtime_receipt_path=runtime,
-        mac_reference_path=mac,
-        owner_admission_path=owner.resolve(),
-        q0_accounting_path=accounting,
-        inventory_receipt_path=inventory,
-        q0b_l4_job_id="q0b-l4",
-        q0b_a100_job_id="q0b-a100",
-        study_plan_drive_path=(
-            "/content/drive/MyDrive/t16_colab/q0q1-20261017/q1/jobs/study-plan.json"
-        ),
-    )
+    expected_error = not accounting_matches and (repaired_l4 or repaired_a100)
+    with (
+        pytest.raises(ValueError, match="accounting does not bind the re-qualified")
+        if expected_error
+        else nullcontext()
+    ):
+        jobs, plan = subject.make_jobs(
+            commit="a" * 40,
+            l4_receipt_path=l4,
+            a100_receipt_path=a100,
+            runtime_receipt_path=runtime,
+            mac_reference_path=mac,
+            owner_admission_path=owner.resolve(),
+            q0_accounting_path=accounting,
+            inventory_receipt_path=inventory,
+            q0b_l4_job_id="q0b-l4",
+            q0b_a100_job_id="q0b-a100",
+            study_plan_drive_path=(
+                "/content/drive/MyDrive/t16_colab/q0q1-20261017/q1/jobs/study-plan.json"
+            ),
+        )
+    if expected_error:
+        return
     assert len(jobs) == 120
     assert sum(job["id"].startswith("q1-train-") for job in jobs) == 20
     assert all(job["env"]["Q0Q1_OWNER_RELEASE"] == subject.OWNER_RELEASE for job in jobs)
-    assert all("q0b-l4" in job["depends_on"] for job in jobs)
+    assert all(("q0b-l4" not in job["depends_on"]) == repaired_l4 for job in jobs)
     assert all(("q0b-a100" not in job["depends_on"]) == repaired_a100 for job in jobs)
     assert all(subject.Q0_MASS_JOB_ID in job["depends_on"] for job in jobs)
     assert all(job["env"]["Q0Q1_Q0B_A100_RECEIPT_SHA256"] for job in jobs)
@@ -173,7 +196,6 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(
     } == {12}
     assert plan["q0_units"] == 64.0
     assert plan["q1_cpu_overhead_hours"] == 100 * (4 * 2 + 3) / (3600 * 0.8)
-    import hashlib
 
     assert (
         jobs[0]["env"]["Q0Q1_STUDY_PLAN_SHA256"]

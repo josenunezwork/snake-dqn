@@ -58,7 +58,7 @@ def _cell(schedule: str, collector: str, *, lag_mean: float = 2.0) -> dict:
     }
 
 
-def _packet(source: dict[str, str]) -> dict:
+def _packet(source: dict[str, str], hardware: str = "A100") -> dict:
     runtime = {
         "precision": "fp32",
         "batch_scale": 2,
@@ -70,7 +70,7 @@ def _packet(source: dict[str, str]) -> dict:
     }
     return {
         "schema": subject.qualification.PACKET_SCHEMA,
-        "hardware": "A100",
+        "hardware": hardware,
         "packet_seconds": 1_950.0,
         "unit_rate_per_hour": 5.3,
         "runtime": runtime,
@@ -81,9 +81,9 @@ def _packet(source: dict[str, str]) -> dict:
         "hashes": {"b8_initializer": HASH},
         "cells": [
             _cell("restart", "n1", lag_mean=2.0),
-            _cell("mature", "n1", lag_mean=2.05),
+            _cell("mature", "n1", lag_mean=2.05 if hardware == "A100" else 2.0),
             _cell("restart", "n3", lag_mean=2.0),
-            _cell("mature", "n3", lag_mean=2.0),
+            _cell("mature", "n3", lag_mean=2.05 if hardware == "L4" else 2.0),
         ],
         "parity": {
             "target_runtime": "cuda",
@@ -129,7 +129,10 @@ def _archive(
     packet["qualification"] = {
         "status": "INCOMPLETE",
         "errors": qualification_errors
-        or ["cell mature/n1 has an unexplained policy-lag increase over its matched control"],
+        or [
+            f"cell {subject.PRESERVED_ATTEMPTS[packet['hardware']][1]} has an "
+            "unexplained policy-lag increase over its matched control"
+        ],
     }
     objects = {
         "attempt/measurement/receipt.json": packet,
@@ -139,7 +142,7 @@ def _archive(
         "attempt/receipt.json": {"schema": "q0q1-qualification-packet/v1", "status": "INCOMPLETE"},
         "attempt/queue-attempt-receipt.json": {
             "schema": "q0q1-queue-attempt/v1",
-            "job_id": subject.JOB_ID,
+            "job_id": subject.PRESERVED_ATTEMPTS[packet["hardware"]][0],
             "status": "INCOMPLETE",
         },
     }
@@ -152,7 +155,7 @@ def _archive(
     path.with_name(path.name + ".sha256").write_text(f"{subject.sha256_file(path)}  {path.name}\n")
 
 
-def _queue_evidence(tmp_path: Path) -> tuple[Path, Path, Path]:
+def _queue_evidence(tmp_path: Path, hardware: str) -> tuple[Path, Path, Path]:
     drive = tmp_path / "drive"
     admission = drive / "q0q1-20261017" / "admission"
     admission.mkdir(parents=True)
@@ -175,13 +178,13 @@ def _queue_evidence(tmp_path: Path) -> tuple[Path, Path, Path]:
     claim.write_text(
         json.dumps(
             {
-                "id": subject.JOB_ID,
+                "id": subject.PRESERVED_ATTEMPTS[hardware][0],
                 "generation": 0,
                 "token": "token",
                 "worker_id": "worker",
                 "commit": subject.R6_COMMIT,
                 "created_at": "2026-10-18T21:00:00Z",
-                "capabilities": {"gpu": "A100"},
+                "capabilities": {"gpu": hardware},
             }
         )
     )
@@ -189,14 +192,14 @@ def _queue_evidence(tmp_path: Path) -> tuple[Path, Path, Path]:
     terminal.write_text(
         json.dumps(
             {
-                "id": subject.JOB_ID,
+                "id": subject.PRESERVED_ATTEMPTS[hardware][0],
                 "generation": 0,
                 "token": "token",
                 "worker_id": "worker",
                 "commit": subject.R6_COMMIT,
                 "status": "failed",
                 "exit_code": 64,
-                "gpu": "A100",
+                "gpu": hardware,
                 "verified_commit": subject.R6_COMMIT,
                 "started_at": CLAIMED_AT + 10,
                 "run_started_at": CLAIMED_AT + 20,
@@ -209,8 +212,8 @@ def _queue_evidence(tmp_path: Path) -> tuple[Path, Path, Path]:
     return drive, claim, terminal
 
 
-@pytest.fixture
-def prepared(monkeypatch, tmp_path):
+@pytest.fixture(params=["A100", "L4"])
+def prepared(monkeypatch, tmp_path, request):
     source = {"recipe.py": HASH}
     monkeypatch.setattr(subject.q0b_measure, "measurement_source_manifest", lambda: source)
     monkeypatch.setattr(subject, "observed_pricing", lambda value, hardware: (5.3, 0.5))
@@ -236,10 +239,10 @@ def prepared(monkeypatch, tmp_path):
     monkeypatch.setattr(make_q1_jobs, "_validate_mac_reference", lambda path: None)
     monkeypatch.setattr(subject.q1_parity, "validate_runtime_receipt", lambda *args, **kwargs: None)
     monkeypatch.setattr(make_q1_jobs.q1_evaluate, "source_manifest", lambda: {})
-    packet = _packet(source)
+    packet = _packet(source, request.param)
     archive = tmp_path / "original-result.tar.gz"
     _archive(archive, packet)
-    drive, claim, terminal = _queue_evidence(tmp_path)
+    drive, claim, terminal = _queue_evidence(tmp_path, request.param)
     return archive, claim, terminal, drive
 
 
@@ -340,9 +343,9 @@ def test_generated_archive_is_accepted_by_stage_evidence_and_qualified_receipt(p
         make_q1_jobs._stage_evidence(generated, staged, member_name="attempt/receipt.json")
         == staged
     )
-    staged_receipt, packet = make_q1_jobs._qualified_receipt(staged, "A100")
+    staged_receipt, packet = make_q1_jobs._qualified_receipt(staged, receipt["hardware"])
     assert staged_receipt["requalification"]["status"] == "QUALIFIED_FROM_PRESERVED_MEASUREMENT"
-    assert packet["hardware"] == "A100"
+    assert packet["hardware"] == receipt["hardware"]
     assert receipt["packet_seconds"] == staged_receipt["packet_seconds"]
 
 
@@ -371,3 +374,46 @@ def test_main_writes_create_only_hash_bound_archive_and_refuses_replacement(
     assert (out / "result.tar.gz.sha256").is_file()
     with pytest.raises(SystemExit):
         subject.main(argv)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_validate_receipt_limits_legacy_tool_to_a100(prepared, legacy):
+    archive, claim, terminal, drive = prepared
+    receipt, _ = subject.qualify(
+        archive_path=archive, claim_path=claim, terminal_path=terminal, drive_root=drive
+    )
+    if legacy:
+        receipt["requalification"]["tool_sha256"] = subject.LEGACY_A100_TOOL_SHA256
+    if legacy and receipt["hardware"] == "L4":
+        with pytest.raises(ValueError, match="stale A3 re-qualification provenance"):
+            subject.validate_receipt(receipt)
+    else:
+        assert (
+            subject.validate_receipt(receipt) == subject.PRESERVED_ATTEMPTS[receipt["hardware"]][0]
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("id", "q0b-capacity-l4-20261018r7"), ("gpu", "H100"), ("commit", "b" * 40)],
+)
+def test_qualify_rejects_foreign_attempt_hardware_or_commit(prepared, field, value):
+    archive, claim, terminal, drive = prepared
+    data = json.loads(terminal.read_text())
+    data[field] = value
+    terminal.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="queue"):
+        subject.qualify(
+            archive_path=archive, claim_path=claim, terminal_path=terminal, drive_root=drive
+        )
+
+
+def test_qualify_still_rejects_a3_p95_regression(prepared):
+    archive, claim, terminal, drive = prepared
+    packet = subject.archive_objects(archive)["attempt/measurement/receipt.json"]["value"]
+    packet["cells"][1]["policy_lag"]["p95"] = 4.0
+    _archive(archive, packet)
+    with pytest.raises(ValueError, match="A3 retained measurement is not qualified"):
+        subject.qualify(
+            archive_path=archive, claim_path=claim, terminal_path=terminal, drive_root=drive
+        )
