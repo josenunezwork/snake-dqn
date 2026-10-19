@@ -48,7 +48,7 @@ def test_study_plan_requires_observed_nonzero_cpu_debit_and_matches_packets() ->
     accounting.update(_a3_accounting())
     plan = subject._study_plan(l4, a100, accounting, _timing())
     assert plan["owner_release"] == subject.OWNER_RELEASE
-    assert plan["amendment"] == "A4"
+    assert plan["amendment"] == "A5"
     assert plan["cpu_workers"] == 7
     assert plan["cpu_colab_slowdown_factor"] == 3.0
     assert plan["a3_envelope"]["q0_units_cap"] == 64.0
@@ -71,7 +71,7 @@ def _current_test_owner(tmp_path: Path) -> Path:
 
 def test_owner_admission_binds_current_registration_bytes(tmp_path) -> None:
     admission = subject._validate_owner_admission(_current_test_owner(tmp_path))
-    assert admission["amendment"] == "A4"
+    assert admission["amendment"] == "A5"
     assert admission["status"] == "OWNER_ADMITTED"
     assert admission["owner_release"] == subject.OWNER_RELEASE
 
@@ -119,7 +119,15 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(
             }
         )
     )
-    accounting.write_text(json.dumps({**json.loads(accounting.read_text()), **_a3_accounting()}))
+    accounting.write_text(
+        json.dumps(
+            {
+                **json.loads(accounting.read_text()),
+                **_a3_accounting(),
+                "allocation_accounting": {"synthetic": "validated separately"},
+            }
+        )
+    )
     packet = {
         "runtime": {"cpu_cores": 12},
         "cells": [
@@ -172,6 +180,14 @@ def test_make_jobs_emits_exactly_20_training_and_100_evaluation_jobs(
     monkeypatch.setattr(
         "research.q0q1_20261017.a4_compatibility.validate_historical_parity",
         lambda runtime, old, current, probe: {},
+    )
+    monkeypatch.setattr(
+        "research.q0q1_20261017.allocation_accounting.validate_accounting",
+        lambda value: value["a3_envelope"],
+    )
+    monkeypatch.setattr(
+        "research.q0q1_20261017.allocation_accounting.validate_dispatch_horizon",
+        lambda value: None,
     )
     monkeypatch.setattr(
         "research.q0q1_20261017.qualification.validate_admission",
@@ -251,10 +267,10 @@ def test_new_registration_amendment_invalidates_old_admission(tmp_path):
     registration = tmp_path / "registration.md"
     registration.write_bytes(subject.owner_admission.REGISTRATION.read_bytes())
     with registration.open("a") as stream:
-        stream.write("\n## Amendment A5 - test only\n")
+        stream.write("\n## Amendment A6 - test only\n")
     admission = json.loads(subject.owner_admission.DEFAULT_ADMISSION.read_text())
     admission["registration_sha256"] = subject.sha256_file(registration)
-    with pytest.raises(ValueError, match="approved A5"):
+    with pytest.raises(ValueError, match="approved A6"):
         subject.owner_admission.validate(admission, registration)
 
 

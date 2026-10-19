@@ -1,0 +1,20 @@
+{
+  "amendment": "A5",
+  "authorization_source": "Owner decision in chat on 2026-10-18 at approximately 7:10 PM PT, verbatim option chosen: 'Approve 45 / 36 (Recommended)' described: 'Amendment A5 (final): GPU-hour cap 45 nominal / 36 usable; credits and CPU limits unchanged; if the honest upper-bound forecast exceeds 36, Q1 does not run and the L4 is released.'",
+  "binding_requirements": {
+    "a3_envelope": "required fixed A3 unit envelope, independently validated against its historical observed Q0 total; it must not be recomputed from allocation-inclusive charges",
+    "allocation_accounting": "required complete allocation-lifetime upper-bound accounting, including idle, setup, copies, failures, cleanup, and a bound dispatch horizon for an active allocation",
+    "cpu_evaluation": "required deterministic fixed-order process pool, serial-versus-parallel byte-identity proof, measured Mac real-entrypoint receipt, and 3x conservative Colab per-core slowdown factor",
+    "q0b_a100_receipt": "required qualified, hash-bound A3 re-qualification receipt",
+    "q0b_l4_receipt": "required qualified, hash-bound terminal-packet receipt",
+    "runtime_parity_receipt": "required passing, hash-bound receipt",
+    "study_plan": "required fixed A3 envelope and A5 allocation-inclusive upper-bound forecast; no dispatch above any unchanged limit or the 36 usable GPU-hour limit"
+  },
+  "final_cap_rule": "No further raises. If the honest allocation-inclusive upper-bound GPU forecast exceeds 36 usable GPU-hours, Q1 does not run and the L4 is released.",
+  "owner_release": "APPROVED_Q0Q1_20261017",
+  "q1_dispatch_is_conditional_on": "complete allocation-inclusive upper-bound accounting, the unchanged unit and CPU caps, both qualified Q0b packets, bound Mac and runtime parity, and an A5 forecast at or below 36 usable GPU-hours",
+  "registration_path": "research/q0q1_20261017/PREREGISTRATION.md",
+  "registration_sha256": "ef3c8a1140dfb49773f571433f75a62d9dc74de5b5ea7f1e330769f30df68bad",
+  "schema": "q0q1-owner-admission/v1",
+  "status": "OWNER_ADMITTED"
+}

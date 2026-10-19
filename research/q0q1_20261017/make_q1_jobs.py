@@ -32,7 +32,7 @@ from research.q0q1_20261017 import (
 from research.q0q1_20261017.qualification import PACKET_SCHEMA, validate_packet
 
 OWNER_RELEASE = "APPROVED_Q0Q1_20261017"
-AMENDMENT = "A4"
+AMENDMENT = "A5"
 OWNER_ADMISSION_SCHEMA = "q0q1-owner-admission/v1"
 DRIVE_ROOT = "/content/drive/MyDrive/t16_colab"
 Q0_MASS_JOB_ID = "q0-audit-t23-mass-a100r5"
@@ -42,6 +42,18 @@ Q0_INIT_ARCHIVE_DIR = "q0q1-20261017/q0/audit-b8-init-a100r6"
 CPU_FORECAST_WORKERS = 7
 CPU_COLAB_SLOWDOWN_FACTOR = 3.0
 CPU_MAX_EFFICIENCY = 0.8
+
+
+class AdmissionRefused(ValueError):
+    """Keep a complete prospective forecast available when admission refuses it."""
+
+    def __init__(self, plan: Mapping[str, Any], admission: Mapping[str, Any]) -> None:
+        super().__init__(
+            "A5 forecast is not admitted for dispatch: "
+            f"{admission.get('errors')}; forecast={canonical(admission.get('forecast'))}"
+        )
+        self.plan = dict(plan)
+        self.admission = dict(admission)
 
 
 def canonical(value: Any) -> str:
@@ -249,8 +261,10 @@ def _study_plan(
     a100: Mapping[str, Any],
     q0_accounting_data: Mapping[str, Any],
     timing: Mapping[str, Any],
+    *,
+    frozen_a3_envelope: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build the A4 forecast only from measured Q0b and Mac timing evidence."""
+    """Build the A5 forecast from measured Q0b timing and inclusive accounting."""
     metadata = (l4, a100)
     q0_units = _number(q0_accounting_data.get("q0_units"), "Q0 accounting q0_units")
     q0_gpu = _number(
@@ -293,7 +307,11 @@ def _study_plan(
         "owner_release": OWNER_RELEASE,
         "amendment": AMENDMENT,
         "dispatch": True,
-        "a3_envelope": q0_accounting.validate_a3_envelope(q0_accounting_data),
+        "a3_envelope": (
+            dict(frozen_a3_envelope)
+            if frozen_a3_envelope is not None
+            else q0_accounting.validate_a3_envelope(q0_accounting_data)
+        ),
         "q1_training_hardware": "L4",
         "q0_units": q0_units,
         "q0_gpu_hours": q0_gpu,
@@ -432,6 +450,10 @@ def make_jobs(
         "COMPLETE_WITH_CONSERVATIVE_BOUNDS",
     }:
         raise ValueError("Q0 accounting is not complete inclusive terminal accounting")
+    from research.q0q1_20261017 import allocation_accounting
+
+    frozen_a3_envelope = allocation_accounting.validate_accounting(accounting)
+    allocation_accounting.validate_dispatch_horizon(accounting)
     # The final dynamic cap must include the completed L4 and original A100 attempts.
     for job_id in (q0b_l4_job_id, q0b_a100_job_id):
         if not any(
@@ -439,7 +461,11 @@ def make_jobs(
             for row in accounting.get("attempts", [])
         ):
             raise ValueError(f"Q0 accounting lacks completed packet attempt {job_id}")
-    plan = _study_plan(l4, a100, accounting, timing)
+    plan = _study_plan(l4, a100, accounting, timing, frozen_a3_envelope=frozen_a3_envelope)
+    # A5 has two intentionally distinct facts: the allocation-inclusive
+    # observed charges used in the forecast and the fixed historical A3 unit
+    # envelope.  The latter is never re-derived from a larger observed total.
+    plan["allocation_accounting"] = accounting["allocation_accounting"]
     plan["q0_accounting_sha256"] = sha256_file(q0_accounting_path)
     plan["cpu_timing_receipt_sha256"] = sha256_file(cpu_timing_receipt_path)
     plan["a4_historical_parity_bridge"] = bridge
@@ -450,10 +476,7 @@ def make_jobs(
         result.get("status") != "ADMITTED_FOR_DISPATCH"
         or result.get("dispatch_authorized") is not True
     ):
-        raise ValueError(
-            "A4 forecast is not admitted for dispatch: "
-            f"{result.get('errors')}; forecast={canonical(result.get('forecast'))}"
-        )
+        raise AdmissionRefused(plan, result)
     measured = validate_packet(l4_packet).get("measured_cells", {})
     for cell in ("restart/n3", "mature/n3", "restart/n1", "mature/n1"):
         speed = measured.get(cell, {}).get("decisions_per_second")
@@ -675,22 +698,31 @@ def main(argv: list[str] | None = None) -> int:
     timing = _stage_evidence(args.cpu_timing_receipt, evidence / "cpu-timing-receipt.json")
     owner = _stage_evidence(args.owner_admission, evidence / "owner-admission.json")
     accounting = _stage_evidence(args.q0_accounting, evidence / "observed-q0-accounting.json")
-    jobs, plan = make_jobs(
-        commit=args.commit,
-        l4_receipt_path=l4,
-        a100_receipt_path=a100,
-        runtime_receipt_path=runtime,
-        historical_mac_reference_path=historical_mac,
-        current_mac_reference_path=current_mac,
-        cpu_timing_receipt_path=timing,
-        owner_admission_path=owner,
-        q0_accounting_path=accounting,
-        inventory_receipt_path=inventory,
-        q0b_l4_job_id=args.q0b_l4_job_id,
-        q0b_a100_job_id=args.q0b_a100_job_id,
-        study_plan_drive_path=f"{args.drive_output_dir.rstrip('/')}/study-plan.json",
-        drive_root=args.drive_root,
-    )
+    try:
+        jobs, plan = make_jobs(
+            commit=args.commit,
+            l4_receipt_path=l4,
+            a100_receipt_path=a100,
+            runtime_receipt_path=runtime,
+            historical_mac_reference_path=historical_mac,
+            current_mac_reference_path=current_mac,
+            cpu_timing_receipt_path=timing,
+            owner_admission_path=owner,
+            q0_accounting_path=accounting,
+            inventory_receipt_path=inventory,
+            q0b_l4_job_id=args.q0b_l4_job_id,
+            q0b_a100_job_id=args.q0b_a100_job_id,
+            study_plan_drive_path=f"{args.drive_output_dir.rstrip('/')}/study-plan.json",
+            drive_root=args.drive_root,
+        )
+    except AdmissionRefused as exc:
+        # A refusal is still a reviewable, create-only admission result.  Do
+        # not materialize queue manifests after it; retain only the staged
+        # evidence plus exact plan and complete forecast for the correction.
+        (args.out_dir / "study-plan.json").write_bytes(pretty_json(exc.plan))
+        (args.out_dir / "admission.json").write_bytes(pretty_json(exc.admission))
+        print(canonical(exc.admission))
+        return 2
     drive_evidence = f"{args.drive_output_dir.rstrip('/')}/evidence"
     replacement = {
         str(inventory): f"{drive_evidence}/inventory-receipt.json",

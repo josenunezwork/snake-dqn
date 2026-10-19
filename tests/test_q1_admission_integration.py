@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
-from research.q0q1_20261017 import a4_compatibility, inventory_receipt
+from research.q0q1_20261017 import a4_compatibility, allocation_accounting, inventory_receipt
 from research.q0q1_20261017 import make_q1_jobs as generator
 from research.q0q1_20261017 import q0b_measure, q1_evaluate, q1_parity, queue_jobs, run_queue_job
 from tests.test_make_q1_jobs import _a3_accounting
@@ -203,15 +203,113 @@ def _evidence(tmp_path: Path) -> dict[str, Path | dict]:
         tmp_path / "q0b-a100-result",
         a100_receipt,
     )
+    # A5 requires allocation lifetimes, not the old claim-to-terminal debit.
+    # This fixture deliberately retains enough L4 lifetime to cover the
+    # historical debit while still fitting the final 36 GPU-hour forecast.
+    frozen_q0 = allocation_accounting.FROZEN_Q0_UNITS
+    a3_envelope = _a3_accounting("q0b-measure-l4", "q0b-measure-a100")["a3_envelope"]
+    a3_envelope.update(
+        observed_q0_units=frozen_q0,
+        q0_units_cap=frozen_q0,
+        q0_overrun_units=frozen_q0 - 40.0,
+        combined_units_cap=frozen_q0 + 135.0,
+        combined_dispatch_limit_units=frozen_q0 + 100.0,
+        derivation="frozen A3 original formula",
+    )
+    attempts = [
+        {
+            "id": "q0b-measure-l4",
+            "generation": 0,
+            "token": "fixture-l4-token",
+            "claim_sha256": "1" * 64,
+            "claim_started_at": "2026-10-20T07:00:00Z",
+            "elapsed_seconds": 3600.0,
+            "conservative_upper_bound": False,
+        },
+        {
+            "id": "q0b-measure-a100",
+            "generation": 0,
+            "token": "fixture-a100-token",
+            "claim_sha256": "2" * 64,
+            "claim_started_at": "2026-10-19T09:00:00Z",
+            "elapsed_seconds": 3600.0,
+            "conservative_upper_bound": False,
+        },
+    ]
+    allocation = {
+        "schema": allocation_accounting.SCHEMA,
+        "status": "COMPLETE_WITH_CONSERVATIVE_BOUNDS",
+        "dispatch_at": "2026-10-20T12:00:00Z",
+        "idle_through": "2026-10-20T12:30:00Z",
+        "rates_units_per_hour": {"A100": 5.3, "L4": 2.0, "cpu": 0.5},
+        "runtimes": [
+            {
+                "worker_id": "fixture-l4",
+                "hardware": "L4",
+                "retained_l4": True,
+                "start_bound": "2026-10-20T02:30:00Z",
+                "end_bound": "2026-10-20T12:30:00Z",
+                "hours_upper_bound": 10.0,
+                "charged_units_upper_bound": 20.0,
+                "assumptions": "synthetic allocation lifetime",
+                "evidence": ["synthetic fixture"],
+                "claims": [
+                    {
+                        **attempts[0],
+                        "sha256": attempts[0]["claim_sha256"],
+                        "created_at": "2026-10-20T07:00:00Z",
+                        "end_at": "2026-10-20T08:00:00Z",
+                    },
+                ],
+            },
+            {
+                "worker_id": "fixture-a100",
+                "hardware": "A100",
+                "start_bound": "2026-10-19T03:00:00Z",
+                "end_bound": "2026-10-19T10:00:00Z",
+                "hours_upper_bound": 7.0,
+                "charged_units_upper_bound": 37.1,
+                "assumptions": "synthetic allocation lifetime",
+                "evidence": ["synthetic fixture"],
+                "claims": [
+                    {
+                        **attempts[1],
+                        "sha256": attempts[1]["claim_sha256"],
+                        "created_at": "2026-10-19T09:00:00Z",
+                        "end_at": "2026-10-19T10:00:00Z",
+                    }
+                ],
+            },
+            {
+                "worker_id": "fixture-cpu",
+                "hardware": "cpu",
+                "start_bound": "2026-10-19T10:00:00Z",
+                "end_bound": "2026-10-19T18:00:00Z",
+                "hours_upper_bound": 8.0,
+                "charged_units_upper_bound": 4.0,
+                "assumptions": "synthetic allocation lifetime",
+                "evidence": ["synthetic fixture"],
+                "claims": [],
+            },
+        ],
+        "historical_attempts": [
+            {**attempts[0], "worker_id": "fixture-l4", "hardware": "L4"},
+            {**attempts[1], "worker_id": "fixture-a100", "hardware": "A100"},
+        ],
+    }
     accounting = tmp_path / "q0-accounting.json"
     accounting.write_text(
         json.dumps(
             {
                 **_a3_accounting("q0b-measure-l4", "q0b-measure-a100"),
-                "q0_gpu_hours": 2.0,
-                "q0_cpu_hours": 2.0,
+                "q0_units": 61.1,
+                "q0_gpu_hours": 17.0,
+                "q0_cpu_hours": 8.0,
                 "cpu_unit_rate_per_hour": 0.5,
                 "cpu_eval_job_overhead_seconds": 2.0,
+                "a3_envelope": a3_envelope,
+                "allocation_accounting": allocation,
+                "attempts": attempts,
             }
         )
     )
@@ -312,7 +410,7 @@ def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, 
         APPROVED
     }
     plan = json.loads((out / "study-plan.json").read_text())
-    assert plan["amendment"] == "A4"
+    assert plan["amendment"] == "A5"
     assert plan["cpu_workers"] >= 2
     assert plan["cpu_colab_slowdown_factor"] == 3.0
 
@@ -354,6 +452,32 @@ def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, 
             assert bound.is_file(), (name, bound)
             assert env[digest_name] == _sha(bound), name
         run_queue_job.admission_checks(env)
+
+
+def test_a5_refusal_writes_complete_forecast_without_queue_manifests(monkeypatch, tmp_path):
+    evidence = _evidence(tmp_path)
+    accounting_path = evidence["accounting"]
+    accounting = json.loads(accounting_path.read_text())
+    retained = accounting["allocation_accounting"]["runtimes"][0]
+    retained.update(
+        start_bound="2026-10-19T06:30:00Z",
+        hours_upper_bound=30.0,
+        charged_units_upper_bound=60.0,
+    )
+    accounting.update(q0_units=101.1, q0_gpu_hours=37.0)
+    accounting_path.write_text(json.dumps(accounting))
+    out = tmp_path / "refused"
+    monkeypatch.setattr(generator, "_clean_head", lambda commit, root: None)
+    assert (
+        generator.main(
+            _cli_args(evidence, out, evidence["drive"] / "q0q1-20261017/q1/jobs_refused")
+        )
+        == 2
+    )
+    admission = json.loads((out / "admission.json").read_text())
+    assert admission["status"] == "REFUSED"
+    assert admission["forecast"]["total_gpu_hours_including_q0"] > 36.0
+    assert list(out.glob("q1-*.json")) == []
 
 
 @pytest.mark.parametrize(

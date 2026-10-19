@@ -568,3 +568,43 @@ No credits, seeds, training recipe, Q1 units, endpoints, thresholds, clauses, ba
 analysis look, selection rule, serving behavior, release authority, or any other cap
 changes. Any nonconforming execution remains INVALID/INCOMPLETE. This amendment does
 not enqueue or dispatch jobs.
+
+## Amendment A5 (final) — allocation-inclusive GPU envelope and final admission (2026-10-18)
+
+**Owner authorization, verbatim:** owner decision in chat on 2026-10-18 at
+approximately 7:10 PM PT: **"Approve 45 / 36 (Recommended)"**. The selected
+option was: **"Amendment A5 (final): GPU-hour cap 45 nominal / 36 usable;
+credits and CPU limits unchanged; if the honest upper-bound forecast exceeds
+36, Q1 does not run and the L4 is released."** This is the final prospective
+GPU-cap amendment. There will be **no further cap raises**.
+
+**Allocation-inclusive admission:** A4's claim-to-terminal Q0 accounting
+omitted time for allocated runtimes that were idle, being set up, copying,
+cleaning up, or otherwise had no active claim. A5 requires a create-only
+allocation-lifetime correction and an upper-bound inclusive forecast before
+Q1 can be admitted. That correction charges every allocation interval,
+including known and conservatively bounded gaps, at its applicable hardware
+rate. It binds the original A3 envelope independently: the A3 unit envelope
+and its 20% reserve are unchanged, and allocation-inclusive Q0 charges may
+therefore refuse admission rather than silently increasing any unit cap.
+
+The combined GPU-hour cap is **45 nominal GPU-hours** and its usable forecast
+limit is **36 GPU-hours**. The 40 nominal / 32 usable CPU-hour cap, the A3
+unit envelope, credits, Q1 training 60-unit cap, reservations, and all other
+limits are unchanged. The generator must refuse dispatch unless its complete
+allocation-inclusive upper-bound accounting receipt, frozen A3 envelope, and
+all other existing checks fit their usable limits. If the GPU upper bound
+exceeds 36 GPU-hours, Q1 does not run and the retained L4 is released. This
+amendment does not enqueue, dispatch, or retain a runtime.
+
+**Post-diagnostic disclosure:** A2 and A3 were written after diagnostics from
+the work they describe. They remain disclosed historical operational
+amendments, not independent prospective confirmations. A5 is prospective for
+the allocation-inclusive reconciliation and any Q1 dispatch decision only.
+
+**Scientific choices frozen:** no seed replacement, early-curve stopping,
+checkpoint hunting, outcome-driven redesign, recipe replacement, change to
+endpoints, selection rule, world bank, thresholds, analysis look, or serving
+scope is authorized. Healthy arms run to their registered final checkpoint;
+an invalid or incomplete run stays INVALID/INCOMPLETE under the registered
+precedence. Any nonconforming execution is INVALID/INCOMPLETE.

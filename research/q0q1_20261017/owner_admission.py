@@ -11,7 +11,7 @@ OWNER_RELEASE = "APPROVED_Q0Q1_20261017"
 SCHEMA = "q0q1-owner-admission/v1"
 REGISTRATION_PATH = "research/q0q1_20261017/PREREGISTRATION.md"
 REGISTRATION = Path(__file__).with_name("PREREGISTRATION.md")
-DEFAULT_ADMISSION = Path(__file__).with_name("OWNER_ADMISSION_20261018_A4.json")
+DEFAULT_ADMISSION = Path(__file__).with_name("OWNER_ADMISSION_20261018_A5.json")
 
 
 def latest_amendment(registration: Path = REGISTRATION) -> str:

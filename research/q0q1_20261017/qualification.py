@@ -28,6 +28,7 @@ DRAFT_OWNER_REVIEW = "DRAFT_PENDING_OWNER_REVIEW"
 APPROVED_OWNER_RELEASE = "APPROVED_Q0Q1_20261017"
 A1_AMENDMENT = "A1"
 A4_AMENDMENT = "A4"
+A5_AMENDMENT = "A5"
 A3_UPDATES_PER_PUBLICATION = 12  # round(actor_sync_updates=25 / batch_scale=2)
 A3_MEAN_LAG_TOLERANCE = 1.0 / A3_UPDATES_PER_PUBLICATION
 DRAFT_Q0_UNITS_CAP = 15.0
@@ -36,6 +37,7 @@ DRAFT_COMBINED_UNITS_CAP = 150.0
 A1_COMBINED_UNITS_CAP = 175.0
 GPU_HOURS_CAP = 24.0
 A4_GPU_HOURS_CAP = 37.0
+A5_GPU_HOURS_CAP = 45.0
 CPU_HOURS_CAP = 40.0
 Q0_CPU_HOURS_CAP = 8.0
 RESERVE_FRACTION = 0.20
@@ -359,7 +361,8 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
     amendment = plan.get("amendment")
     is_a3 = approved_a1 and amendment == "A3"
     is_a4 = approved_a1 and amendment == A4_AMENDMENT
-    uses_a3_envelope = is_a3 or is_a4
+    is_a5 = approved_a1 and amendment == A5_AMENDMENT
+    uses_a3_envelope = is_a3 or is_a4 or is_a5
     if owner_status == DRAFT_OWNER_REVIEW:
         if plan.get("dispatch") is not False:
             errors.append("draft qualification must not authorize dispatch")
@@ -370,8 +373,8 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
     elif approved_a1:
         if plan.get("owner_release") != APPROVED_OWNER_RELEASE:
             errors.append("approved A1 plan must bind the exact owner release")
-        if amendment not in {A1_AMENDMENT, "A2", "A3", A4_AMENDMENT}:
-            errors.append("approved plan must bind Amendment A1, A2, A3, or A4")
+        if amendment not in {A1_AMENDMENT, "A2", "A3", A4_AMENDMENT, A5_AMENDMENT}:
+            errors.append("approved plan must bind Amendment A1, A2, A3, A4, or A5")
         if plan.get("dispatch") is not True:
             errors.append("approved A1 admission must explicitly authorize dispatch")
         envelope = (
@@ -391,14 +394,23 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         q0_units_cap = A1_Q0_UNITS_CAP
         combined_units_cap = A1_COMBINED_UNITS_CAP
         if uses_a3_envelope:
-            from research.q0q1_20261017.q0_accounting import validate_a3_envelope
-
             try:
-                envelope = validate_a3_envelope(plan)
+                if is_a5:
+                    from research.q0q1_20261017 import allocation_accounting
+
+                    # A5 binds allocation-inclusive observed charges, but
+                    # keeps the historical A3 unit envelope fixed.  The
+                    # allocation validator reconstructs that frozen envelope
+                    # against its registered historical debit.
+                    envelope = allocation_accounting.validate_accounting(plan)
+                else:
+                    from research.q0q1_20261017.q0_accounting import validate_a3_envelope
+
+                    envelope = validate_a3_envelope(plan)
                 q0_units_cap = envelope["q0_units_cap"]
                 combined_units_cap = envelope["combined_units_cap"]
             except ValueError as exc:
-                errors.append(f"A3 envelope: {exc}")
+                errors.append(f"{'A5 allocation accounting' if is_a5 else 'A3 envelope'}: {exc}")
         dispatch_authorized = True
         admitted_status = "ADMITTED_FOR_DISPATCH"
     else:
@@ -432,7 +444,7 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
     workers = _finite_number(plan.get("cpu_workers"), "cpu_workers", errors, positive=True)
     if workers is not None and (not workers.is_integer() or workers > 10):
         errors.append("cpu_workers must be an integer no greater than 10")
-    if is_a4:
+    if is_a4 or is_a5:
         if workers is not None and workers < 2:
             errors.append("Amendment A4 requires a deterministic parallel CPU worker pool")
         slowdown = _finite_number(
@@ -471,7 +483,10 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
     )
     measured = outcome.get("measured_cells", {})
     train_hours = 0.0
-    if not errors and isinstance(measured, Mapping):
+    # Always calculate a complete forecast where timing evidence is present.
+    # An unrelated cap failure must never make the prospective GPU forecast
+    # appear as zero or conceal a second applicable refusal.
+    if isinstance(measured, Mapping):
         arm_cells = {"A": "restart/n3", "B": "mature/n3", "C": "restart/n1", "D": "mature/n1"}
         for cell_name in arm_cells.values():
             speed = (
@@ -522,7 +537,7 @@ def validate_admission(packet: Any, plan: Any) -> dict[str, Any]:
         + (float(cpu_overhead) if cpu_overhead is not None else 0.0)
         + (float(q0_cpu_hours) if q0_cpu_hours is not None else 0.0)
     )
-    gpu_hours_cap = A4_GPU_HOURS_CAP if is_a4 else GPU_HOURS_CAP
+    gpu_hours_cap = A5_GPU_HOURS_CAP if is_a5 else A4_GPU_HOURS_CAP if is_a4 else GPU_HOURS_CAP
     usable_gpu_hours_cap = gpu_hours_cap * (1 - RESERVE_FRACTION)
     if total_gpu_hours > usable_gpu_hours_cap:
         errors.append(

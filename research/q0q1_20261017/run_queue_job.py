@@ -185,7 +185,7 @@ def admission_checks(env: Mapping[str, str]) -> None:
         reference = _bound_json_bytes(
             env["Q1_MAC_PARITY_REFERENCE"], env["Q1_MAC_PARITY_REFERENCE_SHA256"]
         )
-        if plan.get("amendment") == "A4":
+        if plan.get("amendment") in {"A4", "A5"}:
             from research.q0q1_20261017 import a4_compatibility, make_q1_jobs
 
             timing = _bound_json_bytes(
@@ -209,6 +209,10 @@ def admission_checks(env: Mapping[str, str]) -> None:
                 raise RuntimeError("CPU timing receipt differs from the admitted plan")
             if kind == "q1_eval" and q1_evaluate.default_workers() < plan["cpu_workers"]:
                 raise RuntimeError("runtime cannot hold the forecast CPU worker floor")
+            if plan.get("amendment") == "A5":
+                from research.q0q1_20261017 import allocation_accounting
+
+                allocation_accounting.validate_accounting(plan)
         else:
             q1_parity.validate_runtime_receipt(
                 runtime,

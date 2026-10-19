@@ -325,6 +325,27 @@ def test_a4_raises_only_gpu_cap_and_admits_deterministic_parallel_workers() -> N
     assert outcome["forecast"]["q1_evaluation_cpu_hours"] == 3200 * 10 / (3600 * 7 * 0.8)
 
 
+def test_a5_reports_full_gpu_forecast_when_frozen_unit_cap_already_refuses(monkeypatch) -> None:
+    """A cap refusal cannot zero the prospective training component."""
+    plan = _approved_a4_plan()
+    plan["amendment"] = subject.A5_AMENDMENT
+    plan["q0_units"] = 70.0  # exceeds the frozen A3 Q0 cap of 64.
+    plan["q0_gpu_hours"] = 40.0
+    plan["allocation_accounting"] = {"synthetic": "bound"}
+    monkeypatch.setattr(
+        "research.q0q1_20261017.allocation_accounting.validate_accounting",
+        lambda value: value["a3_envelope"],
+    )
+    outcome = subject.validate_admission(_packet(), plan)
+    assert outcome["status"] == "REFUSED"
+    assert outcome["forecast"]["gpu_hours_cap"] == 45.0
+    assert outcome["forecast"]["usable_gpu_hours_cap"] == 36.0
+    assert outcome["forecast"]["q1_training_gpu_hours"] > 0
+    assert outcome["forecast"]["total_gpu_hours_including_q0"] > 40.0
+    assert any("Q0 exceeds" in error for error in outcome["errors"])
+    assert any("GPU forecast" in error for error in outcome["errors"])
+
+
 @pytest.mark.parametrize("workers", [1, 2.5, 11])
 def test_a4_refuses_nonparallel_or_noninteger_cpu_worker_counts(workers) -> None:
     plan = _approved_a4_plan()
