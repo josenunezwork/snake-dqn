@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import subprocess
 import time
@@ -25,14 +26,15 @@ MAX_UNITS = 4.0
 RESERVE_UNITS = 0.8
 USABLE_UNITS = 3.2
 L4_RATE_UNITS_PER_HOUR = 2.0
+CPU_RATE_UNITS_PER_HOUR = 0.5
 L4_MAX_MINUTES = 30
 CPU_MAX_MINUTES = 20
 REVIEW_TOKEN = "COLAB_CLI_ACCEPTANCE_REVIEWED"
 BASELINE = {
-    "supplied_at": "2026-10-18 evening",
-    "balance_units": 1178.30,
-    "aggregate_usage_rate_units_per_hour": 6.84,
-    "active_notebook_assignments": 2,
+    "supplied_at": "2026-10-18 18:38 PT",
+    "balance_units": 1174.37,
+    "aggregate_usage_rate_units_per_hour": 0.0,
+    "active_notebook_assignments": 0,
     "note": (
         "Supplied context, not a new live measurement. Re-read usage and sessions before dispatch."
     ),
@@ -78,7 +80,7 @@ def manifest(
     output: Path,
     gpu: str,
     minutes: int,
-    rate: float,
+    priced_rate: float,
     other_assignments: dict[str, float],
 ) -> dict[str, Any]:
     return {
@@ -98,8 +100,11 @@ def manifest(
             {"path": str(wrapper), "sha256": sha256_file(wrapper), "dest": "acceptance_probe.sh"},
         ],
         "budget": {
-            "unit_cap": rate * minutes / 60.0,
-            "rate_units_per_hour": rate,
+            # This is deliberately a conservative price ceiling.  It controls
+            # admission, the liability reservation, and the session cap even
+            # when the provider later reports a lower actual rate.
+            "unit_cap": priced_rate * minutes / 60.0,
+            "rate_units_per_hour": priced_rate,
             "reserve_units": RESERVE_UNITS,
             # Every assignment already present at admission must be priced so
             # an account-wide balance delta cannot silently consume this arm's
@@ -174,15 +179,16 @@ def review_gates() -> list[dict[str, str]]:
 def build_plan(
     root: Path,
     state_dir: Path,
-    cpu_rate: float | None,
+    cpu_rate: float | None = CPU_RATE_UNITS_PER_HOUR,
     other_assignments: dict[str, float] | None = None,
+    l4_rate: float = L4_RATE_UNITS_PER_HOUR,
 ) -> dict[str, Any]:
     if cpu_rate is None:
-        raise ValueError(
-            "CPU price is unknown; pass --cpu-rate-units-per-hour before creating manifests"
-        )
-    if cpu_rate <= 0:
-        raise ValueError("--cpu-rate-units-per-hour must be positive")
+        cpu_rate = CPU_RATE_UNITS_PER_HOUR
+    if not math.isfinite(cpu_rate) or cpu_rate <= 0:
+        raise ValueError("--cpu-rate must be finite and positive")
+    if not math.isfinite(l4_rate) or l4_rate <= 0:
+        raise ValueError("--l4-rate must be finite and positive")
     other_assignments = other_assignments or {}
     if not all(
         isinstance(endpoint, str)
@@ -194,7 +200,7 @@ def build_plan(
     ):
         raise ValueError("other assignment rates must map nonempty endpoints to positive numbers")
     cpu_expected = cpu_rate * CPU_MAX_MINUTES / 60.0
-    l4_expected = L4_RATE_UNITS_PER_HOUR * L4_MAX_MINUTES / 60.0
+    l4_expected = l4_rate * L4_MAX_MINUTES / 60.0
     if cpu_expected + l4_expected > USABLE_UNITS:
         raise ValueError(
             f"expected {cpu_expected + l4_expected:.3f} units exceeds usable {USABLE_UNITS:.1f}"
@@ -213,7 +219,7 @@ def build_plan(
     ).stdout.strip()
     rows = [
         ("cpu", "cpu", CPU_MAX_MINUTES, cpu_rate),
-        ("l4", "L4", L4_MAX_MINUTES, L4_RATE_UNITS_PER_HOUR),
+        ("l4", "L4", L4_MAX_MINUTES, l4_rate),
     ]
     jobs: list[dict[str, Any]] = []
     for name, gpu, minutes, rate in rows:
@@ -228,13 +234,18 @@ def build_plan(
             output=output,
             gpu=gpu,
             minutes=minutes,
-            rate=rate,
+            priced_rate=rate,
             other_assignments={key: float(value) for key, value in other_assignments.items()},
         )
         target = manifests / f"{name}.json"
         atomic_json(target, payload)
         jobs.append(
-            {"name": name, "manifest": str(target), "expected_units": payload["budget"]["unit_cap"]}
+            {
+                "name": name,
+                "manifest": str(target),
+                "priced_rate_units_per_hour": rate,
+                "expected_units": payload["budget"]["unit_cap"],
+            }
         )
     plan = {
         "schema": "snake-dqn-colab-cli-acceptance/v1",
@@ -247,8 +258,8 @@ def build_plan(
             "first_cap_wins": True,
         },
         "expected_costs": {
-            "cpu_20_minutes": cpu_expected,
-            "l4_30_minutes_at_2_per_hour": l4_expected,
+            "cpu_20_minutes_at_priced_rate": cpu_expected,
+            "l4_30_minutes_at_priced_rate": l4_expected,
             "total": cpu_expected + l4_expected,
         },
         "jobs": jobs,
@@ -294,10 +305,18 @@ def execute(
         output = Path(payload["output_dir"])
         try:
             supervisor.Broker(state_dir.resolve() / "lanes", colab, observer=observer).run(payload)
-            _clean_release_receipt(output)
+            receipt = _clean_release_receipt(output)
+            measurement = _calibration_evidence(receipt)
             observer._record("backend-stop-disappearance", receipt=str(output / "receipt.json"))
             results.append(
-                {"job": job["name"], "status": "PASS", "receipt": str(output / "receipt.json")}
+                {
+                    "job": job["name"],
+                    "status": "PASS" if measurement["status"] == "PASS" else "INCOMPLETE",
+                    "receipt": str(output / "receipt.json"),
+                    "priced_rate_units_per_hour": measurement["priced_rate_units_per_hour"],
+                    "measured_rate_units_per_hour": measurement["observed_rate_units_per_hour"],
+                    "rate_calibration": measurement,
+                }
             )
         except supervisor.Refused as exc:
             # The L4 arm intentionally stops renewals.  It only passes when the
@@ -306,19 +325,34 @@ def execute(
             watchdog = observer.records.get("mac-loss-watchdog-unassign", {})
             released = bool(watchdog.get("assignment_disappeared_within_bound"))
             try:
-                _clean_release_receipt(output, require_success=False)
+                receipt = _clean_release_receipt(output, require_success=False)
+                measurement = _calibration_evidence(receipt)
                 clean_cleanup = True
             except (OSError, ValueError, supervisor.Refused):
                 clean_cleanup = False
+                measurement = {
+                    "status": "INCOMPLETE",
+                    "reason": "missing clean release receipt or provider rate calibration",
+                    "priced_rate_units_per_hour": None,
+                    "observed_rate_units_per_hour": None,
+                }
             results.append(
                 {
                     "job": job["name"],
                     "status": (
                         "PASS"
-                        if job["name"] == "l4" and released and clean_cleanup
+                        if (
+                            job["name"] == "l4"
+                            and released
+                            and clean_cleanup
+                            and measurement["status"] == "PASS"
+                        )
                         else "INCOMPLETE"
                     ),
                     "error": str(exc),
+                    "priced_rate_units_per_hour": measurement["priced_rate_units_per_hour"],
+                    "measured_rate_units_per_hour": measurement["observed_rate_units_per_hour"],
+                    "rate_calibration": measurement,
                 }
             )
         finally:
@@ -377,6 +411,51 @@ def _clean_release_receipt(output: Path, *, require_success: bool = True) -> dic
     return receipt
 
 
+def _calibration_evidence(receipt: dict[str, Any]) -> dict[str, Any]:
+    """Require the bounded post-allocation rate calibration in every acceptance result.
+
+    The priced rate remains the cap and reservation input.  This record is the
+    provider-observed rate used by later polling drift checks, so an absent,
+    incomplete, or malformed calibration cannot be represented as a pass.
+    """
+    accounting = receipt.get("accounting")
+    calibration = accounting.get("calibration") if isinstance(accounting, dict) else None
+    if not isinstance(calibration, dict):
+        return {
+            "status": "INCOMPLETE",
+            "reason": "missing provider rate calibration in broker receipt",
+            "priced_rate_units_per_hour": None,
+            "observed_rate_units_per_hour": None,
+        }
+    priced = calibration.get("priced_rate_units_per_hour")
+    observed = calibration.get("observed_rate_units_per_hour")
+    if (
+        calibration.get("status") != "PASS"
+        or isinstance(priced, bool)
+        or not isinstance(priced, (int, float))
+        or isinstance(observed, bool)
+        or not isinstance(observed, (int, float))
+        or not math.isfinite(float(priced))
+        or float(priced) <= 0
+        or not math.isfinite(float(observed))
+        or float(observed) <= 0
+        or float(observed) > float(priced) + 0.05
+    ):
+        return {
+            "status": "INCOMPLETE",
+            "reason": str(calibration.get("reason", "provider rate calibration incomplete")),
+            "priced_rate_units_per_hour": priced,
+            "observed_rate_units_per_hour": observed,
+            "samples": calibration.get("samples", []),
+        }
+    return {
+        "status": "PASS",
+        "priced_rate_units_per_hour": float(priced),
+        "observed_rate_units_per_hour": float(observed),
+        "samples": calibration.get("samples", []),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", type=Path, default=Path.cwd())
@@ -384,7 +463,20 @@ def main(argv: list[str] | None = None) -> int:
         "--state-dir", type=Path, required=True, help="absolute supervisor state parent"
     )
     parser.add_argument(
-        "--cpu-rate-units-per-hour", type=float, help="measured CPU rate; unknown price blocks"
+        "--cpu-rate",
+        "--cpu-rate-units-per-hour",
+        dest="cpu_rate",
+        type=float,
+        default=CPU_RATE_UNITS_PER_HOUR,
+        help="conservative CPU price ceiling (default: 0.5 units/hour)",
+    )
+    parser.add_argument(
+        "--l4-rate",
+        "--l4-rate-units-per-hour",
+        dest="l4_rate",
+        type=float,
+        default=L4_RATE_UNITS_PER_HOUR,
+        help="conservative L4 price ceiling (default: 2.0 units/hour)",
     )
     parser.add_argument(
         "--other-assignments",
@@ -408,8 +500,9 @@ def main(argv: list[str] | None = None) -> int:
         record = build_plan(
             args.repo.resolve(),
             args.state_dir,
-            args.cpu_rate_units_per_hour,
+            args.cpu_rate,
             load_other_assignments(args.other_assignments),
+            args.l4_rate,
         )
         print(json.dumps(record, indent=2, sort_keys=True))
         if args.execute_after_review:

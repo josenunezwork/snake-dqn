@@ -61,6 +61,11 @@ Google publishes no rate table: rates are third-party measurements (mccormickml.
 2026-10-18 `colab usage` read 6.84/h for one A100 + one L4, consistent. The supervisor treats a manifest rate as a
 conservative pricing ceiling: observed account debit includes other notebook spend and provider lag, not exact job
 billing. Trust fresh `colab usage` over this table.
+After allocation the supervisor subtracts reconciled other-assignment rates and requires three stable positive
+provider-rate reads five seconds apart within 120 seconds (stability 0.01 units/hour). Observed must be at most
+the priced ceiling plus 0.05 units/hour; unknown, unstable, or over-ceiling calibration stops as INCOMPLETE.
+Later drift uses that observed rate; admission, reservations, and caps keep the priced ceiling. Acceptance uses
+CPU 0.5 and L4 2.0 units/hour pricing defaults, overridable before allocation; measured rates are outputs.
 Pro+ FAQ: continuous execution up to 24 h with sufficient units; idle runtimes time out; with a positive balance the
 free-tier bans on SSH/remote control/bypassing the notebook UI do not apply (abuse bans always apply). Units expiry
 is not stated in the FAQ.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -191,6 +192,125 @@ def test_normal_job_stops_and_verifies_backend_release(
     assert supervisor.CLI(binary, tmp_path / "status.json").sessions() == {}
     assert any(event["argv"][4] == "stop" for event in _events(tmp_path))
     _assert_transport(tmp_path)
+
+
+@pytest.mark.parametrize("baseline", [False, True])
+def test_l4_observed_rate_below_priced_ceiling_calibrates_and_passes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, baseline: bool
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path, assignments=int(baseline))
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    manifest = _manifest(tmp_path, gpu="L4", rate=2.0)
+    if baseline:
+        manifest["budget"]["other_assignments"] = {"gpu-notebook-1": 6.84}
+    monkeypatch.setenv("FAKE_COLAB_OWN_RATE", "1.54")
+    # Account-wide samples lag before settling at baseline + own real rate.
+    other = 6.84 if baseline else 0
+    monkeypatch.setenv("FAKE_COLAB_USAGE_RATES", json.dumps([other, other + 1.54]))
+    from research.colab_cli.accounting import AccountTracker
+
+    original_read = AccountTracker.calibration_read
+
+    def locked_read(self: AccountTracker, *args: object) -> float | None:
+        # A second lane cannot read the temporary uncalibrated active record.
+        with pytest.raises(supervisor.Refused, match="already supervised"):
+            with supervisor.locked(supervisor.ACCOUNT_ROOT / "broker.lock", blocking=False):
+                pass
+        return original_read(self, *args)
+
+    monkeypatch.setattr(AccountTracker, "calibration_read", locked_read)
+    checked = []
+
+    def observer(event: str, context: dict[str, object]) -> None:
+        if event == "runtime_started":
+            with supervisor.locked(supervisor.ACCOUNT_ROOT / "broker.lock", blocking=False):
+                active = next(supervisor.ACCOUNT_ROOT.glob("active-*.json"))
+                assert json.loads(active.read_text())[
+                    "observed_rate_units_per_hour"
+                ] == pytest.approx(1.54)
+                checked.append(True)
+
+    supervisor.Broker(tmp_path / "lanes", binary, observer=observer).run(manifest)
+    assert checked == [True]
+    receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
+    assert receipt["status"] == "PASS"
+    assert receipt["stop_verified"] is True
+    accounting = receipt["accounting"]
+    assert accounting["priced_rate_units_per_hour"] == 2.0
+    assert accounting["observed_rate_units_per_hour"] == pytest.approx(1.54)
+    assert accounting["calibration"]["status"] == "PASS"
+    assert len(accounting["calibration"]["samples"]) == 4
+    assert (
+        accounting["last_crosscheck"]["own_elapsed_units"]
+        >= accounting["last_crosscheck"]["observed_elapsed_units"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("rates", "error"),
+    [
+        ([2.06], "exceeds priced upper bound"),
+        ([0.0], "did not stabilize"),
+        ([1.54, 1.7] * 13, "did not stabilize"),
+        ([1.54, 1.54, 1.54, 1.7], "rate drift"),
+    ],
+)
+def test_rate_calibration_and_later_drift_fail_closed_with_release(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, rates: list[float], error: str
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    manifest = _manifest(tmp_path, gpu="L4", rate=2.0)
+    monkeypatch.setenv("FAKE_COLAB_OWN_RATE", "1.54")
+    monkeypatch.setenv("FAKE_COLAB_USAGE_RATES", json.dumps(rates))
+    original_lock = supervisor.account_locked
+
+    @contextlib.contextmanager
+    def checked_lock(cli: supervisor.CLI, *, cleanup: bool = False):
+        with original_lock(cli, cleanup=cleanup):
+            try:
+                yield
+            finally:
+                # Even on calibration failure, cleanup removes the uncalibrated
+                # record before another lane is allowed to poll its account.
+                for active in supervisor.ACCOUNT_ROOT.glob("active-*.json"):
+                    assert (
+                        json.loads(active.read_text())["observed_rate_units_per_hour"] is not None
+                    )
+
+    monkeypatch.setattr(supervisor, "account_locked", checked_lock)
+    with pytest.raises(supervisor.Refused, match=error):
+        supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
+    assert receipt["status"] == "INCOMPLETE"
+    assert receipt["stop_verified"] is True
+    assert not json.loads((tmp_path / "fake-state.json").read_text())["sessions"]
+    events = _events(tmp_path)
+    assert sum(event["argv"][4] == "new" for event in events) == 1
+    assert any(event["argv"][4] == "stop" for event in events)
+    calibration = receipt["accounting"]["calibration"]
+    assert calibration["status"] == ("PASS" if error == "rate drift" else "INCOMPLETE")
+    assert calibration["samples"]
+    _assert_transport(tmp_path)
+
+
+def test_provider_calibration_timeout_is_a_real_elapsed_bound(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path)
+    manifest = _manifest(tmp_path, gpu="L4", rate=2.0)
+    monkeypatch.setenv("FAKE_COLAB_USAGE_RATES", "[0]")
+    now = [0.0]
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        supervisor.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds)
+    )
+    with pytest.raises(supervisor.Refused, match="did not stabilize"):
+        supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
+    assert receipt["stop_verified"] is True
+    assert receipt["accounting"]["calibration"]["status"] == "INCOMPLETE"
+    assert receipt["elapsed_seconds"] == 121  # One watchdog-start second, then 120 calibration.
 
 
 def test_stop_success_exit_is_rejected_when_backend_keeps_assignment(
@@ -657,6 +777,43 @@ def test_waiting_for_account_lock_renews_active_runtime_lease(tmp_path: Path) ->
     waiter.join(timeout=5)
     assert acquired.is_set()
     assert not waiter.is_alive()
+
+
+def test_waiting_for_calibration_lock_still_enforces_priced_unit_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cli = supervisor.CLI("unused", tmp_path / "session.json")
+    cli.deadline = 2000
+    cli.priced_deadline = 1800
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: 1800)
+    with supervisor.locked(supervisor.ACCOUNT_ROOT / "broker.lock"):
+        with pytest.raises(supervisor.Refused, match="priced session unit cap"):
+            with supervisor.account_locked(cli):
+                pytest.fail("contended broker lock was unexpectedly acquired")
+
+
+def test_account_lock_uses_new_run_cap_instead_of_previous_retained_tracker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from types import SimpleNamespace
+
+    cli = supervisor.CLI("unused", tmp_path / "session.json")
+    cli.deadline = 2100
+    cli.priced_deadline = 2000
+    cli.accounting = SimpleNamespace(started_monotonic=0, own_rate_units_per_hour=2, unit_cap=0.1)
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: 1800)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
+    calls = []
+
+    def contended_once(handle: object, mode: int) -> None:
+        calls.append(mode)
+        if len(calls) == 1:
+            raise BlockingIOError
+
+    monkeypatch.setattr(supervisor.fcntl, "flock", contended_once)
+    with supervisor.account_locked(cli):
+        pass
+    assert len(calls) == 3
 
 
 def test_cleanup_lock_wait_ignores_expired_execution_and_uncertain_renewal(

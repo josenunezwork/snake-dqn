@@ -2,9 +2,11 @@
 
 This is the mandatory, bounded qualification before routing a new research job through `research.colab_cli`. It implements the operating-model advice dated 2026-10-18. It is not a study run, does not alter the Q1 Drive queue, and does not constitute a live pass until the records below exist and are independently reviewed.
 
-Use the supplied 2026-10-18 account context only as a budget baseline: 1,178.30 compute units, aggregate usage 6.84 units/hour, and two active notebook assignments. It is not a current measurement. Before execution the supervisor queries `colab --auth oauth2 usage` and `sessions`. Every assignment already present must appear in a reviewed endpoint-to-rate map (or a current broker record); an unknown endpoint is a refusal. The receipt records the session-attributed acceptance spend and the priced baseline of those other assignments, cross-checked against the account balance delta. The account-wide maximum remains three assignments.
+Use the supplied 2026-10-18 18:38 PT account context only as a preparation baseline: 1,174.37 compute units, aggregate usage 0.00 units/hour, and zero active assignments. It is not a current measurement. Before execution the supervisor queries `colab --auth oauth2 usage` and `sessions`. Every assignment already present must appear in a reviewed endpoint-to-rate map (or a current broker record); an unknown endpoint is a refusal. The receipt records the session-attributed acceptance spend and the priced baseline of those other assignments, cross-checked against the account balance delta. The account-wide maximum remains three assignments.
 
-The whole qualification has a hard cap of 4.0 units, including a 0.8-unit (20%) reserve; only 3.2 units are usable. The first wall-clock or unit cap reached stops the relevant job. CPU is at most 20 minutes and is admitted only after its unit rate is measured. L4 is at most 30 minutes at the provisional 2.0 units/hour rate (1.0 unit). There are no retries, purchases, replacement allocations, or automatic CPU/L4 fallback. If CPU expected cost plus 1.0 unit exceeds 3.2 units, do not execute.
+The whole qualification has a hard cap of 4.0 units, including a 0.8-unit (20%) reserve; only 3.2 units are usable. The first wall-clock or unit cap reached stops the relevant job. CPU is at most 20 minutes with a conservative priced upper bound of 0.5 units/hour by default; L4 is at most 30 minutes with a conservative priced upper bound of 2.0 units/hour by default. The `--cpu-rate`/`--cpu-rate-units-per-hour` and `--l4-rate`/`--l4-rate-units-per-hour` options override those *pricing ceilings* before allocation. They are used for admission, liability reservation, and the hard session cap, never replaced by a lower provider observation. There are no retries, purchases, replacement allocations, or automatic CPU/L4 fallback.
+
+After each allocation, the supervisor performs one bounded provider-rate calibration: up to 120 seconds, three stable positive reads, five seconds apart, with stability within 0.01 units/hour. It subtracts the reconciled rate of every other accounted assignment from the provider account rate, allowing provider lag. The resulting observed rate must be at or below the priced ceiling plus 0.05 units/hour. A missing, nonpositive, unstable, unexplained, or over-ceiling observation stops the arm and leaves qualification `INCOMPLETE`. Once calibration passes, later provider-rate drift is checked against the observed rate, while pricing and caps remain bound to the conservative priced ceiling. The acceptance result records both values and its calibration samples for CPU and L4; CPU's measured rate is an output, not an input.
 
 ## Prepare only
 
@@ -12,17 +14,13 @@ This creates unique, absolute output directories, pinned manifests, input hashes
 
 ```sh
 LAUNCH=/Users/josenunez/Projects/ml/snake-dqn/research/colab_cli/launch.sh
-# JSON object: {"<pre-existing endpoint>": <reviewed units/hour>, ...}
-OTHER_ASSIGNMENTS=/absolute/path/other-assignments.json
 "$LAUNCH" acceptance \
-  --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance \
-  --cpu-rate-units-per-hour MEASURED_CPU_RATE \
-  --other-assignments "$OTHER_ASSIGNMENTS"
+  --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance
 ```
 
-Unknown CPU price blocks manifest creation. `other-assignments.json` may be `{}` only when `sessions` is empty before allocation; it must list every pre-existing session endpoint otherwise. The generated plan records expected CPU cost as `20 / 60 * MEASURED_CPU_RATE`, L4 as `30 / 60 * 2.0 = 1.0`, and both must fit the usable 3.2 units. Re-run preparation rather than reuse any manifest or output directory.
+The default plan prices CPU as `20 / 60 * 0.5` and L4 as `30 / 60 * 2.0 = 1.0`; both must fit the usable 3.2 units. Use a reviewed `--other-assignments /absolute/path/other-assignments.json` only when current `sessions` is nonempty; that JSON must list every pre-existing endpoint and its reviewed positive rate. Re-run preparation rather than reuse any manifest or output directory.
 
-The probe calibrates a fixed deterministic synthetic useful-work loop, then runs the same fixed count before and after the 600 MiB immutable snapshot/export handoff. `checkpoint-overhead.json` records calibration samples, fixed iteration count, baseline, second pass, snapshot-write time, and computed overhead. This measures transport behavior only; it does not establish trainer throughput or exact trainer resume. The expected remote cost is CPU `MEASURED_CPU_RATE / 3` plus L4 `1.0` unit, and the measured synthetic overhead must be at most 2% for the acceptance gate to pass.
+The probe calibrates a fixed deterministic synthetic useful-work loop, then runs the same fixed count before and after the 600 MiB immutable snapshot/export handoff. `checkpoint-overhead.json` records calibration samples, fixed iteration count, baseline, second pass, snapshot-write time, and computed overhead. This measures transport behavior only; it does not establish trainer throughput or exact trainer resume. The priced remote allowance is CPU `0.5 / 3` plus L4 `1.0` unit by default, and the measured synthetic overhead must be at most 2% for the acceptance gate to pass.
 
 ## Step costs and timing evidence
 
@@ -31,7 +29,7 @@ three real units of 1,000 deterministic toy updates at **0.021951, 0.022130, and
 The runtime repeats that calibration on its actual CPU and uses the same fixed update count for both
 approximately 90-second passes. These are transport fixtures, not M3-C training estimates.
 
-For every billed step record `seconds * admitted_rate / 3600`; `r` below is the known CPU ceiling. These expected
+For every billed step record `seconds * priced_rate / 3600`; `r` below is the CPU pricing ceiling. These expected
 planning allowances are not measurements or additional caps. Overlapping work is charged once. Setup, deliberate
 idle time, export tails, and cleanup all count against the arm's whole-session cap. Exhaustion fails qualification
 without another allocation.
@@ -50,7 +48,7 @@ without another allocation.
 | L4 whole-session maximum | 30 min | Not applicable | **1.0** | receipt and account debit |
 
 The CPU acceptance lease is 300 seconds for the intentional 120-second busy-kernel/client-loss exercise. The L4
-fault arm uses a separate 180-second lease. The script does not change either running notebook worker's lifetime.
+fault arm uses a separate 180-second lease. This qualification does not alter any pre-existing assignment.
 OAuth refresh occurs in memory on the Mac. The watchdog receives only a short-lived, narrowly scoped release
 credential generated for that runtime; the owner's refresh token and token file are never uploaded or rewritten.
 
@@ -61,8 +59,6 @@ After Q1 is complete and an independent reviewer accepts the generated plan, the
 ```sh
 "$LAUNCH" acceptance \
   --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance \
-  --cpu-rate-units-per-hour MEASURED_CPU_RATE \
-  --other-assignments "$OTHER_ASSIGNMENTS" \
   --execute-after-review --review-token COLAB_CLI_ACCEPTANCE_REVIEWED
 ```
 
@@ -82,4 +78,4 @@ The probe pauses at its hash-bound transfer-ready state while the Mac performs t
 | Checkpoint overhead | Paired fixed-count synthetic-work baseline and transfer pass | Measured paired transport overhead is at most 2%; this is not a trainer-throughput claim. |
 | Backend release | `stop`, then independent `sessions`/`status` observation | Assignment disappears; a successful CLI exit alone is insufficient. |
 
-Any missing artifact, unmeasured CPU rate, unaccounted session, mismatch, timeout ambiguity, backend persistence, cleanup error, or supervisor feature that cannot produce the listed evidence is `INCOMPLETE` and fails qualification. Do not route research workloads through the CLI until every row is verified.
+Any missing artifact, incomplete provider-rate calibration, unaccounted session, unexplained provider-rate change, timeout ambiguity, backend persistence, cleanup error, or supervisor feature that cannot produce the listed evidence is `INCOMPLETE` and fails qualification. Do not route research workloads through the CLI until every row is verified.

@@ -40,12 +40,9 @@ def _repo_with_probe(tmp_path: Path) -> Path:
     return repo
 
 
-def test_plan_requires_known_cpu_price_and_keeps_job_output_fresh(tmp_path: Path) -> None:
+def test_plan_defaults_to_conservative_cpu_price_and_keeps_job_output_fresh(tmp_path: Path) -> None:
     repo = _repo_with_probe(tmp_path)
-    with pytest.raises(ValueError, match="CPU price is unknown"):
-        acceptance.build_plan(repo, tmp_path / "state", None)
-
-    record = acceptance.build_plan(repo, tmp_path / "state", 1.0)
+    record = acceptance.build_plan(repo, tmp_path / "state", None)
     plan = record["plan"]
     assert plan["status"] == "NOT_RUN"
     assert plan["limits"]["usable_units"] == 3.2
@@ -56,6 +53,39 @@ def test_plan_requires_known_cpu_price_and_keeps_job_output_fresh(tmp_path: Path
         assert payload["timeout_minutes"] >= 2 * payload["requirements"]["est_minutes"]
         assert not Path(payload["output_dir"]).exists()
         supervisor.validate(payload, repo)
+    cpu = json.loads(Path(plan["jobs"][0]["manifest"]).read_text())
+    l4 = json.loads(Path(plan["jobs"][1]["manifest"]).read_text())
+    assert cpu["budget"]["rate_units_per_hour"] == 0.5
+    assert l4["budget"]["rate_units_per_hour"] == 2.0
+
+
+def test_plan_accepts_overridable_conservative_rate_ceilings(tmp_path: Path) -> None:
+    repo = _repo_with_probe(tmp_path)
+    plan = acceptance.build_plan(repo, tmp_path / "state", 0.75, l4_rate=2.5)["plan"]
+    assert plan["jobs"][0]["priced_rate_units_per_hour"] == 0.75
+    assert plan["jobs"][1]["priced_rate_units_per_hour"] == 2.5
+    assert plan["expected_costs"]["cpu_20_minutes_at_priced_rate"] == 0.25
+    assert plan["expected_costs"]["l4_30_minutes_at_priced_rate"] == 1.25
+
+
+def test_calibration_evidence_requires_a_complete_provider_measurement() -> None:
+    incomplete = acceptance._calibration_evidence({"accounting": {}})
+    assert incomplete["status"] == "INCOMPLETE"
+
+    complete = acceptance._calibration_evidence(
+        {
+            "accounting": {
+                "calibration": {
+                    "status": "PASS",
+                    "priced_rate_units_per_hour": 2.0,
+                    "observed_rate_units_per_hour": 1.54,
+                    "samples": [1.54, 1.54, 1.54],
+                }
+            }
+        }
+    )
+    assert complete["status"] == "PASS"
+    assert complete["observed_rate_units_per_hour"] == 1.54
 
 
 def test_plan_carries_reviewed_other_assignment_rates(tmp_path: Path) -> None:
@@ -386,3 +416,73 @@ def test_cpu_failure_writes_final_result_and_does_not_spend_l4(
     assert calls == ["cpu"]
     result_path = Path(record["run_dir"]) / "acceptance-result.json"
     assert json.loads(result_path.read_text())["final_plan"]["status"] == "OBSERVED_NOT_QUALIFIED"
+
+
+@pytest.mark.parametrize("include_calibration", [True, False])
+def test_expected_l4_watchdog_refusal_records_or_rejects_provider_rate_calibration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, include_calibration: bool
+) -> None:
+    """The expected watchdog exception still needs its own measured rate evidence."""
+    repo = _repo_with_probe(tmp_path)
+    record = acceptance.build_plan(repo, tmp_path / "state", 0.5)
+
+    class Observer:
+        def __init__(self, _oauth_python: str) -> None:
+            self.records: dict[str, dict[str, object]] = {}
+
+        def _record(self, name: str, **evidence: object) -> None:
+            self.records[name] = dict(evidence)
+
+        def write(self, _output: Path) -> None:
+            return None
+
+    class WatchdogBroker:
+        def __init__(self, _state: Path, _binary: str, observer: Observer) -> None:
+            self.observer = observer
+
+        def run(self, payload: dict[str, object]) -> None:
+            output = Path(str(payload["output_dir"]))
+            output.mkdir()
+            calibration: dict[str, object] = (
+                {
+                    "status": "PASS",
+                    "priced_rate_units_per_hour": 2.0,
+                    "observed_rate_units_per_hour": 1.54,
+                    "samples": [1.54, 1.54, 1.54],
+                }
+                if include_calibration
+                or payload["requirements"] == {"gpu": "cpu", "min_vcpu": 2, "est_minutes": 10.0}
+                else {}
+            )
+            (output / "receipt.json").write_text(
+                json.dumps(
+                    {
+                        "status": "PASS",
+                        "stop_verified": True,
+                        "accounting": {"calibration": calibration} if calibration else {},
+                    }
+                )
+            )
+            if payload["requirements"] == {"gpu": "L4", "min_vcpu": 2, "est_minutes": 15.0}:
+                self.observer.records["mac-loss-watchdog-unassign"] = {
+                    "assignment_disappeared_within_bound": True
+                }
+                raise supervisor.Refused("expected watchdog renewal refusal")
+
+    monkeypatch.setattr(acceptance, "AcceptanceObserver", Observer)
+    monkeypatch.setattr(acceptance.supervisor, "Broker", WatchdogBroker)
+    rc = acceptance.execute(
+        record["plan"],
+        state_dir=tmp_path / "lanes",
+        colab="fake-colab",
+        review_token=acceptance.REVIEW_TOKEN,
+        oauth_python="fake-python",
+    )
+    result = json.loads((Path(record["run_dir"]) / "acceptance-result.json").read_text())
+    l4 = result["final_plan"]["execution"][1]
+    assert l4["priced_rate_units_per_hour"] == (2.0 if include_calibration else None)
+    assert l4["measured_rate_units_per_hour"] == (1.54 if include_calibration else None)
+    assert l4["status"] == ("PASS" if include_calibration else "INCOMPLETE")
+    # This focused double does not fabricate every acceptance gate, so the
+    # overall qualification stays incomplete even when the L4 arm passes.
+    assert rc == 1

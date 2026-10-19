@@ -34,10 +34,17 @@ description: |
       never a reason to delete or overwrite evidence.
 - [ ] Count all account assignments, including notebook workers. The account-wide cap is three concurrent
       assignments. At admission, record every pre-existing endpoint and its reviewed positive units-per-hour rate in
-      `budget.other_assignments`; an unknown endpoint, provider-rate mismatch, or later unexplained-rate drift is a
-      refusal. No automatic allocation retries, job retries, or unit purchases.
-- [ ] Price setup, export, idle time, and reserve. First wall-clock or unit cap wins. CPU debit is measured, never
-      assumed zero. `rate_units_per_hour` charges the session from elapsed time. Cross-check the account debit only
+      `budget.other_assignments`; an unknown endpoint is a refusal. After allocation, calibrate a stable positive
+      observed provider rate (up to 120 seconds; three reads five seconds apart; within 0.01 units/hour) after
+      subtracting reconciled other assignments and allowing provider lag. Require observed <= priced upper-bound
+      rate + 0.05 units/hour; an unknown, unstable, unexplained, or over-ceiling calibration stops as INCOMPLETE.
+      Thereafter detect drift from the observed rate. No automatic allocation retries, job retries, or unit purchases.
+- [ ] Price setup, export, idle time, and reserve. First wall-clock or unit cap wins. `rate_units_per_hour` is the
+      conservative priced upper bound that charges the session from elapsed time; it remains the admission,
+      reservation, and cap rate after a lower observed rate is calibrated. CPU debit is measured, never assumed zero.
+      Acceptance defaults to priced ceilings of CPU 0.5 and L4 2.0 units/hour (overridable with `--cpu-rate` and
+      `--l4-rate`); measured CPU/L4 rates are outputs, not required inputs.
+      Cross-check the account debit only
       after subtracting the measured baseline rate of the accounted assignments. The five-minute provider-lag and
       rounding allowance produces a receipt warning, not a raw-account spending cap; never let Q1 or another lane's
       debit trip this session's cap. Default to CPU/L4; retain an H100 only for a finite priced, approved chain of

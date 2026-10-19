@@ -21,8 +21,8 @@ The two active notebook workers and Q1 are legacy-only work. Do not use this
 guide to alter, migrate, launch, or recover them; their Drive queue under
 `research/colab_queue/` remains outside this supervisor.
 
-The supervisor does not authorize spending. It refuses a job with an unknown
-CPU price, an unpriced hardware substitution, a missing input digest, a used
+The supervisor does not authorize spending. It refuses a job with a nonpositive
+priced rate ceiling, an unpriced hardware substitution, a missing input digest, a used
 output path, an unresolved broker record, or insufficient balance for the
 job cap plus reserve. It never buys units, retries an allocation, or starts a
 replacement runtime.
@@ -37,9 +37,12 @@ For one job, the supervisor:
    pending record is unresolved.
 2. Admits at most three account assignments, including notebook workers. Every
    assignment already present must have an endpoint and a reviewed positive
-   units-per-hour rate. It refuses an unaccounted endpoint or a provider rate
-   that does not match the priced assignment set within the configured
-   tolerance. A rate drift during polling is a hard refusal.
+   units-per-hour rate. It refuses an unaccounted endpoint. After allocation,
+   it calibrates the provider-reported rate by subtracting reconciled other
+   assignments, requires a stable positive observed rate no greater than the
+   priced ceiling plus tolerance, and then treats drift from that observed
+   rate as a hard refusal. The priced ceiling remains the admission and cap
+   rate.
 3. Uploads the commit-pinned source bundle and hash-bound inputs, starts one
    lease-fenced runtime child, and reads its immutable state. A polling RPC
    has an actual process timeout and a completion nonce. If an RPC is uncertain,
@@ -93,6 +96,10 @@ The manifest is one JSON object with these required fields.
 | `lease_seconds` | 180 through 600 seconds; default 180. |
 | `max_export_bytes` | Positive per-export maximum, at most 2 GiB. |
 
+`budget.rate_units_per_hour` is a conservative **priced upper-bound rate**.
+It controls admission, reserve calculation, and the session wall-clock unit
+cap. It is not an assertion that the provider will report that exact rate.
+
 `budget.other_assignments` is an endpoint-to-rate map for **every** assignment
 that exists before this job is allocated. For example, only after reviewing
 the current account state:
@@ -104,14 +111,24 @@ the current account state:
 }
 ```
 
-An empty map is valid only if `sessions` is empty at admission. The supervisor
-caps the job from its own pre-priced rate multiplied by elapsed wall time. It
-also cross-checks the account balance delta after subtracting the measured
-baseline rate of the other assignments. A provider-rate mismatch or later rate
-drift is a refusal. Account-wide balance is never a cap: it is an evidence
-cross-check with a five-minute accounted-rate lag allowance plus rounding. An
-unexplained balance discrepancy is recorded as a warning, not charged to this
-session or used to abort Q1 or another lane.
+An empty map is valid only if `sessions` is empty at admission. Immediately
+after allocation, the supervisor takes a bounded calibration read: up to 120
+seconds, three stable positive provider-rate reads five seconds apart, stable
+within 0.01 units/hour. It subtracts the reconciled baseline of other
+assignments while allowing provider lag. The observed session rate must be no
+more than the priced upper bound plus 0.05 units/hour. An unknown, unstable,
+unexplained, or over-ceiling result stops the job as `INCOMPLETE`. After a
+passing calibration, drift is tested against the observed rate; pricing and
+caps still use the priced upper bound. The receipt records the priced rate,
+observed rate, and samples in `rate-calibration.json` and `receipt.json`.
+The account lock covers allocation, watchdog setup, and calibration (or failure
+cleanup), so other broker lanes see only calibrated active records. Waiting
+lanes renew their leases and retain their wall and priced unit caps. The
+pre-existing endpoint set must remain unchanged during calibration; a changed
+baseline cannot safely identify this session's rate and stops the job.
+The account balance remains evidence only, with a
+five-minute accounted-rate lag allowance plus rounding; it never charges Q1 or
+another lane to this session.
 
 The job launcher must make units resumable, write progress with completed,
 total, and elapsed time about every two minutes, and publish a complete
@@ -206,7 +223,11 @@ Read-only account evidence is available after a supervisor action:
 
 ## Required acceptance before live research
 
-The acceptance plan stays within 4 units including its reserve. It is prepared
+The acceptance plan stays within 4 units including its reserve. CPU pricing
+defaults to a conservative 0.5 units/hour and L4 pricing defaults to 2.0
+units/hour; `--cpu-rate` and `--l4-rate` may override those pricing ceilings
+before allocation. The measured CPU and L4 rates are acceptance outputs, not
+required command inputs. It is prepared
 through `launch.sh`, so the AC, lid, and `caffeinate` protections apply. Its
 L4 arm deliberately suppresses Mac lease renewal and must show that the exact
 assignment disappears within 300 seconds **after lease expiry**. Its total
@@ -216,7 +237,7 @@ cleanup causes the disappearance, if cleanup has an error, or if any
 acceptance artifact is missing.
 
 See [`research/colab_cli/ACCEPTANCE.md`](../research/colab_cli/ACCEPTANCE.md)
-for the reviewed prepare and execute commands, current price inputs, artifacts,
+for the reviewed prepare and execute commands, pricing ceilings, artifacts,
 and all gates. Do not execute the live command until that separate review has
 occurred.
 

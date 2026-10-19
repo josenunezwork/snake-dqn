@@ -89,11 +89,49 @@ def test_confirm_requires_one_known_new_endpoint_and_expected_rate() -> None:
         _budget(other_assignments={"notebook-endpoint": 1.0}),
         now=10,
     )
-    with pytest.raises(accounting.AccountingError, match="does not match"):
+    with pytest.raises(accounting.AccountingError, match="exceeds priced upper bound"):
         unconfirmed.confirm_own_assignment(
             {"notebook-endpoint": "q1", "our-endpoint": "snake-lane"},
-            _usage(rate=2.5, assignments=2),
+            _usage(rate=3.5, assignments=2),
             "our-endpoint",
+        )
+
+
+def test_observed_rate_drives_drift_and_balance_but_priced_ceiling_still_caps() -> None:
+    tracker = accounting.admit_account({}, _usage(rate=0, assignments=0), _budget(), now=0)
+    tracker.confirm_own_assignment({"own": "lane"}, _usage(rate=1.54, assignments=1), "own")
+    result = tracker.check(_usage(rate=1.54, assignments=1), now=60, sessions={"own": "lane"})
+    assert result["own_elapsed_units"] == pytest.approx(2 / 60)
+    assert result["observed_elapsed_units"] == pytest.approx(1.54 / 60)
+    assert tracker.receipt()["priced_rate_units_per_hour"] == 2
+    assert tracker.receipt()["observed_rate_units_per_hour"] == 1.54
+    with pytest.raises(accounting.AccountingError, match="rate drift"):
+        tracker.check(_usage(rate=2, assignments=1), now=61, sessions={"own": "lane"})
+    with pytest.raises(accounting.AccountingError, match="priced session unit cap"):
+        tracker.check(_usage(rate=1.54, assignments=1), now=1800)
+
+
+def test_other_broker_lane_uses_observed_rate_instead_of_its_priced_ceiling() -> None:
+    tracker = accounting.admit_account(
+        {"other": "lane"},
+        _usage(rate=1.54, assignments=1),
+        _budget(),
+        active_records=[
+            {
+                "endpoint": "other",
+                "rate_units_per_hour": 2,
+                "priced_rate_units_per_hour": 2,
+                "observed_rate_units_per_hour": 1.54,
+            }
+        ],
+    )
+    assert tracker.accounted_assignments()["assignments"][0]["rate_units_per_hour"] == 1.54
+    with pytest.raises(accounting.AccountingError, match="observed_rate_units_per_hour"):
+        accounting.admit_account(
+            {"other": "lane"},
+            _usage(rate=2, assignments=1),
+            _budget(),
+            active_records=[{"endpoint": "other", "priced_rate_units_per_hour": 2}],
         )
 
 

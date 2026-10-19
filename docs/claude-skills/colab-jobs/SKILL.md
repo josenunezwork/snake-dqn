@@ -15,10 +15,16 @@ Every new job kind goes through `research/colab_cli/` (see `docs/colab-cli.md` f
 1. Pre-registration first for any learning experiment; manifests pin a full commit, Bash `.sh` script, env, requested
    GPU plus any pre-priced `allowed_gpus` substitution list, est/timeout, and fresh output dir. No Mac-only paths:
    ship hash-bound inputs in the uploaded bundle. At admission, account for every pre-existing session endpoint in
-   `budget.other_assignments` with a reviewed positive rate; unaccounted endpoints or a provider-rate mismatch
-   refuse the allocation. The job cap is its own price times elapsed time; the account balance is only a
+   `budget.other_assignments` with a reviewed positive rate; unaccounted endpoints refuse the allocation. After
+   allocation, take a bounded provider-rate calibration (up to 120 seconds, three stable positive reads five seconds
+   apart, stable within 0.01 units/hour) after subtracting reconciled other assignments and allowing provider lag.
+   Observed must be <= priced upper-bound rate + 0.05 units/hour; unknown, unstable, unexplained, or over-ceiling
+   calibration is INCOMPLETE. Thereafter provider-rate drift is checked against the observed rate, while the job cap
+   stays the priced upper bound times elapsed time. The account balance is only a
    baseline-subtracted reconciliation check with five minutes of provider-lag allowance. It records a warning, never
-   a raw-account cap that charges Q1 or another lane to this job. A later provider-rate drift is a hard refusal.
+   a raw-account cap that charges Q1 or another lane to this job.
+   Acceptance pricing defaults to CPU 0.5 and L4 2.0 units/hour, overridable with `--cpu-rate`/`--l4-rate`;
+   the measured CPU and L4 rates are outputs rather than required inputs.
 2. **Mac preflight of the real entrypoint** on a tiny real input with the manifest env (measured per-unit time x units
    / workers -> est; timeout >= 2x; progress lines every ~2 min; parallel workers for CPU-bound loops). Codex must
    load the `snake-dqn-colab-jobs` skill.

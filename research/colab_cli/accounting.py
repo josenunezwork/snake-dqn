@@ -68,7 +68,14 @@ def _active_rates(active_records: Iterable[Mapping[str, Any]]) -> dict[str, tupl
         endpoint = record.get("endpoint")
         if not isinstance(endpoint, str) or not endpoint:
             raise AccountingError("active broker record lacks endpoint")
-        rate = _rate(record, f"active record {endpoint} rate_units_per_hour")
+        # New broker records reserve a priced ceiling before calibration. That
+        # ceiling is never evidence of what another assignment actually bills.
+        field = (
+            "observed_rate_units_per_hour"
+            if "priced_rate_units_per_hour" in record
+            else "rate_units_per_hour"
+        )
+        rate = _rate(record.get(field), f"active record {endpoint} {field}")
         existing = result.get(endpoint)
         if existing and existing[0] != rate:
             raise AccountingError(f"conflicting active broker rates for {endpoint}")
@@ -122,6 +129,8 @@ class AccountTracker:
     integrated_other_units: float = 0.0
     current_other_rates: dict[str, tuple[float, str]] | None = None
     last_crosscheck: dict[str, float] | None = None
+    observed_rate_units_per_hour: float | None = None
+    calibration: dict[str, Any] | None = None
 
     def accounted_assignments(self) -> dict[str, Any]:
         """Stable evidence format suitable for admission and terminal receipts."""
@@ -153,6 +162,9 @@ class AccountTracker:
             {
                 "allocated_endpoint": self.endpoint,
                 "own_rate_units_per_hour": self.own_rate_units_per_hour,
+                "priced_rate_units_per_hour": self.own_rate_units_per_hour,
+                "observed_rate_units_per_hour": self.observed_rate_units_per_hour,
+                "calibration": self.calibration,
                 "unit_cap": self.unit_cap,
                 "integrated_accounted_other_units": self.integrated_other_units,
                 "last_crosscheck": self.last_crosscheck,
@@ -160,31 +172,53 @@ class AccountTracker:
         )
         return result
 
+    def calibration_read(
+        self,
+        sessions: Mapping[str, str],
+        usage: Mapping[str, Any],
+        endpoint: str,
+    ) -> float | None:
+        """Validate one provider sample; None means a still-lagging observation.
+
+        The broker requires repeated stable positive samples within its bounded
+        calibration window before calling confirm_own_assignment. Unknown
+        endpoints and an above-ceiling rate always fail immediately.
+        """
+        if not isinstance(endpoint, str) or not endpoint:
+            raise AccountingError("allocated endpoint must be a nonempty string")
+        now_sessions = dict(sessions)
+        expected = set(self.baseline_endpoints) | {endpoint}
+        if set(now_sessions) - expected or any(
+            now_sessions.get(e) != name for e, name in self.baseline_endpoints.items()
+        ):
+            raise AccountingError("assignment endpoints changed during allocation")
+        current = _usage(usage)
+        if int(current["assignments"]) > len(expected):
+            raise AccountingError(
+                "provider assignment count disagrees with sessions during allocation"
+            )
+        observed = current["rate"] - self.baseline_rate_units_per_hour
+        if observed > self.own_rate_units_per_hour + self.rate_tolerance_units_per_hour:
+            raise AccountingError("observed session rate exceeds priced upper bound plus tolerance")
+        if (
+            set(now_sessions) != expected
+            or int(current["assignments"]) != len(expected)
+            or observed <= 0
+        ):
+            return None
+        return observed
+
     def confirm_own_assignment(
         self,
         sessions: Mapping[str, str],
         usage: Mapping[str, Any],
         endpoint: str,
     ) -> dict[str, Any]:
-        """Confirm that allocation added exactly this priced assignment."""
-        if not isinstance(endpoint, str) or not endpoint:
-            raise AccountingError("allocated endpoint must be a nonempty string")
-        now_sessions = dict(sessions)
-        expected = set(self.baseline_endpoints) | {endpoint}
-        if set(now_sessions) != expected:
-            raise AccountingError("assignment endpoints changed during allocation")
-        current = _usage(usage)
-        if int(current["assignments"]) != len(now_sessions):
-            raise AccountingError(
-                "provider assignment count disagrees with sessions during allocation"
-            )
-        expected_rate = (
-            sum(rate for rate, _ in self.known_rates.values()) + self.own_rate_units_per_hour
-        )
-        if abs(current["rate"] - expected_rate) > self.rate_tolerance_units_per_hour:
-            raise AccountingError(
-                "provider usage rate does not match accounted assignments plus allocated session"
-            )
+        """Record a stable provider rate after broker-side bounded calibration."""
+        observed = self.calibration_read(sessions, usage, endpoint)
+        if observed is None:
+            raise AccountingError("provider session rate is unknown or not stabilized")
+        self.observed_rate_units_per_hour = observed
         self.endpoint = endpoint
         self.last_reconciled_monotonic = self.started_monotonic
         self.current_other_rates = dict(self.known_rates)
@@ -193,7 +227,9 @@ class AccountTracker:
             {
                 "allocated_endpoint": endpoint,
                 "allocated_rate_units_per_hour": self.own_rate_units_per_hour,
-                "observed_rate_units_per_hour": current["rate"],
+                "priced_rate_units_per_hour": self.own_rate_units_per_hour,
+                "observed_rate_units_per_hour": observed,
+                "observed_account_rate_units_per_hour": _usage(usage)["rate"],
             }
         )
         return result
@@ -213,7 +249,7 @@ class AccountTracker:
         intentionally allowed: their old price is integrated only through the
         last observation.
         """
-        if self.endpoint is None:
+        if self.endpoint is None or self.observed_rate_units_per_hour is None:
             raise AccountingError("allocation was not rate-confirmed")
         current = dict(sessions)
         if self.endpoint not in current:
@@ -272,7 +308,7 @@ class AccountTracker:
                 active_records=active_records,
                 budget_other_assignments=budget_other_assignments,
             )
-            expected_rate = self.own_rate_units_per_hour + sum(
+            expected_rate = self.observed_rate_units_per_hour + sum(
                 rate for rate, _ in self.current_other_rates.values()
             )
             if abs(current["rate"] - expected_rate) > self.rate_tolerance_units_per_hour:
@@ -281,9 +317,10 @@ class AccountTracker:
                 )
         observed_account_debit = self.baseline_balance_units - current["balance"]
         attributable_debit = max(0.0, observed_account_debit - self.integrated_other_units)
-        expected_account_debit = self.integrated_other_units + own_elapsed_units
+        observed_elapsed_units = elapsed * self.observed_rate_units_per_hour / 3600.0
+        expected_account_debit = self.integrated_other_units + observed_elapsed_units
         balance_discrepancy = observed_account_debit - expected_account_debit
-        rate_for_lag = self.own_rate_units_per_hour + sum(
+        rate_for_lag = self.observed_rate_units_per_hour + sum(
             rate for rate, _ in self.current_other_rates.values()
         )
         balance_tolerance = (
@@ -294,6 +331,7 @@ class AccountTracker:
         result = {
             "elapsed_seconds": elapsed,
             "own_elapsed_units": own_elapsed_units,
+            "observed_elapsed_units": observed_elapsed_units,
             "observed_account_debit_units": observed_account_debit,
             "baseline_integrated_units": self.integrated_other_units,
             "attributable_account_debit_units": attributable_debit,

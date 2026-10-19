@@ -103,6 +103,7 @@ def _new_session(state: dict[str, Any], name: str, gpu: str) -> None:
         "notebook_hash": os.environ.get("SNAKE_COLAB_NOTEBOOK_HASH"),
     }
     state["exec_count"][name] = 0
+    state["allocated_usage_reads"] = 0
     state["rate"] = float(state["rate"]) + float(os.environ.get("FAKE_COLAB_OWN_RATE", "6.84"))
     config = os.environ.get("FAKE_COLAB_ACTIVE_CONFIG")
     if config:
@@ -245,8 +246,15 @@ def main(argv: list[str]) -> int:
                 "| Shape: Standard | Variant: GPU"
             )
     elif op == "usage":
+        rate = float(state["rate"])
+        rates = json.loads(os.environ.get("FAKE_COLAB_USAGE_RATES", "[]"))
+        if rates and "allocated_usage_reads" in state and state["sessions"]:
+            index = state["allocated_usage_reads"]
+            rate = float(rates[min(index, len(rates) - 1)])
+            state["allocated_usage_reads"] = index + 1
+            _save(state)
         print(f"Current balance: {float(state['balance']):.2f} compute units")
-        print(f"Usage rate: {float(state['rate']):.2f}/hr")
+        print(f"Usage rate: {rate:.2f}/hr")
         print(f"Active assignments: {len(state['sessions'])}")
     elif op == "new":
         name = session

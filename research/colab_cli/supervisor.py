@@ -29,6 +29,10 @@ ACCOUNT_ROOT = Path.home() / ".config/colab-cli/snake"
 REPO = Path(__file__).resolve().parents[2]
 OAUTH_PYTHON = str(Path.home() / ".venvs/colab-cli/bin/python")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
+RATE_CALIBRATION_SECONDS = 120.0
+RATE_CALIBRATION_INTERVAL_SECONDS = 5.0
+RATE_CALIBRATION_STABLE_READS = 3
+RATE_CALIBRATION_STABILITY_UNITS_PER_HOUR = 0.01
 
 
 class Refused(RuntimeError):
@@ -104,6 +108,12 @@ def account_locked(cli: Any, *, cleanup: bool = False) -> Iterator[None]:
                     raise Refused("STOP_LOCK_UNAVAILABLE after 600s")
                 if not cleanup and cli.deadline is not None and time.monotonic() >= cli.deadline:
                     raise Refused("deadline reached while awaiting account broker")
+                if (
+                    not cleanup
+                    and cli.priced_deadline is not None
+                    and time.monotonic() >= cli.priced_deadline
+                ):
+                    raise Refused("priced session unit cap reached while awaiting account broker")
                 if not cleanup and cli.renew is not None:
                     cli.renew()
                 time.sleep(2)
@@ -230,6 +240,7 @@ class CLI:
         self.binary, self.config, self.session = binary, config, session
         self.exec_uncertain = False
         self.deadline: float | None = None
+        self.priced_deadline: float | None = None
         self.notebook_hash = uuid.uuid4().hex
         self.assignment_record = config.with_suffix(".assignment.json")
         self.oauth_python = os.environ.get("SNAKE_COLAB_OAUTH_PYTHON", OAUTH_PYTHON)
@@ -281,8 +292,8 @@ class CLI:
             raise Refused("unrecognized account sessions output")
         return {endpoint: name for name, endpoint in rows}
 
-    def usage(self) -> dict[str, float]:
-        output = self.call("usage")
+    def usage(self, timeout: float = 45) -> dict[str, float]:
+        output = self.call("usage", timeout=timeout)
         result = {}
         for key, label in (
             ("balance", "Current balance"),
@@ -507,6 +518,9 @@ class Broker:
             cli.deadline = min(
                 started + m["timeout_minutes"] * 60 - 45, (retained or {}).get("deadline", math.inf)
             )
+            cli.priced_deadline = (
+                started + m["budget"]["unit_cap"] * 3600 / m["budget"]["rate_units_per_hour"]
+            )
             endpoint = None
             usage_before = None
             accounting = None
@@ -517,8 +531,12 @@ class Broker:
             exports = []
             intent = ACCOUNT_ROOT / f"pending-{session}.json"
             active = ACCOUNT_ROOT / f"active-{session}.json"
-            try:
-                with account_locked(cli):
+            holding_admission = [False]
+            with contextlib.ExitStack() as admission_lock:
+                try:
+                    admission_lock.enter_context(account_locked(cli))
+                    holding_admission[0] = True
+                    admission_lock.callback(lambda: holding_admission.__setitem__(0, False))
                     if list(ACCOUNT_ROOT.glob("pending-*.json")):
                         raise Refused("unresolved allocation/stop: reconcile pending records first")
                     version = cli.call("version")
@@ -556,7 +574,7 @@ class Broker:
                     measured_before = dict(usage_before)
                     if reusing:
                         measured_before["assignments"] -= 1
-                        measured_before["rate"] -= m["budget"]["rate_units_per_hour"]
+                        measured_before["rate"] -= retained["observed_rate_units_per_hour"]
                     accounting = admit_account(
                         account_before, measured_before, m["budget"], active_records=reservations
                     )
@@ -611,100 +629,236 @@ class Broker:
                                 "unit_cap": reserved_cap,
                                 "reserve_units": reserve,
                                 "rate_units_per_hour": m["budget"]["rate_units_per_hour"],
+                                "priced_rate_units_per_hour": m["budget"]["rate_units_per_hour"],
+                                "observed_rate_units_per_hour": None,
                             },
                         )
-                terminal, exports = self.execute(
-                    cli, m, generation, output, started, usage_before, retained
-                )
-            except BaseException as exc:
-                error = redact(repr(exc))
-            finally:
-                # Recover identity from CLI metadata if allocation returned uncertain.
-                if endpoint is None and cli.config.exists():
-                    try:
-                        endpoint = (
-                            json.loads(cli.config.read_text()).get(session, {}).get("endpoint")
-                        )
-                    except (ValueError, OSError):
-                        pass
-                if endpoint is None and intent.exists():
-                    try:
-                        from research.colab_cli.cli_guard import recover_assignment
-
-                        if cli.assignment_record.exists():
-                            endpoint = json.loads(cli.assignment_record.read_text()).get("endpoint")
-                        if not endpoint:
-                            endpoint = recover_assignment(cli.oauth_python, cli.notebook_hash)
-                    except Exception as exc:
-                        cleanup = f"ALLOCATION_UNRESOLVED: {redact(repr(exc))}"
-                    if not endpoint:
-                        cleanup = cleanup or "ALLOCATION_UNRESOLVED: retained pending record"
-                keep = bool(retained is not None and not error)
-                if endpoint and not keep:
-                    try:
-                        with account_locked(cli, cleanup=True):
-                            if not intent.exists():
-                                write_once(
-                                    intent,
-                                    {
-                                        "session": session,
-                                        "config": str(cli.config),
-                                        "endpoint": endpoint,
-                                        "output": str(output),
-                                    },
-                                )
-                            stop_verified(cli, endpoint)
-                            cli.deadline = None  # Only read account data after verified release.
-                            intent.unlink()
-                            active.unlink(missing_ok=True)
-                    except BaseException as exc:
-                        cleanup = redact(repr(exc))
-                    if cleanup is None:
-                        try:
-                            usage_after = cli.usage()
-                        except BaseException as exc:
-                            error = error or f"final usage unavailable: {redact(repr(exc))}"
-                if not keep and not cleanup and m.get("backup_dir"):
-                    try:
-                        self.backup(output, m["backup_dir"], job, generation)
-                    except BaseException as exc:
-                        error = error or redact(repr(exc))
-                receipt = {
-                    "job_id": job,
-                    "generation": generation,
-                    "commit": m["commit"],
-                    "manifest_sha256": sha256(output / "manifest.json"),
-                    "session": session,
-                    "supervisor_sha256": sha256(Path(__file__)),
-                    "endpoint": endpoint,
-                    "usage_before": usage_before,
-                    "usage_after": usage_after,
-                    "accounting": accounting.receipt() if accounting else None,
-                    "elapsed_seconds": time.monotonic() - started,
-                    "terminal": terminal,
-                    "exports": exports,
-                    "error": error,
-                    "cleanup_error": cleanup,
-                    "status": (
-                        ("COMPLETED_SESSION_RETAINED" if keep else "PASS")
-                        if not error and not cleanup
-                        else "INCOMPLETE"
-                    ),
-                    "stop_verified": bool(endpoint and not cleanup and not keep),
-                }
-                write_once(output / "receipt.json", receipt)
-                if keep:
-                    retained.update(cli=cli, endpoint=endpoint, active=active, intent=intent)
-                    retained.setdefault("completed", []).append(
-                        ("/content/snake-cli/" + generation, generation)
+                    terminal, exports = self.execute(
+                        cli, m, generation, output, started, usage_before, retained, admission_lock
                     )
-                    retained.setdefault("outputs", []).append(str(output))
-                    if m.get("backup_dir"):
-                        retained.setdefault("backups", []).append(
-                            (output, m["backup_dir"], job, generation)
+                except BaseException as exc:
+                    error = redact(repr(exc))
+                finally:
+                    # Recover identity from CLI metadata if allocation returned uncertain.
+                    if endpoint is None and cli.config.exists():
+                        try:
+                            endpoint = (
+                                json.loads(cli.config.read_text()).get(session, {}).get("endpoint")
+                            )
+                        except (ValueError, OSError):
+                            pass
+                    if endpoint is None and intent.exists():
+                        try:
+                            from research.colab_cli.cli_guard import recover_assignment
+
+                            if cli.assignment_record.exists():
+                                endpoint = json.loads(cli.assignment_record.read_text()).get(
+                                    "endpoint"
+                                )
+                            if not endpoint:
+                                endpoint = recover_assignment(cli.oauth_python, cli.notebook_hash)
+                        except Exception as exc:
+                            cleanup = f"ALLOCATION_UNRESOLVED: {redact(repr(exc))}"
+                        if not endpoint:
+                            cleanup = cleanup or "ALLOCATION_UNRESOLVED: retained pending record"
+                    keep = bool(retained is not None and not error)
+                    if endpoint and not keep:
+                        try:
+                            with (
+                                contextlib.nullcontext()
+                                if holding_admission[0]
+                                else account_locked(cli, cleanup=True)
+                            ):
+                                if not intent.exists():
+                                    write_once(
+                                        intent,
+                                        {
+                                            "session": session,
+                                            "config": str(cli.config),
+                                            "endpoint": endpoint,
+                                            "output": str(output),
+                                        },
+                                    )
+                                stop_verified(cli, endpoint)
+                                cli.deadline = (
+                                    None  # Only read account data after verified release.
+                                )
+                                intent.unlink()
+                                active.unlink(missing_ok=True)
+                        except BaseException as exc:
+                            cleanup = redact(repr(exc))
+                        if cleanup is None:
+                            try:
+                                usage_after = cli.usage()
+                            except BaseException as exc:
+                                error = error or f"final usage unavailable: {redact(repr(exc))}"
+                    if not keep and not cleanup and m.get("backup_dir"):
+                        try:
+                            self.backup(output, m["backup_dir"], job, generation)
+                        except BaseException as exc:
+                            error = error or redact(repr(exc))
+                    receipt = {
+                        "job_id": job,
+                        "generation": generation,
+                        "commit": m["commit"],
+                        "manifest_sha256": sha256(output / "manifest.json"),
+                        "session": session,
+                        "supervisor_sha256": sha256(Path(__file__)),
+                        "endpoint": endpoint,
+                        "usage_before": usage_before,
+                        "usage_after": usage_after,
+                        "accounting": accounting.receipt() if accounting else None,
+                        "elapsed_seconds": time.monotonic() - started,
+                        "terminal": terminal,
+                        "exports": exports,
+                        "error": error,
+                        "cleanup_error": cleanup,
+                        "status": (
+                            ("COMPLETED_SESSION_RETAINED" if keep else "PASS")
+                            if not error and not cleanup
+                            else "INCOMPLETE"
+                        ),
+                        "stop_verified": bool(endpoint and not cleanup and not keep),
+                    }
+                    write_once(output / "receipt.json", receipt)
+                    if keep:
+                        retained.update(
+                            cli=cli,
+                            endpoint=endpoint,
+                            active=active,
+                            intent=intent,
+                            observed_rate_units_per_hour=accounting.observed_rate_units_per_hour,
                         )
-            if error or cleanup:
-                raise Refused(f"INCOMPLETE: {error or cleanup}; receipt: {output / 'receipt.json'}")
+                        retained.setdefault("completed", []).append(
+                            ("/content/snake-cli/" + generation, generation)
+                        )
+                        retained.setdefault("outputs", []).append(str(output))
+                        if m.get("backup_dir"):
+                            retained.setdefault("backups", []).append(
+                                (output, m["backup_dir"], job, generation)
+                            )
+                if error or cleanup:
+                    raise Refused(
+                        f"INCOMPLETE: {error or cleanup}; receipt: {output / 'receipt.json'}"
+                    )
+
+    def calibrate_rate(
+        self,
+        cli: CLI,
+        m: dict[str, Any],
+        output: Path,
+        started: float,
+        retained: dict[str, Any] | None,
+        *,
+        account_lock_held: bool = False,
+    ) -> None:
+        """Bound provider lag before admitting useful work; ceilings still cap spend.
+
+        The pending record blocks new broker allocations while this assignment
+        is uncalibrated. The armed watchdog is renewed between reads. Existing
+        endpoints must remain unchanged: a changed baseline cannot calibrate
+        an individual account-rate delta safely.
+        """
+        tracker = cli.accounting
+        original_deadline = cli.deadline
+        calibration_started = time.monotonic()
+        deadline = min(
+            original_deadline,
+            calibration_started + RATE_CALIBRATION_SECONDS,
+            started + tracker.unit_cap * 3600 / tracker.own_rate_units_per_hour,
+        )
+        cli.deadline = deadline
+        evidence = {
+            "status": "INCOMPLETE",
+            "priced_rate_units_per_hour": tracker.own_rate_units_per_hour,
+            "observed_rate_units_per_hour": None,
+            "timeout_seconds": RATE_CALIBRATION_SECONDS,
+            "interval_seconds": RATE_CALIBRATION_INTERVAL_SECONDS,
+            "required_stable_reads": RATE_CALIBRATION_STABLE_READS,
+            "stability_units_per_hour": RATE_CALIBRATION_STABILITY_UNITS_PER_HOUR,
+            "samples": [],
+        }
+        tracker.calibration = evidence
+        stable: list[float] = []
+        endpoint = json.loads(cli.config.read_text())[cli.session]["endpoint"]
+
+        def remaining() -> float:
+            seconds = deadline - time.monotonic()
+            if seconds <= 0:
+                raise Refused("provider rate calibration did not stabilize within bounded window")
+            return min(20.0, seconds)
+
+        try:
+            # Count bound also protects against a stalled/test monotonic clock.
+            for sample in range(
+                int(RATE_CALIBRATION_SECONDS / RATE_CALIBRATION_INTERVAL_SECONDS) + 1
+            ):
+                remaining()
+                if (
+                    time.monotonic() - started
+                ) * tracker.own_rate_units_per_hour / 3600 >= tracker.unit_cap:
+                    raise Refused("priced session unit cap reached during calibration")
+                if cli.renew:
+                    cli.renew()
+                with contextlib.nullcontext() if account_lock_held else account_locked(cli):
+                    assignments = cli.sessions(timeout=remaining())
+                    usage = cli.usage(timeout=remaining())
+                    remaining()
+                    reading = {
+                        "elapsed_seconds": time.monotonic() - calibration_started,
+                        "sessions": assignments,
+                        "usage": usage,
+                    }
+                    evidence["samples"].append(reading)
+                    write_once(output / f"rate-calibration-{sample:03d}.json", reading)
+                    if max(len(assignments), usage["assignments"]) > 3:
+                        raise Refused("account concurrency changed during allocation")
+                    if usage["balance"] <= m["budget"]["reserve_units"]:
+                        raise Refused("study reserve reached during calibration")
+                    if endpoint in assignments and assignments[endpoint] != cli.session:
+                        raise Refused("allocated assignment identity not confirmed by backend")
+                    observed = tracker.calibration_read(assignments, usage, endpoint)
+                    if observed is None:
+                        stable = []
+                    else:
+                        stable.append(observed)
+                        stable = stable[-RATE_CALIBRATION_STABLE_READS:]
+                        if (
+                            max(stable) - min(stable)
+                            > RATE_CALIBRATION_STABILITY_UNITS_PER_HOUR + 1e-9
+                        ):
+                            stable = [observed]
+                    if len(stable) == RATE_CALIBRATION_STABLE_READS:
+                        previous = (retained or {}).get("observed_rate_units_per_hour")
+                        if (
+                            previous is not None
+                            and abs(observed - previous) > tracker.rate_tolerance_units_per_hour
+                        ):
+                            raise Refused("provider usage rate drift in retained assignment")
+                        tracker.confirm_own_assignment(assignments, usage, endpoint)
+                        active = ACCOUNT_ROOT / f"active-{cli.session}.json"
+                        record = json.loads(active.read_text())
+                        record["observed_rate_units_per_hour"] = observed
+                        replacement = active.with_name(f".calibrated-{uuid.uuid4().hex}.json")
+                        try:
+                            write_once(replacement, record)
+                            os.replace(replacement, active)
+                        finally:
+                            replacement.unlink(missing_ok=True)
+                        write_once(output / "usage-allocated.json", usage)
+                        (ACCOUNT_ROOT / f"pending-{cli.session}.json").unlink(missing_ok=True)
+                        evidence.update(status="PASS", observed_rate_units_per_hour=observed)
+                        return
+                delay = min(RATE_CALIBRATION_INTERVAL_SECONDS, max(0, deadline - time.monotonic()))
+                if delay:
+                    time.sleep(delay)
+            raise Refused("provider rate calibration did not stabilize within bounded window")
+        except BaseException as exc:
+            evidence["error"] = redact(repr(exc))
+            raise
+        finally:
+            cli.deadline = original_deadline
+            write_once(output / "rate-calibration.json", evidence)
 
     def execute(
         self,
@@ -715,6 +869,7 @@ class Broker:
         started: float,
         baseline: dict[str, float],
         retained: dict[str, Any] | None = None,
+        admission_lock: contextlib.ExitStack | None = None,
     ) -> tuple[Any, list[Any]]:
         """Arm the runtime watchdog before starting any slow dependency work."""
         root = "/content/snake-cli/" + generation
@@ -821,18 +976,13 @@ class Broker:
 
             cli.renew = renew
             renew()
-            with account_locked(cli):
-                assignments = cli.sessions()
-                if sum(name == cli.session for name in assignments.values()) != 1:
-                    raise Refused("allocated assignment identity not confirmed by backend")
-                priced = cli.usage()
-                if max(len(assignments), priced["assignments"]) > 3:
-                    raise Refused("account concurrency changed during allocation")
-                cli.accounting.confirm_own_assignment(
-                    assignments, priced, next(e for e, n in assignments.items() if n == cli.session)
-                )
-                write_once(output / "usage-allocated.json", priced)
-                (ACCOUNT_ROOT / f"pending-{cli.session}.json").unlink(missing_ok=True)
+            self.calibrate_rate(
+                cli, m, output, started, retained, account_lock_held=admission_lock is not None
+            )
+            # Until calibration is durable, no other lane can observe an active
+            # record with an unknown rate. Waiting lanes renew their watchdogs.
+            if admission_lock is not None:
+                admission_lock.close()
             if self.observer:
                 self.observer(
                     "runtime_started",
