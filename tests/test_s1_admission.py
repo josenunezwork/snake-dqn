@@ -175,7 +175,7 @@ def test_primary_forecast_fits_caps_without_pre_funding_optional_reruns() -> Non
 
     root = admission.ROOT / "research/s1_mature_20261018"
     forecast = price.forecast(
-        root / "EVAL_PREFLIGHT_FINAL.json", root / "TRAIN_PREFLIGHT_FINAL_ONLY.json"
+        root / "EVAL_PREFLIGHT_FINAL.json", root / "TRAIN_PREFLIGHT_DISPATCH03.json"
     )
     hard = forecast["primary_hard_reservation"]
     assert hard["gpu_allocation_hours"] == pytest.approx(5 * (65 + 141) / 60 + 2)
@@ -200,7 +200,7 @@ def test_prepare_matches_pricing_and_uploads_bound_acceptance(
     acceptance = Path(transport["cli_acceptance_receipt"]["path"])
     forecast = price.forecast(
         root / "EVAL_PREFLIGHT_FINAL.json",
-        root / "TRAIN_PREFLIGHT_FINAL_ONLY.json",
+        root / "TRAIN_PREFLIGHT_DISPATCH03.json",
         acceptance_path=acceptance,
     )
     pricing = tmp_path / "pricing.json"

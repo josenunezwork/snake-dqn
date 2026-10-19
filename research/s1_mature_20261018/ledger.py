@@ -20,6 +20,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from research.s1_mature_20261018 import manifests
+
 SCHEMA = "s1-mature-ledger/v1"
 REVIEW_SCHEMA = "s1-cli-acceptance-review/v1"
 USABLE_CAPS = {
@@ -39,6 +41,7 @@ DIMENSIONS = tuple(USABLE_CAPS)
 OPERATIONAL_FAILURES = frozenset({"disconnect", "transfer_failure", "runtime_reclaim"})
 PREALLOCATION_REFUSAL_SCHEMA = "s1-preallocation-refusal/v1"
 STAGING_FAILURE_REVIEW_SCHEMA = "s1-pretraining-staging-failure-review/v1"
+QUALIFICATION_FAILURE_REVIEW_SCHEMA = "s1-pretraining-qualification-failure-review/v1"
 
 
 class Refused(RuntimeError):
@@ -116,6 +119,10 @@ def frozen_manifest_identity(manifest: Mapping[str, Any]) -> dict[str, Any]:
     value = dict(manifest)
     value.pop("commit", None)
     value.pop("output_dir", None)
+    # This is an uploaded source-layout hint.  It does not select a recipe,
+    # seed, checkpoint, or other scientific input; a new source path may be
+    # needed to make a previously missing runtime module importable.
+    value.pop("source_paths", None)
     inputs = value.pop("inputs", None)
     if not isinstance(inputs, list):
         raise Refused("manifest inputs must be a list")
@@ -137,8 +144,26 @@ def validate_staging_continuation(
     A fresh final-only acceptance may replace only ``cli-acceptance-result.json``;
     it must exactly match the review's hash-bound acceptance-result evidence.
     """
+    # Dispatch-03's repair may add precisely the reviewed runtime source list
+    # and requirements selector.  They only control transport/bootstrap; every
+    # other environment value remains frozen.
+    old_env = previous.get("env")
+    new_env = refreshed.get("env")
+    if not isinstance(old_env, Mapping) or not isinstance(new_env, Mapping):
+        raise Refused("manifest env must be an object")
+    old_paths = previous.get("source_paths")
+    new_paths = refreshed.get("source_paths")
+    expected_env = dict(old_env)
+    expected_env["COLAB_CLI_REQUIREMENTS"] = manifests.RUNTIME_REQUIREMENTS
+    repaired_transport = dict(new_env) == expected_env and new_paths == list(
+        manifests.RUNTIME_SOURCE_PATHS
+    )
+    unchanged_transport = dict(new_env) == dict(old_env) and new_paths == old_paths
+    if not (repaired_transport or unchanged_transport):
+        raise Refused("refreshed manifest changes frozen environment or runtime source paths")
     old = frozen_manifest_identity(previous)
     new = frozen_manifest_identity(refreshed)
+    old["env"], new["env"] = expected_env, expected_env
     old_inputs, new_inputs = old.pop("inputs"), new.pop("inputs")
     if old != new:
         raise Refused("refreshed manifest changes frozen scientific identity")
@@ -383,6 +408,52 @@ class Ledger:
             state["events"].append(
                 {
                     "kind": "pretraining_staging_failure",
+                    "job_id": job_id,
+                    "at": self.clock(),
+                    "manifest": entry["manifest"],
+                    "receipt": self._evidence(receipt_path),
+                    "review": self._evidence(review_path),
+                }
+            )
+            return self._summary(state)
+
+    def settle_pretraining_qualification_failure(
+        self, job_id: str, receipt_path: str | Path, review_path: str | Path
+    ) -> dict[str, Any]:
+        """Charge a reviewed failed qualification without consuming the seed rerun.
+
+        Unlike input staging, this admits a launched trainer only when its
+        qualification fixture failed before training metrics or training exports
+        could exist.  The same registered job is restored to ``planned``.
+        """
+        with self._locked() as state:
+            self._verify_static_evidence(state)
+            entry = state["outstanding"].get(job_id)
+            if entry is None:
+                raise Refused("no outstanding reservation for job")
+            receipt = self._qualification_failure_receipt(receipt_path, entry["manifest"])
+            review = self._qualification_failure_review(
+                review_path, job_id, receipt_path, entry["manifest"]
+            )
+            actual = self._staging_actual(receipt, entry)
+            settlement_id = f"qualification-failure:{job_id}"
+            if settlement_id in state["settled"]:
+                raise Refused("pre-training qualification failure is already settled")
+            state["settled"][settlement_id] = {
+                "actual": actual,
+                "receipt": self._evidence(receipt_path),
+                "source_manifest": entry["manifest"],
+                "qualification_failure_review": self._evidence(review_path),
+                "failure_classification": review["failure_classification"],
+                "original_bound": entry["bound"],
+                "settled_at": self.clock(),
+            }
+            state["planned"][job_id] = entry["bound"]
+            del state["outstanding"][job_id]
+            self._verify_invariants(state, require_snapshot=False)
+            state["events"].append(
+                {
+                    "kind": "pretraining_qualification_failure",
                     "job_id": job_id,
                     "at": self.clock(),
                     "manifest": entry["manifest"],
@@ -846,13 +917,25 @@ class Ledger:
         for job_id, item in state["settled"].items():
             if sha256(Path(item["receipt"]["path"])) != item["receipt"]["sha256"]:
                 raise Refused(f"settled receipt evidence changed: {job_id}")
-            for name in ("source_manifest", "operational_failure_review", "staging_failure_review"):
+            for name in (
+                "source_manifest",
+                "operational_failure_review",
+                "staging_failure_review",
+                "qualification_failure_review",
+            ):
                 if name in item and sha256(Path(item[name]["path"])) != item[name]["sha256"]:
                     raise Refused(f"settled {name} evidence changed: {job_id}")
             if "staging_failure_review" in item:
                 self._staging_failure_review(
                     item["staging_failure_review"]["path"],
                     job_id.removeprefix("staging-failure:"),
+                    item["receipt"]["path"],
+                    item["source_manifest"],
+                )
+            if "qualification_failure_review" in item:
+                self._qualification_failure_review(
+                    item["qualification_failure_review"]["path"],
+                    job_id.removeprefix("qualification-failure:"),
                     item["receipt"]["path"],
                     item["source_manifest"],
                 )
@@ -922,6 +1005,23 @@ class Ledger:
         error = data.get("error")
         if not isinstance(error, str) or "upload" not in error.lower() or "/inputs/" not in error:
             raise Refused("receipt does not prove an input-staging failure")
+        return data
+
+    def _qualification_failure_receipt(
+        self, path: str | Path, manifest: Mapping[str, str]
+    ) -> dict[str, Any]:
+        """Validate the supervisor facts for a failed pre-training fixture."""
+        receipt_path = Path(path).resolve(strict=True)
+        data = json.loads(receipt_path.read_text())
+        if data.get("status") != "INCOMPLETE" or data.get("stop_verified") is not True:
+            raise Refused("qualification failure lacks verified stop/disappearance")
+        if data.get("cleanup_error") is not None or not data.get("endpoint"):
+            raise Refused("qualification failure cleanup or endpoint evidence is incomplete")
+        self._receipt_manifest_bound(receipt_path, data, manifest)
+        if data.get("exports") != []:
+            raise Refused("exports exist or are ambiguous; qualification settlement is ineligible")
+        if not isinstance(data.get("error"), str):
+            raise Refused("qualification failure receipt lacks an error")
         return data
 
     @staticmethod
@@ -1006,6 +1106,104 @@ class Ledger:
             or value.get("exports_present") is not False
         ):
             raise Refused("staging failure review lacks owner-approved no-training evidence")
+        return value
+
+    def _qualification_failure_review(
+        self, path: str | Path, job_id: str, receipt_path: str | Path, manifest: Mapping[str, str]
+    ) -> dict[str, Any]:
+        """Require reviewed, hash-bound proof that qualification blocked training."""
+        review_path = Path(path).resolve(strict=True)
+        receipt_path = Path(receipt_path).resolve(strict=True)
+        value = json.loads(review_path.read_text())
+        required = (
+            value.get("schema") == QUALIFICATION_FAILURE_REVIEW_SCHEMA
+            and value.get("status") == "PASS"
+            and value.get("job_id") == job_id
+            and value.get("manifest_sha256") == manifest["sha256"]
+            and value.get("receipt_sha256") == sha256(Path(receipt_path))
+            and value.get("failure_classification") == "pretraining_qualification_failure"
+            and value.get("owner_approved") is True
+            and value.get("trainer_process_started") is True
+            and value.get("qualification_passed") is False
+            and value.get("training_metrics_written") is False
+            and value.get("training_exports_present") is False
+            and value.get("no_efficacy_look") is True
+        )
+        if not required:
+            raise Refused("qualification failure review lacks approved no-training evidence")
+        for field in ("terminal_evidence", "poll_evidence"):
+            item = value.get(field)
+            if not isinstance(item, Mapping):
+                raise Refused("qualification failure review lacks bound terminal evidence")
+            self._verify_bound_file(item, field)
+        terminal_path = Path(value["terminal_evidence"]["path"]).resolve()
+        poll_path = Path(value["poll_evidence"]["path"]).resolve()
+        if terminal_path.parent != receipt_path.parent or terminal_path.name != "terminal.json":
+            raise Refused("terminal evidence is not from the receipt artifact root")
+        if poll_path.parent != receipt_path.parent or not poll_path.name.startswith("poll-"):
+            raise Refused("poll evidence is not from the receipt artifact root")
+        terminal = json.loads(terminal_path.read_text())
+        if (
+            terminal.get("status") != "failed"
+            or terminal.get("exports") != []
+            or terminal.get("generation") != json.loads(receipt_path.read_text()).get("generation")
+            or terminal.get("job_id") != job_id
+            or not isinstance(terminal.get("returncode"), int)
+            or terminal["returncode"] == 0
+        ):
+            raise Refused("terminal evidence permits training exports")
+        poll_value = json.loads(poll_path.read_text())
+        poll_terminal = poll_value.get("terminal")
+        if (
+            not isinstance(poll_terminal, Mapping)
+            or poll_terminal.get("generation") != terminal.get("generation")
+            or poll_terminal.get("job_id") != job_id
+            or poll_terminal.get("returncode") != terminal.get("returncode")
+        ):
+            raise Refused("poll evidence is not bound to the failed terminal")
+        poll_text = poll_path.read_text(errors="replace")
+        if "q0b_cuda_fixtures" not in poll_text or "non-zero exit status" not in poll_text:
+            raise Refused("poll evidence does not prove qualification fixture failure")
+
+        def has_training_progress(value: Any) -> bool:
+            if isinstance(value, Mapping):
+                if (
+                    value.get("phase") == "training"
+                    or _number(value.get("done", 0), "poll progress.done") > 0
+                ):
+                    return True
+                return any(has_training_progress(item) for item in value.values())
+            if isinstance(value, list):
+                return any(has_training_progress(item) for item in value)
+            if isinstance(value, str):
+                for line in value.splitlines():
+                    try:
+                        if has_training_progress(json.loads(line)):
+                            return True
+                    except json.JSONDecodeError:
+                        continue
+            return False
+
+        for candidate in receipt_path.parent.glob("poll-*.json"):
+            try:
+                candidate_value = json.loads(candidate.read_text())
+            except json.JSONDecodeError as exc:
+                raise Refused("poll evidence is malformed") from exc
+            if has_training_progress(candidate_value):
+                raise Refused("poll evidence records training progress")
+        exports_dir = receipt_path.parent / "exports"
+        if exports_dir.is_dir() and any(
+            candidate.is_file() for candidate in exports_dir.rglob("*")
+        ):
+            raise Refused("training export exists in the receipt artifact root")
+        forbidden = {"summary.json", "final.pth", "target.pth", "outcome.json", "metrics.json"}
+        for candidate in receipt_path.parent.rglob("*"):
+            if candidate.is_file() and (
+                candidate.name in forbidden
+                or "metric" in candidate.name.lower()
+                or candidate.suffix in {".pth", ".jsonl"}
+            ):
+                raise Refused("training metric or export exists in the receipt artifact root")
         return value
 
     def _preallocation_refusal_review(
@@ -1260,6 +1458,10 @@ def main() -> None:
     staging.add_argument("job_id")
     staging.add_argument("--receipt", type=Path, required=True)
     staging.add_argument("--review", type=Path, required=True)
+    qualification = subparsers.add_parser("settle-pretraining-qualification-failure")
+    qualification.add_argument("job_id")
+    qualification.add_argument("--receipt", type=Path, required=True)
+    qualification.add_argument("--review", type=Path, required=True)
     requalify = subparsers.add_parser("requalify-acceptance")
     requalify.add_argument("--review", type=Path, required=True)
     args = parser.parse_args()
@@ -1272,6 +1474,10 @@ def main() -> None:
         )
     elif args.command == "settle-pretraining-staging-failure":
         result = worker_ledger.settle_pretraining_staging_failure(
+            args.job_id, args.receipt, args.review
+        )
+    elif args.command == "settle-pretraining-qualification-failure":
+        result = worker_ledger.settle_pretraining_qualification_failure(
             args.job_id, args.receipt, args.review
         )
     elif args.command == "requalify-acceptance":

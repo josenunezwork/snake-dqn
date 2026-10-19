@@ -23,6 +23,31 @@ ESTIMATE_MINUTES = {"n3": 30, "n1": 68}
 TIMEOUT_MINUTES = {"n3": 60, "n1": 136}
 MAX_EXPORT_BYTES = 64 * 1024**2
 RELEASE_BASE = "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019"
+RUNTIME_REQUIREMENTS = "research/s1_mature_20261018/requirements-runtime.txt"
+# Explicitly retain qualification and trainer imports in the outage fallback.
+RUNTIME_SOURCE_PATHS = (
+    "src",
+    "configs",
+    "web/backend",
+    "research/colab_cli",
+    "research/s1_mature_20261018",
+    "research/q0q1_20261017",
+    "research/redesign_m3c_20261008",
+    "research/redesign_m2_20261008/gen_data.py",
+    "research/redesign_m2_20261008/ni_spec.py",
+    "research/redesign_scope_20261007",
+    "research/t23_r0_screen_20261017",
+    "research/apex_safety_20260926/dev_screen.py",
+    "research/apex_safety_20260926/deployment.yaml",
+    "tests/__init__.py",
+    "tests/test_t22_frozen_pool.py",
+    "tests/test_t22_random_safe.py",
+    "tests/test_t24_v8_bodymap.py",
+    "tests/fixtures/t22",
+    "tests/fixtures/t24",
+    "requirements.txt",
+    "pyproject.toml",
+)
 
 
 class ManifestRefused(ValueError):
@@ -211,7 +236,9 @@ def make_manifests(
                     "job_id": job_id,
                     "commit": published_commit,
                     "script": "research/s1_mature_20261018/train.sh",
+                    "source_paths": list(RUNTIME_SOURCE_PATHS),
                     "env": {
+                        "COLAB_CLI_REQUIREMENTS": RUNTIME_REQUIREMENTS,
                         "PYTHONUNBUFFERED": "1",
                         "S1_ARM": arm,
                         "S1_SEED": str(seed),

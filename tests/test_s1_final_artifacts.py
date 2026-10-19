@@ -33,7 +33,7 @@ def test_final_artifact_transport_charges_enforced_cap_at_measured_rate(
     root = final_artifacts.ROOT / "research/s1_mature_20261018"
     forecast = price.forecast(
         root / "EVAL_PREFLIGHT_FINAL.json",
-        root / "TRAIN_PREFLIGHT_FINAL_ONLY.json",
+        root / "TRAIN_PREFLIGHT_DISPATCH03.json",
         acceptance_path=path,
     )
     assert forecast["status"] == "PASS"
@@ -85,7 +85,7 @@ def test_s1_forecast_refuses_invalid_acceptance(
     root = final_artifacts.ROOT / "research/s1_mature_20261018"
     forecast = price.forecast(
         root / "EVAL_PREFLIGHT_FINAL.json",
-        root / "TRAIN_PREFLIGHT_FINAL_ONLY.json",
+        root / "TRAIN_PREFLIGHT_DISPATCH03.json",
         acceptance_path=path,
     )
     assert forecast["status"] == "REFUSED"
@@ -106,7 +106,7 @@ def test_s1_forecast_refuses_usable_cap_overrun(
     root = final_artifacts.ROOT / "research/s1_mature_20261018"
     forecast = price.forecast(
         root / "EVAL_PREFLIGHT_FINAL.json",
-        root / "TRAIN_PREFLIGHT_FINAL_ONLY.json",
+        root / "TRAIN_PREFLIGHT_DISPATCH03.json",
         acceptance_path=path,
     )
     assert forecast["status"] == "REFUSED"

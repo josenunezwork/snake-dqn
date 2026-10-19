@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from research.s1_mature_20261018 import manifests
 from research.s1_mature_20261018.ledger import (
     Ledger,
     Refused,
@@ -678,6 +679,7 @@ def test_pretraining_staging_failure_charges_actual_and_restores_same_job(prepar
     summary = worker_ledger.settle_pretraining_staging_failure("train-a", receipt, review)
     assert summary["outstanding_jobs"] == []
     assert "train-a" in summary["planned_jobs"]
+    assert worker_ledger.status()["outstanding_jobs"] == []
     assert summary["spent"]["units"] == pytest.approx(2.2)
     state = json.loads(worker_ledger.path.read_text())
     settled = state["settled"]["staging-failure:train-a"]
@@ -714,6 +716,257 @@ def test_pretraining_staging_failure_refuses_trainer_or_exports(prepared, field,
     assert worker_ledger.status()["outstanding_jobs"] == ["train-a"]
 
 
+def test_pretraining_qualification_failure_charges_actual_and_restores_same_job(prepared):
+    worker_ledger, root, _ = prepared
+    source = manifest(root / "qualification-manifest.json")
+    worker_ledger.reserve("train-a", bound(), source)
+    terminal = dump(
+        root / "terminal.json",
+        {
+            "status": "failed",
+            "exports": [],
+            "generation": "g",
+            "job_id": "train-a",
+            "returncode": 2,
+        },
+    )
+    poll = dump(
+        root / "poll-000001.json",
+        {
+            "job_log_tail": "q0b_cuda_fixtures returned non-zero exit status 2",
+            "terminal": json.loads(terminal.read_text()),
+        },
+    )
+    receipt = dump(
+        root / "qualification-receipt.json",
+        {
+            "status": "INCOMPLETE",
+            "stop_verified": True,
+            "cleanup_error": None,
+            "endpoint": "l4-endpoint",
+            "generation": "g",
+            "exports": [],
+            "error": "Refused('remote terminal failed')",
+            "manifest_sha256": digest(source),
+            "usage_before": {"balance": 100, "assignments": 0, "rate": 0},
+            "usage_after": {"balance": 99.8, "assignments": 0, "rate": 0},
+            "elapsed_seconds": 10,
+        },
+    )
+    review = dump(
+        root / "qualification-review.json",
+        {
+            "schema": "s1-pretraining-qualification-failure-review/v1",
+            "status": "PASS",
+            "job_id": "train-a",
+            "manifest_sha256": digest(source),
+            "receipt_sha256": digest(receipt),
+            "failure_classification": "pretraining_qualification_failure",
+            "owner_approved": True,
+            "trainer_process_started": True,
+            "qualification_passed": False,
+            "training_metrics_written": False,
+            "training_exports_present": False,
+            "no_efficacy_look": True,
+            "terminal_evidence": {"path": str(terminal), "sha256": digest(terminal)},
+            "poll_evidence": {"path": str(poll), "sha256": digest(poll)},
+        },
+    )
+    summary = worker_ledger.settle_pretraining_qualification_failure("train-a", receipt, review)
+    assert summary["outstanding_jobs"] == []
+    assert "train-a" in summary["planned_jobs"]
+    state = json.loads(worker_ledger.path.read_text())
+    settled = state["settled"]["qualification-failure:train-a"]
+    assert settled["actual"]["units"] == pytest.approx(0.2)
+    assert state["events"][-1]["kind"] == "pretraining_qualification_failure"
+
+
+@pytest.mark.parametrize(
+    "field", ["qualification_passed", "training_metrics_written", "training_exports_present"]
+)
+def test_pretraining_qualification_failure_refuses_any_training_evidence(prepared, field):
+    worker_ledger, root, _ = prepared
+    source = manifest(root / "qualification-manifest.json")
+    worker_ledger.reserve("train-a", bound(), source)
+    terminal = dump(
+        root / "terminal.json",
+        {
+            "status": "failed",
+            "exports": [],
+            "generation": "g",
+            "job_id": "train-a",
+            "returncode": 2,
+        },
+    )
+    poll = dump(
+        root / "poll-000001.json",
+        {
+            "job_log_tail": "q0b_cuda_fixtures returned non-zero exit status 2",
+            "terminal": json.loads(terminal.read_text()),
+        },
+    )
+    receipt = dump(
+        root / "qualification-receipt.json",
+        {
+            "status": "INCOMPLETE",
+            "stop_verified": True,
+            "cleanup_error": None,
+            "endpoint": "e",
+            "generation": "g",
+            "exports": [],
+            "error": "failed",
+            "manifest_sha256": digest(source),
+            "usage_before": {"balance": 1, "assignments": 0, "rate": 0},
+            "usage_after": {"balance": 1, "assignments": 0, "rate": 0},
+            "elapsed_seconds": 1,
+        },
+    )
+    review_value = {
+        "schema": "s1-pretraining-qualification-failure-review/v1",
+        "status": "PASS",
+        "job_id": "train-a",
+        "manifest_sha256": digest(source),
+        "receipt_sha256": digest(receipt),
+        "failure_classification": "pretraining_qualification_failure",
+        "owner_approved": True,
+        "trainer_process_started": True,
+        "qualification_passed": False,
+        "training_metrics_written": False,
+        "training_exports_present": False,
+        "no_efficacy_look": True,
+        "terminal_evidence": {"path": str(terminal), "sha256": digest(terminal)},
+        "poll_evidence": {"path": str(poll), "sha256": digest(poll)},
+    }
+    review_value[field] = True
+    review = dump(root / "qualification-review.json", review_value)
+    with pytest.raises(Refused, match="no-training evidence"):
+        worker_ledger.settle_pretraining_qualification_failure("train-a", receipt, review)
+    assert worker_ledger.status()["outstanding_jobs"] == ["train-a"]
+
+
+def test_pretraining_qualification_failure_refuses_training_progress_in_bound_poll(prepared):
+    worker_ledger, root, _ = prepared
+    source = manifest(root / "qualification-manifest.json")
+    worker_ledger.reserve("train-a", bound(), source)
+    terminal = dump(
+        root / "terminal.json",
+        {
+            "status": "failed",
+            "exports": [],
+            "generation": "g",
+            "job_id": "train-a",
+            "returncode": 2,
+        },
+    )
+    poll = dump(
+        root / "poll-000001.json",
+        {
+            "job_log_tail": "q0b_cuda_fixtures returned non-zero exit status 2",
+            "terminal": json.loads(terminal.read_text()),
+            "progress": {"phase": "training", "done": 1},
+        },
+    )
+    receipt = dump(
+        root / "qualification-receipt.json",
+        {
+            "status": "INCOMPLETE",
+            "stop_verified": True,
+            "cleanup_error": None,
+            "endpoint": "e",
+            "generation": "g",
+            "exports": [],
+            "error": "failed",
+            "manifest_sha256": digest(source),
+            "usage_before": {"balance": 1, "assignments": 0, "rate": 0},
+            "usage_after": {"balance": 1, "assignments": 0, "rate": 0},
+            "elapsed_seconds": 1,
+        },
+    )
+    review = dump(
+        root / "qualification-review.json",
+        {
+            "schema": "s1-pretraining-qualification-failure-review/v1",
+            "status": "PASS",
+            "job_id": "train-a",
+            "manifest_sha256": digest(source),
+            "receipt_sha256": digest(receipt),
+            "failure_classification": "pretraining_qualification_failure",
+            "owner_approved": True,
+            "trainer_process_started": True,
+            "qualification_passed": False,
+            "training_metrics_written": False,
+            "training_exports_present": False,
+            "no_efficacy_look": True,
+            "terminal_evidence": {"path": str(terminal), "sha256": digest(terminal)},
+            "poll_evidence": {"path": str(poll), "sha256": digest(poll)},
+        },
+    )
+    with pytest.raises(Refused, match="training progress"):
+        worker_ledger.settle_pretraining_qualification_failure("train-a", receipt, review)
+
+
+def test_pretraining_qualification_failure_refuses_export_file_absent_from_receipt(prepared):
+    worker_ledger, root, _ = prepared
+    source = manifest(root / "qualification-manifest.json")
+    worker_ledger.reserve("train-a", bound(), source)
+    terminal = dump(
+        root / "terminal.json",
+        {
+            "status": "failed",
+            "exports": [],
+            "generation": "g",
+            "job_id": "train-a",
+            "returncode": 2,
+        },
+    )
+    poll = dump(
+        root / "poll-000001.json",
+        {
+            "job_log_tail": "q0b_cuda_fixtures returned non-zero exit status 2",
+            "terminal": json.loads(terminal.read_text()),
+        },
+    )
+    (root / "exports").mkdir()
+    (root / "exports" / "s1-final.part-000").write_bytes(b"partial training export")
+    receipt = dump(
+        root / "qualification-receipt.json",
+        {
+            "status": "INCOMPLETE",
+            "stop_verified": True,
+            "cleanup_error": None,
+            "endpoint": "e",
+            "generation": "g",
+            "exports": [],
+            "error": "failed",
+            "manifest_sha256": digest(source),
+            "usage_before": {"balance": 1, "assignments": 0, "rate": 0},
+            "usage_after": {"balance": 1, "assignments": 0, "rate": 0},
+            "elapsed_seconds": 1,
+        },
+    )
+    review = dump(
+        root / "qualification-review.json",
+        {
+            "schema": "s1-pretraining-qualification-failure-review/v1",
+            "status": "PASS",
+            "job_id": "train-a",
+            "manifest_sha256": digest(source),
+            "receipt_sha256": digest(receipt),
+            "failure_classification": "pretraining_qualification_failure",
+            "owner_approved": True,
+            "trainer_process_started": True,
+            "qualification_passed": False,
+            "training_metrics_written": False,
+            "training_exports_present": False,
+            "no_efficacy_look": True,
+            "terminal_evidence": {"path": str(terminal), "sha256": digest(terminal)},
+            "poll_evidence": {"path": str(poll), "sha256": digest(poll)},
+        },
+    )
+    with pytest.raises(Refused, match="training export exists"):
+        worker_ledger.settle_pretraining_qualification_failure("train-a", receipt, review)
+
+
 def test_staging_continuation_preserves_input_science_and_binds_fresh_acceptance(tmp_path: Path):
     bank = tmp_path / "bank.bin"
     bank.write_bytes(b"bank")
@@ -733,6 +986,7 @@ def test_staging_continuation_preserves_input_science_and_binds_fresh_acceptance
                 "sha256": digest(old_acceptance),
             },
         ],
+        "env": {"S1_ARM": "n3"},
     }
     refreshed = {
         **old,
@@ -752,6 +1006,8 @@ def test_staging_continuation_preserves_input_science_and_binds_fresh_acceptance
                 "size_bytes": fresh_acceptance.stat().st_size,
             },
         ],
+        "env": {"S1_ARM": "n3", "COLAB_CLI_REQUIREMENTS": manifests.RUNTIME_REQUIREMENTS},
+        "source_paths": list(manifests.RUNTIME_SOURCE_PATHS),
     }
     with pytest.raises(Refused, match="reviewed binding"):
         validate_staging_continuation(old, refreshed)

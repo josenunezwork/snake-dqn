@@ -14,6 +14,7 @@ import hashlib
 import json
 import platform
 import sys
+import traceback
 from pathlib import Path
 
 
@@ -43,7 +44,13 @@ def fixture_sources(fixture: str) -> dict[str, str]:
     }
 
 
-def run_cuda_pool() -> None:
+def run_cuda_pool(*, device: str = "cuda") -> None:
+    """Exercise the frozen-pool differential on the requested Torch device.
+
+    ``device="cpu"`` is deliberately a layout and dependency preflight only.
+    It covers the same imported source, uploaded checkpoint layout, and short/
+    long pool paths as the CUDA receipt, but never substitutes for it.
+    """
     import os
 
     import numpy as np
@@ -64,25 +71,26 @@ def run_cuda_pool() -> None:
             frames=frames,
             long_body_length=length,
             force_lifetime_boundary=not bool(length),
-            device="cuda",
+            device=device,
             checkpoint_dir=checkpoints,
             b8_checkpoint=b8,
         )
         if length:
             assert all(value >= length for value in exposure.values()), exposure
     # Independent CUDA selection for exact ties and an all-false normal fallback.
-    q = torch.tensor([[3, 3, 2, 3, 3, 2], [1, 1, 1, 1, 1, 1]], device="cuda", dtype=torch.float32)
+    q = torch.tensor([[3, 3, 2, 3, 3, 2], [1, 1, 1, 1, 1, 1]], device=device, dtype=torch.float32)
     masks = np.array([[True] * 6, [False] * 6])
     expected_mask = reference_module()._normal_fallback_mask(
-        torch.from_numpy(masks.copy()).to("cuda")
+        torch.from_numpy(masks.copy()).to(device)
     )
     expected = torch.where(expected_mask, q, torch.full_like(q, -torch.inf)).argmax(1)
-    actual_mask = league_pool._normal_fallback_mask(torch.from_numpy(masks).to("cuda"))
+    actual_mask = league_pool._normal_fallback_mask(torch.from_numpy(masks).to(device))
     actual = torch.where(actual_mask, q, torch.full_like(q, -torch.inf)).argmax(1)
     assert torch.equal(actual, expected)
     assert actual.cpu().tolist() == [0, 0]
     test_compiled_v8_keeps_tied_q_actions_on_all_slots()
-    torch.cuda.synchronize()
+    if device == "cuda":
+        torch.cuda.synchronize()
 
 
 def run_t22() -> None:
@@ -121,15 +129,50 @@ def run_t24() -> None:
     test_bodymap_empty_and_dead_rows_match_prechange_contract()
 
 
+def run_cpu_preflight() -> None:
+    """Run every non-CUDA qualification path against the runtime input layout."""
+    run_cuda_pool(device="cpu")
+    run_t22()
+    run_t24()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fixture", choices=("t22", "t24"), required=True)
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--fixture", choices=("t22", "t24"))
+    selection.add_argument(
+        "--cpu-preflight",
+        action="store_true",
+        help="exercise all non-CUDA fixture paths; this is not a CUDA qualification receipt",
+    )
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
     import torch
 
-    result = {"schema": "q0b-cuda-fixture/v1", "fixture": args.fixture, "status": "INCOMPLETE"}
+    fixture = args.fixture if args.fixture else "all"
+    result = {"schema": "q0b-cuda-fixture/v1", "fixture": fixture, "status": "INCOMPLETE"}
     try:
+        if args.cpu_preflight:
+            run_cpu_preflight()
+            result.update(
+                schema="q0b-cpu-preflight/v1",
+                status="CPU_PREFLIGHT_PASS",
+                target_runtime="cpu",
+                cuda_qualified=False,
+                fixtures=("t22", "t24"),
+                sources={
+                    **fixture_sources("t22"),
+                    **fixture_sources("t24"),
+                },
+                execution={
+                    "b8_forward": "cpu",
+                    "vector61_forward": "cpu",
+                    "v8_kernel": "numba-cpu",
+                    "independent_old_new_pools": True,
+                },
+            )
+            args.out.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n")
+            return 0
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is unavailable")
         # Materialize an actual CUDA operation before testing actor-side NumPy/Numba contracts.
@@ -168,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     except Exception as exc:  # retain an admission-blocking receipt
         result["error"] = f"{type(exc).__name__}: {exc}"
+        result["traceback"] = traceback.format_exc(limit=12)
     args.out.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n")
     return 0 if result["status"] == "PASS" else 2
 

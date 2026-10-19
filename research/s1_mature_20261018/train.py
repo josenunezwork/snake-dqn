@@ -29,6 +29,11 @@ from research.s1_mature_20261018.manifests import (
 )
 
 B8_SHA256 = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+QUALIFICATION_DIAGNOSTIC_MAX_BYTES = 64 * 1024
+# Qualification receipts can contain a full parity bank. Parse up to the
+# normal runtime export cap so the actual comparison/error is retained, then
+# export only the compact diagnostic below.
+QUALIFICATION_RECEIPT_READ_MAX_BYTES = MAX_EXPORT_BYTES
 
 
 def sha256_file(path: Path) -> str:
@@ -164,6 +169,122 @@ def _write_progress(
     }
     path.write_text(json.dumps(row, sort_keys=True) + "\n")
     print(json.dumps({"progress": row}, sort_keys=True), flush=True)
+
+
+def _comparison_summary(packet: dict) -> dict:
+    """Keep only a bounded indication of the failed check's comparison payload."""
+    for key in ("comparison", "comparisons", "checks", "pass"):
+        if key in packet:
+            value = packet[key]
+            encoded = json.dumps(value, sort_keys=True)
+            return {
+                "field": key,
+                "value": encoded[:4096],
+                "truncated": len(encoded) > 4096,
+            }
+    return {"field": None, "value": None, "truncated": False}
+
+
+def _qualification_failure_receipt(
+    receipt: Path,
+    *,
+    command: list[str],
+    failure: BaseException,
+) -> tuple[Path, dict]:
+    """Return an immutable-export-sized terminal diagnostic for a failed check."""
+    source = {
+        "receipt_path": receipt.name,
+        "receipt_size_bytes": receipt.stat().st_size if receipt.is_file() else None,
+        "receipt_sha256": sha256_file(receipt) if receipt.is_file() else None,
+    }
+
+    def write_diagnostic(target: Path, diagnostic: dict) -> tuple[Path, dict]:
+        """Enforce the wire-size cap even for adversarial error/command text."""
+        error = str(diagnostic.get("error", ""))
+        diagnostic["error"] = error[:4096]
+        diagnostic["error_truncated"] = len(error) > 4096
+        encoded = json.dumps(diagnostic, sort_keys=True) + "\n"
+        if len(encoded.encode()) > QUALIFICATION_DIAGNOSTIC_MAX_BYTES:
+            diagnostic = {
+                "schema": "s1-qualification-failure/v1",
+                "status": "INCOMPLETE",
+                **source,
+                "error": error[:2048],
+                "error_truncated": len(error) > 2048,
+                "diagnostic_truncated": True,
+                "terminal_export": True,
+            }
+            encoded = json.dumps(diagnostic, sort_keys=True) + "\n"
+        target.write_text(encoded)
+        return target, diagnostic
+
+    packet: dict | None = None
+    try:
+        if not receipt.is_file() or receipt.stat().st_size > QUALIFICATION_RECEIPT_READ_MAX_BYTES:
+            raise ValueError("receipt is absent or exceeds diagnostic export cap")
+        packet = json.loads(receipt.read_text())
+        if not isinstance(packet, dict):
+            raise ValueError("receipt is not an object")
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        diagnostic = {
+            "schema": "s1-qualification-failure/v1",
+            "status": "INCOMPLETE",
+            **source,
+            "receipt_read_error": f"{type(exc).__name__}: {exc}",
+            "comparison_summary": {
+                "field": None,
+                "value": (
+                    "unavailable because the original receipt is absent, malformed, or oversized"
+                ),
+                "truncated": False,
+            },
+        }
+        diagnostic["error"] = f"{type(failure).__name__}: {failure}"
+        diagnostic["qualification_command"] = command
+        diagnostic["terminal_export"] = True
+        target = receipt.with_name(f"{receipt.stem}-failure.json")
+        return write_diagnostic(target, diagnostic)
+    packet.setdefault("error", f"{type(failure).__name__}: {failure}")
+    packet["qualification_command"] = command
+    packet["terminal_export"] = True
+    encoded = json.dumps(packet, sort_keys=True) + "\n"
+    if len(encoded.encode()) <= QUALIFICATION_DIAGNOSTIC_MAX_BYTES:
+        receipt.write_text(encoded)
+        return receipt, packet
+    diagnostic = {
+        "schema": "s1-qualification-failure/v1",
+        "status": "INCOMPLETE",
+        **source,
+        "error": packet["error"],
+        "comparison_summary": _comparison_summary(packet),
+        "qualification_command": command,
+        "terminal_export": True,
+    }
+    target = receipt.with_name(f"{receipt.stem}-failure.json")
+    return write_diagnostic(target, diagnostic)
+
+
+def _run_qualification(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    timeout: int,
+    receipt: Path,
+    exports: Path,
+) -> None:
+    """Run and retain a receipt before propagating any qualification failure."""
+    try:
+        completed = subprocess.run(command, cwd=cwd, env=env, check=False, timeout=timeout)
+        if completed.returncode:
+            raise subprocess.CalledProcessError(completed.returncode, command)
+    except (OSError, subprocess.SubprocessError) as exc:
+        export_receipt, packet = _qualification_failure_receipt(
+            receipt, command=command, failure=exc
+        )
+        print(json.dumps({"qualification_failure": packet}, sort_keys=True), flush=True)
+        _complete_export(export_receipt, exports / export_receipt.name)
+        raise
 
 
 def _replace_option(command: list[str], option: str, value: str) -> None:
@@ -317,7 +438,7 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
         shutil.copyfile(init, fixture_inputs / "init/B8_s3_final.pth")
         parity_env["Q0Q1_INPUT_ROOT"] = str(fixture_inputs)
         for fixture in ("t22", "t24"):
-            subprocess.run(
+            _run_qualification(
                 [
                     sys.executable,
                     "-m",
@@ -329,10 +450,11 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
                 ],
                 cwd=root / "repo",
                 env=parity_env,
-                check=True,
                 timeout=240,
+                receipt=work / f"{fixture}-cuda.json",
+                exports=exports,
             )
-        subprocess.run(
+        _run_qualification(
             [
                 sys.executable,
                 "-m",
@@ -348,8 +470,9 @@ def run(arm: str, seed: int, root: Path, *, smoke: bool = False) -> None:
             ],
             cwd=root / "repo",
             env=parity_env,
-            check=True,
             timeout=300,
+            receipt=parity_receipt,
+            exports=exports,
         )
     command = [
         str(root / "venv/bin/python") if (root / "venv/bin/python").is_file() else sys.executable,

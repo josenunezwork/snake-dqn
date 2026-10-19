@@ -91,11 +91,18 @@ def packaging_preflight(repo: Path, rows: Iterable[dict[str, Any]]) -> dict[str,
     from research.colab_cli import source
 
     results = {}
+    qualification: dict[str, Any] = {}
     for row in rows:
         job = row["job_id"]
         try:
             with tempfile.TemporaryDirectory(prefix="s1-source-preflight-") as temporary:
                 plan = source.prepare(repo, row, Path(temporary))
+                if row.get("script") == "research/s1_mature_20261018/train.sh":
+                    from research.s1_mature_20261018.qualification_preflight import check
+
+                    identity = canonical({"commit": row["commit"], "inputs": row["inputs"]})
+                    if identity not in qualification:
+                        qualification[identity] = check(repo, row, plan, Path(temporary))
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             raise AdmissionRefused(f"offline source packaging refused {job}: {exc}") from exc
         results[job] = {
@@ -106,6 +113,8 @@ def packaging_preflight(repo: Path, rows: Iterable[dict[str, Any]]) -> dict[str,
             "fallback_unpacked_size": plan["fallback_unpacked_size"],
             "fallback_size": plan["fallback_size"],
         }
+        if row.get("script") == "research/s1_mature_20261018/train.sh":
+            results[job]["qualification"] = qualification[identity]
     return {"status": "PASS", "builder": "research.colab_cli.source.prepare", "jobs": results}
 
 

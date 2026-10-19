@@ -44,8 +44,9 @@ def test_staging_estimate_rejects_slow_or_oversized_contents_before_reservation(
         admission.staging_preflight([row], packaging)
 
 
+@pytest.mark.parametrize("current_acceptance", [False, True])
 def test_offline_candidate_is_pinned_but_cannot_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, current_acceptance: bool
 ) -> None:
     seed = tmp_path / "seed"
     seed.write_bytes(b"frozen seeds")
@@ -81,6 +82,8 @@ def test_offline_candidate_is_pinned_but_cannot_dispatch(
         lambda _, rows: {"jobs": {row["job_id"]: {"fallback_size": 100} for row in rows}},
     )
     monkeypatch.setattr(review_jobs, "verified_inputs", lambda: frozen)
+    if current_acceptance:
+        monkeypatch.setattr(prepare_release.final_artifacts, "acceptance_result", lambda _: {})
     args = argparse.Namespace(
         repo=tmp_path,
         published_ref="origin/branch",
@@ -92,11 +95,19 @@ def test_offline_candidate_is_pinned_but_cannot_dispatch(
     plan_path = prepare_release.prepare(args)
     plan = json.loads(plan_path.read_text())
     assert plan["commit"] == "b" * 40
-    assert plan["status"] == "PENDING_FINAL_ONLY_ACCEPTANCE"
+    assert plan["status"] == (
+        "PENDING_REPRICE_AND_SETTLEMENT" if current_acceptance else "PENDING_FINAL_ONLY_ACCEPTANCE"
+    )
+    assert plan["cli_acceptance_current"] is current_acceptance
+    assert (
+        "fresh final-only acceptance and independent review" in plan["admission_blockers"]
+    ) is not current_acceptance
     assert len(plan["manifests"]) == 10
     assert plan["input_staging"]["status"] == "PASS"
     first = json.loads(Path(plan["manifests"][0]["path"]).read_text())
     assert "url" in first["inputs"][0]
+    assert first["env"]["COLAB_CLI_REQUIREMENTS"] == manifests.RUNTIME_REQUIREMENTS
+    assert first["source_paths"] == list(manifests.RUNTIME_SOURCE_PATHS)
     with pytest.raises(admission.AdmissionRefused, match="not an immutable prepared"):
         run._verify_plan(plan_path, tmp_path)
 

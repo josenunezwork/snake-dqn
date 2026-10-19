@@ -12,7 +12,7 @@ import copy
 import json
 from pathlib import Path
 
-from research.s1_mature_20261018 import admission, review_jobs, run
+from research.s1_mature_20261018 import admission, final_artifacts, manifests, review_jobs, run
 
 
 def prepare(args: argparse.Namespace) -> Path:
@@ -41,6 +41,8 @@ def prepare(args: argparse.Namespace) -> Path:
         } != {dest: item["sha256"] for dest, item in released.items()}:
             raise admission.AdmissionRefused("original plan differs from qualified input bytes")
         row.update(commit=commit, output_dir=str(args.artifact_root.resolve() / "training" / job))
+        row["source_paths"] = list(manifests.RUNTIME_SOURCE_PATHS)
+        row.setdefault("env", {})["COLAB_CLI_REQUIREMENTS"] = manifests.RUNTIME_REQUIREMENTS
         if Path(row["output_dir"]).exists():
             raise admission.AdmissionRefused("candidate requires fresh job output directories")
         row["inputs"] = [released.get(item["dest"], item) for item in row["inputs"]]
@@ -49,9 +51,31 @@ def prepare(args: argparse.Namespace) -> Path:
         raise admission.AdmissionRefused("candidate plan and manifest directory must be fresh")
     packaging = admission.packaging_preflight(args.repo, rows)
     staging = admission.staging_preflight(rows, packaging)
+    acceptance_current = True
+    for row in rows:
+        item = next(item for item in row["inputs"] if item["dest"] == "cli-acceptance-result.json")
+        try:
+            path = Path(item["path"])
+            if admission.sha256(path) != item["sha256"]:
+                raise ValueError("acceptance input changed")
+            final_artifacts.acceptance_result(path)
+        except (ValueError, KeyError, OSError):
+            acceptance_current = False
+    blockers = [
+        "fresh transport pricing",
+        "live Mac release-input preflight",
+        "pre-training failure settlement",
+    ]
+    if not acceptance_current:
+        blockers.append("fresh final-only acceptance and independent review")
     plan = copy.deepcopy(previous)
     plan.update(
-        status="PENDING_FINAL_ONLY_ACCEPTANCE",
+        status=(
+            "PENDING_REPRICE_AND_SETTLEMENT"
+            if acceptance_current
+            else "PENDING_FINAL_ONLY_ACCEPTANCE"
+        ),
+        cli_acceptance_current=acceptance_current,
         commit=commit,
         published_ref=args.published_ref,
         source_closure=admission.source_closure(args.repo, commit),
@@ -62,12 +86,7 @@ def prepare(args: argparse.Namespace) -> Path:
             "path": str(args.previous_plan.resolve()),
             "sha256": admission.sha256(args.previous_plan),
         },
-        admission_blockers=[
-            "fresh final-only acceptance and independent review",
-            "fresh transport pricing",
-            "live Mac release-input preflight",
-            "staging settlement and ledger acceptance requalification",
-        ],
+        admission_blockers=blockers,
     )
     args.manifest_dir.mkdir(parents=True)
     plan["manifests"] = []

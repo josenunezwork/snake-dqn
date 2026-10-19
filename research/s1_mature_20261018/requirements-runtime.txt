@@ -1,0 +1,3 @@
+# The qualification entrypoint imports retained pytest fixtures before training.
+-r ../../requirements.txt
+pytest>=9.0.0,<10.0.0

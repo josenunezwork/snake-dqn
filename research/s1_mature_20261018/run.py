@@ -142,7 +142,7 @@ def _preallocation_continuation(
 def _staging_continuation(
     args: argparse.Namespace, plan: dict[str, Any], paths: list[tuple[str, Path]]
 ) -> None:
-    """Admit the same planned seeds after reviewed staging settlement and requalification."""
+    """Admit the same planned seeds after reviewed pre-training settlement."""
     old = _read(args.previous_plan.resolve())
     if old.get("schema") != admission.SCHEMA or old.get("status") != "PREPARED_NOT_DISPATCHED":
         raise admission.AdmissionRefused("previous plan is not a prepared S1 plan")
@@ -184,27 +184,39 @@ def _staging_continuation(
     if _read(Path(old["mac_manifest"]["path"])) != _read(Path(plan["mac_manifest"]["path"])):
         raise admission.AdmissionRefused("staging repair changes Mac evaluation")
     state = _read(args.ledger)
-    staging = {
+    pretraining_failures = {
         key: value
         for key, value in state.get("settled", {}).items()
-        if key.startswith("staging-failure:")
+        if key.startswith(("staging-failure:", "qualification-failure:"))
     }
-    allowed = {"cli-acceptance", "cli-acceptance-requalification"} | set(staging)
+    allowed = {"cli-acceptance", "cli-acceptance-requalification"} | set(pretraining_failures)
     if (
         state.get("outstanding")
         or state.get("planned") != plan["liabilities"]
         or state.get("manual_retries")
         or state.get("incomplete_arms")
         or set(state.get("settled", {})) - allowed
-        or not staging
+        or not pretraining_failures
     ):
-        raise admission.AdmissionRefused("staging repair requires a fully planned settled ledger")
+        raise admission.AdmissionRefused(
+            "pre-training repair requires a fully planned settled ledger"
+        )
     originals = {
         job: {"path": str(path), "sha256": admission.sha256(path)} for job, path in old_paths
     }
-    for key, entry in staging.items():
-        if entry.get("source_manifest") != originals.get(key.removeprefix("staging-failure:")):
-            raise admission.AdmissionRefused("previous plan is not the settled staging manifest")
+    latest_failures: dict[str, dict[str, Any]] = {}
+    for key, entry in pretraining_failures.items():
+        source_id = key.removeprefix("staging-failure:").removeprefix("qualification-failure:")
+        # Ledger persistence sorts mapping keys, so choose the reviewed event's
+        # recorded settlement time rather than JSON insertion/key order.
+        previous = latest_failures.get(source_id)
+        if previous is None or float(entry["settled_at"]) > float(previous["settled_at"]):
+            latest_failures[source_id] = entry
+    for source_id, entry in latest_failures.items():
+        if entry.get("source_manifest") != originals.get(source_id):
+            raise admission.AdmissionRefused(
+                "previous plan is not the settled pre-training manifest"
+            )
     worker_ledger = ledger.Ledger(args.ledger.resolve())
     bound_review = {
         "path": str(args.acceptance_review.resolve()),
