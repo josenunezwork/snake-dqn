@@ -87,3 +87,36 @@ def test_summary_regret_and_agreement_use_reference_scores() -> None:
     assert summary["regret"] == 1.5
     assert summary["max_regret"] == 3.0
     assert summary["legacy_agreement"] == 1.0
+
+
+def test_value_leaf_uses_dueling_mean_instead_of_masked_max(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    sim = SimpleNamespace(
+        E=1,
+        S=1,
+        alive=np.array([[True]]),
+        length=np.array([[10]]),
+        get_resolved_action_mask=lambda: np.ones((1, 1, 6), dtype=bool),
+        step=lambda grid: None,
+    )
+    sim.step_with_policy = lambda selector, **kwargs: selector(sim)
+    runtime = SimpleNamespace(prepare=lambda s: None, observe_step=lambda s: None)
+    replica = SimpleNamespace(sim=sim, runtime=runtime, heroes=[None], opponents=[[]])
+    monkeypatch.setattr(reference, "_replicate", lambda *args: replica)
+    monkeypatch.setattr(
+        reference,
+        "_q_and_legal",
+        lambda *args: (
+            np.arange(6, dtype=np.float32),
+            np.ones(6, dtype=bool),
+            np.ones(6, dtype=bool),
+        ),
+    )
+    from src.simd_env import eval_engine
+
+    monkeypatch.setattr(eval_engine, "_dispatch_actions", lambda *args: None)
+    world = SimpleNamespace(seed=1, mix="scripted", kinds=[])
+    config = teacher.SearchConfig(horizon=1, rollouts=1)
+    assert reference.scores(world, [0], config, 0, leaf="max") == {0: 15.0}
+    assert reference.scores(world, [0], config, 0, leaf="value") == {0: 12.5}

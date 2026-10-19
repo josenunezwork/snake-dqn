@@ -99,7 +99,7 @@ def scores(
         class _LeafReady(Exception):
             pass
 
-        def leaf(prepared: Any) -> np.ndarray:
+        def leaf_selector(prepared: Any) -> np.ndarray:
             runtime.prepare(prepared)
             for env in np.flatnonzero(live):
                 row = bank_engine.CapturedWorld(
@@ -115,7 +115,7 @@ def scores(
             raise _LeafReady
 
         try:
-            sim.step_with_policy(leaf, active_env_mask=live)
+            sim.step_with_policy(leaf_selector, active_env_mask=live)
         except _LeafReady:
             pass
     totals = mass + config.leaf_scale * np.where(
