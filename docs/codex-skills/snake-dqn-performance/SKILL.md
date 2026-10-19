@@ -10,6 +10,10 @@ description: |
 
 # Snake DQN: performance work (measured, byte-identical, honest)
 
+New Colab performance work is a `research/colab_cli` supervisor job: retain the manifest, measured limits,
+telemetry, immutable exports, and terminal release evidence. Current Drive/notebook workers remain Q1-only legacy;
+do not make a new performance launch through them.
+
 Rule zero: a speed-up that changes training semantics is a **new recipe**, not a speed-up. Rule one:
 **measure before and after on the same host, same thread limits, warm-up excluded**, and write the
 receipt (JSON with argv, platform, source SHA-256s) next to the bench. Rule two: prove byte identity

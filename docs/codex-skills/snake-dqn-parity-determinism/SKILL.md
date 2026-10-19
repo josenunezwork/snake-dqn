@@ -11,6 +11,10 @@ description: |
 
 # Snake DQN: parity, identity and determinism
 
+When parity work needs a new Colab development runtime, use the lease-fenced `research/colab_cli` supervisor and
+retain its pinned-input/hash-verified-export receipt. Do not route it through the Drive queue; that transport is
+legacy Q1-only.
+
 This project promotes on bit-exact evidence. "Close enough" is never accepted for a same-math claim;
 a numerics change (bf16, compile reassociation, batched BLAS) is labelled as such and screened separately.
 

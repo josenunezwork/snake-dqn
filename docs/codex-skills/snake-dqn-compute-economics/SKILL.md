@@ -12,6 +12,14 @@ description: |
 
 # Snake DQN compute economics (measured facts, as of 2026-10-18)
 
+## Colab dispatch boundary
+
+For every new Colab job, price and submit the manifest through `research/colab_cli`, not the Drive queue. The
+supervisor admits at most three account-wide assignments including notebook workers, uses OAuth2 with assignment
+retries disabled, and applies measured first-cap-wins wall/unit limits with reserve. `research/colab_queue` is legacy
+for the two running notebook workers and Q1 only. Charge CLI setup, export, and idle time; no automatic retry or
+purchase. `colab usage` is the live account-rate evidence; historical rates below are planning inputs.
+
 Repo `/Users/josenunez/Projects/ml/snake-dqn`; paths relative. Primary sources:
 `docs/research/t16_colab_smoke02_results_2026-10-17.md` (T16 smoke-02/03, N=3, T22, T24 appends),
 `docs/research/t16_mac_baseline_2026-10-17.md`, `research/perf_quiet_20261013/RESULTS.md` (Mac + 4090),
@@ -126,7 +134,7 @@ time across parallel workers; parallelism buys time-to-answer, not units or evid
 5. Anything that changes replay ratio, batch, precision or actor count per arm is a recipe change -> paired
    quality arm, not a speed-up.
 
-## 6. Queue and runtime lifetime facts
+## 6. Legacy queue and runtime lifetime facts
 
 Drive job queue (`research/colab_queue/README.md`):
 - Job JSON: full 40-char `commit`, repo-relative Bash `script`, `requirements.gpu` in {any, A100, L4, cpu}

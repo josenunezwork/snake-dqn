@@ -1,0 +1,448 @@
+#!/usr/bin/env python3
+"""Runtime-side, lease-fenced subprocess supervisor for Colab CLI jobs.
+
+This module deliberately has no Colab CLI dependency.  A short ``colab exec``
+cell imports :func:`read_state` to renew the lease and read immutable exports;
+the long-lived supervisor owns the child process and the runtime unassignment.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Any, Mapping
+
+STATE_INTERVAL_SECONDS = 15
+
+
+class SpecError(ValueError):
+    """A malformed or unsafe runtime specification."""
+
+
+def _now() -> float:
+    return time.time()
+
+
+def _atomic_json(path: Path, value: Mapping[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(value, handle, sort_keys=True, separators=(",", ":"))
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
+def _create_json(path: Path, value: Mapping[str, Any]) -> None:
+    with tempfile.NamedTemporaryFile(
+        "w", dir=path.parent, prefix=".receipt-", delete=False
+    ) as handle:
+        temporary = Path(handle.name)
+        try:
+            json.dump(value, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+            os.link(temporary, path)
+        except FileExistsError as exc:
+            raise RuntimeError(f"create-only receipt already exists: {path}") from exc
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as handle:
+        value = json.load(handle)
+    if not isinstance(value, dict):
+        raise RuntimeError(f"expected object in {path}")
+    return value
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validate_spec(raw: Mapping[str, Any]) -> dict[str, Any]:
+    required = {
+        "job_id": str,
+        "generation": (str, int),
+        "root": str,
+        "command": list,
+        "env": dict,
+        "timeout_seconds": (int, float),
+        "lease_seconds": (int, float),
+        "checkpoint_grace_seconds": (int, float),
+        "max_export_bytes": int,
+    }
+    for key, kinds in required.items():
+        if key not in raw or not isinstance(raw[key], kinds):
+            raise SpecError(f"spec.{key} has invalid type")
+    if (
+        not raw["job_id"]
+        or not raw["command"]
+        or not all(isinstance(x, str) and x for x in raw["command"])
+    ):
+        raise SpecError("job_id and every command item must be non-empty strings")
+    if any(
+        isinstance(raw[key], bool) or raw[key] <= 0
+        for key in (
+            "timeout_seconds",
+            "lease_seconds",
+            "checkpoint_grace_seconds",
+            "max_export_bytes",
+        )
+    ):
+        raise SpecError("timeout, lease, grace, and export cap must be positive")
+    if raw["checkpoint_grace_seconds"] > 30:
+        raise SpecError("checkpoint_grace_seconds must be <= 30")
+    if "post_terminal_timeout_seconds" in raw and (
+        isinstance(raw["post_terminal_timeout_seconds"], bool)
+        or not isinstance(raw["post_terminal_timeout_seconds"], (int, float))
+        or raw["post_terminal_timeout_seconds"] <= 0
+    ):
+        raise SpecError("post_terminal_timeout_seconds must be positive when provided")
+    root = Path(raw["root"]).resolve()
+    if root == Path("/") or not str(root).startswith("/content/snake-cli/"):
+        raise SpecError("root must be a pre-created /content/snake-cli/<uuid> directory")
+    if not root.is_dir():
+        raise SpecError(f"root was not pre-created: {root}")
+    output = root / "output"
+    if output.exists():
+        raise SpecError(f"fresh output directory required; already exists: {output}")
+    for key, value in raw["env"].items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise SpecError("env must map strings to strings")
+    return {**raw, "root": str(root)}
+
+
+def _exports(root: Path, max_export_bytes: int) -> list[dict[str, Any]]:
+    output = root / "output"
+    if not output.is_dir():
+        return []
+    records: list[dict[str, Any]] = []
+    for marker in sorted(output.rglob("*.complete")):
+        candidate = marker.with_name(marker.name[: -len(".complete")])
+        checksum = candidate.with_name(candidate.name + ".sha256")
+        if (
+            not candidate.is_file()
+            or not checksum.is_file()
+            or marker.is_symlink()
+            or candidate.is_symlink()
+        ):
+            raise RuntimeError(f"invalid completed export marker: {marker}")
+        resolved = candidate.resolve()
+        if output.resolve() not in resolved.parents or candidate.stat().st_size > max_export_bytes:
+            raise RuntimeError(f"unsafe or oversized completed export: {candidate}")
+        declared = (
+            checksum.read_text(encoding="utf-8").strip().split()[0].lower()
+            if checksum.stat().st_size
+            else ""
+        )
+        observed = _sha256(candidate)
+        if len(declared) != 64 or declared != observed:
+            raise RuntimeError(f"completed export hash mismatch: {candidate}")
+        records.append(
+            {
+                "path": str(candidate.relative_to(output)),
+                "sha256": observed,
+                "size": candidate.stat().st_size,
+            }
+        )
+    return records
+
+
+def read_state(root: str | Path, generation: str | int, renew: bool = True) -> dict[str, Any]:
+    """Read a fenced state and optionally renew its lease.
+
+    A wrong generation never refreshes the lease.  Callers receive the state,
+    terminal receipt when present, and only completed hash-verified exports.
+    """
+    root_path = Path(root).resolve()
+    state = _load_json(root_path / "state.json")
+    if str(state.get("generation")) != str(generation):
+        raise RuntimeError("generation fence mismatch; lease was not renewed")
+    if renew:
+        lease = _load_json(root_path / "lease.json")
+        if str(lease.get("generation")) != str(generation):
+            raise RuntimeError("lease generation fence mismatch; lease was not renewed")
+        _atomic_json(root_path / "lease.json", {"generation": generation, "renewed_at": _now()})
+    terminal_path = root_path / "terminal.json"
+    terminal = _load_json(terminal_path) if terminal_path.exists() else None
+    return {
+        "state": state,
+        "terminal": terminal,
+        # Inventory is computed by the supervisor, not a short polling kernel.
+        "exports": terminal.get("exports", []) if terminal else state.get("exports", []),
+        "job_log_tail": _tail(root_path / "job.log"),
+        "supervisor_log_tail": _tail(root_path / "supervisor.log"),
+    }
+
+
+def _tail(path: Path, limit: int = 64 * 1024) -> str:
+    """Return bounded diagnostic text without making polling RPCs large."""
+    if not path.is_file():
+        return ""
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        handle.seek(max(0, handle.tell() - limit))
+        return handle.read(limit).decode("utf-8", errors="replace")
+
+
+def _unassign() -> None:
+    from google.colab import runtime  # type: ignore[import-not-found]
+
+    runtime.unassign()
+
+
+def _lease_expired(root: Path, generation: str | int, lease_seconds: float) -> str | None:
+    lease = _load_json(root / "lease.json")
+    if str(lease.get("generation")) != str(generation):
+        return "lease_generation_changed"
+    if _now() - float(lease.get("renewed_at", 0)) > lease_seconds:
+        return "lease_expired"
+    return None
+
+
+def _unassign_or_raise(
+    state_path: Path, state: Mapping[str, Any], cleanup: dict[str, Any] | None = None
+) -> None:
+    try:
+        if cleanup is not None:
+            cleanup["unassign_attempted"] = True
+        _unassign()
+    except Exception as exc:  # unassignment is an explicit evidence failure
+        message = f"{type(exc).__name__}: {exc}"
+        _best_effort_state(state_path, {**state, "unassign_error": message})
+        raise RuntimeError(f"runtime unassign failed: {message}") from exc
+
+
+def _best_effort_state(path: Path, state: Mapping[str, Any]) -> None:
+    """Evidence storage failure must never prevent owned-process cleanup."""
+    try:
+        _atomic_json(path, state)
+    except OSError:
+        pass
+
+
+def _stop_child(process: subprocess.Popen[bytes], grace_seconds: float) -> None:
+    """Ask the owned process group to checkpoint, then bound its lifetime."""
+    try:
+        os.killpg(process.pid, signal.SIGUSR1)
+    except (ProcessLookupError, PermissionError):
+        return
+    deadline = _now() + grace_seconds
+    # The shell leader can exit after forwarding SIGUSR1 while its trainer is
+    # checkpointing; the owned process group still receives the full grace.
+    while _now() < deadline:
+        time.sleep(0.2)
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        return
+    if process.poll() is None:
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+
+def supervise(spec: Mapping[str, Any]) -> int:
+    cleanup: dict[str, Any] = {"process": None, "unassign_attempted": False}
+    try:
+        return _supervise(spec, cleanup)
+    except BaseException:
+        process = cleanup["process"]
+        if process is not None:
+            try:
+                _stop_child(process, float(spec.get("checkpoint_grace_seconds", 1)))
+            except BaseException:
+                pass
+        if not cleanup["unassign_attempted"]:
+            cleanup["unassign_attempted"] = True
+            try:
+                _unassign()
+            except BaseException:
+                pass
+        raise
+
+
+def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
+    spec = _validate_spec(spec)
+    root = Path(spec["root"])
+    output = root / "output"
+    output.mkdir(mode=0o700)
+    started = _now()
+    _atomic_json(root / "lease.json", {"generation": spec["generation"], "renewed_at": started})
+    # This state write happens before Popen: the lease watchdog is armed before
+    # any dependency bootstrap that may be represented by the command.
+    state: dict[str, Any] = {
+        "job_id": spec["job_id"],
+        "generation": spec["generation"],
+        "status": "starting",
+        "started_at": started,
+        "updated_at": started,
+        "max_export_bytes": spec["max_export_bytes"],
+    }
+    try:
+        _atomic_json(root / "state.json", state)
+    except BaseException:
+        _unassign_or_raise(root / "state.json", state, cleanup)
+        raise
+    environment = os.environ.copy()
+    environment.update(spec["env"])
+    environment["COLAB_CLI_ROOT"] = str(root)
+    environment.setdefault("COLAB_INPUT_DIR", str(root / "inputs"))
+    environment["COLAB_OUTPUT_DIR"] = str(output)
+    environment["QUEUE_OUTPUT_DIR"] = str(output)
+    log = (root / "job.log").open("ab", buffering=0)
+    try:
+        process = subprocess.Popen(
+            spec["command"],
+            cwd=root,
+            env=environment,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        cleanup["process"] = process
+    except BaseException as exc:
+        log.close()
+        terminal = {
+            "job_id": spec["job_id"],
+            "generation": spec["generation"],
+            "status": "failed",
+            "returncode": None,
+            "reason": "popen_failed",
+            "error": repr(exc),
+            "finished_at": _now(),
+            "exports": [],
+        }
+        try:
+            _create_json(root / "terminal.json", terminal)
+        except OSError:
+            pass
+        state.update(
+            status="failed", updated_at=_now(), reason="popen_failed", error=repr(exc), exports=[]
+        )
+        _best_effort_state(root / "state.json", state)
+        _unassign_or_raise(root / "state.json", state, cleanup)
+        raise
+    reason: str | None = None
+    last_state = 0.0
+    failure: BaseException | None = None
+    try:
+        while process.poll() is None:
+            now = _now()
+            reason = _lease_expired(root, spec["generation"], float(spec["lease_seconds"]))
+            if reason is None and now - started > float(spec["timeout_seconds"]):
+                reason = "timeout"
+            if reason:
+                _stop_child(process, float(spec["checkpoint_grace_seconds"]))
+                break
+            if now - last_state >= STATE_INTERVAL_SECONDS:
+                state.update(
+                    status="running",
+                    updated_at=now,
+                    pid=process.pid,
+                    exports=_exports(root, spec["max_export_bytes"]),
+                )
+                _atomic_json(root / "state.json", state)
+                last_state = now
+            time.sleep(0.2)
+    except BaseException as exc:
+        failure = exc
+        reason = "runtime_error"
+        state.update(status="failed", updated_at=_now(), reason=reason, error=repr(exc))
+        _best_effort_state(root / "state.json", state)
+        _stop_child(process, float(spec["checkpoint_grace_seconds"]))
+    finally:
+        returncode = process.wait()
+        log.close()
+    try:
+        completed_exports = _exports(root, spec["max_export_bytes"])
+    except BaseException as exc:
+        completed_exports = []
+        failure = failure or exc
+        reason = "runtime_error"
+    final_status = (
+        "succeeded" if returncode == 0 and reason is None and failure is None else "failed"
+    )
+    terminal = {
+        "job_id": spec["job_id"],
+        "generation": spec["generation"],
+        "status": final_status,
+        "returncode": returncode,
+        "reason": reason,
+        "started_at": started,
+        "finished_at": _now(),
+        "exports": completed_exports,
+    }
+    try:
+        _create_json(root / "terminal.json", terminal)
+    except OSError as exc:
+        failure = failure or exc
+        reason = "runtime_error"
+    state.update(
+        status=final_status,
+        updated_at=_now(),
+        returncode=returncode,
+        reason=reason,
+        exports=terminal["exports"],
+    )
+    _best_effort_state(root / "state.json", state)
+    # A normal completion deliberately keeps the assignment for the Mac's final
+    # verified download (and, if explicitly approved, a chained useful job).  It
+    # remains lease-fenced: client loss after completion still unassigns it.
+    if reason is not None:
+        _unassign_or_raise(root / "state.json", state, cleanup)
+        if failure is not None:
+            raise RuntimeError(f"runtime supervisor failure: {failure!r}") from failure
+        return returncode
+    post_terminal_timeout = float(
+        spec.get("post_terminal_timeout_seconds", spec["timeout_seconds"])
+    )
+    while True:
+        try:
+            reason = _lease_expired(root, spec["generation"], float(spec["lease_seconds"]))
+        except BaseException as exc:
+            reason = "runtime_error_after_terminal"
+            state["error"] = repr(exc)
+        if reason is None and _now() - started > post_terminal_timeout:
+            reason = "timeout_after_terminal"
+        if reason:
+            state.update(status="lease_expired_after_terminal", updated_at=_now(), reason=reason)
+            _atomic_json(root / "state.json", state)
+            _unassign_or_raise(root / "state.json", state, cleanup)
+            return returncode
+        time.sleep(0.2)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--spec", required=True, type=Path)
+    args = parser.parse_args(argv)
+    try:
+        with args.spec.open(encoding="utf-8") as handle:
+            return supervise(json.load(handle))
+    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
+        print(f"colab-cli runtime: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

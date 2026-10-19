@@ -88,6 +88,12 @@ outlive the terminal uses a detached process (`setsid`/`start_new_session=True`)
 
 ## Artifacts and Google Drive
 
+For a **new Colab** job, the Mac runs `research/colab_cli` as the broker; its local state/receipt and verified
+artifact directory are the authoritative exchange. It uploads inputs and imports bounded hash-verified exports with
+temporary files plus atomic rename. Drive-for-desktop may receive a verified backup afterward, but the runtime never
+mounts Drive. Do not invoke `colab auth` or `colab drivemount`; those are human-only. The Drive guidance below is
+legacy Q1/notebook-worker support only.
+
 - Run outputs, logs, checkpoints: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/<study>-<date>/...`
   (not a git repo; reference by path + sha256 in docs). Never write into `saved_snakes/`.
 - Google Drive for desktop mount: `/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/`;

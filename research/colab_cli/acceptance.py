@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+"""Prepare, and only after review execute, the bounded Colab CLI acceptance plan.
+
+The default is intentionally dry: it writes pinned, fresh manifests and a
+review record but performs no Colab command.  ``--execute-after-review`` is an
+operator action after the acceptance plan has been reviewed; it still has no
+automatic retry, purchase, or fallback allocation path.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import subprocess
+import time
+from pathlib import Path
+from typing import Any
+
+from research.colab_cli import supervisor
+from research.colab_cli.acceptance_faults import AcceptanceObserver
+
+MAX_UNITS = 4.0
+RESERVE_UNITS = 0.8
+USABLE_UNITS = 3.2
+L4_RATE_UNITS_PER_HOUR = 2.0
+L4_MAX_MINUTES = 30
+CPU_MAX_MINUTES = 20
+REVIEW_TOKEN = "COLAB_CLI_ACCEPTANCE_REVIEWED"
+BASELINE = {
+    "supplied_at": "2026-10-18 evening",
+    "balance_units": 1178.30,
+    "aggregate_usage_rate_units_per_hour": 6.84,
+    "active_notebook_assignments": 2,
+    "note": (
+        "Supplied context, not a new live measurement. Re-read usage and sessions before dispatch."
+    ),
+}
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def atomic_json(path: Path, value: dict[str, Any]) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+    os.replace(temporary, path)
+
+
+def create_json(path: Path, value: dict[str, Any]) -> None:
+    """Create an immutable execution receipt without replacing plan evidence."""
+    with path.open("x") as stream:
+        json.dump(value, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def fresh_dir(path: Path) -> Path:
+    if path.exists():
+        raise ValueError(f"fresh output required; path already exists: {path}")
+    path.mkdir(parents=True)
+    return path
+
+
+def manifest(
+    *,
+    job_id: str,
+    commit: str,
+    probe: Path,
+    wrapper: Path,
+    output: Path,
+    gpu: str,
+    minutes: int,
+    rate: float,
+) -> dict[str, Any]:
+    return {
+        "job_id": job_id,
+        "commit": commit,
+        "script": "research/colab_cli/acceptance_probe.sh",
+        "env": {"PYTHONUNBUFFERED": "1", "COLAB_ACCEPTANCE": "1"},
+        "requirements": {"gpu": gpu, "min_vcpu": 2, "est_minutes": minutes / 2},
+        "timeout_minutes": minutes,
+        "output_dir": str(output),
+        "inputs": [
+            {
+                "path": str(probe),
+                "sha256": sha256_file(probe),
+                "dest": "acceptance_probe.py",
+            },
+            {"path": str(wrapper), "sha256": sha256_file(wrapper), "dest": "acceptance_probe.sh"},
+        ],
+        "budget": {
+            "unit_cap": rate * minutes / 60.0,
+            "rate_units_per_hour": rate,
+            "reserve_units": RESERVE_UNITS,
+        },
+        "lease_seconds": 300 if gpu == "cpu" else 180,
+    }
+
+
+def review_gates() -> list[dict[str, str]]:
+    """Every advice gate has a named required artifact; absence is INCOMPLETE."""
+    return [
+        {
+            "id": "fresh-oauth-refresh",
+            "evidence": "fresh terminal whoami/usage after refresh; no browser prompt",
+            "owner": "Mac supervisor",
+        },
+        {
+            "id": "busy-full-snapshot",
+            "evidence": "remote snapshot.complete.json, downloaded hash, atomic local file",
+            "owner": "probe + supervisor",
+        },
+        {
+            "id": "silence-timeout",
+            "evidence": "over-60s gap and explicit supervisor timeout record",
+            "owner": "probe + supervisor",
+        },
+        {
+            "id": "url-no-second-allocation",
+            "evidence": "sessions before/after url show same single assignment",
+            "owner": "Mac supervisor",
+        },
+        {
+            "id": "client-loss-reconnect",
+            "evidence": "generation fence and one remote execution identity after reconnect",
+            "owner": "Mac supervisor",
+        },
+        {
+            "id": "failure-and-corrupt-export",
+            "evidence": "intentional child exit recorded; corrupt download rejected",
+            "owner": "probe + supervisor",
+        },
+        {
+            "id": "exact-resume",
+            "evidence": "uninterrupted and resumed full-state hashes match",
+            "owner": "probe + supervisor",
+        },
+        {
+            "id": "mac-loss-watchdog-unassign",
+            "evidence": "lease expiry plus backend assignment disappearance",
+            "owner": "runtime watchdog + supervisor",
+        },
+        {
+            "id": "checkpoint-overhead",
+            "evidence": "timed checkpoint overhead <= 2 percent",
+            "owner": "supervisor",
+        },
+        {
+            "id": "backend-stop-disappearance",
+            "evidence": "stop issued then sessions/status proves assignment gone",
+            "owner": "Mac supervisor",
+        },
+    ]
+
+
+def build_plan(root: Path, state_dir: Path, cpu_rate: float | None) -> dict[str, Any]:
+    if cpu_rate is None:
+        raise ValueError(
+            "CPU price is unknown; pass --cpu-rate-units-per-hour before creating manifests"
+        )
+    if cpu_rate <= 0:
+        raise ValueError("--cpu-rate-units-per-hour must be positive")
+    cpu_expected = cpu_rate * CPU_MAX_MINUTES / 60.0
+    l4_expected = L4_RATE_UNITS_PER_HOUR * L4_MAX_MINUTES / 60.0
+    if cpu_expected + l4_expected > USABLE_UNITS:
+        raise ValueError(
+            f"expected {cpu_expected + l4_expected:.3f} units exceeds usable {USABLE_UNITS:.1f}"
+        )
+    state_dir.mkdir(parents=True, exist_ok=True)
+    run_id = f"acceptance-{int(time.time())}"
+    run_dir = fresh_dir(state_dir.resolve() / run_id)
+    output_root = fresh_dir(run_dir / "outputs")
+    manifests = fresh_dir(run_dir / "manifests")
+    probe = root / "research/colab_cli/acceptance_probe.py"
+    wrapper = root / "research/colab_cli/acceptance_probe.sh"
+    if not probe.is_file() or not wrapper.is_file():
+        raise ValueError("missing acceptance probe or wrapper")
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    rows = [
+        ("cpu", "cpu", CPU_MAX_MINUTES, cpu_rate),
+        ("l4", "L4", L4_MAX_MINUTES, L4_RATE_UNITS_PER_HOUR),
+    ]
+    jobs: list[dict[str, Any]] = []
+    for name, gpu, minutes, rate in rows:
+        # The broker refuses an existing job output directory, so this is a
+        # planned path only.  It creates it after manifest validation.
+        output = output_root / name
+        payload = manifest(
+            job_id=f"{run_id}-{name}",
+            commit=commit,
+            probe=probe,
+            wrapper=wrapper,
+            output=output,
+            gpu=gpu,
+            minutes=minutes,
+            rate=rate,
+        )
+        target = manifests / f"{name}.json"
+        atomic_json(target, payload)
+        jobs.append(
+            {"name": name, "manifest": str(target), "expected_units": payload["budget"]["unit_cap"]}
+        )
+    plan = {
+        "schema": "snake-dqn-colab-cli-acceptance/v1",
+        "status": "NOT_RUN",
+        "baseline_context": BASELINE,
+        "limits": {
+            "max_units_including_reserve": MAX_UNITS,
+            "reserve_units": RESERVE_UNITS,
+            "usable_units": USABLE_UNITS,
+            "first_cap_wins": True,
+        },
+        "expected_costs": {
+            "cpu_20_minutes": cpu_expected,
+            "l4_30_minutes_at_2_per_hour": l4_expected,
+            "total": cpu_expected + l4_expected,
+        },
+        "jobs": jobs,
+        "gates": [{**gate, "status": "INCOMPLETE"} for gate in review_gates()],
+        "qualification": "INCOMPLETE until every gate has independently verified evidence",
+    }
+    atomic_json(run_dir / "acceptance-plan.json", plan)
+    return {"run_dir": str(run_dir), "plan": plan}
+
+
+def execute(
+    plan: dict[str, Any], *, state_dir: Path, colab: str, review_token: str, oauth_python: str
+) -> int:
+    if review_token != REVIEW_TOKEN:
+        raise ValueError("execution requires the exact reviewed acceptance token")
+    observer = AcceptanceObserver(oauth_python)
+    results: list[dict[str, Any]] = []
+    run_dir = Path(plan["jobs"][0]["manifest"]).parent.parent
+    for job in plan["jobs"]:
+        manifest_path = Path(job["manifest"])
+        payload = json.loads(manifest_path.read_text())
+        output = Path(payload["output_dir"])
+        try:
+            supervisor.Broker(state_dir.resolve() / "lanes", colab, observer=observer).run(payload)
+            receipt = json.loads((output / "receipt.json").read_text())
+            if not receipt.get("stop_verified"):
+                raise supervisor.Refused("normal acceptance stop was not backend-verified")
+            observer._record("backend-stop-disappearance", receipt=str(output / "receipt.json"))
+            results.append(
+                {"job": job["name"], "status": "PASS", "receipt": str(output / "receipt.json")}
+            )
+        except supervisor.Refused as exc:
+            # The L4 watchdog arm deliberately makes its next Mac poll fail after
+            # the runtime unassigns.  Its own observer record is the evidence.
+            watchdog = "mac-loss-watchdog-unassign" in observer.records
+            results.append(
+                {
+                    "job": job["name"],
+                    "status": "PASS" if job["name"] == "l4" and watchdog else "INCOMPLETE",
+                    "error": str(exc),
+                }
+            )
+        finally:
+            if output.exists():
+                observer.write(output)
+        # A CPU admission/transport failure is not a reason to spend an L4
+        # allocation. The watchdog fault is expected only after CPU passed.
+        if job["name"] == "cpu" and results[-1]["status"] != "PASS":
+            break
+    gate_status = {gate["id"]: gate for gate in plan["gates"]}
+    for gate, evidence in observer.records.items():
+        if gate in gate_status:
+            incomplete = str(evidence.get("status", "")).startswith("INCOMPLETE")
+            gate_status[gate]["status"] = "INCOMPLETE" if incomplete else "OBSERVED"
+            gate_status[gate]["evidence_record"] = evidence
+    plan["execution"] = results
+    plan["status"] = "OBSERVED_NOT_QUALIFIED"
+    plan["qualification"] = (
+        "INCOMPLETE pending independent review of every observer/receipt artifact"
+    )
+    qualified = (
+        len(observer.records) == len(gate_status)
+        and all(gate["status"] == "OBSERVED" for gate in plan["gates"])
+        and all(result["status"] == "PASS" for result in results)
+    )
+    return_code = 0 if qualified else 1
+    create_json(
+        run_dir / "acceptance-result.json",
+        {
+            "schema": "snake-dqn-colab-cli-acceptance-result/v1",
+            "return_code": return_code,
+            "qualified": qualified,
+            "final_plan": plan,
+        },
+    )
+    return return_code
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--state-dir", type=Path, required=True, help="absolute supervisor state parent"
+    )
+    parser.add_argument(
+        "--cpu-rate-units-per-hour", type=float, help="measured CPU rate; unknown price blocks"
+    )
+    parser.add_argument(
+        "--colab", default="colab", help="official CLI executable, used only with execution"
+    )
+    parser.add_argument(
+        "--oauth-python",
+        default=str(Path.home() / ".venvs" / "colab-cli" / "bin" / "python"),
+        help="official Colab CLI venv interpreter, used only after review",
+    )
+    parser.add_argument("--execute-after-review", action="store_true")
+    parser.add_argument("--review-token", default="")
+    args = parser.parse_args(argv)
+    if not args.state_dir.is_absolute():
+        parser.error("--state-dir must be absolute")
+    try:
+        record = build_plan(args.repo.resolve(), args.state_dir, args.cpu_rate_units_per_hour)
+        print(json.dumps(record, indent=2, sort_keys=True))
+        if args.execute_after_review:
+            return execute(
+                record["plan"],
+                state_dir=args.state_dir,
+                colab=args.colab,
+                review_token=args.review_token,
+                oauth_python=args.oauth_python,
+            )
+        return 0
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        parser.error(str(exc))
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

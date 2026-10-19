@@ -13,6 +13,9 @@ description: |
 
 # Snake DQN research ledger (as of 2026-10-18)
 
+Operational update: after the two current notebook workers/Q1 complete, new Colab work uses `research/colab_cli`
+only. Preserve the Drive-queue record below as historical/legacy evidence; it is not a new-job dispatch path.
+
 Repo: `/Users/josenunez/Projects/ml/snake-dqn`. All paths below are relative to it. Every row cites the
 repo document that records it; read that document before relying on a number. "Memory" means the owner's
 read-only Claude memory (`~/.claude/projects/-Users-josenunez-Projects-ml-snake-dqn/memory/`), which

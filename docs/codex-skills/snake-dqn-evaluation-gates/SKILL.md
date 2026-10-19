@@ -11,6 +11,10 @@ description: |
 
 # Snake DQN: how candidates are evaluated and gated
 
+For a new Colab development evaluation, ship Mac-made receipts as hash-checked `research/colab_cli` supervisor inputs
+and retrieve immutable completed shards through that supervisor; no runtime Drive mount. The Drive-folder warning in
+this skill is a legacy Q1 queue failure mode only.
+
 Sources of truth: `AGENTS.md` ("Promotion Gate"), `docs/STATUS.md` (current rules; wins over older docs),
 `docs/research/GLOSSARY.md`, `docs/research/governance_tiers_2026-09-26.md`. When a dated doc disagrees
 with STATUS.md, STATUS.md wins. Never edit a hash-bound governance/research doc; add a sibling erratum.

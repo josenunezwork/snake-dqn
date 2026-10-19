@@ -64,9 +64,10 @@ clearly stronger than released B8 seed 3 on fixed-opponent, terminal-hero H5000 
    recipe not to be extended. `docs/research/redesign_campaign_retrospective_2026-10-17.md`, ledger skill.
 7. **Compute rules.** Colab Pro+ (~1,250 units, owner-supplied planning rates L4 2 u/h, A100 6.8 u/h, observed
    A100-40GB High-RAM 5.3 u/h, H100 ~13 u/h and scarce, CPU runtime rate unknown-measure it); one learner +
-   its actors/rings per runtime, Drive is an artifact/control channel not a replay bus; release idle runtimes
-   unless the owner granted a retention; the Drive queue (`research/colab_queue/README.md`) is an operations
-   tool, not authorization. RunPod only for a step projected >= 4x faster than the Mac (measured), cheap pods
+   its actors/rings per runtime, and every new Colab job is routed through `research/colab_cli` rather than Drive.
+   Its supervisor is an operations tool, not authorization; it caps all account assignments at three and releases
+   idle runtimes unless an approved retention lease covers useful chained work. The Drive queue is legacy Q1-only.
+   RunPod only for a step projected >= 4x faster than the Mac (measured), cheap pods
    first, serverless fallback; standing permission for the improvement loop with per-step caps ~$10. Prefer
    L4 for actor-bound online RL, CPU runtimes for simulation/evaluation, A100 only for batched offline fits
    or a declared deadline, H100 only when a profile shows the learner GPU-bound. Details: compute skill.
@@ -143,9 +144,9 @@ prose for arms, budgets and rules. No emojis.
   the best seed, silent weights-only resume after an interruption.
 - **Unpriced work**: a plan without measured per-episode or per-transition rates, without the CPU runtime debit
   rate, or that prices rollout/teacher jobs in learner transitions/s (branch frames are the unit there).
-- **Ignoring Drive/queue realities**: concurrent `mkdir` made duplicate folders in T23; the Drive queue is
-  bounded-visibility, not exactly-once; est/timeout must be measured, not guessed
-  (`research/colab_queue/README.md`, `~/.codex/skills/snake-dqn-colab-jobs/SKILL.md`).
+- **Ignoring transport realities**: supervisor manifests bind commits/inputs/outputs and enforce measured,
+  first-cap-wins limits; kernel success must be confirmed from telemetry, hash-verified exports, terminal receipt,
+  and session disappearance. The Drive queue's bounded-visibility rules apply only to legacy Q1.
 - **Mixing comparators**: champion+v8, frp3-s12+v8 and bare B8 are different baselines; keep historical rows on
   their own baseline (`docs/research/GLOSSARY.md`, "champion / incumbent").
 

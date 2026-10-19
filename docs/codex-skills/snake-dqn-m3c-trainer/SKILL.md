@@ -11,6 +11,10 @@ description: |
 
 # Snake DQN: the M3-C trainer (train_m3c.py + learner_m3c.py)
 
+New Colab M3-C jobs are submitted only through `research/colab_cli` with a pinned manifest, uploaded inputs, and
+hash-verified exports. `research/t16_colab` notebooks and Drive queue manifests are legacy Q1 support; do not use
+them to launch new work.
+
 `train_m3c.py` (~5.1k lines) is the trainer that produced B8 s3, the released no-veto Watch hero
 (2026-10-17). Everything new is behind a flag; **defaults reproduce M3 bitwise** (checked by
 `tests/test_m3c_trainer.py::test_defaults_equal_m3`, and `m3c_flags(default_args()) == {}`).

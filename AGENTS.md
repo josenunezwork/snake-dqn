@@ -29,15 +29,28 @@ text below or in dated docs, STATUS.md wins. Summary:
   ratifying. Never edit a governance or research doc whose bytes are bound by sha256 (intents,
   receipts, `prepare`); add a sibling erratum or status file instead.
 
-## Colab / Drive-queue jobs (2026-10-18) — read before touching anything that runs on Colab
+## Colab jobs (2026-10-18) — read before touching anything that runs on Colab
 
-Code that runs on the owner's Colab runtimes (research/colab_queue, research/q0q1_*, research/t16_colab,
-`run_*_colab.sh`, worker notebooks) must pass the checklist in the Codex skill `snake-dqn-colab-jobs`
-(~/.codex/skills/snake-dqn-colab-jobs/SKILL.md; Claude's copy: ~/.claude/skills/colab-jobs). In short: no Mac-only
-paths or files (ship Mac-computed receipts via Drive), use all vCPUs with deterministic process pools, measure
-per-unit time before setting est/timeout, stream progress, make units resumable with fresh output dirs per attempt,
-never create shared Drive dirs concurrently, keep the runtime alive with a blocking last cell, and run the real
-entrypoint on a tiny real input before declaring done.
+All **new** Colab work uses the Mac-side supervisor in `research/colab_cli/` and the official CLI. It is the only
+allocator: it serializes allocation and stop, uses `--auth oauth2`, `COLAB_CLI_ASSIGN_RETRIES=0`, unique session
+names and per-lane state files, and counts every account assignment (including notebook workers) against the cap of
+three. Do not call `colab new`, `stop`, `exec`, `upload`, or `download` directly for a job. The supervisor validates
+the pinned commit/script/input hashes and fresh absolute output directory, uploads rather than mounts Drive, starts a
+lease-fenced runtime subprocess, polls file telemetry with explicit timeouts, verifies bounded immutable exports on
+the Mac, writes a create-only receipt, stops, and confirms disappearance from `colab sessions`.
+
+Use `snake-dqn-colab-jobs` before preparing or reviewing either transport. Keep the useful runtime rules: no
+Mac-only inputs; Python 3.12 uv environment; cu126 for L4/A100/H100 and cu128 for Blackwell; measured estimates and
+first-cap-wins wall/unit limits; deterministic use of available vCPUs; progress about every two minutes; fresh output
+directories; complete checkpoint state; hash-bound inputs and receipts. A CLI exit code is not job success: inspect
+telemetry and the terminal receipt. Never retry an allocation or a job automatically, buy units, run
+`colab auth`/`drivemount`, or use Drive inside a CLI runtime. `auth` and `drivemount` are human-interactive only.
+
+`research/colab_queue/`, its manifests, and `notebooks/colab_queue_worker*.ipynb` are legacy **only for the two
+already-running notebook workers and Q1**. The authorized Q1 operator may continue to enqueue and operate its
+existing jobs under the old protocol; do not create a non-Q1 job, migrate an existing job, or start a separate
+legacy worker. Its old Drive-mount, shared-directory, heartbeat, and blocking-cell instructions remain relevant
+solely when operating that existing work.
 
 ## Project Overview
 

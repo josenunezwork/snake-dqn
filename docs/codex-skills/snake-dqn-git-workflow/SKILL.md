@@ -80,6 +80,8 @@ Never `tmux kill-session -t git-sync`; never run `tmux kill-server`.
   `*_erratum_<date>.md` / `*_status_<date>.md` instead (AGENTS.md rule).
 - `QUEUE_REF` in `notebooks/colab_queue_worker*.ipynb` (pins the queue implementation): change only when
   the task is explicitly to upgrade the queue code, to a full published SHA.
+- New Colab job transport is `research/colab_cli`; keep its supervisor and runtime changes separate from legacy Q1
+  queue/notebook files. A CLI manifest pin must be a full published commit before allocation.
 - `AGENTS.md`, `docs/STATUS.md`, `CLAUDE.md`, `~/.codex/*`: only when the task says so.
 
 ## Tests and lint before you declare done

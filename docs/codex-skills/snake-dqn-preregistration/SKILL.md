@@ -47,6 +47,10 @@ serving changes, or release decisions").
 
 ## 2. What a pre-registration must fix
 
+For a planned new Colab arm, name the `research/colab_cli` transport and its manifest fields, account-wide
+assignment cap, wall/unit caps, lease/export limits, and receipt. Do not authorize a Drive queue job except for
+legacy Q1 recovery; the supervisor does not turn a registration into spending approval.
+
 - **Question + comparator + endpoint**: e.g. "terminal-hero H5000 full-horizon mass integral vs released
   bare B8 `3e649783...`, dead frames zero". Pin every identity by SHA-256 (candidate finals, incumbent,
   champion, wrapper variant/method, config digests, deployment profile digests).

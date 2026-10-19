@@ -10,6 +10,10 @@ description: |
 
 # Snake DQN: writing jobs for the Colab Drive queue
 
+> **Legacy boundary (2026-10-18):** this queue is only for the two already-running notebook workers and Q1. Do not
+> create, enqueue, requeue, or change a Drive-queue job for new work. New jobs use `research/colab_cli` through its
+> Mac-side supervisor; no runtime Drive mount, `colab auth`, or `colab drivemount` is allowed there.
+
 Source of truth: `research/colab_queue/README.md` (+ `core.py`, `worker.py`, `worker.sh`, `q.py`).
 Runtime-side rules (no Mac paths, use all vCPUs, measure before est/timeout, stream progress, keep-alive
 cell) are in `snake-dqn-colab-jobs`: apply BOTH skills; this one does not repeat that checklist.
