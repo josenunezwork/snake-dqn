@@ -51,7 +51,8 @@ For each world, D = search mass integral - bare B8 mass integral. Report the mea
 and survival (no-death fraction) per mix. The pooled effect is the **equal-weight
 mean of the three mix means**, not the 96/32/32 raw-world average. With one fixed
 B8 network, worlds within mix are the independent paired units: pooled variance
-is sum(s_mix^2/n_mix)/9, with Welch-Satterthwaite degrees of freedom. LB90 and UB90
+is sum(s_mix^2/n_mix)/9, with Welch-Satterthwaite degrees of freedom rounded
+down to an integer for the existing Student-t quantile helper (conservative). LB90 and UB90
 are one-sided 90% Student-t bounds. They are not across-training-seed estimates.
 
 At the single complete-bank look, apply in order:
@@ -90,6 +91,30 @@ in the final plan. Source/spec bytes already bound by prior studies stay intact.
 
 ## Final preflight selection and measured budget
 
-Pending implementation timing/calibration. No selection outcomes exist from this
-work. A sibling timing receipt and README will supply the exact commands,
-measurements, limitations, chosen scale/parameters and projected resource envelope.
+Selected before any selection data: **N=8, H=128, epsilon=0.02, margin
+threshold=0, length gate=600, leaf scale=1 mass-frame per Q unit**. The score
+uses max over legal leaf actions at the next prepared Watch decision. The
+smallest suggested N/H already costs 4.1-5.4 s per forced search, so no larger
+recipe was piloted. Outer B8 is rowwise; rollout hero remains rowwise and frozen
+opponents are batched. No veto is applied.
+
+Disjoint calibration: three worlds, 11,446 alive decisions, 20.37 s. The mandatory
+L>=600 trigger alone covered 43.395%; the ~10% total search target is infeasible
+with that OR rule on these fixtures. Threshold zero disables additional margin
+admissions. This feasibility limit is disclosed before approval, without changing
+the required length trigger or inspecting any selection outcome.
+
+`PREFLIGHT.json` binds raw timing/calibration/scaling receipts and forecast
+assumptions. The central forecast is 337.34 serial-equivalent core-hours, 88.85 h
+on six Mac workers (533.13 aggregate worker-hours), or 106.63 h with 20% reserve.
+Proposed owner-review Mac limits: six one-thread workers, 120 wall hours per
+attempt (432,000 s), first applicable cap wins. An all-decisions-searched scenario
+is 1,201 serial hours, so completion is not guaranteed by this proposed cap.
+A stopped/incomplete bank is INVALID_INCOMPLETE, not a scientific conclusion.
+
+A hypothetical 32-vCPU scenario at historical 2.4x per-core slowdown gives 25.30 h
+and $22.52-$24.04 at the dated $0.89-$0.95/h planning rates, before setup/reserve.
+Its 3.51x projected speedup does not establish >=4x placement admission. Current
+price, CPU throughput and cross-platform replay remain unverified. No CPU-pod
+execution or spending envelope is ratified by this draft. See README for exact
+future commands and scope boundaries. No selection outcomes exist from this work.

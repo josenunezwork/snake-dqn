@@ -264,7 +264,10 @@ def _effect(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
 
 def analyze(value: Mapping[str, Any]) -> dict[str, Any]:
     """Apply INVALID/INCOMPLETE, STOP_TRAINING, then GO precedence."""
-    indexed, errors = _validate(value)
+    try:
+        indexed, errors = _validate(value)
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        indexed, errors = {}, [f"malformed evidence: {type(exc).__name__}: {exc}"]
     output: dict[str, Any] = {
         "schema": SCHEMA,
         "input_digest": _input_digest(value),

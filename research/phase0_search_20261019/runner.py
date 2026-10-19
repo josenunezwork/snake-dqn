@@ -529,8 +529,20 @@ def _run_one_task(
         nonlocal last_check
         if time.monotonic() >= deadline:
             raise RunError("wall_cap")
-        if sys.platform == "darwin" and time.monotonic() - last_check >= CHECK_INTERVAL_SECONDS:
-            operational_guard()
+        if time.monotonic() - last_check >= CHECK_INTERVAL_SECONDS:
+            if sys.platform == "darwin":
+                operational_guard()
+            print(
+                json.dumps(
+                    {
+                        "event": "progress",
+                        "world_id": row["world_id"],
+                        "arm": _event.get("arm"),
+                        "frame": _event.get("frame"),
+                    }
+                ),
+                flush=True,
+            )
             last_check = time.monotonic()
 
     before = time.monotonic()
@@ -553,14 +565,7 @@ def run_plan(
     platform: str = "mac",
     wall_seconds: float = DEFAULT_WALL_SECONDS,
 ) -> dict[str, Any]:
-    """Execute unfinished worlds in fixed bank order.
-
-    Parallel dispatch belongs to a future launcher.
-
-    Keeping this worker serial gives an identity reference and respects the
-    one-math-thread rule;
-    external process fan-out may invoke disjoint ``--world-id`` units later.
-    """
+    """Run paired worlds with bounded admission and one math thread per worker."""
     plan = validate_plan(plan_path)
     if not math.isfinite(wall_seconds) or wall_seconds <= 0:
         raise RunError("wall_seconds must be finite and positive")
@@ -707,8 +712,16 @@ def main(argv: list[str] | None = None) -> int:
     except (RunError, FileExistsError, OSError, ValueError, subprocess.SubprocessError) as exc:
         print(f"refusing: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps(result, sort_keys=True))
-    return 0
+    summary = result
+    if args.command == "prepare":
+        summary = {key: result[key] for key in ("kind", "plan_sha256", "world_count", "git_head")}
+    elif args.command == "merge":
+        summary = {
+            key: result[key] for key in ("schema", "complete", "plan_sha256", "merged_sha256")
+        }
+        summary["world_count"] = len(result["worlds"])
+    print(json.dumps(summary, sort_keys=True))
+    return 0 if result.get("complete", True) else 2
 
 
 if __name__ == "__main__":

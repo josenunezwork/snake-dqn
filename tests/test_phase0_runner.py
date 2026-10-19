@@ -120,3 +120,20 @@ def test_tie_is_reported_but_not_accepted() -> None:
     result = parity.compare_records(record(trace_a), record(trace_b))
     assert result["pass"] is False
     assert result["tie_eligible"] is True
+
+
+def test_incomplete_run_cli_reports_failure(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(
+        runner,
+        "run_plan",
+        lambda *args, **kwargs: {
+            "complete": False,
+            "completed_world_ids": [],
+            "stop_reason": "wall_cap",
+        },
+    )
+    code = runner.main(
+        ["run", "--plan", str(tmp_path / "plan.json"), "--out", str(tmp_path / "out")]
+    )
+    assert code == 2
+    assert json.loads(capsys.readouterr().out)["stop_reason"] == "wall_cap"
