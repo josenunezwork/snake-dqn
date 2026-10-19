@@ -1,0 +1,120 @@
+{
+  "schema": "phase0-search-teacher-profile-baseline/v1",
+  "git_head": "45069720ed116d5f6ee681b530d60c3bcd805961",
+  "host": {
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.12.2",
+    "device": "cpu",
+    "native_threads": 1,
+    "warmup_excluded": true
+  },
+  "inputs": {
+    "bank": "research/phase0_search_20261019/WORLD_BANK.json",
+    "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+    "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "teacher_sha256": "d15960f0dab45b3e08d49549990620e341a0e6b2c665654ebf669b43d9d14f17",
+    "preflight_sha256": "c5569b3d955615c0d31b8e400428a115bbc8a752dde37446f4ef224213d8a7cf",
+    "config": {
+      "rollouts": 8,
+      "horizon": 128,
+      "epsilon": 0.02,
+      "margin_threshold": 0.0,
+      "length_gate": 0,
+      "leaf_scale": 1.0
+    },
+    "fixture": "timing fixture, synthetic serpentine hero length 800, six legal actions"
+  },
+  "command": "env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 ./venv/bin/python <manual timer harness>",
+  "measurements": {
+    "scripted": {
+      "total_seconds": 4.176107500010403,
+      "categories_seconds": {
+        "sim_stepping": 0.13732844992773607,
+        "observation_building": 1.0885805519938003,
+        "b8_forward": 1.7241057178471237,
+        "frozen_opponent_forward": 0.0,
+        "scripted_opponent_logic": 0.008752463210839778,
+        "clone_snapshot": 0.020657834014855325,
+        "python_residual": 1.1966824830160476
+      },
+      "calls": {
+        "sim_step": 129,
+        "ego_raster": 3144,
+        "b8_forward": 6315,
+        "frozen_q_values": 0,
+        "scripted_actions": 129,
+        "replicate": 1
+      },
+      "scores": {
+        "0": 75423.96610748768,
+        "1": 82688.79356408119,
+        "2": 0.0,
+        "3": 88609.2924798131,
+        "4": 69386.64874148369,
+        "5": 0.0
+      }
+    },
+    "frozen": {
+      "total_seconds": 4.9171367500093766,
+      "categories_seconds": {
+        "sim_stepping": 0.17135112901451066,
+        "observation_building": 1.2044734467344824,
+        "b8_forward": 1.8349682493426371,
+        "frozen_opponent_forward": 0.08892722774180584,
+        "scripted_opponent_logic": 0.0,
+        "clone_snapshot": 0.018308875005459413,
+        "python_residual": 1.599107822170481
+      },
+      "calls": {
+        "sim_step": 129,
+        "ego_raster": 3156,
+        "b8_forward": 6340,
+        "frozen_q_values": 516,
+        "scripted_actions": 0,
+        "replicate": 1
+      },
+      "scores": {
+        "0": 48081.67088675499,
+        "1": 93324.09876000881,
+        "2": 0.0,
+        "3": 94107.06194531918,
+        "4": 81600.21339058876,
+        "5": 0.0
+      }
+    },
+    "mixed": {
+      "total_seconds": 5.902305374998832,
+      "categories_seconds": {
+        "sim_stepping": 0.18201300397049636,
+        "observation_building": 1.5098871478112414,
+        "b8_forward": 2.209022410621401,
+        "frozen_opponent_forward": 0.07116199005395174,
+        "scripted_opponent_logic": 0.01598933493369259,
+        "clone_snapshot": 0.01976133300922811,
+        "python_residual": 1.894470154598821
+      },
+      "calls": {
+        "sim_step": 129,
+        "ego_raster": 3748,
+        "b8_forward": 7516,
+        "frozen_q_values": 387,
+        "scripted_actions": 129,
+        "replicate": 1
+      },
+      "scores": {
+        "0": 97202.24258160591,
+        "1": 103365.25340926647,
+        "2": 0.0,
+        "3": 88436.93831348419,
+        "4": 89223.74127745628,
+        "5": 0.0
+      }
+    }
+  },
+  "limitations": [
+    "Category timers wrap existing functions and classify the residual as Python dispatch/runtime overhead; residual is not a separately instrumented primitive.",
+    "Frozen-opponent timing wraps Vector61SimdPolicy.q_values only; Vector61 runtime featurization and mask preparation remain in the residual.",
+    "The fixture is a synthetic serpentine at length 800 with a real strict roster and is a timing premise, not a gameplay outcome.",
+    "No MPS timing was included in this CPU reference receipt."
+  ]
+}
