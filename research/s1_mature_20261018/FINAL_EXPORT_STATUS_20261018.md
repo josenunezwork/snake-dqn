@@ -88,19 +88,22 @@ measured throughput lower bound. The field remains
 acceptance receipt. `final_artifacts.py` requires current adapter/trainer and
 transport source identities, verified L4-to-Mac bytes, and bound production-size
 receipts for both arms. A CPU fixture or assumed home-connection speed cannot
-fill that field. Full-replay throughput qualification is no longer required.
+fill that field. A disjoint acceptance fixture may validate the fixed weight
+shape and enforced telemetry/artifact bounds without producing S1 efficacy
+data. Full-replay throughput qualification is no longer required.
 
 Hard job estimates/timeouts remain N3=30/60 minutes and N1=68/136 minutes. The
-hard envelope fits units and elapsed time (30.5328364448 hours versus38.4), but
+hard envelope fits units and elapsed time (30.5328364448 hours versus 38.4), but
 **exceeds usable GPU allocation by 2.6 hours**. Admission continues to refuse even
 if transport is instantaneous. No cap, reserve, timeout or estimate was changed
 to conceal that conflict.
 
 ## Remaining admission prerequisites
 
-1. Finish the independently owned CLI upload-deadline repair and its live
-   acceptance, including measured final-only transfer rate and N3/N1 final-size
-   receipts bound to the final published sources. No live acceptance was run here.
+1. Complete live acceptance of the independently owned CLI upload-deadline
+   repair, including measured final-only transfer rate and N3/N1 final-size
+   receipts bound to the final published sources. The repair was integrated
+   from upstream commit `dd74d5fe`; no live acceptance was run here.
 2. Resolve the 22.6 versus 20 GPU-hour hard reservation conflict through a
    prospective reviewed execution design that fits the existing caps.
 3. Claude's prospective registration approval, fresh required runtime/parity
@@ -122,3 +125,37 @@ Offline forecast command (choose a fresh output path):
 This command is expected to refuse until transport and hard-budget admission
 are satisfied. It never calls Colab. No live runtime, tmux session, serving pin,
 released checkpoint, Q1 evidence or protected transport source was changed.
+
+
+## Published review manifests and verification
+
+Ten `jobs_review/*.json` manifests are repinned to published implementation
+commit `f9bb1055d3e7fdbc74689b94a49e8547e4f34c15`, including the independently
+published CLI deadline fix. All ten pass local `supervisor.validate` with zero
+allocations, DRAFT owner/registration tokens, L4 only, at least 12 vCPUs, a
+180-second lease and 64 MiB export cap. Their input SHA inventories, fresh
+output paths and unchanged 30/60 and 68/136 minute estimate/timeouts are in
+`MANIFEST_VALIDATION_FINAL_ONLY.json`. They remain review manifests.
+
+Verification commands and final counts are recorded in
+`FINAL_EXPORT_VERIFICATION.json`; logs are under the external
+`snake-dqn-artifacts/s1-mature-20261018/final-only-verification/` directory.
+The independent review found no remaining blocking implementation findings.
+Admission refusal is an intentional budget/evidence result, not a test failure.
+
+The final post-merge supervisor/S1/trainer selection passed **228 tests**, with
+2 slow tests deselected. Black/isort/Flake8, core `make lint`, shell syntax and
+`git diff --check` passed. The wider repository run finished **7,900 passed,
+21 failed, 26 skipped**, including **two native worker segmentation faults**.
+Its failures include compiler/backend tests, old actor-oracle telemetry
+assertions, missing built frontend output and a serving fallback assertion.
+No S1 test failed in that run. The wider repository gate is not green; the
+current affected sources are covered by the subsequent post-merge selection.
+These broader failures were retained and not repaired outside this task's scope.
+
+Upstream native-runner fix `cf5df857` was integrated after that full-suite run.
+The full repository gate was not rerun after this independently authored fix;
+its inclusion does not turn the recorded failure into a pass.
+
+After integrating `cf5df857`, the final S1/trainer/native-runtime selection
+passed **113 tests**, with 2 slow tests deselected, in 23.04 seconds.

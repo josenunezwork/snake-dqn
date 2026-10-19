@@ -30,12 +30,13 @@ authorized fresh Mac strict gate. It does not change serving.
 - `bank.py`, `WORLD_BANK.json`, `SEED_AUDIT.json`: shared allocation, training
   namespaces, disjoint operational fixtures, and historical collision coverage.
 - `manifests.py`, `train.sh`, `train.py`: ten serialized L4 manifests, the real
-  M3-C trainer adapter, progress, and immutable checkpoint transport.
+  M3-C trainer adapter, progress, and immutable final-artifact transport.
 - `evaluate.py`, `analyze.py`: single-thread Mac worker pool, resumable hashed
   world units, fixed-order merge, final-look statistics and decisions.
 - `ledger.py`: durable study-wide reservations and receipt reconciliation.
-- `admission.py`, `run.py`, `launch.sh`: complete-plan admission and one-command
-  execution after all prerequisites pass.
+- `admission.py`, `run.py`, `launch.sh`, `rerun.py`: complete-plan admission,
+  serialized execution and explicit manual operational replacement after all
+  prerequisites pass.
 
 The protected `research/colab_cli` and `research/q0q1_20261017` implementations
 are consumed as read-only dependencies. Q1's historical ledger and A2/A3/A5

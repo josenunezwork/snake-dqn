@@ -1,0 +1,142 @@
+{
+  "commands": [
+    {
+      "command": "SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q -m 'not slow' tests/test_colab_cli_*.py tests/test_s1_*.py tests/test_m3c_trainer.py",
+      "log": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-verification/post-merge-supervisor-s1.log",
+        "sha256": "4f5e463502b11030b656363664128bef4342d7086cdedd1457ddc96b35cb9cc8"
+      },
+      "result": {
+        "deselected": 2,
+        "elapsed_seconds": 288.02,
+        "passed": 228
+      }
+    },
+    {
+      "command": "env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -m pytest -q -n4 -m 'not slow'",
+      "log": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-verification/full-not-slow-n4.log",
+        "sha256": "14a96a664301f3852df5739b3a822725a23aaba1d6abcbd593f9e654fccfa4e3"
+      },
+      "result": {
+        "elapsed_seconds": 440.68,
+        "failed": 21,
+        "native_worker_crashes": 2,
+        "passed": 7900,
+        "skipped": 26,
+        "warnings": 6
+      },
+      "scope_note": "Full suite started before the upstream CLI deadline merge and final small continuation hardening; affected current sources were subsequently verified by the post-merge scoped suite."
+    },
+    {
+      "command": "SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q -m 'not slow' tests/test_s1_*.py tests/test_m3c_trainer.py",
+      "log": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-verification/s1-final-tests.log",
+        "sha256": "e2240e5cd297859b0d9ee26bdbc4fc47901278a465b13c158e5a90bb8ac73c92"
+      },
+      "result": {
+        "deselected": 2,
+        "elapsed_seconds": 24.93,
+        "passed": 106
+      },
+      "scope_note": "Before four additional direct rerun-inspector tests; all final tests included in post-merge scoped228."
+    },
+    {
+      "command": "make PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python lint",
+      "result": "PASS"
+    },
+    {
+      "command": "./venv/bin/python -m black --check --line-length 100 research/s1_mature_20261018 research/redesign_m3c_20261008/train_m3c.py tests/test_s1_*.py",
+      "result": "PASS;28 files unchanged"
+    },
+    {
+      "command": "./venv/bin/python -m isort --check-only --profile black research/s1_mature_20261018 research/redesign_m3c_20261008/train_m3c.py tests/test_s1_*.py",
+      "result": "PASS"
+    },
+    {
+      "command": "./venv/bin/python -m flake8 research/s1_mature_20261018 research/redesign_m3c_20261008/train_m3c.py tests/test_s1_*.py",
+      "result": "PASS"
+    },
+    {
+      "command": "bash -n research/s1_mature_20261018/train.sh research/s1_mature_20261018/launch.sh",
+      "result": "PASS"
+    },
+    {
+      "command": "git diff --check",
+      "result": "PASS"
+    },
+    {
+      "command": "COLAB_INPUT_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-preflight-03/inputs COLAB_OUTPUT_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-preflight-03/output S1_TRAINING_NAMESPACE=s1-preflight-smoke/seed-223213833 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m research.s1_mature_20261018.train --arm n3 --seed 223213833 --root /Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-preflight-03 --smoke",
+      "receipt": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/TRAIN_PREFLIGHT_FINAL_ONLY.json",
+        "sha256": "94eeaa59467c9434cb8350bf67344c5bb2d353daac7f595a042667cbc0a75b9e"
+      },
+      "result": "PASS;12000 decisions;120.3 seconds;0 overshoot;clean actors;verified final/target archive"
+    },
+    {
+      "command": "SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q -m 'not slow' tests/test_s1_*.py tests/test_m3c_trainer.py tests/test_openmp_runtime.py",
+      "log": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/final-only-verification/post-native-fix-s1.log",
+        "sha256": "978baece48c93c95f8c71941d58f47be5a854c5a69375fdfce15b4cbbe388f71"
+      },
+      "result": {
+        "deselected": 2,
+        "elapsed_seconds": 23.04,
+        "passed": 113
+      },
+      "scope_note": "Final S1/trainer and native-runtime tests after integrating upstream native fix; no additional full-suite run.",
+      "source_ancestor": "cf5df857"
+    }
+  ],
+  "cwd": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature",
+  "dispatch_authorized": false,
+  "failure_notes": [
+    "13 compile tests report unavailable compiler/backend or missing @rpath/libc++.1.dylib; CPU smoke fallback is explicitly disclosed",
+    "2 native Python worker segmentation faults; repository gate is not green",
+    "4 older actor-oracle assertions compare added telemetry keys or produced_monotonic values; these telemetry fields already exist in baseline66c9135e",
+    "Built frontend dist missing for T15 source closure; serving fallback fixture assertion also failed",
+    "No S1 test failed in the broad run; current affected post-merge suite passed228 tests"
+  ],
+  "fixture": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/FINAL_ARTIFACT_SIZE_FIXTURE.json",
+    "sha256": "03a1231e3eea2898de4714621173fc98cd9d22a5c403e4f0cffaf94d12d2e85e"
+  },
+  "forecast": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/ADMISSION_STATUS_FINAL_ONLY.json",
+    "sha256": "4975d278279d5dbb0b273f2057638998cccc22e4ee4082aef160e7d1a14e620f"
+  },
+  "implementation_commit": "f9bb1055d3e7fdbc74689b94a49e8547e4f34c15",
+  "live_colab_commands": 0,
+  "manifest_validation": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-s1-mature/research/s1_mature_20261018/MANIFEST_VALIDATION_FINAL_ONLY.json",
+    "sha256": "5ff629289062bdd110a6072ea59aa13e4708e0fb16ab6c60b3cc893048ec809f"
+  },
+  "repository_gate_failures": [
+    "tests/test_perf_compile.py::test_compiled_loss_terms_close_on_fixed_batch[bv8-1.0]",
+    "tests/test_perf_compile.py::test_compiled_loss_terms_close_on_fixed_batch[b-1.0]",
+    "tests/test_perf_compile.py::test_compiled_loss_terms_close_on_fixed_batch[b-3.0]",
+    "tests/test_perf_compile.py::test_compiled_updates_stay_close_to_eager[loss]",
+    "tests/test_perf_compile.py::test_compiled_updates_stay_close_to_eager[forward]",
+    "tests/test_perf_compile.py::test_first_steps_verified_then_compiled - ...",
+    "tests/test_perf_compile.py::test_amp_compiled_steps_pass_the_rounding_floor_check[bf16]",
+    "tests/test_perf_compile.py::test_amp_compiled_steps_pass_the_rounding_floor_check[fp16]",
+    "tests/test_perf_compile.py::test_graph_count_is_per_learner - assert (...",
+    "tests/test_perf_compile.py::test_recompile_storm_falls_back_to_eager",
+    "tests/test_perf_compile.py::test_hero_forward_matches_eager_without_recompiles[30]",
+    "tests/test_perf_compile.py::test_hero_forward_matches_eager_without_recompiles[60]",
+    "tests/test_perf_compile.py::test_hero_forward_picks_up_in_place_weight_updates",
+    "tests/test_t15_run.py::test_source_closure_binds_html_css_and_the_actual_built_ui_bundle",
+    "tests/test_t21_actor_control.py::test_actor_fifo_marker_resume_preserves_ring_and_nstep_continuation[hero]",
+    "tests/test_t4_restart_actor.py::test_restart_default_actor_trace_matches_frozen_pre_t6_baseline",
+    "tests/test_web_served_checkpoint.py::TestLiveStack::test_manual_load_after_b8_fallback_restores_the_requested_v7_variant",
+    "tests/test_t21_colab_long_run.py::test_long_run_documentation_explains_replay_size_and_no_replay_resume",
+    "tests/test_m6_reward.py::test_levers_off_is_the_pre_m6_actor_bitwise[b8]",
+    "tests/test_m6_reward.py::test_levers_off_is_the_pre_m6_actor_bitwise[plain]",
+    "tests/test_m6_reward.py::test_levers_on_change_only_the_rewards_by_the_lever_terms"
+  ],
+  "review": "Independent read-only review reported no remaining blocking implementation findings",
+  "schema": "s1-final-only-verification/v1",
+  "status": "SCOPED_PASS_REPOSITORY_GATE_FAILED",
+  "upstream_merge": "Integrated independently authored deadline fixdd74d5fe through origin/main; no authored modifications to research/colab_cli or research/q0q1_20261017",
+  "upstream_native_fix": "cf5df857 integrated after full gate run; full repository suite not rerun after this independent fix"
+}
