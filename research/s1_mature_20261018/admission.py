@@ -86,6 +86,28 @@ def source_closure(repo: Path, commit: str) -> dict[str, str]:
     return result
 
 
+def packaging_preflight(repo: Path, rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """Build every pinned supervisor fallback locally, before reserving any job."""
+    from research.colab_cli import source
+
+    results = {}
+    for row in rows:
+        job = row["job_id"]
+        try:
+            with tempfile.TemporaryDirectory(prefix="s1-source-preflight-") as temporary:
+                plan = source.prepare(repo, row, Path(temporary))
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            raise AdmissionRefused(f"offline source packaging refused {job}: {exc}") from exc
+        results[job] = {
+            "commit": plan["commit"],
+            "tree": plan["tree"],
+            "files": len(plan["files"]),
+            "inventory_sha256": hashlib.sha256(canonical(plan["files"]).encode()).hexdigest(),
+            "fallback_unpacked_size": plan["fallback_unpacked_size"],
+        }
+    return {"status": "PASS", "builder": "research.colab_cli.source.prepare", "jobs": results}
+
+
 def require_approved_preregistration(path: Path) -> dict[str, str]:
     text = path.read_text()
     # The original DRAFT header remains part of the immutable historical bytes
@@ -284,6 +306,7 @@ def prepare(args: argparse.Namespace) -> Path:
         )
     if out.exists() or args.manifest_dir.exists():
         raise AdmissionRefused("plan or manifest directory already exists")
+    packaging = packaging_preflight(repo, rows)
     args.manifest_dir.mkdir(parents=True)
     written: list[dict[str, str]] = []
     for row in rows:
@@ -307,6 +330,7 @@ def prepare(args: argparse.Namespace) -> Path:
         "published_ref": published_ref,
         "preregistration": prereg,
         "source_closure": source_closure(repo, commit),
+        "source_packaging": packaging,
         "world_bank": {"path": str(args.world_bank.resolve()), "sha256": sha256(args.world_bank)},
         "seed_audit": {"path": str(args.seed_audit.resolve()), "sha256": sha256(args.seed_audit)},
         "manifests": written,

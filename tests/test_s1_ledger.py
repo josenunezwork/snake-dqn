@@ -438,6 +438,175 @@ def test_operational_retry_refuses_integrity_failure_or_verified_final(prepared)
         worker_ledger.reconcile_operational_failure("train-a", receipt, review)
 
 
+def test_preallocation_refusal_restores_same_job_without_consuming_retry(prepared):
+    worker_ledger, root, snapshot = prepared
+    source = manifest(root / "source.json")
+    worker_ledger.reserve("train-a", bound(), source)
+    # The admission snapshot is historical evidence by recovery time; only the
+    # fresh post-refusal snapshot is subject to the normal freshness window.
+    worker_ledger.clock = lambda: 1_001_000
+    state_dir = root / "supervisor-empty"
+    state_dir.mkdir()
+    log = root / "dispatch.log"
+    log.write_text("symlink prohibited in fallback source: research/s1/S1_SEED_AUDIT.json\n")
+    fresh = dump(
+        root / "fresh-account.json",
+        {
+            "captured_at": 1_001_000,
+            "balance_units": 1174.37,
+            "usage_rate_units_per_hour": 0,
+            "active_assignments": 0,
+            "assignments_known": True,
+        },
+    )
+    review = dump(
+        root / "preallocation-review.json",
+        {
+            "schema": "s1-preallocation-refusal/v1",
+            "status": "REFUSED_BEFORE_ALLOCATION",
+            "job_id": "train-a",
+            "manifest_sha256": digest(source),
+            "failure_classification": "source_preflight",
+            "colab_new_called": False,
+            "assignment_created": False,
+            "before_snapshot_sha256": digest(snapshot),
+            "fresh_snapshot_sha256": digest(fresh),
+            "supervisor_state_dir": str(state_dir.resolve()),
+            "dispatch_log": {"path": str(log), "sha256": digest(log)},
+        },
+    )
+    summary = worker_ledger.reconcile_preallocation_refusal(
+        "train-a", review, snapshot, fresh, state_dir
+    )
+    assert summary["planned_jobs"] == ["train-a", "train-b"]
+    assert summary["outstanding_jobs"] == []
+    assert "retry-n3" not in summary["settled_jobs"]
+    assert summary["spent"]["units"] == 2
+    assert summary["remaining"]["units"] == 24
+    saved = json.loads(worker_ledger.path.read_text())
+    event = saved["events"][-1]
+    assert event["kind"] == "preallocation_refusal"
+    assert event["failure_classification"] == "source_preflight"
+    assert saved["settled"].get("train-a") is None
+    refreshed = json.loads(source.read_text())
+    refreshed.update({"commit": "c" * 40, "output_dir": str(root / "refreshed-output")})
+    refreshed_path = dump(root / "refreshed.json", refreshed)
+    assert worker_ledger.validate_preallocation_continuation("train-a", refreshed_path)[
+        "sha256"
+    ] == digest(refreshed_path)
+    (state_dir / "unexpected-state").write_text("state")
+    with pytest.raises(Refused, match="supervisor state directory is not empty"):
+        worker_ledger.status()
+    (state_dir / "unexpected-state").unlink()
+    log.write_text("tampered\n")
+    with pytest.raises(Refused, match="preallocation dispatch log hash mismatch"):
+        worker_ledger.status()
+
+
+@pytest.mark.parametrize(
+    "defect",
+    (
+        "missing_log",
+        "stale_fresh",
+        "reused_snapshot",
+        "changed_balance",
+        "nonempty_state",
+        "changed_review",
+    ),
+)
+def test_preallocation_refusal_requires_fresh_bound_zero_allocation_evidence(prepared, defect):
+    worker_ledger, root, snapshot = prepared
+    source = manifest(root / "source.json")
+    worker_ledger.reserve("train-a", bound(), source)
+    state_dir = root / "supervisor-empty"
+    state_dir.mkdir()
+    log = root / "dispatch.log"
+    log.write_text("symlink prohibited in fallback source: research/s1/S1_SEED_AUDIT.json\n")
+    fresh_data = {
+        "captured_at": 1_000_000,
+        "balance_units": 1174.37,
+        "usage_rate_units_per_hour": 0,
+        "active_assignments": 0,
+        "assignments_known": True,
+    }
+    if defect == "stale_fresh":
+        fresh_data["captured_at"] = 0
+    elif defect == "changed_balance":
+        fresh_data["balance_units"] = 1173.37
+    fresh = dump(root / "fresh-account.json", fresh_data)
+    if defect == "reused_snapshot":
+        fresh = snapshot
+    review = dump(
+        root / "preallocation-review.json",
+        {
+            "schema": "s1-preallocation-refusal/v1",
+            "status": "REFUSED_BEFORE_ALLOCATION",
+            "job_id": "train-a",
+            "manifest_sha256": digest(source),
+            "failure_classification": "source_preflight",
+            "colab_new_called": False,
+            "assignment_created": False,
+            "before_snapshot_sha256": digest(snapshot),
+            "fresh_snapshot_sha256": digest(fresh),
+            "supervisor_state_dir": str(state_dir.resolve()),
+            "dispatch_log": {"path": str(log), "sha256": digest(log)},
+        },
+    )
+    if defect == "missing_log":
+        log.unlink()
+    elif defect == "nonempty_state":
+        (state_dir / "unexpected").write_text("state")
+    elif defect == "changed_review":
+        value = json.loads(review.read_text())
+        value["assignment_created"] = True
+        review.write_text(json.dumps(value))
+    with pytest.raises((FileNotFoundError, Refused)):
+        worker_ledger.reconcile_preallocation_refusal("train-a", review, snapshot, fresh, state_dir)
+    assert worker_ledger.status()["outstanding_jobs"] == ["train-a"]
+
+
+def test_preallocation_continuation_only_allows_commit_change(prepared):
+    worker_ledger, root, _ = prepared
+    source = dump(
+        root / "source.json",
+        {
+            "job_id": "train-a",
+            "commit": "a" * 40,
+            "script": "research/s1_mature_20261018/train.sh",
+            "env": {"S1_ARM": "n3", "S1_SEED": "7"},
+            "requirements": {"gpu": "L4"},
+            "timeout_minutes": 120,
+            "output_dir": str(root / "new-output"),
+            "inputs": [{"dest": "seed-bank.json", "sha256": "b" * 64}],
+            "budget": {"rate_units_per_hour": 2},
+        },
+    )
+    worker_ledger.reserve("train-a", bound(), source)
+    refreshed = json.loads(source.read_text())
+    refreshed["commit"] = "c" * 40
+    refreshed_path = dump(root / "refreshed.json", refreshed)
+    assert worker_ledger.validate_preallocation_continuation("train-a", refreshed_path)[
+        "sha256"
+    ] == digest(refreshed_path)
+    refreshed["env"]["S1_SEED"] = "8"
+    changed = dump(root / "changed.json", refreshed)
+    with pytest.raises(Refused, match="frozen scientific"):
+        worker_ledger.validate_preallocation_continuation("train-a", changed)
+    refreshed["env"]["S1_SEED"] = "7"
+    refreshed["output_dir"] = str(root / "changed-output")
+    changed = dump(root / "changed-output.json", refreshed)
+    assert worker_ledger.validate_preallocation_continuation("train-a", changed)[
+        "sha256"
+    ] == digest(changed)
+    Path(refreshed["output_dir"]).mkdir(parents=True)
+    with pytest.raises(Refused, match="fresh absolute output"):
+        worker_ledger.validate_preallocation_continuation("train-a", changed)
+    refreshed["commit"] = "A" * 40
+    invalid_commit = dump(root / "invalid-commit.json", refreshed)
+    with pytest.raises(Refused, match="full SHA"):
+        worker_ledger.validate_preallocation_continuation("train-a", invalid_commit)
+
+
 @pytest.mark.parametrize(
     "dimension", ("units", "gpu_allocation_hours", "mac_worker_hours", "elapsed_hours")
 )
@@ -472,7 +641,7 @@ def test_zero_assignments_with_nonzero_rate_refuses_new_snapshot(prepared):
     snapshot = dump(
         root / "unknown-rate.json",
         {
-            "captured_at": 1_000_000,
+            "captured_at": 1_000_001,
             "balance": 100,
             "rate": 0.01,
             "assignments": 0,

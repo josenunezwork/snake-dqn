@@ -66,8 +66,77 @@ def _manifest_paths(plan: dict[str, Any]) -> list[tuple[str, Path]]:
         target = Path(row["path"])
         if admission.sha256(target) != row["sha256"]:
             raise admission.AdmissionRefused(f"manifest changed after preparation: {target}")
+        value = _read(target)
+        if value.get("job_id") != row["job_id"] or (
+            "commit" in plan and value.get("commit") != plan["commit"]
+        ):
+            raise admission.AdmissionRefused("manifest identity differs from prepared plan")
         answer.append((str(row["job_id"]), target))
     return answer
+
+
+def _preallocation_continuation(
+    args: argparse.Namespace, plan: dict[str, Any], paths: list[tuple[str, Path]]
+) -> None:
+    """Admit only a source repair after a proven, never-allocated refusal."""
+    old = _read(args.previous_plan.resolve())
+    if old.get("schema") != admission.SCHEMA or old.get("status") != "PREPARED_NOT_DISPATCHED":
+        raise admission.AdmissionRefused("previous plan is not a prepared S1 plan")
+    for name in (
+        "preregistration",
+        "pricing_receipt",
+        "world_bank",
+        "seed_audit",
+        "liabilities",
+        "complete_upper_bound",
+        "run_rules",
+        "acceptance",
+    ):
+        if old.get(name) != plan.get(name):
+            raise admission.AdmissionRefused(f"source repair changes frozen plan {name}")
+    old_paths = _manifest_paths(old)
+    if [job for job, _ in old_paths] != [job for job, _ in paths]:
+        raise admission.AdmissionRefused("source repair changes registered job identities/order")
+    for (job, previous), (_, current) in zip(old_paths, paths):
+        previous_row, current_row = _read(previous), _read(current)
+        if {k: v for k, v in previous_row.items() if k not in {"commit", "output_dir"}} != {
+            k: v for k, v in current_row.items() if k not in {"commit", "output_dir"}
+        }:
+            raise admission.AdmissionRefused(f"source repair changes frozen manifest {job}")
+        output = Path(current_row["output_dir"])
+        if not output.is_absolute() or output.exists():
+            raise admission.AdmissionRefused("source repair requires fresh absolute job outputs")
+    old_mac = old["mac_manifest"]
+    if admission.sha256(Path(old_mac["path"])) != old_mac["sha256"]:
+        raise admission.AdmissionRefused("previous Mac evaluation manifest changed")
+    mac = plan["mac_manifest"]
+    if admission.sha256(Path(mac["path"])) != mac["sha256"]:
+        raise admission.AdmissionRefused("Mac evaluation manifest changed")
+    if _read(Path(old["mac_manifest"]["path"])) != _read(Path(plan["mac_manifest"]["path"])):
+        raise admission.AdmissionRefused("source repair changes Mac evaluation manifest")
+    state = _read(args.ledger)
+    if (
+        state.get("outstanding")
+        or set(state.get("settled", {})) != {"cli-acceptance"}
+        or state.get("planned") != plan["liabilities"]
+        or state.get("manual_retries")
+        or state.get("incomplete_arms")
+    ):
+        raise admission.AdmissionRefused(
+            "source repair requires the fully unstarted original ledger"
+        )
+    # The ledger API revalidates the evidence before any later reservation.
+    events = [
+        event for event in state.get("events", []) if event.get("kind") == "preallocation_refusal"
+    ]
+    if not events:
+        raise admission.AdmissionRefused("ledger lacks a reconciled pre-allocation refusal")
+    original = {job: admission.sha256(path) for job, path in old_paths}
+    if any(
+        original.get(event.get("job_id")) != event.get("manifest", {}).get("sha256")
+        for event in events
+    ):
+        raise admission.AdmissionRefused("previous plan is not the reconciled original manifest")
 
 
 def _snapshot(path: Path, *, colab: Path, account_config: Path) -> Path:
@@ -434,17 +503,23 @@ def dispatch(args: argparse.Namespace) -> None:
             "dispatcher requires the reviewed supervisor wrapper in its pinned repo"
         )
     paths = _manifest_paths(plan)
+    admission.packaging_preflight(args.repo.resolve(), [_read(path) for _, path in paths])
+    continuing = getattr(args, "continue_preallocation", False)
+    if continuing:
+        _preallocation_continuation(args, plan, paths)
+        rerun._no_efficacy_artifacts(args.artifact_root.resolve())
     worker_ledger = ledger.Ledger(args.ledger.resolve())
-    worker_ledger.initialize(
-        acceptance_review_path=args.acceptance_review.resolve(),
-        account_snapshot_path=_snapshot(
-            (args.snapshots / "initial.json").resolve(),
-            colab=args.colab,
-            account_config=args.account_config,
-        ),
-        history_refs=_history(args.history),
-        planned_liabilities=plan["liabilities"],
-    )
+    if not continuing:
+        worker_ledger.initialize(
+            acceptance_review_path=args.acceptance_review.resolve(),
+            account_snapshot_path=_snapshot(
+                (args.snapshots / "initial.json").resolve(),
+                colab=args.colab,
+                account_config=args.account_config,
+            ),
+            history_refs=_history(args.history),
+            planned_liabilities=plan["liabilities"],
+        )
     recovered, outcomes, halted = {}, [], set()
     for job_id, manifest_path in paths:
         if _read(manifest_path)["env"]["S1_ARM"].upper() in halted:
@@ -545,6 +620,9 @@ def continue_dispatch(args: argparse.Namespace) -> None:
     ):
         raise admission.AdmissionRefused("manual rerun liability was already consumed")
     paths = _manifest_paths(plan)
+    admission.packaging_preflight(
+        args.repo.resolve(), [_read(path) for _, path in paths] + [_read(retry_manifest)]
+    )
     replacements: dict[str, Path] = {}
     for entry in state.get("settled", {}).values():
         if entry.get("retry_of"):
@@ -633,6 +711,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--evaluate-only", action="store_true")
     parser.add_argument("--continue", dest="continue_dispatch", action="store_true")
     parser.add_argument("--retry-record", type=Path)
+    parser.add_argument("--continue-preallocation", action="store_true")
+    parser.add_argument("--previous-plan", type=Path)
     parser.add_argument("--repo", type=Path, default=admission.ROOT)
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--acceptance-review", type=Path, required=True)
@@ -659,6 +739,10 @@ def main(argv: list[str] | None = None) -> int:
         help="dedicated supervisor account config, never a job lane config",
     )
     args = parser.parse_args(argv)
+    if sum((args.evaluate_only, args.continue_dispatch, args.continue_preallocation)) > 1:
+        parser.error("evaluation and continuation modes are mutually exclusive")
+    if args.continue_preallocation and args.previous_plan is None:
+        parser.error("--continue-preallocation requires --previous-plan")
     if args.evaluate_only:
         plan = _read(args.plan)
         _evaluate_all(plan, args.artifact_root.resolve(), Path(plan["world_bank"]["path"]))

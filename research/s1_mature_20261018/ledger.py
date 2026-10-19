@@ -37,6 +37,7 @@ NOMINAL_CAPS = {
 SNAPSHOT_MAX_AGE_SECONDS = 15 * 60
 DIMENSIONS = tuple(USABLE_CAPS)
 OPERATIONAL_FAILURES = frozenset({"disconnect", "transfer_failure", "runtime_reclaim"})
+PREALLOCATION_REFUSAL_SCHEMA = "s1-preallocation-refusal/v1"
 
 
 class Refused(RuntimeError):
@@ -267,6 +268,143 @@ class Ledger:
             )
             return self._summary(state)
 
+    def validate_preallocation_continuation(
+        self, job_id: str, refreshed_manifest_path: str | Path
+    ) -> dict[str, str]:
+        """Bind a repaired manifest to a refused, never-allocated reservation.
+
+        A source-only repair may change the published commit.  Every manifest field
+        other than ``commit`` and the fresh output destination remains frozen,
+        including all scientific inputs.  This check is deliberately separate from settlement:
+        the evidence-backed zero-allocation closure can be recorded before a fresh
+        plan has been prepared.
+        """
+        with self._locked() as state:
+            self._verify_static_evidence(state)
+            entry = self._preallocation_entry(state, job_id)
+            original_path = Path(entry["manifest"]["path"])
+            if sha256(original_path) != entry["manifest"]["sha256"]:
+                raise Refused("reserved manifest evidence changed")
+            original = json.loads(original_path.read_text())
+            refreshed = json.loads(Path(refreshed_manifest_path).read_text())
+            old_frozen, new_frozen = dict(original), dict(refreshed)
+            for value in (old_frozen, new_frozen):
+                value.pop("commit", None)
+                value.pop("output_dir", None)
+            if old_frozen != new_frozen:
+                raise Refused("refreshed manifest changes frozen scientific identity")
+            if (
+                not isinstance(refreshed.get("commit"), str)
+                or len(refreshed["commit"]) != 40
+                or any(character not in "0123456789abcdef" for character in refreshed["commit"])
+            ):
+                raise Refused("refreshed manifest commit must be a full SHA")
+            output_dir = refreshed.get("output_dir")
+            if (
+                not isinstance(output_dir, str)
+                or not Path(output_dir).is_absolute()
+                or Path(output_dir).exists()
+            ):
+                raise Refused("refreshed manifest needs a fresh absolute output directory")
+            self._manifest_fits(Path(refreshed_manifest_path), job_id, entry["bound"])
+            return self._evidence(refreshed_manifest_path)
+
+    def reconcile_preallocation_refusal(
+        self,
+        job_id: str,
+        refusal_review_path: str | Path,
+        before_snapshot_path: str | Path,
+        fresh_snapshot_path: str | Path,
+        supervisor_state_dir: str | Path,
+    ) -> dict[str, Any]:
+        """Return a reservation to planned only when no allocation is proven.
+
+        This is not an operational failure or rerun.  It is limited to a committed
+        source/preflight refusal before ``colab new`` and therefore does not consume
+        the registration's one conditional operational replacement for an arm.
+        """
+        with self._locked() as state:
+            self._verify_static_evidence(state)
+            entry = state["outstanding"].get(job_id)
+            if entry is None:
+                raise Refused("no outstanding reservation for job")
+            before = self._snapshot(
+                before_snapshot_path,
+                require_zero=True,
+                remaining_units=0.0,
+                require_fresh=False,
+            )
+            if before != state["account_snapshot"]:
+                raise Refused("before snapshot is not the ledger-bound admission snapshot")
+            before_data = json.loads(Path(before["path"]).read_text())
+            before_captured = _number(before_data.get("captured_at"), "before snapshot captured_at")
+            if before_captured > float(entry["reserved_at"]):
+                raise Refused("before snapshot was captured after the reservation")
+            restored_units = (
+                sum(x["units"] for x in state["planned"].values()) + entry["bound"]["units"]
+            )
+            fresh = self._snapshot(
+                fresh_snapshot_path, require_zero=True, remaining_units=restored_units
+            )
+            if fresh == before:
+                raise Refused("fresh snapshot must be distinct from the historical before snapshot")
+            fresh_data = json.loads(Path(fresh["path"]).read_text())
+            fresh_captured = _number(fresh_data.get("captured_at"), "fresh snapshot captured_at")
+            if fresh_captured < float(entry["reserved_at"]) or fresh_captured <= before_captured:
+                raise Refused("fresh snapshot does not follow the reservation and before snapshot")
+            before_balance = _number(
+                before_data.get("balance_units", before_data.get("balance")),
+                "before snapshot balance",
+            )
+            fresh_balance = _number(
+                fresh_data.get("balance_units", fresh_data.get("balance")), "fresh snapshot balance"
+            )
+            if fresh_balance != before_balance:
+                raise Refused("fresh snapshot balance shows unexplained debit or credit")
+            state_dir = Path(supervisor_state_dir).resolve(strict=True)
+            if not state_dir.is_dir() or any(state_dir.iterdir()):
+                raise Refused("supervisor state directory is not empty")
+            review = self._preallocation_refusal_review(
+                refusal_review_path, job_id, entry["manifest"], before, fresh, state_dir
+            )
+            state["planned"][job_id] = entry["bound"]
+            del state["outstanding"][job_id]
+            state["account_snapshot"] = fresh
+            state["events"].append(
+                {
+                    "kind": "preallocation_refusal",
+                    "job_id": job_id,
+                    "at": self.clock(),
+                    "reserved_at": entry["reserved_at"],
+                    "manifest": entry["manifest"],
+                    "review": self._evidence(refusal_review_path),
+                    "before_snapshot": before,
+                    "fresh_snapshot": fresh,
+                    "supervisor_state_dir": str(state_dir),
+                    "failure_classification": review["failure_classification"],
+                }
+            )
+            self._verify_invariants(state, require_snapshot=True)
+            return self._summary(state)
+
+    @staticmethod
+    def _preallocation_entry(state: Mapping[str, Any], job_id: str) -> Mapping[str, Any]:
+        """Find the original bound reservation before or after its zero-spend closure."""
+        entry = state["outstanding"].get(job_id)
+        if entry is not None:
+            return entry
+        for event in reversed(state.get("events", [])):
+            if event.get("kind") == "preallocation_refusal" and event.get("job_id") == job_id:
+                manifest = event.get("manifest")
+                if job_id not in state["planned"] or not isinstance(manifest, Mapping):
+                    break
+                return {
+                    "bound": state["planned"][job_id],
+                    "manifest": manifest,
+                    "reserved_at": event.get("reserved_at", event.get("at")),
+                }
+        raise Refused("no outstanding or reconciled preallocation reservation for job")
+
     def reserve_manual_retry(
         self,
         source_job_id: str,
@@ -485,12 +623,17 @@ class Ledger:
             raise Refused(f"{label} hash mismatch")
 
     def _snapshot(
-        self, path: str | Path, *, require_zero: bool, remaining_units: float = 0.0
+        self,
+        path: str | Path,
+        *,
+        require_zero: bool,
+        remaining_units: float = 0.0,
+        require_fresh: bool = True,
     ) -> dict[str, Any]:
         data = json.loads(Path(path).read_text())
         captured = _number(data.get("captured_at"), "account snapshot captured_at")
         age = self.clock() - captured
-        if age < -60 or age > SNAPSHOT_MAX_AGE_SECONDS:
+        if require_fresh and (age < -60 or age > SNAPSHOT_MAX_AGE_SECONDS):
             raise Refused("account snapshot is stale")
         assignments = data.get("active_assignments", data.get("assignments"))
         assignments = _number(assignments, "account snapshot active_assignments")
@@ -536,6 +679,23 @@ class Ledger:
             for name in ("source_manifest", "operational_failure_review"):
                 if name in item and sha256(Path(item[name]["path"])) != item[name]["sha256"]:
                     raise Refused(f"settled {name} evidence changed: {job_id}")
+        for event in state.get("events", []):
+            if event.get("kind") != "preallocation_refusal":
+                continue
+            for name in ("manifest", "review", "before_snapshot", "fresh_snapshot"):
+                item = event.get(name)
+                if not isinstance(item, Mapping) or sha256(Path(item["path"])) != item.get(
+                    "sha256"
+                ):
+                    raise Refused(f"preallocation refusal {name} evidence changed")
+            self._preallocation_refusal_review(
+                event["review"]["path"],
+                event["job_id"],
+                event["manifest"],
+                event["before_snapshot"],
+                event["fresh_snapshot"],
+                Path(event["supervisor_state_dir"]),
+            )
 
     def _receipt(self, path: str | Path, manifest: Mapping[str, str]) -> dict[str, Any]:
         receipt_path = Path(path).resolve(strict=True)
@@ -630,6 +790,43 @@ class Ledger:
         )
         if any(value.get(name) is not False for name in prohibited):
             raise Refused("scientific or integrity failure cannot consume the retry")
+        return value
+
+    def _preallocation_refusal_review(
+        self,
+        path: str | Path,
+        job_id: str,
+        manifest: Mapping[str, str],
+        before_snapshot: Mapping[str, str],
+        fresh_snapshot: Mapping[str, str],
+        state_dir: Path,
+    ) -> dict[str, Any]:
+        """Validate the bounded evidence for a source refusal before allocation."""
+        review_path = Path(path).resolve(strict=True)
+        if not state_dir.is_dir() or any(state_dir.iterdir()):
+            raise Refused("supervisor state directory is not empty")
+        value = json.loads(review_path.read_text())
+        if (
+            value.get("schema") != PREALLOCATION_REFUSAL_SCHEMA
+            or value.get("status") != "REFUSED_BEFORE_ALLOCATION"
+            or value.get("job_id") != job_id
+            or value.get("manifest_sha256") != manifest["sha256"]
+            or value.get("failure_classification") != "source_preflight"
+            or value.get("colab_new_called") is not False
+            or value.get("assignment_created") is not False
+        ):
+            raise Refused("preallocation refusal review identity or no-allocation claim is invalid")
+        if value.get("before_snapshot_sha256") != before_snapshot["sha256"]:
+            raise Refused("preallocation refusal review is not bound to the before snapshot")
+        if value.get("fresh_snapshot_sha256") != fresh_snapshot["sha256"]:
+            raise Refused("preallocation refusal review is not bound to the fresh snapshot")
+        if value.get("supervisor_state_dir") != str(state_dir):
+            raise Refused("preallocation refusal review names another supervisor state directory")
+        log = value.get("dispatch_log")
+        self._verify_bound_file(log, "preallocation dispatch log")
+        log_text = Path(log["path"]).read_text(errors="replace")
+        if "symlink prohibited in fallback source:" not in log_text:
+            raise Refused("preallocation dispatch log does not prove the source symlink refusal")
         return value
 
     def _cli_actual(self, receipt: Mapping[str, Any], entry: Mapping[str, Any]) -> dict[str, float]:
@@ -793,9 +990,34 @@ class Ledger:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("ledger", type=Path)
-    parser.add_argument("command", choices=("status",))
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("status")
+    continuation = subparsers.add_parser("validate-preallocation-continuation")
+    continuation.add_argument("job_id")
+    continuation.add_argument("--refreshed-manifest", type=Path, required=True)
+    reconcile = subparsers.add_parser("reconcile-preallocation-refusal")
+    reconcile.add_argument("job_id")
+    reconcile.add_argument("--review", type=Path, required=True)
+    reconcile.add_argument("--before-snapshot", type=Path, required=True)
+    reconcile.add_argument("--fresh-snapshot", type=Path, required=True)
+    reconcile.add_argument("--supervisor-state-dir", type=Path, required=True)
     args = parser.parse_args()
-    print(json.dumps(Ledger(args.ledger).status(), indent=2, sort_keys=True))
+    worker_ledger = Ledger(args.ledger)
+    if args.command == "status":
+        result = worker_ledger.status()
+    elif args.command == "validate-preallocation-continuation":
+        result = worker_ledger.validate_preallocation_continuation(
+            args.job_id, args.refreshed_manifest
+        )
+    else:
+        result = worker_ledger.reconcile_preallocation_refusal(
+            args.job_id,
+            args.review,
+            args.before_snapshot,
+            args.fresh_snapshot,
+            args.supervisor_state_dir,
+        )
+    print(json.dumps(result, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

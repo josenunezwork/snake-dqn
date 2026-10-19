@@ -10,7 +10,7 @@ from research.s1_mature_20261018 import admission, run
 
 
 @pytest.mark.parametrize("tripwire", [False, True])
-@pytest.mark.parametrize("continuation", [False, True, "prior_retry", "refused"])
+@pytest.mark.parametrize("continuation", [False, True, "prior_retry", "refused", "preallocation"])
 def test_serial_dispatch_completes_the_registered_look_or_skips_only_killed_arm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tripwire: bool, continuation: bool | str
 ) -> None:
@@ -60,6 +60,14 @@ def test_serial_dispatch_completes_the_registered_look_or_skips_only_killed_arm(
     admission.write_once(plan_path, plan)
     monkeypatch.setattr(run, "_verify_plan", lambda *_: plan)
     events = []
+    retrying = bool(continuation) and continuation != "preallocation"
+
+    def preflight(repo, rows):
+        assert not events
+        assert len(rows) == (11 if retrying else 10)
+        return {"status": "PASS"}
+
+    monkeypatch.setattr(admission, "packaging_preflight", preflight)
 
     class FakeLedger:
         def __init__(self, *_):
@@ -154,7 +162,12 @@ def test_serial_dispatch_completes_the_registered_look_or_skips_only_killed_arm(
         colab=tmp_path / "never-invoked",
         account_config=tmp_path / "config.json",
     )
-    if continuation:
+    if continuation == "preallocation":
+        args.continue_preallocation = True
+        monkeypatch.setattr(run, "_preallocation_continuation", lambda *_: None)
+        run.dispatch(args)
+        assert "initialize" not in events
+    elif continuation:
         source_id = manifests[1]["job_id"]
         retry_path = tmp_path / "retry.json"
         retry = json.loads(Path(manifests[1]["path"]).read_text())
@@ -212,7 +225,7 @@ def test_serial_dispatch_completes_the_registered_look_or_skips_only_killed_arm(
     else:
         run.dispatch(args)
     reserves = [event[1] for event in events if isinstance(event, tuple) and event[0] == "reserve"]
-    assert len(reserves) == (7 if tripwire else 11) - int(bool(continuation))
+    assert len(reserves) == (7 if tripwire else 11) - int(retrying)
     assert reserves[-1] == "mac-final-evaluation"
     assert len(evaluations) == (10 if tripwire else 15)
     assert {seed for arm, seed in evaluations if arm == "B8"} == set(seeds)

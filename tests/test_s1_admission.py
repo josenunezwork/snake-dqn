@@ -222,6 +222,13 @@ def test_prepare_matches_pricing_and_uploads_bound_acceptance(
     monkeypatch.setattr(review_jobs, "verified_inputs", lambda: inputs)
     monkeypatch.setattr(admission, "published_commit", lambda repo, ref: "a" * 40)
     monkeypatch.setattr(admission, "source_closure", lambda repo, commit: {"fixture": "bound"})
+    packaged = []
+
+    def preflight(repo, rows):
+        packaged.extend(rows)
+        return {"status": "PASS"}
+
+    monkeypatch.setattr(admission, "packaging_preflight", preflight)
     args = argparse.Namespace(
         repo=admission.ROOT,
         published_ref="origin/t31-colab-safety-20261018",
@@ -237,6 +244,8 @@ def test_prepare_matches_pricing_and_uploads_bound_acceptance(
     )
     plan = json.loads(admission.prepare(args).read_text())
     assert plan["status"] == "PREPARED_NOT_DISPATCHED"
+    assert len(packaged) == 10
+    assert plan["source_packaging"]["status"] == "PASS"
     assert plan["published_ref"] == args.published_ref
     assert plan["complete_upper_bound"] == pytest.approx(forecast["complete_upper_bound"])
     assert all(plan["complete_upper_bound"][key] <= cap for key, cap in ledger.USABLE_CAPS.items())
@@ -247,6 +256,17 @@ def test_prepare_matches_pricing_and_uploads_bound_acceptance(
         ]
     with pytest.raises(admission.AdmissionRefused, match="already exists"):
         admission.prepare(args)
+    args.out = tmp_path / "refused-plan.json"
+    args.manifest_dir = tmp_path / "refused-jobs"
+
+    def refuse_packaging(repo, rows):
+        raise admission.AdmissionRefused("symlink prohibited in fallback source: fixture")
+
+    monkeypatch.setattr(admission, "packaging_preflight", refuse_packaging)
+    with pytest.raises(admission.AdmissionRefused, match="symlink prohibited"):
+        admission.prepare(args)
+    assert not args.out.exists()
+    assert not args.manifest_dir.exists()
 
 
 def test_published_source_requires_clean_exact_remote_branch(
