@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import signal
@@ -21,10 +22,27 @@ from pathlib import Path
 from typing import Any, Mapping
 
 STATE_INTERVAL_SECONDS = 15
+# Three release attempts each perform GET and POST requests with 20-second
+# bounds plus one second of request overhead, then two retry gaps.  A SIGTERM
+# can wait a further 10 seconds after checkpoint grace.  The release module
+# carries the matching timeout arithmetic; keep this Popen guard explicit.
+RELEASE_RETRY_WINDOW_SECONDS = 130
+STOP_CHILD_TAIL_SECONDS = 10
 
 
 class SpecError(ValueError):
     """A malformed or unsafe runtime specification."""
+
+
+def _release_module() -> Any:
+    """Load the co-shipped release client when runtime.py runs as a script."""
+    path = Path(__file__).with_name("release.py")
+    module_spec = importlib.util.spec_from_file_location("snake_colab_release", path)
+    if module_spec is None or module_spec.loader is None:
+        raise RuntimeError("runtime release module is unavailable")
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    return module
 
 
 def _now() -> float:
@@ -85,6 +103,7 @@ def _validate_spec(raw: Mapping[str, Any]) -> dict[str, Any]:
         "lease_seconds": (int, float),
         "checkpoint_grace_seconds": (int, float),
         "max_export_bytes": int,
+        "release_endpoint": str,
     }
     for key, kinds in required.items():
         if key not in raw or not isinstance(raw[key], kinds):
@@ -107,6 +126,10 @@ def _validate_spec(raw: Mapping[str, Any]) -> dict[str, Any]:
         raise SpecError("timeout, lease, grace, and export cap must be positive")
     if raw["checkpoint_grace_seconds"] > 30:
         raise SpecError("checkpoint_grace_seconds must be <= 30")
+    try:
+        _release_module()._unassign_url(raw["release_endpoint"])
+    except Exception as exc:
+        raise SpecError(f"release_endpoint is invalid: {exc}") from exc
     if "post_terminal_timeout_seconds" in raw and (
         isinstance(raw["post_terminal_timeout_seconds"], bool)
         or not isinstance(raw["post_terminal_timeout_seconds"], (int, float))
@@ -225,10 +248,41 @@ def _tail(path: Path, limit: int = 64 * 1024) -> str:
         return handle.read(limit).decode("utf-8", errors="replace")
 
 
-def _unassign() -> None:
-    from google.colab import runtime  # type: ignore[import-not-found]
+def _unassign(root: Path, endpoint: str) -> None:
+    """Release through the tunnel endpoint, independent of a notebook frontend."""
+    _release_module().release_from_file(
+        root, endpoint, min_valid_seconds=RELEASE_RETRY_WINDOW_SECONDS
+    )
 
-    runtime.unassign()
+
+def _release_credential_expiring(spec: Mapping[str, Any]) -> bool:
+    """Fail closed before a missing Mac rotation leaves no usable release token."""
+    required = (
+        float(spec["lease_seconds"])
+        + float(spec["checkpoint_grace_seconds"])
+        + STOP_CHILD_TAIL_SECONDS
+        + RELEASE_RETRY_WINDOW_SECONDS
+    )
+    return _release_module().credential_renewal_due(
+        _release_module().load_release_credential(
+            spec["root"], spec["release_endpoint"], min_valid_seconds=0
+        ),
+        spec["release_endpoint"],
+        safety_window_seconds=required,
+    )
+
+
+def _require_release_safety(spec: Mapping[str, Any]) -> None:
+    """Refuse to start a paid child without time for lease-loss release."""
+    required = (
+        float(spec["lease_seconds"])
+        + float(spec["checkpoint_grace_seconds"])
+        + STOP_CHILD_TAIL_SECONDS
+        + RELEASE_RETRY_WINDOW_SECONDS
+    )
+    _release_module().load_release_credential(
+        spec["root"], spec["release_endpoint"], min_valid_seconds=required
+    )
 
 
 def _lease_expired(root: Path, generation: str | int, lease_seconds: float) -> str | None:
@@ -241,12 +295,15 @@ def _lease_expired(root: Path, generation: str | int, lease_seconds: float) -> s
 
 
 def _unassign_or_raise(
-    state_path: Path, state: Mapping[str, Any], cleanup: dict[str, Any] | None = None
+    state_path: Path,
+    state: Mapping[str, Any],
+    spec: Mapping[str, Any],
+    cleanup: dict[str, Any] | None = None,
 ) -> None:
     try:
         if cleanup is not None:
             cleanup["unassign_attempted"] = True
-        _unassign()
+        _unassign(Path(spec["root"]), str(spec["release_endpoint"]))
     except Exception as exc:  # unassignment is an explicit evidence failure
         message = f"{type(exc).__name__}: {exc}"
         _best_effort_state(state_path, {**state, "unassign_error": message})
@@ -300,7 +357,7 @@ def supervise(spec: Mapping[str, Any]) -> int:
         if not cleanup["unassign_attempted"]:
             cleanup["unassign_attempted"] = True
             try:
-                _unassign()
+                _unassign(Path(spec["root"]), str(spec["release_endpoint"]))
             except BaseException:
                 pass
         raise
@@ -308,6 +365,7 @@ def supervise(spec: Mapping[str, Any]) -> int:
 
 def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
     spec = _validate_spec(spec)
+    _require_release_safety(spec)
     root = Path(spec["root"])
     output = root / "output"
     output.mkdir(mode=0o700)
@@ -326,7 +384,7 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
     try:
         _atomic_json(root / "state.json", state)
     except BaseException:
-        _unassign_or_raise(root / "state.json", state, cleanup)
+        _unassign_or_raise(root / "state.json", state, spec, cleanup)
         raise
     environment = os.environ.copy()
     environment.update(spec["env"])
@@ -365,7 +423,7 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
             status="failed", updated_at=_now(), reason="popen_failed", error=repr(exc), exports=[]
         )
         _best_effort_state(root / "state.json", state)
-        _unassign_or_raise(root / "state.json", state, cleanup)
+        _unassign_or_raise(root / "state.json", state, spec, cleanup)
         raise
     reason: str | None = None
     last_state = 0.0
@@ -375,6 +433,8 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
         while process.poll() is None:
             now = _now()
             reason = _lease_expired(root, spec["generation"], float(spec["lease_seconds"]))
+            if reason is None and _release_credential_expiring(spec):
+                reason = "release_credential_expiring"
             if reason is None and now - started > float(spec["timeout_seconds"]):
                 reason = "timeout"
             if reason:
@@ -435,7 +495,7 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
     # verified download (and, if explicitly approved, a chained useful job).  It
     # remains lease-fenced: client loss after completion still unassigns it.
     if reason is not None:
-        _unassign_or_raise(root / "state.json", state, cleanup)
+        _unassign_or_raise(root / "state.json", state, spec, cleanup)
         if failure is not None:
             raise RuntimeError(f"runtime supervisor failure: {failure!r}") from failure
         return returncode
@@ -445,6 +505,8 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
     while True:
         try:
             reason = _lease_expired(root, spec["generation"], float(spec["lease_seconds"]))
+            if reason is None and _release_credential_expiring(spec):
+                reason = "release_credential_expiring_after_terminal"
         except BaseException as exc:
             reason = "runtime_error_after_terminal"
             state["error"] = repr(exc)
@@ -453,7 +515,7 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
         if reason:
             state.update(status="lease_expired_after_terminal", updated_at=_now(), reason=reason)
             _atomic_json(root / "state.json", state)
-            _unassign_or_raise(root / "state.json", state, cleanup)
+            _unassign_or_raise(root / "state.json", state, spec, cleanup)
             return returncode
         time.sleep(0.2)
 

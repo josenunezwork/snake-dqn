@@ -71,6 +71,7 @@ def test_validate_rejects_long_checkpoint_grace_before_touching_root() -> None:
         "lease_seconds": 60,
         "checkpoint_grace_seconds": 31,
         "max_export_bytes": 100,
+        "release_endpoint": "unitendpoint",
     }
     with pytest.raises(runtime.SpecError, match="<= 30"):
         runtime._validate_spec(base)
@@ -92,10 +93,13 @@ def test_lease_expiry_stops_owned_child_writes_receipt_and_unassigns(
         "lease_seconds": 0.2,
         "checkpoint_grace_seconds": 0.1,
         "max_export_bytes": 100,
+        "release_endpoint": "unitendpoint",
     }
     calls: list[str] = []
     monkeypatch.setattr(runtime, "_validate_spec", lambda value: value)
-    monkeypatch.setattr(runtime, "_unassign", lambda: calls.append("unassign"))
+    monkeypatch.setattr(runtime, "_require_release_safety", lambda *_: None)
+    monkeypatch.setattr(runtime, "_unassign", lambda *_: calls.append("unassign"))
+    monkeypatch.setattr(runtime, "_release_credential_expiring", lambda *_: False)
 
     assert runtime.supervise(spec) != 0
     terminal = json.loads((root / "terminal.json").read_text())
@@ -120,10 +124,13 @@ def test_runtime_fault_stops_child_and_unassigns(
         "lease_seconds": 10,
         "checkpoint_grace_seconds": 0.1,
         "max_export_bytes": 100,
+        "release_endpoint": "unitendpoint",
     }
     calls: list[str] = []
     monkeypatch.setattr(runtime, "_validate_spec", lambda value: value)
-    monkeypatch.setattr(runtime, "_unassign", lambda: calls.append("unassign"))
+    monkeypatch.setattr(runtime, "_require_release_safety", lambda *_: None)
+    monkeypatch.setattr(runtime, "_unassign", lambda *_: calls.append("unassign"))
+    monkeypatch.setattr(runtime, "_release_credential_expiring", lambda *_: False)
     if fault == "malformed_lease":
         monkeypatch.setattr(
             runtime, "_lease_expired", lambda *_: (_ for _ in ()).throw(ValueError("bad lease"))
@@ -159,6 +166,7 @@ def test_state_storage_failure_stops_owned_child_and_unassigns(
         "lease_seconds": 10,
         "checkpoint_grace_seconds": 0.1,
         "max_export_bytes": 100,
+        "release_endpoint": "unitendpoint",
     }
     calls: list[str] = []
     real_write = runtime._atomic_json
@@ -172,7 +180,9 @@ def test_state_storage_failure_stops_owned_child_and_unassigns(
         real_write(path, value)
 
     monkeypatch.setattr(runtime, "_validate_spec", lambda value: value)
-    monkeypatch.setattr(runtime, "_unassign", lambda: calls.append("unassign"))
+    monkeypatch.setattr(runtime, "_require_release_safety", lambda *_: None)
+    monkeypatch.setattr(runtime, "_unassign", lambda *_: calls.append("unassign"))
+    monkeypatch.setattr(runtime, "_release_credential_expiring", lambda *_: False)
     monkeypatch.setattr(runtime, "_atomic_json", disk_full)
 
     with pytest.raises(RuntimeError, match="runtime supervisor failure"):
@@ -195,13 +205,15 @@ def test_initial_lease_storage_failure_still_attempts_unassign(
         "lease_seconds": 1,
         "checkpoint_grace_seconds": 0.1,
         "max_export_bytes": 1,
+        "release_endpoint": "unitendpoint",
     }
     calls: list[str] = []
     monkeypatch.setattr(runtime, "_validate_spec", lambda value: value)
+    monkeypatch.setattr(runtime, "_require_release_safety", lambda *_: None)
     monkeypatch.setattr(
         runtime, "_atomic_json", lambda *_: (_ for _ in ()).throw(OSError("disk full"))
     )
-    monkeypatch.setattr(runtime, "_unassign", lambda: calls.append("unassign"))
+    monkeypatch.setattr(runtime, "_unassign", lambda *_: calls.append("unassign"))
     with pytest.raises(OSError, match="disk full"):
         runtime.supervise(spec)
     assert calls == ["unassign"]

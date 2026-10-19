@@ -14,7 +14,11 @@ Every new job kind goes through `research/colab_cli/` (see `docs/colab-cli.md` f
 2026-10-18 "update everything to now use colab cli except for whats running". Checklist:
 1. Pre-registration first for any learning experiment; manifests pin a full commit, Bash `.sh` script, env, requested
    GPU plus any pre-priced `allowed_gpus` substitution list, est/timeout, and fresh output dir. No Mac-only paths:
-   ship hash-bound inputs in the uploaded bundle.
+   ship hash-bound inputs in the uploaded bundle. At admission, account for every pre-existing session endpoint in
+   `budget.other_assignments` with a reviewed positive rate; unaccounted endpoints or a provider-rate mismatch
+   refuse the allocation. The job cap is its own price times elapsed time; the account balance is only a
+   baseline-subtracted reconciliation check with five minutes of provider-lag allowance. It records a warning, never
+   a raw-account cap that charges Q1 or another lane to this job. A later provider-rate drift is a hard refusal.
 2. **Mac preflight of the real entrypoint** on a tiny real input with the manifest env (measured per-unit time x units
    / workers -> est; timeout >= 2x; progress lines every ~2 min; parallel workers for CPU-bound loops). Codex must
    load the `snake-dqn-colab-jobs` skill.
@@ -22,10 +26,28 @@ Every new job kind goes through `research/colab_cli/` (see `docs/colab-cli.md` f
    model/capability and writes `hardware.json`, uploads, launches, polls progress files, pulls completed snapshots
    to the Mac (then Drive-for-desktop backup), downloads results, stops, verifies release, and records account usage
    after stop. The job creates consistent optimizer/replay/actor/target/RNG/counter state; the supervisor transports
-   and hash-verifies it. Watch it from the Mac (`colab --auth oauth2 usage|sessions`, supervisor status).
-4. Never trust a CLI exit code alone: check the job's receipt (status, hashes, counters).
-5. Import results into the repo doc, commit + push to main, report to the owner (Pacific time).
+   and hash-verifies it. Exports use 8 MiB bounded chunks with a 60-second per-chunk bound, while renewal is
+   throttled to at most every 30 seconds, then receive local hash verification before atomic publication; one export
+   may be as large as the manifest's bounded cap (at most 2 GiB). Only idempotent reads receive their bounded
+   three-attempt retry; an uncertain mutating kernel operation is never retried. An uncertain
+   kernel RPC is not resubmitted to a possibly busy kernel; reconnect through state/files and retry only after
+   independent backend evidence says the kernel is idle.
+4. On lease expiry, the runtime checkpoints and releases via the Colab tunnel GET/XSRF-POST endpoint flow, not
+   `google.colab.runtime.unassign()`, which has no notebook frontend in a detached subprocess. The Mac supplies a
+   private, short-lived access token with exactly `colaboratory` and `userinfo.email` scopes; no refresh token,
+   client secret, or token URI reaches the runtime. The credential is account-scoped rather than endpoint-bound and
+   remains visible to trusted same-user runtime code; redirects are denied and naive expiry is normalized as UTC.
+   Three release attempts have a 130-second total bound, and the runtime requires lease + grace + 10 seconds + that
+   bound before it starts the child. Backend stop has up to three 75-second attempts and must prove the exact endpoint
+   disappeared from `sessions`; a cleanup exit or CLI success is not release proof.
+5. Never trust a CLI exit code alone: check the job's receipt (status, hashes, counters), locally verified exports,
+   spend ledger, and endpoint disappearance.
+6. Import results into the repo doc, commit + push to main, report to the owner (Pacific time).
 The first use of the supervisor requires its <=4-unit acceptance test to pass.
+
+The L4 acceptance arm simulates a Mac disconnect by suppressing renewal. It passes only if the exact assignment
+disappears from backend sessions within 300 seconds after lease expiry, before broker fallback cleanup. A missing artifact, credential
+scope/expiry failure, unaccounted assignment, lingering VM, cleanup error, or timeout ambiguity is `INCOMPLETE`.
 
 Everything below documents the **legacy Q1-only** notebook/Drive path, still needed only to run and babysit the
 already-authorized Q1 work. It must not be used to create or route a new Colab job.

@@ -53,6 +53,8 @@ def _log(argv: list[str], auth: str | None, config: str | None) -> None:
         "assign_retries": os.environ.get("COLAB_CLI_ASSIGN_RETRIES"),
         "request_timeout": os.environ.get("COLAB_CLI_REQUEST_TIMEOUT"),
     }
+    if len(argv) > 4 and argv[4] == "upload":
+        entry["upload_bytes"] = Path(argv[-2]).stat().st_size
     with LOG.open("a") as handle:
         handle.write(json.dumps(entry, sort_keys=True) + "\n")
 
@@ -95,8 +97,13 @@ def _root_from_code(code: str) -> str:
 
 def _new_session(state: dict[str, Any], name: str, gpu: str) -> None:
     endpoint = f"gpu-{gpu.lower()}-fake-{len(state['sessions']) + 1:04d}"
-    state["sessions"][endpoint] = {"name": name, "gpu": gpu}
+    state["sessions"][endpoint] = {
+        "name": name,
+        "gpu": gpu,
+        "notebook_hash": os.environ.get("SNAKE_COLAB_NOTEBOOK_HASH"),
+    }
     state["exec_count"][name] = 0
+    state["rate"] = float(state["rate"]) + float(os.environ.get("FAKE_COLAB_OWN_RATE", "6.84"))
     config = os.environ.get("FAKE_COLAB_ACTIVE_CONFIG")
     if config:
         config_path = Path(config)
@@ -110,13 +117,31 @@ def _new_session(state: dict[str, Any], name: str, gpu: str) -> None:
 def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
     count = int(state.setdefault("exec_count", {}).get(session, 0))
     state["exec_count"][session] = count + 1
-    if MODE == "busy_exec" and count == 0:
+    if MODE in {"busy_exec", "poll_hiccup"} and count == 0:
         # A zero exit with no nonce is the ambiguous/busy-kernel case.
         print("kernel is busy; command accepted")
         _save(state)
         return
     if MODE == "kernel_error":
         _reply(code, ok=False, error="RuntimeError('fake kernel failure')")
+        _save(state)
+        return
+
+    if "SNAKE_TRANSFER_" in code:
+        match = re.search(r"spec = (\{[^\n]+\})", code)
+        spec = json.loads(match.group(1))
+        for key in ("parts", "temporary", "target", "source", "path"):
+            if key in spec:
+                spec[key] = str(_remote(session, spec[key]))
+        code = code[: match.start(1)] + repr(spec) + code[match.end(1) :]
+        if MODE == "corrupt_download" and "DOWNLOAD_SPLIT" in code:
+            pass
+        exec(compile(code, "<fake-transfer>", "exec"), {})
+        _save(state)
+        return
+
+    if MODE == "poll_hiccup":
+        _reply(code, True)
         _save(state)
         return
 
@@ -231,10 +256,20 @@ def main(argv: list[str]) -> int:
         _new_session(state, name, gpu)
         _save(state)
     elif op == "stop":
+        attempts = state.get("stop_attempts", 0) + 1
+        state["stop_attempts"] = attempts
+        if MODE == "stop_transient" and attempts < 3:
+            _save(state)
+            print("[colab] Error: No active sessions found. Create one with 'colab new'.")
+            return 1
         if MODE != "stop_lie":
             for endpoint, record in list(state["sessions"].items()):
                 if record["name"] == session:
                     del state["sessions"][endpoint]
+                    state["rate"] = max(
+                        0,
+                        float(state["rate"]) - float(os.environ.get("FAKE_COLAB_OWN_RATE", "6.84")),
+                    )
         _save(state)
         print(f"Stopped {session}")
     elif op == "upload":

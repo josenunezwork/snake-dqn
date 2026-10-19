@@ -11,8 +11,11 @@ description: |
 ## Transport boundary
 
 - **New work:** use only `research/colab_cli` through `python -m research.colab_cli.supervisor`. The Mac supervisor
-  is the single broker for allocation and stop. It uses explicit OAuth2, `COLAB_CLI_ASSIGN_RETRIES=0`, a unique
-  session name, and a separate CLI config per lane.
+  is the single broker for allocation and stop. It uses explicit OAuth2, a unique session name, a separate CLI
+  config per lane, durable assignment recovery, and explicit subprocess timeouts. A durable pending UUID enables
+  authenticated backend recovery after an interrupted allocation; it cannot prove an offline VM release during the
+  allocation-to-watchdog window. Do not rely on undocumented CLI environment variables to create retry or
+  request-timeout behavior.
 - **Legacy only:** `research/colab_queue`, its job manifests, and `notebooks/colab_queue_worker*.ipynb` remain in
   place solely for the two already-running notebook workers and Q1. Do not modify, enqueue, migrate, or start them
   for new work. Use `snake-dqn-queue-jobs` only when babysitting that legacy path.
@@ -30,13 +33,15 @@ description: |
 - [ ] Run `validate` before `run`; validation does not allocate. A used or nonabsolute output directory is a refusal,
       never a reason to delete or overwrite evidence.
 - [ ] Count all account assignments, including notebook workers. The account-wide cap is three concurrent
-      assignments. No automatic allocation retries, job retries, or unit purchases.
+      assignments. At admission, record every pre-existing endpoint and its reviewed positive units-per-hour rate in
+      `budget.other_assignments`; an unknown endpoint, provider-rate mismatch, or later unexplained-rate drift is a
+      refusal. No automatic allocation retries, job retries, or unit purchases.
 - [ ] Price setup, export, idle time, and reserve. First wall-clock or unit cap wins. CPU debit is measured, never
-      assumed zero. `rate_units_per_hour` is a pre-priced ceiling; observed account debit conservatively includes
-      other notebook/lane spend and provider lag. Default to CPU/L4; retain an H100 only for a finite priced,
-      approved chain of useful work.
-- [ ] Treat actual job units as unknown until acceptance qualifies the conservative account-debit guard under
-      concurrent notebook spend and provider-accounting lag; it may stop a lane early.
+      assumed zero. `rate_units_per_hour` charges the session from elapsed time. Cross-check the account debit only
+      after subtracting the measured baseline rate of the accounted assignments. The five-minute provider-lag and
+      rounding allowance produces a receipt warning, not a raw-account spending cap; never let Q1 or another lane's
+      debit trip this session's cap. Default to CPU/L4; retain an H100 only for a finite priced, approved chain of
+      useful work.
 
 ## Environment and inputs
 
@@ -52,25 +57,36 @@ description: |
 ## Runtime execution, telemetry, and exports
 
 - [ ] The kernel launcher starts one supervised subprocess and returns. Later polling executions have explicit
-      timeouts, renew the generation-fenced lease, and read state/progress files; never blindly resubmit a launcher
-      to a busy kernel. A CLI exit status of zero does not clear a kernel error.
+      timeouts, renew the generation-fenced lease, and read state/progress files. An uncertain RPC means the kernel
+      may still be busy: use the file transport and do not resubmit work until independent backend evidence proves
+      the kernel idle. A CLI exit status of zero does not clear a kernel error.
 - [ ] Write progress (`done/total`, elapsed, ETA) about every two minutes. The job launcher, not the supervisor,
       makes units resumable and creates its complete optimizer, replay, actor, target, RNG, and counter snapshot
       before marking an export complete. Weights alone are not exact resume.
-- [ ] Exports are immutable payload + SHA-256 sidecar + completion marker. The supervisor downloads only bounded
-      completed exports to a temporary Mac path, checks the digest, then atomically renames. Failed transfers are
+- [ ] Exports are immutable payload + SHA-256 sidecar + completion marker. The supervisor transfers complete files
+      in bounded 8 MiB chunks with size-scaled timeouts. Renewal is throttled to at most every 30 seconds, so a
+      chunk transfer does not queue two polling RPCs; each 8 MiB call has a 60-second bound. The supervisor verifies
+      into a temporary Mac path, then atomically renames. Only idempotent reads receive their bounded three-attempt
+      retry; uncertain mutating kernel operations are never retried. The limit is `max_export_bytes` (at most 2 GiB). Failed transfers are
       rejected and temporary files are removed. Optional Drive-for-desktop backup happens only after local
       verification.
 - [ ] The runtime watchdog stops spending after lease expiry: request a checkpoint, give the child its bounded grace,
-      then unassign. A Mac disconnect can lose work after the latest acknowledged export.
-- [ ] Final success needs a terminal create-only receipt, verified local artifacts, `stop`, and no matching
-      assignment in account-wide `colab sessions`. `run` cleanup or a client timeout is not release proof.
+      then use the authenticated Colab tunnel unassign GET/XSRF-POST sequence. It cannot call
+      `google.colab.runtime.unassign()` because a detached subprocess lacks a notebook frontend. The Mac uploads a
+      private, short-lived access token with exactly `colaboratory` and `userinfo.email` scopes; it never uploads the
+      owner refresh token, client secret, or token URI, and a scope/expiry mismatch is a refusal. The token is
+      account-scoped rather than endpoint-bound and is visible to trusted same-user runtime code; redirects are
+      denied, naive expiry is normalized as UTC, and the runtime requires lease + grace + 10 seconds + a 130-second
+      release margin before starting the child.
+- [ ] Final success needs a terminal create-only receipt, verified local artifacts, up to three 75-second stop
+      attempts while the endpoint remains listed, and no matching assignment in account-wide `colab sessions`.
+      `STOP_UNVERIFIED`, `run` cleanup, or a client timeout is not release proof.
 
 ## Exact interface
 
 ```bash
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
-LAUNCH=/Users/josenunez/Projects/ml/snake-dqn-colab-cli/research/colab_cli/launch.sh
+LAUNCH=/Users/josenunez/Projects/ml/snake-dqn/research/colab_cli/launch.sh
 SUPERVISOR_STATE=/absolute/path/outside/repo/colab-cli/<lane>-<attempt>
 COLAB_BIN=/Users/josenunez/.local/bin/colab
 "$LAUNCH" --check --state-dir "$SUPERVISOR_STATE" --colab "$COLAB_BIN" validate /absolute/path/job.json
@@ -90,6 +106,9 @@ tmux new-session -d -s colab-cli-<lane>-<attempt> \
 `launch.sh` is foreground, applies AC/open-lid guards and `caffeinate -is`, and belongs inside the caller-owned
 prepared tmux service. `status` is read-only and does not prove exact provider hardware capability. `recover` only
 accepts a broker-owned account `pending-*.json` or `active-*.json`; never infer an identity from the sessions list.
+The <=4-unit acceptance must pass before a production allocation. Its L4 Mac-disconnect fault requires the exact
+assignment to disappear from sessions within 300 seconds after lease expiry, before broker fallback cleanup; the
+total bound includes lease, grace, terminal allowance, and the 130-second release window. Anything else is a failure.
 
 Use `"$COLAB_BIN" --auth oauth2 usage` and `sessions` for read-only account evidence. See `docs/colab-cli.md` and
 `docs/research/advice/2026-10-18_colab_cli_operating_model.md` for operator guidance and acceptance boundaries.

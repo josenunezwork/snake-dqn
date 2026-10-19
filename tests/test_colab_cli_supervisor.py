@@ -34,7 +34,7 @@ def _fake_env(
         json.dumps(
             {
                 "balance": 1178.30,
-                "rate": 6.84,
+                "rate": 6.84 if assignments else 0,
                 "sessions": active,
                 "exec_count": {},
             }
@@ -42,10 +42,21 @@ def _fake_env(
     )
     log_path.touch()
     remote_path.mkdir()
+    stub = tmp_path / "cli-stub" / "colab_cli"
+    stub.mkdir(parents=True)
+    (stub / "__init__.py").write_text("")
+    (stub / "client.py").write_text(
+        "class Client:\n    def assign(self,*a,**k): pass\n"
+        "    def _issue_request(self,*a,**k): pass\n"
+    )
+    monkeypatch.setenv("PYTHONPATH", str(stub.parent))
     monkeypatch.setenv("FAKE_COLAB_STATE", str(state_path))
     monkeypatch.setenv("FAKE_COLAB_LOG", str(log_path))
     monkeypatch.setenv("FAKE_COLAB_REMOTE", str(remote_path))
     monkeypatch.setenv("FAKE_COLAB_MODE", mode)
+    monkeypatch.setenv(
+        "SNAKE_COLAB_OAUTH_PYTHON", str(REPO / "tests/fixtures/fake_colab_helper.py")
+    )
     FAKE.chmod(FAKE.stat().st_mode | stat.S_IXUSR)
     return str(FAKE)
 
@@ -59,8 +70,8 @@ def _assert_transport(tmp_path: Path) -> None:
     assert events
     for event in events:
         assert event["auth"] == "oauth2"
-        assert event["assign_retries"] == "0"
-        assert event["request_timeout"] == "30"
+        assert event["assign_retries"] is None
+        assert event["request_timeout"] is None
         argv = event["argv"]
         assert isinstance(argv, list)
         assert argv[:4] == ["--auth", "oauth2", "--config", event["config"]]
@@ -78,6 +89,7 @@ def _manifest(
     commit = os.environ.get("SNAKE_TEST_PINNED_COMMIT")
     if not commit:
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    os.environ["FAKE_COLAB_OWN_RATE"] = str(rate)
     input_path = tmp_path / "input.bin"
     input_path.write_bytes(b"pinned-input")
     return {
@@ -118,6 +130,7 @@ def _isolate_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
             "add",
             "research/colab_cli/runtime.py",
             "research/colab_cli/bootstrap.sh",
+            "research/colab_cli/release.py",
             "research/colab_cli/acceptance_probe.sh",
         ],
         cwd=REPO,
@@ -477,7 +490,7 @@ def test_cli_call_caps_subprocess_timeout_at_session_deadline(
         str(tmp_path / "lane-sessions.json"),
         "version",
     ]
-    assert seen["env"]["COLAB_CLI_ASSIGN_RETRIES"] == "0"
+    assert seen["env"]["SNAKE_COLAB_NOTEBOOK_HASH"]
 
 
 def test_backup_is_invoked_only_after_verified_remote_stop_and_receipt_hash(
@@ -512,3 +525,159 @@ def test_backup_is_invoked_only_after_verified_remote_stop_and_receipt_hash(
     backup_record = json.loads((tmp_path / "job-output" / "backup.json").read_text())
     assert backup_record["hash_verified"] is True
     _assert_transport(tmp_path)
+
+
+def test_stop_reissues_after_transient_lookup_error_with_long_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path, mode="stop_transient")
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    cli = supervisor.CLI(binary, tmp_path / "session.json", "owned-stop")
+    cli.call("new", "-s", cli.session)
+    endpoint = next(iter(cli.sessions()))
+    timeouts = []
+    original = cli.call
+
+    def observe(*args: str, timeout: float = 45) -> str:
+        if args[0] == "stop":
+            timeouts.append(timeout)
+        return original(*args, timeout=timeout)
+
+    monkeypatch.setattr(cli, "call", observe)
+    supervisor.stop_verified(cli, endpoint)
+    assert len(timeouts) >= 2
+    assert all(timeout >= 60 for timeout in timeouts)
+    assert not cli.sessions()
+
+
+def test_idempotent_poll_recovers_transport_hiccup_only_after_idle_probe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path, mode="poll_hiccup")
+    cli = supervisor.CLI(binary, tmp_path / "session.json", "telemetry")
+    assert cli.poll_rpc("result=True") is True
+    assert sum(event["argv"][4] == "exec" for event in _events(tmp_path)) == 2
+
+
+def test_other_notebook_spend_is_attributed_and_missing_rates_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path, assignments=1)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    manifest = _manifest(tmp_path)
+    with pytest.raises(supervisor.Refused, match="unaccounted"):
+        supervisor.Broker(tmp_path / "missing-lane", binary).run(manifest)
+    assert not any(event["argv"][4] == "new" for event in _events(tmp_path))
+    manifest = _manifest(tmp_path, job_id="accounted", output=tmp_path / "accounted-output")
+    manifest["budget"]["other_assignments"] = {"gpu-notebook-1": 6.84}
+    supervisor.Broker(tmp_path / "accounted-lane", binary).run(manifest)
+    receipt = json.loads((tmp_path / "accounted-output/receipt.json").read_text())
+    assert receipt["status"] == "PASS"
+    assert receipt["accounting"]["baseline_rate_units_per_hour"] == 6.84
+    assert list(supervisor.CLI(binary, tmp_path / "status.json").sessions().values()) == [
+        "owner-notebook-1"
+    ]
+
+
+def test_recover_unknown_assignment_by_durable_notebook_hash(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    cli = supervisor.CLI(binary, tmp_path / "session.json", "interrupted")
+    cli.call("new", "-s", cli.session)
+    state = json.loads((tmp_path / "fake-state.json").read_text())
+    endpoint = next(iter(state["sessions"]))
+    state["sessions"][endpoint]["name"] = "?"
+    (tmp_path / "fake-state.json").write_text(json.dumps(state))
+    cli.config.unlink()
+    output = tmp_path / "recovery-output"
+    output.mkdir()
+    supervisor.ACCOUNT_ROOT.mkdir(exist_ok=True)
+    record = supervisor.ACCOUNT_ROOT / "pending-interrupted.json"
+    record.write_text(
+        json.dumps(
+            {
+                "session": cli.session,
+                "config": str(cli.config),
+                "output": str(output),
+                "before": [],
+                "notebook_hash": cli.notebook_hash,
+            }
+        )
+    )
+    supervisor.Broker(tmp_path / "recovery-state", binary).recover(record)
+    assert cli.sessions() == {}
+    assert not record.exists()
+    assert sum(event["argv"][4] == "new" for event in _events(tmp_path)) == 1
+
+
+def test_600_mib_snapshot_roundtrip_uses_bounded_fake_cli_requests(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.colab_cli import transfers
+
+    binary = _fake_env(monkeypatch, tmp_path)
+    cli = supervisor.CLI(binary, tmp_path / "large-session.json", "large-transfer")
+    source = tmp_path / "600mib.snapshot"
+    size = 600 * 1024 * 1024
+    with source.open("wb") as stream:
+        stream.truncate(size)
+    remote = "/content/snake-cli/transfer-proof/checkpoint.bin"
+    digest = transfers.upload_file(cli, source, remote, renew=lambda: None)
+    target = tmp_path / "downloaded.snapshot"
+    transfers.download_file(cli, remote, target, size, expected_sha256=digest)
+    assert target.stat().st_size == size
+    assert supervisor.sha256(target) == digest
+    uploads = [e for e in _events(tmp_path) if e["argv"][4] == "upload"]
+    downloads = [e for e in _events(tmp_path) if e["argv"][4] == "download"]
+    assert len(uploads) == len(downloads) == 75
+    assert max(e["upload_bytes"] for e in uploads) <= 8 * 1024 * 1024
+    assert not list((tmp_path / "remote").rglob("*.part"))
+
+
+def test_waiting_for_account_lock_renews_active_runtime_lease(tmp_path: Path) -> None:
+    import threading
+
+    supervisor.ACCOUNT_ROOT.mkdir(parents=True, exist_ok=True)
+    cli = supervisor.CLI("unused", tmp_path / "session.json")
+    renewed = threading.Event()
+    acquired = threading.Event()
+    cli.renew = renewed.set
+
+    def wait_for_broker() -> None:
+        with supervisor.account_locked(cli):
+            acquired.set()
+
+    with supervisor.locked(supervisor.ACCOUNT_ROOT / "broker.lock"):
+        waiter = threading.Thread(target=wait_for_broker)
+        waiter.start()
+        assert renewed.wait(timeout=5)
+        assert not acquired.is_set()
+    waiter.join(timeout=5)
+    assert acquired.is_set()
+    assert not waiter.is_alive()
+
+
+def test_cleanup_lock_wait_ignores_expired_execution_and_uncertain_renewal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cli = supervisor.CLI("unused", tmp_path / "session.json")
+    cli.deadline = -1
+
+    def unsafe_renew() -> None:
+        raise AssertionError("cleanup must not renew an uncertain kernel")
+
+    cli.renew = unsafe_renew
+    calls = []
+
+    def contended_once(handle: object, mode: int) -> None:
+        calls.append(mode)
+        if len(calls) == 1:
+            raise BlockingIOError
+
+    monkeypatch.setattr(supervisor.fcntl, "flock", contended_once)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
+    with supervisor.account_locked(cli, cleanup=True):
+        pass
+    assert len(calls) == 3

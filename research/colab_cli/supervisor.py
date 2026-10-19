@@ -27,6 +27,7 @@ from typing import Any, Callable, Iterator
 
 ACCOUNT_ROOT = Path.home() / ".config/colab-cli/snake"
 REPO = Path(__file__).resolve().parents[2]
+OAUTH_PYTHON = str(Path.home() / ".venvs/colab-cli/bin/python")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -76,6 +77,36 @@ def locked(path: Path, blocking: bool = True) -> Iterator[None]:
             fcntl.flock(handle, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
         except BlockingIOError as exc:
             raise Refused(f"already supervised: {path}") from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def account_locked(cli: Any, *, cleanup: bool = False) -> Iterator[None]:
+    """Wait for the allocator without starving another lane's runtime lease."""
+    path = ACCOUNT_ROOT / "broker.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cleanup_deadline = time.monotonic() + 600
+    with path.open("a") as handle:
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if cleanup and time.monotonic() >= cleanup_deadline:
+                    print(
+                        "\aSTOP_LOCK_UNAVAILABLE: durable recovery record retained",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    raise Refused("STOP_LOCK_UNAVAILABLE after 600s")
+                if not cleanup and cli.deadline is not None and time.monotonic() >= cli.deadline:
+                    raise Refused("deadline reached while awaiting account broker")
+                if not cleanup and cli.renew is not None:
+                    cli.renew()
+                time.sleep(2)
         try:
             yield
         finally:
@@ -188,7 +219,7 @@ def validate(manifest: dict[str, Any], repo: Path = REPO) -> dict[str, Any]:
     m["lease_seconds"] = lease
     m["max_export_bytes"] = int(positive(m.get("max_export_bytes", 1024**3), "max_export_bytes"))
     if m["max_export_bytes"] > 2 * 1024**3:
-        raise Refused("whole-file CLI transfer cap is 2 GiB")
+        raise Refused("maximum artifact size is 2 GiB (transferred in bounded chunks)")
     return m
 
 
@@ -199,6 +230,10 @@ class CLI:
         self.binary, self.config, self.session = binary, config, session
         self.exec_uncertain = False
         self.deadline: float | None = None
+        self.notebook_hash = uuid.uuid4().hex
+        self.assignment_record = config.with_suffix(".assignment.json")
+        self.oauth_python = os.environ.get("SNAKE_COLAB_OAUTH_PYTHON", OAUTH_PYTHON)
+        self.renew: Callable[[], Any] | None = None
 
     def call(self, *args: str, timeout: float = 45) -> str:
         if self.deadline is not None and args[0] not in {"stop", "sessions"}:
@@ -207,12 +242,21 @@ class CLI:
                 raise Refused("whole-session deadline reached before CLI call")
         env = {
             **os.environ,
-            "COLAB_CLI_ASSIGN_RETRIES": "0",
-            "COLAB_CLI_REQUEST_TIMEOUT": "30",
+            "SNAKE_COLAB_NOTEBOOK_HASH": self.notebook_hash,
+            "SNAKE_COLAB_ASSIGNMENT_RECORD": str(self.assignment_record),
             "NO_COLOR": "1",
             "COLUMNS": "240",
         }
         self.config.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        hook = self.config.parent / "cli-hook"
+        hook.mkdir(exist_ok=True, mode=0o700)
+        guard_path = Path(__file__).with_name("cli_guard.py")
+        (hook / "sitecustomize.py").write_text(
+            "import os,runpy\ntry:\n    runpy.run_path("
+            + repr(str(guard_path))
+            + ", run_name='snake_cli_guard')\nexcept BaseException:\n    os._exit(70)\n"
+        )
+        env["PYTHONPATH"] = str(hook) + os.pathsep + env.get("PYTHONPATH", "")
         try:
             result = subprocess.run(
                 [self.binary, "--auth", "oauth2", "--config", str(self.config), *args],
@@ -289,24 +333,67 @@ class CLI:
             raise Refused(f"kernel error despite CLI exit zero: {reply.get('error')}")
         return reply["value"]
 
+    def poll_rpc(self, code: str, timeout: float = 20) -> Any:
+        """Retry only idempotent telemetry after independent proof of kernel idle."""
+        from research.colab_cli.cli_guard import kernel_idle
+
+        for attempt in range(3):
+            try:
+                return self.rpc(code, timeout)
+            except (Refused, subprocess.SubprocessError):
+                if not self.exec_uncertain or attempt == 2:
+                    raise
+                # Never enqueue work while the previous exec could still be busy.
+                # The bounded REST probe executes no kernel code.
+                idle = False
+                for _ in range(3):
+                    remaining = (self.deadline or (time.monotonic() + 60)) - time.monotonic()
+                    if remaining <= 1:
+                        raise Refused("deadline reached during telemetry recovery")
+                    if kernel_idle(
+                        self.oauth_python, self.config, self.session, timeout=min(45, remaining)
+                    ):
+                        idle = True
+                        break
+                    time.sleep(2)
+                if not idle:
+                    raise Refused("kernel remains busy/unknown after telemetry hiccup")
+                self.exec_uncertain = False
+        raise Refused("telemetry recovery exhausted")
+
 
 def stop_verified(cli: CLI, endpoint: str) -> None:
     """A stop exit code cannot prove release; independently query the account."""
-    error = None
-    try:
-        cli.call("stop", "-s", cli.session, timeout=5)
-    except Exception as exc:
-        error = exc
-    # Bounded visibility polling, never another allocation or a stop of a notebook.
-    for _ in range(3):
-        if endpoint not in cli.sessions(timeout=5):
-            return
-        time.sleep(2)
-    raise Refused(f"STOP_UNVERIFIED: assignment {endpoint} remains; stop error={error!r}")
+    errors = []
+    for attempt in range(3):
+        try:
+            cli.call("stop", "-s", cli.session, timeout=75)
+        except Exception as exc:
+            errors.append(redact(repr(exc)))
+        # Reissue the stop while listed; transient CLI lookup errors prove nothing.
+        if attempt > 0:
+            try:
+                from research.colab_cli.cli_guard import unassign_endpoint
+
+                unassign_endpoint(cli.oauth_python, endpoint, timeout=75)
+            except Exception as exc:
+                errors.append(redact(repr(exc)))
+        for _ in range(3):
+            try:
+                if endpoint not in cli.sessions(timeout=60):
+                    return
+            except Exception as exc:
+                errors.append(redact(repr(exc)))
+            time.sleep(2)
+    message = f"STOP_UNVERIFIED: assignment {endpoint} remains after 3 attempts: {errors!r}"
+    print("\a" + message, file=sys.stderr, flush=True)
+    raise Refused(message)
 
 
 def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit: int) -> None:
     """Download immutable data + digest + marker, verify, publish atomically."""
+    from research.colab_cli.transfers import TransferError, download_file
+
     rel = safe_relative(entry["path"])
     size = entry["size"]
     digest = entry["sha256"]
@@ -327,14 +414,20 @@ def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit:
         data = Path(temp) / "data"
         marker = Path(temp) / "complete"
         sidecar = Path(temp) / "sha256"
-        for suffix, local in (("", data), (".sha256", sidecar), (".complete", marker)):
+        try:
+            download_file(
+                cli, root + "/output/" + rel, data, size, renew=cli.renew, expected_sha256=digest
+            )
+        except TransferError as exc:
+            raise Refused(f"download hash mismatch or transfer failure: {exc}") from exc
+        for suffix, local in ((".sha256", sidecar), (".complete", marker)):
             cli.call(
                 "download",
                 "-s",
                 cli.session,
                 root + "/output/" + rel + suffix,
                 str(local),
-                timeout=20,
+                timeout=60,
             )
         if data.stat().st_size != size or sha256(data) != digest:
             raise Refused("download hash mismatch; temporary export rejected")
@@ -394,7 +487,7 @@ class Broker:
             staging = output / "staging"
             staging.mkdir()
             build_bundle(m["commit"], staging)
-            for name in ("runtime.py", "bootstrap.sh"):
+            for name in ("runtime.py", "bootstrap.sh", "release.py"):
                 data = subprocess.check_output(
                     ["git", "show", f"{m['commit']}:research/colab_cli/{name}"],
                     cwd=REPO,
@@ -416,6 +509,7 @@ class Broker:
             )
             endpoint = None
             usage_before = None
+            accounting = None
             error = None
             cleanup = None
             usage_after = None
@@ -424,12 +518,17 @@ class Broker:
             intent = ACCOUNT_ROOT / f"pending-{session}.json"
             active = ACCOUNT_ROOT / f"active-{session}.json"
             try:
-                with locked(ACCOUNT_ROOT / "broker.lock"):
+                with account_locked(cli):
                     if list(ACCOUNT_ROOT.glob("pending-*.json")):
                         raise Refused("unresolved allocation/stop: reconcile pending records first")
                     version = cli.call("version")
                     if not re.search(r"\b0\.7\.4\b", version):
                         raise Refused("qualified CLI version must be 0.7.4")
+                    from research.colab_cli.release import mint_release_credential
+
+                    cli.release_credential = mint_release_credential(
+                        cli.oauth_python, endpoint="", min_valid_seconds=m["lease_seconds"] + 300
+                    )
                     before = cli.sessions()
                     usage_before = cli.usage()
                     reusing = bool(retained and retained.get("endpoint"))
@@ -451,6 +550,20 @@ class Broker:
                     reserved_cap = (retained or {}).get("unit_cap", m["budget"]["unit_cap"])
                     if usage_before["balance"] <= reserved_cap + committed + reserve:
                         raise Refused("insufficient balance for cap plus study reserve")
+                    from research.colab_cli.accounting import admit_account
+
+                    account_before = {e: n for e, n in before.items() if e != endpoint}
+                    measured_before = dict(usage_before)
+                    if reusing:
+                        measured_before["assignments"] -= 1
+                        measured_before["rate"] -= m["budget"]["rate_units_per_hour"]
+                    accounting = admit_account(
+                        account_before, measured_before, m["budget"], active_records=reservations
+                    )
+                    cli.accounting = accounting
+                    write_once(
+                        output / "accounting-baseline.json", accounting.accounted_assignments()
+                    )
                     if not reusing:
                         write_once(
                             intent,
@@ -459,6 +572,8 @@ class Broker:
                                 "config": str(cli.config),
                                 "output": str(output),
                                 "before": list(before),
+                                "notebook_hash": cli.notebook_hash,
+                                "assignment_record": str(cli.assignment_record),
                             },
                         )
                         args = ["new", "-s", session]
@@ -495,9 +610,9 @@ class Broker:
                                 "output": str(output),
                                 "unit_cap": reserved_cap,
                                 "reserve_units": reserve,
+                                "rate_units_per_hour": m["budget"]["rate_units_per_hour"],
                             },
                         )
-                        intent.unlink()
                 terminal, exports = self.execute(
                     cli, m, generation, output, started, usage_before, retained
                 )
@@ -512,10 +627,22 @@ class Broker:
                         )
                     except (ValueError, OSError):
                         pass
+                if endpoint is None and intent.exists():
+                    try:
+                        from research.colab_cli.cli_guard import recover_assignment
+
+                        if cli.assignment_record.exists():
+                            endpoint = json.loads(cli.assignment_record.read_text()).get("endpoint")
+                        if not endpoint:
+                            endpoint = recover_assignment(cli.oauth_python, cli.notebook_hash)
+                    except Exception as exc:
+                        cleanup = f"ALLOCATION_UNRESOLVED: {redact(repr(exc))}"
+                    if not endpoint:
+                        cleanup = cleanup or "ALLOCATION_UNRESOLVED: retained pending record"
                 keep = bool(retained is not None and not error)
                 if endpoint and not keep:
                     try:
-                        with locked(ACCOUNT_ROOT / "broker.lock"):
+                        with account_locked(cli, cleanup=True):
                             if not intent.exists():
                                 write_once(
                                     intent,
@@ -552,6 +679,7 @@ class Broker:
                     "endpoint": endpoint,
                     "usage_before": usage_before,
                     "usage_after": usage_after,
+                    "accounting": accounting.receipt() if accounting else None,
                     "elapsed_seconds": time.monotonic() - started,
                     "terminal": terminal,
                     "exports": exports,
@@ -596,7 +724,7 @@ class Broker:
             # Runtime code comes from the same pinned commit as the job, never
             # the working tree. Embed its small watchdog in the very first RPC.
             pinned = {}
-            for name in ("runtime.py", "bootstrap.sh"):
+            for name in ("runtime.py", "bootstrap.sh", "release.py"):
                 path = staging / name
                 pinned[name] = path
             wait_code = (
@@ -615,17 +743,34 @@ class Broker:
                 "lease_seconds": m["lease_seconds"],
                 "checkpoint_grace_seconds": 15,
                 "max_export_bytes": m["max_export_bytes"],
+                "release_endpoint": json.loads(cli.config.read_text())[cli.session]["endpoint"],
             }
             if retained is not None:
                 spec["post_terminal_timeout_seconds"] = max(
                     spec["timeout_seconds"], retained["deadline"] - time.monotonic() - 25
                 )
             encoded_runtime = base64.b64encode(pinned["runtime.py"].read_bytes()).decode()
+            encoded_release = base64.b64encode(pinned["release.py"].read_bytes()).decode()
+            credential_remote = f"/content/snake-cli-{generation}-release.json"
+
+            def upload_credential() -> None:
+                with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
+                    value = {**cli.release_credential, "endpoint": spec["release_endpoint"]}
+                    json.dump(value, handle)
+                    handle.flush()
+                    cli.call(
+                        "upload", "-s", cli.session, handle.name, credential_remote, timeout=60
+                    )
+
+            upload_credential()
             lease = {"generation": generation, "renewed_at": time.time()}
             initial = (
                 "import base64,json,subprocess,sys,time\nfrom pathlib import Path\n"
                 f"root=Path({root!r})\nroot.mkdir(parents=True,exist_ok=False)\n"
                 f"(root/'runtime.py').write_bytes(base64.b64decode({encoded_runtime!r}))\n"
+                f"(root/'release.py').write_bytes(base64.b64decode({encoded_release!r}))\n"
+                f"secret=Path({credential_remote!r})\nsecret.chmod(0o600)\n"
+                "secret.replace(root/'release-credential.json')\n"
                 f"(root/'spec.json').write_text(json.dumps({spec!r}))\n"
                 f"lease={lease!r}\nlease['renewed_at']=time.time()\n"
                 "(root/'lease.json').write_text(json.dumps(lease))\n"
@@ -636,12 +781,34 @@ class Broker:
                 "result={'pid':p.pid}"
             )
             cli.rpc(initial, timeout=30)
+            cli.current_root = root
             # Runtime writes state before Popen; wait through file downloads,
             # never by queuing another exec behind an uncertain/busy kernel.
             time.sleep(1)
 
-            def renew() -> Any:
-                result = cli.rpc(
+            renewal = {"at": -math.inf, "state": None}
+
+            def renew(force: bool = False) -> Any:
+                # A subprocess per renewal is expensive. Keep network chunks bounded
+                # while renewing at most every 30s (well below the 180s minimum lease).
+                if not force and time.monotonic() - renewal["at"] < 30:
+                    return renewal["state"]
+                from research.colab_cli.release import (
+                    credential_renewal_due,
+                    mint_release_credential,
+                )
+
+                if credential_renewal_due(cli.release_credential, "", safety_window_seconds=900):
+                    cli.release_credential = mint_release_credential(
+                        cli.oauth_python, endpoint="", min_valid_seconds=m["lease_seconds"] + 300
+                    )
+                    upload_credential()
+                    cli.rpc(
+                        "from pathlib import Path\n"
+                        f"p=Path({credential_remote!r})\np.chmod(0o600)\n"
+                        f"p.replace(Path({root!r})/'release-credential.json')\nresult=True"
+                    )
+                result = cli.poll_rpc(
                     "import importlib.util\n"
                     f"runtime_path={root + '/runtime.py'!r}\n"
                     "s=importlib.util.spec_from_file_location('snake_runtime',runtime_path)\n"
@@ -649,21 +816,23 @@ class Broker:
                     f"result=mod.read_state({root!r},{generation!r},renew=True)"
                 )
                 self.renew_retained(cli, retained)
+                renewal.update(at=time.monotonic(), state=result)
                 return result
 
+            cli.renew = renew
             renew()
-            assignments = cli.sessions()
-            if sum(name == cli.session for name in assignments.values()) != 1:
-                raise Refused("allocated assignment identity not confirmed by backend")
-            priced = cli.usage()
-            if max(len(assignments), priced["assignments"]) > 3:
-                raise Refused("account concurrency changed during allocation")
-            if (
-                not (retained and retained.get("endpoint"))
-                and priced["rate"] - baseline["rate"] > m["budget"]["rate_units_per_hour"] + 0.02
-            ):
-                raise Refused("observed added usage rate exceeds prepriced ceiling")
-            write_once(output / "usage-allocated.json", priced)
+            with account_locked(cli):
+                assignments = cli.sessions()
+                if sum(name == cli.session for name in assignments.values()) != 1:
+                    raise Refused("allocated assignment identity not confirmed by backend")
+                priced = cli.usage()
+                if max(len(assignments), priced["assignments"]) > 3:
+                    raise Refused("account concurrency changed during allocation")
+                cli.accounting.confirm_own_assignment(
+                    assignments, priced, next(e for e, n in assignments.items() if n == cli.session)
+                )
+                write_once(output / "usage-allocated.json", priced)
+                (ACCOUNT_ROOT / f"pending-{cli.session}.json").unlink(missing_ok=True)
             if self.observer:
                 self.observer(
                     "runtime_started",
@@ -693,9 +862,12 @@ class Broker:
                     f"parent=Path({(root + '/' + dest)!r}).parent\n"
                     "parent.mkdir(parents=True,exist_ok=True)\nresult=True"
                 )
-                cli.call("upload", "-s", cli.session, str(path), root + "/" + dest, timeout=40)
+                from research.colab_cli.transfers import upload_file
+
+                upload_file(cli, path, root + "/" + dest, renew=renew)
                 checks[dest] = digest
             checks["runtime.py"] = sha256(pinned["runtime.py"])
+            checks["release.py"] = sha256(pinned["release.py"])
             write_once(output / "input-hashes.json", checks)
             # Extraction and process launch are short RPCs. Never bootstrap in the kernel.
             code = (
@@ -752,23 +924,37 @@ class Broker:
             if elapsed * m["budget"]["rate_units_per_hour"] / 3600 >= m["budget"]["unit_cap"]:
                 raise Refused("priced session unit cap reached")
             if poll % 4 == 0:
-                current = cli.usage()
+                with account_locked(cli):
+                    current = cli.usage()
+                    spend = cli.accounting.check(
+                        current,
+                        sessions=cli.sessions(),
+                        active_records=[
+                            json.loads(p.read_text())
+                            for p in ACCOUNT_ROOT.glob("active-*.json")
+                            if p.name != f"active-{cli.session}.json"
+                        ],
+                        budget_other_assignments=m["budget"].get("other_assignments"),
+                    )
                 write_once(output / f"usage-{poll:06d}.json", current)
-                # Conservative account debit includes existing notebook/other lane spend.
-                if baseline["balance"] - current["balance"] >= m["budget"]["unit_cap"]:
-                    raise Refused("observed account debit reached session unit cap")
+                write_once(output / f"spend-{poll:06d}.json", spend)
+                if spend.get("balance_crosscheck_status") != "OK":
+                    print(
+                        json.dumps(
+                            {
+                                "ALERT": "UNEXPLAINED_ACCOUNT_DEBIT",
+                                "job": m["job_id"],
+                                "spend": spend,
+                            }
+                        ),
+                        file=sys.stderr,
+                        flush=True,
+                    )
                 if current["assignments"] > 3:
                     raise Refused("account-wide assignment cap exceeded during job")
                 if current["balance"] <= m["budget"]["reserve_units"]:
                     raise Refused("study reserve reached")
-            state = cli.rpc(
-                "import importlib.util\n"
-                f"runtime_path={root + '/runtime.py'!r}\n"
-                "s=importlib.util.spec_from_file_location('snake_runtime',runtime_path)\n"
-                "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
-                f"result=mod.read_state({root!r}, {generation!r}, renew=True)"
-            )
-            self.renew_retained(cli, retained)
+            state = renew(force=True)
             write_once(output / f"poll-{poll:06d}.json", state)
             print(
                 json.dumps({"job": m["job_id"], "elapsed": round(elapsed, 1), "state": state}),
@@ -836,6 +1022,13 @@ class Broker:
                 "import json,time\nfrom pathlib import Path\n"
                 f"p=Path({old_root!r})/'lease.json'\nlease=json.loads(p.read_text())\n"
                 f"assert lease['generation']=={generation!r}\n"
+                f"credential=Path({getattr(cli, 'current_root', old_root)!r})\n"
+                "credential=credential/'release-credential.json'\n"
+                "target=p.parent/'release-credential.json'\n"
+                "if credential != target:\n"
+                "    new=target.with_suffix('.rotation.tmp')\n"
+                "    new.write_bytes(credential.read_bytes())\n    new.chmod(0o600)\n"
+                "    new.replace(target)\n"
                 "lease['renewed_at']=time.time()\n"
                 "temp=p.with_suffix('.renew.tmp')\n"
                 "temp.write_text(json.dumps(lease))\ntemp.replace(p)\nresult=True"
@@ -871,7 +1064,7 @@ class Broker:
                 cli = retained["cli"]
                 release_error = None
                 try:
-                    with locked(ACCOUNT_ROOT / "broker.lock"):
+                    with account_locked(cli, cleanup=True):
                         stop_verified(cli, retained["endpoint"])
                         retained["active"].unlink(missing_ok=True)
                         retained["intent"].unlink(missing_ok=True)
@@ -902,7 +1095,7 @@ class Broker:
             raise Refused("recovery requires an account broker pending/active record")
         record = json.loads(pending.read_text())
         cli = CLI(self.binary, Path(record["config"]), record["session"])
-        with locked(ACCOUNT_ROOT / "broker.lock"):
+        with account_locked(cli, cleanup=True):
             metadata = json.loads(cli.config.read_text()) if cli.config.exists() else {}
             recorded_endpoint = metadata.get(cli.session, {}).get("endpoint")
             sessions = cli.sessions()
@@ -911,9 +1104,19 @@ class Broker:
                 or recorded_endpoint
                 or next((e for e, name in sessions.items() if name == record["session"]), None)
             )
+            if not endpoint and record.get("assignment_record"):
+                assignment_record = Path(record["assignment_record"])
+                if assignment_record.exists():
+                    endpoint = json.loads(assignment_record.read_text()).get("endpoint")
+            if not endpoint and record.get("notebook_hash"):
+                from research.colab_cli.cli_guard import recover_assignment
+
+                endpoint = recover_assignment(cli.oauth_python, record["notebook_hash"])
             if not endpoint:
+                candidates = sorted(set(sessions) - set(record.get("before", sessions)))
                 raise Refused(
-                    "allocation identity uncertain; preserve record for independent reconciliation"
+                    f"allocation identity uncertain (new endpoints={candidates!r}); "
+                    "preserve record for independent reconciliation"
                 )
             stop_verified(cli, endpoint)
             write_once(
@@ -953,6 +1156,7 @@ class Broker:
             "sessions": cli.sessions(),
             "jobs": jobs,
             "unresolved": [str(p) for p in ACCOUNT_ROOT.glob("pending-*.json")],
+            "active": [json.loads(p.read_text()) for p in ACCOUNT_ROOT.glob("active-*.json")],
         }
 
 

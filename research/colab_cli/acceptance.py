@@ -79,6 +79,7 @@ def manifest(
     gpu: str,
     minutes: int,
     rate: float,
+    other_assignments: dict[str, float],
 ) -> dict[str, Any]:
     return {
         "job_id": job_id,
@@ -100,6 +101,10 @@ def manifest(
             "unit_cap": rate * minutes / 60.0,
             "rate_units_per_hour": rate,
             "reserve_units": RESERVE_UNITS,
+            # Every assignment already present at admission must be priced so
+            # an account-wide balance delta cannot silently consume this arm's
+            # small unit cap.  The broker rejects an unmapped endpoint.
+            "other_assignments": other_assignments,
         },
         "lease_seconds": 300 if gpu == "cpu" else 180,
     }
@@ -108,6 +113,11 @@ def manifest(
 def review_gates() -> list[dict[str, str]]:
     """Every advice gate has a named required artifact; absence is INCOMPLETE."""
     return [
+        {
+            "id": "account-assignment-spend",
+            "evidence": "all pre-existing endpoints and their rates are recorded at admission",
+            "owner": "Mac supervisor",
+        },
         {
             "id": "fresh-oauth-refresh",
             "evidence": "fresh terminal whoami/usage after refresh; no browser prompt",
@@ -161,13 +171,28 @@ def review_gates() -> list[dict[str, str]]:
     ]
 
 
-def build_plan(root: Path, state_dir: Path, cpu_rate: float | None) -> dict[str, Any]:
+def build_plan(
+    root: Path,
+    state_dir: Path,
+    cpu_rate: float | None,
+    other_assignments: dict[str, float] | None = None,
+) -> dict[str, Any]:
     if cpu_rate is None:
         raise ValueError(
             "CPU price is unknown; pass --cpu-rate-units-per-hour before creating manifests"
         )
     if cpu_rate <= 0:
         raise ValueError("--cpu-rate-units-per-hour must be positive")
+    other_assignments = other_assignments or {}
+    if not all(
+        isinstance(endpoint, str)
+        and endpoint
+        and isinstance(rate, (int, float))
+        and not isinstance(rate, bool)
+        and rate > 0
+        for endpoint, rate in other_assignments.items()
+    ):
+        raise ValueError("other assignment rates must map nonempty endpoints to positive numbers")
     cpu_expected = cpu_rate * CPU_MAX_MINUTES / 60.0
     l4_expected = L4_RATE_UNITS_PER_HOUR * L4_MAX_MINUTES / 60.0
     if cpu_expected + l4_expected > USABLE_UNITS:
@@ -204,6 +229,7 @@ def build_plan(root: Path, state_dir: Path, cpu_rate: float | None) -> dict[str,
             gpu=gpu,
             minutes=minutes,
             rate=rate,
+            other_assignments={key: float(value) for key, value in other_assignments.items()},
         )
         target = manifests / f"{name}.json"
         atomic_json(target, payload)
@@ -233,6 +259,27 @@ def build_plan(root: Path, state_dir: Path, cpu_rate: float | None) -> dict[str,
     return {"run_dir": str(run_dir), "plan": plan}
 
 
+def load_other_assignments(path: Path | None) -> dict[str, float]:
+    """Load the reviewed endpoint-to-rate map without ever discovering endpoints by guesswork."""
+    if path is None:
+        return {}
+    value = json.loads(path.read_text())
+    if not isinstance(value, dict):
+        raise ValueError("--other-assignments must contain a JSON object")
+    result: dict[str, float] = {}
+    for endpoint, rate in value.items():
+        if not isinstance(endpoint, str) or not endpoint or isinstance(rate, bool):
+            raise ValueError("--other-assignments has an invalid endpoint/rate")
+        try:
+            numeric = float(rate)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("--other-assignments has a nonnumeric rate") from exc
+        if numeric <= 0:
+            raise ValueError("--other-assignments rates must be positive")
+        result[endpoint] = numeric
+    return result
+
+
 def execute(
     plan: dict[str, Any], *, state_dir: Path, colab: str, review_token: str, oauth_python: str
 ) -> int:
@@ -247,21 +294,30 @@ def execute(
         output = Path(payload["output_dir"])
         try:
             supervisor.Broker(state_dir.resolve() / "lanes", colab, observer=observer).run(payload)
-            receipt = json.loads((output / "receipt.json").read_text())
-            if not receipt.get("stop_verified"):
-                raise supervisor.Refused("normal acceptance stop was not backend-verified")
+            _clean_release_receipt(output)
             observer._record("backend-stop-disappearance", receipt=str(output / "receipt.json"))
             results.append(
                 {"job": job["name"], "status": "PASS", "receipt": str(output / "receipt.json")}
             )
         except supervisor.Refused as exc:
-            # The L4 watchdog arm deliberately makes its next Mac poll fail after
-            # the runtime unassigns.  Its own observer record is the evidence.
-            watchdog = "mac-loss-watchdog-unassign" in observer.records
+            # The L4 arm intentionally stops renewals.  It only passes when the
+            # runtime-side release was observed within the stated bound *before*
+            # broker cleanup, and the broker receipt reports a clean release.
+            watchdog = observer.records.get("mac-loss-watchdog-unassign", {})
+            released = bool(watchdog.get("assignment_disappeared_within_bound"))
+            try:
+                _clean_release_receipt(output, require_success=False)
+                clean_cleanup = True
+            except (OSError, ValueError, supervisor.Refused):
+                clean_cleanup = False
             results.append(
                 {
                     "job": job["name"],
-                    "status": "PASS" if job["name"] == "l4" and watchdog else "INCOMPLETE",
+                    "status": (
+                        "PASS"
+                        if job["name"] == "l4" and released and clean_cleanup
+                        else "INCOMPLETE"
+                    ),
                     "error": str(exc),
                 }
             )
@@ -301,6 +357,26 @@ def execute(
     return return_code
 
 
+def _clean_release_receipt(output: Path, *, require_success: bool = True) -> dict[str, Any]:
+    """Require broker cleanup evidence even when the watchdog ended execution.
+
+    A release observation made by the L4 fault arm is not a waiver for a
+    cleanup error.  In particular this prevents an earlier `stop` failure from
+    being converted into a PASS merely because an observer record exists.
+    """
+    receipt_path = output / "receipt.json"
+    if not receipt_path.is_file():
+        raise supervisor.Refused("missing broker receipt after acceptance release")
+    receipt = json.loads(receipt_path.read_text())
+    if receipt.get("cleanup_error"):
+        raise supervisor.Refused("acceptance cleanup error: " + str(receipt["cleanup_error"]))
+    if not receipt.get("stop_verified"):
+        raise supervisor.Refused("acceptance release was not backend-verified")
+    if require_success and receipt.get("status") not in {"PASS", "COMPLETED_SESSION_RETAINED"}:
+        raise supervisor.Refused("acceptance receipt is incomplete")
+    return receipt
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", type=Path, default=Path.cwd())
@@ -309,6 +385,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--cpu-rate-units-per-hour", type=float, help="measured CPU rate; unknown price blocks"
+    )
+    parser.add_argument(
+        "--other-assignments",
+        type=Path,
+        help="reviewed JSON endpoint-to-rate map for every pre-existing assignment",
     )
     parser.add_argument(
         "--colab", default="colab", help="official CLI executable, used only with execution"
@@ -324,7 +405,12 @@ def main(argv: list[str] | None = None) -> int:
     if not args.state_dir.is_absolute():
         parser.error("--state-dir must be absolute")
     try:
-        record = build_plan(args.repo.resolve(), args.state_dir, args.cpu_rate_units_per_hour)
+        record = build_plan(
+            args.repo.resolve(),
+            args.state_dir,
+            args.cpu_rate_units_per_hour,
+            load_other_assignments(args.other_assignments),
+        )
         print(json.dumps(record, indent=2, sort_keys=True))
         if args.execute_after_review:
             return execute(

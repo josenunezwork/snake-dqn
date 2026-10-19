@@ -19,6 +19,10 @@ from typing import Any
 
 from research.colab_cli import supervisor
 
+WATCHDOG_DISAPPEARANCE_BOUND_SECONDS = 300
+WATCHDOG_DISAPPEARANCE_POLL_SECONDS = 10
+WATCHDOG_CHECKPOINT_GRACE_SECONDS = 15
+
 
 class AcceptanceObserver:
     """Exercise account/kernel fault boundaries without a second allocation."""
@@ -39,6 +43,7 @@ class AcceptanceObserver:
         if stage == "runtime_started":
             if "fresh-oauth-refresh" not in self.records:
                 self._refresh_oauth_then_query(cli)
+            self._accounted_assignments(cli, manifest["requirements"]["gpu"])
             return
         if stage == "ready" and manifest["requirements"]["gpu"] == "L4":
             probe = self._wait_phase(context, "transfer_ready")
@@ -87,6 +92,37 @@ class AcceptanceObserver:
         cli.call("whoami", timeout=30)
         self._record("fresh-oauth-refresh", refreshed_in_memory=True, usage=cli.usage())
 
+    def _accounted_assignments(self, cli: supervisor.CLI, arm: str) -> None:
+        """Prove that concurrent account debit has an explicit owner and rate.
+
+        The supervisor owns discovery and compares this evidence with the
+        manifest's reviewed endpoint map.  Acceptance does not infer a price
+        from a balance delta, because two notebook workers can otherwise make
+        a 4-unit qualification stop spuriously or conceal its own spend.
+        """
+        if getattr(cli, "accounting", None) is None:
+            raise supervisor.Refused("acceptance has no supervisor accounting tracker")
+        ledger = cli.accounting.accounted_assignments()
+        unaccounted = ledger.get("unaccounted_endpoints")
+        assignments = ledger.get("assignments")
+        if unaccounted or not isinstance(assignments, list):
+            raise supervisor.Refused("acceptance has unaccounted concurrent assignments")
+        for assignment in assignments:
+            if not isinstance(assignment, dict) or assignment.get("rate_units_per_hour", 0) <= 0:
+                raise supervisor.Refused("acceptance assignment ledger lacks a positive rate")
+        record = self.records.get("account-assignment-spend")
+        arm_evidence = {"arm": arm, **ledger}
+        if record is None:
+            self._record("account-assignment-spend", arms=[arm_evidence])
+            return
+        # CPU and L4 are deliberately sequential arms of one qualification.
+        # Keep both immutable snapshots under the single required gate instead
+        # of treating the L4 admission as a duplicate observation.
+        arms = record.get("arms")
+        if not isinstance(arms, list) or any(item.get("arm") == arm for item in arms):
+            raise supervisor.Refused("acceptance assignment ledger repeated an arm")
+        arms.append(arm_evidence)
+
     def _url_no_second_allocation(self, cli: supervisor.CLI) -> None:
         before = cli.sessions(timeout=10)
         cli.call("url", "-s", cli.session, timeout=20)
@@ -119,10 +155,28 @@ class AcceptanceObserver:
             f"p=Path({root!r})/'acceptance-state.json'\n"
             "result={'runtime':state,'probe':json.loads(p.read_text()) if p.exists() else {}}"
         )
-        baseline = json.loads((context["output"] / "usage-allocated.json").read_text())
-        usage = cli.usage()
-        if baseline["balance"] - usage["balance"] >= context["manifest"]["budget"]["unit_cap"]:
-            raise supervisor.Refused("acceptance observed debit cap reached")
+        try:
+            # Account usage, the provider session list, and broker lane
+            # records form one accounting snapshot.  Holding the broker lock
+            # prevents a concurrently admitted lane from being half-visible.
+            with supervisor.account_locked(cli):
+                usage = cli.usage()
+                sessions = cli.sessions()
+                active_records = [
+                    json.loads(path.read_text())
+                    for path in supervisor.ACCOUNT_ROOT.glob("active-*.json")
+                    if path.name != f"active-{cli.session}.json"
+                ]
+                cli.accounting.check(
+                    usage,
+                    sessions=sessions,
+                    active_records=active_records,
+                    budget_other_assignments=context["manifest"]["budget"].get("other_assignments"),
+                )
+        except (AttributeError, OSError, ValueError) as exc:
+            raise supervisor.Refused(
+                f"acceptance session-spend reconciliation failed: {exc}"
+            ) from exc
         return result
 
     def _wait_phase(self, context: dict[str, Any], phase: str) -> dict[str, Any]:
@@ -158,6 +212,51 @@ class AcceptanceObserver:
             "from pathlib import Path\n"
             f"Path({root + '/acceptance-transfer-start'!r}).touch()\nresult=True"
         )
+        # The probe's supervised child is now computing while the notebook
+        # kernel is idle.  Prepare and transfer the snapshot before injecting
+        # the separate 120-second busy-kernel fault: chunk assembly/splitting
+        # and lease renewal are RPCs, so queuing them behind that fault would
+        # be a false recovery test rather than a bounded transfer test.
+        transfer_started = time.time()
+        entry = self._download_snapshot(context, probe)
+        # This acknowledgement ends the paired checkpoint-overhead interval.
+        # The optional full roundtrip below is integrity evidence and must not
+        # inflate a gate intended to measure the single required export handoff.
+        ack = output / ".acceptance-transfer-done"
+        ack.write_text("complete\n")
+        try:
+            cli.call(
+                "upload",
+                "-s",
+                cli.session,
+                str(ack),
+                root + "/acceptance-transfer-done",
+                timeout=10,
+            )
+        finally:
+            ack.unlink(missing_ok=True)
+        transfer_finished = time.time()
+
+        payload = output / "exports" / entry["path"]
+        from research.colab_cli.transfers import download_file, upload_file
+
+        roundtrip_started = time.time()
+        upload_file(cli, payload, root + "/roundtrip.bin", renew=cli.renew)
+        roundtrip = Path(output) / ".acceptance-roundtrip.bin"
+        try:
+            download_file(
+                cli,
+                root + "/roundtrip.bin",
+                roundtrip,
+                entry["size"],
+                renew=cli.renew,
+                expected_sha256=entry["sha256"],
+            )
+            if supervisor.sha256(roundtrip) != entry["sha256"]:
+                raise supervisor.Refused("full-size supervised-child roundtrip hash mismatch")
+        finally:
+            roundtrip.unlink(missing_ok=True)
+        roundtrip_finished = time.time()
         request = uuid.uuid4().hex
         with tempfile.TemporaryDirectory(dir=output, prefix=".client-loss-") as temp:
             directory = Path(temp)
@@ -176,8 +275,6 @@ class AcceptanceObserver:
             )
             environment = {
                 **os.environ,
-                "COLAB_CLI_ASSIGN_RETRIES": "0",
-                "COLAB_CLI_REQUEST_TIMEOUT": "30",
                 "NO_COLOR": "1",
             }
             argv = [
@@ -209,33 +306,6 @@ class AcceptanceObserver:
                 started = json.loads(started_file.read_text())
                 client.terminate()
                 client.wait(timeout=5)
-                transfer_started = time.time()
-                entry = self._download_snapshot(context, probe)
-                payload = output / "exports" / entry["path"]
-                cli.call(
-                    "upload", "-s", cli.session, str(payload), root + "/roundtrip.bin", timeout=40
-                )
-                cli.call(
-                    "download",
-                    "-s",
-                    cli.session,
-                    root + "/roundtrip.bin",
-                    str(directory / "roundtrip.bin"),
-                    timeout=20,
-                )
-                if supervisor.sha256(directory / "roundtrip.bin") != entry["sha256"]:
-                    raise supervisor.Refused("full-size busy-kernel roundtrip hash mismatch")
-                ack = directory / "transfer-done"
-                ack.write_text("complete\n")
-                cli.call(
-                    "upload",
-                    "-s",
-                    cli.session,
-                    str(ack),
-                    root + "/acceptance-transfer-done",
-                    timeout=10,
-                )
-                transfer_finished = time.time()
                 finished_file = directory / "finished.json"
                 try:
                     cli.call(
@@ -250,7 +320,9 @@ class AcceptanceObserver:
                     if "not found" not in str(exc).lower() and "404" not in str(exc):
                         raise
                 else:
-                    raise supervisor.Refused("kernel became idle before full snapshot roundtrip")
+                    raise supervisor.Refused(
+                        "kernel became idle before the client-loss observation"
+                    )
                 self._wait_file(cli, root + "/client-finished.json", finished_file, began + 155)
                 finished = json.loads(finished_file.read_text())
                 if started["request"] != request or finished["request"] != request:
@@ -265,6 +337,12 @@ class AcceptanceObserver:
                         client.wait(timeout=5)
         reconnected = supervisor.CLI(cli.binary, cli.config, cli.session)
         reconnected.deadline = cli.deadline
+        # A CLI process is stateless; preserve the broker-owned accounting and
+        # lease authority when using a fresh client object for the reconnect
+        # proof.  No credentials are copied to the runtime.
+        reconnected.accounting = cli.accounting
+        reconnected.renew = cli.renew
+        reconnected.release_credential = cli.release_credential
         context["cli"] = reconnected
         observed = self._state(context)
         after_identity = {key: observed["probe"][key] for key in identity}
@@ -284,9 +362,12 @@ class AcceptanceObserver:
             sha256=entry["sha256"],
             transfer_started=transfer_started,
             transfer_finished=transfer_finished,
+            measured_handoff_seconds=transfer_finished - transfer_started,
+            roundtrip_seconds=roundtrip_finished - roundtrip_started,
+            roundtrip_outside_checkpoint_overhead_gate=True,
             kernel_started=started["started_at"],
             kernel_finished=finished["finished_at"],
-            kernel_completion_marker_absent_after_full_roundtrip=True,
+            kernel_completion_marker_absent_after_client_loss=True,
         )
         measured = self._wait_phase(context, "transfer_finished")["measurement"]
         self._record(
@@ -412,47 +493,89 @@ class AcceptanceObserver:
     def _watchdog(self, context: dict[str, Any]) -> None:
         cli: supervisor.CLI = context["cli"]
         lease = int(context["manifest"]["lease_seconds"])
+        endpoint = getattr(getattr(cli, "accounting", None), "endpoint", None)
+        if not isinstance(endpoint, str) or not endpoint:
+            raise supervisor.Refused("watchdog has no allocated endpoint to verify")
         # Suppress renewal longer than the lease. The runtime, not the Mac,
         # must checkpoint/attempt unassign. The next sessions call is evidence.
         self._state(context)
+        lease_expiry = time.monotonic() + lease
         time.sleep(lease + 1)
-        # Reconnect only to the file transport during the checkpoint grace. It
-        # does not renew the failed lease or submit a kernel execution.
+        # Reconnect only to file transport during the bounded checkpoint grace.
+        # It never renews the failed lease or submits a kernel execution.  The
+        # runtime may need most of its 15-second signal/checkpoint grace before
+        # the immutable checkpoint appears, so an early 404 is not evidence.
+        checkpoint_deadline = time.monotonic() + WATCHDOG_CHECKPOINT_GRACE_SECONDS
+        checkpoint_hash = None
         with tempfile.TemporaryDirectory(dir=context["output"], prefix=".watchdog-") as temp:
             marker = Path(temp) / "checkpoint.sha256"
-            cli.call(
-                "download",
-                "-s",
-                cli.session,
-                context["root"] + "/output/lease-checkpoint.pkl.sha256",
-                str(marker),
-                timeout=3,
-            )
-            checkpoint_hash = marker.read_text().split()[0]
             local = Path(temp) / "checkpoint.pkl"
-            cli.call(
-                "download",
-                "-s",
-                cli.session,
-                context["root"] + "/output/lease-checkpoint.pkl",
-                str(local),
-                timeout=3,
-            )
-            if supervisor.sha256(local) != checkpoint_hash:
-                raise supervisor.Refused("watchdog checkpoint hash mismatch")
+            while time.monotonic() < checkpoint_deadline:
+                try:
+                    cli.call(
+                        "download",
+                        "-s",
+                        cli.session,
+                        context["root"] + "/output/lease-checkpoint.pkl.sha256",
+                        str(marker),
+                        timeout=3,
+                    )
+                    candidate = marker.read_text().split()[0]
+                    cli.call(
+                        "download",
+                        "-s",
+                        cli.session,
+                        context["root"] + "/output/lease-checkpoint.pkl",
+                        str(local),
+                        timeout=3,
+                    )
+                    if supervisor.sha256(local) != candidate:
+                        raise supervisor.Refused("watchdog checkpoint hash mismatch")
+                    checkpoint_hash = candidate
+                    break
+                except supervisor.Refused:
+                    time.sleep(1)
+            if checkpoint_hash is None:
+                raise supervisor.Refused("watchdog checkpoint was not exported during grace")
             destination = context["output"] / "watchdog-checkpoint.pkl"
             local.replace(destination)
             marker.replace(destination.with_suffix(".pkl.sha256"))
-        time.sleep(20)
-        sessions = cli.sessions(timeout=20)
-        if cli.session in sessions.values():
-            raise supervisor.Refused("watchdog lease expired but assignment remains")
+        observed_at = None
+        release_wait_started = lease_expiry
+        deadline = lease_expiry + WATCHDOG_DISAPPEARANCE_BOUND_SECONDS
+        last_sessions: dict[str, str] = {}
+        while time.monotonic() < deadline:
+            # Read-only account polling is deliberately permitted after the
+            # simulated Mac loss; it does not renew the lease or queue kernel
+            # work.  A release only counts when this exact backend endpoint
+            # vanishes: a `?` session label can otherwise hide a paid orphan.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            last_sessions = cli.sessions(timeout=min(20.0, remaining))
+            if endpoint not in last_sessions:
+                observed_at = time.monotonic()
+                if observed_at <= deadline:
+                    break
+                observed_at = None
+                break
+            time.sleep(WATCHDOG_DISAPPEARANCE_POLL_SECONDS)
+        if observed_at is None:
+            raise supervisor.Refused(
+                "watchdog lease expired but assignment did not disappear within "
+                f"{WATCHDOG_DISAPPEARANCE_BOUND_SECONDS} seconds"
+            )
         self._record(
             "mac-loss-watchdog-unassign",
             lease_seconds=lease,
-            sessions_after=sessions,
+            endpoint=endpoint,
+            release_bound_seconds=WATCHDOG_DISAPPEARANCE_BOUND_SECONDS,
+            observed_after_lease_seconds=observed_at - release_wait_started,
+            sessions_after=last_sessions,
             checkpoint_sha256=checkpoint_hash,
+            checkpoint_exported_during_grace=True,
             renewal_suppressed=True,
+            assignment_disappeared_within_bound=True,
         )
 
     def write(self, output: Path) -> None:

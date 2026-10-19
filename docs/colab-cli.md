@@ -1,104 +1,186 @@
 # Colab CLI supervisor
 
-This is the operator guide for a new Snake DQN Colab job. It gives agents a repeatable path from an approved,
-pinned manifest to a verified local receipt without browser clicks or a Drive mount on the runtime.
+This is the operator guide for a new Snake DQN Colab job. The Mac-side
+supervisor is the only allocator and releaser for new work. It produces
+hash-verified local artifacts and a backend-verified release receipt without
+a Drive mount or browser interaction on the runtime.
+
+The supervisor is prepared, but it is **not live-qualified**. Do not route a
+research workload through it until the bounded acceptance run in
+[`research/colab_cli/ACCEPTANCE.md`](../research/colab_cli/ACCEPTANCE.md)
+passes and its artifacts receive independent review.
 
 ## Scope and prerequisites
 
-Use this path for every **new** Colab job. It is for an operator who already has an approved study/job manifest,
-understands that Colab development evidence cannot qualify a strict gate or serving release, and has measured the
-real entrypoint on a small local input. The pinned `google-colab-cli` OAuth setup is already complete on this Mac.
+Use this path for every **new** Colab job. The operator needs an approved
+study or job, a measured small local run of the actual entry point, a pinned
+40-character commit, known GPU/CPU prices, and an unused absolute output
+directory. Colab work is not strict-gate or serving-release evidence.
 
-The CLI supervisor is not an authorization to spend. A manifest must have the registered/approved budget and all
-required inputs before it is run. The separate acceptance qualification is prepared now but is expected to run only
-after Q1 and independent review; it must pass before a production allocation.
+The two active notebook workers and Q1 are legacy-only work. Do not use this
+guide to alter, migrate, launch, or recover them; their Drive queue under
+`research/colab_queue/` remains outside this supervisor.
 
-Do not use this guide for the two running notebook workers or Q1. Their Drive queue remains a legacy recovery path
-only: `research/colab_queue/` and its manifests are deliberately out of scope here.
+The supervisor does not authorize spending. It refuses a job with an unknown
+CPU price, an unpriced hardware substitution, a missing input digest, a used
+output path, an unresolved broker record, or insufficient balance for the
+job cap plus reserve. It never buys units, retries an allocation, or starts a
+replacement runtime.
 
-## What the supervisor does
+## What the supervisor guarantees and what it does not
 
-`research.colab_cli.supervisor` is the one Mac-side broker for allocation and stop. It uses the official
-`google-colab-cli` binary with OAuth2 authentication, zero assignment retries, unique session names, and a distinct
-CLI config per lane. It first validates the manifest and then:
+For one job, the supervisor:
 
-1. Counts all account assignments, including notebook workers, and refuses to exceed three concurrent assignments.
-2. Uploads the commit-pinned bundle and every non-repository input after checking its SHA-256 digest. The runtime
-   does not mount Google Drive.
-3. Starts a kernel-side lease-fenced subprocess. The initial execution returns; later explicit-timeout executions
-   only renew the lease and read state/telemetry. They never blindly resubmit work to a busy kernel.
-4. Periodically downloads only immutable, completed checkpoint exports into a temporary Mac path, verifies hashes,
-   then atomically renames them. A Drive-for-desktop copy may be made as a backup after local verification.
-5. Downloads the final artifacts, writes a create-only receipt, stops the assignment, and verifies that the
-   assignment no longer appears in the account session list.
+1. Validates a manifest before allocation, records a durable pre-assignment
+   record, and reconciles a known record after an interrupted assignment. It
+   never guesses an orphan identity from a hardware list or allocates while a
+   pending record is unresolved.
+2. Admits at most three account assignments, including notebook workers. Every
+   assignment already present must have an endpoint and a reviewed positive
+   units-per-hour rate. It refuses an unaccounted endpoint or a provider rate
+   that does not match the priced assignment set within the configured
+   tolerance. A rate drift during polling is a hard refusal.
+3. Uploads the commit-pinned source bundle and hash-bound inputs, starts one
+   lease-fenced runtime child, and reads its immutable state. A polling RPC
+   has an actual process timeout and a completion nonce. If an RPC is uncertain,
+   the broker does not resubmit work to a possibly busy kernel; it uses the
+   file transport and can resume RPC polling only after independent backend
+   evidence says the kernel is idle.
+4. Imports only completed immutable exports: payload, SHA-256 sidecar, and
+   completion marker. Files move in bounded 8 MiB chunks; an 8 MiB Contents
+   call is bounded to 60 seconds. Renewals are throttled to at most one every
+   30 seconds, so a transfer does not submit two polling RPCs for every chunk.
+   Only idempotent transport reads use their bounded three-attempt retry; a
+   mutating kernel operation is never retried after an uncertain result. The per-export limit is
+   `max_export_bytes`, up to 2 GiB. The supervisor verifies size and digest in
+   a temporary local path before an atomic publish. An interrupted or corrupt
+   transfer is rejected and its temporary data is removed.
+5. Attempts backend stop with a 75-second allowance, polls account sessions,
+   and repeats while its endpoint remains listed, for at most three attempts.
+   Failure to observe disappearance is `STOP_UNVERIFIED`, raises a loud local
+   alert, retains recovery evidence, and prevents a completed receipt.
 
-The runtime uses Python 3.12 through `uv`. Its wheel selection is compute-capability based: cu126 for L4, A100, and
-H100; cu128 for a Blackwell substitute. The **job launcher** must produce a consistent optimizer, replay, actor,
-target, RNG, and counter snapshot before it marks an export complete. The supervisor transports and verifies those
-files; it does not serialize trainer state. Weights alone are not an exact resume.
+The provider controls its APIs, network availability, and final billing. The
+implementation provides bounded attempts and evidence, not an absolute claim
+that a provider outage can never leave a VM allocated. A CLI exit status,
+kernel process exit, local cleanup, or a dashboard view is never release
+proof; only disappearance of the exact endpoint from account sessions is.
 
-## Manifest contract
+There is an unavoidable pre-watchdog window after allocation and before the
+runtime child has received its private release credential and started. The
+durable pending record contains the supervisor-owned notebook UUID so an
+operator can perform authenticated backend GET recovery and then reconcile the
+specific allocation. That recovery path is not an offline self-release
+guarantee. A Mac or provider failure in this window can still create a paid
+orphan, and the system must retain the record and alert rather than claim it
+was released.
 
-The supervisor consumes one JSON object. It must include:
+## Manifest contract and priced admission
+
+The manifest is one JSON object with these required fields.
 
 | Field | Requirement |
 | --- | --- |
-| `job_id` | Unique stable identifier for this attempt. |
-| `commit` | Full 40-character Git commit SHA already available to the job. |
-| `script` | Repository-relative Bash `.sh` launcher. |
-| `env` | String-to-string environment map; bind external inputs and their digest values here. |
-| `requirements` | Object with requested `gpu`, `min_vcpu`, measured `est_minutes`, and optional pre-priced `allowed_gpus`. |
-| `timeout_minutes` | At least 3 minutes and at least twice `est_minutes`. |
-| `output_dir` | New, absolute, job-private Mac directory. Existing output is refused. |
-| `inputs` | Each entry has local `path`, expected `sha256`, and runtime `dest`. |
-| `budget` | `unit_cap`, `rate_units_per_hour`, and `reserve_units`; the first applicable cap wins. |
-| `lease_seconds` | Optional Mac-renewal interval; default 180 seconds, accepted only from 180 through 600. |
-| `max_export_bytes` | Maximum one immutable export may occupy. |
+| `job_id` | Unique stable attempt identifier. |
+| `commit` | Full 40-character Git SHA already available locally. |
+| `script` | Repository-relative Bash launcher. |
+| `env` | String-to-string environment map. |
+| `requirements` | Requested `gpu`, `min_vcpu`, measured `est_minutes`, and optional pre-priced `allowed_gpus`. |
+| `timeout_minutes` | At least 3 minutes and at least twice `est_minutes`; includes setup, export, stop, and idle time. |
+| `output_dir` | Fresh absolute job-private Mac directory. Existing paths are refused. |
+| `inputs` | Local `path`, expected `sha256`, and runtime `dest` for every non-repository input. |
+| `budget` | Positive `unit_cap`, `rate_units_per_hour`, `reserve_units`, and, when other assignments exist, `other_assignments`. |
+| `lease_seconds` | 180 through 600 seconds; default 180. |
+| `max_export_bytes` | Positive per-export maximum, at most 2 GiB. |
 
-Use only `gpu` values the supervisor accepts. `allowed_gpus` defaults to the requested `gpu`; list a substitution
-there only when it was pre-priced. Before ready/bootstrap, the supervisor queries the runtime GPU model and compute
-capability, rejects a model outside that list, and writes the admitted hardware evidence to `hardware.json`. It also
-checks minimum vCPU count. Estimate wall and unit caps before launch, including setup, export, idle time, and the
-registered reserve. Never set an unknown CPU rate to zero.
+`budget.other_assignments` is an endpoint-to-rate map for **every** assignment
+that exists before this job is allocated. For example, only after reviewing
+the current account state:
 
-`rate_units_per_hour` is a conservative pre-priced ceiling, not a claim that the provider reports an exact per-job
-rate. The observed account-balance debit can include concurrent notebook or other-lane spend and provider-accounting
-lag, so it is a conservative stop signal and reportable evidence rather than precise job billing.
+```json
+{
+  "endpoint-a": 1.5,
+  "endpoint-b": 7.0
+}
+```
 
-The acceptance qualification must specifically check whether that conservative account-debit guard stops a lane early
-while notebook workers spend, and whether provider debit lags the observed balance. Until that evidence exists,
-actual job units are unknown rather than an exact enforcement claim.
+An empty map is valid only if `sessions` is empty at admission. The supervisor
+caps the job from its own pre-priced rate multiplied by elapsed wall time. It
+also cross-checks the account balance delta after subtracting the measured
+baseline rate of the other assignments. A provider-rate mismatch or later rate
+drift is a refusal. Account-wide balance is never a cap: it is an evidence
+cross-check with a five-minute accounted-rate lag allowance plus rounding. An
+unexplained balance discrepancy is recorded as a warning, not charged to this
+session or used to abort Q1 or another lane.
 
-The launcher must reject a populated output directory, write progress with completed/total and elapsed time at least
-about every two minutes, make units resumable, and write only completed immutable snapshots. Each export needs its
-payload, SHA-256 sidecar, and completion marker before the supervisor may import it.
+The job launcher must make units resumable, write progress with completed,
+total, and elapsed time about every two minutes, and publish a complete
+optimizer, replay, actor, target, RNG, and counter state before marking an
+export complete. Weights alone are not an exact resume.
+
+## Lease expiry and runtime-side release
+
+The runtime has no durable notebook frontend. A detached process must not call
+`google.colab.runtime.unassign()`: that API needs the notebook frontend and
+IPython kernel bridge, which an ordinary subprocess does not have.
+
+Instead, the Mac mints a short-lived OAuth **access token** for the release
+operation. It retains the owner refresh token locally. The mint must prove
+that the granted scopes are exactly `colaboratory` and `userinfo.email`; a
+missing, broader, or otherwise different scope is a refusal. The credential
+contains no refresh token, client secret, or token URI and is private to the
+runtime (mode `0600`). It is uploaded as a private file, never embedded in an
+`exec` cell, prompt, manifest, output, log, or receipt. The Mac rotates it
+while it can renew the job; renewal is throttled to at most once every 30
+seconds. Naive OAuth expiry timestamps are normalized as UTC before any
+lifetime decision.
+
+The release credential is an account-scoped bearer token, not a provider
+endpoint-bound credential and not inaccessible to a same-user process already
+trusted to run the job in that VM. Its protection comes from the short expiry,
+the exact scope check, private file permissions, the fixed Colab origin, and
+redirect refusal. Treat the job process as within the runtime trust boundary;
+do not claim this token cannot be used by arbitrary trusted same-user code.
+
+After lease expiry or another terminal safety condition, the runtime requests
+a checkpoint, grants its bounded grace period, then uses the fixed Colab
+origin and the same authenticated tunnel sequence as the installed CLI:
+`GET /tun/m/unassign/<endpoint>` for the XSRF token, followed by the XSRF
+`POST` to that endpoint. Redirects are refused so the bearer is not forwarded
+elsewhere. Each GET and POST has a 20-second request bound; three attempts,
+overhead, and retry gaps have a 130-second full release bound. Before starting
+the child, the runtime requires a credential margin of its lease, checkpoint
+grace, 10-second terminal allowance, and that 130-second bound. This path has
+no dependence on a notebook-front-end callback. It still needs live acceptance
+evidence before it may be relied on operationally.
 
 ## Operator commands
 
-From the repository worktree, set the state directory to a new absolute directory outside the repository. The
-foreground launcher checks AC power and open lid, then runs the supervisor under `caffeinate -is`; put it in a
-caller-owned prepared tmux service for unattended work. Validate first; validation allocates no runtime.
+Use `launch.sh` rather than the module directly. It checks AC power and an
+open lid and runs under `caffeinate -is`. Put its foreground command inside a
+caller-owned `tmux` session for an unattended job.
 
 ```sh
-PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
-LAUNCH=/Users/josenunez/Projects/ml/snake-dqn-colab-cli/research/colab_cli/launch.sh
+REPO=/Users/josenunez/Projects/ml/snake-dqn
+PY="$REPO/venv/bin/python"
+LAUNCH="$REPO/research/colab_cli/launch.sh"
 SUPERVISOR_STATE=/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli/<lane>-<attempt>
 COLAB_BIN=/Users/josenunez/.local/bin/colab
 
 "$LAUNCH" --check --state-dir "$SUPERVISOR_STATE" --colab "$COLAB_BIN" validate /absolute/path/to/job.json
-
-"$LAUNCH" \
-  --state-dir "$SUPERVISOR_STATE" --colab "$COLAB_BIN" validate /absolute/path/to/job.json
-
+"$LAUNCH" --state-dir "$SUPERVISOR_STATE" --colab "$COLAB_BIN" validate /absolute/path/to/job.json
 tmux new-session -d -s colab-cli-<lane>-<attempt> \
   "'$LAUNCH' --state-dir '$SUPERVISOR_STATE' --colab '$COLAB_BIN' run /absolute/path/to/job.json"
-
-"$PY" -m research.colab_cli.supervisor \
-  --state-dir "$SUPERVISOR_STATE" --colab "$COLAB_BIN" status
+"$PY" -m research.colab_cli.supervisor --state-dir "$SUPERVISOR_STATE" --colab "$COLAB_BIN" status
 ```
 
-The direct `status` call is read-only and does not assert exact provider hardware capability. A scarce H100 can be
-retained only by a finite, priced chain of already-approved H100 jobs:
+`validate` and `status` do not allocate. The direct status invocation is
+read-only and does not attest to exact hardware. The supervisor itself supplies
+OAuth2 and its enforced request/assignment guards; do not set unsupported CLI
+environment variables and assume they create a timeout or retry policy.
+
+For a retained H100, use a finite, priced chain of already-approved jobs. It
+has the same lease and release proof as a normal job:
 
 ```sh
 "$LAUNCH" --state-dir "$SUPERVISOR_STATE" --colab "$COLAB_BIN" chain \
@@ -106,55 +188,50 @@ retained only by a finite, priced chain of already-approved H100 jobs:
   --retention-minutes 45 --retention-units 10
 ```
 
-If an interrupted broker leaves a known record under the account state root, reconcile that specific `pending-*.json`
-or `active-*.json` record. Never guess an assignment identity from a hardware listing:
+If a broker-owned `pending-*.json` or `active-*.json` remains after an
+interruption, reconcile that exact record. Do not infer the target from the
+session display:
 
 ```sh
 ACCOUNT=/Users/josenunez/.config/colab-cli/snake
 "$LAUNCH" --state-dir "$SUPERVISOR_STATE" --colab "$COLAB_BIN" recover "$ACCOUNT/pending-<session>.json"
 ```
 
-The supervisor supplies `--auth oauth2` and `COLAB_CLI_ASSIGN_RETRIES=0` for its CLI calls. Do not substitute a
-manual `colab new`, `exec`, `upload`, `download`, or `stop`: bypassing the broker defeats account-wide admission,
-lease renewal, export verification, and release proof.
-
-Use the read-only account commands to inspect the result after a supervisor action:
+Read-only account evidence is available after a supervisor action:
 
 ```sh
 "$COLAB_BIN" --auth oauth2 usage
 "$COLAB_BIN" --auth oauth2 sessions
 ```
 
-The expected completed state is a terminal create-only receipt and hash-verified local artifacts in the manifest's
-output directory, followed by no matching assignment in `sessions`. A successful CLI process alone is not evidence
-that the kernel or job succeeded.
+## Required acceptance before live research
 
-## Failure handling
+The acceptance plan stays within 4 units including its reserve. It is prepared
+through `launch.sh`, so the AC, lid, and `caffeinate` protections apply. Its
+L4 arm deliberately suppresses Mac lease renewal and must show that the exact
+assignment disappears within 300 seconds **after lease expiry**. Its total
+timing budget is no more than the lease plus checkpoint grace, terminal
+allowance, and 130-second release window. It fails if the runtime only exits, if broker
+cleanup causes the disappearance, if cleanup has an error, or if any
+acceptance artifact is missing.
 
-If the kernel reports an error while `colab exec` exits zero, treat the job as failed and preserve the state and
-receipt. If a polling request times out, do not assume the remote process stopped and do not submit the launcher
-again; reconnect through the state/telemetry files. If an export is too large, lacks a completion marker, or has a
-digest mismatch, reject it. The bounded transfer routine removes its temporary file and never publishes it.
+See [`research/colab_cli/ACCEPTANCE.md`](../research/colab_cli/ACCEPTANCE.md)
+for the reviewed prepare and execute commands, current price inputs, artifacts,
+and all gates. Do not execute the live command until that separate review has
+occurred.
 
-If the Mac cannot renew its lease, the runtime asks the child to checkpoint, stops it after the bounded grace
-period, and unassigns the runtime. Recovery may start from the last hash-verified imported snapshot only. If stop
-reports success but the assignment remains in `sessions`, record an unassignment failure and do not call the run
-complete.
+## Human-only credential actions
 
-H100 retention is allowed only for a priced, approved chain of useful queued jobs. The retention lease is bounded;
-an idle allocation is never kept indefinitely. No automatic retry, new allocation loop, or purchase is permitted.
+Only the owner may repair OAuth with a local interactive terminal. Agents must
+not invoke `colab auth` or `colab drivemount`; a CLI runtime never mounts
+Drive. Never place tokens or credentials in a manifest, shell history, prompt,
+runtime code, artifact, log, or receipt.
 
-## Human-only commands
+## Source and limits
 
-The owner already completed OAuth setup. Agents must never invoke `colab auth` or `colab drivemount`; both can
-require interactive consent and a Drive mount is prohibited in a CLI runtime. Keep credentials out of manifests,
-uploads, prompts, logs, and receipts. If reusable OAuth fails because the owner revoked access, stop and have the
-owner reauthorize in a local Terminal.
-
-## Source and boundaries
-
-This guide implements the operating model in
-[`2026-10-18_colab_cli_operating_model.md`](research/advice/2026-10-18_colab_cli_operating_model.md) and uses the
-vendored official CLI reference under [`docs/research/colab_cli_ref/`](research/colab_cli_ref/). In particular,
-kernel errors may not set a nonzero CLI status, client timeouts do not prove remote termination, transfer buffering
-requires caps, and `run` cleanup alone is not release verification.
+The release sequence is based on the installed pinned CLI's
+`Client.unassign()` GET/XSRF-POST tunnel exchange. The supervisor adds
+lease fencing, restricted credential handling, bounded transfer and stop
+logic, and evidence requirements around that provider behavior. See the
+[`snake-dqn-colab-jobs` skill](codex-skills/snake-dqn-colab-jobs/SKILL.md)
+for the agent checklist and the legacy-Q1 boundary.

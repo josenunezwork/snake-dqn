@@ -2,7 +2,7 @@
 
 This is the mandatory, bounded qualification before routing a new research job through `research.colab_cli`. It implements the operating-model advice dated 2026-10-18. It is not a study run, does not alter the Q1 Drive queue, and does not constitute a live pass until the records below exist and are independently reviewed.
 
-Use the supplied 2026-10-18 account context only as a budget baseline: 1,178.30 compute units, aggregate usage 6.84 units/hour, and two active notebook assignments. It is not a current measurement. Before execution the supervisor must query `colab --auth oauth2 usage` and `sessions`, include notebook assignments in the account-wide maximum of three, and reject admission if the observed state differs unsafely.
+Use the supplied 2026-10-18 account context only as a budget baseline: 1,178.30 compute units, aggregate usage 6.84 units/hour, and two active notebook assignments. It is not a current measurement. Before execution the supervisor queries `colab --auth oauth2 usage` and `sessions`. Every assignment already present must appear in a reviewed endpoint-to-rate map (or a current broker record); an unknown endpoint is a refusal. The receipt records the session-attributed acceptance spend and the priced baseline of those other assignments, cross-checked against the account balance delta. The account-wide maximum remains three assignments.
 
 The whole qualification has a hard cap of 4.0 units, including a 0.8-unit (20%) reserve; only 3.2 units are usable. The first wall-clock or unit cap reached stops the relevant job. CPU is at most 20 minutes and is admitted only after its unit rate is measured. L4 is at most 30 minutes at the provisional 2.0 units/hour rate (1.0 unit). There are no retries, purchases, replacement allocations, or automatic CPU/L4 fallback. If CPU expected cost plus 1.0 unit exceeds 3.2 units, do not execute.
 
@@ -11,13 +11,16 @@ The whole qualification has a hard cap of 4.0 units, including a 0.8-unit (20%) 
 This creates unique, absolute output directories, pinned manifests, input hashes, and a `NOT_RUN` plan. It never invokes `colab`.
 
 ```sh
-PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
-$PY -m research.colab_cli.acceptance \
+LAUNCH=/Users/josenunez/Projects/ml/snake-dqn/research/colab_cli/launch.sh
+# JSON object: {"<pre-existing endpoint>": <reviewed units/hour>, ...}
+OTHER_ASSIGNMENTS=/absolute/path/other-assignments.json
+"$LAUNCH" acceptance \
   --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance \
-  --cpu-rate-units-per-hour MEASURED_CPU_RATE
+  --cpu-rate-units-per-hour MEASURED_CPU_RATE \
+  --other-assignments "$OTHER_ASSIGNMENTS"
 ```
 
-Unknown CPU price blocks manifest creation. The generated plan records expected CPU cost as `20 / 60 * MEASURED_CPU_RATE`, L4 as `30 / 60 * 2.0 = 1.0`, and both must fit the usable 3.2 units. Re-run preparation rather than reuse any manifest or output directory.
+Unknown CPU price blocks manifest creation. `other-assignments.json` may be `{}` only when `sessions` is empty before allocation; it must list every pre-existing session endpoint otherwise. The generated plan records expected CPU cost as `20 / 60 * MEASURED_CPU_RATE`, L4 as `30 / 60 * 2.0 = 1.0`, and both must fit the usable 3.2 units. Re-run preparation rather than reuse any manifest or output directory.
 
 The probe calibrates a fixed deterministic synthetic useful-work loop, then runs the same fixed count before and after the 600 MiB immutable snapshot/export handoff. `checkpoint-overhead.json` records calibration samples, fixed iteration count, baseline, second pass, snapshot-write time, and computed overhead. This measures transport behavior only; it does not establish trainer throughput or exact trainer resume. The expected remote cost is CPU `MEASURED_CPU_RATE / 3` plus L4 `1.0` unit, and the measured synthetic overhead must be at most 2% for the acceptance gate to pass.
 
@@ -48,32 +51,35 @@ without another allocation.
 
 The CPU acceptance lease is 300 seconds for the intentional 120-second busy-kernel/client-loss exercise. The L4
 fault arm uses a separate 180-second lease. The script does not change either running notebook worker's lifetime.
-OAuth refresh occurs in memory on the Mac; credentials are never uploaded or rewritten by the harness.
+OAuth refresh occurs in memory on the Mac. The watchdog receives only a short-lived, narrowly scoped release
+credential generated for that runtime; the owner's refresh token and token file are never uploaded or rewritten.
 
 ## Execute after review only
 
 After Q1 is complete and an independent reviewer accepts the generated plan, the operator may run the same command with the exact review marker below. This calls the supervisor sequentially, first CPU then L4, using `new/exec/download/stop`; it does not use `drivemount`, runtime `auth`, or browser clicks.
 
 ```sh
-$PY -m research.colab_cli.acceptance \
+"$LAUNCH" acceptance \
   --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-acceptance \
   --cpu-rate-units-per-hour MEASURED_CPU_RATE \
+  --other-assignments "$OTHER_ASSIGNMENTS" \
   --execute-after-review --review-token COLAB_CLI_ACCEPTANCE_REVIEWED
 ```
 
-The probe pauses at its hash-bound transfer-ready state while the Mac performs the bounded snapshot transfer and reconnect checks, then resumes the same measured loop. It separately exports a toy full-state checkpoint; the runtime-side resume entrypoint reloads it and continues the remaining deterministic steps for an independent hash comparison. The command writes a create-only `acceptance-result.json` beside the initial `acceptance-plan.json`; the plan is never rewritten. A process exit of zero is not evidence of a kernel success.
+The probe pauses at its hash-bound transfer-ready state while the Mac performs the bounded one-way snapshot export handoff, then resumes the same measured loop. That one export is the paired checkpoint-overhead measurement. The later full upload/download roundtrip is recorded separately as transport-integrity evidence, outside that overhead gate. It separately exports a toy full-state checkpoint; the runtime-side resume entrypoint reloads it and continues the remaining deterministic steps for an independent hash comparison. The command writes a create-only `acceptance-result.json` beside the initial `acceptance-plan.json`; the plan is never rewritten. A process exit of zero is not evidence of a kernel success.
 
 | Gate | Required evidence | Pass condition |
 | --- | --- | --- |
 | Fresh credentials | New Terminal `whoami` and `usage` after token refresh | Reusable OAuth works without a browser prompt. |
-| Busy full snapshot transfer | Runtime completion marker; local temporary download, SHA-256 verification and atomic rename | Hashes match while the kernel has a supervised child. |
+| Busy full snapshot transfer | One-way handoff timing plus separately timed full roundtrip, with local SHA-256 verification and atomic rename | The paired overhead covers only the required export; roundtrip hashes match while the kernel has a supervised child. |
 | Silence timeout | Probe has a gap greater than 60 seconds and supervisor records an explicit timeout | Timeout is bounded and does not blindly resubmit execution. |
 | Browser attachment | `sessions` before and after `url` | Same assignment; `url` creates no second allocation. |
 | Client loss/reconnect | Generation fence, remote job identity, and one completion record | Reconnect observes the existing job without duplicate work. |
 | Failure/corrupt export | Intentional child exit receipt and corrupt-download rejection record | Failure is terminal and wrong hash never becomes a local artifact. |
 | Exact resume | Full-state hash for uninterrupted and resumed runs | Optimizer, replay, actors, target, RNG, and counters match; weights alone are insufficient. |
-| Mac loss watchdog | Expired lease plus backend session/assignment disappearance | Runtime checkpointed and unassigned after Mac renewal stopped. Trainer exit alone fails. |
+| Accounted concurrent spend | `account-assignment-spend` ledger | Every pre-existing endpoint has a reviewed positive rate; receipt separates acceptance elapsed-rate charge from the measured other-assignment baseline. |
+| Mac loss watchdog | Exported checkpoint during the 15-second grace plus backend endpoint disappearance within 300 seconds | Simulated Mac renewal loss leaves the VM-side release path to checkpoint and unassign. The exact endpoint must disappear before broker fallback cleanup; a `?` label or trainer exit alone fails. |
 | Checkpoint overhead | Paired fixed-count synthetic-work baseline and transfer pass | Measured paired transport overhead is at most 2%; this is not a trainer-throughput claim. |
 | Backend release | `stop`, then independent `sessions`/`status` observation | Assignment disappears; a successful CLI exit alone is insufficient. |
 
-Any missing artifact, unmeasured CPU rate, mismatch, timeout ambiguity, backend persistence, or supervisor feature that cannot produce the listed evidence is `INCOMPLETE` and fails qualification. Do not route research workloads through the CLI until every row is verified.
+Any missing artifact, unmeasured CPU rate, unaccounted session, mismatch, timeout ambiguity, backend persistence, cleanup error, or supervisor feature that cannot produce the listed evidence is `INCOMPLETE` and fails qualification. Do not route research workloads through the CLI until every row is verified.
