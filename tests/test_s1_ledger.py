@@ -642,7 +642,13 @@ def test_nested_acceptance_and_supervisor_bindings_are_rechecked(prepared):
         ledger.status()
 
 
-def test_pretraining_staging_failure_charges_actual_and_restores_same_job(prepared):
+@pytest.mark.parametrize(
+    "seconds, debit, expected",
+    [(10, 0.2, 0.2), (339.0773167080042, 0.04, 339.0773167080042 * 2 / 3600)],
+)
+def test_pretraining_staging_failure_charges_actual_and_restores_same_job(
+    prepared, seconds, debit, expected
+):
     worker_ledger, root, _ = prepared
     source = manifest(root / "staging-manifest.json")
     worker_ledger.reserve("train-a", bound(), source)
@@ -658,8 +664,8 @@ def test_pretraining_staging_failure_charges_actual_and_restores_same_job(prepar
             "error": "upload /content/snake/inputs/league.tar.gz timed out",
             "manifest_sha256": digest(source),
             "usage_before": {"balance": 100, "assignments": 0, "rate": 0},
-            "usage_after": {"balance": 99.8, "assignments": 0, "rate": 0},
-            "elapsed_seconds": 10,
+            "usage_after": {"balance": 100 - debit, "assignments": 0, "rate": 0},
+            "elapsed_seconds": seconds,
         },
     )
     review = dump(
@@ -680,10 +686,10 @@ def test_pretraining_staging_failure_charges_actual_and_restores_same_job(prepar
     assert summary["outstanding_jobs"] == []
     assert "train-a" in summary["planned_jobs"]
     assert worker_ledger.status()["outstanding_jobs"] == []
-    assert summary["spent"]["units"] == pytest.approx(2.2)
+    assert summary["spent"]["units"] == pytest.approx(2 + expected)
     state = json.loads(worker_ledger.path.read_text())
     settled = state["settled"]["staging-failure:train-a"]
-    assert settled["actual"]["gpu_allocation_hours"] == pytest.approx(10 / 3600)
+    assert settled["actual"]["gpu_allocation_hours"] == pytest.approx(seconds / 3600)
     assert settled["original_bound"] == bound()
     event = state["events"][-1]
     assert event["kind"] == "pretraining_staging_failure"
@@ -716,7 +722,13 @@ def test_pretraining_staging_failure_refuses_trainer_or_exports(prepared, field,
     assert worker_ledger.status()["outstanding_jobs"] == ["train-a"]
 
 
-def test_pretraining_qualification_failure_charges_actual_and_restores_same_job(prepared):
+@pytest.mark.parametrize(
+    "seconds, debit, expected",
+    [(10, 0.2, 0.2), (339.0773167080042, 0.04, 339.0773167080042 * 2 / 3600)],
+)
+def test_pretraining_qualification_failure_charges_actual_and_restores_same_job(
+    prepared, seconds, debit, expected
+):
     worker_ledger, root, _ = prepared
     source = manifest(root / "qualification-manifest.json")
     worker_ledger.reserve("train-a", bound(), source)
@@ -749,8 +761,8 @@ def test_pretraining_qualification_failure_charges_actual_and_restores_same_job(
             "error": "Refused('remote terminal failed')",
             "manifest_sha256": digest(source),
             "usage_before": {"balance": 100, "assignments": 0, "rate": 0},
-            "usage_after": {"balance": 99.8, "assignments": 0, "rate": 0},
-            "elapsed_seconds": 10,
+            "usage_after": {"balance": 100 - debit, "assignments": 0, "rate": 0},
+            "elapsed_seconds": seconds,
         },
     )
     review = dump(
@@ -777,7 +789,9 @@ def test_pretraining_qualification_failure_charges_actual_and_restores_same_job(
     assert "train-a" in summary["planned_jobs"]
     state = json.loads(worker_ledger.path.read_text())
     settled = state["settled"]["qualification-failure:train-a"]
-    assert settled["actual"]["units"] == pytest.approx(0.2)
+    assert settled["actual"]["units"] == pytest.approx(expected)
+    assert settled["actual"]["gpu_allocation_hours"] == pytest.approx(seconds / 3600)
+    assert settled["actual"]["elapsed_hours"] == pytest.approx(seconds / 3600)
     assert state["events"][-1]["kind"] == "pretraining_qualification_failure"
 
 
@@ -1202,3 +1216,126 @@ def test_initialize_is_create_once_under_concurrent_attempts(tmp_path: Path):
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(lambda _: initialize(), range(2)))
     assert outcomes.count("ok") == 1
+
+
+@pytest.fixture
+def legacy_staging(prepared):
+    worker, root, _ = prepared
+    test_pretraining_staging_failure_charges_actual_and_restores_same_job(
+        prepared, 496.2047262920096, 0.19, 496.2047262920096 * 2 / 3600
+    )
+    state = json.loads(worker.path.read_text())
+    sid = "staging-failure:train-a"
+    item = state["settled"][sid]
+    corrected = dict(item["actual"])
+    item["actual"]["units"] = 100 - (100 - 0.19)
+    worker.path.write_text(json.dumps(state))
+    review = {
+        "schema": "s1-staging-charge-correction/v1",
+        "status": "PASS",
+        "settlement_id": sid,
+        "settlement_sha256": hashlib.sha256(
+            json.dumps(item, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+        "receipt": item["receipt"],
+        "source_manifest": item["source_manifest"],
+        "staging_failure_review": item["staging_failure_review"],
+        "corrected_actual": corrected,
+        "additional_charge": {key: corrected[key] - item["actual"][key] for key in corrected},
+    }
+    path = dump(root / "correction-review.json", review)
+    return worker, sid, path, state
+
+
+def test_staging_correction_is_append_only_counted_once_and_allows_outstanding(legacy_staging):
+    worker, sid, review, before = legacy_staging
+    # A later attempt can remain outstanding while the old debit is corrected.
+    worker.reserve("train-a", bound(), manifest(review.parent / "next-manifest.json"))
+    before = json.loads(worker.path.read_text())
+    old_spent = worker.status()["spent"]
+    result = worker.correct_staging_charge(sid, review)
+    after = json.loads(worker.path.read_text())
+    assert after["settled"] == before["settled"]
+    assert after["events"][:-1] == before["events"]
+    assert after["planned"] == before["planned"]
+    assert after["outstanding"] == before["outstanding"]
+    assert result["spent"]["units"] - old_spent["units"] == pytest.approx(0.0856692923844)
+    for key in ("gpu_allocation_hours", "elapsed_hours", "mac_worker_hours"):
+        assert result["spent"][key] == old_spent[key]
+    assert worker.status()["spent"] == result["spent"]
+    saved = worker.path.read_bytes()
+    with pytest.raises(Refused, match="already applied"):
+        worker.correct_staging_charge(sid, review)
+    assert worker.path.read_bytes() == saved
+
+
+@pytest.mark.parametrize("field", ["receipt", "settlement_sha256", "additional_charge"])
+def test_staging_correction_refuses_changed_review_without_mutation(legacy_staging, field):
+    worker, sid, path, _ = legacy_staging
+    review = json.loads(path.read_text())
+    review[field] = "wrong"
+    dump(path, review)
+    saved = worker.path.read_bytes()
+    with pytest.raises(Refused, match="correction review"):
+        worker.correct_staging_charge(sid, path)
+    assert worker.path.read_bytes() == saved
+
+
+def test_staging_correction_rechecks_evidence_and_event_amount(legacy_staging):
+    worker, sid, path, _ = legacy_staging
+    worker.correct_staging_charge(sid, path)
+    state = json.loads(worker.path.read_text())
+    state["events"][-1]["actual"]["units"] = 0
+    dump(worker.path, state)
+    with pytest.raises(Refused, match="event charge"):
+        worker.status()
+    state["events"][-1]["actual"]["units"] = json.loads(path.read_text())["additional_charge"][
+        "units"
+    ]
+    dump(worker.path, state)
+    path.write_text("{}")
+    with pytest.raises(Refused, match="hash mismatch"):
+        worker.status()
+
+
+def test_staging_correction_obeys_caps_atomically(legacy_staging):
+    worker, sid, path, _ = legacy_staging
+    state = json.loads(worker.path.read_text())
+    remaining = sum(x["units"] for x in state["planned"].values())
+    spent = worker.status()["spent"]["units"]
+    state["planned"]["train-b"]["units"] += 48 - remaining - spent - 0.01
+    dump(worker.path, state)
+    saved = worker.path.read_bytes()
+    with pytest.raises(Refused, match="usable units"):
+        worker.correct_staging_charge(sid, path)
+    assert worker.path.read_bytes() == saved
+
+
+@pytest.mark.parametrize("rate", [None, 0, -1, float("nan"), True])
+def test_failure_charge_refuses_unknown_or_invalid_priced_ceiling(prepared, rate):
+    worker, root, _ = prepared
+    source = manifest(root / "bad-rate.json")
+    value = json.loads(source.read_text())
+    value["budget"]["rate_units_per_hour"] = rate
+    dump(source, value)
+    receipt = {
+        "usage_before": {"balance": 100, "assignments": 0, "rate": 0},
+        "usage_after": {"balance": 100, "assignments": 0, "rate": 0},
+        "elapsed_seconds": 339,
+    }
+    with pytest.raises(Refused, match="rate"):
+        worker._staging_actual(receipt, {"manifest": worker._evidence(source), "bound": bound()})
+
+
+def test_failure_priced_charge_cannot_exceed_reserved_units(prepared):
+    worker, root, _ = prepared
+    source = manifest(root / "manifest.json")
+    receipt = {
+        "usage_before": {"balance": 100, "assignments": 0, "rate": 0},
+        "usage_after": {"balance": 100, "assignments": 0, "rate": 0},
+        "elapsed_seconds": 3600,
+    }
+    with pytest.raises(Refused, match="exceeds reserved"):
+        worker._staging_actual(
+            receipt, {"manifest": worker._evidence(source), "bound": bound(units=1)}
+        )

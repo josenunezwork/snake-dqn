@@ -42,6 +42,7 @@ OPERATIONAL_FAILURES = frozenset({"disconnect", "transfer_failure", "runtime_rec
 PREALLOCATION_REFUSAL_SCHEMA = "s1-preallocation-refusal/v1"
 STAGING_FAILURE_REVIEW_SCHEMA = "s1-pretraining-staging-failure-review/v1"
 QUALIFICATION_FAILURE_REVIEW_SCHEMA = "s1-pretraining-qualification-failure-review/v1"
+STAGING_CORRECTION_SCHEMA = "s1-staging-charge-correction/v1"
 
 
 class Refused(RuntimeError):
@@ -462,6 +463,65 @@ class Ledger:
                 }
             )
             return self._summary(state)
+
+    def correct_staging_charge(self, settlement_id: str, review_path: str | Path) -> dict[str, Any]:
+        """Append the reviewed priced-charge shortfall without rewriting a settlement."""
+        with self._locked() as state:
+            self._verify_static_evidence(state)
+            if any(
+                event.get("kind") == "staging_charge_correction"
+                and event.get("settlement_id") == settlement_id
+                for event in state["events"]
+            ):
+                raise Refused("staging charge correction already applied")
+            additional = self._staging_charge_correction(state, settlement_id, review_path)
+            state["events"].append(
+                {
+                    "kind": "staging_charge_correction",
+                    "settlement_id": settlement_id,
+                    "at": self.clock(),
+                    "review": self._evidence(review_path),
+                    "actual": additional,
+                }
+            )
+            self._verify_invariants(state, require_snapshot=False)
+            return self._summary(state)
+
+    def _staging_charge_correction(
+        self, state: Mapping[str, Any], settlement_id: str, review_path: str | Path
+    ) -> dict[str, float]:
+        """Recompute a positive unit-only correction from immutable failure evidence."""
+        item = state["settled"].get(settlement_id)
+        if not settlement_id.startswith("staging-failure:") or not isinstance(item, Mapping):
+            raise Refused("correction requires an existing staging-failure settlement")
+        review = json.loads(Path(review_path).read_text())
+        identity = hashlib.sha256(
+            json.dumps(item, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+        ).hexdigest()
+        if (
+            review.get("schema") != STAGING_CORRECTION_SCHEMA
+            or review.get("status") != "PASS"
+            or review.get("settlement_id") != settlement_id
+            or review.get("settlement_sha256") != identity
+            or review.get("receipt") != item["receipt"]
+            or review.get("source_manifest") != item.get("source_manifest")
+            or review.get("staging_failure_review") != item.get("staging_failure_review")
+        ):
+            raise Refused("correction review differs from immutable staging settlement evidence")
+        receipt = self._staging_receipt(item["receipt"]["path"], item["source_manifest"])
+        corrected = self._staging_actual(
+            receipt, {"manifest": item["source_manifest"], "bound": item["original_bound"]}
+        )
+        original = _bound(item["actual"], "original settlement")
+        additional = {key: corrected[key] - original[key] for key in DIMENSIONS}
+        if additional["units"] <= 0 or any(additional[key] != 0 for key in DIMENSIONS[1:]):
+            raise Refused("correction must be a positive unit-only staging shortfall")
+        if (
+            review.get("corrected_actual") != corrected
+            or review.get("additional_charge") != additional
+        ):
+            raise Refused("correction review charge differs from priced receipt interval")
+        return additional
 
     def requalify_acceptance(self, acceptance_review_path: str | Path) -> dict[str, Any]:
         """Bind a fresh current-source acceptance review without resetting the study clock."""
@@ -939,7 +999,20 @@ class Ledger:
                     item["receipt"]["path"],
                     item["source_manifest"],
                 )
+        corrections = set()
         for event in state.get("events", []):
+            if event.get("kind") == "staging_charge_correction":
+                self._verify_bound_file(event.get("review"), "staging correction review")
+                settlement_id = event.get("settlement_id", "")
+                if settlement_id in corrections:
+                    raise Refused("duplicate staging charge correction")
+                corrections.add(settlement_id)
+                expected = self._staging_charge_correction(
+                    state, settlement_id, event["review"]["path"]
+                )
+                if event.get("actual") != expected:
+                    raise Refused("staging correction event charge differs from review")
+                continue
             if event.get("kind") != "preallocation_refusal":
                 continue
             for name in ("manifest", "review", "before_snapshot", "fresh_snapshot"):
@@ -1301,7 +1374,12 @@ class Ledger:
     def _staging_actual(
         self, receipt: Mapping[str, Any], entry: Mapping[str, Any]
     ) -> dict[str, float]:
-        """Charge reconciled provider debit and elapsed staging time, never the whole request."""
+        """Charge the priced request-to-release interval or larger observed debit.
+
+        The terminal supervisor elapsed interval conservatively spans allocation
+        admission through verified disappearance and the final usage read. Never
+        substitute the shorter last account cross-check or trainer runtime.
+        """
         before, after = receipt.get("usage_before"), receipt.get("usage_after")
         if not isinstance(before, Mapping) or not isinstance(after, Mapping):
             raise Refused("receipt lacks final account usage; reservation remains outstanding")
@@ -1321,9 +1399,14 @@ class Ledger:
             )
             if assignments != 0 or rate != 0:
                 raise Refused("staging spend is ambiguous with another account assignment")
+        self._verify_bound_file(entry.get("manifest"), "settlement manifest")
+        manifest = json.loads(Path(entry["manifest"]["path"]).read_text())
+        rate = _number(manifest.get("budget", {}).get("rate_units_per_hour"), "priced rate")
         elapsed = _number(receipt.get("elapsed_seconds"), "receipt elapsed_seconds") / 3600
+        if rate <= 0 or elapsed <= 0:
+            raise Refused("settlement requires a positive priced rate and allocation interval")
         actual = {
-            "units": debit,
+            "units": max(debit, rate * elapsed),
             "gpu_allocation_hours": elapsed,
             "mac_worker_hours": 0.0,
             "elapsed_hours": elapsed,
@@ -1427,6 +1510,10 @@ class Ledger:
                 values = item if field is None else item[field]
                 for key in DIMENSIONS:
                     result[destination][key] += _number(values[key], f"{group}.{key}")
+        for event in state.get("events", []):
+            if event.get("kind") == "staging_charge_correction":
+                for key, value in _bound(event["actual"], "staging correction").items():
+                    result["spent"][key] += value
         projected = {key: sum(result[group][key] for group in result) for key in DIMENSIONS}
         # Real time since initialization is irrevocably consumed, including gaps between jobs.
         wall_elapsed = max(0.0, (self.clock() - float(state["created_at"])) / 3600)
@@ -1462,6 +1549,9 @@ def main() -> None:
     qualification.add_argument("job_id")
     qualification.add_argument("--receipt", type=Path, required=True)
     qualification.add_argument("--review", type=Path, required=True)
+    correction = subparsers.add_parser("correct-staging-charge")
+    correction.add_argument("settlement_id")
+    correction.add_argument("--review", type=Path, required=True)
     requalify = subparsers.add_parser("requalify-acceptance")
     requalify.add_argument("--review", type=Path, required=True)
     args = parser.parse_args()
@@ -1480,6 +1570,8 @@ def main() -> None:
         result = worker_ledger.settle_pretraining_qualification_failure(
             args.job_id, args.receipt, args.review
         )
+    elif args.command == "correct-staging-charge":
+        result = worker_ledger.correct_staging_charge(args.settlement_id, args.review)
     elif args.command == "requalify-acceptance":
         result = worker_ledger.requalify_acceptance(args.review)
     else:
