@@ -244,10 +244,12 @@ class CLI:
         self.assignment_record = config.with_suffix(".assignment.json")
         self.oauth_python = os.environ.get("SNAKE_COLAB_OAUTH_PYTHON", OAUTH_PYTHON)
         self.renew: Callable[[], Any] | None = None
+        self.transfer_records: list[dict[str, Any]] = []
+        self.contents_transfers: list[dict[str, Any]] = []
 
     @contextlib.contextmanager
     def limit_deadline(self, deadline: float) -> Iterator[None]:
-        """Bound a transfer phase, including renewals and RPC transport grace."""
+        """Temporarily narrow the session cap; never use for input staging."""
         original = self.deadline
         self.deadline = min(original if original is not None else math.inf, deadline)
         try:
@@ -256,8 +258,12 @@ class CLI:
             self.deadline = original
 
     def call(self, *args: str, timeout: float = 45) -> str:
-        if self.deadline is not None and args[0] not in {"stop", "sessions"}:
-            timeout = min(timeout, self.deadline - time.monotonic())
+        if args[0] not in {"stop", "sessions"}:
+            deadline = min(
+                self.deadline if self.deadline is not None else math.inf,
+                self.priced_deadline if self.priced_deadline is not None else math.inf,
+            )
+            timeout = min(timeout, deadline - time.monotonic())
             if timeout <= 0:
                 raise Refused("whole-session deadline reached before CLI call")
         env = {
@@ -277,6 +283,9 @@ class CLI:
             + ", run_name='snake_cli_guard')\nexcept BaseException:\n    os._exit(70)\n"
         )
         env["PYTHONPATH"] = str(hook) + os.pathsep + env.get("PYTHONPATH", "")
+        transfer_started = time.monotonic()
+        transfer_status = "failed"
+        size = Path(args[-2]).stat().st_size if args[0] == "upload" else 0
         try:
             result = subprocess.run(
                 [self.binary, "--auth", "oauth2", "--config", str(self.config), *args],
@@ -286,9 +295,27 @@ class CLI:
                 env=env,
                 umask=0o077,
             )
+            if result.returncode == 0:
+                transfer_status = "completed"
+                if args[0] == "download":
+                    size = Path(args[-1]).stat().st_size
         finally:
             if self.config.exists():
                 self.config.chmod(0o600)
+            if args[0] in {"upload", "download"}:
+                elapsed = max(time.monotonic() - transfer_started, 1e-9)
+                self.contents_transfers.append(
+                    {
+                        "direction": args[0],
+                        "remote": args[-1] if args[0] == "upload" else args[-2],
+                        "size_bytes": size if transfer_status == "completed" else None,
+                        "elapsed_seconds": elapsed,
+                        "bytes_per_second": (
+                            size / elapsed if transfer_status == "completed" else None
+                        ),
+                        "status": transfer_status,
+                    }
+                )
         output = redact(ANSI.sub("", result.stdout + result.stderr))
         if result.returncode:
             raise Refused(f"colab {args[0]} failed ({result.returncode}): {output[-2000:]}")
@@ -508,6 +535,10 @@ class Broker:
             if retained and retained.get("cli"):
                 cli = retained["cli"]
                 session = cli.session
+                # A retained session starts a new job receipt, not a cumulative
+                # transfer ledger from the previous link in the chain.
+                cli.transfer_records = []
+                cli.contents_transfers = []
             started = time.monotonic()
             cli.deadline = min(
                 started + m["timeout_minutes"] * 60 - 45, (retained or {}).get("deadline", math.inf)
@@ -677,6 +708,7 @@ class Broker:
                                 cli.deadline = (
                                     None  # Only read account data after verified release.
                                 )
+                                cli.priced_deadline = None
                                 intent.unlink()
                                 active.unlink(missing_ok=True)
                         except BaseException as exc:
@@ -705,6 +737,8 @@ class Broker:
                         "elapsed_seconds": time.monotonic() - started,
                         "terminal": terminal,
                         "exports": exports,
+                        "transfers": cli.transfer_records,
+                        "contents_transfers": cli.contents_transfers,
                         "error": error,
                         "cleanup_error": cleanup,
                         "status": (
@@ -901,14 +935,14 @@ class Broker:
             encoded_release = base64.b64encode(pinned["release.py"].read_bytes()).decode()
             credential_remote = f"/content/snake-cli-{generation}-release.json"
 
-            def upload_credential() -> None:
+            def upload_credential(deadline: float | None = None) -> None:
                 with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
                     value = {**cli.release_credential, "endpoint": spec["release_endpoint"]}
                     json.dump(value, handle)
                     handle.flush()
-                    cli.call(
-                        "upload", "-s", cli.session, handle.name, credential_remote, timeout=60
-                    )
+                    from research.colab_cli.transfers import upload_contents
+
+                    upload_contents(cli, Path(handle.name), credential_remote, deadline=deadline)
 
             upload_credential()
             lease = {"generation": generation, "renewed_at": time.time()}
@@ -946,16 +980,9 @@ class Broker:
                     mint_release_credential,
                 )
 
-                if credential_renewal_due(cli.release_credential, "", safety_window_seconds=900):
-                    cli.release_credential = mint_release_credential(
-                        cli.oauth_python, endpoint="", min_valid_seconds=m["lease_seconds"] + 300
-                    )
-                    upload_credential()
-                    cli.rpc(
-                        "from pathlib import Path\n"
-                        f"p=Path({credential_remote!r})\np.chmod(0o600)\n"
-                        f"p.replace(Path({root!r})/'release-credential.json')\nresult=True"
-                    )
+                # Refresh the lease before credential retries. Reserve 90 seconds
+                # for transport/rotation RPC grace and the next renewal.
+                credential_deadline = time.monotonic() + m["lease_seconds"] - 90
                 result = cli.poll_rpc(
                     "import importlib.util\n"
                     f"runtime_path={root + '/runtime.py'!r}\n"
@@ -963,6 +990,18 @@ class Broker:
                     "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
                     f"result=mod.read_state({root!r},{generation!r},renew=True)"
                 )
+                if credential_renewal_due(cli.release_credential, "", safety_window_seconds=900):
+                    cli.release_credential = mint_release_credential(
+                        cli.oauth_python, endpoint="", min_valid_seconds=m["lease_seconds"] + 300
+                    )
+                    upload_credential(credential_deadline)
+                    cli.rpc(
+                        "from pathlib import Path\n"
+                        f"p=Path({credential_remote!r})\np.chmod(0o600)\n"
+                        f"p.replace(Path({root!r})/'release-credential.json')\n"
+                        f"result=mod.read_state({root!r},{generation!r},renew=True)",
+                        timeout=20,
+                    )
                 self.renew_retained(cli, retained)
                 renewal.update(at=time.monotonic(), state=result)
                 return result
@@ -998,59 +1037,58 @@ class Broker:
                 (Path(i["path"]), "inputs/" + i["dest"], i["sha256"]) for i in m.get("inputs", [])
             ]
             checks = {}
-            with cli.limit_deadline(upload_deadline):
-                for path, dest, digest in local_files:
-                    if path.stat().st_size > m["max_export_bytes"]:
-                        raise Refused("upload exceeds bounded transfer size")
-                    digest = digest or sha256(path)
-                    renew()
-                    cli.rpc(
-                        "from pathlib import Path\n"
-                        f"parent=Path({(root + '/' + dest)!r}).parent\n"
-                        "parent.mkdir(parents=True,exist_ok=True)\nresult=True"
-                    )
-                    upload_file(cli, path, root + "/" + dest, renew=renew, deadline=upload_deadline)
-                    checks[dest] = digest
-                checks["runtime.py"] = sha256(pinned["runtime.py"])
-                checks["release.py"] = sha256(pinned["release.py"])
-                # The runtime downloads source directly from GitHub, rather than
-                # passing every committed evidence blob through ContentsClient.
-                plan = json.loads((staging / "source-plan.json").read_text())
+            for path, dest, digest in local_files:
+                if path.stat().st_size > m["max_export_bytes"]:
+                    raise Refused("upload exceeds bounded transfer size")
+                digest = digest or sha256(path)
+                renew()
+                cli.rpc(
+                    "from pathlib import Path\n"
+                    f"parent=Path({(root + '/' + dest)!r}).parent\n"
+                    "parent.mkdir(parents=True,exist_ok=True)\nresult=True"
+                )
+                upload_file(cli, path, root + "/" + dest, renew=renew, deadline=upload_deadline)
+                checks[dest] = digest
+            checks["runtime.py"] = sha256(pinned["runtime.py"])
+            checks["release.py"] = sha256(pinned["release.py"])
+            # The runtime downloads source directly from GitHub, rather than
+            # passing every committed evidence blob through ContentsClient.
+            plan = json.loads((staging / "source-plan.json").read_text())
 
-                def deliver_source(operation: str) -> Any:
-                    renew()
-                    result = cli.rpc(
-                        "# SNAKE_SOURCE_DELIVERY\n"
-                        "import importlib.util\nfrom pathlib import Path\n"
-                        f"root=Path({root!r})\nplan={plan!r}\n"
-                        "s=importlib.util.spec_from_file_location("
-                        "'snake_source',root/'source.py')\n"
-                        "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
-                        f"result=mod.{operation}(root,plan)",
-                        timeout=90,
-                    )
-                    renew()
-                    return result
+            def deliver_source(operation: str) -> Any:
+                renew()
+                result = cli.rpc(
+                    "# SNAKE_SOURCE_DELIVERY\n"
+                    "import importlib.util\nfrom pathlib import Path\n"
+                    f"root=Path({root!r})\nplan={plan!r}\n"
+                    "s=importlib.util.spec_from_file_location("
+                    "'snake_source',root/'source.py')\n"
+                    "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
+                    f"result=mod.{operation}(root,plan)",
+                    timeout=90,
+                )
+                renew()
+                return result
 
-                delivery = deliver_source("fetch")
-                if not isinstance(delivery, dict):
-                    raise Refused("source delivery returned no identity evidence")
-                if delivery.get("transport") == "fallback_required":
-                    path = staging / "source.tar.gz"
-                    upload_file(
-                        cli, path, root + "/source.tar.gz", renew=renew, deadline=upload_deadline
-                    )
-                    checks["source.tar.gz"] = sha256(path)
-                    delivery = deliver_source("install_fallback")
-                if (
-                    not isinstance(delivery, dict)
-                    or delivery.get("transport") not in {"github", "fallback"}
-                    or delivery.get("commit") != plan["commit"]
-                    or delivery.get("tree") != plan["tree"]
-                ):
-                    raise Refused("source delivery commit/tree identity mismatch")
-                write_once(output / "source-delivery.json", delivery)
-                write_once(output / "input-hashes.json", checks)
+            delivery = deliver_source("fetch")
+            if not isinstance(delivery, dict):
+                raise Refused("source delivery returned no identity evidence")
+            if delivery.get("transport") == "fallback_required":
+                path = staging / "source.tar.gz"
+                upload_file(
+                    cli, path, root + "/source.tar.gz", renew=renew, deadline=upload_deadline
+                )
+                checks["source.tar.gz"] = sha256(path)
+                delivery = deliver_source("install_fallback")
+            if (
+                not isinstance(delivery, dict)
+                or delivery.get("transport") not in {"github", "fallback"}
+                or delivery.get("commit") != plan["commit"]
+                or delivery.get("tree") != plan["tree"]
+            ):
+                raise Refused("source delivery commit/tree identity mismatch")
+            write_once(output / "source-delivery.json", delivery)
+            write_once(output / "input-hashes.json", checks)
             # Hardware admission and process launch are short RPCs. Bootstrap
             # runs in the lease-fenced child, never in the notebook kernel.
             code = (
