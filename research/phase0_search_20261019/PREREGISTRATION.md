@@ -29,7 +29,7 @@ read is allowed. Operational progress contains identities and counts only.
 The prospective pilot chooses between N=8 or 16, H=128 or 256, epsilon=0.02,
 using disjoint timing fixtures and calibration worlds only. Start with N=8/H=128;
 increase only if the measured cost remains practical. Search at every decision
-with length >=600, or an advisory-mask B8 best-minus-second-best Q margin below
+with length >=600, or a legal-mask B8 best-minus-second-best Q margin below
 a threshold fitted on disjoint bare-B8 calibration decisions. Target approximately
 10% total searched decisions; if the mandatory length trigger alone exceeds 10%,
 report that floor and disable additional margin admissions instead of hiding it.

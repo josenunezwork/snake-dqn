@@ -27,9 +27,9 @@ for _thread_env in (
     os.environ[_thread_env] = "1"
 os.environ["SNAKE_DQN_DEVICE"] = "cpu"
 
-import numpy as np
+import numpy as np  # noqa: E402
 
-from research.t3_rollout_labels_20261015 import bank_engine
+from research.t3_rollout_labels_20261015 import bank_engine  # noqa: E402
 
 
 @dataclass(frozen=True)
