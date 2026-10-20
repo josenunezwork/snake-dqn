@@ -139,6 +139,8 @@ def make_manifest(
     cpu_runtime_probe: bool = False,
     cpu_rate_units_per_hour: float | None = None,
     measured_export_bytes_per_world: int | None = None,
+    benchmark_seconds: int = 600,
+    steady_state_seconds: int | None = None,
 ) -> dict[str, Any]:
     """Build an A5 or label draft, refusing unsafe identities and namespaces."""
     if kind not in {"benchmark", "label"}:
@@ -153,6 +155,20 @@ def make_manifest(
         or float(cpu_rate_units_per_hour) <= 0
     ):
         raise ManifestRefused("CPU runtime probe requires an observed positive provider rate")
+    if kind == "benchmark":
+        if type(benchmark_seconds) is not int or not 1 <= benchmark_seconds <= 1500:
+            raise ManifestRefused("benchmark_seconds must be an integer from 1 through 1500")
+        if steady_state_seconds is None:
+            steady_state_seconds = benchmark_seconds
+        if (
+            type(steady_state_seconds) is not int
+            or not 1 <= steady_state_seconds <= benchmark_seconds
+        ):
+            raise ManifestRefused(
+                "steady_state_seconds must be an integer no longer than benchmark_seconds"
+            )
+    elif steady_state_seconds is not None or benchmark_seconds != 600:
+        raise ManifestRefused("benchmark timing options apply only to benchmark manifests")
     if (
         kind == "label"
         and kernel == "v2"
@@ -248,7 +264,8 @@ def make_manifest(
             "T34_WORLDS": "256",
             "T34_MAX_WORLDS": "256",
             "T34_FRAMES": "5000",
-            "T34_SECONDS": "600",
+            "T34_SECONDS": str(benchmark_seconds),
+            "T34_STEADY_STATE_SECONDS": str(steady_state_seconds),
             "T34_NAMESPACE": (
                 f"t34-exit-a5/v2/s{shard}/a{attempt}"
                 if kernel == "v2"
@@ -307,7 +324,8 @@ def make_manifest(
             {
                 "T34_WORLDS": "10",
                 "T34_MAX_WORLDS": "10",
-                "T34_SECONDS": "600",
+                "T34_SECONDS": str(benchmark_seconds),
+                "T34_STEADY_STATE_SECONDS": str(steady_state_seconds),
                 "T34_NAMESPACE": f"t34-exit-v2-cpu/s{shard}/a{attempt}",
             }
         )
@@ -406,6 +424,8 @@ def main() -> None:
     parser.add_argument("--cpu-runtime-probe", action="store_true")
     parser.add_argument("--cpu-rate-units-per-hour", type=float)
     parser.add_argument("--measured-export-bytes-per-world", type=int)
+    parser.add_argument("--benchmark-seconds", type=int, default=600)
+    parser.add_argument("--steady-state-seconds", type=int)
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
     manifest = make_manifest(
@@ -427,6 +447,8 @@ def main() -> None:
         cpu_runtime_probe=args.cpu_runtime_probe,
         cpu_rate_units_per_hour=args.cpu_rate_units_per_hour,
         measured_export_bytes_per_world=args.measured_export_bytes_per_world,
+        benchmark_seconds=args.benchmark_seconds,
+        steady_state_seconds=args.steady_state_seconds,
     )
     if args.validate:
         validate_manifest(manifest)

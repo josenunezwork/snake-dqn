@@ -99,8 +99,13 @@ def development_pool() -> dict[str, Any]:
             mass = _number(row["mass_integral"], 0)
             base_alive = _number(baseline["survival_fraction"], 0, 1)
             base_mass = _number(baseline["mass_integral"], 0)
+            if (
+                type(row.get("episode_survival")) is not bool
+                or type(baseline.get("survived")) is not bool
+            ):
+                raise ValueError("T3 no-death endpoints must be original binary outcomes")
             no_death = int(row["episode_survival"])
-            base_no_death = int(bool(baseline["episode_survival"]))
+            base_no_death = int(baseline["survived"])
             delta = [
                 mass - base_mass,
                 survival - base_alive,
