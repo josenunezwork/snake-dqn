@@ -141,3 +141,69 @@ def test_v2_exports_are_byte_identical_across_spawned_processes_and_replay(
         hashlib.sha256(first[payloads[0]]).hexdigest()
         == hashlib.sha256(export_sets[-1][payloads[0]]).hexdigest()
     )
+
+
+def test_real_doom_batch_keeps_frozen_carry_and_source_identity() -> None:
+    """Two real frozen/mixed source worlds share one compacted branch bucket."""
+    import random
+    from collections import defaultdict
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from research.t34_exit_b8.engine import ExitTeacher, ExitTeacherConfig
+    from research.t34_exit_b8.policy import B8Policy, PolicyEvaluation
+    from research.t34_exit_b8.teacher_v2 import _search_dooms, _step
+    from research.t34_exit_b8.trajectory import build_world, make_world_rows, prepare_world
+    from research.t34_shadow.shadow import full_digest
+
+    class StraightPolicy(B8Policy):
+        def evaluate(self, world):
+            return PolicyEvaluation(
+                q=np.array([0, 10, 0, 0, 0, 0], dtype=np.float32),
+                legal=np.asarray(world.sim.get_legal_action_mask()[0, 0], dtype=bool),
+            )
+
+        def evaluate_rows(self, sim, rows, net):
+            return np.tile(np.array([0, 10, 0, 0, 0, 0], dtype=np.float32), (len(rows), 1))
+
+    teacher = ExitTeacher(ExitTeacherConfig(horizon=4), policy=StraightPolicy("cpu"))
+    rows = make_world_rows({"namespace": "t34-v2-real-doom/v1", "mixes": ("frozen", "mixed")}, 2)
+    states = []
+    for row in rows:
+        world = build_world(row, _checkpoint())
+        for _ in range(2):
+            _step(world, teacher, 1)
+        sim = world.sim
+        sim.bodies[0, 0, int(sim.head_ptr[0, 0])] = [0, 0]
+        sim.seg_count[0, 0] = sim.length[0, 0] = 1
+        sim.direction[0, 0] = 0
+        sim._rebuild_env_grids(0, food=False)
+        prepare_world(world)
+        assert any(getattr(policy, "live_vetoes", {}) for policy in world.opponents)
+        states.append(
+            {
+                "world": world,
+                "decision": 0,
+                "seed": row["world_seed"],
+                "shadow_id": 0,
+                "shadow": SimpleNamespace(frames=[SimpleNamespace(action=1)]),
+                "rng": random.Random(row["world_seed"]).getstate(),
+                "work": defaultdict(int),
+                "stages": defaultdict(float),
+                "pending_labels": {},
+                "pending_actions": {},
+                "searches": 0,
+                "search_bucket_peak": 0,
+            }
+        )
+    before = [full_digest(state["world"], checkpoint="fixture") for state in states]
+    _search_dooms(states, teacher, branch_bucket_size=12)
+    assert before == [full_digest(state["world"], checkpoint="fixture") for state in states]
+    for state in states:
+        assert state["pending_actions"] == {0: 2}
+        row = state["pending_labels"][0]
+        assert row["decisive"] and row["a_star"] == 2
+        assert 1 in row["F"] and 2 not in row["F"]
+        assert len(row["per_action"]) >= 3
+    assert teacher.profile()["peak_active_rows"] >= 6

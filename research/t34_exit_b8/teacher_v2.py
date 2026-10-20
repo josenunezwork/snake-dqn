@@ -582,6 +582,7 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                 stages["export_s"] += time.perf_counter() - stage
                 export_bytes += path.stat().st_size
                 done += 1
+                state["complete"] = True
                 decisions_done += count
                 mixes[str(state["row"]["mix"])]["worlds"] += 1
                 mixes[str(state["row"]["mix"])]["searched"] += state["searches"]
@@ -613,6 +614,7 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
         teacher.profile().get("active_row_steps", work["search_row_steps"])
     )
     total = sum(work.values())
+    completed_work = sum(sum(s["work"].values()) for s in all_states if s.get("complete", False))
     for state in all_states:
         for key, value in state["stages"].items():
             stages[key] += value
@@ -635,7 +637,9 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
         "export_bytes": export_bytes,
         "export_bytes_per_world": export_bytes / done if done else None,
         "executed_row_steps": total,
-        "executed_row_steps_per_world": total / done if done else None,
+        "executed_row_steps_per_world": completed_work / done if done else None,
+        "completed_world_row_steps": completed_work,
+        "unfinished_row_steps": total - completed_work,
         "active_row_steps": total,
         "resident_row_steps": total,
         "active_row_steps_per_second": total / max(elapsed, 1e-9),
