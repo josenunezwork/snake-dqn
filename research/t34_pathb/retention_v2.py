@@ -49,10 +49,10 @@ from research.t34_pathb.host_guard_v2 import (  # noqa: E402
 ARMS = ("bare", *ACTIVE_ARMS)
 PRECHECK_WORLDS = 64
 PRECHECK_MIN_SURVIVORS = 50
-TERMINAL_PER_MIX = 32
-PRODUCT_SESSIONS = 16
-MAX_ELAPSED_HOURS = 32.0
-MAX_CPU_HOURS = 48.0
+TERMINAL_PER_MIX = 48
+PRODUCT_SESSIONS = 32
+MAX_ELAPSED_HOURS = 40.0
+MAX_CPU_HOURS = 60.0
 
 
 class RegistrationError(RuntimeError):
@@ -657,9 +657,9 @@ def _phase_debit(receipt: Mapping[str, Any]) -> tuple[float, float]:
 
 def _cap(started: float, cpu_started: float) -> None:
     if time.monotonic() - started >= MAX_ELAPSED_HOURS * 3600:
-        raise TimeoutError("32-hour elapsed cap reached")
+        raise TimeoutError("40-hour elapsed cap reached")
     if time.process_time() - cpu_started >= MAX_CPU_HOURS * 3600:
-        raise TimeoutError("48 CPU-hour cap reached")
+        raise TimeoutError("60 CPU-hour cap reached")
 
 
 def _collect(
@@ -967,7 +967,7 @@ def run_registered(
     if any(
         sum(row.get("mix") == mix for row in terminal_rows) != TERMINAL_PER_MIX for mix in MIXES
     ):
-        raise RegistrationError("terminal bank must hold 32 rows in each mix")
+        raise RegistrationError("terminal bank must hold 48 rows in each mix")
     terminal_seeds = [row.get("seed") for row in terminal_rows]
     product_seeds = [row.get("seed") for row in product_rows]
     if len(set(terminal_seeds)) != len(terminal_seeds) or len(set(product_seeds)) != len(

@@ -11,6 +11,30 @@ ratification decision to Claude; only the operator ratifies after review. This
 draft, its committed banks and its OC simulation authorize no pre-check,
 efficacy, strict-gate run, training, cloud spending or serving change.
 
+## Pre-data resize amendment — 2026-10-20
+
+[The operator resize ruling](../../docs/research/specs/2026-10-20_t34_retention_resize.md)
+supersedes the prior draft sample sizes and resource caps before any retention
+or reused-T3 pre-check data exist: terminal worlds **32 -> 48 per mix** (144
+paired), complete mixed Watch6 product sessions **16 -> 32**, and caps **32 ->
+40 h elapsed / 48 -> 60 CPU-h**, $0, stopping at the first cap as INCONCLUSIVE.
+The preceding N32/16 development OC found T3-like (+92 mass, +.25 scripted
+no-death) joint GO probability only .26630/.31715 at 20% Watch death reduction
+(T15/T13b), and 16-session product power .46160/.54845. This prospective resize
+responds to that power review; it does not use retention or pre-check outcomes.
+
+Keep all 113 original seeds, rows, rosters and the timing seed. Append 48
+terminal seeds (16 per mix) and 16 product seeds using the frozen allocator's
+next namespace indices; audit all 64 additions together against all visible
+prior banks, including the retained retention bank and Round 0 draft bank.
+The refreshed audit retains the original audit evidence and hashes and records
+the additional zero-hit scan; original draft bytes remain in Git history.
+Re-run development-only OC at N48/32. Protected false-pass must remain <=.06.
+If T3-like joint GO power at 20% Watch death reduction remains <.5, report it;
+**do not change N again**. Thresholds, arm identities, one-look inference,
+ratification requirements and scope are unchanged. This package remains an
+unauthorized draft; no efficacy, timing or pre-check gameplay is run here.
+
 ## Authority and question
 
 Binding in order: [SUCCESS_CONTRACT](../../docs/research/final_run_20261019/SUCCESS_CONTRACT.md),
@@ -63,9 +87,9 @@ are excluded. Count every miss/fallback in its assigned arm's efficacy.
 ## Banks, opponents and order
 
 `RETENTION_BANK_V2.json` freezes the exact row order, roster slots and seeds:
-32 paired terminal H5000 worlds **per mix**, scripted/frozen/mixed; 16 complete
+48 paired terminal H5000 worlds **per mix**, scripted/frozen/mixed; 32 complete
 paired continuous-respawn mixed-Watch6 H5000 sessions; one disjoint timing seed.
-Each group has its own namespace. All 113 seeds are unique and disjoint from
+Each group has its own namespace. All 177 seeds are unique and disjoint from
 prior visible banks, including strict banks. All three arms share each world's
 seed, hero slot 0 and ordered opponents. Execute terminal rows in committed
 order, then product rows; within every row execute bare, paced, unpaced.
@@ -102,7 +126,7 @@ coverage limit. This task commits allocations only and consumes no world.
 One look at complete fixed N, no outcome peeking, early efficacy stop, automatic
 extension, replay of a failed scientific run, replacement bank or source swap.
 Paired **worlds** are independent units within disjoint mix strata; product
-units are the 16 **complete paired sessions**. No five-training-seed inference.
+units are the 32 **complete paired sessions**. No five-training-seed inference.
 
 For each terminal metric, form candidate-minus-bare paired differences within
 mix. Pooled effect is the equal mean of the three mix means. Its variance is
@@ -115,10 +139,10 @@ use Student t with n−1 df. Do not pair arbitrary indices across disjoint mixes
 | Skill mass | Mean post-transition hero logical length over all 5000 frames, dead frames zero; equal-weight mix means of paired deltas | pooled point >= +40 and one-sided LB90 > 0 |
 | Mass multiplicity | Two active-arm superiority hypotheses vs the shared bare comparator, one look | Holm family alpha .10; paced must reject in addition to raw LB90 > 0 |
 | Survival guard A pooled | Alive frames / 5000 per terminal world; equal-weight pooled paired differences | one-sided 95% lower bound strictly > −.05 |
-| Survival guard A each mix | Same alive fraction, 32 paired differences per mix | every one-sided 95% lower bound strictly > −.075 |
+| Survival guard A each mix | Same alive fraction, 48 paired differences per mix | every one-sided 95% lower bound strictly > −.075 |
 | Survival absolute floor | Mean candidate alive-frame fraction in each mix | >= .30 in every mix |
-| Survival guard B | Scripted indicator of zero hero deaths through H5000; paired mean over 32 worlds | point gain >= .03; .03 is not rounded to zero |
-| Delivered boost | Total executed hero boost decisions / total executed hero decisions across all 96 terminal worlds | inclusive [.005, .10]; dead frames excluded; fallbacks included |
+| Survival guard B | Scripted indicator of zero hero deaths through H5000; paired mean over 48 worlds | point gain >= .03; .03 is not rounded to zero |
+| Delivered boost | Total executed hero boost decisions / total executed hero decisions across all 144 terminal worlds | inclusive [.005, .10]; dead frames excluded; fallbacks included |
 | Watch6 persistence | Each session's hero deaths * 1000 / executed hero decisions; candidate-minus-bare rate per paired session | mean rate lower, two-sided paired 95% interval upper < 0; 20% fewer is a target, not an extra bar |
 | Watch6 growth | Per-session (candidate full-H5000 mass − bare full-H5000 mass) / bare full-H5000 mass | two-sided paired 95% interval lower >= −.05; zero bare denominator is invalid evidence |
 | Processing | Real Watch6 ON/OFF at both 12/24 fps, fixed 5000 scored ticks after 200 warmup ticks per mode/rate | zero paced overruns (full tick >= period is overrun); paced update p95 <=11.688 ms at 24 fps; report p95 at 12 fps |
@@ -202,30 +226,30 @@ Report no-change pass probability and joint pass with protected pooled −.05
 or each one-mix −.075 regression, at mass effects 20,26.8,40,60,80. Every
 protected-regression joint rate must be <=1.2*.05=.06, or registration stays
 blocked; no margin/alpha/floor retuning. Report +40 mass superiority power at
-32/mix, separately from probability of meeting the point >=40 bar and the
+48/mix, separately from probability of meeting the point >=40 bar and the
 conservative near-zero decision exception. Full joint skill/product power is
 not inferred from mass power alone. Extend development-only simulations with
 T3-shaped Path B scenarios: scripted no-death gains +.10/+.25 crossed with
 mass gains +40/+60/+92; report joint GO probability, conditional on timing and
-boost compliance and the explicit unchanged-product-growth planning assumption, and disclose proxy assumptions. Report 16-session Watch6
+boost compliance and the explicit unchanged-product-growth planning assumption, and disclose proxy assumptions. Report 32-session Watch6
 paired deaths/1k power at 20% and 40% reduction from T15/T13b B8 Watch baselines.
-Keep N=32/mix even if joint GO power at T3-like effects is <.5: flag it for the
+Keep N=48/mix even if joint GO power at T3-like effects is <.5: flag it for the
 operator; implementation may not change N.
 
-P7 §5's cost comparison is prospective: fixed N consumes 96 paired terminal
-worlds and 16 paired product sessions, every arm observed. Report illustrative
+P7 §5's cost comparison is prospective: fixed N consumes 144 paired terminal
+worlds and 32 paired product sessions, every arm observed. Report illustrative
 sequential expected cost at +40 using development variance and explicit spending
-and stop assumptions; this does not authorize a sequential design. Amendment 2
-fixes this study at N=32/mix and one look; do not convert after commencement.
-Minimum pacing exposure if all heroes survive: 112 rows * 2 paced arms *
-5000/24 = 12.963 h, plus four timing probes (0.347 h + 0.014 h warmup), setup and
-unpaced work; 32 h is a hard cap, not a runtime promise. Terminal early deaths
+and stop assumptions; this does not authorize a sequential design. The pre-data resize amendment
+fixes this study at N=48/mix and one look; do not convert after commencement.
+Minimum pacing exposure if all heroes survive: 176 rows * 2 paced arms *
+5000/24 = 20.370 h, plus four timing probes (0.347 h + 0.014 h warmup), setup and
+unpaced work; 40 h is a hard cap, not a runtime promise. Terminal early deaths
 shorten pacing only; their dead remainder remains zero-scored. Descriptive
 unpaced search cost can dominate and is included in both caps.
 
 ## Admission, resources and evidence lifecycle
 
-Mac CPU only, $0, first of **32 h elapsed / 48 CPU-h** wins. Main simulation plus
+Mac CPU only, $0, first of **40 h elapsed / 60 CPU-h** wins. Main simulation plus
 one assistance worker <=2 CPU threads; every numerical pool capped at one
 (OMP/MKL/OpenBLAS/VECLIB/NumExpr/Numba/Torch). One process, no parallel worlds.
 Charge setup, source checks, waiting, failed work and exports; OC has its own
