@@ -1,4 +1,4 @@
-"""Transport budgets derived from acceptance runs 3--5, not job/spend caps.
+"""Transport budgets derived from acceptance runs 3--8, not job/spend caps.
 
 Every caller must narrow these allowances to its existing operation/session
 budget. A latency allowance never authorizes a replacement assignment or job.
@@ -11,7 +11,9 @@ import subprocess
 
 READ_SECONDS = 120.0
 RPC_SECONDS = 120.0
-SOURCE_RPC_SECONDS = 150.0
+# One full exec timeout must leave room for independent idle proof and a read
+# retry. Contents heartbeats continue under the unchanged runtime lease.
+TELEMETRY_SECONDS = 300.0
 ALLOCATION_SECONDS = 180.0
 ATTEMPTS = 3
 BACKOFF_SECONDS = (2.0, 5.0)

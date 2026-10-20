@@ -16,6 +16,12 @@ from research.t34_exit_b8 import make_manifest as manifests
 from research.t34_exit_b8 import public_inputs
 
 
+@pytest.fixture(autouse=True)
+def qualified_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate job shape tests from separately tested transport admission."""
+    monkeypatch.setattr(manifests, "require_qualified_transport", lambda *_args: {})
+
+
 @pytest.mark.parametrize("entrypoint", ("benchmark", "label"))
 def test_legacy_imports_cannot_reset_initialized_numba_ceiling(entrypoint: str) -> None:
     """Use two threads to expose the production-only five-to-one reset bug."""

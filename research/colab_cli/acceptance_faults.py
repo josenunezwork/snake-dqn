@@ -29,8 +29,11 @@ WATCHDOG_CHECKPOINT_GRACE_SECONDS = 15
 class AcceptanceObserver:
     """Exercise account/kernel fault boundaries without a second allocation."""
 
-    def __init__(self, oauth_python: str) -> None:
+    def __init__(self, oauth_python: str, profile: str = "final-only") -> None:
         self.records: dict[str, dict[str, Any]] = {}
+        if profile not in {"final-only", "full-state"}:
+            raise ValueError(f"unknown acceptance profile: {profile}")
+        self.profile = profile
         self.oauth_python = oauth_python
 
     def _record(self, gate: str, **value: Any) -> None:
@@ -49,7 +52,10 @@ class AcceptanceObserver:
             return
         if stage == "ready" and manifest["requirements"]["gpu"] == "L4":
             probe = self._wait_phase(context, "transfer_ready")
-            self._download_snapshot(context, probe)
+            if self.profile == "final-only":
+                self._final_artifact_download(context, probe)
+            else:
+                self._download_snapshot(context, probe)
             self._watchdog(context)
             return
         if stage == "ready":
@@ -62,7 +68,8 @@ class AcceptanceObserver:
         if stage == "terminal":
             exports = context["exports"]
             self._verify_terminal_exports(exports, output)
-            self._resume_import(context)
+            if self.profile == "full-state":
+                self._resume_import(context)
 
     def _refresh_oauth_then_query(self, cli: supervisor.CLI) -> None:
         """Refresh in memory without modifying or printing the credential file."""
@@ -224,6 +231,33 @@ class AcceptanceObserver:
         )
         return entry
 
+    def _final_artifact_download(self, context: dict[str, Any], probe: dict[str, Any]) -> None:
+        """Time the complete L4 export path, including split, markers and Mac hashing."""
+        snapshot = probe["snapshot"]
+        if snapshot["bytes"] != 64 * 1024 * 1024 or snapshot["path"] != "final-artifact.bin":
+            raise supervisor.Refused("final-only requires exactly 64 MiB final artifact")
+        started = time.monotonic()
+        entry = self._download_snapshot(context, probe)
+        local = context["output"] / "exports" / entry["path"]
+        if local.stat().st_size != entry["size"] or supervisor.sha256(local) != entry["sha256"]:
+            raise supervisor.Refused("final artifact Mac hash/size mismatch")
+        elapsed = time.monotonic() - started
+        if elapsed <= 0:
+            raise supervisor.Refused("final artifact transfer elapsed time is not positive")
+        self._record(
+            "final-artifact-download",
+            status="PASS",
+            hardware="L4",
+            profile=self.profile,
+            path=str(local),
+            sha256=entry["sha256"],
+            exported_bytes=entry["size"],
+            elapsed_seconds=elapsed,
+            bytes_per_second_lower_bound=int(entry["size"] / elapsed),
+            verified_on_mac=True,
+            scope="end-to-end immutable final export including Mac verification",
+        )
+
     def _busy_transfer_and_client_loss(self, context: dict[str, Any]) -> None:
         """Kill one owned CLI client; observe completion via Contents, never resubmit."""
         cli, root, output = context["cli"], context["root"], context["output"]
@@ -256,23 +290,24 @@ class AcceptanceObserver:
         payload = output / "exports" / entry["path"]
         from research.colab_cli.transfers import download_file, upload_file
 
-        roundtrip_started = time.time()
-        upload_file(cli, payload, root + "/roundtrip.bin", renew=cli.renew)
-        roundtrip = Path(output) / ".acceptance-roundtrip.bin"
-        try:
-            download_file(
-                cli,
-                root + "/roundtrip.bin",
-                roundtrip,
-                entry["size"],
-                renew=cli.renew,
-                expected_sha256=entry["sha256"],
-            )
-            if supervisor.sha256(roundtrip) != entry["sha256"]:
-                raise supervisor.Refused("full-size supervised-child roundtrip hash mismatch")
-        finally:
-            roundtrip.unlink(missing_ok=True)
-        roundtrip_finished = time.time()
+        if self.profile == "full-state":
+            roundtrip_started = time.time()
+            upload_file(cli, payload, root + "/roundtrip.bin", renew=cli.renew)
+            roundtrip = Path(output) / ".acceptance-roundtrip.bin"
+            try:
+                download_file(
+                    cli,
+                    root + "/roundtrip.bin",
+                    roundtrip,
+                    entry["size"],
+                    renew=cli.renew,
+                    expected_sha256=entry["sha256"],
+                )
+                if supervisor.sha256(roundtrip) != entry["sha256"]:
+                    raise supervisor.Refused("full-size supervised-child roundtrip hash mismatch")
+            finally:
+                roundtrip.unlink(missing_ok=True)
+            roundtrip_finished = time.time()
         request = uuid.uuid4().hex
         with tempfile.TemporaryDirectory(dir=output, prefix=".client-loss-") as temp:
             directory = Path(temp)
@@ -322,7 +357,13 @@ class AcceptanceObserver:
             began = time.monotonic()
             try:
                 started_file = directory / "started.json"
-                self._wait_file(cli, root + "/client-start.json", started_file, began + 150)
+                self._wait_file(
+                    cli,
+                    root + "/client-start.json",
+                    started_file,
+                    began + 150,
+                    phase="client-loss start",
+                )
                 started = json.loads(started_file.read_text())
                 if client.poll() is not None:
                     raise supervisor.Refused(
@@ -356,7 +397,13 @@ class AcceptanceObserver:
                 release = directory / "release.json"
                 release.write_text(json.dumps({"request": request}))
                 upload_contents(cli, release, root + "/client-release.json", deadline=began + 300)
-                self._wait_file(cli, root + "/client-finished.json", finished_file, began + 300)
+                self._wait_file(
+                    cli,
+                    root + "/client-finished.json",
+                    finished_file,
+                    began + 300,
+                    phase="client-loss completion",
+                )
                 finished = json.loads(finished_file.read_text())
                 if started["request"] != request or finished["request"] != request:
                     raise supervisor.Refused("client-loss kernel request identity mismatch")
@@ -398,31 +445,42 @@ class AcceptanceObserver:
             finished=finished,
             sessions=before,
         )
-        self._record(
-            "busy-full-snapshot",
-            bytes=entry["size"],
-            sha256=entry["sha256"],
-            transfer_started=transfer_started,
-            transfer_finished=transfer_finished,
-            measured_handoff_seconds=transfer_finished - transfer_started,
-            roundtrip_seconds=roundtrip_finished - roundtrip_started,
-            roundtrip_outside_checkpoint_overhead_gate=True,
-            kernel_started=started["started_at"],
-            kernel_finished=finished["finished_at"],
-            kernel_completion_marker_absent_after_client_loss=True,
-        )
-        measured = self._wait_phase(context, "transfer_finished")["measurement"]
-        self._record(
-            "checkpoint-overhead",
-            **measured,
-            status="PASS" if measured["overhead_percent"] <= 2 else "INCOMPLETE: overhead >2%",
-        )
+        if self.profile == "full-state":
+            self._record(
+                "busy-full-snapshot",
+                bytes=entry["size"],
+                sha256=entry["sha256"],
+                transfer_started=transfer_started,
+                transfer_finished=transfer_finished,
+                measured_handoff_seconds=transfer_finished - transfer_started,
+                roundtrip_seconds=roundtrip_finished - roundtrip_started,
+                roundtrip_outside_checkpoint_overhead_gate=True,
+                kernel_started=started["started_at"],
+                kernel_finished=finished["finished_at"],
+                kernel_completion_marker_absent_after_client_loss=True,
+            )
+            measured = self._wait_phase(context, "transfer_finished")["measurement"]
+            self._record(
+                "checkpoint-overhead",
+                **measured,
+                status="PASS" if measured["overhead_percent"] <= 2 else "INCOMPLETE: overhead >2%",
+            )
+        else:
+            self._wait_phase(context, "transfer_finished")
         reconnected.rpc(
             f"from pathlib import Path\nPath({root + '/acceptance-finish'!r}).touch()\nresult=True"
         )
 
     @staticmethod
-    def _wait_file(cli: supervisor.CLI, remote: str, local: Path, deadline: float) -> None:
+    def _wait_file(
+        cli: supervisor.CLI,
+        remote: str,
+        local: Path,
+        deadline: float,
+        *,
+        phase: str = "kernel completion",
+    ) -> None:
+        started = time.monotonic()
         deadline = min(
             deadline,
             cli.deadline if cli.deadline is not None else float("inf"),
@@ -442,9 +500,16 @@ class AcceptanceObserver:
             except (supervisor.Refused, OSError, subprocess.SubprocessError) as exc:
                 missing = "404" in str(exc) or "not found" in str(exc).lower()
                 if not missing and not policy.transient_error(exc):
-                    raise
+                    raise supervisor.Refused(
+                        f"{phase}: remote file {remote!r} failed after "
+                        f"{time.monotonic() - started:.3f}s: {exc}; refusing exec resubmission"
+                    ) from exc
                 time.sleep(min(2, max(0, deadline - time.monotonic())))
-        raise supervisor.Refused("kernel completion file not observed; refusing exec resubmission")
+        raise supervisor.Refused(
+            f"{phase}: remote file {remote!r} not observed after "
+            f"{time.monotonic() - started:.3f}s "
+            f"(wait budget {max(0, deadline - started):.3f}s); refusing exec resubmission"
+        )
 
     def _corrupt_export_rejection(self, cli: supervisor.CLI, root: str, output: Path) -> None:
         name = "acceptance-corrupt.bin"
@@ -492,6 +557,8 @@ class AcceptanceObserver:
             "checkpoint-overhead.json",
             "intentional-child-failure.json",
         }
+        if self.profile == "final-only":
+            required = {"client-job.bin", "intentional-child-failure.json"}
         if not required <= names:
             raise supervisor.Refused(
                 f"acceptance export set incomplete: missing {required - names}"
@@ -500,9 +567,10 @@ class AcceptanceObserver:
             local = output / "exports" / name
             if not local.is_file() or not (local.with_name(local.name + ".complete")).is_file():
                 raise supervisor.Refused(f"missing verified local export: {name}")
-        toy = json.loads((output / "exports" / "toy-resume.json").read_text())
-        if not toy.get("exact") or "not evidence for a trainer" not in toy.get("scope", ""):
-            raise supervisor.Refused("toy resume result is not explicit/identical")
+        if self.profile == "full-state":
+            toy = json.loads((output / "exports" / "toy-resume.json").read_text())
+            if not toy.get("exact") or "not evidence for a trainer" not in toy.get("scope", ""):
+                raise supervisor.Refused("toy resume result is not explicit/identical")
         child = json.loads((output / "exports" / "intentional-child-failure.json").read_text())
         if child.get("exit_code") != 23:
             raise supervisor.Refused("intentional child failure was not observed")
@@ -671,4 +739,7 @@ class AcceptanceObserver:
         path = output / "acceptance-observer.json"
         if path.exists():
             raise supervisor.Refused("acceptance observer receipt already exists")
-        path.write_text(json.dumps({"gates": self.records}, indent=2, sort_keys=True) + "\n")
+        path.write_text(
+            json.dumps({"profile": self.profile, "gates": self.records}, indent=2, sort_keys=True)
+            + "\n"
+        )

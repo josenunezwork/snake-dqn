@@ -14,6 +14,11 @@ import subprocess
 from pathlib import Path
 from typing import Any, Iterable
 
+from research.t34_exit_b8.qualification import (
+    QualificationRefused,
+    require_qualified_transport,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "research/t34_exit_b8"
 INVENTORY_PATH = Path(__file__).with_name("INPUTS_REQUIRED.json")
@@ -219,6 +224,10 @@ def make_manifest(
             "T34_NAMESPACE": f"t34-exit/{round_id}/s{shard}/a{attempt}",
             "T34_BETA": {"r2": "0.5", "r3": "0"}.get(round_id.lower(), "1"),
         }
+    try:
+        require_qualified_transport(ROOT, commit)
+    except QualificationRefused as exc:
+        raise ManifestRefused(str(exc)) from exc
     return {
         "job_id": job_id,
         "commit": commit,
@@ -257,6 +266,10 @@ def validate_manifest(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[st
     """Run only the supervisor's pure local validator."""
     if manifest.get("transport", {}).get("dispatch_ready") is False:
         raise ManifestRefused("public input publication is pending; manifest is not dispatch-ready")
+    try:
+        require_qualified_transport(repo, manifest.get("commit", ""))
+    except QualificationRefused as exc:
+        raise ManifestRefused(str(exc)) from exc
     from research.colab_cli.supervisor import validate
 
     return validate(manifest, repo=repo)

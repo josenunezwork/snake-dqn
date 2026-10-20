@@ -145,8 +145,9 @@ def positive(value: Any, name: str) -> float:
     return float(value)
 
 
-def validate(manifest: dict[str, Any], repo: Path = REPO) -> dict[str, Any]:
+def validate(manifest: dict[str, Any], repo: Path | None = None) -> dict[str, Any]:
     """Validate inputs and a conservatively priced whole-session envelope."""
+    repo = REPO if repo is None else repo
     m = json.loads(json.dumps(manifest))
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", m.get("job_id", "")):
         raise Refused("job_id must be a short lowercase identifier")
@@ -218,10 +219,25 @@ def validate(manifest: dict[str, Any], repo: Path = REPO) -> dict[str, Any]:
     m["env"] = env
     destinations = set()
     for item in m.get("inputs", []):
+        if not isinstance(item, dict):
+            raise Refused("input must be an object")
         dest = safe_relative(item["dest"])
         if dest in destinations:
             raise Refused("duplicate input destination")
         destinations.add(dest)
+        if "url" in item:
+            if "path" in item:
+                raise Refused("public input cannot also name a local path")
+            from research.colab_cli.inputs import InputError, validate_public_input
+
+            try:
+                public = validate_public_input(item)
+            except InputError as exc:
+                raise Refused(str(exc)) from exc
+            if public["size_bytes"] > 2 * 1024**3:
+                raise Refused("public input exceeds 2 GiB bounded delivery limit")
+            item.update(public)
+            continue
         path = Path(item["path"]).expanduser().resolve(strict=True)
         if not path.is_file() or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"]):
             raise Refused("input must be a file with SHA256")
@@ -235,7 +251,23 @@ def validate(manifest: dict[str, Any], repo: Path = REPO) -> dict[str, Any]:
     m["max_export_bytes"] = int(positive(m.get("max_export_bytes", 1024**3), "max_export_bytes"))
     if m["max_export_bytes"] > 2 * 1024**3:
         raise Refused("maximum artifact size is 2 GiB (transferred in bounded chunks)")
+    from research.colab_cli.admission import check_study_manifest
+
+    check_study_manifest(m, repo)
     return m
+
+
+def input_preflight(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    """Verify public input bytes on the Mac before reserving or allocating."""
+    from research.colab_cli.inputs import InputError, preflight
+
+    rows = [item for item in manifest.get("inputs", []) if "url" in item]
+    if not rows:
+        return []
+    try:
+        return preflight(rows)
+    except InputError as exc:
+        raise Refused(str(exc)) from exc
 
 
 class CLI:
@@ -455,8 +487,10 @@ class CLI:
             result[key] = float(match[1])
         return result
 
-    def rpc(self, code: str, timeout: float = policy.RPC_SECONDS) -> Any:
-        """A nonce response proves kernel completion even when CLI exits zero."""
+    def rpc(
+        self, code: str, timeout: float = policy.RPC_SECONDS, *, completion_grace: float = 10
+    ) -> Any:
+        """Prove completion by nonce, with optional transport acknowledgement grace."""
         if self.exec_uncertain:
             raise Refused("previous exec uncertain/busy; refusing to resubmit to kernel")
         nonce = "SNAKE_RPC_" + uuid.uuid4().hex
@@ -480,7 +514,7 @@ class CLI:
                     handle.name,
                     "--timeout",
                     str(timeout),
-                    timeout=timeout + 10,
+                    timeout=timeout + completion_grace,
                 )
                 matches = re.findall(re.escape(nonce) + r"(\{[^\n]*\})", output)
                 if not matches:
@@ -493,10 +527,46 @@ class CLI:
             raise Refused(f"kernel error despite CLI exit zero: {reply.get('error')}")
         return reply["value"]
 
-    def poll_rpc(self, code: str, timeout: float = policy.RPC_SECONDS) -> Any:
-        """Retry idempotent telemetry only after independent kernel-idle proof.
+    def recoverable_rpc(self, code: str, timeout: float = policy.TELEMETRY_SECONDS) -> Any:
+        """Recover an acknowledgement without repeating a committed mutation.
 
-        All attempts, idle probes, and backoff share one operation budget.
+        One durable UUID record fences the operation across verified-idle
+        retries. A completed record returns its saved result; a started record
+        without a result is ambiguous and refuses. The operation may start only
+        when its record does not exist, never merely because the kernel is idle.
+        """
+        record = "/content/.snake-rpc-" + uuid.uuid4().hex + ".json"
+        guarded = (
+            "# SNAKE_RECOVERABLE_RPC\n"
+            "import json as _snake_json, os as _snake_os\n"
+            "from pathlib import Path as _SnakePath\n"
+            f"_snake_record=_SnakePath({record!r})\n"
+            "if _snake_record.exists():\n"
+            "    _snake_saved=_snake_json.loads(_snake_record.read_text())\n"
+            "    if _snake_saved.get('status') != 'completed':\n"
+            "        raise RuntimeError('operation started without durable completion; '\n"
+            "                           'refusing replay')\n"
+            "    result=_snake_saved['result']\n"
+            "else:\n"
+            "    with _snake_record.open('x') as _snake_handle:\n"
+            "        _snake_json.dump({'status':'started'},_snake_handle)\n"
+            "        _snake_handle.flush()\n"
+            "        _snake_os.fsync(_snake_handle.fileno())\n"
+            + "\n".join("    " + line for line in code.splitlines())
+            + "\n    _snake_temporary=_snake_record.with_suffix('.tmp')\n"
+            "    with _snake_temporary.open('x') as _snake_handle:\n"
+            "        _snake_json.dump({'status':'completed','result':result},_snake_handle)\n"
+            "        _snake_handle.flush()\n"
+            "        _snake_os.fsync(_snake_handle.fileno())\n"
+            "    _snake_os.replace(_snake_temporary,_snake_record)\n"
+        )
+        return self.poll_rpc(guarded, timeout=timeout)
+
+    def poll_rpc(self, code: str, timeout: float = policy.TELEMETRY_SECONDS) -> Any:
+        """Recover idempotent reads/controls only after independent kernel-idle proof.
+
+        Each exec is bounded by RPC_SECONDS; all attempts, idle probes, and
+        backoff share one separate operation budget, clipped to session caps.
         Neither a kernel error nor an exhausted deadline is a retry trigger.
         """
         from research.colab_cli.cli_guard import kernel_idle
@@ -511,8 +581,10 @@ class CLI:
             if remaining <= 0:
                 raise Refused("deadline reached during telemetry recovery")
             try:
-                with self.limit_deadline(deadline):
-                    return self.rpc(code, remaining)
+                attempt_seconds = min(policy.RPC_SECONDS, remaining)
+                # Bound this call directly: narrowing shared self.deadline here
+                # would also starve the independent Contents heartbeat thread.
+                return self.rpc(code, attempt_seconds, completion_grace=0)
             except (Refused, subprocess.SubprocessError):
                 if not self.exec_uncertain or attempt == policy.ATTEMPTS - 1:
                     raise
@@ -661,6 +733,9 @@ class Broker:
 
     def run(self, manifest: dict[str, Any], retained: dict[str, Any] | None = None) -> None:
         m = validate(manifest)
+        # Public release assets are re-checked for every job immediately before
+        # this broker can reserve units or request an assignment.
+        public_preflight = input_preflight(m)
         job = m["job_id"]
         lane = self.state_dir / job
         with locked(ACCOUNT_ROOT / f"lane-{job}.lock", blocking=False):
@@ -668,6 +743,8 @@ class Broker:
             output = Path(m["output_dir"])
             output.mkdir(parents=True, exist_ok=False)
             write_once(output / "manifest.json", m)
+            if public_preflight:
+                write_once(output / "public-input-preflight.json", {"inputs": public_preflight})
             staging = output / "staging"
             staging.mkdir()
             from research.colab_cli.source import prepare
@@ -1085,6 +1162,11 @@ class Broker:
                 "lease_seconds": m["lease_seconds"],
                 "checkpoint_grace_seconds": 15,
                 "max_export_bytes": m["max_export_bytes"],
+                "public_inputs": [
+                    {key: item[key] for key in ("url", "sha256", "size_bytes", "dest")}
+                    for item in m.get("inputs", [])
+                    if "url" in item
+                ],
                 "release_endpoint": json.loads(cli.config.read_text())[cli.session]["endpoint"],
             }
             if retained is not None:
@@ -1127,7 +1209,7 @@ class Broker:
             # A PUT before root creation safely returns 404 and is retried at
             # the next heartbeat; it never creates a runtime or kernel job.
             cli.start_lease(root, generation, m["lease_seconds"])
-            cli.rpc(initial, timeout=policy.RPC_SECONDS)
+            cli.recoverable_rpc(initial)
             cli.current_root = root
             # Runtime writes state before Popen; wait through file downloads,
             # never by queuing another exec behind an uncertain/busy kernel.
@@ -1163,12 +1245,11 @@ class Broker:
                     )
                     credential_deadline = time.monotonic() + cli.remaining_seconds(150)
                     upload_credential(credential_deadline)
-                    cli.rpc(
+                    cli.recoverable_rpc(
                         "from pathlib import Path\n"
                         f"p=Path({credential_remote!r})\np.chmod(0o600)\n"
                         f"p.replace(Path({root!r})/'release-credential.json')\n"
-                        f"result=mod.read_state({root!r},{generation!r},renew=True)",
-                        timeout=policy.RPC_SECONDS,
+                        "result=True",
                     )
                 self.renew_retained(cli, retained)
                 renewal.update(at=time.monotonic(), state=result)
@@ -1202,7 +1283,9 @@ class Broker:
                 (pinned["source.py"], "source.py", ""),
             ]
             local_files += [
-                (Path(i["path"]), "inputs/" + i["dest"], i["sha256"]) for i in m.get("inputs", [])
+                (Path(i["path"]), "inputs/" + i["dest"], i["sha256"])
+                for i in m.get("inputs", [])
+                if "path" in i
             ]
             checks = {}
             for path, dest, digest in local_files:
@@ -1210,7 +1293,7 @@ class Broker:
                     raise Refused("upload exceeds bounded transfer size")
                 digest = digest or sha256(path)
                 renew()
-                cli.rpc(
+                cli.poll_rpc(
                     "from pathlib import Path\n"
                     f"parent=Path({(root + '/' + dest)!r}).parent\n"
                     "parent.mkdir(parents=True,exist_ok=True)\nresult=True"
@@ -1225,7 +1308,7 @@ class Broker:
 
             def deliver_source(operation: str) -> Any:
                 renew()
-                result = cli.rpc(
+                result = cli.recoverable_rpc(
                     "# SNAKE_SOURCE_DELIVERY\n"
                     "import importlib.util\nfrom pathlib import Path\n"
                     f"root=Path({root!r})\nplan={plan!r}\n"
@@ -1233,7 +1316,6 @@ class Broker:
                     "'snake_source',root/'source.py')\n"
                     "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
                     f"result=mod.{operation}(root,plan)",
-                    timeout=policy.SOURCE_RPC_SECONDS,
                 )
                 renew()
                 return result
@@ -1289,7 +1371,7 @@ class Broker:
                 "(root/'ready.json').write_text(json.dumps({'ready':True,'hardware':gpu}))\n"
                 "result={'ready':True,'hardware':gpu}",
             )
-            admitted = cli.rpc(code, timeout=policy.RPC_SECONDS)
+            admitted = cli.recoverable_rpc(code)
             write_once(output / "hardware.json", admitted)
             if self.observer:
                 self.observer(
@@ -1325,6 +1407,18 @@ class Broker:
                     )
                 write_once(output / f"usage-{poll:06d}.json", current)
                 write_once(output / f"spend-{poll:06d}.json", spend)
+                if spend.get("provider_transition_status") != "OK":
+                    print(
+                        json.dumps(
+                            {
+                                "WARNING": "BROKER_TRANSITION_PROVIDER_LAG",
+                                "job": m["job_id"],
+                                "spend": spend,
+                            }
+                        ),
+                        file=sys.stderr,
+                        flush=True,
+                    )
                 if spend.get("balance_crosscheck_status") != "OK":
                     print(
                         json.dumps(
@@ -1357,8 +1451,7 @@ class Broker:
                     raise Refused("immutable snapshot metadata changed")
                 export_file(cli, root, entry, output, m["max_export_bytes"])
                 exported[entry["path"]] = entry
-                cli.rpc(f"result=mod.read_state({root!r},{generation!r},renew=True)")
-                self.renew_retained(cli, retained)
+                renew(force=True)
             if state.get("terminal"):
                 terminal = state["terminal"]
                 write_once(output / "terminal.json", terminal)
@@ -1405,7 +1498,7 @@ class Broker:
     def renew_retained(cli: CLI, retained: dict[str, Any] | None) -> None:
         """Renew completed-job watchdogs only while approved useful work follows."""
         for old_root, generation in (retained or {}).get("completed", []):
-            cli.rpc(
+            cli.poll_rpc(
                 "import json,time\nfrom pathlib import Path\n"
                 f"p=Path({old_root!r})/'lease.json'\nlease=json.loads(p.read_text())\n"
                 f"assert lease['generation']=={generation!r}\n"

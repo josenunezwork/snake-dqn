@@ -10,8 +10,11 @@ It intentionally implements only the commands used by ``research.colab_cli``.
 from __future__ import annotations
 
 import ast
+import base64
 import fcntl
 import hashlib
+import importlib.util
+import io
 import json
 import os
 import random
@@ -22,6 +25,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
 
 
 def _env_path(name: str) -> Path:
@@ -36,6 +40,21 @@ LOG = _env_path("FAKE_COLAB_LOG")
 REMOTE = _env_path("FAKE_COLAB_REMOTE")
 MODE = os.environ.get("FAKE_COLAB_MODE", "normal")
 ACCEPTANCE_MODE = MODE == "acceptance"
+
+
+def _acceptance_profile(code: str) -> str:
+    """Read the profile from the immutable runtime spec embedded by the broker.
+
+    The fake must exercise the same profile selection that reaches the remote
+    launcher; a process environment value here would only test the fixture.
+    """
+    match = re.search(r"['\"]COLAB_ACCEPTANCE_PROFILE['\"]:\s*['\"]([^'\"]+)", code)
+    if match is None:
+        # The production default is final-only. Keeping that default here also
+        # prevents an omitted manifest environment binding from silently
+        # exercising the old full-state fixture.
+        return "final-only"
+    return match.group(1)
 
 
 def _load() -> dict[str, Any]:
@@ -90,7 +109,9 @@ def _call_class(op: str) -> str:
     }.get(op, "read")
 
 
-def _fault_for(state: dict[str, Any], op: str) -> dict[str, Any] | None:
+def _fault_for(
+    state: dict[str, Any], op: str, *, session: str = "", command: list[str] | None = None
+) -> dict[str, Any] | None:
     """Pick one reproducible fake transport fault without waiting in real time.
 
     ``FAKE_COLAB_FAULT_PLAN`` supports an exact ``schedule`` for regression
@@ -108,16 +129,28 @@ def _fault_for(state: dict[str, Any], op: str) -> dict[str, Any] | None:
     call_class = _call_class(op)
     selected: dict[str, Any] | None = None
     used = state.setdefault("fault_schedule_used", [])
+    command_text = " ".join(command or ())
+    if op == "exec" and command and "-f" in command:
+        try:
+            command_text += "\n" + Path(command[command.index("-f") + 1]).read_text()
+        except OSError:
+            # The real CLI will report a missing script; a fault selector must
+            # not obscure that product error.
+            pass
     for index, entry in enumerate(plan.get("schedule", [])):
         if index in used:
             continue
-        if ("at" not in entry or int(entry["at"]) == number) and entry.get(
-            "call", entry.get("class")
-        ) in {
-            op,
-            call_class,
-            "any",
-        }:
+        if (
+            ("at" not in entry or int(entry["at"]) == number)
+            and entry.get("call", entry.get("class"))
+            in {
+                op,
+                call_class,
+                "any",
+            }
+            and (not entry.get("session_contains") or str(entry["session_contains"]) in session)
+            and (not entry.get("contains") or str(entry["contains"]) in command_text)
+        ):
             selected = dict(entry)
             used.append(index)
             break
@@ -172,6 +205,15 @@ def _remote(session: str, remote_path: str) -> Path:
     path = REMOTE / session / remote_path.lstrip("/")
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _cache_recoverable(record: Path | None, result: Any) -> None:
+    """Finish the fake-side durable record for shortcut-only kernel paths."""
+    if record is None:
+        return
+    temporary = record.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"status": "completed", "result": result}, sort_keys=True))
+    os.replace(temporary, record)
 
 
 def _nonce(code: str) -> str:
@@ -248,6 +290,27 @@ def _tick(state: dict[str, Any], now: float) -> None:
 
 
 def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
+    # Most fixture paths execute the broker's wrapper verbatim.  A few
+    # acceptance shortcuts model a detached runtime instead; give those paths
+    # the same durable acknowledgement behavior without ever writing /content
+    # on the Mac running the test.
+    record_match = re.search(
+        r"_snake_record=_SnakePath\((['\"])(/content/\.snake-rpc-[0-9a-f]+\.json)\1\)", code
+    )
+    recoverable_record: Path | None = None
+    if record_match:
+        remote_record = _remote(session, record_match.group(2))
+        recoverable_record = remote_record
+        if remote_record.exists():
+            saved = json.loads(remote_record.read_text())
+            if saved.get("status") == "completed":
+                _reply(code, saved["result"])
+                _save(state)
+                return
+        # Transfer and source-delivery paths run this wrapper themselves.  Map
+        # only its record so their ``open('x')`` and atomic replace remain real
+        # filesystem operations in the fake endpoint namespace.
+        code = code.replace(record_match.group(2), str(remote_record))
     count = int(state.setdefault("exec_count", {}).get(session, 0))
     state["exec_count"][session] = count + 1
     if MODE in {"busy_exec", "poll_hiccup"} and count == 0:
@@ -346,7 +409,9 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         # Execute the actual uploaded source helper. Only the network/git
         # boundary is faked; identity checks and fallback extraction are real.
         plan = ast.literal_eval(re.search(r"plan=(\{[^\n]+\})", code).group(1))
-        repository = Path(__file__).resolve().parents[2]
+        repository = Path(
+            os.environ.get("FAKE_COLAB_SOURCE_REPO", Path(__file__).resolve().parents[2])
+        )
 
         def fake_source_run(argv: list[str], *, cwd: Path, timeout: float) -> str:
             if "fetch" in argv:
@@ -382,23 +447,82 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         generation = generation_match.group(1) if generation_match else "fake-generation"
         output = local_root / "output"
         output.mkdir(parents=True, exist_ok=True)
-        checkpoint = b"fixture-toy-checkpoint"
-        checkpoint_digest = hashlib.sha256(checkpoint).hexdigest()
-        toy_resume = {
-            "exact": True,
-            "scope": "fixture only; not evidence for a trainer",
-            "uninterrupted_sha256": checkpoint_digest,
-            "steps": 9,
-        }
-        fixtures: dict[str, bytes] = {
-            "busy-snapshot.bin": (
-                b"s" * (9 * 1024 * 1024 + 17) if ACCEPTANCE_MODE else b"fixture-snapshot"
+        # Run the pinned production HTTP/size/hash/atomic-install helper, faking
+        # only urlopen. The outer broker and its release receipt remain real.
+        launch_spec = next(
+            (
+                ast.literal_eval(node)
+                for node in ast.walk(ast.parse(code))
+                if isinstance(node, ast.Dict)
+                and any(
+                    isinstance(key, ast.Constant) and key.value == "public_inputs"
+                    for key in node.keys
+                )
             ),
-            "toy-checkpoint.pkl": checkpoint,
-            "toy-resume.json": json.dumps(toy_resume).encode(),
-            "checkpoint-overhead.json": b'{"overhead_percent":0.0}',
-            "intentional-child-failure.json": b'{"exit_code":23}',
-        }
+            {},
+        )
+        public_rows = launch_spec.get("public_inputs", [])
+        public_failure = None
+        if public_rows:
+            encoded = re.search(r"base64.b64decode\('([A-Za-z0-9+/=]+)'\)", code).group(1)
+            runtime_path = local_root / "runtime.py"
+            runtime_path.write_bytes(base64.b64decode(encoded))
+            module_spec = importlib.util.spec_from_file_location(
+                "fake_pinned_runtime", runtime_path
+            )
+            module = importlib.util.module_from_spec(module_spec)
+            module_spec.loader.exec_module(module)
+            payload = base64.b64decode(os.environ["FAKE_COLAB_PUBLIC_INPUT_BYTES"])
+            fault = os.environ.get("FAKE_COLAB_PUBLIC_INPUT_FAULT", "")
+
+            def public_reply(*_args: Any, **_kwargs: Any) -> io.BytesIO:
+                time.sleep(0.02)  # Delayed completion must precede any trainer marker.
+                if fault == "timeout":
+                    raise URLError("fixture network timeout")
+                return io.BytesIO(b"x" * len(payload) if fault == "mismatch" else payload)
+
+            module.urlopen = public_reply
+            try:
+                verified = module._fetch_public_inputs(local_root, public_rows)
+                (local_root / "public-inputs-verified.json").write_text(json.dumps(verified))
+                state.setdefault("public_inputs_verified", {})[session] = verified
+            except RuntimeError as exc:
+                public_failure = str(exc)
+                state.setdefault("public_input_failures", {})[session] = public_failure
+        profile = _acceptance_profile(code)
+        if profile not in {"final-only", "full-state"}:
+            raise SystemExit(f"unsupported acceptance profile: {profile}")
+        is_l4 = "-l4" in session
+        if profile == "final-only":
+            # This is deliberately the real S1 admission payload size.  The
+            # supervisor's transfer and local SHA verification remain real;
+            # only the provider boundary is faked.
+            artifact_name = "final-artifact.bin" if is_l4 else "client-job.bin"
+            artifact_size = 64 * 1024 * 1024 if is_l4 else 4096
+            fixtures = {
+                artifact_name: b"f" * artifact_size,
+                "intentional-child-failure.json": b'{"exit_code":23}',
+            }
+        else:
+            checkpoint = b"fixture-toy-checkpoint"
+            checkpoint_digest = hashlib.sha256(checkpoint).hexdigest()
+            toy_resume = {
+                "exact": True,
+                "scope": "fixture only; not evidence for a trainer",
+                "uninterrupted_sha256": checkpoint_digest,
+                "steps": 9,
+            }
+            fixtures = {
+                "busy-snapshot.bin": (
+                    b"s" * (9 * 1024 * 1024 + 17) if ACCEPTANCE_MODE else b"fixture-snapshot"
+                ),
+                "toy-checkpoint.pkl": checkpoint,
+                "toy-resume.json": json.dumps(toy_resume).encode(),
+                "checkpoint-overhead.json": b'{"overhead_percent":0.0}',
+                "intentional-child-failure.json": b'{"exit_code":23}',
+            }
+        if public_failure:
+            fixtures = {}
         exports: list[dict[str, Any]] = []
         for name, payload in fixtures.items():
             target = output / name
@@ -417,6 +541,8 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
             "reason": None,
             "exports": exports,
         }
+        if public_failure:
+            terminal.update(status="failed", returncode=74, reason="public_input_fetch_failed")
         if MODE in {"corrupt_download", "export_success"}:
             payload = b"GOOD"
             checkpoint = output / "checkpoint.bin"
@@ -445,19 +571,56 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
                     "pid": 4242,
                     "execution_id": "fixture-execution",
                     "snapshot": {
-                        "path": "busy-snapshot.bin",
-                        "bytes": len(fixtures["busy-snapshot.bin"]),
-                        "sha256": hashlib.sha256(fixtures["busy-snapshot.bin"]).hexdigest(),
+                        "path": (
+                            "final-artifact.bin"
+                            if profile == "final-only" and is_l4
+                            else (
+                                "client-job.bin" if profile == "final-only" else "busy-snapshot.bin"
+                            )
+                        ),
+                        "bytes": len(
+                            fixtures[
+                                (
+                                    "final-artifact.bin"
+                                    if profile == "final-only" and is_l4
+                                    else (
+                                        "client-job.bin"
+                                        if profile == "final-only"
+                                        else "busy-snapshot.bin"
+                                    )
+                                )
+                            ]
+                        ),
+                        "sha256": hashlib.sha256(
+                            fixtures[
+                                (
+                                    "final-artifact.bin"
+                                    if profile == "final-only" and is_l4
+                                    else (
+                                        "client-job.bin"
+                                        if profile == "final-only"
+                                        else "busy-snapshot.bin"
+                                    )
+                                )
+                            ]
+                        ).hexdigest(),
                     },
                     "measurement": {"overhead_percent": 0.0},
+                    "profile": profile,
                 }
                 if ACCEPTANCE_MODE
                 else {}
             ),
         }
+        _cache_recoverable(recoverable_record, {"pid": 4242})
         _reply(code, {"pid": 4242})
         _save(state)
         return
+
+    if "checks=" in code and "ready.json" in code:
+        if session in state.get("public_inputs_verified", {}):
+            assert (local_root / "public-inputs-verified.json").is_file()
+            state.setdefault("trainer_starts", []).append(session)
 
     if "read_state" in code:
         runtime = state.setdefault("runtime", {}).get(session)
@@ -485,6 +648,7 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         _save(state)
         return
 
+    _cache_recoverable(recoverable_record, True)
     _reply(code, True)
     _save(state)
 
@@ -511,7 +675,7 @@ def _main(argv: list[str]) -> int:
     now = float(os.environ.get("FAKE_COLAB_NOW", "0"))
     if ACCEPTANCE_MODE:
         _tick(state, now)
-    fault = _fault_for(state, op)
+    fault = _fault_for(state, op, session=session, command=command)
     budget = float(os.environ.get("FAKE_COLAB_TIMEOUT", "120"))
     if fault and (fault["fault"] == "timeout" or fault["virtual_latency_seconds"] > budget):
         fault["virtual_latency_seconds"] = budget
@@ -554,14 +718,26 @@ def _main(argv: list[str]) -> int:
     elif op == "usage":
         rate = float(state["rate"])
         rates = json.loads(os.environ.get("FAKE_COLAB_USAGE_RATES", "[]"))
+        assignments = json.loads(os.environ.get("FAKE_COLAB_USAGE_ASSIGNMENTS", "[]"))
         if rates and "allocated_usage_reads" in state and state["sessions"]:
             index = state["allocated_usage_reads"]
             rate = float(rates[min(index, len(rates) - 1)])
             state["allocated_usage_reads"] = index + 1
             _save(state)
+        elif assignments and "allocated_usage_reads" in state and state["sessions"]:
+            index = state["allocated_usage_reads"]
+            state["allocated_usage_reads"] = index + 1
+            _save(state)
+        else:
+            index = 0
         print(f"Current balance: {float(state['balance']):.2f} compute units")
         print(f"Usage rate: {rate:.2f}/hr")
-        print(f"Active assignments: {len(state['sessions'])}")
+        count = (
+            assignments[min(index, len(assignments) - 1)]
+            if assignments and "allocated_usage_reads" in state
+            else len(state["sessions"])
+        )
+        print(f"Active assignments: {count}")
     elif op == "new":
         name = session
         gpu = "CPU"

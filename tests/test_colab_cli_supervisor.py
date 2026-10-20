@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
 import json
@@ -1247,7 +1248,7 @@ def test_calibration_allows_six_healthy_twenty_second_reads(
     assert receipt["accounting"]["calibration"]["samples"][-1]["elapsed_seconds"] >= 130
 
 
-def test_poll_rpc_completion_grace_cannot_extend_shared_read_budget(
+def test_poll_rpc_completion_grace_cannot_extend_per_attempt_budget(
     monkeypatch, tmp_path: Path
 ) -> None:
     cli = supervisor.CLI("fake", tmp_path / "config", "owned")
@@ -1263,3 +1264,203 @@ def test_poll_rpc_completion_grace_cannot_extend_shared_read_budget(
     monkeypatch.setattr(supervisor.subprocess, "run", invoke)
     assert cli.poll_rpc("result=True") is True
     assert cli.deadline == 500
+
+
+@pytest.mark.parametrize("fault", ["", "mismatch", "timeout"])
+def test_public_release_broker_delivery_and_verified_cleanup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fault: str
+) -> None:
+    """The fake provider runs pinned fetching; the real broker proves disappearance."""
+    import io
+
+    from research.colab_cli import inputs
+
+    binary = _fake_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    payload = b"release-input"
+    manifest = _manifest(tmp_path)
+    manifest["inputs"] = [
+        {
+            "url": "https://example.test/release/input.bin",
+            "dest": "input.bin",
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "size_bytes": len(payload),
+        }
+    ]
+    monkeypatch.setenv("FAKE_COLAB_PUBLIC_INPUT_BYTES", base64.b64encode(payload).decode())
+    monkeypatch.setenv("FAKE_COLAB_PUBLIC_INPUT_FAULT", fault)
+
+    def mac_preflight(row):
+        return inputs.preflight(row["inputs"], opener=lambda *_args, **_kwargs: io.BytesIO(payload))
+
+    monkeypatch.setattr(supervisor, "input_preflight", mac_preflight)
+    if fault:
+        with pytest.raises(supervisor.Refused, match="INCOMPLETE"):
+            supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    else:
+        supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
+    assert receipt["stop_verified"] is True
+    assert receipt["status"] == ("INCOMPLETE" if fault else "PASS")
+    assert supervisor.CLI(binary, tmp_path / "status.json").sessions() == {}
+    state = json.loads((tmp_path / "fake-state.json").read_text())
+    if fault:
+        assert not state.get("trainer_starts")
+        assert receipt["exports"] == []
+        failures = list(state["public_input_failures"].values())
+        assert len(failures) == 1
+        assert ("mismatch" if fault == "mismatch" else "timeout") in failures[0]
+    else:
+        assert state.get("trainer_starts") == [receipt["session"]]
+        root = (
+            tmp_path / "remote" / receipt["session"] / "content/snake-cli" / receipt["generation"]
+        )
+        assert (root / "inputs/input.bin").read_bytes() == payload
+    _assert_transport(tmp_path)
+
+
+def _write_broker_other_reservation(tmp_path: Path) -> None:
+    supervisor.ACCOUNT_ROOT.mkdir(parents=True, exist_ok=True)
+    (supervisor.ACCOUNT_ROOT / "active-other-lane.json").write_text(
+        json.dumps(
+            {
+                "session": "other-lane",
+                "endpoint": "gpu-notebook-1",
+                "unit_cap": 1.0,
+                "reserve_units": 0.0,
+                "rate_units_per_hour": 6.84,
+                "priced_rate_units_per_hour": 6.84,
+                "observed_rate_units_per_hour": 6.84,
+            }
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "departure_usage_lags",
+        "arrival_usage_lags",
+        "departure_sessions_lag",
+        "arrival_sessions_lag",
+    ],
+)
+def test_fake_provider_membership_lag_warns_for_priced_broker_transition(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kind: str
+) -> None:
+    """The subprocess fake reports usage first and sessions second at the poll boundary."""
+    departure = kind.startswith("departure")
+    binary = _fake_env(monkeypatch, tmp_path, assignments=int(departure))
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    manifest = _manifest(tmp_path)
+    if departure:
+        _write_broker_other_reservation(tmp_path)
+
+    def observer(event: str, _context: dict[str, object]) -> None:
+        if event != "ready":
+            return
+        state_path = tmp_path / "fake-state.json"
+        state = json.loads(state_path.read_text())
+        if departure:
+            if kind == "departure_usage_lags":
+                del state["sessions"]["gpu-notebook-1"]
+                monkeypatch.setenv("FAKE_COLAB_USAGE_ASSIGNMENTS", "[2]")
+            else:
+                state["rate"] = 6.84
+                monkeypatch.setenv("FAKE_COLAB_USAGE_ASSIGNMENTS", "[1]")
+            (supervisor.ACCOUNT_ROOT / "active-other-lane.json").unlink()
+        else:
+            if kind == "arrival_usage_lags":
+                state["sessions"]["broker-new"] = {"name": "other-lane", "gpu": "CPU"}
+                monkeypatch.setenv("FAKE_COLAB_USAGE_ASSIGNMENTS", "[1]")
+            else:
+                state["rate"] = 13.68
+                monkeypatch.setenv("FAKE_COLAB_USAGE_ASSIGNMENTS", "[2]")
+            (supervisor.ACCOUNT_ROOT / "active-other-lane.json").write_text(
+                json.dumps(
+                    {
+                        "session": "other-lane",
+                        "endpoint": "broker-new",
+                        "unit_cap": 1.0,
+                        "reserve_units": 0.0,
+                        "rate_units_per_hour": 6.84,
+                        "priced_rate_units_per_hour": 6.84,
+                        "observed_rate_units_per_hour": 6.84,
+                    }
+                )
+            )
+        state_path.write_text(json.dumps(state))
+
+    supervisor.Broker(tmp_path / "lanes", binary, observer=observer).run(manifest)
+    spend = json.loads((tmp_path / "job-output/spend-000000.json").read_text())
+    assert spend["provider_transition_status"] == "WARNING_BROKER_TRANSITION_LAG"
+    assert spend["provider_transition_mismatch_polls"] == 1
+    _assert_transport(tmp_path)
+
+
+def test_fake_provider_unknown_endpoint_refuses_before_count_grace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    monkeypatch.setenv("FAKE_COLAB_USAGE_ASSIGNMENTS", "[1]")
+    manifest = _manifest(tmp_path)
+
+    def observer(event: str, _context: dict[str, object]) -> None:
+        if event == "ready":
+            state_path = tmp_path / "fake-state.json"
+            state = json.loads(state_path.read_text())
+            state["sessions"]["unknown"] = {"name": "foreign", "gpu": "CPU"}
+            state_path.write_text(json.dumps(state))
+
+    with pytest.raises(supervisor.Refused, match="unaccounted active assignment"):
+        supervisor.Broker(tmp_path / "lanes", binary, observer=observer).run(manifest)
+    _assert_transport(tmp_path)
+
+
+def test_fake_provider_persistent_departure_lag_fails_on_third_poll(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path, assignments=1)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    monkeypatch.setenv("FAKE_COLAB_USAGE_ASSIGNMENTS", json.dumps([2] * 4 + [2, 2, 2]))
+    _write_broker_other_reservation(tmp_path)
+    manifest = _manifest(tmp_path)
+    original_poll = supervisor.CLI.poll_rpc
+    reads = 0
+    ready = False
+
+    def delayed_terminal(self: supervisor.CLI, code: str, timeout: float = 30) -> object:
+        nonlocal reads
+        if ready and "read_state" in code:
+            reads += 1
+            # Accounting polls every fourth telemetry read, so retain eight
+            # nonterminal states to exercise its third provider boundary.
+            if reads < 9:
+                return {"state": {"status": "running"}, "terminal": None, "exports": []}
+        return original_poll(self, code, timeout)
+
+    monkeypatch.setattr(supervisor.CLI, "poll_rpc", delayed_terminal)
+
+    def observer(event: str, _context: dict[str, object]) -> None:
+        nonlocal ready
+        if event == "ready":
+            state_path = tmp_path / "fake-state.json"
+            state = json.loads(state_path.read_text())
+            del state["sessions"]["gpu-notebook-1"]
+            state_path.write_text(json.dumps(state))
+            (supervisor.ACCOUNT_ROOT / "active-other-lane.json").unlink()
+            ready = True
+
+    with pytest.raises(supervisor.Refused, match="count disagrees"):
+        supervisor.Broker(tmp_path / "lanes", binary, observer=observer).run(manifest)
+    assert reads == 8
+    warnings = [
+        json.loads((tmp_path / "job-output" / f"spend-{poll:06d}.json").read_text())[
+            "provider_transition_mismatch_polls"
+        ]
+        for poll in (0, 4)
+    ]
+    assert warnings == [1, 2]
+    assert not (tmp_path / "job-output/spend-000008.json").exists()
+    _assert_transport(tmp_path)

@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
+from itertools import product
 from typing import Any, Iterable, Mapping
 
 
@@ -25,6 +26,7 @@ class AccountingError(ValueError):
 # the session's priced wall clock remains its spending stop.
 BALANCE_ROUNDING_TOLERANCE_UNITS = 0.01
 BALANCE_LAG_TOLERANCE_SECONDS = 300.0
+TRANSITION_MISMATCH_POLLS = 2
 
 
 def _number(value: Any, label: str, *, positive: bool = False) -> float:
@@ -107,8 +109,11 @@ def _merge_rates(
         existing = result.get(endpoint)
         if existing and not math.isclose(existing[0], declaration[0], rel_tol=0, abs_tol=1e-9):
             raise AccountingError(f"conflicting manifest and active broker rates for {endpoint}")
-        # The explicit manifest is the operator's current accounting evidence.
-        result[endpoint] = declaration
+        # Keep broker provenance when both sources price the same endpoint.
+        # The manifest proves its rate, while broker ownership is required to
+        # distinguish a bounded membership transition from generic rate drift.
+        if existing is None:
+            result[endpoint] = declaration
     return result
 
 
@@ -131,6 +136,10 @@ class AccountTracker:
     last_crosscheck: dict[str, float] | None = None
     observed_rate_units_per_hour: float | None = None
     calibration: dict[str, Any] | None = None
+    transition_mismatch_polls: int = 0
+    transition_from_other_rates: dict[str, tuple[float, str]] | None = None
+    transition_to_other_rates: dict[str, tuple[float, str]] | None = None
+    transition_broker_active_rates: dict[str, tuple[float, str]] | None = None
 
     def accounted_assignments(self) -> dict[str, Any]:
         """Stable evidence format suitable for admission and terminal receipts."""
@@ -240,7 +249,8 @@ class AccountTracker:
         *,
         active_records: Iterable[Mapping[str, Any]] = (),
         budget_other_assignments: Any = None,
-    ) -> None:
+        previous_other_rates: Mapping[str, tuple[float, str]] | None = None,
+    ) -> dict[str, tuple[float, str]]:
         """Price the currently active *other* assignments at this poll boundary.
 
         Lanes may start or stop while this session is alive.  A fresh endpoint
@@ -258,10 +268,102 @@ class AccountTracker:
         known = _merge_rates(
             _manifest_rates(budget_other_assignments), _active_rates(active_records)
         )
+        previous = previous_other_rates or {}
         missing = sorted(other_endpoints - set(known))
+        historical_broker = {
+            endpoint
+            for endpoint in missing
+            if endpoint in previous and previous[endpoint][1] == "broker.active"
+        }
+        missing = sorted(set(missing) - historical_broker)
         if missing:
             raise AccountingError(f"unaccounted active assignment endpoints: {', '.join(missing)}")
-        self.current_other_rates = {endpoint: known[endpoint] for endpoint in other_endpoints}
+        result: dict[str, tuple[float, str]] = {}
+        for endpoint in other_endpoints:
+            current = known.get(endpoint)
+            prior = previous.get(endpoint)
+            # A same-priced manifest declaration does not erase a broker
+            # identity already observed for this endpoint. The latter remains
+            # needed to explain a bounded provider departure lag.
+            if (
+                current is not None
+                and prior is not None
+                and prior[1] == "broker.active"
+                and math.isclose(current[0], prior[0], rel_tol=0, abs_tol=1e-9)
+            ):
+                result[endpoint] = prior
+            else:
+                result[endpoint] = current if current is not None else previous[endpoint]
+        return result
+
+    def _transition_match(
+        self,
+        usage: Mapping[str, float],
+        previous: Mapping[str, tuple[float, str]],
+        current: Mapping[str, tuple[float, str]],
+        broker_active: Mapping[str, tuple[float, str]],
+    ) -> bool:
+        """Allow a bounded provider lag only for broker-owned membership changes.
+
+        A departing broker lane can disappear from its durable active record
+        before the provider read loses it.  Conversely, a newly durable
+        broker record can appear before the provider read includes it.  Test
+        count and rate together against every intermediate membership state;
+        a bare rate discrepancy never earns this grace period.
+        """
+        previous_endpoints = set(previous)
+        current_endpoints = set(current)
+        arrival_rates = {
+            endpoint: current[endpoint] if endpoint in current else broker_active[endpoint]
+            for endpoint in (current_endpoints - previous_endpoints)
+            | (set(broker_active) - previous_endpoints)
+            if (current.get(endpoint) or broker_active.get(endpoint))[1] == "broker.active"
+        }
+        departure_rates = {
+            endpoint: previous[endpoint]
+            for endpoint in (previous_endpoints - current_endpoints)
+            | (previous_endpoints - set(broker_active))
+            if previous[endpoint][1] == "broker.active"
+        }
+        arrivals = sorted(arrival_rates)
+        departures = sorted(departure_rates)
+        changed = arrivals + departures
+        fixed = (previous_endpoints & current_endpoints) - set(departures)
+        if any(
+            not math.isclose(previous[endpoint][0], current[endpoint][0], rel_tol=0, abs_tol=1e-9)
+            for endpoint in fixed
+        ):
+            return False
+        # A manifest-only membership change is declared, but is not a broker
+        # transition whose provider lag can be trusted.
+        if not changed:
+            return False
+        base_count = 1 + len(fixed) + len(departures)
+        base_rate = self.observed_rate_units_per_hour + sum(previous[e][0] for e in fixed)
+        base_rate += sum(previous[e][0] for e in departures)
+        settled_count = 1 + len(current_endpoints)
+        settled_rate = self.observed_rate_units_per_hour + sum(rate for rate, _ in current.values())
+        for applied in product((False, True), repeat=len(changed)):
+            count = base_count
+            rate = base_rate
+            for endpoint, is_applied in zip(changed, applied):
+                if not is_applied:
+                    continue
+                if endpoint in arrivals:
+                    count += 1
+                    rate += arrival_rates[endpoint][0]
+                else:
+                    count -= 1
+                    rate -= departure_rates[endpoint][0]
+            if count == settled_count and math.isclose(
+                rate, settled_rate, rel_tol=0, abs_tol=self.rate_tolerance_units_per_hour
+            ):
+                continue
+            if int(usage["assignments"]) == count and math.isclose(
+                usage["rate"], rate, rel_tol=0, abs_tol=self.rate_tolerance_units_per_hour
+            ):
+                return True
+        return False
 
     def check(
         self,
@@ -299,22 +401,69 @@ class AccountTracker:
         )
         self.last_reconciled_monotonic = now
         if sessions is not None:
-            if int(current["assignments"]) != len(sessions):
-                raise AccountingError(
-                    "provider assignment count disagrees with sessions during polling"
-                )
-            self.reconcile(
+            current_sessions = dict(sessions)
+            if max(int(current["assignments"]), len(current_sessions)) > 3:
+                raise AccountingError("account-wide assignment cap exceeded during polling")
+            previous_other_rates = dict(self.current_other_rates)
+            active_records = list(active_records)
+            broker_active_rates = _active_rates(active_records)
+            current_other_rates = self.reconcile(
                 sessions,
                 active_records=active_records,
                 budget_other_assignments=budget_other_assignments,
+                previous_other_rates=previous_other_rates,
             )
             expected_rate = self.observed_rate_units_per_hour + sum(
-                rate for rate, _ in self.current_other_rates.values()
+                rate for rate, _ in current_other_rates.values()
             )
-            if abs(current["rate"] - expected_rate) > self.rate_tolerance_units_per_hour:
+            settled = int(current["assignments"]) == len(current_sessions) and math.isclose(
+                current["rate"],
+                expected_rate,
+                rel_tol=0,
+                abs_tol=self.rate_tolerance_units_per_hour,
+            )
+            if settled:
+                self.transition_mismatch_polls = 0
+                self.transition_from_other_rates = None
+                self.transition_to_other_rates = None
+                self.transition_broker_active_rates = None
+            else:
+                transition_from = previous_other_rates
+                transition_to = current_other_rates
+                transition_broker_active = broker_active_rates
+                if (
+                    self.transition_from_other_rates is not None
+                    and self.transition_to_other_rates == current_other_rates
+                ):
+                    transition_from = self.transition_from_other_rates
+                    transition_to = self.transition_to_other_rates
+                    transition_broker_active = dict(self.transition_broker_active_rates or {})
+                    transition_broker_active.update(broker_active_rates)
+                transition_matches = self._transition_match(
+                    current, transition_from, transition_to, transition_broker_active
+                )
+            if not settled and transition_matches:
+                self.transition_mismatch_polls += 1
+                if self.transition_mismatch_polls > TRANSITION_MISMATCH_POLLS:
+                    if int(current["assignments"]) != len(current_sessions):
+                        raise AccountingError(
+                            "provider assignment count disagrees with sessions during polling"
+                        )
+                    raise AccountingError(
+                        "provider usage rate drift is not explained by accounted active assignments"
+                    )
+                self.transition_from_other_rates = dict(transition_from)
+                self.transition_to_other_rates = dict(transition_to)
+                self.transition_broker_active_rates = dict(transition_broker_active)
+            elif not settled and int(current["assignments"]) != len(current_sessions):
+                raise AccountingError(
+                    "provider assignment count disagrees with sessions during polling"
+                )
+            elif not settled:
                 raise AccountingError(
                     "provider usage rate drift is not explained by accounted active assignments"
                 )
+            self.current_other_rates = current_other_rates
         observed_account_debit = self.baseline_balance_units - current["balance"]
         attributable_debit = max(0.0, observed_account_debit - self.integrated_other_units)
         observed_elapsed_units = elapsed * self.observed_rate_units_per_hour / 3600.0
@@ -344,6 +493,10 @@ class AccountTracker:
                 if abs(balance_discrepancy) > balance_tolerance
                 else "OK"
             ),
+            "provider_transition_status": (
+                "WARNING_BROKER_TRANSITION_LAG" if self.transition_mismatch_polls else "OK"
+            ),
+            "provider_transition_mismatch_polls": self.transition_mismatch_polls,
         }
         self.last_crosscheck = result
         return result
