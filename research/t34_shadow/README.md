@@ -22,10 +22,19 @@ it cannot authorize efficacy, training, a strict gate, or a serving change.
 - Full state identity includes RNG streams, ordered bodies/food, lifecycle
   counters, immutable checkpoint identities, and mutable opponent runtime state.
   There is no direct live-to-Grid loader; M1 uses seed/action replay.
-- LAD is bisection followed by a radius-three stride-one neighbourhood. A
+- Path B LAD is bisection followed by a radius-three stride-one neighbourhood. A
   survival predicate is not mathematically monotone: this is a measured search
   heuristic and does not certify the global last avoidable decision. Ties in
   descending B8 Q order use the lowest action index.
+- The owner-side pre-data addendum and Design Amendment 1 (main `105debee`)
+  additionally require the teacher rule: stride-ten probes followed by stride-one
+  refinement within +/-5 of the midpoint of every adjacent sampled survive-to-die
+  transition. The midpoint convention covers the complete ten-decision gap.
+  Both rules are compared with exact stride-one LAD truth, obtained by scanning
+  backward from doom until the first surviving alternative. Shared exact-state
+  outcomes are memoized across rules; report each rule's charged work separately
+  from actual union work, including the truth measurement overhead. Teacher GO
+  requires >=90% intervention recovery. Neither heuristic proves global LAD.
 - Fresh LAD expansions use the T3 continuation engine. A saved outcome is reused
   only on its exact original pre-action trajectory; cached future rows after a
   historical intervention cannot be queried on the abandoned greedy trajectory.
