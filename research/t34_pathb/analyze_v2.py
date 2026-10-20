@@ -25,6 +25,8 @@ ACTIVE_ARMS = ("paced",)
 MAC_ARMS = ("bare", *ACTIVE_ARMS)
 ARMS = ("bare", "paced", "unpaced")
 HORIZON = 5000
+PHASE_CAP_SECONDS = 40 * 60 * 60
+MAX_CONTENDED_FRACTION = 0.02
 UNPACED_WORLD_SCHEMA = "t34-unpaced-world/v1"
 UNPACED_SHARD_SCHEMA = "t34-unpaced-shard/v1"
 DESCRIPTIVE_ERRORS = (OSError, KeyError, TypeError, ValueError, ArithmeticError, RuntimeError)
@@ -50,6 +52,31 @@ def _integer(value: Any, name: str, minimum: int = 0, maximum: int | None = None
     if int(number) != number:
         raise InvalidRetention(f"{name} must be an integer")
     return int(number)
+
+
+def _registered_contention_fraction(summary: Any, *, phase: str) -> float:
+    """Validate a phase-end host ledger against its registered wall-clock cap.
+
+    The two-percent budget is a fraction of the registered phase cap, never a
+    fraction of elapsed runtime. ``elapsed_seconds`` remains an immutable
+    diagnostic/accounting value, but cannot tighten the contention allowance.
+    """
+    if not isinstance(summary, Mapping):
+        raise InvalidRetention(f"missing {phase} host contention accounting")
+    phase_cap = _finite(summary["phase_cap_seconds"], f"{phase} phase cap seconds", 0)
+    if phase_cap != PHASE_CAP_SECONDS:
+        raise InvalidRetention(f"{phase} host phase cap differs from registration")
+    budget = _finite(summary["contention_budget_seconds"], f"{phase} contention budget seconds", 0)
+    expected_budget = phase_cap * MAX_CONTENDED_FRACTION
+    if not math.isclose(budget, expected_budget, rel_tol=0.0, abs_tol=1e-9):
+        raise InvalidRetention(f"{phase} contention budget differs from registered cap")
+    contended = _finite(summary["contended_seconds"], f"{phase} contended seconds", 0)
+    fraction = _finite(summary["contended_fraction"], f"{phase} host contention fraction", 0)
+    _finite(summary["elapsed_seconds"], f"{phase} elapsed seconds", 0)
+    expected_fraction = contended / phase_cap
+    if not math.isclose(fraction, expected_fraction, rel_tol=0.0, abs_tol=1e-12):
+        raise InvalidRetention(f"{phase} host contention fraction is not cap-normalized")
+    return fraction
 
 
 def _interval(mean: float, se: float, df: float, tail: float, n: int) -> dict[str, Any]:
@@ -419,12 +446,12 @@ def decide(
             and failed_paced_bars <= mass_bars
             and product["pass"]
         )
-        timing_contention = timing.get("host_summary", {}).get("contended_fraction")
-        if timing_report["contended"] and (
-            type(timing_contention) not in (int, float)
-            or not math.isfinite(timing_contention)
-            or timing_contention > 0.02
-        ):
+        timing_contention = (
+            _registered_contention_fraction(timing.get("host_summary"), phase="timing")
+            if "host_summary" in timing or timing_report["contended"]
+            else 0.0
+        )
+        if timing_contention > MAX_CONTENDED_FRACTION:
             verdict, reason = "INCONCLUSIVE", "timing contention exceeded registered allowance"
         elif not timing_report["pass"]:
             verdict, reason = "KILL", "paced timing bar failed"
@@ -829,10 +856,10 @@ def _analyze_path(root: Path) -> dict[str, Any]:
                 or _finite(accounting["cpu_seconds"], "analysis CPU seconds", 0) >= 60 * 3600
             ):
                 return _inconclusive("registered cap reached through analysis")
-        summary = complete.get("host_summary")
-        if not isinstance(summary, Mapping):
-            raise InvalidRetention("missing cumulative host contention accounting")
-        if _finite(summary["contended_fraction"], "host contention fraction", 0) > 0.02:
+        if (
+            _registered_contention_fraction(complete.get("host_summary"), phase="study")
+            > MAX_CONTENDED_FRACTION
+        ):
             return _inconclusive("cumulative host contention exceeded two percent")
         from research.t34_pathb.source_binding_v2 import verify_frozen_worktree
 

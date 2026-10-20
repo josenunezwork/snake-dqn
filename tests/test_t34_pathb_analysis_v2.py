@@ -98,6 +98,17 @@ def _timing():
     return {"probes": {f"{arm}-{fps}": probe(fps) for arm in ("bare", "paced") for fps in (12, 24)}}
 
 
+def _host_summary(*, contended_seconds: float = 0.0, elapsed_seconds: float = 1.0) -> dict:
+    phase_cap_seconds = analysis.PHASE_CAP_SECONDS
+    return {
+        "phase_cap_seconds": phase_cap_seconds,
+        "contention_budget_seconds": phase_cap_seconds * analysis.MAX_CONTENDED_FRACTION,
+        "contended_seconds": contended_seconds,
+        "contended_fraction": contended_seconds / phase_cap_seconds,
+        "elapsed_seconds": elapsed_seconds,
+    }
+
+
 def test_go_requires_fixed_n_holm_and_all_bars():
     report = analysis.decide(_records(), _timing())
     assert report["verdict"] == "GO", report
@@ -276,7 +287,9 @@ def test_partial_and_contended_are_inconclusive():
 def test_timing_contention_within_two_percent_requires_and_accepts_accounting():
     timing = _timing()
     timing["probes"]["paced-24"]["contended"] = True
-    timing["host_summary"] = {"contended_fraction": 0.02}
+    timing["host_summary"] = _host_summary(
+        contended_seconds=analysis.PHASE_CAP_SECONDS * analysis.MAX_CONTENDED_FRACTION
+    )
     assert analysis.decide(_records(), timing)["verdict"] == "GO"
 
     del timing["host_summary"]
@@ -338,7 +351,7 @@ def _write_artifacts(root, monkeypatch):
                 "registration_sha256": digest,
                 "identity_status": "PASS",
                 "parity_status": "PASS",
-                "host_summary": {"contended_fraction": 0.0},
+                "host_summary": _host_summary(),
             }
         )
     )

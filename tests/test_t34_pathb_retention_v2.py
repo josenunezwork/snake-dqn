@@ -316,6 +316,7 @@ def test_registered_timing_fault_retains_unconditional_marker(monkeypatch, tmp_p
         lambda _policy, **_kwargs: SimpleNamespace(
             records=[],
             check=lambda **_kwargs: {"contended": False},
+            admit=lambda: None,
             start=lambda: None,
             between_rows=lambda **_kwargs: None,
             summary=lambda **_kwargs: {},

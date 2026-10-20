@@ -16,6 +16,10 @@ import time
 from typing import Any, Callable, Mapping
 
 
+class HostAdmissionError(RuntimeError):
+    """The host was not quiet; refuse this attempt without a terminal result."""
+
+
 class HostContentionError(RuntimeError):
     """Measured host conditions make the registered result inconclusive."""
 
@@ -29,6 +33,8 @@ _REQUIRED = {
     "own_cpu_worker_allowance",
     "known_heavy_process_patterns",
     "max_contended_fraction",
+    "quiet_window_seconds",
+    "load_sustained_seconds",
 }
 _POWER_REASONS = frozenset({"ac_power_lost", "lid_closed", "thermal_not_ok"})
 
@@ -45,6 +51,8 @@ def validate_policy(policy: Mapping[str, Any]) -> None:
         "check_interval_seconds",
         "own_cpu_worker_allowance",
         "max_contended_fraction",
+        "quiet_window_seconds",
+        "load_sustained_seconds",
     )
     if any(
         type(policy[key]) not in (int, float) or not math.isfinite(policy[key]) or policy[key] <= 0
@@ -56,9 +64,11 @@ def validate_policy(policy: Mapping[str, Any]) -> None:
         "other_process_cpu_percent": 50.0,
         "other_process_cpu_sustained_seconds": 60,
         "persistence_seconds": 120,
-        "check_interval_seconds": 30,
+        "check_interval_seconds": 5,
         "own_cpu_worker_allowance": 2,
         "max_contended_fraction": 0.02,
+        "quiet_window_seconds": 120,
+        "load_sustained_seconds": 60,
     }
     if any(policy[key] != value for key, value in expected.items()):
         raise ValueError("load policy threshold differs from the registered contract")
@@ -147,19 +157,22 @@ class HostGuard:
         *,
         clock: Callable[[], float] = time.monotonic,
         sample: Callable[[], dict[str, Any]] | None = None,
-        prior_elapsed_seconds: float = 0.0,
-        prior_contended_seconds: float = 0.0,
+        phase_cap_seconds: float = 40 * 3600,
+        wait: Callable[[float], None] = time.sleep,
     ) -> None:
         validate_policy(policy)
-        if any(
-            not math.isfinite(value) or value < 0
-            for value in (prior_elapsed_seconds, prior_contended_seconds)
+        if (
+            type(phase_cap_seconds) not in (int, float)
+            or not math.isfinite(phase_cap_seconds)
+            or phase_cap_seconds <= 0
         ):
-            raise ValueError("prior host accounting must be finite and nonnegative")
-        if prior_contended_seconds > prior_elapsed_seconds:
-            raise ValueError("prior contended time cannot exceed prior elapsed time")
+            raise ValueError("phase cap must be positive and finite")
         self.policy, self._clock, self._sample = dict(policy), clock, sample or self._measure
-        self._prior_elapsed, self._prior_contended = prior_elapsed_seconds, prior_contended_seconds
+        self.phase_cap_seconds, self._wait = phase_cap_seconds, wait
+        self._idle_load_1m: float | None = None
+        self._load_bad_since: float | None = None
+        self.admission_records: list[dict[str, Any]] = []
+        self._admitted = False
         self._hot_since: dict[int, float] = {}
         self._lock = threading.Lock()
         self._updated = threading.Condition(self._lock)
@@ -178,6 +191,8 @@ class HostGuard:
         ac_power, lid_open, thermal_ok = _power_thermal()
         load_1m, own, now = os.getloadavg()[0], _own_pids(), self._clock()
         other = [row for row in _processes() if row["pid"] not in own]
+        if self._idle_load_1m is None:
+            self._idle_load_1m = load_1m
         hot: list[dict[str, Any]] = []
         active: set[int] = set()
         for row in other:
@@ -189,14 +204,22 @@ class HostGuard:
         self._hot_since = {pid: since for pid, since in self._hot_since.items() if pid in active}
         patterns = tuple(self.policy["known_heavy_process_patterns"])
         known = [row for row in hot if any(pattern in row["command"] for pattern in patterns)]
-        excess, reasons = load_1m - float(self.policy["own_cpu_worker_allowance"]), []
+        excess, reasons = load_1m - self._idle_load_1m, []
+        load_exceeded = excess > float(self.policy["max_load_1m_excess"])
+        if load_exceeded:
+            if self._load_bad_since is None:
+                self._load_bad_since = now
+        else:
+            self._load_bad_since = None
         if not ac_power:
             reasons.append("ac_power_lost")
         if not lid_open:
             reasons.append("lid_closed")
         if not thermal_ok:
             reasons.append("thermal_not_ok")
-        if excess > float(self.policy["max_load_1m_excess"]):
+        if self._load_bad_since is not None and now - self._load_bad_since > float(
+            self.policy["load_sustained_seconds"]
+        ):
             reasons.append("load_1m_excess")
         if hot:
             reasons.append("other_cpu_sustained")
@@ -209,6 +232,10 @@ class HostGuard:
             "thermal_ok": thermal_ok,
             "load_1m": load_1m,
             "load_1m_excess": excess,
+            "idle_load_1m": self._idle_load_1m,
+            "cpu_count": os.cpu_count(),
+            "load_1m_threshold": self._idle_load_1m + self.policy["max_load_1m_excess"],
+            "quiet": not (reasons or load_exceeded or active),
             "other_processes_over_cpu_limit": hot,
             "known_heavy_processes": known,
             "contended": bool(reasons),
@@ -222,15 +249,16 @@ class HostGuard:
             record["timestamp_monotonic"] = self._clock()
         except BaseException as exc:
             with self._updated:
+                if self._stop.is_set():
+                    return
                 self._sample_error = exc
                 self._updated.notify_all()
             return
         with self._updated:
-            if self._started is not None and self._latest is not None:
-                previous = float(self._latest["timestamp_monotonic"])
-                elapsed = max(0.0, float(record["timestamp_monotonic"]) - previous)
-                if self._latest["contended"]:
-                    self._contended_seconds += elapsed
+            if self._stop.is_set():
+                return
+            if self._started is not None and record["contended"]:
+                self._contended_seconds += float(self.policy["check_interval_seconds"])
             self.records.append(record)
             self._latest, self._sample_error = record, None
             if _POWER_REASONS.intersection(record["reasons"]):
@@ -244,8 +272,35 @@ class HostGuard:
         while not self._stop.wait(float(self.policy["check_interval_seconds"])):
             self._capture()
 
+    def admit(self) -> None:
+        """Require the entire registered quiet window before a phase can start.
+
+        A busy sample refuses immediately; this never waits for a busy host to
+        recover. Raw CPU/load excess also refuses during its persistence grace.
+        Admission samples are diagnostics, excluded from phase contention.
+        """
+        if self._admitted:
+            return
+        began = self._clock()
+        while True:
+            try:
+                record = dict(self._sample())
+            except Exception as exc:
+                raise HostAdmissionError(f"host admission sampling failed: {exc}") from exc
+            record["timestamp_monotonic"] = self._clock()
+            self.admission_records.append(record)
+            if not record.get("quiet", not record["contended"]):
+                raise HostAdmissionError(
+                    "host quiet admission refused: " + ",".join(record["reasons"])
+                )
+            remaining = float(self.policy["quiet_window_seconds"]) - (self._clock() - began)
+            if remaining <= 0:
+                self._admitted = True
+                return
+            self._wait(min(float(self.policy["check_interval_seconds"]), remaining))
+
     def start(self) -> None:
-        """Perform admission before the first row and start the background sampler."""
+        """Start phase sampling; registered runners call ``admit`` beforehand."""
         if self._thread is not None:
             return
         self.check_budget()
@@ -278,13 +333,20 @@ class HostGuard:
         now = self._clock()
         run_elapsed = max(0.0, now - (self._started if self._started is not None else now))
         contended = self._contended_seconds
-        if self._latest is not None and self._latest["contended"] and self._started is not None:
-            contended += max(
-                0.0, now - max(self._started, float(self._latest["timestamp_monotonic"]))
-            )
-        elapsed, contended = self._prior_elapsed + run_elapsed, self._prior_contended + contended
-        fraction = contended / elapsed if elapsed else 0.0
+        elapsed = run_elapsed
+        fraction = contended / self.phase_cap_seconds
         return {
+            "phase_cap_seconds": self.phase_cap_seconds,
+            "contention_budget_seconds": self.phase_cap_seconds
+            * self.policy["max_contended_fraction"],
+            "sample_interval_seconds": self.policy["check_interval_seconds"],
+            "idle_load_1m": self._idle_load_1m,
+            "load_1m_threshold": (
+                None
+                if self._idle_load_1m is None
+                else self._idle_load_1m + self.policy["max_load_1m_excess"]
+            ),
+            "admission_samples": list(self.admission_records),
             "sample_count": len(self.records),
             "tick_count": self._tick_count,
             "contended_tick_count": self._contended_ticks,
@@ -303,7 +365,7 @@ class HostGuard:
             result = self._summary_locked()
             if validate and result["status"] == "INCONCLUSIVE":
                 error = HostContentionError(
-                    "cumulative host contention exceeds registered fraction: "
+                    "phase host contention exceeds registered cap fraction: "
                     f"{result['contended_fraction']:.6f}>{result['max_contended_fraction']:.6f}"
                 )
                 error.summary = result  # type: ignore[attr-defined]
@@ -323,15 +385,6 @@ class HostGuard:
                 record = dict(self._latest)
                 power_pause = bool(_POWER_REASONS.intersection(record["reasons"]))
                 if not power_pause:
-                    result = self._summary_locked()
-                    if result["status"] == "INCONCLUSIVE":
-                        error = HostContentionError(
-                            "cumulative host contention exceeds registered fraction: "
-                            f"{result['contended_fraction']:.6f}>"
-                            f"{result['max_contended_fraction']:.6f}"
-                        )
-                        error.summary = result  # type: ignore[attr-defined]
-                        raise error
                     return record
                 now = self._clock()
                 pause_since = self._power_bad_since if self._power_bad_since is not None else now
@@ -352,7 +405,8 @@ class HostGuard:
             self._updated.notify_all()
         if self._thread is not None:
             self._thread.join(timeout=float(self.policy["check_interval_seconds"]) + 2.0)
-            self._thread = None
+            if not self._thread.is_alive():
+                self._thread = None
 
 
 def measured_snapshot(policy: Mapping[str, Any]) -> dict[str, Any]:

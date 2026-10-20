@@ -13,10 +13,12 @@ POLICY = {
     "other_process_cpu_percent": 50.0,
     "other_process_cpu_sustained_seconds": 60,
     "persistence_seconds": 120,
-    "check_interval_seconds": 30,
+    "check_interval_seconds": 5,
     "own_cpu_worker_allowance": 2,
     "known_heavy_process_patterns": ["research/", "runner"],
     "max_contended_fraction": 0.02,
+    "quiet_window_seconds": 120,
+    "load_sustained_seconds": 60,
 }
 
 
@@ -48,7 +50,10 @@ def test_tick_checks_use_cached_sample_without_sampling_or_waiting() -> None:
 def test_contention_fraction_is_accounted_at_ticks_and_reportable_on_failure() -> None:
     now = [0.0]
     guard = HostGuard(
-        POLICY, clock=lambda: now[0], sample=lambda: _sample(contended=True, reasons=["load"])
+        POLICY,
+        clock=lambda: now[0],
+        sample=lambda: _sample(contended=True, reasons=["load"]),
+        phase_cap_seconds=100.0,
     )
     try:
         guard.start()
@@ -56,8 +61,8 @@ def test_contention_fraction_is_accounted_at_ticks_and_reportable_on_failure() -
         now[0] = 10.0
         guard.check()
         diagnostic = guard.summary(validate=False)
-        assert diagnostic["contended_seconds"] == 10.0
-        assert diagnostic["contended_fraction"] == 1.0
+        assert diagnostic["contended_seconds"] == 5.0
+        assert diagnostic["contended_fraction"] == 0.05
         assert diagnostic["status"] == "INCONCLUSIVE"
         with pytest.raises(HostContentionError) as raised:
             guard.summary()
@@ -66,14 +71,13 @@ def test_contention_fraction_is_accounted_at_ticks_and_reportable_on_failure() -
         guard.close()
 
 
-def test_prior_timing_accounting_is_included_in_final_budget() -> None:
+def test_phase_contention_budget_uses_registered_cap() -> None:
     now = [0.0]
     guard = HostGuard(
         POLICY,
         clock=lambda: now[0],
-        sample=lambda: _sample(),
-        prior_elapsed_seconds=100.0,
-        prior_contended_seconds=2.0,
+        sample=lambda: _sample(contended=True),
+        phase_cap_seconds=250.0,
     )
     try:
         guard.start()
@@ -94,7 +98,6 @@ def test_power_pause_happens_between_rows_and_discards_assists_once() -> None:
         POLICY,
         clock=lambda: now[0],
         sample=lambda: next(samples),
-        prior_elapsed_seconds=1_000.0,
     )
     callback_called = threading.Event()
 
@@ -113,6 +116,6 @@ def test_power_pause_happens_between_rows_and_discards_assists_once() -> None:
         assert callback_called.is_set()
         summary = guard.summary(validate=False)
         assert summary["tick_count"] == 0
-        assert summary["contended_seconds"] == 10.0
+        assert summary["contended_seconds"] == 5.0
     finally:
         guard.close()
