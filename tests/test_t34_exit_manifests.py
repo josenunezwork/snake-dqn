@@ -112,7 +112,7 @@ def test_a5_public_draft_is_l4_only_and_publication_blocked(tmp_path: Path) -> N
         "gpu": "L4",
         "allowed_gpus": ["L4"],
         "min_vcpu": 12,
-        "est_minutes": 30,
+        "est_minutes": 15,
     }
     assert manifest["env"]["T34_WORKERS"] == "2"
     assert manifest["env"]["T34_THREADS"] == "5"
