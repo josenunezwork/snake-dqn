@@ -1,0 +1,63 @@
+{
+  "schema": "t34-exit-fit-input-inventory/v2",
+  "status": "ENGINE_EXPORT_AND_PREREGISTRATION_PENDING",
+  "dispatch_authorized": false,
+  "source_pins": {
+    "config": {
+      "path": "configs/free_space_v2.yaml",
+      "size_bytes": 1557,
+      "sha256": "41c590461b3179ddbf9ce0ed7fdfb754fc84b188c38790077b7e1cd159335624"
+    }
+  },
+  "required_runtime_handoff": {
+    "engine_export": [
+      "payload.json",
+      "payload.json.sha256",
+      "payload.json.complete"
+    ],
+    "note": "The P1 engine output is a verified supervisor handoff, never a Contents checkpoint upload."
+  },
+  "inputs": [
+    {
+      "name": "B8_s3_final.pth",
+      "dest": "checkpoints/B8_s3_final.pth",
+      "size_bytes": 6562005,
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/B8_s3_final.pth"
+    },
+    {
+      "name": "league.tar.gz",
+      "dest": "league.tar.gz",
+      "size_bytes": 21362869,
+      "sha256": "e2c691063bd2d6f4c3ec396b4d4520b1eb367c4f0814517b7b74d6e4db0f4186",
+      "url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/league.tar.gz",
+      "members": [
+        {
+          "name": "champion_a5_freespace_20260621.pth",
+          "dest": "checkpoints/champion_a5_freespace_20260621.pth",
+          "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        },
+        {
+          "name": "best_apex_fs.pth",
+          "dest": "checkpoints/best_apex_fs.pth",
+          "sha256": "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        },
+        {
+          "name": "best_apex_stage1_fs.pth",
+          "dest": "checkpoints/best_apex_stage1_fs.pth",
+          "sha256": "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        },
+        {
+          "name": "best_apex_pre_fs.pth",
+          "dest": "checkpoints/best_apex_pre_fs.pth",
+          "sha256": "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        },
+        {
+          "name": "frp3_m3_s12_u60000_20261005.pth",
+          "dest": "checkpoints/frp3_m3_s12_u60000_20261005.pth",
+          "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        }
+      ]
+    }
+  ]
+}
