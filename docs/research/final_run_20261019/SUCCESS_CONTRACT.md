@@ -66,3 +66,8 @@ runs as planned. Interpretation, pre-registered:
   label rounds become optional research (owner decides whether to fund R1/R2).
 - Path B loses its gain under real deadlines → Claim B is rejected regardless of synchronous teacher
   results; the label rounds proceed only on a Round 0 GO.
+
+## Note (2026-10-19 ~23:20 PT, owner-ratified with the rules audit)
+Statistical frame, guard naming ("Tier 1 + Tier 2" above = survival guards A/B, both vs B8 s3), tie rule,
+tripwire precedence and look choice are fixed in [P7_STATISTICS.md](P7_STATISTICS.md). FINAL_PLAN §8's
+"B8 is reported as the bare ceiling" is replaced by "this teacher failed its registered bar".
