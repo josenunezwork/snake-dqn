@@ -243,6 +243,14 @@ class RunSession:
         if self.controller is not None:
             self.controller.settle_between_ticks(self.identity(), check_cap=check_cap)
 
+    def discard_pending_assistance(self) -> bool:
+        """Discard this session's outstanding assistance after a host pause.
+
+        The row runner invokes this only at its between-row pause boundary.
+        Bare sessions have no assistance to discard.
+        """
+        return False if self.controller is None else self.controller.discard_pending_assistance()
+
     def close(self, wait: bool = True) -> None:
         """Retire this adapter's one worker after its last tick."""
         self._closed = True

@@ -269,7 +269,7 @@ def product_summary(records: Iterable[Mapping[str, Any]], arm: str) -> dict[str,
 
 
 def timing_summary(timing: Mapping[str, Any]) -> dict[str, Any]:
-    """Judge real Watch6 probes; contended timings cannot establish GO."""
+    """Judge Watch6 probes, retaining the registered cumulative contention allowance."""
     probes = timing["probes"]
     if set(probes) != {f"{arm}-{fps}" for arm in ("bare", "paced") for fps in (12, 24)}:
         raise InvalidRetention("timing requires ON/OFF at both 12 and 24 fps")
@@ -414,8 +414,13 @@ def decide(
             and failed_paced_bars <= mass_bars
             and product["pass"]
         )
-        if timing_report["contended"]:
-            verdict, reason = "INCONCLUSIVE", "quiet-host timing not established"
+        timing_contention = timing.get("host_summary", {}).get("contended_fraction")
+        if timing_report["contended"] and (
+            type(timing_contention) not in (int, float)
+            or not math.isfinite(timing_contention)
+            or timing_contention > 0.02
+        ):
+            verdict, reason = "INCONCLUSIVE", "timing contention exceeded registered allowance"
         elif not timing_report["pass"]:
             verdict, reason = "KILL", "paced timing bar failed"
         elif near_zero_mass_only or (product["pass"] and _uncertain_skill(paced)):
@@ -472,9 +477,26 @@ def _load(path: Path) -> dict[str, Any]:
 
 
 def analyze_path(root: Path) -> dict[str, Any]:
+    """Fence the entire analysis at the detached ratified source revision."""
+    from research.t34_pathb.source_binding_v2 import FrozenWorktreeGuard
+
+    root = Path(root)
+    try:
+        registration = _load(root / "registration.json")
+        with FrozenWorktreeGuard(
+            Path(__file__).resolve().parents[2], registration["source_commit"]
+        ):
+            return _analyze_path(root)
+    except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as exc:
+        return _inconclusive(f"identity_or_completeness: {type(exc).__name__}: {exc}")
+
+
+def _analyze_path(root: Path) -> dict[str, Any]:
     """Load immutable artifacts and verify registered identity before calculation."""
     root = Path(root)
     try:
+        if (root / "source_failure.json").exists():
+            return _inconclusive("source fence failed during execution or analysis")
         registration = _load(root / "registration.json")
         from research.t34_pathb.retention_v2 import require_registration
 
@@ -528,6 +550,21 @@ def analyze_path(root: Path) -> dict[str, Any]:
             or _finite(complete["cpu_seconds"], "CPU seconds", 0) >= 60 * 3600
         ):
             return _inconclusive("registered elapsed or CPU cap reached")
+        if (root / "analysis_accounting.json").exists():
+            accounting = _load(root / "analysis_accounting.json")
+            if (
+                _finite(accounting["elapsed_seconds"], "analysis elapsed seconds", 0) >= 40 * 3600
+                or _finite(accounting["cpu_seconds"], "analysis CPU seconds", 0) >= 60 * 3600
+            ):
+                return _inconclusive("registered cap reached through analysis")
+        summary = complete.get("host_summary")
+        if not isinstance(summary, Mapping):
+            raise InvalidRetention("missing cumulative host contention accounting")
+        if _finite(summary["contended_fraction"], "host contention fraction", 0) > 0.02:
+            return _inconclusive("cumulative host contention exceeded two percent")
+        from research.t34_pathb.source_binding_v2 import verify_frozen_worktree
+
+        verify_frozen_worktree(Path(__file__).resolve().parents[2], registration["source_commit"])
         return decide(records, timing, complete=not (root / "incomplete.json").exists())
     except (
         InvalidRetention,

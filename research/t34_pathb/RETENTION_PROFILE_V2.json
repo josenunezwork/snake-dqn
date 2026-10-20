@@ -24,6 +24,7 @@
       "research/",
       "research."
     ],
+    "max_contended_fraction": 0.02,
     "max_load_1m_excess": 3.0,
     "other_process_cpu_percent": 50.0,
     "other_process_cpu_sustained_seconds": 60,
@@ -34,6 +35,7 @@
   "max_cpu_threads": 2,
   "max_dollars": 0,
   "max_elapsed_hours": 40,
+  "precheck_max_elapsed_hours": 8,
   "numerical_pool_threads": 1,
   "platform": "darwin",
   "product": {

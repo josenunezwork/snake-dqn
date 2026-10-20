@@ -19,6 +19,8 @@ FRP3/champion "Tier 1 + Tier 2" guards as automatic T34 obligations (comparator 
 RunPod for T34 (none); the Q0/Q1 budget envelope. Watch product metrics are binding per contract §3.
 Kept: Mac-only strict gate and serving qualification, fresh paired banks, survival band v2, pre-data freezing.
 
+**Colab credits (owner, 2026-10-20):** use the owner's Colab Pro+ credits whenever they speed up our work or add a parallel research lane — do not wait for the Mac or ask first. Go through the qualified CLI supervisor (`research/colab_cli`, QUALIFICATION.md), L4 by default, price per useful result, stay within each study's registered caps. Mac-only work stays on the Mac: Path B timing/paced tests, the strict gate, serving qualification.
+
 
 ## Released agent
 

@@ -6,6 +6,22 @@ import statistics
 import pytest
 
 from research.t34_pathb import analyze_v2 as analysis
+from research.t34_pathb import source_binding_v2
+
+
+@pytest.fixture(autouse=True)
+def fake_frozen_source_fence(monkeypatch):
+    """Keep analyzer unit tests independent of the authoring worktree state."""
+
+    class Fence:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(source_binding_v2, "FrozenWorktreeGuard", lambda *_args, **_kwargs: Fence())
+    monkeypatch.setattr(source_binding_v2, "verify_frozen_worktree", lambda *_args: None)
 
 
 def _arm(mass=160, *, survival=1.0, deaths=0):
@@ -261,6 +277,18 @@ def test_partial_and_contended_are_inconclusive():
     assert analysis.decide(_records(), timing)["verdict"] == "INCONCLUSIVE"
 
 
+def test_timing_contention_within_two_percent_requires_and_accepts_accounting():
+    timing = _timing()
+    timing["probes"]["paced-24"]["contended"] = True
+    timing["host_summary"] = {"contended_fraction": 0.02}
+    assert analysis.decide(_records(), timing)["verdict"] == "GO"
+
+    del timing["host_summary"]
+    report = analysis.decide(_records(), timing)
+    assert report["verdict"] == "INCONCLUSIVE"
+    assert "contention" in report["reason"]
+
+
 def test_duplicate_json_keys_and_nan_are_rejected(tmp_path):
     source = tmp_path / "source.json"
     for content in ('{"seed": 1, "seed": 2}', '{"value": NaN}'):
@@ -292,6 +320,7 @@ def _write_artifacts(root, monkeypatch):
     monkeypatch.setattr(retention_v2, "require_registration", lambda *_: None)
     rows = _records()
     registration = {"terminal_rows": [], "product_rows": []}
+    registration["source_commit"] = "a" * 40
     for row in rows:
         world = {"seed": row["seed"], "mix": row["mix"], "roster": ["frozen", "scripted"]}
         registration[f"{row['kind']}_rows"].append(world)
@@ -313,6 +342,7 @@ def _write_artifacts(root, monkeypatch):
                 "registration_sha256": digest,
                 "identity_status": "PASS",
                 "parity_status": "PASS",
+                "host_summary": {"contended_fraction": 0.0},
             }
         )
     )
@@ -350,6 +380,74 @@ def test_artifact_loader_missing_completion_is_inconclusive(tmp_path, monkeypatc
     _write_artifacts(tmp_path, monkeypatch)
     (tmp_path / "complete.json").unlink()
     assert analysis.analyze_path(tmp_path)["verdict"] == "INCONCLUSIVE"
+
+
+def test_artifact_loader_requires_cumulative_host_accounting(tmp_path, monkeypatch):
+    _write_artifacts(tmp_path, monkeypatch)
+    path = tmp_path / "complete.json"
+    import json
+
+    receipt = json.loads(path.read_text())
+    receipt.pop("host_summary")
+    path.write_text(json.dumps(receipt))
+    report = analysis.analyze_path(tmp_path)
+    assert report["verdict"] == "INCONCLUSIVE"
+    assert "host contention" in report["reason"]
+
+
+def test_analyze_path_wraps_identity_analysis_in_source_fence(tmp_path, monkeypatch):
+    calls = []
+
+    class Fence:
+        def __enter__(self):
+            calls.append("enter")
+            return self
+
+        def __exit__(self, *_args):
+            calls.append("exit")
+            return False
+
+    monkeypatch.setattr(
+        source_binding_v2,
+        "FrozenWorktreeGuard",
+        lambda *args, **kwargs: (calls.append((args, kwargs)) or Fence()),
+    )
+    _write_artifacts(tmp_path, monkeypatch)
+    report = analysis.analyze_path(tmp_path)
+    assert report["verdict"] == "GO"
+    assert "enter" in calls and "exit" in calls
+
+
+def test_analyze_cli_source_failure_invalidates_saved_decision(tmp_path, monkeypatch, capsys):
+    import json
+    import sys
+
+    from research.t34_pathb import retention_v2
+
+    _write_artifacts(tmp_path, monkeypatch)
+    official = {
+        "schema": "t34-pathb-v2-decision/v1",
+        "verdict": "GO",
+        "reason": "saved official result",
+        "release_authorized": False,
+    }
+    (tmp_path / "decision.json").write_text(json.dumps(official))
+    (tmp_path / "source_failure.json").write_text(
+        json.dumps(
+            {
+                "status": "INCONCLUSIVE",
+                "reason": "HEAD moved during analysis",
+                "invalidates_decision": True,
+            }
+        )
+    )
+    monkeypatch.setattr(sys, "argv", ["retention_v2", "analyze", "--out", str(tmp_path)])
+
+    assert retention_v2.main() == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["official_decision"]["verdict"] == "INCONCLUSIVE"
+    assert report["preserved_decision"] == official
+    assert report["source_failure"]["invalidates_decision"] is True
 
 
 def test_product_late_large_diagnostics_must_reconcile():
