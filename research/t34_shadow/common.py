@@ -73,14 +73,21 @@ def provenance() -> dict[str, Any]:
         ROOT / "docs/research/final_run_20261019/DESIGN_V2_SHADOW.md",
     ]
     for directory in (
-        "src/simd_env",
-        "src/game",
-        "src/model",
-        "src/core",
+        "src",
+        "web/backend",
+        "research/b8_death_census_20261014",
+        "research/redesign_scope_20261007",
+        "research/t15_mixed_roster_20261017",
+        "research/apex_veto_serving_20261001",
+        "research/apex_safety_20260926",
+        "research/redesign_m2_20261008",
         "research/t1_commitment_20261015",
         "research/t3_rollout_labels_20261015",
     ):
         paths.extend((ROOT / directory).rglob("*.py"))
+    paths.extend((ROOT / "configs").rglob("*.yaml"))
+    paths.extend((ROOT / "research/apex_safety_20260926").glob("*.yaml"))
+    paths.append(ROOT / "web/backend/served_checkpoint_pins.json")
     return {
         "argv": sys.argv,
         "platform": platform.platform(),
