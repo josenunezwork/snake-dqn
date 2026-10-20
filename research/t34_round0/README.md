@@ -78,7 +78,7 @@ With clean committed source and reviewed evidence, the delegated operator runs:
 cd /Users/josenunez/Projects/ml/snake-dqn-round0
 export T34_PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 export T34_ART=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-20261020
-export T34_A6_RECORD="$T34_ART/a6-01/VERIFICATION.json"
+export T34_A6_RECORD="$T34_ART/a6-02/VERIFICATION.json"
 : "${T34_OPERATOR:?Set the approving operator name}"
 "$T34_PY" -m research.t34_round0.registration --operator "$T34_OPERATOR" \
   --a5 "$T34_ART/A5_RECEIPT.json" --preflight-record "$T34_A6_RECORD" \
