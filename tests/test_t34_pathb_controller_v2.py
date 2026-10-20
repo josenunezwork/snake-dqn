@@ -10,6 +10,16 @@ from typing import Any
 import pytest
 
 from research.t34_pathb.controller_v2 import PathBControllerV2, SessionIdentity, _WorkerResult
+from research.t34_shadow.shadow import FULL_DIGEST_SCHEMA
+
+
+def test_exported_confirmation_binding_versions_the_full_digest() -> None:
+    controller = PathBControllerV2.__new__(PathBControllerV2)
+    from research.t34_pathb.controller_v2 import _Binding
+
+    payload = controller._identity_dict(_Binding(SessionIdentity("s", 2, 0, "b8"), "abc"))
+    assert payload["digest"] == "abc"
+    assert payload["digest_schema"] == FULL_DIGEST_SCHEMA
 
 
 class FakeExecutor:

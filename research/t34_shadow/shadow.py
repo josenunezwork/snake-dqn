@@ -139,6 +139,225 @@ def _ordered_bodies(sim: Any) -> list[list[list[int]]]:
     return bodies
 
 
+# ``full_digest`` is carried by Path B controller bindings.  Consumers that
+# persist one must record this value beside it; v1 and v2 values are purposely
+# incomparable because v2 removes the recursive/repr serialization.
+FULL_DIGEST_SCHEMA = "t34-shadow-full-digest/v2"
+_FAST_DIGEST_VERSION = FULL_DIGEST_SCHEMA.encode("ascii") + b"\0"
+_SIM_EXCLUDED_FIELDS = frozenset({"bodies", "food_cells", "corpse_cells", "_kernels", "_det"})
+_STATIC_OBJECT_FIELDS = frozenset(
+    {
+        "model",
+        "net",
+        "network",
+        "_det",
+        "_food_buf",
+        "_food_lists",
+        "_food_n",
+        "_food_sim_id",
+        "_kernels",
+        "_rule_config_checked",
+    }
+)
+
+
+def _digest_label(digest: "hashlib._Hash", label: str) -> None:
+    data = label.encode("utf-8")
+    digest.update(len(data).to_bytes(4, "little"))
+    digest.update(data)
+
+
+def _digest_array(digest: "hashlib._Hash", label: str, value: np.ndarray) -> None:
+    """Append one typed C-contiguous array with unambiguous boundaries."""
+    original = np.asarray(value)
+    array = np.ascontiguousarray(original)
+    _digest_label(digest, label)
+    digest.update(b"A")
+    dtype = original.dtype.str.encode("ascii")
+    digest.update(len(dtype).to_bytes(2, "little"))
+    digest.update(dtype)
+    digest.update(original.ndim.to_bytes(2, "little"))
+    digest.update(np.asarray(original.shape, dtype="<i8").tobytes())
+    if original.dtype.hasobject:
+        for index, item in enumerate(original.flat):
+            _digest_value(digest, str(index), item)
+    else:
+        digest.update(array.tobytes())
+
+
+def _digest_mt_state(digest: "hashlib._Hash", label: str, state: object) -> None:
+    """Encode CPython MT state as fixed-width bytes instead of 625 repr calls."""
+    if not isinstance(state, tuple) or len(state) != 3 or not isinstance(state[1], tuple):
+        _digest_value(digest, label, state)
+        return
+    version, words_and_index, gaussian = state
+    if not isinstance(version, int) or len(words_and_index) < 2:
+        _digest_value(digest, label, state)
+        return
+    words = np.asarray(words_and_index[:-1], dtype="<u4")
+    index = int(words_and_index[-1])
+    _digest_label(digest, label)
+    digest.update(b"M")
+    digest.update(int(version).to_bytes(8, "little", signed=True))
+    digest.update(len(words).to_bytes(4, "little"))
+    digest.update(words.tobytes())
+    digest.update(index.to_bytes(8, "little", signed=True))
+    _digest_value(digest, "gaussian", gaussian)
+
+
+def _digest_value(
+    digest: "hashlib._Hash", label: str, value: Any, seen: set[int] | None = None
+) -> None:
+    """Encode bounded carry/metadata without object addresses or ``repr`` walks."""
+    if seen is None:
+        seen = set()
+    tracked = isinstance(value, (tuple, list, set, frozenset, dict)) or hasattr(value, "__dict__")
+    identity = id(value)
+    if tracked:
+        if identity in seen:
+            _digest_label(digest, label)
+            digest.update(b"Q")
+            return
+        seen.add(identity)
+    if isinstance(value, np.ndarray):
+        _digest_array(digest, label, value)
+    elif value is None:
+        _digest_label(digest, label)
+        digest.update(b"N")
+    elif isinstance(value, bool):
+        _digest_label(digest, label)
+        digest.update(b"B" + bytes((value,)))
+    elif isinstance(value, int):
+        _digest_label(digest, label)
+        digest.update(b"I" + str(value).encode("ascii") + b"\0")
+    elif isinstance(value, float):
+        _digest_label(digest, label)
+        digest.update(b"F" + np.asarray([value], dtype="<f8").tobytes())
+    elif isinstance(value, str):
+        _digest_label(digest, label)
+        encoded = value.encode("utf-8")
+        digest.update(b"S" + len(encoded).to_bytes(8, "little") + encoded)
+    elif isinstance(value, bytes):
+        _digest_label(digest, label)
+        digest.update(b"Y" + len(value).to_bytes(8, "little") + value)
+    elif isinstance(value, np.generic):
+        _digest_value(digest, label, value.item(), seen)
+    elif isinstance(value, random.Random):
+        _digest_mt_state(digest, label, value.getstate())
+    elif isinstance(value, np.random.Generator):
+        _digest_value(digest, label, value.bit_generator.state, seen)
+    elif hasattr(value, "getstate") and callable(value.getstate):
+        _digest_value(digest, label, value.getstate(), seen)
+    elif type(value).__module__.startswith("torch") and hasattr(value, "detach"):
+        tensor = value.detach().cpu().contiguous()
+        _digest_label(digest, label)
+        digest.update(b"Z")
+        _digest_array(digest, "tensor", tensor.numpy())
+    elif isinstance(value, types.ModuleType):
+        _digest_label(digest, label)
+        digest.update(b"U" + value.__name__.encode("utf-8"))
+    elif isinstance(value, (types.FunctionType, types.MethodType, types.BuiltinFunctionType)):
+        _digest_label(digest, label)
+        digest.update(b"C" + getattr(value, "__qualname__", value.__name__).encode("utf-8"))
+    elif isinstance(value, (tuple, list)):
+        _digest_label(digest, label)
+        digest.update(b"T" if isinstance(value, tuple) else b"L")
+        digest.update(len(value).to_bytes(8, "little"))
+        for index, item in enumerate(value):
+            _digest_value(digest, str(index), item, seen)
+    elif isinstance(value, (set, frozenset)):
+        _digest_label(digest, label)
+        digest.update(b"E")
+        # Cell sets are semantically unordered. Their integer tuple keys are stable.
+        ordered = sorted(value)
+        digest.update(len(ordered).to_bytes(8, "little"))
+        for index, item in enumerate(ordered):
+            _digest_value(digest, str(index), item, seen)
+    elif isinstance(value, dict):
+        _digest_label(digest, label)
+        digest.update(b"D")
+        ordered = sorted(
+            (
+                key
+                for key in value
+                if not (
+                    isinstance(key, str)
+                    and (
+                        key.endswith(("_seconds", "_seconds_total", "_seconds_max"))
+                        or key == "_rule_config_checked"
+                    )
+                )
+            ),
+            key=lambda item: (type(item).__qualname__, str(item)),
+        )
+        digest.update(len(ordered).to_bytes(8, "little"))
+        for key in ordered:
+            _digest_value(digest, "key", key, seen)
+            _digest_value(digest, "value", value[key], seen)
+    elif hasattr(value, "__dict__"):
+        _digest_label(digest, label)
+        digest.update(f"O:{type(value).__module__}.{type(value).__qualname__}".encode())
+        fields = [
+            (name, item)
+            for name, item in sorted(vars(value).items())
+            if name not in _STATIC_OBJECT_FIELDS
+            and not name.endswith(("_seconds", "_seconds_total", "_seconds_max"))
+        ]
+        digest.update(len(fields).to_bytes(8, "little"))
+        for name, item in fields:
+            _digest_value(digest, name, item, seen)
+    else:
+        _digest_label(digest, label)
+        digest.update(f"X:{type(value).__module__}.{type(value).__qualname__}".encode())
+    if tracked:
+        seen.remove(identity)
+
+
+def _ordered_body_bytes(sim: Any) -> np.ndarray:
+    """Materialize only live ring-buffer cells in canonical head-to-tail order."""
+    chunks = []
+    for env in range(int(sim.E)):
+        for slot in range(int(sim.S)):
+            count = int(sim.seg_count[env, slot])
+            indices = (int(sim.head_ptr[env, slot]) - np.arange(count)) % int(sim.cap)
+            chunks.append(np.asarray(sim.bodies[env, slot, indices], dtype=np.int64))
+    return np.concatenate(chunks, axis=0) if chunks else np.empty((0, 2), dtype=np.int64)
+
+
+def _ordered_cells(cells: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Encode per-environment ordered food/corpse cells with explicit offsets."""
+    chunks, offsets = [], [0]
+    for env_cells in cells:
+        ordered = sorted(env_cells) if isinstance(env_cells, (set, frozenset)) else list(env_cells)
+        chunk = np.asarray(ordered, dtype=np.int64).reshape(-1, 2)
+        chunks.append(chunk)
+        offsets.append(offsets[-1] + len(chunk))
+    joined = np.concatenate(chunks, axis=0) if chunks else np.empty((0, 2), dtype=np.int64)
+    return joined, np.asarray(offsets, dtype=np.int64)
+
+
+def _digest_runtime(digest: "hashlib._Hash", runtime: Any) -> None:
+    """Hash only runtime carry that can affect the next selected action.
+
+    Featurizer/grid caches are recomputable from the simulator and include
+    simulator identities.  They are deliberately outside the shadow contract.
+    """
+    if runtime is None:
+        _digest_value(digest, "runtime", None)
+        return
+    _digest_label(digest, "runtime")
+    digest.update(b"R")
+    fields = [
+        (name, value)
+        for name, value in sorted(vars(runtime).items())
+        if name not in _STATIC_OBJECT_FIELDS
+        and not name.endswith(("_seconds", "_seconds_total", "_seconds_max"))
+    ]
+    digest.update(len(fields).to_bytes(8, "little"))
+    for name, value in fields:
+        _digest_value(digest, name, value)
+
+
 def full_digest(
     world: Any, *, checkpoint: Any = None, global_rng_state: object | None = None
 ) -> str:
@@ -150,24 +369,27 @@ def full_digest(
     caller-provided immutable checkpoint identity (normally a SHA-256 string).
     """
     sim = world.sim
-    payload = {
-        "ordered_bodies": _ordered_bodies(sim),
-        "food_order": getattr(sim, "food_cells", None),
-        "corpse_food": getattr(sim, "corpse_cells", None),
-        "sim": {
-            key: value
-            for key, value in vars(sim).items()
-            if key not in {"bodies", "food_cells", "corpse_cells", "_kernels", "_det"}
-        },
-        "env_rng": [getattr(rng, "_rng", rng).getstate() for rng in getattr(sim, "_rngs", [])],
-        "runtime": getattr(world, "runtime", None),
-        "hero": getattr(world, "hero", None),
-        "opponents": getattr(world, "opponents", None),
-        "checkpoint": checkpoint,
-        "global_random": random.getstate() if global_rng_state is None else global_rng_state,
-    }
-    result = hashlib.sha256()
-    _update_value(result, payload, set())
+    result = hashlib.sha256(_FAST_DIGEST_VERSION)
+    _digest_array(result, "ordered_bodies", _ordered_body_bytes(sim))
+    for label, cells in (("food", sim.food_cells), ("corpse", sim.corpse_cells)):
+        joined, offsets = _ordered_cells(cells)
+        _digest_array(result, f"{label}_cells", joined)
+        _digest_array(result, f"{label}_offsets", offsets)
+    # The legacy digest included every simulator attribute other than these
+    # five. Preserve that divergence surface, but hash ndarray fields directly
+    # in fixed lexical order instead of recursively repr-walking them.
+    for name, value in sorted(vars(sim).items()):
+        if name not in _SIM_EXCLUDED_FIELDS:
+            _digest_value(result, f"sim.{name}", value)
+    for index, rng in enumerate(getattr(sim, "_rngs", ())):
+        _digest_mt_state(result, f"env_rng.{index}", getattr(rng, "_rng", rng).getstate())
+    _digest_runtime(result, getattr(world, "runtime", None))
+    _digest_value(result, "hero", getattr(world, "hero", None))
+    _digest_value(result, "opponents", getattr(world, "opponents", None))
+    _digest_value(result, "checkpoint", checkpoint)
+    _digest_mt_state(
+        result, "global_random", random.getstate() if global_rng_state is None else global_rng_state
+    )
     return result.hexdigest()
 
 

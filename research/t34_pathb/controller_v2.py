@@ -14,6 +14,8 @@ from dataclasses import dataclass, replace
 from threading import Lock
 from typing import Any, Callable, Deque, Dict, Optional, Sequence, Tuple
 
+from research.t34_shadow.shadow import FULL_DIGEST_SCHEMA
+
 MAX_RECENT_DECISIONS = 256
 MAX_PENDING_IDENTITIES = 501
 
@@ -686,4 +688,5 @@ class PathBControllerV2:
             "checkpoint": binding.identity.checkpoint,
             "shadow_id": binding.shadow_id,
             "digest": binding.digest,
+            "digest_schema": FULL_DIGEST_SCHEMA,
         }
