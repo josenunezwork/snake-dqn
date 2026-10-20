@@ -134,7 +134,7 @@ def _materialize_terminal(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def allocate_bank(*, repo: Path = ROOT) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Allocate all 113 identities atomically and audit them before materializing.
+    """Allocate all 177 identities atomically and audit them before materializing.
 
     There is no collision replacement.  A hit in any namespace invalidates the
     complete allocation, including the otherwise independent product and timing
@@ -207,6 +207,96 @@ def write_allocation(
     return payload, audit
 
 
+def resize_allocation(
+    *,
+    bank_path: Path = DEFAULT_BANK,
+    audit_path: Path = DEFAULT_AUDIT,
+    repo: Path = ROOT,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Retain the original 113 identities and audit all 64 additions at once.
+
+    The frozen namespace/index allocator is unchanged. Existing terminal rows
+    keep their order and rosters; the new terminal block follows them. Audit
+    additions against the still-published original bank and all other history
+    before producing any output. A collision rejects the complete extension.
+    """
+    repo = repo.resolve()
+    previous = _read_object(repo / bank_path)
+    previous_audit = _read_object(repo / audit_path)
+    terminal = previous["terminal_rows"]
+    product = previous["product_rows"]
+    timing = previous["timing_row"]
+    retained = _registered_seed_union(previous)
+    if (
+        len(terminal) != 96
+        or len(product) != 16
+        or len(retained) != 113
+        or previous_audit.get("pass") is not True
+        or previous_audit.get("collisions")
+        or any(previous_audit.get("concrete_hits", {}).values())
+        or set(previous_audit.get("seeds", ())) != retained
+    ):
+        raise RegistrationError("resize requires the original collision-free 113-seed bank")
+    additions: list[dict[str, Any]] = []
+    for mix in MIXES:
+        namespace = _namespace(f"terminal-{mix}")
+        old = [row for row in terminal if row["mix"] == mix]
+        seeds = bank._candidate_seeds(namespace, TERMINAL_PER_MIX)
+        if len(old) != 32 or [row["seed"] for row in old] != seeds[:32]:
+            raise RegistrationError("retained terminal seeds differ from frozen allocator prefix")
+        additions.extend(
+            {"seed": seed, "mix": mix, "kind": "terminal", "namespace": namespace}
+            for seed in seeds[32:]
+        )
+    namespace = _namespace("product-mixed-watch6")
+    seeds = bank._candidate_seeds(namespace, PRODUCT_SESSIONS)
+    if [row["seed"] for row in product] != seeds[:16] or timing["seed"] != bank._candidate_seeds(
+        _namespace("timing-mixed-watch6"), 1
+    )[0]:
+        raise RegistrationError("retained product/timing seeds differ from frozen allocator")
+    products = [
+        {"seed": seed, "mix": "mixed", "kind": "product", "namespace": namespace}
+        for seed in seeds[16:]
+    ]
+    candidates = [row["seed"] for row in additions + products]
+    if len(candidates) != 64 or len(set(candidates) | retained) != 177:
+        raise RegistrationError(
+            "whole resize allocation rejected: internal/retained seed collision"
+        )
+    audit = bank._audit_candidates(repo, candidates)
+    # Explicit coverage binding for the Round 0 draft, when visible in this checkout.
+    round0 = Path("research/t34_round0/BANK_ROUND0.json")
+    audit.update(
+        {
+            "schema": "t34-pathb-v2-retention-seed-audit/v1",
+            "pass": True,
+            "seeds": sorted(retained | set(candidates)),
+            "collisions": [],
+            "namespaces": previous["namespaces"],
+            "terminal_per_mix": TERMINAL_PER_MIX,
+            "product_sessions": PRODUCT_SESSIONS,
+            "timing_seeds": 1,
+            "resize": {
+                "specification": "docs/research/specs/2026-10-20_t34_retention_resize.md",
+                "retained_count": len(retained),
+                "retained_seeds": sorted(retained),
+                "added_seeds": sorted(candidates),
+                "previous_bank": _binding(bank_path, root=repo),
+                "previous_audit": _binding(audit_path, root=repo),
+                "previous_commit": subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+                ).strip(),
+                "previous_audit_evidence": previous_audit,
+                "round0_bank": _binding(round0, root=repo) if (repo / round0).is_file() else None,
+            },
+        }
+    )
+    result = dict(previous)
+    result["terminal_rows"] = terminal + _materialize_terminal(additions)
+    result["product_rows"] = product + products
+    return result, audit
+
+
 def _check_bank_and_audit(registration: Mapping[str, Any], *, root: Path) -> None:
     bank_payload = _read_object(_bound_path(registration.get("bank"), root=root, label="bank"))
     audit = _read_object(_bound_path(registration.get("seed_audit"), root=root, label="seed_audit"))
@@ -229,9 +319,9 @@ def _check_rows(registration: Mapping[str, Any]) -> None:
         registration.get("timing_row"),
     )
     if not isinstance(terminal, list) or len(terminal) != TERMINAL_PER_MIX * len(MIXES):
-        raise RegistrationError("registration needs exactly 32 terminal rows per mix")
+        raise RegistrationError("registration needs exactly 48 terminal rows per mix")
     if not isinstance(product, list) or len(product) != PRODUCT_SESSIONS:
-        raise RegistrationError("registration needs exactly 16 product rows")
+        raise RegistrationError("registration needs exactly 32 product rows")
     if not isinstance(timing, Mapping) or timing.get("mix") != "mixed":
         raise RegistrationError("registration needs one mixed timing row")
     if any(sum(row.get("mix") == mix for row in terminal) != TERMINAL_PER_MIX for mix in MIXES):
@@ -625,6 +715,11 @@ def main() -> None:
     allocate = commands.add_parser("allocate", help="create fresh bank and collision audit")
     allocate.add_argument("--bank", type=Path, default=DEFAULT_BANK)
     allocate.add_argument("--audit", type=Path, default=DEFAULT_AUDIT)
+    resize = commands.add_parser("resize", help="audit additions while retaining the original bank")
+    resize.add_argument("--bank", type=Path, default=DEFAULT_BANK)
+    resize.add_argument("--audit", type=Path, default=DEFAULT_AUDIT)
+    resize.add_argument("--out-bank", type=Path, required=True)
+    resize.add_argument("--out-audit", type=Path, required=True)
     build = commands.add_parser("build", help="create an unauthorized draft registration")
     build.add_argument("--out", type=Path, default=DEFAULT_REGISTRATION)
     build.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
@@ -654,6 +749,11 @@ def main() -> None:
                 {"bank_rows": len(payload["terminal_rows"]), "seed_count": len(audit["seeds"])}
             )
         )
+    elif args.command == "resize":
+        payload, audit = resize_allocation(bank_path=args.bank, audit_path=args.audit)
+        _write_new(args.out_bank, payload)
+        _write_new(args.out_audit, audit)
+        print(json.dumps({"retained": 113, "added": 64, "total": len(audit["seeds"])}))
     elif args.command == "build":
         value = build_draft(
             profile=args.profile,

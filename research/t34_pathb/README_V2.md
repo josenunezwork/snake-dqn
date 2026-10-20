@@ -97,8 +97,8 @@ or replacement bank is provided. Numerical pools are capped before imports.
 The operator prepares `schema:"t34-pathb-v2-registration/v1"`, `ratified:true`,
 `source_commit` (an ancestor of execution HEAD with identical execution bytes),
 `source_hashes` from `retention_v2.source_inventory()`, `arms:["bare","paced",
-"unpaced"]`, `paced_fps:24`, `terminal_per_mix:32`, `product_sessions:16`,
-`horizon:5000`, `workers:1`, `max_elapsed_hours:32`, `max_cpu_hours:48`,
+"unpaced"]`, `paced_fps:24`, `terminal_per_mix:48`, `product_sessions:32`,
+`horizon:5000`, `workers:1`, `max_elapsed_hours:40`, `max_cpu_hours:60`,
 `fresh_disjoint_banks:true`, and the complete materialized `terminal_rows`,
 `product_rows`, `timing_row`, `timing_ticks` and `timing_warmup`. Freeze the load
 profile and full contract bars in the committed preregistration. The unpaced
@@ -142,7 +142,7 @@ prospective registration; an opaque success flag or CLI exit status is not proof
 | One thread, one request, bounded confirmation history, stale/late fallback | Controller queue, identity, mismatch and overflow regressions |
 | Real terminal + continuous Watch adapter | Tiny actual adapter smoke, physical/carry/v8 comparison |
 | T3 pre-check >=50/64 at 24 fps | Implemented; full run reserved for operator |
-| Fresh 32/mix H5000 +16 paired Watch6 sessions | Registered runner implemented; full run reserved for operator |
+| Fresh 48/mix H5000 +32 paired Watch6 sessions | Registered runner implemented; full run reserved for operator |
 | P7 paired-world/session inference and Holm family | Analyzer rule and boundary tests |
 | First-result p95 <=2 s | Engineering target; no final timing claim from implementation smoke |
 | 24 fps update p95 <=11.688 ms, zero 12/24 fps overruns | Quiet-host registered probes after Phase 0; contended smoke cannot qualify |
@@ -163,17 +163,30 @@ OC receipt. Its only deferred evidence binding is the final-source trace receipt
 It is unauthorized; pending quiet-host conditions are not observed facts.
 
 `registration_retention_v2` only allocates, hashes, validates and writes
-create-only registrations. It cannot start gameplay. The full 113-seed allocation
+create-only registrations. It cannot start gameplay. The original 113-seed allocation
 was audited before bank publication; **do not run allocate again** on these
 namespaces, because their declarations are now searchable history. A collision
 rejects the whole allocation. A future namespace needs a prospective sibling
-erratum, never a replacement seed. The bank fixes 96 terminal rows, 16 product
+erratum, never a replacement seed. The resized bank fixes 144 terminal rows, 32 product
 rows and one separate timing seed, with exact historical terminal rosters.
+
+The [pre-data resize ruling](../../docs/research/specs/2026-10-20_t34_retention_resize.md)
+increases terminal N32 -> N48/mix and Watch sessions 16 -> 32 after the low-power
+review, with 40 elapsed h / 60 CPU-h caps. All 113 original seeds/rows/rosters
+are retained; 64 additions use the frozen allocator's next indices and are
+audited together against the retained bank, Round 0 draft and prior history.
+The updated seed audit embeds the original audit and its historical hashes.
+`resize --out-bank NEW --out-audit NEW` is create-only and accepts only the
+original N32/16 inputs; do not rerun it on the published resized bank.
+Minimum pacing exposure is (144+32)*2*5000/24/3600 = **20.370 h**, plus
+~.361 h timing/warmup, setup, pre-check and descriptive unpaced work.
+Stop at the first cap as INCONCLUSIVE. The new OC power numbers and complete
+verification are in [VERIFICATION_RETENTION_RESIZE.md](VERIFICATION_RETENTION_RESIZE.md).
 
 Package validation (safe during implementation; no pre-check or efficacy):
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-retention-fixes
+cd /Users/josenunez/Projects/ml/snake-dqn-retention-resize
 export SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
@@ -187,9 +200,9 @@ not 64 independent worlds. Frozen/mixed terminal variance is a disclosed proxy.
 Power for a positive mass bound is distinct from power to meet point gain +40;
 product, boost and no-death bars can reduce joint success further. The extended
 OC reports T3-shaped +.10/+.25 scripted survival crossed with +40/+60/+92 mass,
-joint GO probabilities conditional on timing/boost compliance and unchanged product growth, and 16-session
+joint GO probabilities conditional on timing/boost compliance and unchanged product growth, and 32-session
 Watch6 paired deaths/1k power at 20%/40% reduction from T15/T13b baselines. If
-T3-like joint GO power is below .5, report it for operator decision; keep N32.
+T3-like joint GO power is below .5, report it for operator decision; keep N48; do not resize again.
 Fixed N stays fixed. The simulator is one-thread, checkpointed every 250 replicates, with a
 60-second command budget. To reproduce it prospectively into **new** paths:
 
@@ -213,7 +226,7 @@ from the draft's frozen executable revision, which may precede JSON-only commits
 Do not run these gameplay commands during implementation:
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-retention-fixes
+cd /Users/josenunez/Projects/ml/snake-dqn-retention-resize
 export SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
@@ -231,7 +244,7 @@ git commit -m 'Ratify T34 retention before timing and pre-check'
 git fetch origin
 git merge origin/main
 git push origin HEAD:main
-git push origin t34-retention-fixes-20261020
+git push origin t34-retention-resize-20261020
 "$PY" -m research.t34_pathb.registration_retention_v2 validate \
   --registration "$READY" --ready
 
@@ -268,7 +281,7 @@ is the sole failing category and product passes.
 
 Exactly one complete fixed-N look. Preserve incomplete/fault evidence; no
 automatic retry, efficacy resume, bank replacement or extension. The first of
-32 h elapsed / 48 CPU-h / $0 wins. Product sessions and timing use actual offline
+40 h elapsed / 60 CPU-h / $0 wins. Product sessions and timing use actual offline
 Watch6; no release-monitor or leaderboard writes. Development GO only admits
 fresh Mac strict-gate preparation. Client latency, Watch8/12, Play, serving
 qualification, visible assisted labelling and owner-approved release remain

@@ -73,15 +73,15 @@ def test_non_smoke_registration_rechecks_raw_evidence_and_source_closure(monkeyp
         "source_commit": source_commit,
         "arms": ["bare", "paced", "unpaced"],
         "paced_fps": 24,
-        "terminal_per_mix": 32,
-        "product_sessions": 16,
+        "terminal_per_mix": 48,
+        "product_sessions": 32,
         "horizon": 5000,
         "workers": 1,
         "load_profile": json.loads(
             Path("research/t34_pathb/RETENTION_PROFILE_V2.json").read_text()
         )["load_policy"],
-        "max_elapsed_hours": 32.0,
-        "max_cpu_hours": 48.0,
+        "max_elapsed_hours": 40.0,
+        "max_cpu_hours": 60.0,
         "fresh_disjoint_banks": True,
         "source_hashes": {source: digest},
     }

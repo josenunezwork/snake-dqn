@@ -97,8 +97,12 @@ def test_action_window_checks_exact_rolling_100k_without_counter_rebuild() -> No
         collapsed = window.add(1)
     assert collapsed
     assert window.counts == [0, 100000, 0, 0, 0, 0]
-    assert not window.add(2)
+    assert window.add(2)
     assert window.counts == [0, 99999, 1, 0, 0, 0]
+    for _ in range(9998):
+        assert window.add(2)
+    assert not window.add(2)
+    assert window.counts == [0, 90000, 10000, 0, 0, 0]
 
 
 def test_bare_prepares_before_evaluation_without_environment_drift(monkeypatch, tmp_path) -> None:

@@ -30,10 +30,10 @@
     "own_cpu_worker_allowance": 2,
     "persistence_seconds": 120
   },
-  "max_cpu_hours": 48,
+  "max_cpu_hours": 60,
   "max_cpu_threads": 2,
   "max_dollars": 0,
-  "max_elapsed_hours": 32,
+  "max_elapsed_hours": 40,
   "numerical_pool_threads": 1,
   "platform": "darwin",
   "product": {
@@ -76,6 +76,7 @@
     ],
     "release_monitoring": false,
     "session": "web.backend.session.GameSession",
+    "sessions": 32,
     "snakes": 6
   },
   "release_checks_unmeasured": [
@@ -99,7 +100,7 @@
     "bound": "rci_obf",
     "floor": 0.3,
     "looks": [
-      32
+      48
     ],
     "mix_margin": 0.075,
     "nominal_levels": [
@@ -116,7 +117,8 @@
     "profile": "promotion-v2-watch-rect",
     "profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
     "roster_authority": "research.t3_rollout_labels_20261015.bank_engine.planned_rosters",
-    "terminal_hero": true
+    "terminal_hero": true,
+    "worlds_per_mix": 48
   },
   "timing": {
     "fps": [

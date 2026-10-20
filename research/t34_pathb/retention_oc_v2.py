@@ -42,9 +42,10 @@ T13B_EPISODES = REPO / "research/t13b_six_snake_20261017/results/episodes.json.g
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 MIXES = ("frozen", "scripted", "mixed")
 THETAS = (20.0, 26.8, 40.0, 60.0, 80.0)
-N = 32
+N = 48
 BATCH = 250
-WATCH_PRODUCT_SESSIONS = 16
+WATCH_PRODUCT_SESSIONS = 32
+SEQUENTIAL_EARLY_LOOK = N // 2
 WATCH_REDUCTIONS = (0.20, 0.40)
 PATHB_SURVIVAL_GAINS = (0.10, 0.25)
 PATHB_MASS_GAINS = (40.0, 60.0, 92.0)
@@ -360,7 +361,7 @@ def simulate_batch(pool: dict[str, Any], seed: int, offset: int, count: int) -> 
                         counts[key + "|joint_after_near_zero_exception"] = int((skill & band).sum())
                         counts[key + "|mass_lb_positive"] = int(sign.sum())
                         counts[key + "|mass_point_and_lb"] = int(skill.sum())
-        # Full registered N=32 Path B development power grid. The positive
+        # Full registered N=48 Path B development power grid. The positive
         # scripted no-death and all-mix mass shifts reuse the centered T3 dense
         # within-world shape; they do not consume or resemble retention rows.
         for scenario_name, effect in pathb_power_scenarios().items():
@@ -426,15 +427,15 @@ def simulate_batch(pool: dict[str, Any], seed: int, offset: int, count: int) -> 
         # Illustrative sequential alternative: same max N, two looks, Bonferroni
         # across looks (alpha .025 each), no futility. Early success needs +40
         # point, mass lower >0, and all bands at alpha .025. This is not registered.
-        _, early_mass_lb, _ = intervals(mass[..., :16], 0.025)
-        early_mass_mean = mass[..., :16].mean(axis=(1, 2))
-        _, early_alive_lb, early_mix_lb = intervals(alive[..., :16], 0.025)
+        _, early_mass_lb, _ = intervals(mass[..., :SEQUENTIAL_EARLY_LOOK], 0.025)
+        early_mass_mean = mass[..., :SEQUENTIAL_EARLY_LOOK].mean(axis=(1, 2))
+        _, early_alive_lb, early_mix_lb = intervals(alive[..., :SEQUENTIAL_EARLY_LOOK], 0.025)
         early = (
             (early_mass_mean + 40 >= 40)
             & (early_mass_lb + 40 > 0)
             & (early_alive_lb > -0.05)
             & np.all(early_mix_lb > -0.075, axis=1)
-            & np.all((base + alive)[..., :16].mean(axis=2) >= 0.30, axis=1)
+            & np.all((base + alive)[..., :SEQUENTIAL_EARLY_LOOK].mean(axis=2) >= 0.30, axis=1)
         )
         counts[f"{name}|sequential_illustration|early_success"] = int(early.sum())
     for key, value in product_outcomes.items():
@@ -567,17 +568,18 @@ def run(
         "threshold": 0.5,
         "rates": t3_like_rates,
         "required": any(value["rate"] < 0.5 for value in t3_like_rates.values()),
-        "rule": "Report below-.5 joint power; fixed N=32/mix does not change.",
+        "rule": "Report below-.5 joint power; fixed N=48/mix does not change.",
     }
     costs = {}
     for name in _models(pool):
         early = rates[f"{name}|sequential_illustration|early_success"]["rate"]
         costs[name] = {
-            "fixed_worlds_per_mix": 32,
-            "sequential_expected_worlds_per_mix": 16 * early + 32 * (1 - early),
+            "fixed_worlds_per_mix": N,
+            "sequential_expected_worlds_per_mix": (SEQUENTIAL_EARLY_LOOK * early + N * (1 - early)),
             "early_success_probability": early,
-            "fixed_paired_worlds_total": 96,
-            "sequential_expected_paired_worlds_total": 3 * (32 - 16 * early),
+            "fixed_paired_worlds_total": len(MIXES) * N,
+            "sequential_expected_paired_worlds_total": len(MIXES)
+            * (N - SEQUENTIAL_EARLY_LOOK * early),
         }
     receipt = {
         "schema": "t34-retention-fixed-n-oc/v1",
@@ -614,7 +616,8 @@ def run(
                 "within worlds"
             ),
             "empirical": (
-                "each 32-world arm resampled separately; scripted shape reused as proxy "
+                "each 32-world source arm resampled separately to 48 draws; "
+                "scripted shape reused as proxy "
                 "for all mixes"
             ),
             "stress": (
@@ -631,10 +634,10 @@ def run(
             ),
             "pathb_power": (
                 "T3 centered dense within-world mass/alive shape, scripted-only survival gains "
-                "+.10/+.25, all-mix mass gains +40/+60/+92, fixed N=32 per mix"
+                "+.10/+.25, all-mix mass gains +40/+60/+92, fixed N=48 per mix"
             ),
             "product_power": (
-                "16 paired Watch6 sessions; independently resample each historical baseline and "
+                "32 paired Watch6 sessions; independently resample each historical baseline and "
                 "apply binomial death thinning at 20%/40%, two-sided paired Student-t 95% CI"
             ),
             "near_zero": (
@@ -656,7 +659,7 @@ def run(
             "interpretation": (
                 "Joint paced-arm skill plus product GO probability: fixed-N terminal bars include "
                 "the two-arm Holm first-rank mass threshold, survival floors, and scripted "
-                "no-death >=.03; each product baseline uses the 16-session paired death CI. "
+                "no-death >=.03; each product baseline uses the 32-session paired death CI. "
                 "Timing, boost, and product growth are assumed to pass."
             ),
         },
@@ -673,9 +676,9 @@ def run(
         "t3_like_power_review_required": t3_like_power_review_required,
         "fixed_vs_sequential": costs,
         "cost_note": (
-            "Fixed N is retained as mandated by the spec: 96 paired terminal worlds, plus "
-            "16 product sessions and timing, with all arms completing. Sequential illustration "
-            "has looks 16/32, alpha .025 per look (Bonferroni across looks, conservative Holm "
+            "Fixed N is retained as mandated by the spec: 144 paired terminal worlds, plus "
+            "32 product sessions and timing, with all arms completing. Sequential illustration "
+            "has looks 24/48, alpha .025 per look (Bonferroni across looks, conservative Holm "
             "rank), no futility, and early success only with point mass>=40, positive LB and "
             "survival bands. Saved worlds are an optimistic ceiling: product/timing bars and "
             "the second arm can prevent stopping; look overhead is omitted. It is not a "
@@ -718,7 +721,7 @@ def run(
             (
                 "Product power uses a declared binomial thinning counterfactual. It does not "
                 "estimate a controller effect, account for product overdispersion, or authorize "
-                "a product result or change to N=16."
+                "a product result or a further change to N."
             ),
         ],
     }
