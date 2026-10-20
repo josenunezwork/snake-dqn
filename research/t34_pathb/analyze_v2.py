@@ -290,9 +290,9 @@ def timing_summary(timing: Mapping[str, Any]) -> dict[str, Any]:
         if probe["achieved_fps"] == 0:
             raise InvalidRetention("zero delivered cadence")
     clauses = {
-        "update_p95_le_11688ms": all(
-            probes[f"paced-{fps}"]["update_ms"]["p95"] <= 11.688 for fps in (12, 24)
-        ),
+        # The 12 fps p95 remains in the immutable probe report as a diagnostic.
+        # Contract §4 sets the update-p95 limit only for the 24 fps Watch6 probe.
+        "update_p95_le_11688ms_24": probes["paced-24"]["update_ms"]["p95"] <= 11.688,
         "zero_overruns_12": probes["paced-12"]["overruns"] == 0,
         "zero_overruns_24": probes["paced-24"]["overruns"] == 0,
         "cadence_deterioration_le_5pct": all(
@@ -345,12 +345,15 @@ def decide(
     """Fixed look: integrity, faults, uncertainty exception, scientific KILL/GO.
 
     Incomplete data do not support an efficacy decision. Recorded unconditional
-    faults and timing overruns still kill immediately, including partial runs.
+    faults and registered timing-probe overruns still kill immediately, including
+    partial runs. Paced efficacy ticks run bare after a missed deadline; those
+    overruns are retained as diagnostics and do not constitute timing failures.
     """
     records = list(records)
     try:
         faults = []
-        overrun = False
+        timing_overrun = False
+        paced_efficacy_overruns = 0
         for row in records:
             for name in ACTIVE_ARMS:
                 evidence = row.get("arms", {}).get(name, {})
@@ -360,12 +363,13 @@ def decide(
                 ):
                     raise InvalidRetention("malformed unconditional-fault evidence")
                 faults.extend(arm_faults)
-            # Unpaced has no delivery deadline. Its latency is descriptive.
-            overrun |= (
-                _integer(row.get("arms", {}).get("paced", {}).get("overruns", 0), "overruns") > 0
+            # Paced efficacy misses execute bare fallback and remain diagnostic.
+            # Unpaced latency is descriptive as well.
+            paced_efficacy_overruns += _integer(
+                row.get("arms", {}).get("paced", {}).get("overruns", 0), "overruns"
             )
         for fps in (12, 24):
-            overrun |= (
+            timing_overrun |= (
                 _integer(
                     timing.get("probes", {}).get(f"paced-{fps}", {}).get("overruns", 0),
                     "timing overruns",
@@ -374,7 +378,7 @@ def decide(
             )
     except (InvalidRetention, TypeError, ValueError, AttributeError) as exc:
         return _inconclusive(f"malformed fault evidence: {exc}")
-    if faults or overrun:
+    if faults or timing_overrun:
         return {
             "schema": "t34-pathb-v2-decision/v1",
             "verdict": "KILL",
@@ -401,12 +405,20 @@ def decide(
             skill["pass"] = all(skill["clauses"].values())
         paced, unpaced = skills
         product, timing_report = product_summary(records, "paced"), timing_summary(timing)
-        near_zero = paced["mass"]["mean"] >= 40 and abs(paced["mass"]["lower"]) <= 10
+        failed_paced_bars = {key for key, passed in paced["clauses"].items() if not passed}
+        mass_bars = {"mass_gain_ge_40", "mass_lb90_positive", "mass_holm_positive"}
+        near_zero_mass_only = (
+            paced["mass"]["mean"] >= 40
+            and abs(paced["mass"]["lower"]) <= 10
+            and bool(failed_paced_bars & mass_bars)
+            and failed_paced_bars <= mass_bars
+            and product["pass"]
+        )
         if timing_report["contended"]:
             verdict, reason = "INCONCLUSIVE", "quiet-host timing not established"
         elif not timing_report["pass"]:
             verdict, reason = "KILL", "paced timing bar failed"
-        elif near_zero or (product["pass"] and _uncertain_skill(paced)):
+        elif near_zero_mass_only or (product["pass"] and _uncertain_skill(paced)):
             verdict, reason = "INCONCLUSIVE", "registered near-boundary uncertainty exception"
         elif not paced["pass"]:
             verdict, reason = "KILL", (
@@ -424,6 +436,7 @@ def decide(
             "unpaced_descriptive": unpaced,
             "product": product,
             "timing": timing_report,
+            "paced_efficacy_overruns_diagnostic": paced_efficacy_overruns,
             "multiplicity": {"method": "Holm", "arms": 2, "looks": 1, "family_alpha": 0.10},
             "client_latency": "NOT_MEASURED",
             "serving_qualification": "NOT_MEASURED",
