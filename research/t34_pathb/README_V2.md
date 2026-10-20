@@ -58,6 +58,20 @@ PY
 "$PY" -m research.t34_pathb.retention_v2 smoke \
   --input /tmp/t34-pathb-v2-smoke-input.json --frames 2 \
   --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-pathb-v2/smoke-01
+
+# Tiny timing plumbing check during Phase 0; these are contended observations.
+"$PY" - <<'PY'
+import json
+from pathlib import Path
+from research.t34_pathb.adapter_v2 import open_watch
+from research.t34_pathb.timing_v2 import run_probes
+result = run_probes(
+    lambda arm, fps: open_watch({"seed": 991827}, fps, arm),
+    ticks=2, warmup=0, contended=True,
+)
+with Path("/tmp/t34-pathb-v2-timing-smoke.json").open("x") as stream:
+    json.dump(result, stream, indent=2, allow_nan=False)
+PY
 ```
 
 The following commands are **operator-run**, after implementation verification.
