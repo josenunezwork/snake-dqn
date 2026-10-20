@@ -94,6 +94,7 @@ def aggregate_results(
             for key in target:
                 target[key] += int(dict(metrics).get(key, 0))
     return {
+        "mixes": mixes,
         "worlds": worlds,
         "requested_worlds": requested,
         "complete": all(bool(row.get("complete")) for row in results),

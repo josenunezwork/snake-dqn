@@ -3,10 +3,57 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from research.t34_exit_b8 import profile_cpu
+
+
+def test_completed_worker_does_not_abort_a_slower_sibling(monkeypatch, tmp_path) -> None:
+    children = []
+
+    class Child:
+        def __init__(self, rank):
+            self.rank = rank
+            self.exitcode = 0 if rank == 0 else None
+            self.terminated = False
+
+        def start(self):
+            pass
+
+        def is_alive(self):
+            return self.exitcode is None
+
+        def terminate(self):
+            self.terminated = True
+            self.exitcode = -15
+
+        def join(self, timeout):
+            pass
+
+    class Results:
+        calls = 0
+
+        def get(self, timeout):
+            self.calls += 1
+            if self.calls == 1:
+                return 0, {"rank": 0}, None
+            if self.calls == 2:
+                raise profile_cpu.queue.Empty
+            children[1].exitcode = 0
+            return 1, {"rank": 1}, None
+
+    def process(**kwargs):
+        child = Child(kwargs["args"][0])
+        children.append(child)
+        return child
+
+    context = SimpleNamespace(Queue=Results, Process=process)
+    monkeypatch.setattr(profile_cpu.mp, "get_context", lambda _mode: context)
+    reports = profile_cpu._run_group(tmp_path / "b8", tmp_path / "output", 1, 2)
+    assert [row["rank"] for row in reports] == [0, 1]
+    assert not any(child.terminated for child in children)
 
 
 def test_runtime_hardware_has_probe_fields() -> None:

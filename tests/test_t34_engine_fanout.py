@@ -11,6 +11,35 @@ from research.t34_exit_b8 import benchmark, process_fanout
 from research.t34_exit_b8.process_fanout import aggregate_results, shard_rows
 
 
+def test_fanout_materializes_the_same_default_mix_bank_as_serial(monkeypatch, tmp_path) -> None:
+    from research.t34_exit_b8 import process_fanout, trajectory
+
+    def bank(config, count):
+        assert config["mixes"] == ("scripted", "frozen", "mixed")
+        return [{"world_id": str(i), "mix": config["mixes"][i % 3]} for i in range(count)]
+
+    def stop_after_bank(config, *, runner, rows, nproc):
+        assert [row["mix"] for row in rows] == ["scripted", "frozen", "mixed"] * 2
+        raise RuntimeError("bank inspected before spawning")
+
+    monkeypatch.setattr(trajectory, "make_world_rows", bank)
+    monkeypatch.setattr(process_fanout, "run_fanout", stop_after_bank)
+    with pytest.raises(RuntimeError, match="bank inspected"):
+        benchmark.run_benchmark(
+            dict(
+                kernel="v2",
+                checkpoint=tmp_path / "b8",
+                output_dir=tmp_path / "worlds",
+                worlds=1,
+                max_worlds=6,
+                nproc=2,
+                threads=1,
+                device="cpu",
+                seconds=1,
+            )
+        )
+
+
 def test_round_robin_shards_are_disjoint_and_reassemble_global_rows() -> None:
     rows = [{"world_id": f"w{index}"} for index in range(7)]
     shards = shard_rows(rows, 3)
@@ -60,6 +89,8 @@ def test_aggregate_keeps_partial_work_separate_from_completed_worlds() -> None:
     assert result["unfinished_row_steps"] == 5
     assert result["executed_row_steps_per_world"] == 9
     assert result["fanout"]["nproc"] == 2
+    assert result["mixes"]["scripted"]["worlds"] == 1
+    assert result["mixes"]["frozen"]["worlds"] == 0
 
 
 def test_normal_cpu_w1_configuration_is_not_rejected_as_legacy_cuda_a5(
