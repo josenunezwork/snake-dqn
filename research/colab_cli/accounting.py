@@ -413,15 +413,40 @@ class AccountTracker:
                 budget_other_assignments=budget_other_assignments,
                 previous_other_rates=previous_other_rates,
             )
+            broker_departed = sorted(
+                endpoint
+                for endpoint in current_other_rates
+                if endpoint in previous_other_rates
+                and previous_other_rates[endpoint][1] == "broker.active"
+                and endpoint not in broker_active_rates
+            )
+            if any(
+                not math.isclose(
+                    previous_other_rates[endpoint][0],
+                    current_other_rates[endpoint][0],
+                    rel_tol=0,
+                    abs_tol=1e-9,
+                )
+                for endpoint in broker_departed
+            ):
+                raise AccountingError(
+                    "provider usage rate drift is not explained by accounted active assignments"
+                )
             expected_rate = self.observed_rate_units_per_hour + sum(
                 rate for rate, _ in current_other_rates.values()
             )
-            settled = int(current["assignments"]) == len(current_sessions) and math.isclose(
+            provider_settled = int(current["assignments"]) == len(
+                current_sessions
+            ) and math.isclose(
                 current["rate"],
                 expected_rate,
                 rel_tol=0,
                 abs_tol=self.rate_tolerance_units_per_hour,
             )
+            # Matching provider reads do not renew broker ownership. Keep the
+            # known price, but share the existing bounded transition window
+            # until sessions drops the endpoint or the broker re-lists it.
+            settled = provider_settled and not broker_departed
             if settled:
                 self.transition_mismatch_polls = 0
                 self.transition_from_other_rates = None
@@ -439,12 +464,18 @@ class AccountTracker:
                     transition_to = self.transition_to_other_rates
                     transition_broker_active = dict(self.transition_broker_active_rates or {})
                     transition_broker_active.update(broker_active_rates)
-                transition_matches = self._transition_match(
-                    current, transition_from, transition_to, transition_broker_active
+                transition_matches = (provider_settled and bool(broker_departed)) or (
+                    self._transition_match(
+                        current, transition_from, transition_to, transition_broker_active
+                    )
                 )
             if not settled and transition_matches:
                 self.transition_mismatch_polls += 1
                 if self.transition_mismatch_polls > TRANSITION_MISMATCH_POLLS:
+                    if broker_departed:
+                        raise AccountingError(
+                            "unaccounted active assignment endpoints: " + ", ".join(broker_departed)
+                        )
                     if int(current["assignments"]) != len(current_sessions):
                         raise AccountingError(
                             "provider assignment count disagrees with sessions during polling"

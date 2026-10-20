@@ -1464,3 +1464,64 @@ def test_fake_provider_persistent_departure_lag_fails_on_third_poll(
     assert warnings == [1, 2]
     assert not (tmp_path / "job-output/spend-000008.json").exists()
     _assert_transport(tmp_path)
+
+
+@pytest.mark.parametrize("outcome", ["persists", "disappears", "relisted"])
+def test_fake_provider_broker_departed_endpoint_carryover_is_bounded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, outcome: str
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path, assignments=1)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    _write_broker_other_reservation(tmp_path)
+    manifest = _manifest(tmp_path)
+    original_poll = supervisor.CLI.poll_rpc
+    reads = 0
+    ready = False
+
+    def delayed_terminal(self: supervisor.CLI, code: str, timeout: float = 30) -> object:
+        nonlocal reads
+        if ready and "read_state" in code:
+            reads += 1
+            if reads == 8:
+                # Resolve membership after two warnings, before the third
+                # accounting poll; leave provider rate/count consistent.
+                if outcome == "disappears":
+                    state_path = tmp_path / "fake-state.json"
+                    state = json.loads(state_path.read_text())
+                    del state["sessions"]["gpu-notebook-1"]
+                    state["rate"] -= 6.84
+                    state_path.write_text(json.dumps(state))
+                elif outcome == "relisted":
+                    _write_broker_other_reservation(tmp_path)
+            if reads < 9:
+                return {"state": {"status": "running"}, "terminal": None, "exports": []}
+        return original_poll(self, code, timeout)
+
+    monkeypatch.setattr(supervisor.CLI, "poll_rpc", delayed_terminal)
+
+    def observer(event: str, _context: dict[str, object]) -> None:
+        nonlocal ready
+        if event == "ready":
+            (supervisor.ACCOUNT_ROOT / "active-other-lane.json").unlink()
+            ready = True
+
+    broker = supervisor.Broker(tmp_path / "lanes", binary, observer=observer)
+    if outcome == "persists":
+        with pytest.raises(
+            supervisor.Refused, match="unaccounted active assignment.*gpu-notebook-1"
+        ):
+            broker.run(manifest)
+        assert reads == 8
+        assert not (tmp_path / "job-output/spend-000008.json").exists()
+    else:
+        broker.run(manifest)
+        receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
+        assert receipt["stop_verified"] is True
+        settled = json.loads((tmp_path / "job-output/spend-000008.json").read_text())
+        assert settled["provider_transition_status"] == "OK"
+        assert settled["provider_transition_mismatch_polls"] == 0
+    for poll, expected in ((0, 1), (4, 2)):
+        spend = json.loads((tmp_path / "job-output" / f"spend-{poll:06d}.json").read_text())
+        assert spend["provider_transition_status"] == "WARNING_BROKER_TRANSITION_LAG"
+        assert spend["provider_transition_mismatch_polls"] == expected
+    _assert_transport(tmp_path)

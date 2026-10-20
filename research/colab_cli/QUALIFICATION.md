@@ -5,6 +5,21 @@ in this branch changes these bytes: final-only acceptance must be rerun by the
 operator before T34 dispatch.** Offline tests do not renew live qualification.
 No live Colab, pod or tmux action was taken by this implementation task.
 
+The 2026-10-19 carry-over correction also bounds broker-departed endpoints
+that linger in `sessions` even when provider rate/count agree: their known
+price remains charged, with `WARNING_BROKER_TRANSITION_LAG` for at most two
+consecutive polls using the existing transition window, then refusal on poll
+3 unless the endpoint disappears or the broker re-lists it. Other accounting
+tolerances are unchanged. Final-only acceptance must run on the newly merged
+carry-over fix commit; the operator runs it, and it was not run for this fix.
+
+Carry-over fix verification (Mac, 2026-10-19): `python -m pytest -q -n 2
+tests/test_colab_cli_*.py tests/test_t34_transport_qualification.py
+tests/test_t34_exit_manifests.py tests/test_t34_exit_jobs.py` passed **324 tests**
+in **978.21 seconds**, including 14 added regression cases. Numerical library
+threads were capped at one per worker. Repository lint and Black/isort/flake8
+checks on the changed Python files passed. No live acceptance was run.
+
 T34 manifests must run a colab_cli whose files hash-match this record; any
 colab_cli change requires re-running only the final-only acceptance (~1.5 u,
 operator runs it). Both T34 builders compare the complete local executable
