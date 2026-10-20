@@ -746,18 +746,22 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                     doom_cache_peak_roots = max(doom_cache_peak_roots, len(group))
                     cache_started = time.perf_counter()
                     try:
-                        if all(
-                            isinstance(state["shadow"], ShadowTrajectory)
-                            and hasattr(state["world"], "clone")
-                            for state in group
-                        ):
-                            _build_doom_caches(group, teacher, deadline)
-                        else:
+                        try:
+                            if all(
+                                isinstance(state["shadow"], ShadowTrajectory)
+                                and hasattr(state["world"], "clone")
+                                for state in group
+                            ):
+                                _build_doom_caches(group, teacher, deadline)
+                            else:
+                                for state in group:
+                                    state["doom_cache"] = _build_doom_cache(
+                                        state, teacher, deadline
+                                    )
+                        finally:
+                            cache_elapsed = time.perf_counter() - cache_started
                             for state in group:
-                                state["doom_cache"] = _build_doom_cache(state, teacher, deadline)
-                        cache_elapsed = time.perf_counter() - cache_started
-                        for state in group:
-                            state["stages"]["doom_cache_s"] += cache_elapsed / len(group)
+                                state["stages"]["doom_cache_s"] += cache_elapsed / len(group)
                         _search_dooms(group, teacher, bucket, deadline)
                     finally:
                         for state in group:

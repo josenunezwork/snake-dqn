@@ -11,7 +11,7 @@ from research.t34_exit_b8 import teacher_v2
 from research.t34_exit_b8.policy import PolicyEvaluation
 
 
-def _run_clocked(tmp_path, monkeypatch, *, partial_cold: bool):
+def _run_clocked(tmp_path, monkeypatch, *, partial_cold: bool, partial_cache: bool = False):
     clock = [0.0]
 
     class Sim:
@@ -27,7 +27,9 @@ def _run_clocked(tmp_path, monkeypatch, *, partial_cold: bool):
     class Shadow:
         def __init__(self, *_args, **_kwargs):
             self.frames = []
-            self.world = SimpleNamespace(sim=SimpleNamespace(alive=np.ones((1, 6), dtype=bool)))
+            self.world = SimpleNamespace(
+                sim=SimpleNamespace(alive=np.full((1, 6), not partial_cache, dtype=bool))
+            )
             self.confirmed = True
             self.first_fill = True
 
@@ -67,6 +69,15 @@ def _run_clocked(tmp_path, monkeypatch, *, partial_cold: bool):
         def profile(self):
             return {"active_row_steps": 0}
 
+    if partial_cache:
+
+        def capture_then_timeout(states, _teacher, _deadline):
+            states[0]["work"]["reconstruction_row_steps"] += 1
+            clock[0] += 2.0
+            raise TimeoutError("partial doom cache")
+
+        monkeypatch.setattr(teacher_v2, "_build_doom_caches", capture_then_timeout)
+
     checkpoint = tmp_path / "checkpoint.pth"
     checkpoint.write_bytes(b"clock fixture")
     monkeypatch.setattr(teacher_v2.time, "monotonic", lambda: clock[0])
@@ -79,7 +90,9 @@ def _run_clocked(tmp_path, monkeypatch, *, partial_cold: bool):
             "output_dir": tmp_path / "worlds",
             "rows": [{"world_id": "clocked", "world_seed": 7, "mix": "scripted"}],
             "world_builder": lambda *_args: SimpleNamespace(
-                sim=Sim(), runtime=SimpleNamespace(observe_step=lambda _sim: None)
+                sim=Sim(),
+                runtime=SimpleNamespace(observe_step=lambda _sim: None),
+                clone=lambda: None,
             ),
             "teacher": Teacher(),
             "worlds_per_process": 1,
@@ -114,3 +127,11 @@ def test_collector_stops_at_requested_post_fill_window(tmp_path, monkeypatch):
     assert result["steady_state_root_row_steps"] == result["steady_state_decisions"] == 2
     assert result["steady_state_shadow_row_steps"] == 1
     assert result["steady_state_host_stage_seconds"].get("build_s", 0.0) == 0
+
+
+def test_collector_accounts_partial_doom_cache_time(tmp_path, monkeypatch):
+    result = _run_clocked(tmp_path, monkeypatch, partial_cold=False, partial_cache=True)
+    assert not result["complete"]
+    assert result["first_decision_elapsed_seconds"] is None
+    assert result["steady_state_work"]["reconstruction_row_steps"] == 1
+    assert result["steady_state_host_stage_seconds"]["doom_cache_s"] > 0
