@@ -121,7 +121,7 @@ def test_policy_and_trigger_arguments_reach_both_launch_paths(
     fake_python.write_text(
         "#!/usr/bin/env bash\n"
         'if [[ "$*" == *public_inputs* ]]; then exit 0; fi\n'
-        f'printf "%s\\n" "$@" >> "{argv_log}"\n'
+        f'printf "%s\\n" "$@" > "{argv_log}.$$"\n'
         "exit 0\n"
     )
     fake_python.chmod(0o755)
@@ -159,20 +159,24 @@ def test_policy_and_trigger_arguments_reach_both_launch_paths(
         timeout=8,
     )
     assert result.returncode == 0, result.stderr
-    args = argv_log.read_text().splitlines()
-    for flag, value in (
-        ("--policy-factory", "future.module:factory"),
-        ("--confirm-interval", "4"),
-        ("--confirm-min-length", "500"),
-        ("--low-length-probability", "0.04"),
-        ("--death-window", "75"),
-        ("--max-rewinds", "1"),
-    ):
-        assert args[args.index(flag) + 1] == value
-    assert args[args.index("--student-checkpoint") + 1].endswith("/student weights.pth")
-    assert args[args.index("--checkpoint") + 1].endswith("/other.pth")
-    if script == "label.sh":
-        assert args[args.index("--beta") + 1] == "0.5"
+    # Worker writes must never interleave; aggregation is a separate invocation.
+    invocations = [path.read_text().splitlines() for path in tmp_path.glob("argv.*")]
+    worker_args = [args for args in invocations if "--checkpoint" in args]
+    assert len(worker_args) == (2 if runtime else 1)
+    for args in worker_args:
+        for flag, value in (
+            ("--policy-factory", "future.module:factory"),
+            ("--confirm-interval", "4"),
+            ("--confirm-min-length", "500"),
+            ("--low-length-probability", "0.04"),
+            ("--death-window", "75"),
+            ("--max-rewinds", "1"),
+        ):
+            assert args[args.index(flag) + 1] == value
+        assert args[args.index("--student-checkpoint") + 1].endswith("/student weights.pth")
+        assert args[args.index("--checkpoint") + 1].endswith("/other.pth")
+        if script == "label.sh":
+            assert args[args.index("--beta") + 1] == "0.5"
 
 
 @pytest.mark.parametrize(

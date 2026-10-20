@@ -36,7 +36,9 @@ like-for-like historical agreement percentage. This comparison is descriptive, n
 ## Verification closeout
 
 The final engine-focused checks passed **41 tests**: 39 in the one-thread run plus two isolated
-Numba-ceiling subprocess tests. Black, isort, Flake8, Bash syntax and whitespace checks passed.
+Numba-ceiling subprocess tests. After merging the sibling fit package from main, **91 combined T34/S1
+checks passed**, with those two Numba cases run separately. Black, isort, Flake8, Bash syntax and
+whitespace checks passed.
 The full CPU non-slow selection completed in **4,233.44 s** with **8,139 passed, 4 failed,
 29 skipped, 134 deselected**. It is **not a green whole-suite run**. The tracebacks were:
 
@@ -169,6 +171,8 @@ env PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin
   --checkpoint "$T34_PREP/inputs/B8_s3_final.pth" --out "$T34_PREP/a6-replay.json"
 
 "$T34_PY" -m pytest -q tests/test_t34_exit_identity.py
+"$T34_PY" -m pytest -q -n0 tests/test_t34_exit_*.py tests/test_s1_admission.py -k 'not legacy_imports'
+"$T34_PY" -m pytest -q -n0 tests/test_t34_exit_manifests.py -k legacy_imports
 "$T34_PY" -m pytest -q -n0 -m 'not slow and not requires_gpu' -k 'not mps'
 ```
 
