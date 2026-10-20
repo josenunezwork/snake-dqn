@@ -70,3 +70,14 @@ Raw receipts and logs live under
 `/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-shadow-20261019/`.
 `RESULTS.md` is the final, evidence-linked account of GO/NO-GO, commands, caps,
 coverage, limitations, and artifact SHA-256 identities.
+
+## Prospective Watch-roster LAD timing slice
+
+The T3 bank's fresh bisection latency is scripted-only. Before running the
+frozen/mixed LAD probes, fix this bounded diagnostic: at most three bare-policy
+doom events per mix, seeds `2026101934`, `2026101935`, `2026101936` in order,
+at most 5,000 source frames per seed, and a first-cap-wins <=1,800-second
+invocation. Retain at most 300 exact prepared states; time that cloning work
+separately. Expand frozen+v8 continuations with isolated full runtime carry.
+No suggested action is applied to the source world. Report sparse sample counts
+and incomplete units; do not replace seeds or extend the window after outcomes.
