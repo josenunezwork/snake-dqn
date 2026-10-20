@@ -312,3 +312,34 @@ def test_missing_chunk_after_dispatch_deadline_writes_sole_kill(
         history.run_phase(value, "analysis", lambda _out: history.require_chunks([], value))
     decision = Path(str(value["study_root"])) / "analysis/decision.json"
     assert json.loads(decision.read_text())["decision"] == "KILL"
+
+
+def test_cap_closed_study_refuses_replay_without_poisoning_sole_decision(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    author = _authoring_repo(tmp_path)
+    value = _registration(tmp_path, author)
+    attempt = Path(str(value["study_root"])) / "chunks/chunk-000/attempt-01"
+    history.reserve(attempt, value)
+    history.finalize(attempt, value, "INCONCLUSIVE", "registered first cap expired")
+    ledger = value["history_ledger"]["path"]
+    _git(author, "add", ledger)
+    _git(author, "commit", "-m", "publish cap terminal")
+    _git(author, "push", "origin", "main")
+
+    class Guard:
+        def __init__(self, *_args: object) -> None:
+            pass
+
+        def __enter__(self) -> "Guard":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr("research.t34_pathb.source_binding_v2.FrozenWorktreeGuard", Guard)
+    with pytest.raises(history.CapExpiredHistory, match="skip replay"):
+        history.run_phase(value, "replay", lambda _out: pytest.fail("no cap outcome look"))
+    assert not (Path(str(value["study_root"])) / "replay").exists()
+    with pytest.raises(history.CapExpiredHistory):
+        history.require_chunks([], value)

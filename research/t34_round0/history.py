@@ -444,7 +444,11 @@ def run_phase(registration: Mapping[str, Any], phase: str, action: Any) -> Any:
         if phase == "analysis":
             _analysis_reservation_allowed(registration)
         else:
-            require_published_history(registration)
+            terminals = require_published_history(registration)
+            if any(terminal["status"] == "INCONCLUSIVE" for terminal in terminals):
+                raise CapExpiredHistory(
+                    "registered first cap expired; skip replay and settle INCONCLUSIVE"
+                )
         reserve(out, registration)
     status, reason = "KILL", "operator abort or unexplained interruption"
     token = _ACTIVE_PHASE.set(out)

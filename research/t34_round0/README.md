@@ -183,6 +183,8 @@ returns STOP_CONTROLLER_FAULT without requiring a complete chunk. The sole
 analysis still verifies immutable fault identity and emits the original STOP.
 First wall/unit cap is INCONCLUSIVE, with no extension or cap retry. Operator
 abort, source drift, missed scheduling deadline and unexplained interruption are KILL.
+After a cap, skip replay and invoke the sole analysis directly; it settles from
+the published operational history without opening outcomes or requiring replay.
 A hard kill leaves an unfinished remote claim that still blocks admission even
 if local files are deleted. Do not repair/delete/relabel such history. No world
 replacement, scientific resume, selection-bank extension or outcome-based retry.
