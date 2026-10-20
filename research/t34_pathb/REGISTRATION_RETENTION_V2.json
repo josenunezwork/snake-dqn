@@ -60,7 +60,7 @@
   "max_elapsed_hours": 40.0,
   "operating_characteristic": {
     "path": "research/t34_pathb/RETENTION_OC_V2.json",
-    "sha256": "4ad7065b45af11151f7288245e232e99cb6f3e4a3f310f938976adfdaa466717"
+    "sha256": "8a8aa706817babbc944a811139dbbcbfe6d03b79394582775d37426eb17e9d78"
   },
   "paced_fps": 24,
   "precheck_max_elapsed_hours": 8.0,
@@ -273,7 +273,7 @@
     "path": "research/t34_pathb/SEED_AUDIT_RETENTION_V2.json",
     "sha256": "7d895340b742d2011fde9e2731c3e73c1b58484023b3e4afbf66e769704f3b51"
   },
-  "source_commit": "99b4246745b0e304e88c594e11e5a81380eba259",
+  "source_commit": "db783c103941f4a303d5a383474fcbd70029cf0f",
   "source_hashes": {
     "configs/default.yaml": "d3c254eced9023b1820100c29a55fa8559f86dac593ce7c34876c4a3c6c1b1a1",
     "configs/diag_arm_a.yaml": "42ce5e6e2571ccec1944f8e97b99b561f5fe98c480f2b2b3dcfed8b14a2bdf05",
@@ -285,7 +285,7 @@
     "configs/production.yaml": "18adb20d19d428c16ac563a6c1e41f70b36b0cb32c538d9202bbfec6b6e2e4db",
     "configs/promotion_mechanics_v2.yaml": "2acc555a7b99e7c1a241d96f2bdacee4054e793823e3f15c73989d637ff178eb",
     "configs/training_fast.yaml": "72bcf53ff182944ba2adece79352fe2eafbe7cbe78a3afeeae8a3e6329c4d016",
-    "docs/research/final_run_20261019/DESIGN_V2_SHADOW.md": "25ba12c3b2ec63ba1553191620514397b057c371d1515e4fe26f889799e6751a",
+    "docs/research/final_run_20261019/DESIGN_V2_SHADOW.md": "0eba3e8c8a475ccc56e8a4e65391e9f7357ef045646c0dd34cf28e8aa3eb084d",
     "docs/research/final_run_20261019/P7_STATISTICS.md": "8ef03a45dbb8b1c6708ca0bab20bb4c97bc7f4bb942c3ae0dd587af2c82cd018",
     "docs/research/final_run_20261019/SUCCESS_CONTRACT.md": "9f34ef2f4947341c76cc719483bc72211019f68ce1096139e38f03dc63955191",
     "research/apex_safety_20260926/deployment.yaml": "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb71715aa5",

@@ -60,7 +60,7 @@ from every registered terminal, product, and timing seed. It does not amend
 the registered bank.
 
 The final entrypoint exercise used source commit
-`55b5bfea3d3f612ca4992aca4cc0e0f7843d6cc2`, whose executable/data closure has
+`a85853615b7c549d087da276712ee3f28c0f300b`, whose executable/data closure has
 206 files. Exact invocation (from the assigned worktree):
 
 ```bash
@@ -69,26 +69,28 @@ env -u COLAB_CLI_ROOT \
   T34_UNPACED_PREFLIGHT=1 \
   T34_UNPACED_PYTHON=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python \
   T34_UNPACED_INPUT_ROOT="$E/public-inputs-01" \
-  T34_UNPACED_OUTPUT_ROOT="$E/preflight-03" \
-  T34_UNPACED_REGISTRATION="$E/preflight-registration-03.json" \
+  T34_UNPACED_OUTPUT_ROOT="$E/preflight-04" \
+  T34_UNPACED_REGISTRATION="$E/preflight-registration-04.json" \
   T34_UNPACED_CATALOG=/Users/josenunez/Projects/ml/snake-dqn-unpaced-colab/research/t34_exit_b8/PUBLIC_INPUTS.json \
   T34_UNPACED_DEVELOPMENT_ROWS="$E/preflight-development-01.json" \
-  T34_UNPACED_SOURCE_COMMIT=55b5bfea3d3f612ca4992aca4cc0e0f7843d6cc2 \
+  T34_UNPACED_SOURCE_COMMIT=a85853615b7c549d087da276712ee3f28c0f300b \
   T34_UNPACED_FRAMES=4 \
   /usr/bin/caffeinate -dims bash research/t34_exit_b8/unpaced_retention.sh
 ```
 
-`preflight-03/preflight.json`: COMPLETE, two worlds, four frames each,
-`metrics_persisted: false`, 7.181195 seconds total; terminal 2.505956 seconds,
-Watch product 4.642571 seconds. Hardware: arm64 Mac, 18 available CPUs,
+`preflight-04/preflight.json`: COMPLETE, two worlds, four frames each,
+`metrics_persisted: false`, 7.062550 seconds total; terminal 2.480640 seconds,
+Watch product 4.549266 seconds. Hardware: arm64 Mac, 18 available CPUs,
 68,719,476,736 RAM bytes, `nproc: 1`, one process, one native pool thread,
 at most two CPU threads including the assistance worker. These short fixture
 costs are not H5000 forecasts or timing-gate measurements.
 
 Earlier `preflight-01` and `preflight-02` completed in 8.376188 and 7.124153
-seconds at sources `ef5fd56c` and `eb0ac880`. Both remain preserved; the final
-repeat followed the shared-admission launcher fix. None stored gameplay metrics
-or consumed registered seeds.
+seconds at sources `ef5fd56c` and `eb0ac880`. `preflight-03` completed in
+7.181195 seconds at `55b5bfea` after the shared-admission launcher fix. The final
+repeat followed an upstream timestamp-only correction to source-bound
+`DESIGN_V2_SHADOW.md`; no executable changed. All earlier receipts remain
+preserved. None stored gameplay metrics or consumed registered seeds.
 
 ## Tests, source delivery, and registration refresh
 
@@ -133,11 +135,11 @@ fixed-N design, into fresh paths:
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 E=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-unpaced-colab-20261020
 "$PY" -m research.t34_pathb.retention_oc_v2 \
-  --out "$E/oc-02.json" --state "$E/oc-state-02.json" \
+  --out "$E/oc-03.json" --state "$E/oc-state-03.json" \
   --reps 20000 --seed 3420261020 --max-seconds 60
 # Commit the completed OC before building the updated unauthorized draft.
 "$PY" -m research.t34_pathb.registration_retention_v2 build \
-  --out "$E/draft-02.json" \
+  --out "$E/draft-03.json" \
   --checkpoints research/t34_pathb/RETENTION_CHECKPOINTS_V2.json
 "$PY" -m research.t34_pathb.registration_retention_v2 validate
 ```
@@ -145,15 +147,16 @@ E=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-unpaced-colab-20261020
 OC refresh: PASS, 20,000 completed, zero failed cells; maximum protected
 regression pass rate .0262 against the fixed .06 limit. The refreshed OC was
 committed before draft generation. Draft source commit:
-`99b4246745b0e304e88c594e11e5a81380eba259`. Its 206 executable/data bindings
-are identical to final preflight source `55b5bfea`; the later commits contain
-the separately bound OC and upstream advice outside this closure. Draft validation returned
+`db783c103941f4a303d5a383474fcbd70029cf0f`. Its 206 executable/data bindings
+are identical to final preflight source `a8585361`; later commits contain
+the separately bound OC and upstream advice outside this closure. This final
+refresh preserves the upstream campaign timestamp correction. Draft validation returned
 `{"valid":true,"authorized":false,"mode":"draft"}`.
 
 | Artifact | SHA-256 |
 |---|---|
-| Updated draft / `draft-02.json` | `d6b317e5445e4c4faf8e1927d376f9cb5fb363f2223811678f8eeb79f717ed10` |
-| Updated OC / `oc-02.json` | `4ad7065b45af11151f7288245e232e99cb6f3e4a3f310f938976adfdaa466717` |
+| Updated draft / `draft-03.json` | `feb944379eb2a12aba655071187b7aa0cc00bb9f8b37d0fd7a8065dec98c301c` |
+| Updated OC / `oc-03.json` | `8a8aa706817babbc944a811139dbbcbfe6d03b79394582775d37426eb17e9d78` |
 | Preserved bank | `af54fd499e99575bcc960c78fc3c52d756f8e1c1a52ca65edb95bb5b013f6d95` |
 | Preserved seed audit | `7d895340b742d2011fde9e2731c3e73c1b58484023b3e4afbf66e769704f3b51` |
 
