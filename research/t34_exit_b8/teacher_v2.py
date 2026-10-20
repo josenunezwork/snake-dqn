@@ -22,9 +22,10 @@ import numpy as np
 
 from research.t34_exit_b8.engine import ExitTeacher, ExitTeacherConfig, mix_action
 from research.t34_exit_b8.exports import state_hash, write_world
+from research.t34_exit_b8.lockstep import step_prepared_worlds
 from research.t34_exit_b8.trajectory import build_world, make_world_rows, prepare_world
 from research.t34_shadow.lad import search_lad
-from research.t34_shadow.shadow import ShadowTrajectory, clone_world_exact, full_digest
+from research.t34_shadow.shadow import ShadowFrame, ShadowTrajectory, clone_world_exact, full_digest
 
 KERNEL = "shadow-lad-v2"
 LABEL_RULE = "bisection-radius3-prepared-cache"
@@ -74,6 +75,105 @@ def _shadow_stepper(teacher: ExitTeacher):
         return grid, np.asarray(evaluation.legal, dtype=bool), None
 
     return stepper
+
+
+def _shadow_evaluations(worlds: list[Any], teacher: ExitTeacher) -> list[Any]:
+    """Return batched shadow Qs, recovering the serial decision around ties.
+
+    The historical shadow path used one-world forwards.  Only its selected
+    action is observable, so a batch forward is safe except at a narrow margin
+    where a batch-N fp32 reduction can reverse the stable serial tie rule.
+    Root and branch paths intentionally keep their pre-existing recipes.
+    """
+    evaluator = getattr(teacher.policy, "evaluate_worlds", None)
+    if not callable(evaluator) or len(worlds) == 1:
+        return [teacher.evaluate(world) for world in worlds]
+    bucket_size = len(worlds) if str(teacher.device).startswith("cuda") else 64
+    evaluations = evaluator(worlds, bucket_size=bucket_size)
+    for index, evaluation in enumerate(evaluations):
+        select = np.asarray(
+            evaluation.legal if evaluation.select is None else evaluation.select, dtype=bool
+        )
+        values = np.asarray(evaluation.q, dtype=np.float32)[select]
+        if len(values) > 1:
+            ordered = np.sort(values)
+            scale = max(1.0, float(np.max(np.abs(values))))
+            if float(ordered[-1] - ordered[-2]) <= scale * 64.0 * np.finfo(np.float32).eps:
+                evaluations[index] = teacher.evaluate(worlds[index])
+    return evaluations
+
+
+def _catch_up_lockstep(states: list[dict[str, Any]], teacher: ExitTeacher, deadline: float) -> None:
+    """Cold-fill or refill every active shadow in compacted batch rounds."""
+    if not all(
+        isinstance(state["shadow"], ShadowTrajectory) and hasattr(state["shadow"].world.sim, "cfg")
+        for state in states
+        if state["shadow"].world is not None
+    ):
+        for state in states:
+            shadow = state["shadow"]
+            before, stage = len(shadow.frames), time.perf_counter()
+            try:
+                shadow.catch_up(deadline=deadline)
+            finally:
+                state["work"]["shadow_row_steps"] += len(shadow.frames) - before
+                state["stages"]["shadow_s"] += time.perf_counter() - stage
+        return
+    active = [
+        state
+        for state in states
+        if state["shadow"].confirmed
+        and state["shadow"].world is not None
+        and len(state["shadow"].frames) < state["shadow"].depth
+        and bool(state["shadow"].world.sim.alive[0, 0])
+    ]
+    while active:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("v2 shadow deadline reached")
+        stage = time.perf_counter()
+        worlds = [state["shadow"].world for state in active]
+        for world in worlds:
+            prepare_world(world)
+        ambient = random.getstate()
+        shadow_rng = active[0]["shadow"]._global_rng_state
+        try:
+            if shadow_rng is not None:
+                random.setstate(shadow_rng)
+            evaluations = _shadow_evaluations(worlds, teacher)
+            actions = [evaluation.greedy_action() for evaluation in evaluations]
+            grids = step_prepared_worlds(worlds, actions, teacher)
+            if shadow_rng is not None and random.getstate() != shadow_rng:
+                raise ShadowControlMismatch("batch shadow path consumed process-global RNG")
+        finally:
+            random.setstate(ambient)
+        for state, world, action, _grid in zip(active, worlds, actions, grids):
+            shadow = state["shadow"]
+            shadow.frames.append(
+                ShadowFrame(
+                    action=int(action),
+                    digest=full_digest(
+                        world,
+                        checkpoint=shadow.checkpoint,
+                        global_rng_state=shadow._global_rng_state,
+                    ),
+                    frame=int(world.sim.frame[0]),
+                    hero_alive=bool(world.sim.alive[0, 0]),
+                    hero_length=float(world.sim.length[0, 0]),
+                )
+            )
+            state["work"]["shadow_row_steps"] += 1
+        elapsed = time.perf_counter() - stage
+        for state in active:
+            state["stages"]["shadow_s"] += elapsed / len(active)
+        progress = getattr(teacher, "progress", None)
+        if callable(progress):
+            progress()
+        active = [
+            state
+            for state in active
+            if len(state["shadow"].frames) < state["shadow"].depth
+            and bool(state["shadow"].world.sim.alive[0, 0])
+        ]
 
 
 def _label(
@@ -213,6 +313,47 @@ def _build_doom_cache(state: dict[str, Any], teacher: ExitTeacher, deadline: flo
         random.setstate(ambient)
     state["doom_cache_digest"] = tuple(frame.digest for frame in state["shadow"].frames)
     return cache
+
+
+def _build_doom_caches(states: list[dict[str, Any]], teacher: ExitTeacher, deadline: float) -> None:
+    """Reconstruct confirmed dooms in compacted cross-world batch rounds."""
+    sources = [clone_world_exact(state["world"]) for state in states]
+    for state, source in zip(states, sources):
+        prepare_world(source)
+        state["doom_cache"] = [clone_world_exact(source)]
+    max_depth = max((len(state["shadow"].frames) for state in states), default=0)
+    for offset in range(max_depth):
+        if time.monotonic() >= deadline:
+            raise TimeoutError("v2 doom-cache deadline reached")
+        active = [
+            index for index, state in enumerate(states) if offset < len(state["shadow"].frames)
+        ]
+        if not active:
+            break
+        worlds = [sources[index] for index in active]
+        for world in worlds:
+            prepare_world(world)
+        grids = step_prepared_worlds(
+            worlds, [states[index]["shadow"].frames[offset].action for index in active], teacher
+        )
+        del grids
+        for index in active:
+            state, source = states[index], sources[index]
+            frame = state["shadow"].frames[offset]
+            state["work"]["reconstruction_row_steps"] += 1
+            if (
+                full_digest(
+                    source,
+                    checkpoint=state["shadow"].checkpoint,
+                    global_rng_state=state["rng"],
+                )
+                != frame.digest
+            ):
+                raise ShadowControlMismatch("doom-cache capture diverged from confirmed shadow")
+            prepare_world(source)
+            state["doom_cache"].append(clone_world_exact(source))
+    for state in states:
+        state["doom_cache_digest"] = tuple(frame.digest for frame in state["shadow"].frames)
 
 
 def _search_dooms(
@@ -429,6 +570,9 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
     beta, seconds = float(config.get("beta", 1.0)), float(config.get("seconds", 1500))
     capacity = int(config.get("worlds_per_process", config.get("worlds", 256)))
     bucket = int(config.get("branch_bucket_size", 64))
+    steady_window = float(
+        config.get("steady_state_seconds", config.get("steady_state_window_seconds", 0.0))
+    )
     if not 1 <= depth <= 500 or not 1 <= frames <= 5000 or beta not in (0.0, 0.5, 1.0):
         raise ValueError("shadow depth, frames or beta exceeds v2 bounds")
     if (
@@ -436,6 +580,8 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
         or seconds <= 0
         or not 1 <= capacity <= 256
         or not 6 <= bucket <= 1536
+        or not math.isfinite(steady_window)
+        or steady_window < 0.0
     ):
         raise ValueError("invalid wall, root capacity or branch bucket bound")
     rows = list(config.get("rows") or make_world_rows(config, int(config.get("max_worlds", 2))))
@@ -451,6 +597,11 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
         device=str(config.get("device", "cpu")),
         policy=config.get("policy"),
     )
+    # This is a v2-only throughput recipe.  The shared ExIt engine keeps its
+    # historical native Vector61 dispatch unless a v2 CUDA collection opts in.
+    opponents = getattr(teacher, "_opponents", None)
+    if str(teacher.device).startswith("cuda") and hasattr(opponents, "batch_device_vectors"):
+        opponents.batch_device_vectors = True
     deadline = started + seconds
     teacher.deadline = deadline
     output = Path(str(config["output_dir"]))
@@ -465,6 +616,11 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
     mixes = {str(r["mix"]): {"searched": 0, "expanded": 0, "worlds": 0} for r in rows}
     heartbeat = started
     gpu_samples: list[float] = []
+    cold_fill_elapsed: float | None = None
+    cold_fill_work: dict[str, int] | None = None
+    steady_started: float | None = None
+    steady_stage_start: dict[str, float] | None = None
+    first_decision_elapsed: float | None = None
 
     def check() -> None:
         if time.monotonic() >= deadline:
@@ -496,6 +652,13 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
 
     teacher.progress = progress
 
+    def stage_snapshot() -> dict[str, float]:
+        snapshot: dict[str, float] = defaultdict(float, stages)
+        for state in all_states:
+            for key, value in state["stages"].items():
+                snapshot[key] += float(value)
+        return dict(snapshot)
+
     def fork(state: dict[str, Any]) -> None:
         state["shadow_id"] += 1
         state["pending_labels"].clear()
@@ -503,16 +666,6 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
         state["searched"] = False
         state.pop("sparse_decision", None)
         state["shadow"].fork(state["world"], global_rng_state=state["rng"])
-
-    def catch_up(state: dict[str, Any]) -> None:
-        shadow = state["shadow"]
-        before = len(shadow.frames)
-        stage = time.perf_counter()
-        try:
-            shadow.catch_up(deadline=deadline)
-        finally:
-            state["work"]["shadow_row_steps"] += len(shadow.frames) - before
-            state["stages"]["shadow_s"] += time.perf_counter() - stage
 
     invalid_reason = None
     try:
@@ -563,7 +716,18 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
             for state in states:
                 if not state["shadow"].confirmed:
                     fork(state)
-                catch_up(state)
+            _catch_up_lockstep(states, teacher, deadline)
+            if cold_fill_elapsed is None:
+                cold_fill_elapsed = time.monotonic() - started
+                cold_fill_work = {
+                    key: sum(int(state["work"][key]) for state in all_states) for key in WORK_KEYS
+                }
+                steady_started = time.monotonic()
+                steady_stage_start = stage_snapshot()
+                if steady_window:
+                    deadline = min(deadline, steady_started + steady_window)
+                    teacher.deadline = deadline
+            for state in states:
                 prepare_world(state["world"])
                 progress()
             doomed = [
@@ -580,23 +744,35 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                 for start in range(0, len(doomed), 2):
                     group = doomed[start : start + 2]
                     doom_cache_peak_roots = max(doom_cache_peak_roots, len(group))
+                    cache_started = time.perf_counter()
                     try:
+                        if all(
+                            isinstance(state["shadow"], ShadowTrajectory)
+                            and hasattr(state["world"], "clone")
+                            for state in group
+                        ):
+                            _build_doom_caches(group, teacher, deadline)
+                        else:
+                            for state in group:
+                                state["doom_cache"] = _build_doom_cache(state, teacher, deadline)
+                        cache_elapsed = time.perf_counter() - cache_started
                         for state in group:
-                            state["doom_cache"] = _build_doom_cache(state, teacher, deadline)
+                            state["stages"]["doom_cache_s"] += cache_elapsed / len(group)
                         _search_dooms(group, teacher, bucket, deadline)
                     finally:
                         for state in group:
                             state.pop("doom_cache", None)
             stage = time.perf_counter()
             evaluator = getattr(teacher.policy, "evaluate_worlds", None)
+            root_bucket = len(states) if str(teacher.device).startswith("cuda") else 64
             evaluations = (
-                evaluator([s["world"] for s in states], bucket_size=64)
+                evaluator([s["world"] for s in states], bucket_size=root_bucket)
                 if callable(evaluator)
                 else [teacher.evaluate(s["world"]) for s in states]
             )
             stages["root_policy_s"] += time.perf_counter() - stage
-            root_batch_peak = max(root_batch_peak, min(64, len(states)))
-            remaining = []
+            root_batch_peak = max(root_batch_peak, min(root_bucket, len(states)))
+            planned = []
             for state, evaluation in zip(states, evaluations):
                 check()
                 world, shadow, decision = state["world"], state["shadow"], state["decision"]
@@ -612,16 +788,30 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                 )
                 pending = state["pending_labels"].pop(decision, None) if valid else None
                 length = int(world.sim.length[0, 0])
-                stage = time.perf_counter()
+                planned.append((state, evaluation, student, executed, pending, length, valid))
+            stage = time.perf_counter()
+            grids = step_prepared_worlds(
+                [item[0]["world"] for item in planned], [item[3] for item in planned], teacher
+            )
+            root_step_elapsed = time.perf_counter() - stage
+            if first_decision_elapsed is None and planned:
+                first_decision_elapsed = time.monotonic() - started
+            remaining = []
+            for (state, evaluation, student, executed, pending, length, valid), grid in zip(
+                planned, grids
+            ):
+                world, shadow, decision = state["world"], state["shadow"], state["decision"]
                 ambient = random.getstate()
+                confirm_started = time.perf_counter()
                 try:
                     random.setstate(state["rng"])
-                    grid = _step(world, teacher, executed)
-                    state["rng"] = random.getstate()
                     matched = shadow.confirm(world) if executed == student else False
+                    state["rng"] = random.getstate()
                 finally:
                     random.setstate(ambient)
-                state["stages"]["root_step_s"] += time.perf_counter() - stage
+                state["stages"]["root_step_s"] += (
+                    root_step_elapsed / len(planned) + time.perf_counter() - confirm_started
+                )
                 state["work"]["root_row_steps"] += 1
                 state["actions"].append(grid)
                 on_action = config.get("on_action")
@@ -743,6 +933,17 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
     for state in all_states:
         for key, value in state["stages"].items():
             stages[key] += value
+    observed_steady = 0.0 if steady_started is None else max(0.0, time.monotonic() - steady_started)
+    cold_work = cold_fill_work or dict(work)
+    steady_work = {key: max(0, work[key] - cold_work.get(key, 0)) for key in WORK_KEYS}
+    steady_stages = (
+        {}
+        if steady_stage_start is None
+        else {
+            key: max(0.0, value - (steady_stage_start or {}).get(key, 0.0))
+            for key, value in stages.items()
+        }
+    )
     import numba
 
     return {
@@ -756,6 +957,23 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
         "complete": done == len(rows) and invalid_reason is None,
         "invalid_reason": invalid_reason,
         "elapsed_seconds": elapsed,
+        "cold_fill_elapsed_seconds": cold_fill_elapsed,
+        "cold_fill_complete": cold_fill_elapsed is not None,
+        "cold_fill_active_row_steps": sum(cold_work.values()),
+        "cold_fill_resident_row_steps": sum(cold_work.values()),
+        "first_decision_elapsed_seconds": first_decision_elapsed,
+        "steady_state_window_seconds": steady_window,
+        "steady_state_elapsed_seconds": observed_steady,
+        "steady_state_window_complete": bool(
+            steady_window == 0.0 or observed_steady >= steady_window
+        ),
+        "steady_state_active_row_steps": sum(steady_work.values()),
+        "steady_state_resident_row_steps": sum(steady_work.values()),
+        "steady_state_work": steady_work,
+        "steady_state_root_row_steps": steady_work["root_row_steps"],
+        "steady_state_shadow_row_steps": steady_work["shadow_row_steps"],
+        "steady_state_decisions": steady_work["root_row_steps"],
+        "steady_state_host_stage_seconds": steady_stages,
         "decisions_per_second": decisions_done / max(elapsed, 1e-9),
         "mixes": mixes,
         "worlds_per_hour": done * 3600 / max(elapsed, 1e-9),
@@ -782,6 +1000,16 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
             "resident_row_steps": total,
         },
         "host_stage_seconds": dict(stages),
+        "model_forward_seconds": {
+            "hero": float(getattr(teacher.policy, "hero_forward_seconds", 0.0)),
+            "vector_device": float(
+                getattr(getattr(teacher, "_opponents", None), "vector_forward_seconds", 0.0)
+            ),
+            "scope": (
+                "nested within host stages; includes tensor transfer "
+                "and synchronized fp32 model forward"
+            ),
+        },
         "gpu_utilization_samples_percent": gpu_samples,
         "actual_numba_threads": int(numba.get_num_threads()),
         "actual_policy_device": str(teacher.device),

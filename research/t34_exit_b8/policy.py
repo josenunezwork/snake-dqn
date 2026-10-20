@@ -8,6 +8,7 @@ is the released B8 network or a later zero-initialised tower student.
 from __future__ import annotations
 
 import copy
+import time
 from dataclasses import dataclass
 from typing import Any, Protocol, Sequence
 
@@ -66,10 +67,18 @@ class _Fp32ModelCache:
 
 
 class B8Policy:
-    """B8-compatible fp32 policy adapter for T3/T33 captured worlds."""
+    """B8-compatible fp32 policy adapter for T3/T33 captured worlds.
 
-    def __init__(self, device: str = "cpu") -> None:
+    ``batch_device_vectors`` is deliberately opt-in for T34 v2 shadow
+    collection.  The older v1 paths retain their established native vector61
+    forward recipe even when their hero policy uses CUDA.
+    """
+
+    def __init__(self, device: str = "cpu", *, batch_device_vectors: bool = False) -> None:
         self.device = str(device)
+        self.hero_forward_seconds = 0.0
+        self.vector_forward_seconds = 0.0
+        self.batch_device_vectors = bool(batch_device_vectors)
         if self.device.startswith("cuda"):
             # Float32 tensors alone do not exclude CUDA's reduced-mantissa
             # TF32 convolution/matmul paths. Labels use the full fp32 recipe.
@@ -83,8 +92,10 @@ class B8Policy:
         from src.model.ego2s_network import obs_tensors
 
         model = self._models.model_for(net)
+        started = time.perf_counter()
         with torch.inference_mode():
             value = model(*obs_tensors(obs, self._models.device)).float().cpu().numpy()
+        self.hero_forward_seconds += time.perf_counter() - started
         return np.asarray(value, dtype=np.float32)
 
     def evaluate(self, world: Any) -> PolicyEvaluation:
@@ -157,12 +168,14 @@ class B8Policy:
     def dispatch(
         self, sim: Any, runtime: Any, opponents: list[list[Any]], grid: np.ndarray
     ) -> None:
-        """Fill only opponent columns, batched by policy object and fp32 device model.
+        """Fill only opponent columns, preserving each policy's native action hook.
 
         Hero inference is intentionally absent: the caller already selected its
-        action.  A vetoed Vector61 policy retains its native ``actions`` call:
-        its carried v5/v7/v8 hook state is part of the continuation state and
-        must not be recreated around an accelerated Q forward.
+        action.  CPU retains the historical per-policy path because batch-N and
+        batch-one network forwards need not agree bit-for-bit.  CUDA collection
+        batches compatible vector61 state rows per immutable network, but still
+        enters every policy's own ``actions`` hook so its v5/v7/v8 carry stays
+        private to that policy.
         """
         del runtime
         alive = np.asarray(sim.get_alive(), dtype=bool)
@@ -181,6 +194,9 @@ class B8Policy:
                     groups[key] = (policy, [(env, slot)])
                 else:
                     prior[1].append((env, slot))
+        if self.batch_device_vectors and self.device.startswith("cuda"):
+            self._dispatch_cuda_vectors(sim, groups, grid)
+            return
         for policy, pairs in groups.values():
             slots = np.asarray(pairs, dtype=np.int64)
             masks = sim.get_resolved_action_mask()[slots[:, 0], slots[:, 1]]
@@ -193,6 +209,64 @@ class B8Policy:
                 grid[slots[:, 0], slots[:, 1]] = _vector_actions(policy, sim, slots, self._models)
             else:
                 grid[slots[:, 0], slots[:, 1]] = policy.actions(masks, sim, slots)
+
+    def _dispatch_cuda_vectors(
+        self,
+        sim: Any,
+        groups: dict[tuple[Any, ...], tuple[Any, list[tuple[int, int]]]],
+        grid: np.ndarray,
+    ) -> None:
+        """Dispatch CUDA vector61 forwards once per immutable source network.
+
+        ``Vector61SimdPolicy.actions`` contains the precise live advisory-mask,
+        veto, and per-environment carry contract.  Replacing it with a local
+        argmax loses v8's normalized-Q tie behaviour.  This method therefore
+        only supplies an already-computed device Q slice to that native method.
+        The temporary override is restored before the next policy dispatch.
+        """
+        vectors: dict[int, list[tuple[Any, np.ndarray]]] = {}
+        fallback: list[tuple[Any, np.ndarray, np.ndarray]] = []
+        for policy, pairs in groups.values():
+            slots = np.asarray(pairs, dtype=np.int64)
+            masks = sim.get_resolved_action_mask()[slots[:, 0], slots[:, 1]]
+            if _is_vector61_device_policy(policy):
+                vectors.setdefault(id(policy.network), []).append((policy, slots))
+            else:
+                fallback.append((policy, slots, masks))
+
+        # Anchors and any non-native policy retain their established dispatch.
+        for policy, slots, masks in fallback:
+            grid[slots[:, 0], slots[:, 1]] = policy.actions(masks, sim, slots)
+
+        for entries in vectors.values():
+            states_by_policy: list[np.ndarray] = []
+            counts: list[int] = []
+            for policy, slots in entries:
+                states, _exact = policy.runtime.selection(slots)
+                states = np.ascontiguousarray(states, dtype=np.float32)
+                if states.ndim != 2 or states.shape[1] != int(policy.input_size):
+                    raise ValueError(
+                        "checkpoint input_size does not match the active vector61 featurizer width"
+                    )
+                states_by_policy.append(states)
+                counts.append(len(states))
+            joined = np.concatenate(states_by_policy, axis=0)
+            model = self._models.model_for(entries[0][0].network)
+            started = time.perf_counter()
+            with torch.inference_mode():
+                # Native hooks do masking, argmax, and v8 normalization on the
+                # host.  One slab transfer avoids a CUDA synchronization for
+                # each independently carried policy group.
+                q_values = model(torch.from_numpy(joined).to(self._models.device)).float().cpu()
+            self.vector_forward_seconds += time.perf_counter() - started
+            offset = 0
+            for (policy, slots), count in zip(entries, counts):
+                q_slice = q_values[offset : offset + count]
+                offset += count
+                masks = sim.get_resolved_action_mask()[slots[:, 0], slots[:, 1]]
+                grid[slots[:, 0], slots[:, 1]] = _native_vector_actions(
+                    policy, masks, sim, slots, q_slice
+                )
 
     def action_grid(self, world: Any, hero_action: int) -> np.ndarray:
         """Build an opponent-only forced-hero grid using this policy's cache."""
@@ -216,6 +290,42 @@ def _vector_actions(policy: Any, sim: Any, slots: np.ndarray, cache: _Fp32ModelC
     if getattr(policy, "veto_slots", frozenset()):
         actions = policy._apply_veto(sim, slots, masked, mask, actions)
     return np.clip(actions, 0, 5)
+
+
+def _is_vector61_device_policy(policy: Any) -> bool:
+    """Return whether ``policy`` can accept a cached native vector61 Q slice."""
+    return all(
+        hasattr(policy, name)
+        for name in ("actions", "input_size", "network", "q_values", "runtime")
+    )
+
+
+def _native_vector_actions(
+    policy: Any, masks: np.ndarray, sim: Any, slots: np.ndarray, q_values: torch.Tensor
+) -> np.ndarray:
+    """Run a vector policy's native action hook with a transient device Q source.
+
+    The hook can mutate veto counters and live-v8 objects, so it must execute on
+    its original policy instance.  ``q_values`` is captured per policy before
+    the hook runs; restoring the original callable in ``finally`` prevents a
+    cached forward from escaping this one dispatch.
+    """
+    instance_values = vars(policy)
+    had_local_q_values = "q_values" in instance_values
+    original_q_values = instance_values.get("q_values")
+
+    def cached_q_values(states: np.ndarray) -> torch.Tensor:
+        del states
+        return q_values
+
+    policy.q_values = cached_q_values
+    try:
+        return np.asarray(policy.actions(masks, sim, slots), dtype=np.int64)
+    finally:
+        if had_local_q_values:
+            policy.q_values = original_q_values
+        else:
+            del policy.q_values
 
 
 def action_grid(
