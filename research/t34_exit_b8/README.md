@@ -3,6 +3,14 @@
 Implements P1, the P2/A5 entrypoint, P3/A2 replay tooling, and P6 labelling preparation from
 `docs/research/specs/2026-10-19_exit_engine_prep.md` and the binding
 `docs/research/final_run_20261019/FINAL_PLAN.md`. This package has no serving or promotion authority.
+**Scope at closeout:** this implements the original cold-verify/rewind prep specification.
+While that work and its full test gate ran, `origin/main` gained the owner-approved
+[`DESIGN_V2_SHADOW.md`](../../docs/research/final_run_20261019/DESIGN_V2_SHADOW.md), including Amendment 1.
+That design supersedes FINAL_PLAN section 3 steps 1–2 and requires a shadow/stride-10 plus stride-1 LAD
+teacher after M1/M2/M3. Those mechanisms are not implemented here. The original-spec A5 commands below
+are retained for review; **do not use this v1 kernel to claim current v2 A5 acceptance or dispatch v2
+labels**. No efficacy or label data was collected by this prep.
+
 Preparation was performed on the Mac only. No Colab allocation, pod, tmux session, or paid service was
 started or operated by this implementation task.
 
@@ -24,6 +32,26 @@ startup/JIT and describe tiny preflight fixtures. Final entrypoints ran sequenti
 each while the offline CPU gate ran; an earlier pair also ran concurrently. They do not predict L4 performance or full-H5000 cost.
 T3 dense receipts were not re-scored: the new roots/rosters are not their receipt bank, so there is no
 like-for-like historical agreement percentage. This comparison is descriptive, never an A1 gate.
+
+## Verification closeout
+
+The final engine-focused checks passed **41 tests**: 39 in the one-thread run plus two isolated
+Numba-ceiling subprocess tests. Black, isort, Flake8, Bash syntax and whitespace checks passed.
+The full CPU non-slow selection completed in **4,233.44 s** with **8,139 passed, 4 failed,
+29 skipped, 134 deselected**. It is **not a green whole-suite run**. The tracebacks were:
+
+- S1 accounting unit test used a historical timing receipt whose simulator source pin was already stale
+  before this branch. Only that test now uses explicitly synthetic temporary timing/counter fixtures;
+  it still verifies stale source rejection. Its complete admission module passed **8 tests** afterward.
+  No S1 runtime source, historical receipt, or live job was changed.
+- Two T22 tests pass the new `membership` keyword into an unchanged frozen pre-T24 oracle that lacks it.
+- T4 snapshot graft rejects differing derived `_food_array` cache capacities.
+
+The latter three failures remain inherited and unresolved. The sibling fit verification records all
+four reproducing in a clean detached baseline; its saved log/hash and unchanged Git blobs are checked
+in this package's verification receipt. Frozen oracle bytes, T4 snapshot source, and bound receipts
+remain untouched. The whole suite was not rerun after the isolated S1 accounting-test correction;
+final focused checks cover the implementation and that correction.
 
 ## Engine, trajectory and export contracts
 
@@ -156,9 +184,10 @@ To use public inputs on a Mac without the local inventory, replace the symlink l
   --catalog research/t34_exit_b8/PUBLIC_INPUTS.json --out-dir "$T34_PREP/inputs"
 ```
 
-## Manifest build and two-L4-lane A5 dispatch — operator only
+## Original-spec manifest build and two-L4-lane A5 commands — held for v2
 
-These commands were **not dispatched** by this implementation. Wait for S1's dispatcher to finish.
+These commands were **not dispatched** by this implementation. The v2 scope hold above applies.
+For any later authorized diagnostic use, wait for S1's dispatcher to finish.
 Retain the supervisor's account-wide cap of three including notebook workers, reviewed rates for any
 existing assignments, current CLI acceptance, and the owner's approved two-unit rehearsal budget.
 Lane three remains closed until two lanes complete one chunk cleanly. No allocation/job retries.
