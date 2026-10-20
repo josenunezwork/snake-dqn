@@ -237,6 +237,28 @@ def _read_records(root: Path, intent: dict[str, Any], expected: dict) -> list[di
             raise InvalidBank("missing or unexpected arm")
         for arm in row["arms"].values():
             _validate_arm(arm, row["kind"], intent["settings"]["horizon"])
+        if intent.get("decision_logs_required"):
+            if (
+                row["manifest_sha256"]
+                != hashlib.sha256((root / "manifest.json").read_bytes()).hexdigest()
+            ):
+                raise InvalidBank("record belongs to a different manifest")
+            if row["kind"] == "terminal" and row["roster"] != expected[key]["roster"]:
+                raise InvalidBank("terminal ordered roster differs from the registered world")
+            if set(row["decision_logs"]) != set(ARMS):
+                raise InvalidBank("missing per-arm decision log")
+            for arm, item in row["decision_logs"].items():
+                log_path = (root / item["path"]).resolve()
+                if not log_path.is_relative_to(root.resolve()):
+                    raise InvalidBank("decision log path escapes artifact root")
+                content = log_path.read_bytes()
+                if hashlib.sha256(content).hexdigest() != item["sha256"]:
+                    raise InvalidBank("decision log hash differs")
+                if (
+                    len(content.splitlines()) != item["rows"]
+                    or item["rows"] != row["arms"][arm]["decisions"]
+                ):
+                    raise InvalidBank("decision log counters do not reconcile")
         seen.add(key)
         records.append(row)
     return records
@@ -418,6 +440,16 @@ def _timing(root: Path, intent: dict[str, Any]) -> dict[str, Any]:
                 long_ticks.append(tick)
             if sample["worker_busy"]:
                 contention.append(tick)
+        if "ticks" in row and row["ticks"] != sample_count:
+            raise InvalidBank("timing tick counter mismatch")
+        if "overruns" in row and row["overruns"] != sum(t >= 1000 / fps for t in ticks):
+            raise InvalidBank("timing overrun counter mismatch")
+        if (
+            intent.get("decision_logs_required")
+            and row["manifest_sha256"]
+            != hashlib.sha256((root / "manifest.json").read_bytes()).hexdigest()
+        ):
+            raise InvalidBank("timing belongs to a different manifest")
         elapsed = _number(row["elapsed_seconds"], "elapsed_seconds", minimum=0)
         if elapsed <= 0 or elapsed + 1e-9 < sum(ticks) / 1000 + sample_count / fps:
             raise InvalidBank("timing elapsed does not include real processing-plus-sleep pacing")

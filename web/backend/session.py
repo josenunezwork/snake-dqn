@@ -1071,9 +1071,10 @@ class GameSession:
 
     # -- controls -----------------------------------------------------------
     def set_playing(self, value: bool) -> None:
-        if self.pathb is not None:
-            self.pathb.invalidate()
-        self.playing = bool(value)
+        with self._lock:
+            if self.pathb is not None:
+                self.pathb.invalidate()
+            self.playing = bool(value)
 
     def set_speed(self, fps: float) -> None:
         with self._lock:

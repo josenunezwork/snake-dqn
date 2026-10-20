@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import time
 from copy import deepcopy
 
 import numpy as np
@@ -78,6 +79,7 @@ def test_live_clone_exact_next_decision_and_rng_isolation(monkeypatch: pytest.Mo
     result = evaluate(payload)
     assert random.getstate() == py_state
     assert np.array_equal(np.random.get_state()[1], np_state[1])
+    session.snapshot()  # Real serving serializes between submission and consumption.
     captured = {}
 
     def observed(snake, others, q, mask, bare):
@@ -94,6 +96,48 @@ def test_live_clone_exact_next_decision_and_rng_isolation(monkeypatch: pytest.Mo
     for key in captured:
         assert captured[key] == result[key], key
     session.close(True)
+
+
+def test_on_accepts_next_frame_and_controls_fence_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.test_t34_pathb_controller import Executor, Future
+    from web.backend import pathb_controller
+    from web.backend.pathb import install
+
+    original = pathb_controller.DeadlineController
+    # The controller's behavior is deterministic; scheduler noise is exercised
+    # separately by the real process smoke, where misses are valid outcomes.
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+
+    class ReadyExecutor(Executor):
+        def submit(self, fn, worker, payload):
+            self.future = Future(fn(worker, payload))
+            return self.future
+
+    monkeypatch.setattr(
+        pathb_controller,
+        "DeadlineController",
+        lambda worker: original(worker, clock=lambda: 100.0, executor=ReadyExecutor()),
+    )
+    monkeypatch.delenv("SNAKE_SERVE_PATHB", raising=False)
+    session = GameSession()
+    assistance = install(session, smoke=True)
+    session.step()
+    session.snapshot()
+    time.sleep(1 / 12)
+    session.step()
+    assert assistance.state()["last"]["accepted"] is True
+    assert assistance.state()["last"]["frame"] == 2
+    assert session.control_state()["pathb"]["active"]
+    generation = assistance.generation
+    session.set_food(session.game.food_manager.max_food)
+    assert assistance.generation != generation
+    session.step()
+    assert assistance.state()["last"]["stale_discarded"]
+    session.reset_game()
+    session.step()
+    assert not assistance.state()["last"]["accepted"]
+    session.close(True)
+    assert not hasattr(session.game.snakes[0], "action_transform")
 
 
 def test_scope_is_exact_mixed_watch6_and_fixed_slot_zero(monkeypatch: pytest.MonkeyPatch) -> None:

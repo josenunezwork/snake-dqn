@@ -1,5 +1,3 @@
 """T34 Path B deadline-feasibility development harness (Mac only)."""
 
-from .analyze import analyze
-
-__all__ = ("analyze",)
+__all__ = ()  # Keep CLI thread-limit setup ahead of numerical imports.

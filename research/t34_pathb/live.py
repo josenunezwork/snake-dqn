@@ -29,12 +29,27 @@ def snapshot(game: Any, depth: int = 40, deadline: float | None = None) -> bytes
 
     hero = game.snakes[0]
     hook = hero.__dict__.pop("action_transform", None)
+    observers = []
+    # Harness counters and T15's timer are transparent instance wrappers, not
+    # part of the deployed transition. Their closures can capture the session
+    # (and thus its executor); retain the underlying class method in the clone.
+    for obj in [game, *game.snakes]:
+        update = vars(obj).get("update")
+        if update is not None and (
+            getattr(update, "_pathb_measurement", False)
+            or getattr(update, "__module__", "")
+            == "research.t15_mixed_roster_20261017.measurements"
+        ):
+            observers.append((obj, update))
+            del obj.update
     try:
         payload = cloudpickle.dumps(
             (game, get_config(), random.getstate(), np.random.get_state(), int(depth), deadline),
             protocol=pickle.HIGHEST_PROTOCOL,
         )
     finally:
+        for obj, update in observers:
+            obj.update = update
         if hook is not None:
             hero.action_transform = hook
     if len(payload) > MAX_PAYLOAD:

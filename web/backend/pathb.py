@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import sys
 import time
@@ -10,6 +12,8 @@ from typing import Any, Callable
 
 from research.t34_pathb.live import evaluate, prepared_fingerprint, snapshot
 from web.backend.served_checkpoint import B8_S3_SHA256
+
+_LOG = logging.getLogger(__name__)
 
 
 def eligible(session: Any) -> bool:
@@ -46,6 +50,9 @@ class ServingAssistance:
         self.active = True
         self.log_sink: Callable[[dict[str, Any]], None] | None = None
         self._sync: tuple[tuple, dict[str, Any]] | None = None
+        self._scheduled_reason = "no_request"
+        self._sync_requests = 0
+        self.cap_deadline: float | None = None
         self._alive = bool(session.game.snakes[0].is_alive)
         self.attach()
 
@@ -61,6 +68,8 @@ class ServingAssistance:
         return (self.generation, int(frame), self.life, B8_S3_SHA256)
 
     def apply(self, snake: Any, others: Any, q: Any, mask: Any, bare: int) -> int:
+        if not self.active:
+            return int(bare)
         frame = int(self.session.game.frame)
         valid = mask.detach().cpu().numpy().astype(bool).tolist()
         expected = self.identity(frame)
@@ -85,6 +94,7 @@ class ServingAssistance:
             log = {
                 "requested": pending is not None,
                 "applied": accepted and action != bare,
+                "accepted": accepted,
                 "stale_discarded": pending is not None and not accepted,
                 "deadline_miss": False,
                 "fallback_reason": None if accepted else "no_request_or_world_mismatch",
@@ -94,8 +104,15 @@ class ServingAssistance:
             # Use the same bounded logging/counters for the descriptive arm.
             self.controller.record(log)
         else:
-            action, log = self.controller.poll(expected, int(bare), valid, validate=validate)
+            action, log = self.controller.poll(
+                expected,
+                int(bare),
+                valid,
+                validate=validate,
+                no_request_reason=self._scheduled_reason,
+            )
         log.update(hero_id=int(snake.id), frame=frame, life=self.life, bare_action=int(bare))
+        _LOG.info("pathb-decision: %s", json.dumps(log, sort_keys=True))
         if self.log_sink is not None:
             self.log_sink(dict(log))
         return int(action)
@@ -110,20 +127,26 @@ class ServingAssistance:
             self._alive = alive
         target = int(self.session.game.frame) + 1
         if not alive or int(hero.length) < self.min_length or target % self.interval:
+            self._scheduled_reason = "not_triggered"
             return
         # Submission starts before serialization, so transfer/copy cost counts.
         deadline = time.monotonic() + 2.0 / max(1.0, float(self.session.speed))
         if self.mode == "async" and self.controller.busy:
+            self._scheduled_reason = "busy"
             return
         try:
-            payload = snapshot(
-                self.session.game, self.depth, deadline if self.mode == "async" else None
-            )
+            cutoff = deadline if self.mode == "async" else None
+            if self.cap_deadline is not None:
+                cutoff = self.cap_deadline if cutoff is None else min(cutoff, self.cap_deadline)
+            payload = snapshot(self.session.game, self.depth, cutoff)
             if self.mode == "sync":
                 self._sync = self.identity(target), evaluate(payload)
+                self._sync_requests += 1
             else:
                 self.controller.submit(payload, self.identity(target), deadline)
+            self._scheduled_reason = "submitted"
         except Exception as exc:
+            self._scheduled_reason = f"snapshot_or_worker_error:{type(exc).__name__}"
             # Failure is a counted bare fallback, never a lost serving tick.
             self.controller.record(
                 {
@@ -138,7 +161,10 @@ class ServingAssistance:
             )
 
     def state(self) -> dict[str, Any]:
-        return {**self.controller.state(), "active": self.active, "hero_id": 0}
+        state = {**self.controller.state(), "active": self.active, "hero_id": 0}
+        if self.mode == "sync":
+            state["counts"]["requested"] = self._sync_requests
+        return state
 
     def close(self, wait: bool = False) -> None:
         self.active = False
@@ -179,5 +205,7 @@ def configure(session: Any) -> None:
         current.active = requested and eligible(session)
         if current.active:
             current.attach()
+        elif getattr(session.game.snakes[0], "action_transform", None) == current.apply:
+            del session.game.snakes[0].action_transform
     elif requested and eligible(session):
         install(session)

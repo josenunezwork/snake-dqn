@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from web.backend.pathb_controller import DeadlineController, MAX_RECENT_DECISIONS
+from web.backend.pathb_controller import MAX_RECENT_DECISIONS, DeadlineController
 
 
 class Clock:
@@ -16,7 +16,9 @@ class Clock:
 
 
 class Future:
-    def __init__(self, value: Any = None, done: bool = True, error: Optional[Exception] = None) -> None:
+    def __init__(
+        self, value: Any = None, done: bool = True, error: Optional[Exception] = None
+    ) -> None:
         self.value, self.ready, self.error, self.cancelled = value, done, error, False
 
     def done(self) -> bool:
@@ -48,8 +50,15 @@ def controller(clock: Clock, executor: Executor) -> DeadlineController:
     return DeadlineController(lambda _: {}, clock=clock, executor=executor)
 
 
-def result(action: int = 2, completed: float = 100.1, bare: int = 1, mask: list[bool] | None = None) -> dict:
-    return {"proposed_action": action, "bare_action": bare, "mask": mask or [True, True, True], "_completion_monotonic": completed}
+def result(
+    action: int = 2, completed: float = 100.1, bare: int = 1, mask: list[bool] | None = None
+) -> dict:
+    return {
+        "proposed_action": action,
+        "bare_action": bare,
+        "mask": mask or [True, True, True],
+        "_completion_monotonic": completed,
+    }
 
 
 def test_applies_only_a_timely_matching_legal_result() -> None:
@@ -81,7 +90,9 @@ def test_overdue_computation_stays_active_until_it_is_collected() -> None:
     action, report = subject.poll((1,), 1, [True, True])
     assert action == 1 and report["fallback_reason"] == "deadline_computing"
     assert subject.state()["active"]
-    executor.future.ready, executor.future.value = True, result(action=0, completed=100.5, bare=1, mask=[True, True])
+    executor.future.ready, executor.future.value = True, result(
+        action=0, completed=100.5, bare=1, mask=[True, True]
+    )
     action, report = subject.poll((1,), 1, [True, True])
     assert action == 1 and report["deadline_miss"]
     assert not subject.state()["active"]
@@ -184,7 +195,16 @@ def test_state_keeps_a_bounded_audit_ring_and_all_report_fields() -> None:
     subject = controller(clock, executor)
     for _ in range(MAX_RECENT_DECISIONS + 10):
         _, report = subject.poll((1,), 1, [True, True])
-        assert set(report) == {"requested", "applied", "accepted", "stale_discarded", "deadline_miss", "fallback_reason", "proposed_action", "executed_action"}
+        assert set(report) == {
+            "requested",
+            "applied",
+            "accepted",
+            "stale_discarded",
+            "deadline_miss",
+            "fallback_reason",
+            "proposed_action",
+            "executed_action",
+        }
     state = subject.state()
     assert state["label"] == "assisted hero"
     assert len(state["recent"]) == MAX_RECENT_DECISIONS

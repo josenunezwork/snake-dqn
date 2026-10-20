@@ -16,7 +16,6 @@ import time
 from collections import deque
 from typing import Any, Callable, Deque, Dict, Optional, Sequence, Tuple
 
-
 MAX_REQUEST_BYTES = 64 * 1024 * 1024
 MAX_RESPONSE_BYTES = 64 * 1024
 MAX_RECENT_DECISIONS = 256
@@ -136,12 +135,13 @@ class DeadlineController:
         bare: int,
         mask: Sequence[bool],
         validate: Optional[Callable[[Dict[str, Any]], bool]] = None,
+        no_request_reason: str = "no_request",
     ) -> Tuple[int, Dict[str, Any]]:
         """Return the bare or advisory action immediately, with an audit record."""
         requested = self._future is not None and tuple(identity) == self._identity
         report = self._new_report(requested, bare)
         if self._future is None:
-            return self._finish(bare, report, "no_request")
+            return self._finish(bare, report, no_request_reason)
         if not self._future.done():
             if tuple(identity) != self._identity:
                 # This tick cannot consume a previous target's unfinished work.
@@ -267,7 +267,9 @@ class DeadlineController:
             "executed_action": bare,
         }
 
-    def _finish(self, action: int, report: Dict[str, Any], fallback: Optional[str]) -> Tuple[int, Dict[str, Any]]:
+    def _finish(
+        self, action: int, report: Dict[str, Any], fallback: Optional[str]
+    ) -> Tuple[int, Dict[str, Any]]:
         report["executed_action"] = action
         report["fallback_reason"] = fallback
         self._record(report)

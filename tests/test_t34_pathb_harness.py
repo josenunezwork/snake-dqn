@@ -19,7 +19,7 @@ def test_smoke_config_is_thread_bounded():
     config = json.loads((run.HERE / "smoke.json").read_text())
     assert config["workers"] == 1
     assert config["horizon"] < 5000
-    assert config["warmup"] == 0
+    assert config["warmup"] == 1
 
 
 def test_bank_seed_recipe_is_fixed_and_unique():
