@@ -87,6 +87,16 @@ validation before reuse. Current outcomes are memoized across the two rules and
 truth. Actual union work includes validation and truth overhead; each search
 rule also records its own charged row-steps. Future algorithm forecasts must
 include ordinary trajectory/shadow/refork work and exclude truth-only diagnostics.
+Before aggregating outcomes, the conservative per-rule charge is fixed as
+`C_r,w = 2*T_w + 300*(1+I_w) + Q_r,w`: immutable original source decisions
+`T_w`, one maintained shadow advance for each source decision, initial fill plus
+one full refill for each historical intervention `I_w`, and the rule's independently
+charged alternative expansions `Q_r,w`. End-of-episode/death truncations are
+intentionally overcharged. This is a conservative replay-work forecast for the
+fixed historical intervention schedule, not observed work of a new assisted
+policy. Report `sum(C)/64` and `400000 / mean(C)` separately from actual measured
+union diagnostics. The work threshold is mean <=80,000 row-steps/world.
+
 The actual historical dense cost was 55,002,897 / 64 = 859,420.265625 branch
 row-steps/world; the registered 5x comparison uses the smaller 400,000 reference.
 
