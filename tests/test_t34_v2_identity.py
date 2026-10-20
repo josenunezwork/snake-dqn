@@ -69,7 +69,7 @@ for repeat in range(2):
     assert result["complete"], result
     assert result["worlds"] == 3, result
     assert result["shadow_depth"] == 300, result
-    assert result["label_rule"] == "teacher-stride10-transition-refine5", result
+    assert result["label_rule"] == "bisection-radius3-prepared-cache", result
     output.joinpath("summary.json").write_text(json.dumps(result, sort_keys=True))
 """
     child_env = dict(os.environ)
@@ -126,10 +126,24 @@ def test_v2_exports_are_byte_identical_across_spawned_processes_and_replay(
                 assert len(exported["labels"]) >= 2, f"{relative}: labels were not regenerated"
                 assert exported["teacher_v2"]["kernel"] == "shadow-lad-v2"
                 assert exported["teacher_v2"]["shadow_depth"] == 300
-                assert exported["teacher_v2"]["label_rule"] == "teacher-stride10-transition-refine5"
+                assert exported["teacher_v2"]["label_rule"] == "bisection-radius3-prepared-cache"
+                assert exported["teacher_v2"]["work"]["reconstruction_row_steps"] == 0
                 assert exported["teacher_v2"]["action_trace_width"] == 6
                 assert exported["teacher_v2"]["hash_interval"] == 250
                 assert exported["rng_stream_ids"]
+                for label in exported["labels"]:
+                    if label.get("searched"):
+                        assert label["ranked_actions"]
+                        assert label["outcome_kind"] in {
+                            "bare_survives",
+                            "horizon_rescue",
+                            "all_die_delay",
+                        }
+                        assert label["horizon"] == 300
+                        if label["outcome_kind"] == "all_die_delay":
+                            assert label["delay_only"] is True
+                            assert label["decisive"] is False
+                            assert label["label_weight"] == pytest.approx(0.0)
                 result = replay.replay_world(exported, checkpoint)
                 assert (
                     result.accepted

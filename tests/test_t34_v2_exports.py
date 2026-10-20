@@ -216,3 +216,6 @@ def test_ranked_outcome_adapter_ignores_untested_placeholders() -> None:
     raw["per_action"]["2"]["tested"] = False
     with pytest.raises(ValueError, match="must be tested"):
         normalize_row(raw)
+    del raw["label_kind"]
+    with pytest.raises(ValueError, match="require label_kind"):
+        normalize_row(raw)

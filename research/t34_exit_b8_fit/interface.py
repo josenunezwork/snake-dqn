@@ -89,6 +89,8 @@ def normalize_row(row: Mapping[str, Any]) -> Mapping[str, Any]:
     """
     kind = row.get("label_kind")
     if kind is None:
+        if "outcome_kind" in row:
+            raise ValueError("ranked v2 rows require label_kind for normalization")
         return row
     if kind not in {"shadow_confirm", "lad", "transition"}:
         raise ValueError(f"unknown v2 label_kind: {kind}")

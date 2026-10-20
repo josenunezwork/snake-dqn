@@ -1,20 +1,26 @@
 # T34 v2 teacher
 
 Implementation of `docs/research/specs/2026-10-19_t34_v2_teacher.md`, bound to
-`DESIGN_V2_SHADOW.md` (including Amendment 1) and `SUCCESS_CONTRACT.md`.
+`DESIGN_V2_SHADOW.md` (including superseding Amendment 2) and `SUCCESS_CONTRACT.md`.
 The original v1 engine remains available for historical replay and tests.
 
 ## Implementation and verification intent
 
-Written before this implementation's smoke exports. This task prepares tooling;
+The original intent was written before the Amendment-1 smoke exports; its
+source-bound verification remains in `VERIFICATION_V2.json`. Amendment 2 arrived
+during closeout and is applied before the amended development fixtures below.
+This task prepares tooling;
 its tiny development fixtures are excluded from all campaign estimates. It does
 not collect a label round, run efficacy, fit a student, or authorize serving.
 
 - Extend the existing ExIt export/replay and shadow/LAD packages. Use D=300 and
-  H=300 by default, fp32, teacher stride-ten probes and stride-one refinement of
-  every sampled survive-to-die gap. Bisection is not the teacher label rule.
+  H=300 by default, fp32, teacher bisection from the first doom detection decision
+  and radius-three stride-one refinement. Amendment 1's stride-ten rule is superseded.
 - Student greedy continuation supplies dense KL-anchor labels. Decisive labels
-  and deterministic sparse pre-LAD labels carry explicit roles. Apply beta in
+  and deterministic sparse pre-LAD labels carry explicit roles. Full ranked
+  per-action outcomes retain horizon/censoring and all-die diagnostics. Only
+  horizon rescues are decisive; all-die delay rows have exactly zero fit weight
+  and execute bare. Apply beta in
   {1, 0.5, 0} only at scheduled teacher decisions; invalidate after intervention.
 - Preserve six-snake actions, RNG stream identities, initial/every-250/final
   hashes, immutable exports, and whole-world replay rejection.
@@ -36,7 +42,7 @@ are recorded below.
 
 | Check | Local acceptance | Remaining evidence |
 |---|---|---|
-| Teacher rule | Amendment 1 stride-ten/transition-refinement plumbing and explicit decisive/anchor roles | Historical M2 teacher recovery is **NO-GO: 37/75 (49.3%), below 90%**; this implementation does not change that decision |
+| Teacher rule | Amendment 2 bisection/radius-three refinement and ranked outcomes; horizon-rescue, delay and anchor roles | Historical M2 **NO-GO** stands (bisection 39/75, stride rule 37/75, both below 90%); infrastructure does not change that decision |
 | Shadow identity | Exact clones, full state confirmation and invalidation; six-action traces | Original M1 is GO; new kernel identity checks are tooling coverage only |
 | A1 exports | Repeated deterministic Mac exports across fresh processes | Full campaign/runtime coverage remains separate |
 | A2 replay | Existing replay harness, whole-world hash rejection, local smoke | L4→Mac and L4→second L4, >=150 worlds across three mixes, zero unexplained mismatches remain pending |
@@ -53,11 +59,17 @@ No serving configuration changes are part of this teacher implementation.
 The world schema remains `t34-exit-world/v1` so the existing replay harness can
 regenerate observations. V2 adds a `teacher_v2` identity and per-label shadow/LAD
 provenance, including `label_kind` for the integrated fit-cache normalizer. Each
-transition records its own decision as `t_star`; the global latest LAD stays in
+searched row records its own decision as `t_star`; the global latest LAD stays in
 `lad.latest_surviving_decision`. Dense confirmed rows are KL anchors (`searched=false`,
 `decisive=false`, `kl_anchor_only=true`). Search labels retain tested per-action
 survival, alive steps and mass; `F` denotes tested dying actions when a surviving
-recommendation exists. An untested action is never assumed to die. One canonical
+recommendation exists. `ranked_actions` retains the full tested ordering: keep
+bare if it survives, otherwise choose horizon survivors by Q; if all die, rank
+by alive steps, then Q, bare, action index. Delay recommendations remain diagnostic
+(`outcome_kind=all_die_delay`, `delay_only=true`, `label_weight=0`), and the
+executed action stays bare. The fit normalizer preserves their nondecisive role
+and zeros weight before death-window normalization, including all-delay windows.
+An untested action is never assumed to die. One canonical
 label per decision prevents the original replay index from losing duplicate roles.
 
 Timing is kept in chunk/benchmark reports, outside deterministic world payloads.
@@ -188,9 +200,12 @@ Persistent shadows use exact batch-one greedy steps. Actual roots use bounded
 64-world fp32 forwards, while branch queries compact into at most 64 active rows
 per bucket (both configurable in the Python API where exposed). Batch-N floating
 point need not equal batch-one. A shadow action/digest mismatch invalidates its
-future labels and plans. Every searched greedy control must reproduce the known
-shadow death timing; disagreement holds collection with `invalid_reason` rather
-than silently teaching from a different continuation. A1 establishes repeated
+future labels and plans. Doom caches are prepared once per doomed shadow, in groups of at most two
+worlds, then released. Prefixes are not reconstructed per query. A validated
+shadow supplies the free greedy outcome without a branch reroll; newly executed
+control row-steps are zero. Cache capture is checked against the exact shadow
+trace; disagreement holds collection with `invalid_reason`. Snapshot capture work
+is reported separately, so the extra forward capture pass remains visible. A1 establishes repeated
 Mac execution with the same batching recipe; it does not certify another GPU,
 bucket shape, backend, or checkpoint. Cross-runtime A2 remains mandatory.
 

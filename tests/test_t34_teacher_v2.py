@@ -13,7 +13,7 @@ import pytest
 from research.t34_exit_b8 import teacher_v2
 from research.t34_exit_b8.engine import mix_action
 from research.t34_exit_b8.teacher_v2 import _label, _put_label
-from research.t34_shadow.lad import search_lad_teacher
+from research.t34_shadow.lad import search_lad
 
 
 def _evaluation() -> SimpleNamespace:
@@ -71,40 +71,89 @@ def test_sparse_label_is_neither_search_result_nor_kl_anchor() -> None:
     assert sparse["kl_anchor_only"] is False
 
 
-def test_stride_teacher_discovers_two_nonmonotone_transition_edges() -> None:
-    """Two separate survive-to-die edges must remain distinct teacher labels."""
-    surviving = {*range(0, 5), *range(20, 25)}
+def test_ranked_outcomes_keep_bare_then_rescue_then_delay_tie_rules() -> None:
+    """T3 ranking is fully exported, with all-die delays carrying zero weight."""
+    rank = getattr(teacher_v2, "_rank_outcomes", None)
+    assert callable(rank), "teacher_v2 must expose the Amendment-2 ranking seam"
+    q = np.array([5.0, 5.0, 4.0, 3.0, 2.0, 1.0], dtype=np.float32)
+    base = {
+        str(action): {
+            "survives": False,
+            "alive_frames": 10 + action,
+            "alive_steps": 10 + action,
+            "mass": float(action),
+            "horizon": 300,
+            "censored": False,
+        }
+        for action in range(6)
+    }
+
+    bare = copy.deepcopy(base)
+    bare["0"]["survives"] = True
+    result = rank(bare, q=q, bare_action=0)
+    assert result["action"] == 0
+    assert result["outcome_kind"] == "bare_survives"
+    assert result["ranked_actions"]
+    assert result["label_weight"] == pytest.approx(1.0)
+
+    rescue = copy.deepcopy(base)
+    rescue["2"]["survives"] = True
+    rescue["3"]["survives"] = True
+    result = rank(rescue, q=q, bare_action=0)
+    assert result["action"] == 2
+    assert result["outcome_kind"] == "horizon_rescue"
+    assert result["decisive"] is True
+
+    delay = copy.deepcopy(base)
+    delay["1"]["alive_frames"] = delay["1"]["alive_steps"] = 99
+    delay["2"]["alive_frames"] = delay["2"]["alive_steps"] = 99
+    result = rank(delay, q=q, bare_action=0)
+    # Equal alive duration: B8 Q ties before bare, then lowest action index.
+    assert result["action"] == 1
+    assert result["outcome_kind"] == "all_die_delay"
+    assert result["delay_only"] is True
+    assert result["decisive"] is False
+    assert result["label_weight"] == pytest.approx(0.0)
+
+
+def test_bisection_teacher_uses_radius_three_neighborhood() -> None:
+    """Amendment 2 uses bisection and a radius-three refinement window."""
 
     def expand(decision: int) -> dict:
         return {
             "greedy": 0,
             "q": [0.0, 1.0],
-            "outcomes": {
-                "0": {"survives": False},
-                "1": {"survives": decision in surviving},
-            },
+            "outcomes": {"0": {"survives": False}, "1": {"survives": decision <= 20}},
         }
 
-    result = search_lad_teacher(0, 30, expand)
+    result = search_lad(0, 30, expand, refinement_radius=3)
     probes = {int(probe["decision"]): probe for probe in result["probes"]}
-    edges = [
-        decision
-        for decision, probe in probes.items()
-        if probe["surviving_alternatives"]
-        and decision + 1 in probes
-        and not probes[decision + 1]["surviving_alternatives"]
-    ]
-    assert edges == [4, 24]
-    assert result["t_star"] == 24
+    assert result["refinement_radius"] == 3
+    assert result["boundary"] == 20
+    assert result["t_star"] == 20
+    assert set(probes).issuperset({0, 30, 15, 23, 19, 21, 20})
+    assert set(probes).issuperset(set(range(17, 24)))
+    assert set(probes).issubset({0, 15, 19, 20, 21, 23, 30, *range(17, 24)})
 
 
 class _Outcome:
     def __init__(self, survives: bool, row_steps: int = 1) -> None:
-        self.survives, self.alive_steps, self.mass, self.row_steps = survives, 1, 1.0, row_steps
+        self.survives = survives
+        self.alive_steps = 1
+        self.alive_frames = 1
+        self.mass = 1.0
+        self.row_steps = row_steps
+        self.horizon = 30
+        self.censored = bool(survives)
 
 
 class _SearchTeacher:
     """Small branch adapter whose survival pattern has two separate edges."""
+
+    config = SimpleNamespace(horizon=300)
+
+    def __init__(self) -> None:
+        self.merged_calls: list[int] = []
 
     def evaluate(self, world):
         return SimpleNamespace(
@@ -123,6 +172,10 @@ class _SearchTeacher:
             for action in actions
         }
 
+    def _rollout_merged(self, worlds, choices):
+        self.merged_calls.append(len(worlds))
+        return [self._rollout(world, actions) for world, actions in zip(worlds, choices)]
+
 
 class _NoRescueTeacher(_SearchTeacher):
     def _rollout(self, world, actions):
@@ -130,12 +183,15 @@ class _NoRescueTeacher(_SearchTeacher):
 
 
 class _BadControlTeacher(_NoRescueTeacher):
+    calls: list[tuple[int, ...]] = []
+
     def _rollout(self, world, actions):
+        self.calls.append(tuple(int(action) for action in actions))
         return {int(action): _Outcome(False, 1) for action in actions}
 
 
 def test_batched_doom_search_emits_edges_and_forbidden_greedy(monkeypatch) -> None:
-    """The v2 batch helper keeps both edges and defines F as dying actions."""
+    """The v2 batch helper uses its first bisection boundary, not stride scans."""
     monkeypatch.setattr(teacher_v2, "prepare_world", lambda world: world)
     monkeypatch.setattr(teacher_v2, "clone_world_exact", copy.deepcopy)
 
@@ -147,6 +203,7 @@ def test_batched_doom_search_emits_edges_and_forbidden_greedy(monkeypatch) -> No
     world = SimpleNamespace(sim=SimpleNamespace(t=0))
     state = {
         "world": world,
+        "doom_cache": [SimpleNamespace(sim=SimpleNamespace(t=i)) for i in range(31)],
         "shadow": SimpleNamespace(frames=[SimpleNamespace(action=0) for _ in range(31)]),
         "decision": 0,
         "shadow_id": 3,
@@ -163,14 +220,21 @@ def test_batched_doom_search_emits_edges_and_forbidden_greedy(monkeypatch) -> No
     second["seed"] = 45
     second["rng"] = random.Random(45).getstate()
     second["shadow_id"] = 4
-    teacher_v2._search_dooms([state, second], _SearchTeacher(), branch_bucket_size=12)
+    teacher = _SearchTeacher()
+    for item in (state, second):
+        item["world"].sim.cfg = object()
+        for cached in item["doom_cache"]:
+            cached.sim.cfg = object()
+    teacher_v2._search_dooms([state, second], teacher, branch_bucket_size=12)
+    assert any(size == 2 for size in teacher.merged_calls)
     for searched in (state, second):
         decisive = [row for row in searched["pending_labels"].values() if row["decisive"]]
-        assert {row["decision"] for row in decisive} == {4, 24}
+        assert {row["decision"] for row in decisive} == {0, 1, 2, 3, 4}
         assert all(row["a_star"] == 1 for row in decisive)
         assert all(row["F"] == [0] for row in decisive)
-        assert searched["pending_actions"] == {24: 1}
+        assert searched["pending_actions"] == {4: 1}
         assert searched["work"]["search_row_steps"] > 0
+        assert searched["work"]["reconstruction_row_steps"] == 0
 
 
 def test_beta_schedule_is_deterministic_and_keeps_governed_endpoints() -> None:
@@ -182,7 +246,7 @@ def test_beta_schedule_is_deterministic_and_keeps_governed_endpoints() -> None:
     assert set(half_first) == {2, 5}
 
 
-def test_second_doom_without_lad_clears_a_previous_sparse_sample(monkeypatch) -> None:
+def test_second_doom_without_rescue_clears_previous_prospective_state(monkeypatch) -> None:
     monkeypatch.setattr(teacher_v2, "prepare_world", lambda world: world)
     monkeypatch.setattr(teacher_v2, "clone_world_exact", copy.deepcopy)
     monkeypatch.setattr(
@@ -192,6 +256,7 @@ def test_second_doom_without_lad_clears_a_previous_sparse_sample(monkeypatch) ->
     )
     state = {
         "world": SimpleNamespace(sim=SimpleNamespace(t=0)),
+        "doom_cache": [SimpleNamespace(sim=SimpleNamespace(t=i)) for i in range(31)],
         "shadow": SimpleNamespace(frames=[SimpleNamespace(action=0) for _ in range(31)]),
         "decision": 0,
         "shadow_id": 7,
@@ -205,16 +270,20 @@ def test_second_doom_without_lad_clears_a_previous_sparse_sample(monkeypatch) ->
         "searches": 0,
     }
     teacher_v2._search_dooms([state], _SearchTeacher(), branch_bucket_size=12)
-    assert "sparse_decision" in state
+    assert state["pending_actions"] == {4: 1}
     state["pending_labels"].clear()
     state["pending_actions"].clear()
     teacher_v2._search_dooms([state], _NoRescueTeacher(), branch_bucket_size=12)
     assert "sparse_decision" not in state
-    assert state["pending_labels"] == {}
+    assert state["pending_labels"]
+    assert all(row["outcome_kind"] == "all_die_delay" for row in state["pending_labels"].values())
+    assert all(
+        row["delay_only"] and row["label_weight"] == 0.0 for row in state["pending_labels"].values()
+    )
     assert state["pending_actions"] == {}
 
 
-def test_doom_search_rejects_a_control_that_misses_the_shadow_death(monkeypatch) -> None:
+def test_doom_search_reuses_confirmed_greedy_control_without_rerun(monkeypatch) -> None:
     monkeypatch.setattr(teacher_v2, "prepare_world", lambda world: world)
     monkeypatch.setattr(teacher_v2, "clone_world_exact", copy.deepcopy)
     monkeypatch.setattr(
@@ -224,6 +293,7 @@ def test_doom_search_rejects_a_control_that_misses_the_shadow_death(monkeypatch)
     )
     state = {
         "world": SimpleNamespace(sim=SimpleNamespace(t=0)),
+        "doom_cache": [SimpleNamespace(sim=SimpleNamespace(t=i)) for i in range(31)],
         "shadow": SimpleNamespace(frames=[SimpleNamespace(action=0) for _ in range(31)]),
         "decision": 0,
         "shadow_id": 9,
@@ -236,8 +306,12 @@ def test_doom_search_rejects_a_control_that_misses_the_shadow_death(monkeypatch)
         "search_bucket_peak": 0,
         "searches": 0,
     }
-    with pytest.raises(teacher_v2.ShadowControlMismatch):
-        teacher_v2._search_dooms([state], _BadControlTeacher(), branch_bucket_size=12)
+    teacher = _BadControlTeacher()
+    teacher_v2._search_dooms([state], teacher, branch_bucket_size=12)
+    assert teacher.calls
+    assert all(0 not in actions for actions in teacher.calls)
+    assert state["pending_labels"]
+    assert all(row["per_action"]["0"]["cached_control"] for row in state["pending_labels"].values())
 
 
 class _RunSim:
@@ -303,6 +377,7 @@ def test_run_discards_future_labels_after_an_unexpected_shadow_mismatch(
     """A prospective label must never survive the mismatch that invalidates it."""
     captured = []
     monkeypatch.setattr(teacher_v2, "ShadowTrajectory", _MismatchShadow)
+    monkeypatch.setattr(teacher_v2, "_build_doom_cache", lambda *_args: [])
     monkeypatch.setattr(teacher_v2, "prepare_world", lambda world: world)
     monkeypatch.setattr(teacher_v2, "state_hash", lambda _sim: "state")
 

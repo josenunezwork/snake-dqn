@@ -1,8 +1,8 @@
 """Bounded shadow/LAD teacher, extending the existing ExIt engine and exports.
 
 Worlds never rewind. A prospective label or scheduled action is retained only
-while its exact shadow prefix remains valid. The original Amendment-1 helper
-selects every probe; continuation work uses ExIt's compacting branch engine.
+while its exact shadow prefix remains valid. Amendment 2's radius-three
+bisection selects probes; continuation work uses ExIt's compacting branch engine.
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ import numpy as np
 from research.t34_exit_b8.engine import ExitTeacher, ExitTeacherConfig, mix_action
 from research.t34_exit_b8.exports import state_hash, write_world
 from research.t34_exit_b8.trajectory import build_world, make_world_rows, prepare_world
-from research.t34_shadow.lad import search_lad_teacher
-from research.t34_shadow.shadow import ShadowTrajectory, clone_world_exact
+from research.t34_shadow.lad import search_lad
+from research.t34_shadow.shadow import ShadowTrajectory, clone_world_exact, full_digest
 
 KERNEL = "shadow-lad-v2"
-LABEL_RULE = "teacher-stride10-transition-refine5"
+LABEL_RULE = "bisection-radius3-prepared-cache"
 WORK_KEYS = ("root_row_steps", "shadow_row_steps", "reconstruction_row_steps", "search_row_steps")
 
 
@@ -35,13 +35,23 @@ class ShadowControlMismatch(RuntimeError):
     """Batched greedy control did not reproduce the confirmed shadow's doom."""
 
 
-def _outcome_dict(outcomes: Mapping[int, Any]) -> dict[str, dict[str, Any]]:
+class _MissingProbe(Exception):
+    def __init__(self, decision: int) -> None:
+        self.decision = decision
+
+
+def _outcome_dict(outcomes: Mapping[int, Any], *, horizon: int) -> dict[str, dict[str, Any]]:
     return {
         str(a): {
             "survives": bool(v.survives),
             "alive_steps": int(v.alive_steps),
             "mass": float(v.mass),
             "row_steps": int(v.row_steps),
+            "horizon": int(horizon),
+            # A surviving branch has reached the fixed H horizon and is
+            # therefore right-censored; a death is observed, not censored.
+            "censored": bool(v.survives),
+            "tested": True,
         }
         for a, v in outcomes.items()
     }
@@ -108,9 +118,13 @@ def _label(
         "reason": role,
         "expanded": bool(searched),
     }
-    kind = {"shadow_confirm": "shadow_confirm", "lad": "lad", "lad_transition": "transition"}.get(
-        role
-    )
+    kind = {
+        "shadow_confirm": "shadow_confirm",
+        "lad": "lad",
+        "lad_transition": "transition",
+        # Searched sparse rows carry Amendment-2 ranked outcomes too.
+        "sparse_before_lad": "transition" if searched else None,
+    }.get(role)
     if kind is not None:
         label["label_kind"] = kind
     return label
@@ -127,18 +141,94 @@ def _put_label(labels: dict[int, dict[str, Any]], item: dict[str, Any]) -> None:
         labels[int(item["decision"])] = item
 
 
+def _rank_outcomes(
+    outcomes: Mapping[str, Mapping[str, Any]], *, q: list[float], bare_action: int
+) -> dict[str, Any]:
+    """Apply Amendment 2's stable full-action ranking and label semantics."""
+    bare = int(bare_action)
+    tested = [int(action) for action, value in outcomes.items() if value.get("tested", True)]
+    survivors = [action for action in tested if outcomes[str(action)]["survives"]]
+
+    def dead_rank(action: int) -> tuple[int, float, bool, int]:
+        return (
+            -int(outcomes[str(action)]["alive_steps"]),
+            -float(q[action]),
+            action != bare,
+            action,
+        )
+
+    if bare in survivors:
+        ranked = [bare] + sorted((a for a in survivors if a != bare), key=lambda a: (-q[a], a))
+        ranked += sorted((a for a in tested if a not in survivors), key=dead_rank)
+        kind, decisive = "bare_survives", False
+    elif survivors:
+        ranked = sorted(survivors, key=lambda a: (-q[a], a != bare, a))
+        ranked += sorted((a for a in tested if a not in survivors), key=dead_rank)
+        kind, decisive = "horizon_rescue", True
+    else:
+        ranked = sorted(tested, key=dead_rank)
+        kind, decisive = "all_die_delay", False
+    return {
+        "action": ranked[0],
+        "ranked_actions": ranked,
+        "outcome_kind": kind,
+        "delay_only": kind == "all_die_delay",
+        "label_weight": 0.0 if kind == "all_die_delay" else 1.0,
+        "decisive": decisive,
+        "forbidden": (
+            [a for a in tested if not outcomes[str(a)]["survives"]]
+            if kind == "horizon_rescue"
+            else []
+        ),
+    }
+
+
+def _build_doom_cache(state: dict[str, Any], teacher: ExitTeacher, deadline: float) -> list[Any]:
+    """Capture prepared roots once for a confirmed doom; never replay per query.
+
+    Callers retain at most two such caches.  The capture is deliberately
+    released after the bisection group, preventing D*W resident simulator
+    clones while preserving the M2 saving at every individual branch query.
+    """
+    source = clone_world_exact(state["world"])
+    cache = []
+    ambient = random.getstate()
+    try:
+        random.setstate(state["rng"])
+        prepare_world(source)
+        cache.append(clone_world_exact(source))
+        for frame in state["shadow"].frames:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("v2 doom-cache deadline reached")
+            _step(source, teacher, int(frame.action))
+            state["work"]["reconstruction_row_steps"] += 1
+            if (
+                full_digest(
+                    source,
+                    checkpoint=state["shadow"].checkpoint,
+                    global_rng_state=random.getstate(),
+                )
+                != frame.digest
+            ):
+                raise ShadowControlMismatch("doom-cache capture diverged from confirmed shadow")
+            prepare_world(source)
+            cache.append(clone_world_exact(source))
+    finally:
+        random.setstate(ambient)
+    state["doom_cache_digest"] = tuple(frame.digest for frame in state["shadow"].frames)
+    return cache
+
+
 def _search_dooms(
     states: list[dict[str, Any]],
     teacher: ExitTeacher,
     branch_bucket_size: int = 64,
     deadline: float = math.inf,
 ) -> None:
-    """Batch coarse and refinement queries across independent doomed worlds.
+    """Run adaptive radius-three bisection in compacted cross-world rounds.
 
-    The helper is run once with dummy negative refinement results to discover
-    its query set, then again with exact memoized results. Coarse edge flags
-    alone determine refinement locations, so no predicate is approximated in
-    the final labels. Snapshots are reconstructed lazily in bounded buckets.
+    Every query takes a clone of a prepared, once-captured doom-cache root;
+    no query replays its prefix or rerolls the free greedy control.
     """
     if not 6 <= branch_bucket_size <= 1536:
         raise ValueError("branch bucket size must lie in [6, 1536]")
@@ -163,21 +253,14 @@ def _search_dooms(
             for index, decision in batch:
                 state = states[index]
                 stage = time.perf_counter()
-                source = clone_world_exact(state["world"])
-                ambient = random.getstate()
-                try:
-                    random.setstate(state["rng"])
-                    for frame in state["shadow"].frames[: decision - state["decision"]]:
-                        check()
-                        _step(source, teacher, frame.action)
-                        state["work"]["reconstruction_row_steps"] += 1
-                    prepare_world(source)
-                    evaluation = teacher.evaluate(source)
-                finally:
-                    random.setstate(ambient)
+                offset = decision - state["decision"]
+                source = clone_world_exact(state["doom_cache"][offset])
+                prepare_world(source)
+                evaluation = teacher.evaluate(source)
                 state["stages"]["reconstruction_s"] += time.perf_counter() - stage
+                greedy = evaluation.greedy_action()
                 ordered = sorted(
-                    np.flatnonzero(evaluation.legal),
+                    (a for a in np.flatnonzero(evaluation.legal) if int(a) != greedy),
                     key=lambda a: (-float(evaluation.q[a]), int(a)),
                 )
                 sources.append(source)
@@ -200,42 +283,70 @@ def _search_dooms(
                     state["search_bucket_peak"], sum(map(len, choices))
                 )
                 greedy = evaluation.greedy_action()
-                control = outcome[greedy]
+                offset = decision - state["decision"]
                 expected_steps = intervals[index][1] - decision + 1
-                if control.survives or int(control.row_steps) != expected_steps:
-                    raise ShadowControlMismatch(
-                        f"world {state.get('seed')} decision {decision}: greedy branch "
-                        f"survives={control.survives}, steps={control.row_steps}; "
-                        f"shadow death requires {expected_steps} steps"
-                    )
+                frames = state["shadow"].frames[offset : offset + expected_steps]
+                observed = frames[: teacher.config.horizon]
+                control = {
+                    "survives": len(frames) > teacher.config.horizon
+                    and all(getattr(frame, "hero_alive", True) for frame in observed),
+                    "alive_steps": sum(
+                        int(getattr(frame, "hero_alive", True)) for frame in observed
+                    ),
+                    "mass": sum(
+                        (
+                            float(getattr(frame, "hero_length", 0.0))
+                            if getattr(frame, "hero_alive", True)
+                            else 0.0
+                        )
+                        for frame in observed
+                    ),
+                    "row_steps": 0,
+                    "cached_control": True,
+                    "horizon": teacher.config.horizon,
+                    "censored": len(frames) > teacher.config.horizon,
+                    "tested": True,
+                }
+                packed = _outcome_dict(outcome, horizon=teacher.config.horizon)
+                packed[str(greedy)] = control
                 memos[index][decision] = {
-                    "greedy": evaluation.greedy_action(),
+                    "greedy": greedy,
                     "q": [float(v) for v in evaluation.q],
-                    "outcomes": _outcome_dict(outcome),
+                    "outcomes": packed,
                     "evaluation": evaluation,
                 }
 
-    coarse = [
-        (i, t)
-        for i, (first, doom) in enumerate(intervals)
-        for t in sorted({*range(first, doom + 1, 10), doom})
-    ]
+    # Bisection probes are discovered from cached roots.  Seed each interval
+    # with its endpoints, then let the registered radius-three search request
+    # only the adaptive midpoint/refinement positions.
+    coarse = [(i, t) for i, (first, doom) in enumerate(intervals) for t in (first, doom)]
     evaluate(coarse)
-    refinement: set[tuple[int, int]] = set()
-    for index, (first, doom) in enumerate(intervals):
+    results: list[dict[str, Any] | None] = [None] * len(states)
+    # A bisection's next midpoint depends on the real previous answer.  Run
+    # missing probes in rounds: every unfinished root contributes one request
+    # to the next compacted cross-world batch, then repeat until all searches
+    # have complete memoized paths.
+    while any(value is None for value in results):
+        requested: list[tuple[int, int]] = []
+        for index, (first, doom) in enumerate(intervals):
+            if results[index] is not None:
+                continue
 
-        def discover(t: int, i: int = index) -> dict[str, Any]:
-            if t in memos[i]:
+            def lookup(t: int, i: int = index) -> dict[str, Any]:
+                if t not in memos[i]:
+                    raise _MissingProbe(t)
                 return memos[i][t]
-            refinement.add((i, t))
-            return {"greedy": 0, "q": [0.0] * 6, "outcomes": {}}
 
-        search_lad_teacher(first, doom, discover)
-    evaluate(sorted(refinement))
-    results = [
-        search_lad_teacher(first, doom, memos[i].__getitem__)
-        for i, (first, doom) in enumerate(intervals)
-    ]
+            try:
+                results[index] = search_lad(first, doom, lookup, refinement_radius=3)
+            except _MissingProbe as missing:
+                requested.append((index, missing.decision))
+        if not requested:
+            break
+        evaluate(sorted(set(requested)))
+    if any(value is None for value in results):
+        raise RuntimeError("incomplete bisection probe schedule")
+    results = [value for value in results if value is not None]
     sparse_requests = []
     for index, result in enumerate(results):
         first, _ = intervals[index]
@@ -251,48 +362,30 @@ def _search_dooms(
     evaluate(sparse_requests)
     for index, (state, result) in enumerate(zip(states, results)):
         memo, latest = memos[index], result["t_star"]
-        decisions = {
-            int(p["decision"])
-            for p in result["probes"]
-            if p["surviving_alternatives"]
-            and int(p["decision"]) + 1 in memo
-            and not any(
-                v["survives"]
-                for a, v in memo[int(p["decision"]) + 1]["outcomes"].items()
-                if int(a) != memo[int(p["decision"]) + 1]["greedy"]
-            )
-        }
-        if latest is not None:
-            decisions.add(int(latest))
-        decisive_decisions = set(decisions)
+        # Every bisection probe is retained: it describes the rescue island
+        # rather than pretending the latest point is the sole decisive row.
+        decisions = {int(p["decision"]) for p in result["probes"]}
         sample = state.get("sparse_decision")
         if sample is not None:
             decisions.add(sample)
         for decision in sorted(decisions):
             value = memo[decision]
-            survivors = sorted(
-                (
-                    int(a)
-                    for a, v in value["outcomes"].items()
-                    if v["survives"] and int(a) != value["greedy"]
-                ),
-                key=lambda a: (-value["q"][a], a),
-            )
-            decisive = decision in decisive_decisions
-            action = survivors[0] if survivors else value["greedy"]
-            forbidden = (
-                [int(a) for a, v in value["outcomes"].items() if not v["survives"]]
-                if survivors
-                else []
+            outcomes = value["outcomes"]
+            ranked = _rank_outcomes(outcomes, q=value["q"], bare_action=value["greedy"])
+            action = ranked["action"]
+            kind, decisive, forbidden = (
+                ranked["outcome_kind"],
+                ranked["decisive"],
+                ranked["forbidden"],
             )
             item = _label(
                 decision=decision,
                 evaluation=value["evaluation"],
                 student_action=value["greedy"],
                 role=(
-                    "lad"
-                    if decision == latest
-                    else ("lad_transition" if decisive else "sparse_before_lad")
+                    "sparse_before_lad"
+                    if decision == sample
+                    else ("lad" if decision == latest else "lad_transition")
                 ),
                 shadow_id=state["shadow_id"],
                 shadow_frame=decision,
@@ -306,15 +399,25 @@ def _search_dooms(
                 lad={
                     "rule": LABEL_RULE,
                     "latest_surviving_decision": latest,
-                    "transitions": result["transitions"],
+                    "boundary": result["boundary"],
+                    "refinement_radius": result["refinement_radius"],
                     "expansion_count": result["expansion_count"],
                     "global_last_avoidable_proven": False,
                 },
             )
             item["length"] = 0  # Filled from the actual root when this decision is reached.
+            item.update(
+                outcome_kind=kind,
+                delay_only=kind == "all_die_delay",
+                label_weight=0.0 if kind == "all_die_delay" else 1.0,
+                ranked_actions=ranked["ranked_actions"],
+                horizon=teacher.config.horizon,
+            )
             state["pending_labels"][decision] = item
-        if latest is not None:
-            state["pending_actions"][int(latest)] = int(result["a_star"])
+            # Delay rows remain labels only.  The actual controller keeps bare
+            # unless a horizon rescue was found at this exact future frame.
+            if kind == "horizon_rescue" and latest is not None and decision == int(latest):
+                state["pending_actions"][decision] = action
         state["searched"] = True
         state["searches"] += 1
 
@@ -358,6 +461,7 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
     iterator = iter(enumerate(rows))
     done = decisions_done = export_bytes = peak = root_batch_peak = 0
     stages: dict[str, float] = defaultdict(float)
+    doom_cache_peak_roots = 0
     mixes = {str(r["mix"]): {"searched": 0, "expanded": 0, "worlds": 0} for r in rows}
     heartbeat = started
     gpu_samples: list[float] = []
@@ -470,7 +574,19 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                 and not bool(s["shadow"].world.sim.alive[0, 0])
             ]
             if doomed:
-                _search_dooms(doomed, teacher, bucket, deadline)
+                # Full prepared roots are expensive; admit only two doomed
+                # worlds at a time, retain their cache through the batched
+                # branch search, then release it before the next pair.
+                for start in range(0, len(doomed), 2):
+                    group = doomed[start : start + 2]
+                    doom_cache_peak_roots = max(doom_cache_peak_roots, len(group))
+                    try:
+                        for state in group:
+                            state["doom_cache"] = _build_doom_cache(state, teacher, deadline)
+                        _search_dooms(group, teacher, bucket, deadline)
+                    finally:
+                        for state in group:
+                            state.pop("doom_cache", None)
             stage = time.perf_counter()
             evaluator = getattr(teacher.policy, "evaluate_worlds", None)
             evaluations = (
@@ -655,6 +771,7 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
         "search_batch_peak": max((s["search_bucket_peak"] for s in all_states), default=0),
         "root_inference_bucket_peak": root_batch_peak,
         "branch_bucket_capacity": bucket,
+        "doom_cache_peak_roots": doom_cache_peak_roots,
         "teacher_profile": {
             **teacher.profile(),
             **work,

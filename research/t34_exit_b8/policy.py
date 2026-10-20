@@ -160,8 +160,9 @@ class B8Policy:
         """Fill only opponent columns, batched by policy object and fp32 device model.
 
         Hero inference is intentionally absent: the caller already selected its
-        action.  Vector61's advisory mask and v8 hook are reproduced after the
-        device Q forward through its own ``_apply_veto`` implementation.
+        action.  A vetoed Vector61 policy retains its native ``actions`` call:
+        its carried v5/v7/v8 hook state is part of the continuation state and
+        must not be recreated around an accelerated Q forward.
         """
         del runtime
         alive = np.asarray(sim.get_alive(), dtype=bool)
@@ -183,7 +184,12 @@ class B8Policy:
         for policy, pairs in groups.values():
             slots = np.asarray(pairs, dtype=np.int64)
             masks = sim.get_resolved_action_mask()[slots[:, 0], slots[:, 1]]
-            if hasattr(policy, "runtime") and hasattr(policy, "q_values"):
+            # ``Vector61SimdPolicy.actions`` owns exact veto dispatch, including
+            # per-environment live-hook carry.  The cached fp32 path is safe
+            # only for policies with no serving veto state.
+            if getattr(policy, "veto_slots", frozenset()):
+                grid[slots[:, 0], slots[:, 1]] = policy.actions(masks, sim, slots)
+            elif hasattr(policy, "runtime") and hasattr(policy, "q_values"):
                 grid[slots[:, 0], slots[:, 1]] = _vector_actions(policy, sim, slots, self._models)
             else:
                 grid[slots[:, 0], slots[:, 1]] = policy.actions(masks, sim, slots)

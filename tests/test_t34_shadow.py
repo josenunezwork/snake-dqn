@@ -32,6 +32,7 @@ class _World:
             _rngs=[SimpleNamespace(_rng=random.Random(17))],
             frame=np.array([0]),
             alive=np.array([[True]]),
+            length=np.array([[2]]),
             _policy_phase_prepared=True,
             _policy_step_in_progress=False,
         )
