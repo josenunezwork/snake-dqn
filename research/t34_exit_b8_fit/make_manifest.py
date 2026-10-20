@@ -136,7 +136,7 @@ def make_manifest(
         "timeout_minutes": 30,
         "unit_cap": 1.0,
         "rate_units_per_hour": 2.0,
-        "reserve_units": 0.1,
+        "reserve_units": 0.2,
     }
     if mode == "fit":
         required = set(resources)

@@ -234,8 +234,9 @@ transfer and cleanup time must fit inside the approved cap; timeout must be at
 least twice the estimate. Binding `other_assignments` is forwarded to the
 supervisor budget for its existing account-wide assignment/rate checks.
 The 15-minute estimate / 30-minute timeout / 1-unit
-default applies only to the tiny preflight and is provisional until the real
-engine preflight is timed. Full fitting has no guessed default budget.
+default (including 0.2 units reserved) applies only to the tiny preflight and is
+provisional until the real engine preflight is timed. Full fitting has no guessed
+default budget.
 
 ```bash
 "$PY" -m research.t34_exit_b8_fit.make_manifest --mode fit \
@@ -265,7 +266,7 @@ spent fitting while the data generator is suspended.
 | T3 grid smoke | PASS: nine actual fits on 32 saved rows, one update each; full sweep reserved for owner |
 | P5 independent live/sim byte tests | PASS in focused suite; paired simulator/live producers, plus trained reload and live dispatch checks |
 | P4 core and fit artifact integration | PASS: 42 focused tests; full non-slow run in progress |
-| A6 two-world / 200-update shared entrypoint | PASS: actual Bash entrypoint, B8 loaded, 200 updates, 2.361 seconds; fake engine is wiring evidence only |
+| A6 two-world / 200-update shared entrypoint | PASS: actual Bash entrypoint, B8 loaded, 200 updates, 2.723 seconds; fake engine is wiring evidence only |
 | Export delivery | PASS: supervisor local export reader verifies all three artifacts; candidate reload and selected training-state tensors agree |
 | Checkpoint input delivery | Existing public B8/league release; no new publication |
 | Production replay/probe integration | Depends on sibling engine export/factories and preregistered probe |
