@@ -25,7 +25,7 @@ ACTIVE_ARMS = ("paced",)
 MAC_ARMS = ("bare", *ACTIVE_ARMS)
 ARMS = ("bare", "paced", "unpaced")
 HORIZON = 5000
-PHASE_CAP_SECONDS = 40 * 60 * 60
+PHASE_CAP_SECONDS = {"timing": 3600, "precheck": 28800, "study": 144000}
 MAX_CONTENDED_FRACTION = 0.02
 UNPACED_WORLD_SCHEMA = "t34-unpaced-world/v1"
 UNPACED_SHARD_SCHEMA = "t34-unpaced-shard/v1"
@@ -64,7 +64,7 @@ def _registered_contention_fraction(summary: Any, *, phase: str) -> float:
     if not isinstance(summary, Mapping):
         raise InvalidRetention(f"missing {phase} host contention accounting")
     phase_cap = _finite(summary["phase_cap_seconds"], f"{phase} phase cap seconds", 0)
-    if phase_cap != PHASE_CAP_SECONDS:
+    if phase_cap != PHASE_CAP_SECONDS[phase]:
         raise InvalidRetention(f"{phase} host phase cap differs from registration")
     budget = _finite(summary["contention_budget_seconds"], f"{phase} contention budget seconds", 0)
     expected_budget = phase_cap * MAX_CONTENDED_FRACTION
@@ -72,7 +72,9 @@ def _registered_contention_fraction(summary: Any, *, phase: str) -> float:
         raise InvalidRetention(f"{phase} contention budget differs from registered cap")
     contended = _finite(summary["contended_seconds"], f"{phase} contended seconds", 0)
     fraction = _finite(summary["contended_fraction"], f"{phase} host contention fraction", 0)
-    _finite(summary["elapsed_seconds"], f"{phase} elapsed seconds", 0)
+    elapsed = _finite(summary["elapsed_seconds"], f"{phase} elapsed seconds", 0)
+    if elapsed >= phase_cap:
+        raise InvalidRetention(f"{phase} elapsed cap reached")
     expected_fraction = contended / phase_cap
     if not math.isclose(fraction, expected_fraction, rel_tol=0.0, abs_tol=1e-12):
         raise InvalidRetention(f"{phase} host contention fraction is not cap-normalized")
@@ -303,7 +305,7 @@ def product_summary(records: Iterable[Mapping[str, Any]], arm: str) -> dict[str,
 
 
 def timing_summary(timing: Mapping[str, Any]) -> dict[str, Any]:
-    """Judge Watch6 probes, retaining the registered cumulative contention allowance."""
+    """Judge Watch6 probes and retain scored-tick contention separately from warmup."""
     probes = timing["probes"]
     if set(probes) != {f"{arm}-{fps}" for arm in ("bare", "paced") for fps in (12, 24)}:
         raise InvalidRetention("timing requires ON/OFF at both 12 and 24 fps")
@@ -312,6 +314,14 @@ def timing_summary(timing: Mapping[str, Any]) -> dict[str, Any]:
         ticks = _integer(probe["ticks"], "timing ticks", 1)
         if probe["fps"] != fps or type(probe["contended"]) is not bool:
             raise InvalidRetention("timing profile mismatch")
+        if "host_contended_ticks" in probe:
+            flags = probe["host_contended_ticks"]
+            if (
+                not isinstance(flags, list)
+                or len(flags) != ticks
+                or any(type(flag) is not bool for flag in flags)
+            ):
+                raise InvalidRetention("invalid scored timing contention samples")
         _integer(probe["overruns"], "timing overruns", 0, ticks)
         for metric in ("update_ms", "full_tick_ms"):
             distribution = probe[metric]
@@ -338,8 +348,28 @@ def timing_summary(timing: Mapping[str, Any]) -> dict[str, Any]:
         "probes": probes,
         "clauses": clauses,
         "pass": all(clauses.values()),
-        "contended": any(probe["contended"] for probe in probes.values()),
+        "contended": any(
+            probe["contended"] or any(probe.get("host_contended_ticks", []))
+            for probe in probes.values()
+        ),
     }
+
+
+def timing_contention_reason(timing: Mapping[str, Any]) -> str | None:
+    """Scored timing contention invalidates the attempt before timing bars are judged."""
+    report = timing_summary(timing)
+    scored_host_contended = timing.get("scored_host_contended", False)
+    if type(scored_host_contended) is not bool:
+        raise InvalidRetention("invalid scored host contention marker")
+    if report["contended"] or scored_host_contended:
+        return (
+            "INCONCLUSIVE-retry: contended scored timing ticks; operator may retry on a quiet host"
+        )
+    if "host_summary" in timing:
+        fraction = _registered_contention_fraction(timing["host_summary"], phase="timing")
+        if fraction > MAX_CONTENDED_FRACTION:
+            return "INCONCLUSIVE: timing host contention exceeded allowance"
+    return None
 
 
 def _uncertain_skill(skill: Mapping[str, Any]) -> bool:
@@ -379,9 +409,10 @@ def decide(
     """Fixed look: integrity, faults, uncertainty exception, scientific KILL/GO.
 
     Incomplete data do not support an efficacy decision. Recorded unconditional
-    faults and registered timing-probe overruns still kill immediately, including
-    partial runs. Paced efficacy ticks run bare after a missed deadline; those
-    overruns are retained as diagnostics and do not constitute timing failures.
+    faults still kill immediately, including partial runs. Contended scored
+    timing windows require an operator retry before timing bars are judged.
+    Paced efficacy ticks run bare after a missed deadline; those overruns remain
+    diagnostics and do not constitute timing failures.
     """
     records = list(records)
     try:
@@ -412,12 +443,30 @@ def decide(
             )
     except (InvalidRetention, TypeError, ValueError, AttributeError) as exc:
         return _inconclusive(f"malformed fault evidence: {exc}")
-    if faults or timing_overrun:
+    if faults:
         return {
             "schema": "t34-pathb-v2-decision/v1",
             "verdict": "KILL",
             "reason": "unconditional_fault_or_timing_overrun",
             "faults": faults,
+            "release_authorized": False,
+        }
+    if timing.get("probes"):
+        try:
+            contention_reason = timing_contention_reason(timing)
+        except (KeyError, TypeError, ValueError) as exc:
+            return _inconclusive(f"malformed timing contention evidence: {exc}")
+        if contention_reason:
+            report = _inconclusive(contention_reason)
+            if contention_reason.startswith("INCONCLUSIVE-retry"):
+                report["verdict"] = "INCONCLUSIVE-retry"
+            return report
+    if timing_overrun:
+        return {
+            "schema": "t34-pathb-v2-decision/v1",
+            "verdict": "KILL",
+            "reason": "unconditional_fault_or_timing_overrun",
+            "faults": [],
             "release_authorized": False,
         }
     if not complete:
@@ -446,14 +495,7 @@ def decide(
             and failed_paced_bars <= mass_bars
             and product["pass"]
         )
-        timing_contention = (
-            _registered_contention_fraction(timing.get("host_summary"), phase="timing")
-            if "host_summary" in timing or timing_report["contended"]
-            else 0.0
-        )
-        if timing_contention > MAX_CONTENDED_FRACTION:
-            verdict, reason = "INCONCLUSIVE", "timing contention exceeded registered allowance"
-        elif not timing_report["pass"]:
+        if not timing_report["pass"]:
             verdict, reason = "KILL", "paced timing bar failed"
         elif near_zero_mass_only or (product["pass"] and _uncertain_skill(paced)):
             verdict, reason = "INCONCLUSIVE", "registered near-boundary uncertainty exception"

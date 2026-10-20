@@ -3,16 +3,50 @@
 DRAFT_PENDING_OPERATOR_RATIFICATION
 
 The pre-data FIX-FIRST rulings, including the second review, the unpaced
-Colab ruling, and the final contention and admission review, are incorporated
+Colab ruling, the final contention and admission review, and the fourth
+timing-cap review, are incorporated
 from [the first operator specification](../../docs/research/specs/2026-10-20_t34_retention_prereg_fixes.md)
 and [the second operator specification](../../docs/research/specs/2026-10-20_t34_retention_fixes2.md),
-with the [unpaced-arm ruling](../../docs/research/specs/2026-10-20_t34_unpaced_arm_colab.md).
+with the [unpaced-arm ruling](../../docs/research/specs/2026-10-20_t34_unpaced_arm_colab.md)
+and [FIX-FIRST #4](../../docs/research/specs/2026-10-20_t34_retention_fixes4.md).
 They supersede the earlier draft precedence and execution ordering below.
 
 Written 2026-10-20 before any retention efficacy row. The owner delegated the
 ratification decision to Claude; only the operator ratifies after review. This
 draft, its committed banks and its OC simulation authorize no pre-check,
 efficacy, strict-gate run, training, cloud spending or serving change.
+
+## Amendment 5 addendum — FIX-FIRST #4 timing cap and contention precedence
+
+The [FIX-FIRST #4 ruling](../../docs/research/specs/2026-10-20_t34_retention_fixes4.md)
+amends this unauthorized draft before data. It replaces only Amendment 4's
+timing-cap, timing-contention, and idle-baseline rules; its arm scope,
+admission requirements, and pre-check/study rules remain in force.
+
+The registered phase map is `timing: 3600` seconds, `precheck: 28800` seconds,
+and `study: 144000` seconds. With the frozen 2% allowance, the corresponding
+phase contention budgets are **72 seconds**, **576 seconds**, and **2880
+seconds**. The timing gate has a hard **one-hour elapsed** cap. Its measured
+elapsed and CPU time also debit the enclosing 40-hour elapsed / 60-CPU-hour
+study caps; the pre-check remains separately capped at 8 elapsed hours and
+does not debit either study cap.
+
+For timing, zero contended **scored probe ticks** is an independent prerequisite
+that precedes all timing bars. Any contended scored probe tick yields the exact
+verdict **INCONCLUSIVE-retry**, produces no efficacy row, and admits no
+pre-check or study work. The operator may manually rerun that timing gate only
+on a quiet host and in a fresh output directory. Each invocation preserves its
+own create-only `timing_attempt.json`, including admission-refusal diagnostics;
+there is no automatic retry. Warmup contention is recorded separately from
+scored-tick contention and is assessed only through the timing phase's existing
+72-second, 2% contention budget.
+
+At admission, the idle baseline is
+`min(first measured load_1m, (os.cpu_count() or 1) / 4)`. The record retains
+the CPU count, that absolute ceiling, the capped baseline, and the resulting
+load threshold. This prevents steady background load from raising the baseline.
+Unconditional controller faults in the Mac `bare` or `paced` arms remain KILL
+conditions; this contention retry rule does not weaken them.
 
 ## Amendment 4 addendum — pre-data contention accounting and arm-scoped faults
 
@@ -22,12 +56,13 @@ prospective and phase-local, while preserving the descriptive status of the
 separately transported `unpaced` arm.
 
 For each Mac phase, the contention allowance is exactly 2% of that phase's
-**registered elapsed-time cap**, checked only when that phase ends. The timing
-gate is charged to the study and therefore uses its registered 40-hour elapsed
-cap; the reused-T3 pre-check uses its separate 8-hour cap; and the retention
-study uses its 40-hour cap. A phase whose final measured contended seconds
-exceed its allowance is INCONCLUSIVE. A contended sample or an interim fraction
-above the allowance does not stop a row or phase.
+**registered elapsed-time cap**, checked only when that phase ends. The former
+statement here that timing used the 40-hour study cap is superseded by Amendment
+5: timing uses its 1-hour cap and 72-second phase budget. The reused-T3
+pre-check uses its separate 8-hour cap and 576-second budget, while the
+retention study uses its 40-hour cap and 2880-second budget. Apart from the
+scored-tick timing rule in Amendment 5, a contended sample or an interim
+fraction above the allowance does not stop a row or phase.
 
 The HostGuard samples every 5 seconds; every sample classified as contended
 adds 5 seconds to that phase's measured contention total. Load-average excess
@@ -295,12 +330,19 @@ the host must pass the 120-second quiet admission window; refusal to admit exits
 nonzero without a terminal record or `decision.json` and may be retried later.
 The quiet-host timing gate runs first, before the reused T3 pre-check or any
 efficacy world. At both rates require zero overruns and the cadence bar; require
-update p95 <=11.688 ms only at 24 fps. A failed registered timing probe stops
-with KILL-timing and no pre-check/efficacy work. At phase end only, measured
-contention above 2% of that phase's registered elapsed cap, or an
-AC/lid/thermal interruption beyond the registered 120-second pause limit, is
-INCONCLUSIVE. Missing or invalid Mac evidence is INCONCLUSIVE. At the sole
-complete valid look, failed timing is KILL;
+update p95 <=11.688 ms only at 24 fps. Before those timing bars are judged,
+**any contended scored probe tick** is exactly **INCONCLUSIVE-retry**: it
+produces no efficacy row and permits neither pre-check nor efficacy work. The
+operator may rerun manually only on a quiet host in a fresh output directory;
+each attempt, including an admission refusal, preserves `timing_attempt.json`.
+There is no automatic retry. If no scored probe tick is contended, a failed
+registered timing probe stops with KILL-timing and no pre-check/efficacy work.
+Warmup contention is separately retained and remains subject to the timing
+phase's 72-second 2% budget. At phase end only, a phase's contention above its
+registered allowance (72 seconds timing, 576 seconds pre-check, 2880 seconds
+study), or an AC/lid/thermal interruption beyond the registered 120-second
+pause limit, is INCONCLUSIVE. Missing or invalid Mac evidence is INCONCLUSIVE.
+At the sole complete valid look, failed timing is KILL;
 failed paced skill decides KILL, subject only to the uncertainty exceptions
 below; all paced skill/product bars pass -> GO; product bars not established ->
 INCONCLUSIVE. Unpaced Colab evidence has no branch in this precedence.
@@ -363,27 +405,29 @@ search cost is priced only against the separate Colab unit envelope.
 
 ## Admission, resources and evidence lifecycle
 
-Mac CPU only, $0, first of **40 h elapsed / 60 CPU-h** wins for the registered
-timing-plus-efficacy study. It runs only the `bare` and `paced` arms. Main
+Mac CPU only, $0. Timing has a hard **1 h elapsed** cap and its elapsed/CPU
+debits also count toward the enclosing study's first-of **40 h elapsed / 60
+CPU-h** caps. The pre-check has its own first-of **8 h elapsed** cap and does
+not debit the study caps. The Mac runs only the `bare` and `paced` arms. Main
 simulation plus one assistance worker uses at most two CPU threads; every
 numerical pool is capped at one
 (OMP/MKL/OpenBLAS/VECLIB/NumExpr/Numba/Torch). One process, no parallel worlds.
 Charge Mac setup, source checks, waiting, failed work and exports to the phase
-that incurs them. The separately authorized reused-T3 pre-check has its own **8 h
-elapsed cap** and does not debit the study's elapsed or CPU-hour caps. OC has
-its own bounded resumable simulation budget and is not retention gameplay. Use
+that incurs them. OC has its own bounded resumable simulation budget and is not
+retention gameplay. Use
 AC, open lid, available and acceptable thermal telemetry. No service or tmux
 action. `RETENTION_PROFILE_V2.json` repeats this as
-`precheck_max_elapsed_hours: 8`, beside the study's `max_elapsed_hours: 40` and
-`max_cpu_hours: 60`.
+`timing_max_elapsed_hours: 1`, `precheck_max_elapsed_hours: 8`, and the study's
+`max_elapsed_hours: 40` / `max_cpu_hours: 60`.
 
 Admission requires acceptable AC, lid, and thermal telemetry plus 120 continuous
-quiet seconds under the registered raw load and other-process CPU checks. The
-runner measures and records the idle baseline and CPU count during that window,
-then records the configured load threshold beside them. If the window cannot
-complete, the phase is refused before it begins: the command exits nonzero and
-creates neither a terminal phase record nor `decision.json`; the operator can
-retry later. Unavailable telemetry cannot pass admission. No hard-coded
+quiet seconds under the registered raw load and other-process CPU checks. From
+the first measured load, the runner sets the idle baseline to
+`min(load_1m, (os.cpu_count() or 1) / 4)` and records the CPU count, ceiling,
+capped baseline, and configured load threshold. If the window cannot complete,
+the phase is refused before it begins: the command exits nonzero and creates
+neither a terminal phase record nor `decision.json`; the operator can retry
+later. Unavailable telemetry cannot pass admission. No hard-coded
 quiet/Phase-0-completed/zero-job attestation establishes it.
 
 After admission, HostGuard samples every 5 seconds without blocking a tick. A
@@ -396,12 +440,14 @@ retains raw load, PID/command evidence, the threshold, idle baseline, and CPU
 count. A row is neither excluded nor retried for a contended sample.
 
 At the end of each phase only, compare its cumulative contended seconds with 2%
-of its registered elapsed cap: timing uses the study's 40-hour cap, the T3
-pre-check uses its separate 8-hour cap, and retention study collection uses its
-40-hour cap. Exceeding that allowance makes only the affected phase
+of its registered elapsed cap: timing's 3600 seconds permits 72 contended
+seconds, the T3 pre-check's 28800 seconds permits 576, and the study's 144000
+seconds permits 2880. Exceeding that allowance makes only the affected phase
 INCONCLUSIVE; an early contended sample or an interim excess cannot end a phase.
-Power, lid, or thermal changes pause only between rows; a continuous
-non-acceptable condition for 120 seconds makes the affected phase
+For timing, this phase-end rule includes separately recorded warmup contention;
+it does not replace the earlier exact INCONCLUSIVE-retry rule for any contended
+scored probe tick. Power, lid, or thermal changes pause only between rows; a
+continuous non-acceptable condition for 120 seconds makes the affected phase
 INCONCLUSIVE. Paused time counts against the applicable phase cap. The exact
 policy keys and thresholds are frozen in `RETENTION_PROFILE_V2.json` and copied
 unchanged to `registration.load_profile`; its `max_contended_fraction` is
@@ -442,12 +488,15 @@ admits efficacy in a fresh artifact root. Follow
 [README operator commands](README_V2.md#retention-registration-package).
 
 The create-only decision.json written by an admitted runner at the end of the
-single look is the only verdict. Timing failure writes the terminal decision
-before efficacy. A failed 120-second quiet admission writes neither a terminal
-record nor `decision.json`, and may be retried later. Interrupted work retains
-an INCONCLUSIVE decision and fault evidence. Re-analysis is explicitly
-descriptive, preserving the saved decision and never publishing a replacement
-verdict. No automatic retry or resumption.
+single look is the only verdict. A contended scored timing tick writes the exact
+INCONCLUSIVE-retry decision before timing bars or efficacy; its attempt record
+is preserved, and any later manual timing attempt requires a quiet host and a
+fresh directory. Other timing failure writes the terminal decision before
+efficacy. A failed 120-second quiet admission writes neither a terminal record
+nor `decision.json`, but its `timing_attempt.json` diagnostics are preserved.
+Interrupted work retains an INCONCLUSIVE decision and fault evidence.
+Re-analysis is explicitly descriptive, preserving the saved decision and never
+publishing a replacement verdict. No automatic retry or resumption.
 
 Trace receipt and OC receipt must say PASS, bind exact source hashes, and carry
 real supporting evidence. No opaque success flag, synthetic pre-check or hash

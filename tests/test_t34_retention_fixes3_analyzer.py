@@ -7,17 +7,13 @@ from tests.test_t34_pathb_analysis_v2 import _host_summary, _records, _timing
 
 def test_contention_allowance_uses_registered_cap_not_short_elapsed_runtime() -> None:
     timing = _timing()
-    timing["probes"]["paced-24"]["contended"] = True
-    # This would be 20% of elapsed runtime, but only 0.694% of the registered
-    # 40-hour timing-phase cap and is therefore valid.
-    timing["host_summary"] = _host_summary(contended_seconds=1_000.0, elapsed_seconds=5_000.0)
-
+    # Warmup/between-probe contention stays below 72s despite a short run.
+    timing["host_summary"] = _host_summary(contended_seconds=10.0, elapsed_seconds=20.0)
     assert analysis.decide(_records(), timing)["verdict"] == "GO"
 
 
 def test_contention_accounting_requires_all_cap_normalized_fields() -> None:
     timing = _timing()
-    timing["probes"]["paced-24"]["contended"] = True
     summary = _host_summary(contended_seconds=1.0)
     del summary["contention_budget_seconds"]
     timing["host_summary"] = summary
@@ -30,10 +26,10 @@ def test_contention_accounting_requires_all_cap_normalized_fields() -> None:
 
 def test_cap_normalized_contention_exceedance_is_inconclusive() -> None:
     timing = _timing()
-    timing["probes"]["paced-24"]["contended"] = True
     timing["host_summary"] = _host_summary(
-        contended_seconds=analysis.PHASE_CAP_SECONDS * analysis.MAX_CONTENDED_FRACTION + 5.0,
-        elapsed_seconds=analysis.PHASE_CAP_SECONDS,
+        contended_seconds=analysis.PHASE_CAP_SECONDS["timing"] * analysis.MAX_CONTENDED_FRACTION
+        + 5.0,
+        elapsed_seconds=100,
     )
 
     assert analysis.decide(_records(), timing)["verdict"] == "INCONCLUSIVE"

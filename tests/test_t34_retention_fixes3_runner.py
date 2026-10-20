@@ -43,7 +43,7 @@ def _bypass_registration_checks(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     ("phase", "expected_cap_seconds"),
     [
-        ("timing", 40 * 3600),
+        ("timing", 3600),
         ("precheck", 8 * 3600),
         ("study", 40 * 3600),
     ],

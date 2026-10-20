@@ -82,6 +82,7 @@ def test_admission_refuses_even_transient_raw_contention(busy_at):
 
 def test_load_requires_over_sixty_continuous_seconds_above_measured_baseline(monkeypatch):
     now, load = [0.0], [7.8]
+    monkeypatch.setattr(host_guard_v2.os, "cpu_count", lambda: 32)
     monkeypatch.setattr(host_guard_v2, "_power_thermal", lambda: (True, True, True))
     monkeypatch.setattr(host_guard_v2, "_own_pids", lambda: set())
     monkeypatch.setattr(host_guard_v2, "_processes", lambda: [])
@@ -109,6 +110,7 @@ def test_load_requires_over_sixty_continuous_seconds_above_measured_baseline(mon
 
 def test_process_cpu_persistence_resets_and_blocks_quiet_admission(monkeypatch):
     now, cpu = [0.0], [51.0]
+    monkeypatch.setattr(host_guard_v2.os, "cpu_count", lambda: 32)
     monkeypatch.setattr(host_guard_v2, "_power_thermal", lambda: (True, True, True))
     monkeypatch.setattr(host_guard_v2, "_own_pids", lambda: set())
     monkeypatch.setattr(host_guard_v2.os, "getloadavg", lambda: (7.8, 0, 0))

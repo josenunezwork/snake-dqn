@@ -37,6 +37,7 @@ from research.t34_pathb.retention_v2 import (  # noqa: E402
     PRECHECK_MAX_ELAPSED_HOURS,
     PRODUCT_SESSIONS,
     TERMINAL_PER_MIX,
+    TIMING_MAX_ELAPSED_HOURS,
     RegistrationError,
     _registered_seed_union,
     _validate_checkpoint_coverage,
@@ -351,6 +352,7 @@ def _check_common(registration: Mapping[str, Any], *, root: Path) -> None:
         "max_elapsed_hours": MAX_ELAPSED_HOURS,
         "max_cpu_hours": MAX_CPU_HOURS,
         "precheck_max_elapsed_hours": PRECHECK_MAX_ELAPSED_HOURS,
+        "timing_max_elapsed_hours": TIMING_MAX_ELAPSED_HOURS,
         "fresh_disjoint_banks": True,
         "timing_ticks": 5000,
         "timing_warmup": 200,
@@ -384,7 +386,12 @@ def _check_common(registration: Mapping[str, Any], *, root: Path) -> None:
 def _check_load_policy(registration: Mapping[str, Any], *, root: Path) -> None:
     """Require the same prospective measured-host policy in both bindings."""
     profile = _read_object(_bound_path(registration.get("profile"), root=root, label="profile"))
-    for key in ("max_elapsed_hours", "max_cpu_hours", "precheck_max_elapsed_hours"):
+    for key in (
+        "max_elapsed_hours",
+        "max_cpu_hours",
+        "precheck_max_elapsed_hours",
+        "timing_max_elapsed_hours",
+    ):
         if profile.get(key) != registration.get(key):
             raise RegistrationError(f"profile {key} differs from registered cap")
     if registration.get("load_profile") != profile.get("load_policy"):
@@ -588,6 +595,7 @@ def build_draft(
         "max_elapsed_hours": MAX_ELAPSED_HOURS,
         "max_cpu_hours": MAX_CPU_HOURS,
         "precheck_max_elapsed_hours": PRECHECK_MAX_ELAPSED_HOURS,
+        "timing_max_elapsed_hours": TIMING_MAX_ELAPSED_HOURS,
         "fresh_disjoint_banks": True,
         "terminal_rows": bank_payload["terminal_rows"],
         "product_rows": bank_payload["product_rows"],

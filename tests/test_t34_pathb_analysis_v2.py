@@ -98,8 +98,10 @@ def _timing():
     return {"probes": {f"{arm}-{fps}": probe(fps) for arm in ("bare", "paced") for fps in (12, 24)}}
 
 
-def _host_summary(*, contended_seconds: float = 0.0, elapsed_seconds: float = 1.0) -> dict:
-    phase_cap_seconds = analysis.PHASE_CAP_SECONDS
+def _host_summary(
+    *, contended_seconds: float = 0.0, elapsed_seconds: float = 1.0, phase: str = "timing"
+) -> dict:
+    phase_cap_seconds = analysis.PHASE_CAP_SECONDS[phase]
     return {
         "phase_cap_seconds": phase_cap_seconds,
         "contention_budget_seconds": phase_cap_seconds * analysis.MAX_CONTENDED_FRACTION,
@@ -281,18 +283,17 @@ def test_partial_and_contended_are_inconclusive():
     assert analysis.decide([], {}, complete=False)["verdict"] == "INCONCLUSIVE"
     timing = _timing()
     timing["probes"]["paced-24"]["contended"] = True
-    assert analysis.decide(_records(), timing)["verdict"] == "INCONCLUSIVE"
+    assert analysis.decide(_records(), timing)["verdict"] == "INCONCLUSIVE-retry"
 
 
-def test_timing_contention_within_two_percent_requires_and_accepts_accounting():
+def test_timing_warmup_contention_within_two_percent_accepts_accounting():
     timing = _timing()
-    timing["probes"]["paced-24"]["contended"] = True
     timing["host_summary"] = _host_summary(
-        contended_seconds=analysis.PHASE_CAP_SECONDS * analysis.MAX_CONTENDED_FRACTION
+        contended_seconds=analysis.PHASE_CAP_SECONDS["timing"] * analysis.MAX_CONTENDED_FRACTION
     )
     assert analysis.decide(_records(), timing)["verdict"] == "GO"
 
-    del timing["host_summary"]
+    del timing["host_summary"]["contention_budget_seconds"]
     report = analysis.decide(_records(), timing)
     assert report["verdict"] == "INCONCLUSIVE"
     assert "contention" in report["reason"]
@@ -351,7 +352,7 @@ def _write_artifacts(root, monkeypatch):
                 "registration_sha256": digest,
                 "identity_status": "PASS",
                 "parity_status": "PASS",
-                "host_summary": _host_summary(),
+                "host_summary": _host_summary(phase="study"),
             }
         )
     )

@@ -49,18 +49,20 @@ def probe(
     warmup: int = 200,
     contended: bool = False,
     check_cap: Callable[[], None] | None = None,
-    check_host: Callable[[], None] | None = None,
+    check_host: Callable[[], Mapping[str, Any] | None] | None = None,
+    on_scored_window: Callable[[Mapping[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run real paced steps; no GameSession queue is drained outside its tick path."""
     if fps not in (12, 24) or ticks < 1 or warmup < 0:
         raise ValueError("invalid T15 probe settings")
+    warmup_contention_ticks: list[bool] = []
     contention_ticks: list[bool] = []
     for _ in range(warmup):
         if check_cap:
             check_cap()
         if check_host:
             host = check_host()
-            contention_ticks.append(bool(host and host.get("contended")))
+            warmup_contention_ticks.append(bool(host and host.get("contended")))
         _step(session)
         time.sleep(1 / fps)
     updates: list[float] = []
@@ -70,33 +72,46 @@ def probe(
     overruns = 0
     cpu_total = 0.0
     paced_started = time.monotonic()
-    for _ in range(ticks):
-        if check_cap:
-            check_cap()
-        if check_host:
-            host = check_host()
-            contention_ticks.append(bool(host and host.get("contended")))
-        started = time.monotonic()
-        before = time.process_time()
-        _step(session)
-        elapsed = (time.monotonic() - started) * 1000
-        cpu_ms = (time.process_time() - before) * 1000
-        cpu_total += cpu_ms
-        update = float(getattr(session, "last_update_ms", elapsed))
-        updates.append(update)
-        full.append(elapsed)
-        upkeep.append(float(getattr(session, "shadow_upkeep_ms", 0.0)))
-        value = getattr(session, "first_result_latency_ms", None)
-        if value is not None:
-            first_result.append(float(value))
-        overruns += int(elapsed >= 1000 / fps)
-        time.sleep(max(0.0, 1 / fps - (time.monotonic() - started)))
+    try:
+        for _ in range(ticks):
+            if check_cap:
+                check_cap()
+            if check_host:
+                host = check_host()
+                contention_ticks.append(bool(host and host.get("contended")))
+            started = time.monotonic()
+            before = time.process_time()
+            _step(session)
+            elapsed = (time.monotonic() - started) * 1000
+            cpu_ms = (time.process_time() - before) * 1000
+            cpu_total += cpu_ms
+            update = float(getattr(session, "last_update_ms", elapsed))
+            updates.append(update)
+            full.append(elapsed)
+            upkeep.append(float(getattr(session, "shadow_upkeep_ms", 0.0)))
+            value = getattr(session, "first_result_latency_ms", None)
+            if value is not None:
+                first_result.append(float(value))
+            overruns += int(elapsed >= 1000 / fps)
+            time.sleep(max(0.0, 1 / fps - (time.monotonic() - started)))
+    finally:
+        # The callback also runs on faults, before run_probes can pause between
+        # sessions. The runner closes its sampler before classifying all samples.
+        if on_scored_window:
+            on_scored_window(
+                {
+                    "started_monotonic": paced_started,
+                    "finished_monotonic": time.monotonic(),
+                    "tick_contended": bool(contended or any(contention_ticks)),
+                }
+            )
     return {
         "fps": fps,
         "ticks": ticks,
         "warmup": warmup,
         "contended": bool(contended or any(contention_ticks)),
         "host_contended_ticks": contention_ticks,
+        "warmup_host_contended_ticks": warmup_contention_ticks,
         "update_ms": _summary(updates),
         "full_tick_ms": _summary(full),
         "shadow_upkeep_ms": _summary(upkeep),
@@ -119,7 +134,8 @@ def run_probes(
     warmup: int,
     contended: bool,
     check_cap: Callable[[], None] | None = None,
-    check_host: Callable[[], None] | None = None,
+    check_host: Callable[[], Mapping[str, Any] | None] | None = None,
+    on_scored_window: Callable[[Mapping[str, Any]], None] | None = None,
     between_rows: Callable[[Any], None] | None = None,
 ) -> dict[str, Any]:
     """Open and close four exact Watch6 sessions, ON/OFF at the two serving rates."""
@@ -138,6 +154,7 @@ def run_probes(
                     contended=contended,
                     check_cap=check_cap,
                     check_host=check_host,
+                    on_scored_window=on_scored_window,
                 )
                 if between_rows:
                     between_rows(session)

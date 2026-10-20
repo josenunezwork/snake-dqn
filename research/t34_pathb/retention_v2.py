@@ -39,8 +39,10 @@ os.environ["SNAKE_DQN_DEVICE"] = "cpu"
 from research.t34_pathb import timing_v2  # noqa: E402
 from research.t34_pathb.analyze_v2 import (  # noqa: E402
     MIXES,
+    PHASE_CAP_SECONDS,
     _registered_contention_fraction,
     analyze_path,
+    timing_contention_reason,
     timing_summary,
 )
 from research.t34_pathb.host_guard_v2 import (  # noqa: E402
@@ -59,6 +61,7 @@ PRODUCT_SESSIONS = 32
 MAX_ELAPSED_HOURS = 40.0
 MAX_CPU_HOURS = 60.0
 PRECHECK_MAX_ELAPSED_HOURS = 8.0
+TIMING_MAX_ELAPSED_HOURS = 1.0
 
 
 def unpaced_colab_policy() -> dict[str, Any]:
@@ -403,8 +406,9 @@ def require_registration(
         registration.get("max_elapsed_hours") != MAX_ELAPSED_HOURS
         or registration.get("max_cpu_hours") != MAX_CPU_HOURS
         or registration.get("precheck_max_elapsed_hours") != PRECHECK_MAX_ELAPSED_HOURS
+        or registration.get("timing_max_elapsed_hours") != TIMING_MAX_ELAPSED_HOURS
     ):
-        raise RegistrationError("registration cap differs from Amendment 2")
+        raise RegistrationError("registration cap differs from fixed phase contract")
     sources = registration.get("source_hashes")
     if (
         registration.get("fresh_disjoint_banks") is not True
@@ -431,6 +435,14 @@ def require_registration(
             raise RegistrationError(f"registered commit hash differs: {name}")
     if precheck is not None:
         _require_phase_source(precheck, "precheck.json")
+        try:
+            fraction = _registered_contention_fraction(
+                precheck.get("host_summary"), phase="precheck"
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RegistrationError(f"invalid pre-check contention ledger: {exc}") from exc
+        if fraction > 0.02:
+            raise RegistrationError("pre-check host contention exceeded allowance")
         raw = precheck.get("raw_records")
         if (
             not isinstance(raw, list)
@@ -470,7 +482,12 @@ def require_registration(
                 profile = _load(path)
             except (OSError, json.JSONDecodeError) as exc:
                 raise RegistrationError("registered profile is not readable JSON") from exc
-            for cap_key in ("max_elapsed_hours", "max_cpu_hours", "precheck_max_elapsed_hours"):
+            for cap_key in (
+                "max_elapsed_hours",
+                "max_cpu_hours",
+                "precheck_max_elapsed_hours",
+                "timing_max_elapsed_hours",
+            ):
                 if profile.get(cap_key) != registration.get(cap_key):
                     raise RegistrationError(f"profile {cap_key} differs from registered cap")
             if registration["load_profile"] != profile.get("load_policy"):
@@ -585,13 +602,9 @@ def _require_committed_pushed_registration(path: Path, registration: Mapping[str
 def _timing_passes(timing: Mapping[str, Any]) -> tuple[bool, str]:
     """Apply the timing gate without making efficacy observations."""
     try:
-        probes = timing["probes"]
-        if "host_summary" in timing or any(
-            bool(probe.get("contended")) for probe in probes.values()
-        ):
-            fraction = _registered_contention_fraction(timing.get("host_summary"), phase="timing")
-            if fraction > 0.02:
-                return False, "INCONCLUSIVE: timing host contention exceeded allowance"
+        reason = timing_contention_reason(timing)
+        if reason:
+            return False, reason
         if not timing_summary(timing)["pass"]:
             return False, "KILL-timing: registered Watch6 timing bar failed"
     except (KeyError, TypeError, ValueError):
@@ -610,7 +623,9 @@ def require_timing_gate(
         _require_phase_source(timing, "timing_gate.json")
         if timing.get("status") != "PASS":
             raise RegistrationError("timing gate has no passing producer receipt")
-        _phase_debit(timing)
+        elapsed, _ = _phase_debit(timing)
+        if elapsed >= TIMING_MAX_ELAPSED_HOURS * 3600:
+            raise RegistrationError("timing exceeded its separate 1-hour elapsed cap")
         if (
             timing.get("source_commit") != registration.get("source_commit")
             or timing.get("source_hashes") != registration.get("source_hashes")
@@ -648,16 +663,32 @@ def run_timing_gate(
     _execution_guard()
     if out.exists():
         raise RegistrationError("timing-gate output root must be fresh")
-    guard = HostGuard(registration["load_profile"], phase_cap_seconds=MAX_ELAPSED_HOURS * 3600)
-    guard.check_budget = lambda: _cap(started, cpu_started)
+    guard = HostGuard(registration["load_profile"], phase_cap_seconds=PHASE_CAP_SECONDS["timing"])
+    guard.check_budget = lambda: _timing_cap(started, cpu_started)
+    admission_refused = False
+    scored_windows: list[Mapping[str, Any]] = []
+
+    def scored_contention() -> bool:
+        return any(
+            window["tick_contended"]
+            or any(
+                record["contended"]
+                and window["started_monotonic"]
+                <= record["timestamp_monotonic"]
+                <= window["finished_monotonic"]
+                for record in guard.records
+            )
+            for window in scored_windows
+        )
+
     try:
-        _cap(started, cpu_started)
+        _timing_cap(started, cpu_started)
         guard.admit()
         out.mkdir(parents=True, exist_ok=False)
         started, cpu_started = time.monotonic(), time.process_time()
         guard.start()
         _between_rows(guard)
-        _cap(started, cpu_started)
+        _timing_cap(started, cpu_started)
         if adapter is None:
             adapter = _adapter()
         timing = timing_v2.run_probes(
@@ -665,24 +696,28 @@ def run_timing_gate(
             ticks=int(registration["timing_ticks"]),
             warmup=int(registration["timing_warmup"]),
             contended=False,
-            check_cap=lambda: _cap(started, cpu_started),
+            check_cap=lambda: _timing_cap(started, cpu_started),
             check_host=guard.check,
+            on_scored_window=scored_windows.append,
             between_rows=lambda session: _between_rows(guard, session),
         )
         guard.close()
-        timing["host_summary"] = guard.summary()
+        timing["host_summary"] = guard.summary(validate=False)
+        timing["scored_windows"] = scored_windows
+        timing["scored_host_contended"] = scored_contention()
         _final_source_check()
-        observed_contention = any(record["contended"] for record in guard.records)
-        for probe in timing["probes"].values():
-            probe["contended"] = observed_contention
-        _cap(started, cpu_started)
+        _timing_cap(started, cpu_started)
         timing["elapsed_seconds"] = time.monotonic() - started
         timing["cpu_seconds"] = time.process_time() - cpu_started
         passed, reason = _timing_passes(timing)
         gate_status = (
             "PASS"
             if passed
-            else ("INCONCLUSIVE" if reason.startswith("INCONCLUSIVE") else "FAILED")
+            else (
+                "INCONCLUSIVE-retry"
+                if reason.startswith("INCONCLUSIVE-retry")
+                else "INCONCLUSIVE" if reason.startswith("INCONCLUSIVE") else "FAILED"
+            )
         )
         _write_new(
             out / "timing_gate.json",
@@ -702,7 +737,11 @@ def run_timing_gate(
         )
         if passed:
             return {"status": "PASS", "timing_gate_sha256": _sha(out / "timing_gate.json")}
-        verdict = "INCONCLUSIVE" if reason.startswith("INCONCLUSIVE") else "KILL-timing"
+        verdict = (
+            "INCONCLUSIVE-retry"
+            if reason.startswith("INCONCLUSIVE-retry")
+            else "INCONCLUSIVE" if reason.startswith("INCONCLUSIVE") else "KILL-timing"
+        )
         _write_new(
             out / "decision.json",
             {
@@ -715,23 +754,32 @@ def run_timing_gate(
         )
         return {"status": verdict, "reason": reason}
     except HostAdmissionError:
+        admission_refused = True
         raise
     except HostContentionError as exc:
+        guard.close()
+        verdict = "INCONCLUSIVE-retry" if scored_contention() else "INCONCLUSIVE"
         _write_new(
             out / "host_snapshots.json",
-            {"host_snapshots": guard.records, "host_summary": guard.summary(validate=False)},
+            {
+                "host_snapshots": guard.records,
+                "host_summary": guard.summary(validate=False),
+                "scored_windows": scored_windows,
+                "scored_host_contended": scored_contention(),
+            },
         )
         _write_new(
             out / "decision.json",
             {
                 "schema": "t34-pathb-v2-decision/v1",
-                "verdict": "INCONCLUSIVE",
+                "verdict": verdict,
                 "reason": str(exc),
                 "release_authorized": False,
             },
         )
-        return {"status": "INCONCLUSIVE", "reason": str(exc)}
+        return {"status": verdict, "reason": str(exc)}
     except Exception as exc:
+        guard.close()
         unconditional = (
             isinstance(exc, (UnconditionalFault, timing_v2.ProbeFault))
             or type(exc).__name__ == "NonFiniteQ"
@@ -749,13 +797,19 @@ def run_timing_gate(
                 "unconditional_faults": faults,
                 "host_summary": guard.summary(validate=False),
                 "host_snapshots": guard.records,
+                "scored_windows": scored_windows,
+                "scored_host_contended": scored_contention(),
             },
         )
         _write_new(
             out / "decision.json",
             {
                 "schema": "t34-pathb-v2-decision/v1",
-                "verdict": "KILL" if unconditional else "INCONCLUSIVE",
+                "verdict": (
+                    "KILL"
+                    if unconditional
+                    else "INCONCLUSIVE-retry" if scored_contention() else "INCONCLUSIVE"
+                ),
                 "reason": f"timing execution fault: {type(exc).__name__}: {exc}",
                 "release_authorized": False,
                 "faults": faults,
@@ -765,6 +819,36 @@ def run_timing_gate(
 
     finally:
         guard.close()
+        # Every operator invocation uses a fresh root; no retry is automatic.
+        # Admission refusal is diagnostic only, never a terminal phase verdict.
+        terminal = next(
+            (
+                _load(out / name)
+                for name in ("decision.json", "timing_gate.json")
+                if (out / name).is_file()
+            ),
+            {},
+        )
+        _write_new(
+            out / "timing_attempt.json",
+            {
+                "schema": "t34-pathb-v2-timing-attempt/v1",
+                "attempt_id": str(out.resolve()),
+                "registration_sha256": _canonical_sha(registration),
+                "source_commit": registration.get("source_commit"),
+                "status": (
+                    "ADMISSION_REFUSED"
+                    if admission_refused
+                    else terminal.get("verdict", terminal.get("status", "INCOMPLETE"))
+                ),
+                "reason": terminal.get("reason"),
+                "admission_samples": getattr(guard, "admission_records", []),
+                "scored_windows": scored_windows,
+                "scored_host_contended": scored_contention(),
+                "efficacy_rows_produced": False,
+                "automatic_retry": False,
+            },
+        )
 
 
 def _phase_debit(receipt: Mapping[str, Any]) -> tuple[float, float]:
@@ -785,6 +869,13 @@ def _cap(started: float, cpu_started: float) -> None:
         raise TimeoutError("40-hour elapsed cap reached")
     if time.process_time() - cpu_started >= MAX_CPU_HOURS * 3600:
         raise TimeoutError("60 CPU-hour cap reached")
+
+
+def _timing_cap(started: float, cpu_started: float) -> None:
+    """Timing is charged to study totals and has its own one-hour wall cap."""
+    _cap(started, cpu_started)
+    if time.monotonic() - started >= TIMING_MAX_ELAPSED_HOURS * 3600:
+        raise TimeoutError("1-hour timing elapsed cap reached")
 
 
 def _final_source_check() -> None:
@@ -961,7 +1052,7 @@ def _precheck_rows(
     started, cpu_started = phase_started, phase_cpu
     _precheck_cap(started, cpu_started)
     host_guard = host_guard or HostGuard(
-        registration["load_profile"], phase_cap_seconds=PRECHECK_MAX_ELAPSED_HOURS * 3600
+        registration["load_profile"], phase_cap_seconds=PHASE_CAP_SECONDS["precheck"]
     )
     host_guard.check_budget = lambda: _precheck_cap(started, cpu_started)
     host_guard.admit()
@@ -1060,7 +1151,7 @@ def run_precheck(
     if out.exists():
         raise RegistrationError("pre-check output root must be fresh")
     guard = host_guard or HostGuard(
-        registration["load_profile"], phase_cap_seconds=PRECHECK_MAX_ELAPSED_HOURS * 3600
+        registration["load_profile"], phase_cap_seconds=PHASE_CAP_SECONDS["precheck"]
     )
     try:
         guard.admit()
@@ -1156,7 +1247,7 @@ def run_registered(
     if set(terminal_seeds) & set(product_seeds):
         raise RegistrationError("terminal and continuous banks must be disjoint")
     windows = {arm: ActionWindow() for arm in MAC_ARMS}
-    guard = HostGuard(registration["load_profile"], phase_cap_seconds=MAX_ELAPSED_HOURS * 3600)
+    guard = HostGuard(registration["load_profile"], phase_cap_seconds=PHASE_CAP_SECONDS["study"])
     guard.check_budget = lambda: _cap(started, cpu_started)
     try:
         _cap(started, cpu_started)
