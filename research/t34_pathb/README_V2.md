@@ -1,4 +1,4 @@
-# Path B v2 — Amendments 2–3
+# Path B v2 — Amendments 2–4
 
 The v2 implementation is an offline, opt-in assisted hero over released B8 s3.
 Read [PROTOCOL_V2.md](PROTOCOL_V2.md) and the prospective
@@ -13,8 +13,10 @@ pre-data Colab amendment runs only the unpaced descriptive arm through the
 already qualified CLI transport. The Mac runs the timing gate, T3 pre-check, and
 the bare/paced study records. The Colab arm uses the same 144 terminal worlds
 and 32 product sessions, but it cannot affect a Mac verdict, fault, multiplicity
-calculation, or Claim B decision. See
-[PREREGISTRATION_RETENTION_V2.md](PREREGISTRATION_RETENTION_V2.md#amendment-3-addendum--pre-data-descriptive-unpaced-colab)
+calculation, or Claim B decision. A missing or failed Colab row remains
+descriptive evidence; only an unconditional fault in the Mac bare/paced arms can
+KILL. See the [descriptive-arm amendment](PREREGISTRATION_RETENTION_V2.md#amendment-3-addendum--pre-data-descriptive-unpaced-colab)
+and [contention/fault amendment](PREREGISTRATION_RETENTION_V2.md#amendment-4-addendum--pre-data-contention-accounting-and-arm-scoped-faults)
 for the binding rationale and caps.
 
 `engine_v2.py` maintains a D500 exact continuation, stops its future at hero
@@ -130,11 +132,22 @@ the paced arm never waits, and only Mac work is charged to the registered
 40 elapsed-hour / 60 CPU-hour study caps.
 
 Copy the exact measured `load_policy` keys from the profile to `load_profile`;
-the runtime computes contention from fresh samples. It records per-tick row
-contention and accepts cumulative contention through timing plus efficacy only
-through the registered 2% allowance; a larger fraction is INCONCLUSIVE. It
-pauses only between rows, after dropping pending assistance requests as counted
-fallbacks. `max_contended_fraction: 0.02` is an exact `load_policy` key.
+the runtime computes contention from fresh samples. The profile freezes 5-second
+sampling, the load/CPU thresholds, a >60-second continuous persistence rule,
+and `max_contended_fraction: 0.02`. At admission, the runner records the
+measured idle baseline and CPU count with those thresholds. It then adds 5
+seconds for each contended sample. It checks the 2% allowance only when a phase
+ends: the timing phase uses its registered 40-hour study cap, the pre-check its
+separate 8-hour cap, and the study its 40-hour cap. An early contended sample or
+interim excess never stops a phase; an end-of-phase excess is INCONCLUSIVE for
+that phase. It pauses only between rows, after dropping pending assistance
+requests as counted fallbacks.
+
+Before each timing, pre-check, or study phase, the host must meet a 120-second
+quiet admission window covering raw load and other-process CPU, as well as AC,
+lid, and thermal telemetry. A failed window refuses to start: the command exits
+nonzero without `decision.json` or a terminal phase record, and the operator may
+retry later. This refusal does not create a scientific verdict.
 Product and timing rows declare `mix:"mixed"`; the timing seed is also disjoint
 from every study seed. A nested terminal `roster` must repeat its outer row's
 seed and mix exactly.
@@ -174,7 +187,7 @@ proof.
 | Fresh 48/mix H5000 +32 paired Watch6 sessions | Registered runner implemented; full run reserved for operator |
 | P7 paired-world/session inference and frozen Holm family | Analyzer rule applies the paced one-sided p <= .05 worst-case threshold; unpaced has no decision p-value |
 | First-result p95 <=2 s | Engineering target; no final timing claim from implementation smoke |
-| 24 fps update p95 <=11.688 ms, zero 12/24 fps overruns | Registered probes; their contention is reported and only cumulative contention above 2% is inconclusive |
+| 24 fps update p95 <=11.688 ms, zero 12/24 fps overruns | Registered probes; 5-second samples add 5 seconds when contended, and only an end-of-phase excess above 2% of that phase's registered cap is INCONCLUSIVE |
 | All contract skill/product bars | Full registered decision; no efficacy claim from smoke |
 | Colab unpaced descriptive record | Per-world immutable export and shared bare-prefix physical-state-hash comparison; missing/invalid exports stay descriptive |
 | Default serving OFF / no release | No serving-selector or pin change |
@@ -407,7 +420,9 @@ cd "$FROZEN"
 "$PY" -m research.t34_pathb.registration_retention_v2 validate \
   --registration "$READY" --ready
 
-# FIRST: quiet-host ON/OFF Watch6 timing at 24 and 12 fps (~.36 h).
+# FIRST: admission requires 120 quiet seconds. If refused, this exits nonzero
+# without a decision.json or terminal receipt; remedy host conditions and retry.
+# Then run quiet-host ON/OFF Watch6 timing at 24 and 12 fps (~.36 h).
 "$PY" -m research.t34_pathb.retention_v2 timing-gate \
   --registration "$READY" --out "$E/timing"
 # Stop unless the create-only timing gate receipt says PASS.
@@ -423,20 +438,28 @@ cd "$FROZEN"
 "$PY" -m research.t34_pathb.retention_v2 analyze --out "$E/retention"
 ```
 
-Host monitoring samples asynchronously at most every 30 seconds and never sleeps
-inside collection or between ticks. It pauses only between completed rows, drops
-pending assistance as counted fallbacks, and does not exclude or retry a row.
-Admission requires acceptable AC, lid, and thermal telemetry; observed CPU
-contention is accounted against the cumulative allowance.
-One-minute load excess above 3.0 is contention. A known Phase 0/research pattern
-is contention only when the other process exceeds 50% CPU for more than 60
-seconds. It records PID/command and per-tick contention evidence. Cumulative
-contention through the registered study is allowed through 2% of measured elapsed
-time and is reported; more than 2% is INCONCLUSIVE. AC/lid/thermal changes pause
-between rows and a non-acceptable state persisting 120 seconds is INCONCLUSIVE.
-Unavailable telemetry cannot pass; pause time is charged. The profile and
-validator use the same policy keys; no load attestation is accepted as a
-measurement.
+Host monitoring samples asynchronously every 5 seconds and never sleeps inside
+collection or between ticks. It pauses only between completed rows, drops pending
+assistance as counted fallbacks, and does not exclude or retry a row. Before each
+phase it requires 120 continuous quiet seconds with acceptable AC, lid, and
+thermal telemetry plus quiet raw load and other-process CPU. The admission record
+includes the measured idle load baseline, CPU count, and configured thresholds.
+If admission does not complete, the command refuses to start with a nonzero exit
+and writes neither `decision.json` nor a terminal phase record; retry only after
+the host is quiet.
+
+After admission, load excess above the measured idle baseline plus the registered
+3.0 allowance and a known Phase 0/research pattern above the registered CPU
+threshold count only after each has persisted continuously for more than 60
+seconds. Every contended sample adds 5 seconds and retains raw load and
+PID/command evidence. At phase end only, the
+runner compares contended seconds to 2% of the phase's registered elapsed cap:
+40 hours for timing, 8 hours for pre-check, and 40 hours for study collection.
+An excess is INCONCLUSIVE for that phase; an early contended sample or interim
+excess does not end it. AC/lid/thermal changes pause between rows and a
+non-acceptable state persisting 120 seconds is INCONCLUSIVE. Unavailable
+telemetry cannot pass; pause time is charged. The profile and validator use the
+same policy keys; no load attestation is accepted as a measurement.
 
 Timing and pre-check admission also require their original phase
 `source_validated.json` certificate, written after the source monitor closes; the
@@ -453,11 +476,13 @@ is the sole failing category and product passes.
 Exactly one complete fixed-N look. Preserve incomplete/fault evidence; no
 automatic retry, efficacy resume, bank replacement or extension. The first of
 40 h elapsed / 60 CPU-h / $0 wins for the study; the pre-check has its own 8 h
-elapsed cap and is never debited to that study budget. Product sessions and timing
-use actual offline Watch6; no release-monitor or leaderboard writes. Development
-GO only admits fresh Mac strict-gate preparation. Client latency, Watch8/12, Play,
-serving qualification, visible assisted labelling and owner-approved release remain
-separate. Teacher label rounds are not funded by this package.
+elapsed cap and is never debited to that study budget. The timing gate is charged
+to the 40-hour study cap, which is also its registered contention denominator.
+Product sessions and timing use actual offline Watch6; no release-monitor or
+leaderboard writes. Development GO only admits fresh Mac strict-gate preparation.
+Client latency, Watch8/12, Play, serving qualification, visible assisted
+labelling and owner-approved release remain separate. Teacher label rounds are
+not funded by this package.
 
 The frozen-worktree fence covers the standalone `analyze` command as well as
 timing, pre-check, and efficacy. If a source change is discovered near a final

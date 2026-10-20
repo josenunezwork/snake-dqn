@@ -55,6 +55,9 @@ def test_registered_phase_does_not_debit_precheck_from_forty_hour_budget(
         def check_budget(self) -> None:
             pass
 
+        def admit(self) -> None:
+            pass
+
         def start(self) -> None:
             pass
 

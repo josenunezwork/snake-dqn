@@ -39,10 +39,12 @@ os.environ["SNAKE_DQN_DEVICE"] = "cpu"
 from research.t34_pathb import timing_v2  # noqa: E402
 from research.t34_pathb.analyze_v2 import (  # noqa: E402
     MIXES,
+    _registered_contention_fraction,
     analyze_path,
     timing_summary,
 )
 from research.t34_pathb.host_guard_v2 import (  # noqa: E402
+    HostAdmissionError,
     HostContentionError,
     HostGuard,
     validate_policy,
@@ -584,9 +586,11 @@ def _timing_passes(timing: Mapping[str, Any]) -> tuple[bool, str]:
     """Apply the timing gate without making efficacy observations."""
     try:
         probes = timing["probes"]
-        if any(bool(probe.get("contended")) for probe in probes.values()):
-            fraction = timing.get("host_summary", {}).get("contended_fraction")
-            if type(fraction) not in (int, float) or not math.isfinite(fraction) or fraction > 0.02:
+        if "host_summary" in timing or any(
+            bool(probe.get("contended")) for probe in probes.values()
+        ):
+            fraction = _registered_contention_fraction(timing.get("host_summary"), phase="timing")
+            if fraction > 0.02:
                 return False, "INCONCLUSIVE: timing host contention exceeded allowance"
         if not timing_summary(timing)["pass"]:
             return False, "KILL-timing: registered Watch6 timing bar failed"
@@ -644,12 +648,13 @@ def run_timing_gate(
     _execution_guard()
     if out.exists():
         raise RegistrationError("timing-gate output root must be fresh")
-    # Reserve the create-only artifact root before any world is constructed.
-    out.mkdir(parents=True, exist_ok=False)
-    guard = HostGuard(registration["load_profile"])
+    guard = HostGuard(registration["load_profile"], phase_cap_seconds=MAX_ELAPSED_HOURS * 3600)
     guard.check_budget = lambda: _cap(started, cpu_started)
     try:
         _cap(started, cpu_started)
+        guard.admit()
+        out.mkdir(parents=True, exist_ok=False)
+        started, cpu_started = time.monotonic(), time.process_time()
         guard.start()
         _between_rows(guard)
         _cap(started, cpu_started)
@@ -664,6 +669,7 @@ def run_timing_gate(
             check_host=guard.check,
             between_rows=lambda session: _between_rows(guard, session),
         )
+        guard.close()
         timing["host_summary"] = guard.summary()
         _final_source_check()
         observed_contention = any(record["contended"] for record in guard.records)
@@ -690,7 +696,7 @@ def run_timing_gate(
                 "timing_ticks": registration["timing_ticks"],
                 "timing_warmup": registration["timing_warmup"],
                 "registration_sha256": _canonical_sha(registration),
-                "host_summary": guard.summary(validate=False),
+                "host_summary": timing["host_summary"],
                 "host_snapshots": guard.records,
             },
         )
@@ -708,6 +714,8 @@ def run_timing_gate(
             },
         )
         return {"status": verdict, "reason": reason}
+    except HostAdmissionError:
+        raise
     except HostContentionError as exc:
         _write_new(
             out / "host_snapshots.json",
@@ -952,8 +960,11 @@ def _precheck_rows(
     _phase_debit(timing_gate)
     started, cpu_started = phase_started, phase_cpu
     _precheck_cap(started, cpu_started)
-    host_guard = host_guard or HostGuard(registration["load_profile"])
+    host_guard = host_guard or HostGuard(
+        registration["load_profile"], phase_cap_seconds=PRECHECK_MAX_ELAPSED_HOURS * 3600
+    )
     host_guard.check_budget = lambda: _precheck_cap(started, cpu_started)
+    host_guard.admit()
     host_guard.start()
     _between_rows(host_guard)
     from research.t34_pathb.precheck_v2 import validate_t3_row
@@ -1004,6 +1015,7 @@ def _precheck_rows(
             finally:
                 session.close(wait=True)
         output.append(paired)
+    host_guard.close()
     host_summary = host_guard.summary()
     _final_source_check()
     receipt = precheck_receipt(output)
@@ -1045,15 +1057,23 @@ def run_precheck(
         raise RegistrationError("pre-check requires a fresh output root")
     _require_committed_pushed_registration(registration_path, registration)
     require_registration(registration, None)
-    out.mkdir(parents=True, exist_ok=False)
-    guard = host_guard or HostGuard(registration["load_profile"])
+    if out.exists():
+        raise RegistrationError("pre-check output root must be fresh")
+    guard = host_guard or HostGuard(
+        registration["load_profile"], phase_cap_seconds=PRECHECK_MAX_ELAPSED_HOURS * 3600
+    )
     try:
+        guard.admit()
+        out.mkdir(parents=True, exist_ok=False)
+        phase_start = (time.monotonic(), time.process_time())
         receipt = _precheck_rows(
             rows, open_terminal, guard, timing_gate, registration, registration_path, phase_start
         )
         receipt["source_validation_path"] = str((out / "source_validated.json").resolve())
         _write_new(out / "precheck.json", receipt)
         return receipt
+    except HostAdmissionError:
+        raise
     except Exception as exc:
         faults = (
             [str(exc)]
@@ -1135,22 +1155,19 @@ def run_registered(
         raise RegistrationError("registered bank rows must not repeat seeds")
     if set(terminal_seeds) & set(product_seeds):
         raise RegistrationError("terminal and continuous banks must be disjoint")
-    _write_new(out / "registration.json", dict(registration))
-    _write_new(out / "precheck.json", dict(precheck))
-    if timing_gate is not None:
-        _write_new(out / "timing_gate.json", dict(timing_gate))
-        _write_new(out / "timing.json", dict(timing_gate))
     windows = {arm: ActionWindow() for arm in MAC_ARMS}
-    guard = HostGuard(
-        registration["load_profile"],
-        prior_elapsed_seconds=timing_elapsed,
-        prior_contended_seconds=float(
-            timing_gate.get("host_summary", {}).get("contended_seconds", 0.0)
-        ),
-    )
+    guard = HostGuard(registration["load_profile"], phase_cap_seconds=MAX_ELAPSED_HOURS * 3600)
     guard.check_budget = lambda: _cap(started, cpu_started)
     try:
         _cap(started, cpu_started)
+        guard.admit()
+        phase_started, phase_cpu = time.monotonic(), time.process_time()
+        started, cpu_started = phase_started - timing_elapsed, phase_cpu - timing_cpu
+        _write_new(out / "registration.json", dict(registration))
+        _write_new(out / "precheck.json", dict(precheck))
+        if timing_gate is not None:
+            _write_new(out / "timing_gate.json", dict(timing_gate))
+            _write_new(out / "timing.json", dict(timing_gate))
         guard.start()
         _between_rows(guard)
         _cap(started, cpu_started)
@@ -1213,6 +1230,7 @@ def run_registered(
                 contended=False,
                 check_cap=lambda: _cap(started, cpu_started),
             )
+        guard.close()
         host_summary = guard.summary()
         _final_source_check()
         record_statuses = [
@@ -1239,6 +1257,8 @@ def run_registered(
                 "host_snapshots": guard.records if guard is not None else [],
             },
         )
+    except HostAdmissionError:
+        raise
     except Exception as exc:
         # Timing probes use the same adapter hooks as collection. A nonfinite
         # Q there is the same unconditional fault, even before a row is saved.

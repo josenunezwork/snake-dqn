@@ -16,7 +16,7 @@
   },
   "device": "cpu",
   "load_policy": {
-    "check_interval_seconds": 30,
+    "check_interval_seconds": 5,
     "known_heavy_process_patterns": [
       "phase0_selection",
       "phase0-selection",
@@ -29,7 +29,9 @@
     "other_process_cpu_percent": 50.0,
     "other_process_cpu_sustained_seconds": 60,
     "own_cpu_worker_allowance": 2,
-    "persistence_seconds": 120
+    "persistence_seconds": 120,
+    "quiet_window_seconds": 120,
+    "load_sustained_seconds": 60
   },
   "max_cpu_hours": 60,
   "max_cpu_threads": 2,

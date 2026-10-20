@@ -335,6 +335,7 @@ def test_timing_gate_generic_fault_writes_one_inconclusive_decision(monkeypatch,
     fake_guard = SimpleNamespace(
         records=[],
         check=lambda **_kwargs: {"contended": False},
+        admit=lambda: None,
         start=lambda: None,
         between_rows=lambda **_kwargs: None,
         summary=lambda **_kwargs: {},
@@ -377,6 +378,7 @@ def test_partial_unconditional_fault_writes_one_create_only_decision(monkeypatch
     fake_guard = SimpleNamespace(
         records=[],
         check=lambda **_kwargs: {"contended": False},
+        admit=lambda: None,
         start=lambda: None,
         between_rows=lambda **_kwargs: None,
         summary=lambda **_kwargs: {},
@@ -426,7 +428,7 @@ def test_partial_unconditional_fault_writes_one_create_only_decision(monkeypatch
     assert decision.read_bytes() == before
 
 
-def test_precheck_admission_pause_retains_inconclusive_before_any_world(monkeypatch, tmp_path):
+def test_precheck_admission_refuses_without_terminal_before_any_world(monkeypatch, tmp_path):
     monkeypatch.setattr(retention_v2, "require_registration", lambda *_args: None)
     monkeypatch.setattr(retention_v2, "require_timing_gate", lambda *_args: None)
     monkeypatch.setattr(retention_v2, "_require_committed_pushed_registration", lambda *_args: None)
@@ -434,11 +436,12 @@ def test_precheck_admission_pause_retains_inconclusive_before_any_world(monkeypa
     observed = [{"contended": True, "reasons": ["ac_power_lost"]}]
 
     def refuse(**_kwargs):
-        raise host_guard_v2.HostContentionError("ac_power_lost")
+        raise host_guard_v2.HostAdmissionError("ac_power_lost")
 
     guard = SimpleNamespace(
         records=observed,
         check=refuse,
+        admit=refuse,
         start=lambda: None,
         between_rows=refuse,
         summary=lambda **_kwargs: {},
@@ -451,7 +454,7 @@ def test_precheck_admission_pause_retains_inconclusive_before_any_world(monkeypa
         lambda policy, **_kwargs: made.append(policy) or guard,
     )
     out = tmp_path / "precheck"
-    with pytest.raises(host_guard_v2.HostContentionError):
+    with pytest.raises(host_guard_v2.HostAdmissionError):
         retention_v2.run_precheck(
             [],
             open_terminal=lambda *_args: pytest.fail("world constructed"),
@@ -461,9 +464,8 @@ def test_precheck_admission_pause_retains_inconclusive_before_any_world(monkeypa
             out=out,
         )
     assert made == [POLICY]
-    assert json.loads((out / "decision.json").read_text())["verdict"] == "INCONCLUSIVE"
-    assert json.loads((out / "incomplete.json").read_text())["host_snapshots"] == observed
-    with pytest.raises(FileExistsError):
+    assert not out.exists()
+    with pytest.raises(host_guard_v2.HostAdmissionError):
         retention_v2.run_precheck(
             [],
             registration={"load_profile": POLICY},
