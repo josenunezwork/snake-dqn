@@ -40,6 +40,23 @@ class Round0Error(RuntimeError):
     """A fail-closed Round 0 producer error."""
 
 
+def _fault_marker(exc: BaseException) -> str | None:
+    """Classify only known unconditional controller faults, preserving other errors."""
+    text = str(exc).lower()
+    if "non-finite" in text or "nonfiniteq" in type(exc).__name__.lower():
+        return "nonfinite_q"
+    if any(
+        message in text
+        for message in (
+            "illegal action",
+            "illegal hero action",
+            "hero action must be in [0, 5]",
+        )
+    ):
+        return "illegal_action"
+    return None
+
+
 class _ActionWindow:
     """O(1) exact 100k-action collapse guard for one controller arm."""
 
@@ -426,14 +443,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
         return record
 
-    def fault_marker(exc: BaseException) -> str | None:
-        text = str(exc).lower()
-        if type(exc).__name__ == "NonFiniteQ" or "non-finite" in text:
-            return "nonfinite_q"
-        if "illegal action" in text:
-            return "illegal_action"
-        return None
-
     for offset, row in enumerate(selected):
         operational()
         tag = _safe_world_id(str(row["world_id"]))
@@ -449,7 +458,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 on_progress=operational,
             )
         except (Round0Error, ValueError) as exc:
-            marker = fault_marker(exc)
+            marker = _fault_marker(exc)
             if marker:
                 fault("bare", marker, str(row["world_id"]), str(exc))
             raise
@@ -474,7 +483,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     }
                 )
             except (Round0Error, ValueError) as exc:
-                marker = fault_marker(exc)
+                marker = _fault_marker(exc)
                 if marker:
                     fault("teacher", marker, str(row["world_id"]), str(exc))
                 raise
@@ -538,7 +547,18 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--preflight", action="store_true")
     args = parser.parse_args(argv)
     try:
-        print(json.dumps(run(args), sort_keys=True))
+        receipt = run(args)
+        print(
+            json.dumps(
+                {
+                    "status": receipt["status"],
+                    "preflight": receipt["preflight"],
+                    "pairs": len(receipt["pairs"]),
+                    "elapsed_seconds": receipt["elapsed_seconds"],
+                },
+                sort_keys=True,
+            )
+        )
     except Round0Error as exc:
         parser.error(str(exc))
     return 0

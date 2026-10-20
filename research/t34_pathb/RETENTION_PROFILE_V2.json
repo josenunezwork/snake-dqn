@@ -16,19 +16,19 @@
   },
   "device": "cpu",
   "load_policy": {
-    "overlapping_project_compute": false,
-    "phase0_must_be_finished": true,
-    "quiet_ratified": false,
-    "record": [
-      "utc_timestamp",
-      "phase0_completion_evidence",
-      "load_average_1_5_15",
-      "thermal_telemetry",
-      "ac_power",
-      "open_lid",
-      "quiet_host_attestation"
+    "check_interval_seconds": 30,
+    "known_heavy_process_patterns": [
+      "phase0_selection",
+      "phase0-selection",
+      "phase0_runner",
+      "research/",
+      "research."
     ],
-    "runtime_condition": "operator verifies no competing project compute; AC, open lid and acceptable thermal telemetry"
+    "max_load_1m_excess": 3.0,
+    "other_process_cpu_percent": 50.0,
+    "other_process_cpu_sustained_seconds": 60,
+    "own_cpu_worker_allowance": 2,
+    "persistence_seconds": 120
   },
   "max_cpu_hours": 48,
   "max_cpu_threads": 2,
@@ -123,6 +123,7 @@
       12,
       24
     ],
+    "gate_before_t3_precheck": true,
     "includes_grid_bridge": true,
     "min_on_off_cadence_ratio": 0.95,
     "modes": [
@@ -131,6 +132,9 @@
     ],
     "paced_overruns": 0,
     "ticks": 5000,
+    "update_p95_applies_fps": [
+      24
+    ],
     "update_p95_max_ms": 11.688,
     "warmup": 200
   }

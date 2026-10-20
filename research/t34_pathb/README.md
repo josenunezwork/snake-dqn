@@ -1,3 +1,9 @@
+> Current retention implementation: [README_V2.md](README_V2.md#retention-registration-package).
+> The 2026-10-20 FIX-FIRST update requires committed/pushed ratified JSON, then
+> quiet-host timing, then the T3 pre-check, then efficacy. Implementation produced
+> no gameplay rows. The runner's create-only `decision.json` is the sole verdict;
+> re-analysis is descriptive. See [verification](VERIFICATION_RETENTION_FIXES.md).
+
 # T34 Path B deadline-feasibility check
 
 **V1 infrastructure only; v1 efficacy is retired.** The owner-approved

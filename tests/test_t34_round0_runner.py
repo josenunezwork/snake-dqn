@@ -11,6 +11,23 @@ import pytest
 from research.t34_round0 import runner
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "illegal action",
+        "illegal hero action",
+        "hero action must be in [0, 5]",
+    ],
+)
+def test_real_illegal_action_faults_are_classified(message: str) -> None:
+    assert runner._fault_marker(ValueError(message)) == "illegal_action"
+
+
+def test_nonfinite_q_is_fault_but_io_error_is_incomplete() -> None:
+    assert runner._fault_marker(ValueError("policy returned non-finite Q values")) == "nonfinite_q"
+    assert runner._fault_marker(OSError("missing input file")) is None
+
+
 def _bank(*, preflight: bool, rows: int) -> dict:
     horizon = 500 if preflight else 5000
     return {

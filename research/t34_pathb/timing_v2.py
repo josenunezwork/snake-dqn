@@ -49,6 +49,7 @@ def probe(
     warmup: int = 200,
     contended: bool = False,
     check_cap: Callable[[], None] | None = None,
+    check_host: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Run real paced steps; no GameSession queue is drained outside its tick path."""
     if fps not in (12, 24) or ticks < 1 or warmup < 0:
@@ -56,6 +57,8 @@ def probe(
     for _ in range(warmup):
         if check_cap:
             check_cap()
+        if check_host:
+            check_host()
         _step(session)
         time.sleep(1 / fps)
     updates: list[float] = []
@@ -68,6 +71,8 @@ def probe(
     for _ in range(ticks):
         if check_cap:
             check_cap()
+        if check_host:
+            check_host()
         started = time.monotonic()
         before = time.process_time()
         _step(session)
@@ -110,6 +115,7 @@ def run_probes(
     warmup: int,
     contended: bool,
     check_cap: Callable[[], None] | None = None,
+    check_host: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Open and close four exact Watch6 sessions, ON/OFF at the two serving rates."""
     probes: dict[str, Mapping[str, Any]] = {}
@@ -124,6 +130,7 @@ def run_probes(
                     warmup=warmup,
                     contended=contended,
                     check_cap=check_cap,
+                    check_host=check_host,
                 )
             finally:
                 session.close(wait=True)
