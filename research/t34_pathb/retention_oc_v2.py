@@ -15,6 +15,7 @@ import math
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -269,13 +270,22 @@ def _wilson(k: int, n: int) -> dict[str, float | int]:
 
 
 def _atomic_state(path: Path, value: dict[str, Any]) -> None:
-    temp = path.with_suffix(path.suffix + ".tmp")
-    with temp.open("x") as stream:
-        json.dump(value, stream, sort_keys=True, allow_nan=False)
-        stream.write("\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    temp.replace(path)
+    temp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+        ) as stream:
+            temp = Path(stream.name)
+            json.dump(value, stream, sort_keys=True, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        temp.replace(path)
+    finally:
+        # A crashed writer may leave a temp behind. Fresh unique names keep it
+        # from blocking resume; failures remove only this invocation's temp.
+        if temp is not None:
+            temp.unlink(missing_ok=True)
 
 
 def run(

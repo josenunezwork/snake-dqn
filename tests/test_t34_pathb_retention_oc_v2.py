@@ -97,8 +97,15 @@ def test_resumed_work_matches_uninterrupted_and_receipt_is_create_only(
     assert paused["status"] == "INCOMPLETE"
     assert paused["completed"] == 250
     assert not out.exists()
+    stale = state.with_suffix(state.suffix + ".tmp")
+    stale.write_text("interrupted legacy checkpoint write")
+    orphan = tmp_path / f".{state.name}.abandoned.tmp"
+    orphan.write_text("interrupted unique checkpoint write")
     monkeypatch.setattr(oc.time, "monotonic", original_clock)
     oc.run(out, state, resume=True)
+    assert stale.read_text() == "interrupted legacy checkpoint write"
+    assert orphan.read_text() == "interrupted unique checkpoint write"
+    assert list(tmp_path.glob(f".{state.name}.*.tmp")) == [orphan]
     direct = tmp_path / "direct.json"
     oc.run(direct, tmp_path / "direct-state.json")
     assert json.loads(out.read_text()) == json.loads(direct.read_text())
@@ -159,3 +166,13 @@ def test_registered_simulation_size_and_time_bounds(reps: int, tmp_path: Path) -
         oc.run(tmp_path / "out.json", tmp_path / "state.json", reps=reps)
     with pytest.raises(ValueError, match="max-seconds"):
         oc.run(tmp_path / "out.json", tmp_path / "state.json", max_seconds=301)
+
+
+def test_checkpoint_write_failure_preserves_state_and_cleans_own_temp(tmp_path: Path) -> None:
+    state = tmp_path / "state.json"
+    original = '{"completed": 250}\n'
+    state.write_text(original)
+    with pytest.raises(ValueError):
+        oc._atomic_state(state, {"invalid": float("nan")})
+    assert state.read_text() == original
+    assert not list(tmp_path.glob(f".{state.name}.*.tmp"))
