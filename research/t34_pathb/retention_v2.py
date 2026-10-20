@@ -17,6 +17,9 @@ import subprocess
 import sys
 import time
 from collections import deque
+from contextvars import ContextVar
+from functools import wraps
+from inspect import signature
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -53,6 +56,7 @@ TERMINAL_PER_MIX = 48
 PRODUCT_SESSIONS = 32
 MAX_ELAPSED_HOURS = 40.0
 MAX_CPU_HOURS = 60.0
+PRECHECK_MAX_ELAPSED_HOURS = 8.0
 
 
 class RegistrationError(RuntimeError):
@@ -86,25 +90,73 @@ def _sha(path: Path) -> str:
 
 
 def source_inventory(repo: Path) -> dict[str, str]:
-    """Hash all tracked code/config inputs plus binding documents and serving pin."""
-    names = subprocess.check_output(["git", "ls-files"], cwd=repo, text=True).splitlines()
-    selected = {
-        name
-        for name in names
-        if (name.startswith(("src/", "research/", "web/backend/")) and name.endswith(".py"))
-        or (name.startswith("configs/") and name.endswith((".yaml", ".yml")))
-    }
-    selected.update(
-        {
-            "research/t34_pathb/PROTOCOL_V2.md",
-            "research/t34_pathb/PROTOCOL_V2_BUILD_RULES.md",
-            "docs/research/final_run_20261019/DESIGN_V2_SHADOW.md",
-            "docs/research/final_run_20261019/SUCCESS_CONTRACT.md",
-            "docs/research/final_run_20261019/P7_STATISTICS.md",
-            "web/backend/served_checkpoint_pins.json",
-        }
-    )
-    return {name: _sha(repo / name) for name in sorted(selected) if (repo / name).is_file()}
+    """Hash the deterministic entry-point import closure and its data dependencies."""
+    from research.t34_pathb.source_binding_v2 import source_inventory as inventory
+
+    return inventory(repo)
+
+
+_ACTIVE_FENCE: ContextVar[Any] = ContextVar("retention_frozen_execution", default=None)
+
+
+def _frozen_execution(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Keep every registered phase at its clean, detached ratified source revision."""
+
+    @wraps(function)
+    def execute(*args: Any, **kwargs: Any) -> Any:
+        arguments = signature(function).bind(*args, **kwargs).arguments
+        registration = arguments.get("registration")
+        if not registration or not registration.get("ratified"):
+            return function(*args, **kwargs)  # The phase emits its usual admission error.
+        from research.t34_pathb.source_binding_v2 import FrozenWorktreeGuard, SourceBindingError
+
+        fence = FrozenWorktreeGuard(
+            Path(__file__).resolve().parents[2], registration["source_commit"]
+        )
+        fence.start()
+        token = _ACTIVE_FENCE.set(fence)
+        try:
+            try:
+                result = function(*args, **kwargs)
+                fence.final_check()
+            finally:
+                _ACTIVE_FENCE.reset(token)
+                fence.close()
+            out = arguments.get("out")
+            if out is not None and Path(out).is_dir():
+                root = Path(out)
+                receipts = {
+                    name: _canonical_sha(_load(root / name))
+                    for name in ("timing_gate.json", "precheck.json", "decision.json")
+                    if (root / name).is_file()
+                }
+                _write_new(
+                    root / "source_validated.json",
+                    {
+                        "schema": "t34-pathb-v2-source-validation/v1",
+                        "status": "PASS",
+                        "source_commit": registration["source_commit"],
+                        "receipts": receipts,
+                    },
+                )
+            return result
+        except SourceBindingError as exc:
+            out = arguments.get("out")
+            if out is not None and Path(out).is_dir():
+                marker = Path(out) / "source_failure.json"
+                if not marker.exists():
+                    _write_new(
+                        marker,
+                        {
+                            "status": "INCONCLUSIVE",
+                            "reason": str(exc),
+                            "invalidates_decision": True,
+                            "release_authorized": False,
+                        },
+                    )
+            raise
+
+    return execute
 
 
 def _write_new(path: Path, value: Mapping[str, Any]) -> None:
@@ -118,6 +170,24 @@ def _canonical_sha(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     ).hexdigest()
+
+
+def _require_phase_source(receipt: Mapping[str, Any], name: str) -> None:
+    """A phase receipt is usable only after its source fence closed successfully."""
+    value = receipt.get("source_validation_path")
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise RegistrationError("phase receipt lacks its final source validation certificate")
+    path = Path(value)
+    if (path.parent / "source_failure.json").exists():
+        raise RegistrationError("phase receipt was invalidated by its source fence")
+    certificate = _load(path)
+    if (
+        certificate.get("schema") != "t34-pathb-v2-source-validation/v1"
+        or certificate.get("status") != "PASS"
+        or certificate.get("source_commit") != receipt.get("source_commit")
+        or certificate.get("receipts", {}).get(name) != _canonical_sha(receipt)
+    ):
+        raise RegistrationError("phase source validation does not bind its final receipt")
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -283,15 +353,12 @@ def require_registration(
     """Enforce the frozen full-test design before the first efficacy world."""
     if registration.get("schema") != "t34-pathb-v2-registration/v1":
         raise RegistrationError("missing v2 registration")
-    current_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     source_commit = registration.get("source_commit")
     if registration.get("ratified") is not True or not isinstance(source_commit, str):
         raise RegistrationError("non-smoke registration must be ratified and source-pinned")
-    if subprocess.run(
-        ["git", "merge-base", "--is-ancestor", source_commit, current_commit],
-        cwd=Path(__file__).resolve().parents[2],
-    ).returncode:
-        raise RegistrationError("registered source revision is not an ancestor of current HEAD")
+    from research.t34_pathb.source_binding_v2 import verify_frozen_worktree
+
+    verify_frozen_worktree(Path(__file__).resolve().parents[2], source_commit)
     if registration.get("arms") != list(ARMS) or registration.get("paced_fps") != 24:
         raise RegistrationError("registration arms/pacing differ from Amendment 2")
     if (
@@ -311,6 +378,7 @@ def require_registration(
     if (
         registration.get("max_elapsed_hours") != MAX_ELAPSED_HOURS
         or registration.get("max_cpu_hours") != MAX_CPU_HOURS
+        or registration.get("precheck_max_elapsed_hours") != PRECHECK_MAX_ELAPSED_HOURS
     ):
         raise RegistrationError("registration cap differs from Amendment 2")
     sources = registration.get("source_hashes")
@@ -338,6 +406,7 @@ def require_registration(
         if hashlib.sha256(committed).hexdigest() != digest:
             raise RegistrationError(f"registered commit hash differs: {name}")
     if precheck is not None:
+        _require_phase_source(precheck, "precheck.json")
         raw = precheck.get("raw_records")
         if (
             not isinstance(raw, list)
@@ -377,6 +446,9 @@ def require_registration(
                 profile = _load(path)
             except (OSError, json.JSONDecodeError) as exc:
                 raise RegistrationError("registered profile is not readable JSON") from exc
+            for cap_key in ("max_elapsed_hours", "max_cpu_hours", "precheck_max_elapsed_hours"):
+                if profile.get(cap_key) != registration.get(cap_key):
+                    raise RegistrationError(f"profile {cap_key} differs from registered cap")
             if registration["load_profile"] != profile.get("load_policy"):
                 raise RegistrationError("registration load policy differs from bound profile")
     prereg = registration["preregistration"]
@@ -454,32 +526,34 @@ def _execution_guard() -> None:
 
 def _require_committed_pushed_registration(path: Path, registration: Mapping[str, Any]) -> None:
     """Fence a live phase to the exact ratified JSON bytes visible on origin."""
-    repo = Path(__file__).resolve().parents[2]
-    try:
-        relative = path.resolve().relative_to(repo).as_posix()
-    except ValueError as exc:
-        raise RegistrationError("registration JSON must be inside this worktree") from exc
+    publication_repo = Path(
+        subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"], cwd=path.resolve().parent, text=True
+        ).strip()
+    )
+    relative = path.resolve().relative_to(publication_repo).as_posix()
     local = path.read_bytes()
-    try:
-        head = subprocess.check_output(["git", "show", f"HEAD:{relative}"], cwd=repo)
-    except subprocess.CalledProcessError as exc:
-        raise RegistrationError("ratified registration JSON is not committed in HEAD") from exc
+    head = subprocess.check_output(["git", "show", f"HEAD:{relative}"], cwd=publication_repo)
     if head != local:
         raise RegistrationError("ratified registration JSON bytes differ from HEAD")
     if json.loads(head) != dict(registration):
         raise RegistrationError("supplied registration object differs from committed JSON")
-    branch = subprocess.check_output(
-        ["git", "branch", "--show-current"], cwd=repo, text=True
-    ).strip()
     remote_tip = subprocess.check_output(
-        ["git", "ls-remote", "origin", f"refs/heads/{branch}"], cwd=repo, text=True, timeout=10
+        ["git", "ls-remote", "origin", "refs/heads/main"],
+        cwd=publication_repo,
+        text=True,
+        timeout=10,
     ).split()
-    if (
-        not remote_tip
-        or remote_tip[0]
-        != subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
-    ):
+    if not remote_tip:
         raise RegistrationError("HEAD containing ratified registration JSON is not pushed")
+    try:
+        published = subprocess.check_output(
+            ["git", "show", f"{remote_tip[0]}:{relative}"], cwd=publication_repo
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RegistrationError("ratified registration JSON is not pushed on main") from exc
+    if published != local:
+        raise RegistrationError("ratified registration JSON is not pushed on main")
     if registration.get("ratified") is not True:
         raise RegistrationError("registration JSON is not ratified")
 
@@ -489,7 +563,9 @@ def _timing_passes(timing: Mapping[str, Any]) -> tuple[bool, str]:
     try:
         probes = timing["probes"]
         if any(bool(probe.get("contended")) for probe in probes.values()):
-            return False, "INCONCLUSIVE: measured host contention during timing"
+            fraction = timing.get("host_summary", {}).get("contended_fraction")
+            if type(fraction) not in (int, float) or not math.isfinite(fraction) or fraction > 0.02:
+                return False, "INCONCLUSIVE: timing host contention exceeded allowance"
         if not timing_summary(timing)["pass"]:
             return False, "KILL-timing: registered Watch6 timing bar failed"
     except (KeyError, TypeError, ValueError):
@@ -505,6 +581,7 @@ def require_timing_gate(
     if not passed:
         raise RegistrationError(f"timing gate did not pass: {reason}")
     if registration is not None:
+        _require_phase_source(timing, "timing_gate.json")
         if timing.get("status") != "PASS":
             raise RegistrationError("timing gate has no passing producer receipt")
         _phase_debit(timing)
@@ -528,6 +605,7 @@ def require_timing_gate(
             raise RegistrationError("timing gate probe count or warmup differs from registration")
 
 
+@_frozen_execution
 def run_timing_gate(
     out: Path,
     registration: Mapping[str, Any],
@@ -550,7 +628,8 @@ def run_timing_gate(
     guard.check_budget = lambda: _cap(started, cpu_started)
     try:
         _cap(started, cpu_started)
-        guard.check(force=True)
+        guard.start()
+        _between_rows(guard)
         _cap(started, cpu_started)
         if adapter is None:
             adapter = _adapter()
@@ -561,10 +640,14 @@ def run_timing_gate(
             contended=False,
             check_cap=lambda: _cap(started, cpu_started),
             check_host=guard.check,
+            between_rows=lambda session: _between_rows(guard, session),
         )
+        timing["host_summary"] = guard.summary()
+        _final_source_check()
         observed_contention = any(record["contended"] for record in guard.records)
         for probe in timing["probes"].values():
             probe["contended"] = observed_contention
+        _cap(started, cpu_started)
         timing["elapsed_seconds"] = time.monotonic() - started
         timing["cpu_seconds"] = time.process_time() - cpu_started
         passed, reason = _timing_passes(timing)
@@ -577,6 +660,7 @@ def run_timing_gate(
             out / "timing_gate.json",
             {
                 **timing,
+                "source_validation_path": str((out / "source_validated.json").resolve()),
                 "status": gate_status,
                 "source_commit": registration["source_commit"],
                 "source_hashes": registration["source_hashes"],
@@ -584,6 +668,7 @@ def run_timing_gate(
                 "timing_ticks": registration["timing_ticks"],
                 "timing_warmup": registration["timing_warmup"],
                 "registration_sha256": _canonical_sha(registration),
+                "host_summary": guard.summary(validate=False),
                 "host_snapshots": guard.records,
             },
         )
@@ -602,7 +687,10 @@ def run_timing_gate(
         )
         return {"status": verdict, "reason": reason}
     except HostContentionError as exc:
-        _write_new(out / "host_snapshots.json", {"host_snapshots": guard.records})
+        _write_new(
+            out / "host_snapshots.json",
+            {"host_snapshots": guard.records, "host_summary": guard.summary(validate=False)},
+        )
         _write_new(
             out / "decision.json",
             {
@@ -629,6 +717,7 @@ def run_timing_gate(
                 "status": "INCOMPLETE",
                 "reason": f"{type(exc).__name__}: {exc}",
                 "unconditional_faults": faults,
+                "host_summary": guard.summary(validate=False),
                 "host_snapshots": guard.records,
             },
         )
@@ -644,6 +733,9 @@ def run_timing_gate(
         )
         raise
 
+    finally:
+        guard.close()
+
 
 def _phase_debit(receipt: Mapping[str, Any]) -> tuple[float, float]:
     """Reject missing or non-finite phase accounting instead of disabling caps."""
@@ -656,10 +748,34 @@ def _phase_debit(receipt: Mapping[str, Any]) -> tuple[float, float]:
 
 
 def _cap(started: float, cpu_started: float) -> None:
+    fence = _ACTIVE_FENCE.get()
+    if fence is not None:
+        fence.check()
     if time.monotonic() - started >= MAX_ELAPSED_HOURS * 3600:
         raise TimeoutError("40-hour elapsed cap reached")
     if time.process_time() - cpu_started >= MAX_CPU_HOURS * 3600:
         raise TimeoutError("60 CPU-hour cap reached")
+
+
+def _final_source_check() -> None:
+    fence = _ACTIVE_FENCE.get()
+    if fence is not None:
+        fence.final_check()
+
+
+def _precheck_cap(started: float, cpu_started: float) -> None:
+    """The development pre-check has its own eight-hour elapsed allocation."""
+    fence = _ACTIVE_FENCE.get()
+    if fence is not None:
+        fence.check()
+    if time.monotonic() - started >= PRECHECK_MAX_ELAPSED_HOURS * 3600:
+        raise TimeoutError("8-hour pre-check elapsed cap reached")
+
+
+def _between_rows(guard: HostGuard, session: Any | None = None) -> None:
+    """Only row boundaries may pause; fence pending assistance on every pause."""
+    callback = getattr(session, "discard_pending_assistance", None)
+    guard.between_rows(on_pause=callback)
 
 
 def _collect(
@@ -671,18 +787,18 @@ def _collect(
     cpu_started: float,
     action_window: ActionWindow | None = None,
     host_guard: HostGuard | None = None,
+    check_cap: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
+    check_cap = check_cap or (lambda: _cap(started, cpu_started))
+    contention_ticks: list[bool] = []
     masses: list[int] = []
     deaths = boosts = decisions = overruns = large = late = overlap = 0
     action_counts = [0] * 6
     for index in range(horizon):
-        _cap(started, cpu_started)
-        if host_guard is not None:
-            host_guard.check()
+        check_cap()
+        contention_ticks.append(bool(host_guard and host_guard.check()["contended"]))
         if fps == 0 and hasattr(session, "settle_between_ticks"):
-            session.settle_between_ticks(
-                lambda: (_cap(started, cpu_started), host_guard and host_guard.check())
-            )
+            session.settle_between_ticks(lambda: (check_cap(), host_guard and host_guard.check()))
             settled = session.controller_state()
             faults = settled.get("unconditional_faults") if isinstance(settled, Mapping) else None
             if faults:
@@ -776,6 +892,7 @@ def _collect(
         "deaths_length_ge_800": large,
         "late_deaths": late,
         "late_large_overlap": overlap,
+        "host_contended_ticks": contention_ticks,
         "unpaced_clock": "held_between_ticks_until_worker_completes" if fps == 0 else None,
         "identity_status": (
             "NOT_VERIFIED"
@@ -805,12 +922,13 @@ def _precheck_rows(
     require_timing_gate(timing_gate, registration)
     _require_committed_pushed_registration(registration_path, registration)
     require_registration(registration, None)
-    prior_elapsed, prior_cpu = _phase_debit(timing_gate)
-    started, cpu_started = phase_started - prior_elapsed, phase_cpu - prior_cpu
-    _cap(started, cpu_started)
+    _phase_debit(timing_gate)
+    started, cpu_started = phase_started, phase_cpu
+    _precheck_cap(started, cpu_started)
     host_guard = host_guard or HostGuard(registration["load_profile"])
-    host_guard.check_budget = lambda: _cap(started, cpu_started)
-    host_guard.check(force=True)
+    host_guard.check_budget = lambda: _precheck_cap(started, cpu_started)
+    host_guard.start()
+    _between_rows(host_guard)
     from research.t34_pathb.precheck_v2 import validate_t3_row
 
     if open_terminal is None:
@@ -822,7 +940,7 @@ def _precheck_rows(
     }:
         raise RegistrationError("pre-check input must contain the complete original 2x32 inventory")
     for row in rows:
-        _cap(started, cpu_started)
+        _precheck_cap(started, cpu_started)
         host_guard.check()
         validate_t3_row(row)
     output = []
@@ -840,9 +958,9 @@ def _precheck_rows(
             "t3_materialized_sha256": row.get("t3_materialized_sha256"),
         }
         for arm in ("bare", "paced"):
-            _cap(started, cpu_started)
-            host_guard.check()
-            _cap(started, cpu_started)
+            _precheck_cap(started, cpu_started)
+            _between_rows(host_guard)
+            _precheck_cap(started, cpu_started)
             session = open_terminal(row, 24, arm)
             try:
                 result = _collect(
@@ -852,11 +970,15 @@ def _precheck_rows(
                     started=started,
                     cpu_started=cpu_started,
                     host_guard=host_guard,
+                    check_cap=lambda: _precheck_cap(started, cpu_started),
                 )
+                _between_rows(host_guard, session)
                 paired[f"{arm}_survives"] = result["no_death"] == 1
             finally:
                 session.close(wait=True)
         output.append(paired)
+    host_summary = host_guard.summary()
+    _final_source_check()
     receipt = precheck_receipt(output)
     if registration is not None:
         # The collection may run at a later JSON-only commit.  Bind scientific
@@ -869,12 +991,15 @@ def _precheck_rows(
             receipt["timing_gate_sha256"] = hashlib.sha256(
                 json.dumps(timing_gate, sort_keys=True, separators=(",", ":")).encode()
             ).hexdigest()
+    _precheck_cap(started, cpu_started)
     receipt["elapsed_seconds"] = time.monotonic() - phase_started
     receipt["cpu_seconds"] = time.process_time() - phase_cpu
+    receipt["host_summary"] = host_summary
     receipt["host_snapshots"] = host_guard.records if host_guard is not None else []
     return receipt
 
 
+@_frozen_execution
 def run_precheck(
     rows: list[Mapping[str, Any]],
     open_terminal: Callable[[Mapping[str, Any], int, str], Any] | None = None,
@@ -899,6 +1024,7 @@ def run_precheck(
         receipt = _precheck_rows(
             rows, open_terminal, guard, timing_gate, registration, registration_path, phase_start
         )
+        receipt["source_validation_path"] = str((out / "source_validated.json").resolve())
         _write_new(out / "precheck.json", receipt)
         return receipt
     except Exception as exc:
@@ -913,6 +1039,7 @@ def run_precheck(
             {
                 "status": "INCONCLUSIVE",
                 "reason": f"{type(exc).__name__}: {exc}",
+                "host_summary": guard.summary(validate=False),
                 "host_snapshots": guard.records,
                 "unconditional_faults": faults,
             },
@@ -927,8 +1054,11 @@ def run_precheck(
             },
         )
         raise
+    finally:
+        guard.close()
 
 
+@_frozen_execution
 def run_registered(
     out: Path,
     registration: Mapping[str, Any],
@@ -950,9 +1080,11 @@ def run_registered(
     ) != _canonical_sha(registration):
         raise RegistrationError("pre-check does not bind the passed timing gate and registration")
     timing_elapsed, timing_cpu = _phase_debit(timing_gate)
-    check_elapsed, check_cpu = _phase_debit(precheck)
-    started = phase_started - timing_elapsed - check_elapsed
-    cpu_started = phase_cpu - timing_cpu - check_cpu
+    check_elapsed, _ = _phase_debit(precheck)  # Separate budget; excluded from study debit.
+    if check_elapsed >= PRECHECK_MAX_ELAPSED_HOURS * 3600:
+        raise RegistrationError("pre-check exceeded its separate 8-hour elapsed cap")
+    started = phase_started - timing_elapsed
+    cpu_started = phase_cpu - timing_cpu
     require_registration(registration, precheck)
     _require_committed_pushed_registration(registration_path, registration)
     _execution_guard()
@@ -982,11 +1114,18 @@ def run_registered(
         _write_new(out / "timing_gate.json", dict(timing_gate))
         _write_new(out / "timing.json", dict(timing_gate))
     windows = {arm: ActionWindow() for arm in ARMS}
-    guard = HostGuard(registration["load_profile"])
+    guard = HostGuard(
+        registration["load_profile"],
+        prior_elapsed_seconds=timing_elapsed,
+        prior_contended_seconds=float(
+            timing_gate.get("host_summary", {}).get("contended_seconds", 0.0)
+        ),
+    )
     guard.check_budget = lambda: _cap(started, cpu_started)
     try:
         _cap(started, cpu_started)
-        guard.check(force=True)
+        guard.start()
+        _between_rows(guard)
         _cap(started, cpu_started)
         if adapter is None:
             adapter = _adapter()
@@ -998,6 +1137,7 @@ def run_registered(
                 arms: dict[str, Any] = {}
                 for arm in ARMS:
                     _cap(started, cpu_started)
+                    _between_rows(guard)
                     arm_fps = 0 if arm == "unpaced" else 24
                     session = opener(row, arm_fps, arm)
                     try:
@@ -1010,6 +1150,8 @@ def run_registered(
                             action_window=windows[arm],
                             host_guard=guard,
                         )
+                        _between_rows(guard, session)
+                        arms[arm]["controller"] = session.controller_state()
                     finally:
                         session.close(wait=True)
                 _write_new(
@@ -1044,6 +1186,8 @@ def run_registered(
                 contended=False,
                 check_cap=lambda: _cap(started, cpu_started),
             )
+        host_summary = guard.summary()
+        _final_source_check()
         record_statuses = [
             json.loads(path.read_text()) for path in (out / "records").glob("*.json")
         ]
@@ -1064,6 +1208,7 @@ def run_registered(
                     if all(row["parity_status"] == "PASS" for row in record_statuses)
                     else "NOT_VERIFIED"
                 ),
+                "host_summary": host_summary,
                 "host_snapshots": guard.records if guard is not None else [],
             },
         )
@@ -1082,6 +1227,7 @@ def run_registered(
                 "status": "INCONCLUSIVE" if isinstance(exc, HostContentionError) else "INCOMPLETE",
                 "reason": f"{type(exc).__name__}: {exc}",
                 "unconditional_faults": faults,
+                "host_summary": guard.summary(validate=False),
                 "host_snapshots": guard.records if guard is not None else [],
             },
         )
@@ -1095,7 +1241,27 @@ def run_registered(
             },
         )
         raise
+    finally:
+        guard.close()
     result = analyze_path(out)
+    _final_source_check()
+    try:
+        _cap(started, cpu_started)
+    except TimeoutError as exc:
+        result = {
+            "schema": "t34-pathb-v2-decision/v1",
+            "verdict": "INCONCLUSIVE",
+            "reason": f"analysis reached registered cap: {exc}",
+            "release_authorized": False,
+        }
+        _write_new(out / "incomplete.json", {**result, "unconditional_faults": []})
+    _write_new(
+        out / "analysis_accounting.json",
+        {
+            "elapsed_seconds": time.monotonic() - started,
+            "cpu_seconds": time.process_time() - cpu_started,
+        },
+    )
     _write_new(out / "decision.json", result)
     return result
 
@@ -1156,7 +1322,8 @@ def main() -> int:
         _execution_guard()
         profile = _load(Path(__file__).with_name("RETENTION_PROFILE_V2.json"))
         guard = HostGuard(profile["load_policy"])
-        guard.check(force=True)
+        guard.start()
+        _between_rows(guard)
         rows = json.loads(args.input.read_text())
         if not isinstance(rows, list) or not rows:
             parser.error("smoke input must provide one materialized terminal row")
@@ -1197,6 +1364,20 @@ def main() -> int:
         if not decision_path.is_file():
             parser.error("analyze is descriptive only and requires the create-only decision.json")
         official = _load(decision_path)
+        invalidation = (
+            _load(args.out / "source_failure.json")
+            if (args.out / "source_failure.json").exists()
+            else None
+        )
+        effective = (
+            {
+                "verdict": "INCONCLUSIVE",
+                "reason": "source fence invalidated saved decision",
+                "release_authorized": False,
+            }
+            if invalidation is not None
+            else official
+        )
         descriptive = analyze_path(args.out)
         descriptive.pop("verdict", None)
         descriptive.pop("reason", None)
@@ -1204,7 +1385,12 @@ def main() -> int:
             json.dumps(
                 {
                     "analysis_kind": "descriptive_reanalysis",
-                    "official_decision": official,
+                    "official_decision": effective,
+                    **(
+                        {"preserved_decision": official, "source_failure": invalidation}
+                        if invalidation is not None
+                        else {}
+                    ),
                     "descriptive_statistics": descriptive,
                 },
                 sort_keys=True,

@@ -2,8 +2,9 @@
 
 DRAFT_PENDING_OPERATOR_RATIFICATION
 
-Pre-data FIX-FIRST rulings (2026-10-20) are incorporated from
-[the operator specification](../../docs/research/specs/2026-10-20_t34_retention_prereg_fixes.md).
+The pre-data FIX-FIRST rulings, including the second review, are incorporated
+from [the first operator specification](../../docs/research/specs/2026-10-20_t34_retention_prereg_fixes.md)
+and [the second operator specification](../../docs/research/specs/2026-10-20_t34_retention_fixes2.md).
 They supersede the earlier draft precedence and execution ordering below.
 
 Written 2026-10-20 before any retention efficacy row. The owner delegated the
@@ -11,13 +12,17 @@ ratification decision to Claude; only the operator ratifies after review. This
 draft, its committed banks and its OC simulation authorize no pre-check,
 efficacy, strict-gate run, training, cloud spending or serving change.
 
-## Pre-data resize amendment — 2026-10-20
+## Amendment 2 addendum — pre-data resize and cap separation
 
 [The operator resize ruling](../../docs/research/specs/2026-10-20_t34_retention_resize.md)
 supersedes the prior draft sample sizes and resource caps before any retention
 or reused-T3 pre-check data exist: terminal worlds **32 -> 48 per mix** (144
-paired), complete mixed Watch6 product sessions **16 -> 32**, and caps **32 ->
-40 h elapsed / 48 -> 60 CPU-h**, $0, stopping at the first cap as INCONCLUSIVE.
+paired), complete mixed Watch6 product sessions **16 -> 32**, and study caps
+**32 -> 40 h elapsed / 48 -> 60 CPU-h**, $0, stopping at the first study cap as
+INCONCLUSIVE. The reused T3 pre-check is development-only, has its own **8 h
+elapsed** cap, and is never debited against the study's 40 h elapsed or 60 CPU-h
+caps. The timing gate is part of the registered study and remains debited to its
+study caps.
 The preceding N32/16 development OC found T3-like (+92 mass, +.25 scripted
 no-death) joint GO probability only .26630/.31715 at 20% Watch death reduction
 (T15/T13b), and 16-session product power .46160/.54845. This prospective resize
@@ -83,6 +88,13 @@ no blocking tick or hindsight intervention. One assistance worker, at most one
 request, bounded controller history and snapshots as frozen in source inventory.
 Isolated RNG; native kernels release the GIL. ONNX and serial LAD/v1 fallback
 are excluded. Count every miss/fallback in its assigned arm's efficacy.
+
+The host guard is asynchronous: it samples through a separate lightweight path
+or non-blocking between-tick reads and never sleeps in `_collect` or between
+ticks. It can pause only between complete rows (worlds or sessions). Before a
+pause it drops every pending assistance request; each dropped request is counted
+as a fallback in the assigned arm. A row is neither excluded nor retried for
+contention.
 
 ## Banks, opponents and order
 
@@ -188,8 +200,9 @@ Executable precedence: unconditional faults KILL. The quiet-host timing gate
 runs first, before the reused T3 pre-check or any efficacy world. At both rates
 require zero overruns and the cadence bar; require update p95 <=11.688 ms only
 at 24 fps. A failed registered timing probe stops with KILL-timing and no
-pre-check/efficacy work. Sustained contention or AC/lid/thermal interruption
-beyond the registered pause limit is INCONCLUSIVE. Missing or invalid evidence
+pre-check/efficacy work. Cumulative measured contention above the registered 2%
+allowance, or an AC/lid/thermal interruption beyond the registered 120-second
+pause limit, is INCONCLUSIVE. Missing or invalid evidence
 is INCONCLUSIVE. At the sole complete valid look, failed timing is KILL;
 failed paced skill decides KILL (deadline loss if unpaced passes, otherwise
 both fail), subject only to the uncertainty exceptions below; all paced
@@ -249,43 +262,70 @@ unpaced search cost can dominate and is included in both caps.
 
 ## Admission, resources and evidence lifecycle
 
-Mac CPU only, $0, first of **40 h elapsed / 60 CPU-h** wins. Main simulation plus
-one assistance worker <=2 CPU threads; every numerical pool capped at one
+Mac CPU only, $0, first of **40 h elapsed / 60 CPU-h** wins for the registered
+timing-plus-efficacy study. Main simulation plus one assistance worker uses at
+most two CPU threads; every numerical pool is capped at one
 (OMP/MKL/OpenBLAS/VECLIB/NumExpr/Numba/Torch). One process, no parallel worlds.
-Charge setup, source checks, waiting, failed work and exports; OC has its own
-bounded resumable simulation budget and is not retention gameplay. Use AC,
-open lid, available and acceptable thermal telemetry. No service or tmux action.
+Charge setup, source checks, waiting, failed work and exports to the phase that
+incurs them. The separately authorized reused-T3 pre-check has its own **8 h
+elapsed cap** and does not debit the study's elapsed or CPU-hour caps. OC has
+its own bounded resumable simulation budget and is not retention gameplay. Use
+AC, open lid, available and acceptable thermal telemetry. No service or tmux
+action. `RETENTION_PROFILE_V2.json` repeats this as
+`precheck_max_elapsed_hours: 8`, beside the study's `max_elapsed_hours: 40` and
+`max_cpu_hours: 60`.
 
-The runner measures quiet-host admission and continuously rechecks AC, lid and
-thermal telemetry during timing, pre-check and efficacy at most every 30 seconds.
+Admission requires acceptable AC, lid, and thermal telemetry; CPU contention is
+measured rather than treated as an automatic admission failure. The runner
+continuously rechecks those conditions during timing, pre-check and efficacy at
+most every 30 seconds.
 It measures one-minute load excess above its own two-worker allowance; excess
->3.0 indicates contention. Any other process above 50% CPU for more than 60
-seconds (PID and command listed) or a known heavy Phase 0/research runner also
-indicates contention. The exact process patterns and policy keys are frozen in
-RETENTION_PROFILE_V2.json and copied unchanged to registration.load_profile.
-On contention or a power/lid/thermal change pause; continuous nonquiet conditions
-for 120 seconds stop INCONCLUSIVE. Paused time counts against resource caps.
-Unavailable telemetry cannot pass. No hard-coded quiet/Phase-0-completed/zero-job
-attestation establishes admission. Policy changes require a prospective sibling
-registration before affected data.
+>3.0 indicates contention. A process-pattern match (`research/`, a runner, or
+another listed heavy job) counts only when that *other* process remains above
+50% CPU for more than 60 seconds; each record retains PID and command evidence.
+Within a row, measured contention time is accumulated per tick and reported.
+Cumulative contention through the study may be at most 2% of measured study
+elapsed time. More than 2% makes the study INCONCLUSIVE. Power, lid, or thermal
+changes also pause only between rows; a continuous non-acceptable condition for
+120 seconds makes the affected phase INCONCLUSIVE. Paused time counts against
+the applicable phase cap. Unavailable telemetry cannot pass. No hard-coded
+quiet/Phase-0-completed/zero-job attestation establishes admission. The exact
+policy keys and thresholds are frozen in `RETENTION_PROFILE_V2.json` and copied
+unchanged to `registration.load_profile`; its `max_contended_fraction` is `0.02`.
+A policy change requires a prospective sibling registration before affected data.
 
 Dependency: the separately authorized reused T3 pre-check must cover original
 b8_s0/b8_s3 x env0..31 at 24 fps, 64 trajectories / 32 physical seeds, original
 checkpoint/roster/ceiling-receipt identities, and reach >=50/64 paced survivors.
 Its source_commit and full source hashes must match the frozen retention source.
-It decides no Claim B result. This implementation task does not run it.
+It decides no Claim B result. Its independent 8 h elapsed cap applies before
+the fresh study; it does not consume the timing-plus-efficacy study budget. This
+implementation task does not run it.
 
-Sequence: commit and publish code; freeze source_commit and inventory; retain
-the committed audited banks; run bounded development-only OC; build/validate
-and commit the draft with every evidence binding except the final trace receipt.
-Operator produces/reviews the final-source trace receipt, then writes the
-create-only ratified JSON and commits/pushes it BEFORE timing or the T3 pre-check.
-The Markdown remains a draft; only the operator JSON ratifies it. The runner
-requires exact ratified JSON bytes in HEAD and current HEAD published to origin.
-Run the quiet-host ON/OFF timing gate at 24 and 12 fps first (~.36 h). Only its
-PASS receipt admits the separately authorized T3 pre-check; only matching PASS
-timing and >=50/64 pre-check evidence admits efficacy in a fresh artifact root.
-Follow [README operator commands](README_V2.md#retention-registration-package).
+Sequence: commit and publish the implementation; freeze `source_commit` and its
+deterministic actual import closure, including every transitive Python module and
+data file read by the registered entry points (`retention_v2`, `analyze_v2`,
+`timing_v2`, `host_guard_v2`, `registration_retention_v2`, and
+`retention_oc_v2`). Retain the committed audited banks; run the bounded
+development-only OC; then build, validate and commit the draft with every
+evidence binding except the final trace receipt. The operator produces/reviews
+the final-source trace receipt, writes the create-only ratified JSON in the
+authoring worktree, commits and publishes it before timing or the T3 pre-check.
+The Markdown remains a draft; only the operator JSON ratifies it.
+
+Execution occurs from a fresh, owned worktree detached exactly at the ratified
+`source_commit`. The published ratified JSON is passed by absolute path from the
+authoring worktree; its generated bytes are not part of the frozen executable
+closure. The detached worktree must have a clean index and worktree before
+timing, and its `HEAD`, index and worktree must remain unchanged through
+analysis. The runner refuses drift or dirtiness. Timing and pre-check receipts are
+admissible only with a matching create-only `source_validated.json`, written after
+the source monitor closes successfully. A sibling `source_failure.json` invalidates
+the receipt even if the tree is later restored. Run the quiet-host ON/OFF timing
+gate at 24 and 12 fps first (~.36 h). Only its PASS receipt admits the separately
+authorized T3 pre-check; only matching PASS timing and >=50/64 pre-check evidence
+admits efficacy in a fresh artifact root. Follow
+[README operator commands](README_V2.md#retention-registration-package).
 
 The create-only decision.json written by the runner at the end of the single
 look is the only verdict. Timing failure writes the terminal decision before

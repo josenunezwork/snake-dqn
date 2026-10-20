@@ -189,9 +189,15 @@ def _draft_inputs(tmp_path: Path, monkeypatch) -> tuple[dict, Path]:
         "- Decision: ratified\n- Option: 1\n- Date: 2026-10-06\n- Changes, if any: none\n"
     )
     profile = {
-        "load_policy": json.loads(Path("research/t34_pathb/RETENTION_PROFILE_V2.json").read_text())[
-            "load_policy"
-        ],
+        "load_policy": {
+            **json.loads(Path("research/t34_pathb/RETENTION_PROFILE_V2.json").read_text())[
+                "load_policy"
+            ],
+            "max_contended_fraction": 0.02,
+        },
+        "max_elapsed_hours": 40.0,
+        "max_cpu_hours": 60.0,
+        "precheck_max_elapsed_hours": 8.0,
         "survival_band": {"amendment": {"path": str(amendment), "sha256": _sha(amendment)}},
     }
     pool = {"source_files": {"source.py": source_hashes["source.py"]}, "rows": [1, 2]}
@@ -374,13 +380,16 @@ def test_oc_acceptance_reports_observed_max_separately_from_limit(monkeypatch, t
         registration.validate_registration(draft, root=tmp_path)
 
 
-def test_ratify_freezes_inputs_before_timing_or_precheck(monkeypatch, tmp_path):
+def test_ratify_prepares_inputs_without_runtime_frozen_worktree_verification(monkeypatch, tmp_path):
     draft, _source = _draft_inputs(tmp_path, monkeypatch)
     trace = tmp_path / "trace.json"
     _json(trace, {"status": "PASS", "source_hashes": draft["source_hashes"]})
-    checked = []
     monkeypatch.setattr(
-        registration, "require_registration", lambda value, precheck: checked.append(precheck)
+        registration,
+        "require_registration",
+        lambda *_args, **_kwargs: pytest.fail(
+            "ratify must not execute the runtime admission guard"
+        ),
     )
     result = registration.ratify_registration(
         draft,
@@ -393,7 +402,6 @@ def test_ratify_freezes_inputs_before_timing_or_precheck(monkeypatch, tmp_path):
     assert result["ratified"] is True
     assert result["load_profile"] == draft["load_profile"]
     assert "load_record" not in result
-    assert checked == [None]
 
 
 @pytest.mark.parametrize("field", ["pathb_joint_go_power", "watch6_product_power"])

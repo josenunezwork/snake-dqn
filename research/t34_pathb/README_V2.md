@@ -95,13 +95,19 @@ or replacement bank is provided. Numerical pools are capped before imports.
 ## Registration schema and evidence
 
 The operator prepares `schema:"t34-pathb-v2-registration/v1"`, `ratified:true`,
-`source_commit` (an ancestor of execution HEAD with identical execution bytes),
-`source_hashes` from `retention_v2.source_inventory()`, `arms:["bare","paced",
+`source_commit` (the exact detached execution `HEAD`), `source_hashes` from
+`retention_v2.source_inventory()`, `arms:["bare","paced",
 "unpaced"]`, `paced_fps:24`, `terminal_per_mix:48`, `product_sessions:32`,
 `horizon:5000`, `workers:1`, `max_elapsed_hours:40`, `max_cpu_hours:60`,
+`precheck_max_elapsed_hours:8`,
 `fresh_disjoint_banks:true`, and the complete materialized `terminal_rows`,
 `product_rows`, `timing_row`, `timing_ticks` and `timing_warmup`. Freeze the load
-profile and full contract bars in the committed preregistration. The unpaced
+profile and full contract bars in the committed preregistration. The registered
+entry-point import graph determines the source inventory: it contains only the
+transitive modules and data files actually read by `retention_v2`, `analyze_v2`,
+`timing_v2`, `host_guard_v2`, `registration_retention_v2`, and
+`retention_oc_v2`, plus their imports. It is not a whole-`research/` inventory.
+The unpaced
 descriptive arm uses the same successor with no pacing sleep. Between simulated
 ticks the harness holds the simulation clock while its sole worker finishes
 maintenance and search, then uses the ordinary action boundary. This reference
@@ -109,9 +115,14 @@ has no rewind. The paced arm never waits. Settle time stays outside ON timing
 and counts against the study's elapsed/CPU caps.
 
 Copy the exact measured `load_policy` keys from the profile to `load_profile`;
-the runtime computes contention from fresh samples. Product and timing rows declare
-`mix:"mixed"`; the timing seed is also disjoint from every study seed. A nested
-terminal `roster` must repeat its outer row's seed and mix exactly.
+the runtime computes contention from fresh samples. It records per-tick row
+contention and accepts cumulative contention through timing plus efficacy only
+through the registered 2% allowance; a larger fraction is INCONCLUSIVE. It
+pauses only between rows, after dropping pending assistance requests as counted
+fallbacks. `max_contended_fraction: 0.02` is an exact `load_policy` key.
+Product and timing rows declare `mix:"mixed"`; the timing seed is also disjoint
+from every study seed. A nested terminal `roster` must repeat its outer row's
+seed and mix exactly.
 
 `checkpoints` is a list of `{path,sha256}` objects, including released B8 s3 and
 every frozen opponent, including Watch FRP3 s12. Coverage is checked against
@@ -129,10 +140,13 @@ The registered load profile freezes measured quiet-host thresholds. Record
 large deaths at pre-action length >=800 and late deaths at frame >=2000, with
 their overlap; these are diagnostics.
 
-The source inventory covers tracked Python in `src`, `research`, and
-`web/backend`, configuration YAML, protocol/governance and serving pins. It
-includes T3/T33 imports. Changing any executable dependency requires a new
-prospective registration; an opaque success flag or CLI exit status is not proof.
+The source inventory is a deterministic import-graph walk over the registered
+entry points. It includes their local transitive Python dependencies and data
+files read at runtime, including required T3/T33 dependencies and the frozen
+profile/preregistration assets. It excludes generated registration and OC files,
+which would make the closure recursive. Changing a closure member requires a
+new prospective source freeze; an opaque success flag or CLI exit status is not
+proof.
 
 ## Acceptance table
 
@@ -141,11 +155,11 @@ prospective registration; an opaque success flag or CLI exit status is not proof
 | Exact batched v8 continuation and B8 tie/mask semantics | Independent reference traces and focused engine tests; see `VERIFICATION_V2.md` |
 | One thread, one request, bounded confirmation history, stale/late fallback | Controller queue, identity, mismatch and overflow regressions |
 | Real terminal + continuous Watch adapter | Tiny actual adapter smoke, physical/carry/v8 comparison |
-| T3 pre-check >=50/64 at 24 fps | Implemented; full run reserved for operator |
+| T3 pre-check >=50/64 at 24 fps | Separately authorized development pre-check with an 8 h cap; full run reserved for operator |
 | Fresh 48/mix H5000 +32 paired Watch6 sessions | Registered runner implemented; full run reserved for operator |
 | P7 paired-world/session inference and Holm family | Analyzer rule and boundary tests |
 | First-result p95 <=2 s | Engineering target; no final timing claim from implementation smoke |
-| 24 fps update p95 <=11.688 ms, zero 12/24 fps overruns | Quiet-host registered probes after Phase 0; contended smoke cannot qualify |
+| 24 fps update p95 <=11.688 ms, zero 12/24 fps overruns | Registered probes; their contention is reported and only cumulative contention above 2% is inconclusive |
 | All contract skill/product bars | Full registered decision; no efficacy claim from smoke |
 | Default serving OFF / no release | No serving-selector or pin change |
 
@@ -179,8 +193,14 @@ The updated seed audit embeds the original audit and its historical hashes.
 `resize --out-bank NEW --out-audit NEW` is create-only and accepts only the
 original N32/16 inputs; do not rerun it on the published resized bank.
 Minimum pacing exposure is (144+32)*2*5000/24/3600 = **20.370 h**, plus
-~.361 h timing/warmup, setup, pre-check and descriptive unpaced work.
-Stop at the first cap as INCONCLUSIVE. The new OC power numbers and complete
+~.361 h timing/warmup, setup and descriptive unpaced work. The separately
+authorized reused-T3 pre-check has its own 8 h elapsed cap and is not debited
+against the 40 h/60 CPU-h study caps. Stop the study at its first cap as
+INCONCLUSIVE. Before full execution, run the required bounded, **contended**,
+cost-only three-world unpaced smoke. It supplies a per-world cost projection
+against the 40 h study cap; it produces no efficacy row and cannot qualify any
+timing or contract bar. If the projection exceeds 40 h, report that fact without
+changing N. The new OC power numbers and complete
 verification are in [VERIFICATION_RETENTION_RESIZE.md](VERIFICATION_RETENTION_RESIZE.md).
 
 Package validation (safe during implementation; no pre-check or efficacy):
@@ -220,31 +240,50 @@ receipt; the old source receipt is stale after these fixes. Phase 0 must finish
 before timing. Runtime admission measures host conditions and competing processes;
 there are no hard-coded Phase-0-finished or zero-job attestations.
 
-Publish the ratified JSON before timing or pre-check. The exact ratified bytes
-must exist in HEAD and execution HEAD must be pushed. The source_commit comes
-from the draft's frozen executable revision, which may precede JSON-only commits.
-Do not run these gameplay commands during implementation:
+Build order is binding: commit the implementation, create the fresh
+development-only OC into a new artifact path, copy and commit its retained
+receipt, then build and commit the draft registration. This makes the draft's
+`source_commit` include the committed OC receipt. The generated OC is excluded
+from the executable import closure to avoid a recursive source hash, but its
+separate registration binding remains required. The draft stays unratified until
+the operator completes the later trace-and-ratification step.
+
+Publish the ratified JSON in the authoring worktree before timing or pre-check.
+The exact ratified bytes must be published there, but execution occurs only from
+a fresh worktree detached at the ratified `source_commit`. Pass the published
+registration to that frozen worktree by absolute path. Do not run these gameplay
+commands during implementation:
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-retention-resize
+AUTHOR_ROOT=/absolute/path/to/the/authoring-worktree
+cd "$AUTHOR_ROOT"
 export SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 E=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-01
 TRACE=/absolute/path/actual-final-source-trace-receipt.json
-READY=research/t34_pathb/REGISTRATION_RETENTION_V2_RATIFIED.json
+READY="$AUTHOR_ROOT/research/t34_pathb/REGISTRATION_RETENTION_V2_RATIFIED.json"
 mkdir "$E"
 "$PY" -m research.t34_pathb.registration_retention_v2 validate
 SOURCE_COMMIT=$("$PY" -c 'import json; print(json.load(open("research/t34_pathb/REGISTRATION_RETENTION_V2.json"))["source_commit"])')
 "$PY" -m research.t34_pathb.registration_retention_v2 ratify \
   --source-commit "$SOURCE_COMMIT" --trace-receipt "$TRACE" \
   --operator Claude --acknowledge-near-boundary-precedence --out "$READY"
-git add "$READY"
+git add research/t34_pathb/REGISTRATION_RETENTION_V2_RATIFIED.json
 git commit -m 'Ratify T34 retention before timing and pre-check'
 git fetch origin
 git merge origin/main
 git push origin HEAD:main
-git push origin t34-retention-resize-20261020
+git push origin t34-retention-fixes2-20261020
+
+# Create the owned execution worktree. It must remain detached, clean and stationary
+# through timing, the optional pre-check and final analysis.
+FROZEN=/absolute/path/to/owned-t34-retention-frozen
+git worktree add --detach "$FROZEN" "$SOURCE_COMMIT"
+git -C "$FROZEN" diff --quiet
+git -C "$FROZEN" diff --cached --quiet
+test "$(git -C "$FROZEN" rev-parse HEAD)" = "$SOURCE_COMMIT"
+cd "$FROZEN"
 "$PY" -m research.t34_pathb.registration_retention_v2 validate \
   --registration "$READY" --ready
 
@@ -264,13 +303,25 @@ git push origin t34-retention-resize-20261020
 "$PY" -m research.t34_pathb.retention_v2 analyze --out "$E/retention"
 ```
 
-Host monitoring samples at most every 30 seconds. It pauses if one-minute load
-exceeds the run's two-worker allowance by >3.0, another process uses >50% CPU
-for >60 seconds, a known Phase 0/research runner is present, or AC/lid/thermal
-conditions change. It records PID/command evidence and stops INCONCLUSIVE after
-120 continuous seconds. Unavailable telemetry cannot pass; pause time is charged.
-The profile and validator use the same policy keys; no load attestation is
-accepted as a measurement.
+Host monitoring samples asynchronously at most every 30 seconds and never sleeps
+inside collection or between ticks. It pauses only between completed rows, drops
+pending assistance as counted fallbacks, and does not exclude or retry a row.
+Admission requires acceptable AC, lid, and thermal telemetry; observed CPU
+contention is accounted against the cumulative allowance.
+One-minute load excess above 3.0 is contention. A known Phase 0/research pattern
+is contention only when the other process exceeds 50% CPU for more than 60
+seconds. It records PID/command and per-tick contention evidence. Cumulative
+contention through the registered study is allowed through 2% of measured elapsed
+time and is reported; more than 2% is INCONCLUSIVE. AC/lid/thermal changes pause
+between rows and a non-acceptable state persisting 120 seconds is INCONCLUSIVE.
+Unavailable telemetry cannot pass; pause time is charged. The profile and
+validator use the same policy keys; no load attestation is accepted as a
+measurement.
+
+Timing and pre-check admission also require their original phase
+`source_validated.json` certificate, written after the source monitor closes; the
+certificate binds the receipt hash and source commit. Missing certificates or a
+sibling `source_failure.json` block the next phase even after source restoration.
 
 Only the runner's create-only `decision.json` is the verdict. Re-analysis labels
 its calculations descriptive and preserves that file. Efficacy ticks >=41.7 ms
@@ -281,11 +332,18 @@ is the sole failing category and product passes.
 
 Exactly one complete fixed-N look. Preserve incomplete/fault evidence; no
 automatic retry, efficacy resume, bank replacement or extension. The first of
-40 h elapsed / 60 CPU-h / $0 wins. Product sessions and timing use actual offline
-Watch6; no release-monitor or leaderboard writes. Development GO only admits
-fresh Mac strict-gate preparation. Client latency, Watch8/12, Play, serving
-qualification, visible assisted labelling and owner-approved release remain
+40 h elapsed / 60 CPU-h / $0 wins for the study; the pre-check has its own 8 h
+elapsed cap and is never debited to that study budget. Product sessions and timing
+use actual offline Watch6; no release-monitor or leaderboard writes. Development
+GO only admits fresh Mac strict-gate preparation. Client latency, Watch8/12, Play,
+serving qualification, visible assisted labelling and owner-approved release remain
 separate. Teacher label rounds are not funded by this package.
+
+The frozen-worktree fence covers the standalone `analyze` command as well as
+timing, pre-check, and efficacy. If a source change is discovered near a final
+write, the runner preserves the evidence and writes `source_failure.json` to
+invalidate the otherwise preserved decision; it never silently substitutes a
+new result.
 
 Package verification, exact preparation commands and the development-only OC
 results are recorded in [VERIFICATION_RETENTION_V2.md](VERIFICATION_RETENTION_V2.md).

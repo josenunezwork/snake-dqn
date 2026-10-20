@@ -54,11 +54,13 @@ def probe(
     """Run real paced steps; no GameSession queue is drained outside its tick path."""
     if fps not in (12, 24) or ticks < 1 or warmup < 0:
         raise ValueError("invalid T15 probe settings")
+    contention_ticks: list[bool] = []
     for _ in range(warmup):
         if check_cap:
             check_cap()
         if check_host:
-            check_host()
+            host = check_host()
+            contention_ticks.append(bool(host and host.get("contended")))
         _step(session)
         time.sleep(1 / fps)
     updates: list[float] = []
@@ -72,7 +74,8 @@ def probe(
         if check_cap:
             check_cap()
         if check_host:
-            check_host()
+            host = check_host()
+            contention_ticks.append(bool(host and host.get("contended")))
         started = time.monotonic()
         before = time.process_time()
         _step(session)
@@ -92,7 +95,8 @@ def probe(
         "fps": fps,
         "ticks": ticks,
         "warmup": warmup,
-        "contended": bool(contended),
+        "contended": bool(contended or any(contention_ticks)),
+        "host_contended_ticks": contention_ticks,
         "update_ms": _summary(updates),
         "full_tick_ms": _summary(full),
         "shadow_upkeep_ms": _summary(upkeep),
@@ -116,11 +120,14 @@ def run_probes(
     contended: bool,
     check_cap: Callable[[], None] | None = None,
     check_host: Callable[[], None] | None = None,
+    between_rows: Callable[[Any], None] | None = None,
 ) -> dict[str, Any]:
     """Open and close four exact Watch6 sessions, ON/OFF at the two serving rates."""
     probes: dict[str, Mapping[str, Any]] = {}
     for mode in ("bare", "paced"):
         for fps in (12, 24):
+            if between_rows:
+                between_rows(None)
             session = open_session(mode, fps)
             try:
                 probes[f"{mode}-{fps}"] = probe(
@@ -132,6 +139,8 @@ def run_probes(
                     check_cap=check_cap,
                     check_host=check_host,
                 )
+                if between_rows:
+                    between_rows(session)
             finally:
                 session.close(wait=True)
     return {"schema": "t34-pathb-v2-timing/v1", "probes": probes}

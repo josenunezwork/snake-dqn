@@ -189,9 +189,9 @@ def source_inventory(repo: Path) -> dict[str, str]:
 def _git(repo: Path, *args: str) -> str:
     try:
         return subprocess.check_output(
-            ["git", *args], cwd=repo, text=True, stderr=subprocess.PIPE
+            ["git", *args], cwd=repo, text=True, stderr=subprocess.PIPE, timeout=5
         ).strip()
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         raise SourceBindingError(f"git verification failed: {' '.join(args)}") from exc
 
 
@@ -205,8 +205,9 @@ def _is_detached(repo: Path) -> bool:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
+            timeout=5,
         )
-    except OSError as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         raise SourceBindingError(
             "git verification failed: symbolic-ref --quiet --short HEAD"
         ) from exc
@@ -281,6 +282,8 @@ class FrozenWorktreeGuard:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=self.interval_seconds + 1.0)
+            if self._thread.is_alive():
+                raise SourceBindingError("source monitor did not close within its timeout")
         self.check()
 
     def __enter__(self) -> "FrozenWorktreeGuard":

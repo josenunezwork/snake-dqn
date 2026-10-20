@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,7 +19,7 @@ from research.t34_pathb import host_guard_v2, retention_v2
 
 REPO = Path(__file__).resolve().parents[1]
 PROFILE = json.loads((REPO / "research/t34_pathb/RETENTION_PROFILE_V2.json").read_text())
-POLICY = PROFILE["load_policy"]
+POLICY = {**PROFILE["load_policy"], "max_contended_fraction": 0.02}
 
 
 def _probe(fps: int, *, update_p95: float = 1.0, overruns: int = 0) -> dict:
@@ -45,8 +46,8 @@ def _timing(*, update_12: float = 1.0, update_24: float = 1.0) -> dict:
     }
 
 
-def test_host_guard_rechecks_after_interval_and_pauses_transient_contention():
-    """A transient power/host fault pauses work and is sampled again later."""
+def test_host_guard_checks_are_cached_and_only_row_boundaries_pause():
+    """A tick check is cached; a transient fault is handled between rows."""
     now = [0.0]
     samples = iter(
         [
@@ -57,50 +58,40 @@ def test_host_guard_rechecks_after_interval_and_pauses_transient_contention():
     )
     sleeps: list[float] = []
 
-    def sleep(seconds: float) -> None:
-        sleeps.append(seconds)
-        now[0] += seconds
-
     guard = host_guard_v2.HostGuard(
         POLICY,
         clock=lambda: now[0],
-        sleeper=sleep,
         sample=lambda: next(samples),
     )
 
-    first = guard.check(force=True)
-    assert first["contended"] is False
+    guard.start()
+    first = guard.check()
+    assert first["contended"] is True
+    assert guard.check()["contended"] is True
+    assert len(guard.records) == 1
+    assert sleeps == []
+
+    guard._capture()
+    guard.between_rows()
+    assert guard.records[-1]["contended"] is False
     assert len(guard.records) == 2
-    assert sleeps and 0 < sleeps[0] <= 5
-
-    # The registered 30-second cadence is enforced between healthy checks.
-    assert guard.check()["contended"] is False
-    assert len(guard.records) == 2
-    now[0] = 36.0
-    guard.check()
-    assert len(guard.records) == 3
+    guard.close()
 
 
-def test_host_guard_persistent_contention_becomes_inconclusive_without_wall_sleep():
-    now = [0.0]
-    sleeps: list[float] = []
-
-    def sleep(seconds: float) -> None:
-        sleeps.append(seconds)
-        now[0] += seconds
+def test_host_guard_persistent_contention_becomes_inconclusive_between_rows():
+    clock_values = iter([1.0, 1.0, 121.0])
 
     guard = host_guard_v2.HostGuard(
         POLICY,
-        clock=lambda: now[0],
-        sleeper=sleep,
+        clock=lambda: next(clock_values),
         sample=lambda: {"contended": True, "reasons": ["thermal_not_ok"]},
     )
 
+    guard.start()
     with pytest.raises(host_guard_v2.HostContentionError, match="thermal_not_ok"):
-        guard.check(force=True)
-    assert now[0] >= POLICY["persistence_seconds"]
-    assert len(guard.records) >= POLICY["persistence_seconds"] // 5
-    assert sleeps
+        guard.between_rows()
+    assert len(guard.records) == 1
+    guard.close()
 
 
 @pytest.mark.parametrize(
@@ -140,7 +131,7 @@ def test_host_guard_requires_sustained_other_process_over_fifty_percent(monkeypa
     assert "other_cpu_sustained" in second["reasons"]
 
 
-def test_host_guard_excludes_ancestors_but_lists_known_heavy_siblings(monkeypatch):
+def test_host_guard_excludes_ancestors_and_ignores_low_cpu_research_siblings(monkeypatch):
     monkeypatch.setattr(host_guard_v2.os, "getpid", lambda: 10)
     monkeypatch.setattr(
         host_guard_v2.subprocess,
@@ -169,9 +160,29 @@ def test_host_guard_excludes_ancestors_but_lists_known_heavy_siblings(monkeypatc
     monkeypatch.setattr(host_guard_v2.os, "getloadavg", lambda: (2.0, 2.0, 2.0))
     record = host_guard_v2.HostGuard(POLICY)._measure()
 
+    assert record["known_heavy_processes"] == []
+    assert "known_heavy_process" not in record["reasons"]
+    assert all(item["pid"] != 9 for item in record["known_heavy_processes"])
+
+
+def test_host_guard_counts_a_research_sibling_only_after_sustained_high_cpu(monkeypatch):
+    clock_values = iter([0.0, 61.0])
+    sibling = {
+        "pid": 100,
+        "ppid": 1,
+        "cpu_percent": 51.0,
+        "command": "python research/phase0_runner.py",
+    }
+    monkeypatch.setattr(host_guard_v2, "_power_thermal", lambda: (True, True, True))
+    monkeypatch.setattr(host_guard_v2, "_own_pids", lambda: {os.getpid()})
+    monkeypatch.setattr(host_guard_v2, "_processes", lambda: [sibling])
+    monkeypatch.setattr(host_guard_v2.os, "getloadavg", lambda: (2.0, 2.0, 2.0))
+    guard = host_guard_v2.HostGuard(POLICY, clock=lambda: next(clock_values))
+
+    assert guard._measure()["known_heavy_processes"] == []
+    record = guard._measure()
     assert record["known_heavy_processes"] == [sibling]
     assert "known_heavy_process" in record["reasons"]
-    assert all(item["pid"] != 9 for item in record["known_heavy_processes"])
 
 
 def test_timing_12fps_p95_is_reported_but_24fps_p95_is_a_gate():
@@ -224,8 +235,11 @@ def test_live_phases_require_published_registration_even_with_mock_adapter(monke
 
 def test_committed_registration_guard_requires_exact_head_bytes_and_published_tip(
     monkeypatch,
+    tmp_path,
 ):
-    path = REPO / ".t34-registration-guard-test.json"
+    authoring = tmp_path / "authoring-worktree"
+    authoring.mkdir()
+    path = authoring / "registration.json"
     registration = {"ratified": True, "source_commit": "source"}
     path.write_text(json.dumps(registration, sort_keys=True) + "\n")
     try:
@@ -233,14 +247,12 @@ def test_committed_registration_guard_requires_exact_head_bytes_and_published_ti
         head_bytes = path.read_bytes()
 
         def git(args, **_kwargs):
+            if args[:3] == ["git", "rev-parse", "--show-toplevel"]:
+                return str(authoring) + "\n"
             if args[:2] == ["git", "show"]:
                 return head_bytes
-            if args[:2] == ["git", "branch"]:
-                return "t34-retention-fixes-20261020\n"
             if args[:2] == ["git", "ls-remote"]:
-                return f"{head_sha}\trefs/heads/t34-retention-fixes-20261020\n"
-            if args[:2] == ["git", "rev-parse"]:
-                return head_sha + "\n"
+                return f"{head_sha}\trefs/heads/main\n"
             raise AssertionError(args)
 
         monkeypatch.setattr(retention_v2.subprocess, "check_output", git)
@@ -263,17 +275,16 @@ def test_committed_registration_guard_rejects_unpublished_head(monkeypatch):
     registration = {"ratified": True}
     path.write_text(json.dumps(registration, sort_keys=True) + "\n")
     try:
-        head_sha = "a" * 40
 
         def git(args, **_kwargs):
+            if args[:3] == ["git", "rev-parse", "--show-toplevel"]:
+                return str(REPO) + "\n"
             if args[:2] == ["git", "show"]:
+                if args[2].startswith("b" * 40):
+                    raise subprocess.CalledProcessError(1, args)
                 return path.read_bytes()
-            if args[:2] == ["git", "branch"]:
-                return "t34-retention-fixes-20261020\n"
             if args[:2] == ["git", "ls-remote"]:
-                return f"{'b' * 40}\trefs/heads/t34-retention-fixes-20261020\n"
-            if args[:2] == ["git", "rev-parse"]:
-                return head_sha + "\n"
+                return f"{'b' * 40}\trefs/heads/main\n"
             raise AssertionError(args)
 
         monkeypatch.setattr(retention_v2.subprocess, "check_output", git)
@@ -320,8 +331,15 @@ def test_timing_gate_generic_fault_writes_one_inconclusive_decision(monkeypatch,
     monkeypatch.setattr(retention_v2, "require_registration", lambda *_args: None)
     monkeypatch.setattr(retention_v2, "_execution_guard", lambda: None)
     monkeypatch.setattr(retention_v2, "_require_committed_pushed_registration", lambda *_args: None)
-    fake_guard = SimpleNamespace(records=[], check=lambda **_kwargs: {"contended": False})
-    monkeypatch.setattr(retention_v2, "HostGuard", lambda _policy: fake_guard)
+    fake_guard = SimpleNamespace(
+        records=[],
+        check=lambda **_kwargs: {"contended": False},
+        start=lambda: None,
+        between_rows=lambda **_kwargs: None,
+        summary=lambda **_kwargs: {},
+        close=lambda: None,
+    )
+    monkeypatch.setattr(retention_v2, "HostGuard", lambda _policy, **_kwargs: fake_guard)
 
     def fail_open(*_args):
         raise RuntimeError("missing timing session")
@@ -355,8 +373,15 @@ def test_partial_unconditional_fault_writes_one_create_only_decision(monkeypatch
     monkeypatch.setattr(retention_v2, "require_registration", lambda *_args: None)
     monkeypatch.setattr(retention_v2, "require_timing_gate", lambda *_args: None)
     monkeypatch.setattr(retention_v2, "_require_committed_pushed_registration", lambda *_args: None)
-    fake_guard = SimpleNamespace(records=[], check=lambda **_kwargs: {"contended": False})
-    monkeypatch.setattr(retention_v2, "HostGuard", lambda _policy: fake_guard)
+    fake_guard = SimpleNamespace(
+        records=[],
+        check=lambda **_kwargs: {"contended": False},
+        start=lambda: None,
+        between_rows=lambda **_kwargs: None,
+        summary=lambda **_kwargs: {},
+        close=lambda: None,
+    )
+    monkeypatch.setattr(retention_v2, "HostGuard", lambda _policy, **_kwargs: fake_guard)
     monkeypatch.setattr(retention_v2, "TERMINAL_PER_MIX", 1)
     monkeypatch.setattr(retention_v2, "PRODUCT_SESSIONS", 1)
 
@@ -410,9 +435,20 @@ def test_precheck_admission_pause_retains_inconclusive_before_any_world(monkeypa
     def refuse(**_kwargs):
         raise host_guard_v2.HostContentionError("ac_power_lost")
 
-    guard = SimpleNamespace(records=observed, check=refuse)
+    guard = SimpleNamespace(
+        records=observed,
+        check=refuse,
+        start=lambda: None,
+        between_rows=refuse,
+        summary=lambda **_kwargs: {},
+        close=lambda: None,
+    )
     made = []
-    monkeypatch.setattr(retention_v2, "HostGuard", lambda policy: made.append(policy) or guard)
+    monkeypatch.setattr(
+        retention_v2,
+        "HostGuard",
+        lambda policy, **_kwargs: made.append(policy) or guard,
+    )
     out = tmp_path / "precheck"
     with pytest.raises(host_guard_v2.HostContentionError):
         retention_v2.run_precheck(

@@ -46,8 +46,8 @@ def test_precheck_requires_exact_bank_and_threshold():
         precheck_receipt(_rows()[:-1])
 
 
-def test_non_smoke_registration_rechecks_raw_evidence_and_source_closure(monkeypatch):
-    from research.t34_pathb import retention_v2
+def test_non_smoke_registration_rechecks_raw_evidence_and_source_closure(monkeypatch, tmp_path):
+    from research.t34_pathb import retention_v2, source_binding_v2
 
     source = "research/t34_pathb/retention_v2.py"
     digest = hashlib.sha256(open(source, "rb").read()).hexdigest()
@@ -64,9 +64,7 @@ def test_non_smoke_registration_rechecks_raw_evidence_and_source_closure(monkeyp
         raise AssertionError(args)
 
     monkeypatch.setattr(retention_v2.subprocess, "check_output", git_output)
-    monkeypatch.setattr(
-        retention_v2.subprocess, "run", lambda *_args, **_kwargs: SimpleNamespace(returncode=0)
-    )
+    monkeypatch.setattr(source_binding_v2, "verify_frozen_worktree", lambda *_args: None)
     base = {
         "schema": "t34-pathb-v2-registration/v1",
         "ratified": True,
@@ -77,20 +75,50 @@ def test_non_smoke_registration_rechecks_raw_evidence_and_source_closure(monkeyp
         "product_sessions": 32,
         "horizon": 5000,
         "workers": 1,
-        "load_profile": json.loads(
-            Path("research/t34_pathb/RETENTION_PROFILE_V2.json").read_text()
-        )["load_policy"],
+        "load_profile": {
+            **json.loads(Path("research/t34_pathb/RETENTION_PROFILE_V2.json").read_text())[
+                "load_policy"
+            ],
+            "max_contended_fraction": 0.02,
+        },
         "max_elapsed_hours": 40.0,
         "max_cpu_hours": 60.0,
+        "precheck_max_elapsed_hours": 8.0,
         "fresh_disjoint_banks": True,
         "source_hashes": {source: digest},
     }
     # Source/receipt identity gets past the committed-closure guard; the
     # independent external receipt mapping remains mandatory.
+    precheck = precheck_receipt(_rows())
+    certificate_path = tmp_path / "source_validated.json"
+    precheck["source_validation_path"] = str(certificate_path.resolve())
+    certificate_path.write_text(
+        json.dumps(
+            {
+                "schema": "t34-pathb-v2-source-validation/v1",
+                "status": "PASS",
+                "source_commit": source_commit,
+                "receipts": {"precheck.json": retention_v2._canonical_sha(precheck)},
+            }
+        )
+    )
     with pytest.raises(RegistrationError, match="checkpoint bytes"):
-        require_registration(base, precheck_receipt(_rows()))
+        require_registration(base, precheck)
+    bad_precheck = precheck_receipt(_rows(49))
+    bad_certificate_path = tmp_path / "bad-source_validated.json"
+    bad_precheck["source_validation_path"] = str(bad_certificate_path.resolve())
+    bad_certificate_path.write_text(
+        json.dumps(
+            {
+                "schema": "t34-pathb-v2-source-validation/v1",
+                "status": "PASS",
+                "source_commit": source_commit,
+                "receipts": {"precheck.json": retention_v2._canonical_sha(bad_precheck)},
+            }
+        )
+    )
     with pytest.raises(RegistrationError, match="50/64"):
-        require_registration(base, precheck_receipt(_rows(49)))
+        require_registration(base, bad_precheck)
     base["source_hashes"] = {source: "0" * 64}
     with pytest.raises(RegistrationError, match="source hash inventory"):
         require_registration(base, precheck_receipt(_rows()))
@@ -273,14 +301,24 @@ def test_registered_timing_fault_retains_unconditional_marker(monkeypatch, tmp_p
         "timing_ticks": 1,
         "timing_warmup": 0,
     }
-    registration["load_profile"] = json.loads(
-        Path("research/t34_pathb/RETENTION_PROFILE_V2.json").read_text()
-    )["load_policy"]
+    registration["load_profile"] = {
+        **json.loads(Path("research/t34_pathb/RETENTION_PROFILE_V2.json").read_text())[
+            "load_policy"
+        ],
+        "max_contended_fraction": 0.02,
+    }
     monkeypatch.setattr(retention_v2, "_require_committed_pushed_registration", lambda *_args: None)
     monkeypatch.setattr(
         retention_v2,
         "HostGuard",
-        lambda _policy: SimpleNamespace(records=[], check=lambda **_kwargs: {"contended": False}),
+        lambda _policy, **_kwargs: SimpleNamespace(
+            records=[],
+            check=lambda **_kwargs: {"contended": False},
+            start=lambda: None,
+            between_rows=lambda **_kwargs: None,
+            summary=lambda **_kwargs: {},
+            close=lambda: None,
+        ),
     )
     out = tmp_path / "fresh"
     with pytest.raises(type(fault)):
