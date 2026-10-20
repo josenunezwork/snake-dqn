@@ -149,7 +149,7 @@ def make_manifest(
         script, job_id, estimate, cap = (
             f"{PACKAGE}/bench.sh",
             f"t34-exit-b8-a5-s{shard}-a{attempt}",
-            15,
+            30,
             1.0,
         )
         env = {
@@ -203,7 +203,7 @@ def make_manifest(
             "min_vcpu": 12,
             "est_minutes": estimate,
         },
-        "timeout_minutes": 360 if kind == "label" else 30,
+        "timeout_minutes": 360 if kind == "label" else 60,
         "output_dir": str(output_dir),
         "inputs": inputs,
         "budget": {"unit_cap": cap, "rate_units_per_hour": 2.0, "reserve_units": 0.0},

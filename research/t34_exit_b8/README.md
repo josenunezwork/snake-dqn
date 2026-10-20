@@ -153,7 +153,8 @@ existing assignments, current CLI acceptance, and the owner's approved two-unit 
 Lane three remains closed until two lanes complete one chunk cleanly. No allocation/job retries.
 
 Pin a full published commit containing this package. Each A5 lane is capped at one priced unit and
-30 minutes including setup/export; its workload bound is 1,500 seconds. Two lanes total two priced
+30 minutes including setup/export; its workload bound is 1,500 seconds. The estimate is 30 minutes and
+the transport timeout is 60 minutes (2× estimate); the one-unit cap wins at 30 priced minutes. Two lanes total two priced
 units at 2.0 units/hour. Each lane starts two teacher workers, each with five Numba threads and W256
 root capacity, CUDA fp32, all three mixes, L4-only hardware and a 600 s lease. The supervisor's first
 wall/unit cap always wins. A cold bootstrap that consumes the cap is incomplete, never permission to
