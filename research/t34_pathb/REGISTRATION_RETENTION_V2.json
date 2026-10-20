@@ -34,34 +34,33 @@
       "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
     }
   ],
-  "contended": false,
   "fresh_disjoint_banks": true,
   "horizon": 5000,
   "load_profile": {
-    "overlapping_project_compute": false,
-    "phase0_must_be_finished": true,
-    "quiet_ratified": false,
-    "record": [
-      "utc_timestamp",
-      "phase0_completion_evidence",
-      "load_average_1_5_15",
-      "thermal_telemetry",
-      "ac_power",
-      "open_lid",
-      "quiet_host_attestation"
+    "check_interval_seconds": 30,
+    "known_heavy_process_patterns": [
+      "phase0_selection",
+      "phase0-selection",
+      "phase0_runner",
+      "research/",
+      "research."
     ],
-    "runtime_condition": "operator verifies no competing project compute; AC, open lid and acceptable thermal telemetry"
+    "max_load_1m_excess": 3.0,
+    "other_process_cpu_percent": 50.0,
+    "other_process_cpu_sustained_seconds": 60,
+    "own_cpu_worker_allowance": 2,
+    "persistence_seconds": 120
   },
   "max_cpu_hours": 48.0,
   "max_elapsed_hours": 32.0,
   "operating_characteristic": {
     "path": "research/t34_pathb/RETENTION_OC_V2.json",
-    "sha256": "04eaaeca9673090501a622d74d37ecaba647b371e426c40910e45c2310f796ef"
+    "sha256": "ebe295826ef088397af73e0d55de46681760c9a8deaed8161a4dd94a1eb541ce"
   },
   "paced_fps": 24,
   "preregistration": {
     "path": "research/t34_pathb/PREREGISTRATION_RETENTION_V2.md",
-    "sha256": "38c99232ee47c83bebeb69b7d2f27b2ffba644356127f23b39a3fa3aca7b940f"
+    "sha256": "1a0889ea3084bd6396f43410d843d957cfa54e97bed7eb56384b74c63589da19"
   },
   "product_rows": [
     {
@@ -164,7 +163,7 @@
   "product_sessions": 16,
   "profile": {
     "path": "research/t34_pathb/RETENTION_PROFILE_V2.json",
-    "sha256": "ccb3805c766ab0684d314a5b08426e7e7663676bc36eda5de9e82590f4f50036"
+    "sha256": "90b3054d8480cccb904a7f957d007511ce45d53c32c4a88226ac222f38d05d8f"
   },
   "ratified": false,
   "schema": "t34-pathb-v2-registration/v1",
@@ -172,7 +171,7 @@
     "path": "research/t34_pathb/SEED_AUDIT_RETENTION_V2.json",
     "sha256": "0e380c61f83779d6ca4d6655ba2bca3f2f520c34a6cb84123e60650cba4843a2"
   },
-  "source_commit": "70230bff90c494797a405e267a4f9bc719ad4d8c",
+  "source_commit": "b5a2596c8b60caf52ed2ed9c3692aba4bff06bbb",
   "source_hashes": {
     "configs/default.yaml": "d3c254eced9023b1820100c29a55fa8559f86dac593ce7c34876c4a3c6c1b1a1",
     "configs/diag_arm_a.yaml": "42ce5e6e2571ccec1944f8e97b99b561f5fe98c480f2b2b3dcfed8b14a2bdf05",
@@ -588,7 +587,7 @@
     "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
     "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
     "research/t34_exit_b8/replay.py": "c64f219ae7ab5aa3d1b8358bfaaefbe23f195a6a07b94e07b8ab1636226f598c",
-    "research/t34_exit_b8/teacher_v2.py": "b6b343335ab726013403895eda0e9ac2fbb907a124c16a524f9a10a6fcb729a8",
+    "research/t34_exit_b8/teacher_v2.py": "db5f58add590dcf56146c1057e154231b96eac377a40d45bc4b5d8d7de0a9d7d",
     "research/t34_exit_b8/trajectory.py": "aeefbeec207bf4f1eab9fff277aa55bc4866fe872d73dc743b2db6fe10e8a2f3",
     "research/t34_exit_b8_fit/__init__.py": "bb453877105264f27c148dc447bec24e8027a88374632ca0be126aea566c1107",
     "research/t34_exit_b8_fit/cache.py": "7cf95893bd69c5b4ca08728a8d2fb64cb07b922fa54817d99bb8692aa11d331f",
@@ -614,18 +613,29 @@
     "research/t34_pathb/__init__.py": "492412914b3cd456dac0a834d2ab265f8ef0300f077b1d56a6334132779c6b2a",
     "research/t34_pathb/adapter_v2.py": "cc06c4011db7434cb58a25b4b07c4c90025d2b9fc1c5e6a8c85076d361d5a7a5",
     "research/t34_pathb/analyze.py": "0b30a09dac6f7f902de7a0adbbc8dc2a1b0556c56162f1854a857419107507d6",
-    "research/t34_pathb/analyze_v2.py": "bcd901d97122efce3672436935b6b6541c81c52d8dfd8eca91dbf40fa1769b34",
+    "research/t34_pathb/analyze_v2.py": "b04b55ae1f31663c24e3dfdb8e14866e6069cf825401193c4df1239c143c0018",
     "research/t34_pathb/bank.py": "5db154f09cdbc60b4648d259aafba4d21a4cca400af0916a0a3b77583d5198da",
     "research/t34_pathb/batch_v2.py": "907d0ce43810d7d75a689a174d763a12adab0455988e71b227d1661ece868f53",
     "research/t34_pathb/controller_v2.py": "f21368b9d48b3650c39325b5a4eaa4b0f4960ed6b3ce51ccc22fd5c9bb036c5a",
     "research/t34_pathb/engine_v2.py": "5bd326cefc18f4c39c61773ac1f06bab50b01dcaef7dc1ed17ed17df6d9982ef",
+    "research/t34_pathb/host_guard_v2.py": "5634bb5c9bf7f79dc5d29faff00c9461def61657813b3262b9177ab30d53eab1",
     "research/t34_pathb/live.py": "39e8c010198660cf7f73db618024550c0d7b3b08c9d6e5dd26a73da097244bce",
     "research/t34_pathb/precheck_v2.py": "277742640e81373c33bf2ef80886c85e017f5423f9d2bbc3baf2ab305971c53e",
-    "research/t34_pathb/registration_retention_v2.py": "559bbff1b623df566e6a661f6cb6110cb2bf1e449fe278e8038767d2d54c61b3",
-    "research/t34_pathb/retention_oc_v2.py": "a494c2ac83d8bd7c5f621addc2b9d63d258876e905ca88be2a1e9d3bbdaf3ad2",
-    "research/t34_pathb/retention_v2.py": "9c8a49abccd1fea97251c616771be863a0ea3abfd431b5a9e99cab0433c2d90c",
+    "research/t34_pathb/registration_retention_v2.py": "64a92964201e2ae03561b4b1a1a8b5d71fb91cfa532ee8fdaecf85a3edb1f4c0",
+    "research/t34_pathb/retention_oc_v2.py": "a67659926db37536d7ad35616206e004c5e8684ef7e72ddaa10284acbf033263",
+    "research/t34_pathb/retention_v2.py": "9b1f51c306fdf0af538f27900085224e21a424d3300ed21bbe83ecdb8ab5fc3c",
     "research/t34_pathb/run.py": "b447a31f54dd2f68dc38d52bc0fe65f0f04797c43dc5dd62872ee272fc468502",
-    "research/t34_pathb/timing_v2.py": "db8cf00c546cc226516d4fb077b35e9e4ca77dfbf292ae6cfc8979ae7b621a4c",
+    "research/t34_pathb/timing_v2.py": "37febda15cccb8b2a774b5ab34318d688c302c54f64462c9ca32608c4eb4b41b",
+    "research/t34_round0/__init__.py": "b306000a7ac6a0c9a81816f0b75d770d5ea61d7b8a69b18390a691f64afae9da",
+    "research/t34_round0/analyze.py": "f482a96a545eab166158dc99cf11e8e9f9d648c382295df051b44988b638a0f4",
+    "research/t34_round0/bank.py": "05a75e9289aa129147e74ec663bbfe5acecb9e813a8004956d35875942ba2428",
+    "research/t34_round0/common.py": "2f7cd0a82ec0744303968cb8c037871452a510876102af1dabeeac6192d7b048",
+    "research/t34_round0/make_manifest.py": "5f1487c701301dacf4bf829f4b3c9430efaca3ffb8a5e8d83352a389ebefb36b",
+    "research/t34_round0/oc.py": "84da8f5307fcbb206bd52f37cb82037954a212d89d01bd5542dae56b3fbf8835",
+    "research/t34_round0/registration.py": "2e72fee6e23428517a3a6f65fab3cbc5a2d26a4f04ed16cac9101ec2d415a8d6",
+    "research/t34_round0/replay.py": "311317a26a64dbe57a7c9e5d3c2ece3ccf23ceda002a032a3e3b10c4cd5208d9",
+    "research/t34_round0/runner.py": "a113e3185184765a4a979a413d33f3b14011ee874ae6eb43336f54afc202b6ca",
+    "research/t34_round0/validate.py": "80ee8a07865607826a32a506b3ec5204f24a6a65e3eb2e183d84ed1f4572c424",
     "research/t34_shadow/__init__.py": "0d3874720d9057ea8c6a6ddb87ddb82d1c9755e2978f37b88c0330dcdc80c051",
     "research/t34_shadow/bank_measure.py": "94067c9bbfafcfe9f5dcc4df036aede2298260244bd527710339ff9c63dad7e7",
     "research/t34_shadow/common.py": "e9116f3552554e797228b6d5dfc3fab90e3e1a54ca2995d729655507bf49994b",
