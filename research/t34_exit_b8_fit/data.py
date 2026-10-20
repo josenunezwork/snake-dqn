@@ -14,7 +14,7 @@ from typing import Any, Iterator, Mapping, Sequence
 import numpy as np
 import torch
 
-from .interface import ReplaySource, ReplayWorld, validate_row
+from .interface import ReplaySource, ReplayWorld, normalize_row, validate_row
 
 
 @dataclass(frozen=True)
@@ -131,6 +131,10 @@ def _stack(rows: Sequence[Mapping[str, Any]]) -> dict[str, np.ndarray]:
     result["length"] = np.asarray([row["length"] for row in rows], dtype=np.int64)
     result["decisive"] = np.asarray([row["decisive"] for row in rows], dtype=bool)
     result["sample_weight"] = np.asarray([row["_sample_weight"] for row in rows], dtype=np.float32)
+    if any("kl_anchor_only" in row for row in rows):
+        result["kl_anchor_only"] = np.asarray(
+            [row.get("kl_anchor_only", False) for row in rows], dtype=bool
+        )
     if all("full_sight" in row for row in rows):
         result["full_sight"] = np.stack([np.asarray(row["full_sight"]) for row in rows])
     elif any("full_sight" in row for row in rows):
@@ -174,12 +178,11 @@ class StreamingReplayLoader:
                 worlds_dropped += 1
                 chunks[chunk][1] += 1
                 continue
-            for row in world.rows:
+            rows = [normalize_row(row) for row in world.rows]
+            for row in rows:
                 validate_row(row)
-            rows_seen += len(world.rows)
-            selected = (
-                sampler.select(world.rows) if sampler else select_training_rows(world.rows, rng)
-            )
+            rows_seen += len(rows)
+            selected = sampler.select(rows) if sampler else select_training_rows(rows, rng)
             buffered.extend(selected)
             while len(buffered) >= self.batch_size:
                 selection = buffered[: self.batch_size]
@@ -227,3 +230,39 @@ def to_device(batch: Mapping[str, np.ndarray], device: torch.device) -> dict[str
         key: torch.from_numpy(np.ascontiguousarray(value)).to(device)
         for key, value in batch.items()
     }
+
+
+def device_batches(
+    batches: Iterator[dict[str, np.ndarray]], device: torch.device, *, prefetch: bool = True
+) -> Iterator[dict[str, torch.Tensor]]:
+    """Stage one CUDA batch ahead in pinned memory, without worker processes.
+
+    At most the current and next batch are resident. CPU uses the original
+    conversion path. No dtype casts, RNG draws, or sample reordering occur.
+    """
+    if device.type != "cuda" or not prefetch:
+        for batch in batches:
+            yield to_device(batch, device)
+        return
+    stream = torch.cuda.Stream(device=device)
+
+    def stage(raw: Mapping[str, np.ndarray]) -> dict[str, torch.Tensor]:
+        with torch.cuda.stream(stream):
+            return {
+                key: torch.from_numpy(np.ascontiguousarray(value))
+                .pin_memory()
+                .to(device, non_blocking=True)
+                for key, value in raw.items()
+            }
+
+    raw = next(batches, None)
+    pending = stage(raw) if raw is not None else None
+    while pending is not None:
+        current = torch.cuda.current_stream(device)
+        current.wait_stream(stream)
+        batch = pending
+        for tensor in batch.values():
+            tensor.record_stream(current)
+        raw = next(batches, None)
+        pending = stage(raw) if raw is not None else None
+        yield batch

@@ -78,6 +78,64 @@ class BatchModel(Protocol):
         """Return raw Q values with shape ``(N, 6)``."""
 
 
+def normalize_row(row: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Adapt explicit v2 replay labels; leave the v1 recipe byte-for-byte unchanged.
+
+    The shadow measurement helper calls its *surviving* alternatives ``F``.
+    Never feed that set to the forbidden-action hinge. For its LAD diagnostics,
+    derive forbidden actions from tested per-action outcomes instead. A producer
+    may supply an explicit forbidden_mask, whose semantics are unambiguous.
+    This boundary consumes replayed observations, not unverified world exports.
+    """
+    kind = row.get("label_kind")
+    if kind is None:
+        return row
+    if kind not in {"shadow_confirm", "lad", "transition"}:
+        raise ValueError(f"unknown v2 label_kind: {kind}")
+    result = dict(row)
+    if kind == "shadow_confirm":
+        result.update(
+            searched=False,
+            death_window=False,
+            decisive=False,
+            kl_anchor_only=True,
+            action_star=int(np.asarray(row["q_prev"]).argmax()),
+            forbidden_mask=np.zeros(6, dtype=bool),
+        )
+        return result
+    if "t_star" not in row or "a_star" not in row or "F" not in row:
+        raise ValueError("v2 LAD/transition labels require t_star, a_star, F")
+    if type(row["t_star"]) is not int or row["t_star"] < 0:
+        raise ValueError("v2 t_star must be a nonnegative decision index")
+    if "decision" in row and row["decision"] != row["t_star"]:
+        raise ValueError("v2 label must be attached to its replayed t_star decision")
+    action = row["a_star"]
+    if type(action) is not int or not 0 <= action < 6:
+        raise ValueError("v2 a_star must be an action in [0, 5]")
+    if "forbidden_mask" not in row:
+        outcomes = row.get("per_action")
+        if not isinstance(outcomes, Mapping) or str(action) not in outcomes:
+            raise ValueError("v2 F is ambiguous: supply forbidden_mask or per_action outcomes")
+        if not outcomes[str(action)].get("survives", outcomes[str(action)].get("survive")):
+            raise ValueError("v2 a_star must survive when deriving forbidden actions")
+        result["forbidden_mask"] = np.asarray(
+            [
+                str(a) in outcomes
+                and not bool(outcomes[str(a)].get("survives", outcomes[str(a)].get("survive")))
+                for a in range(6)
+            ],
+            dtype=bool,
+        )
+    result.update(
+        action_star=action,
+        searched=True,
+        death_window=True,
+        decisive=True,
+        kl_anchor_only=False,
+    )
+    return result
+
+
 def validate_row(row: Mapping[str, Any]) -> None:
     """Reject an incomplete export row before it can influence a fit."""
     missing = REQUIRED_ROW_FIELDS.difference(row)

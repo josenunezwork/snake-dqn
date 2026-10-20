@@ -51,6 +51,10 @@ def exit_fit_loss(
     adv_each = F.mse_loss(
         q - q.mean(1, keepdim=True), previous - previous.mean(1, keepdim=True), reduction="none"
     ).mean(1)
+    if "kl_anchor_only" in batch:
+        anchor = batch["kl_anchor_only"].bool()
+        hinge_each = hinge_each.masked_fill(anchor, 0.0)
+        adv_each = adv_each.masked_fill(anchor, 0.0)
     # Divide by a fixed row count, never sum(weight): normalising the latter
     # would erase the mandated 1.0-vs-0.5 DAgger age and death-window mass.
     denom = torch.as_tensor(float(q.shape[0]), device=q.device, dtype=q.dtype)
