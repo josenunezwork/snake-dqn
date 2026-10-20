@@ -95,3 +95,24 @@ describe("mixed Watch veto counters", () => {
     expect(screen.queryByText(/opponents v8/i)).not.toBeInTheDocument();
   });
 });
+
+describe("Path B assisted-hero identity", () => {
+  it("shows the literal assisted label while the enabled controller falls back", () => {
+    const assisted = frame();
+    assisted.session.pathb = {
+      active: true,
+      label: "Path B advisory controller enabled",
+      counts: { applied: 0, fallback: 4, deadline_miss: 4, stale_discarded: 0 },
+      last: { proposed_action: 1, executed_action: 1, fallback_reason: "deadline_miss" },
+    };
+    socket.mockReturnValue({ frame: assisted, connected: true, link: "live", history: [], send: vi.fn() });
+    render(<App />);
+    expect(screen.getByText("assisted hero")).toBeInTheDocument();
+  });
+
+  it("hides the assisted label when the flag is off or absent", () => {
+    socket.mockReturnValue({ frame: frame(), connected: true, link: "live", history: [], send: vi.fn() });
+    render(<App />);
+    expect(screen.queryByText("assisted hero")).not.toBeInTheDocument();
+  });
+});

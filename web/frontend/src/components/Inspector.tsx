@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { InspectorDTO, StateGroup } from "../types";
+import type { InspectorDTO, PathBState, StateGroup } from "../types";
 import SectorRadar from "./SectorRadar";
 import SteeringWheel from "./SteeringWheel";
 import DecisionTrace from "./DecisionTrace";
@@ -41,9 +41,24 @@ interface Props {
   // Part of the DecisionTrace reset key so loading a different checkpoint of
   // the same obs spec clears the trace instead of splicing two models' histories.
   checkpointName?: string | null;
+  // Present only for an enabled Path B Watch controller. The controller can
+  // fall back on every request and still remains an assisted hero by identity.
+  pathb?: PathBState | null;
 }
 
-function Inspector({ inspector, tick = 0, heroId = 0, checkpointName = null }: Props) {
+function actionName(action: number | null | undefined, labels: string[]): string {
+  return typeof action === "number" && action >= 0 && action < labels.length
+    ? labels[action]
+    : "—";
+}
+
+function Inspector({
+  inspector,
+  tick = 0,
+  heroId = 0,
+  checkpointName = null,
+  pathb = null,
+}: Props) {
   if (!inspector) {
     return (
       <div className="panel">
@@ -71,6 +86,8 @@ function Inspector({ inspector, tick = 0, heroId = 0, checkpointName = null }: P
       ? executedRaw
       : chosen;
   const greedyDiffers = acted !== chosen;
+  const pathbLast = pathb?.last ?? null;
+  const pathbCounts = pathb?.counts ?? {};
 
   const foodGroup = groups.find((g) => isSectorGroup(g) && g.name.toLowerCase().includes("food"));
   const dangerGroup = groups.find((g) => isSectorGroup(g) && g.name.toLowerCase().includes("danger"));
@@ -80,6 +97,26 @@ function Inspector({ inspector, tick = 0, heroId = 0, checkpointName = null }: P
   return (
     <div className="panel">
       <div className="panel-intro">The AI's decision right now — what it sees and how it moves.</div>
+
+      {pathb?.active === true && (
+        <div className="card" aria-label="Assisted hero status">
+          <div className="section-title">assisted hero</div>
+          <div className="muted" style={{ fontSize: 11, lineHeight: 1.6 }}>
+            Interventions {pathbCounts.applied ?? 0} · fallbacks {pathbCounts.fallback ?? 0}
+            {" · "}deadline misses {pathbCounts.deadline_miss ?? 0}
+            {" · "}stale discarded {pathbCounts.stale_discarded ?? 0}
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            Proposed action: <span className="mono">{actionName(pathbLast?.proposed_action, action_labels)}</span>
+            {" · "}executed action: <span className="mono">{actionName(pathbLast?.executed_action, action_labels)}</span>
+            {pathbLast?.fallback_reason ? (
+              <>
+                {" · "}fallback: <span className="mono">{pathbLast.fallback_reason}</span>
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div className="section-title">
