@@ -64,9 +64,9 @@ def main() -> int:
     with torch.inference_mode():
         for start in range(0, args.states, args.batch):
             stop = min(start + args.batch, args.states)
-            loc = torch.from_numpy(np.ascontiguousarray(local[start:stop]))
-            glo = torch.from_numpy(np.ascontiguousarray(glob[start:stop]))
-            sca = torch.from_numpy(np.ascontiguousarray(scalars[start:stop]))
+            loc = torch.from_numpy(np.array(local[start:stop], copy=True))
+            glo = torch.from_numpy(np.array(glob[start:stop], copy=True))
+            sca = torch.from_numpy(np.array(scalars[start:stop], copy=True))
             # Eval's zero-fuse branch cannot consume the tower input. Allocate only
             # this batch nevertheless so the exact callable contract is exercised.
             sight = torch.zeros((stop - start, *FULL_SIGHT_SHAPE), dtype=torch.uint8)

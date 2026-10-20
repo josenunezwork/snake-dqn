@@ -4,47 +4,151 @@ Implements P4, P5 and the fit-only P6 entrypoint from
 [`2026-10-19_exit_fit_prep.md`](../../docs/research/specs/2026-10-19_exit_fit_prep.md),
 following the binding
 [`FINAL_PLAN.md`](../../docs/research/final_run_20261019/FINAL_PLAN.md).
+The [input addendum](../../docs/research/specs/2026-10-19_exit_inputs_addendum.md)
+supersedes the original checkpoint-publication blocker: B8 and the league are
+already in the `s1-inputs-20261019` public release. No new release is needed.
 
-This package prepares S1b (B8 architecture, primary) and S1a (full-arena tower).
-The owner runs the full T3 sweep. Preparation does not authorize training rounds,
-Colab allocation, promotion, or release. No TD loss is used.
+S1b (unchanged B8 architecture, no auxiliary head) is primary. S1a adds the
+full-arena tower. No TD term is used. Preparation authorizes no production
+training round, allocation, promotion, or serving release.
 
-## Boundaries and dependencies
+## Fit and replay contract
 
-- The sibling `research/t34_exit_b8/` package owns teacher exports and replay
-  regeneration. This fit package owns its adapter boundary and local fake. The
-  fake establishes interface and training-loop behavior; it does not establish
-  real teacher replay identity or the production survival probes.
-- Production observations must be regenerated from all six action traces each
-  epoch. Verify each world's recorded hashes before using its rows, drop and
-  report divergent worlds, and stop if a chunk's drop fraction exceeds 2%.
-- Selection uses held-out decisive agreement and a preregistered 32-world
-  survival probe. Behavior tripwires use full H5000 trajectories across all
-  length deciles. Gate worlds must never enter fit or selection data.
-- The architecture and live adapter are research code. The released B8 default,
-  serving pins, checkpoints, and rollback configuration are not altered.
-- Public input URLs, hashes, the production regenerator and probe binding are
-  required before a production fit manifest can be admitted.
+`interface.py` is the fit-owned boundary. The sibling `research/t34_exit_b8/`
+package owns the teacher exports and replay regenerator; this package never
+modifies it. A production factory supplies `replay_epoch(epoch)` and
+`replay_heldout(epoch)` streams of `ReplayWorld` objects. Observations are
+regenerated each epoch. A whole world must be verified before its rows are
+exposed, with matching expected/actual SHA-256 proof, a `chunk_id`, and rows
+containing:
 
-## Local operating limits
+- `local` uint8 `(7,31,31)`, `global` uint8 `(4,37,37)`, `scalars` float `(60,)`;
+- `q_prev` from the previous frozen student, `action_star`, six-action
+  `forbidden_mask`, `searched`, `decisive`, `round_age`, `length`, `world_id`;
+- `death_window` and explicit `death_window_id` for window rows;
+- optional `full_sight` uint8 `(4,88,152)` for S1a;
+- optional `hindsight_log_free_region` and its boolean
+  `hindsight_log_free_region_mask` together for auxiliary supervision.
 
-All preparation checks run on the Mac with at most two math threads, using the
-existing primary checkout's Python environment. Run compute checks sequentially.
-Do not start or alter tmux, Phase 0, S1, Colab sessions, pods, or paid services.
-The future supervised L4 runtime must explicitly use CUDA.
+Export provenance must bind all six snakes' action traces, RNG stream IDs and
+periodic sim hashes as specified in FINAL_PLAN §5. The engine must reject a
+world's replay before yielding any observation if a recorded hash diverges.
+The fit loader drops/reports failed worlds and kills a chunk above 2% drops.
+It retains only a world and bounded minibatches, never the full observation bank.
 
-Exact operator commands and measured acceptance results are recorded below once
-the integrated preparation checks finish.
+Keep all searched rows plus an equal number of unsearched on-policy rows. A
+world with insufficient unsearched rows is refused. Current-round weights are
+1.0 and older weights 0.5. Every death window has total weight 10 (5 for older
+rounds), including its internal decisive/nondecisive ratio of 20:1. Compute
+weights before minibatching. The weighted loss divides by row count so batches
+of older rows retain their half weight.
+
+Loss is KL(previous || student) at tau 0.05, forbidden-action hinge at margin
+0.1 (empty set contributes zero), plus 0.01 advantage MSE. KL uses centered
+log-partition arithmetic to preserve an exact zero gradient at identical Q;
+tests compare its value and gradient to an independent float64 oracle. This
+prevents Adam from amplifying float32 self-distillation roundoff.
+
+Adam uses 2.5e-5 for pretrained weights and 1e-4 for new tower/head weights.
+Defaults are batch 1024 and five epochs; production accepts four to six epochs.
+Epoch selection ranks held-out decisive agreement, then 32-world probe survival,
+then earlier epoch. This rule must be bound in the production preregistration
+before fitting. The probe hook must supply unique, complete H5000 development
+worlds, previous/current actions and lengths, and no gate data. It runs the
+all-length decile, one-action-share, boost-share and decisive-agreement
+tripwires from FINAL_PLAN §8. A local fake establishes wiring only; its synthetic
+probe fields carry no scientific or promotion claim.
+
+## Tower and serving boundary
+
+`network.py` owns arch `exit-fit-tower/1`. Its 4-plane, 152-wide × 88-high tower
+has stride-2 3×3 convs 16→32→64→64 and a 256-dimensional embedding. Zero fusion
+weights preserve B8's original GEMM and Q bytes while still allowing training
+of the new fusion weights. Candidate exports strip the hindsight head.
+
+`LiveFullSight` feeds the same plane painter through the independent live
+`EgoGridView` producer. `serving.py` provides an explicitly constructed candidate
+policy (`ExitFitTowerServingPolicy`), with frame preparation, action dispatch,
+rowwise evaluation and Q inspection. It does not register a served default.
+The production B8 loader continues refusing this new arch; use the research
+loader for a tower candidate. Candidate serving qualification remains separate.
+
+## Exact local commands
+
+Run compute checks sequentially. All preparation checks use the existing Mac
+venv, at most two CPU threads, and no tmux, Phase 0/S1 manipulation, Colab,
+pods, dispatch or paid services. Future L4 launches explicitly require CUDA.
+
+```bash
+cd /Users/josenunez/Projects/ml/snake-dqn-exit-fit
+PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+B8=/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth
+T3=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/bank-00000.npz
+mkdir -p /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019
+OUT=$(mktemp -d /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.XXXXXX)
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu
+```
+
+Prepare 10,000 **existing actual T3 observation states** for A3 and A4 without
+new gameplay. The converter records the original shard and output hashes.
+
+```bash
+"$PY" -m research.t34_exit_b8_fit.prepare_a3_rows \
+  --source "$T3" --out "$OUT/a3-rows" --states 10000 --batch 64
+"$PY" -m research.t34_exit_b8_fit.check_a3 \
+  --b8 "$B8" --rows "$OUT/a3-rows" --states 10000 --batch 64 --out "$OUT/a3.json"
+"$PY" -m research.t34_exit_b8_fit.check_a4 \
+  --checkpoint "$B8" --rows "$OUT/a3-rows" --states 1024 --batch 32 \
+  --updates 20 --out "$OUT/a4.json"
+```
+
+A3's actual-state check establishes initialization Q identity. It does not
+establish full-sight parity on the future P2 bank; the paired live/sim tests are
+separate below. A4 executes genuine optimizer updates and compares the fitted
+network with the frozen B8 initializer (tolerance 1e-5).
+
+Run the required **tiny** sweep smoke (nine actual fits, one update per pair):
+
+```bash
+"$PY" -m research.t34_exit_b8_fit.sweep --checkpoint "$B8" --bank "$T3" \
+  --max-rows 32 --updates 1 --batch 4 --out "$OUT/sweep-smoke.json"
+```
+
+The **owner-run full sweep**, deliberately not run during prep:
+
+```bash
+"$PY" -m research.t34_exit_b8_fit.sweep --checkpoint "$B8" --bank "$T3" \
+  --epochs 5 --batch 1024 --device cpu --out "$OUT/sweep-full.json"
+```
+
+The grid is tau `{0.02,0.05,0.1}` × margin `{0.05,0.1,0.25}`. Every cell resets
+B8 and computes actual all-length disagreement, per-decile disagreement and
+boost share, with additional advisory-masked diagnostics. It streams raw or
+losslessly packed T3 NPZ rows. This legacy sensitivity sweep uses uniform T3
+rows and surviving-set labels; it does not replace the production DAgger
+weighting, complete H5000 tripwire probe, or preregistered epoch selection.
+
+Paired live/sim byte identity and focused tests:
+
+```bash
+"$PY" -m pytest -q tests/test_t34_exit_tower.py tests/test_t34_exit_fit.py \
+  tests/test_t34_exit_tools.py tests/test_t34_exit_jobs.py
+```
+
+The exact fit-entrypoint and manifest commands, adapter binding example and
+measured acceptance table follow after integration verification.
 
 ## Acceptance status
 
-| Check | Current status |
+| Check | Status / evidence |
 | --- | --- |
-| P4 harness and A4 preservation | Implementation in progress |
-| T3 3x3 tau/margin sweep tool and tiny smoke | Implementation in progress; full sweep reserved for owner |
-| P5 tower and A3 10,000-state zero-init identity | Implementation in progress |
-| Independent live/sim full-sight bytes | Implementation in progress |
-| A6 fit entrypoint, two worlds / 200 updates | Implementation in progress |
-| Production replay and survival-probe integration | Depends on sibling engine and preregistered probe |
-| Public-release input publication | Owner dependency; URLs unavailable at start |
-| Live L4 execution, cross-runtime A2, gate and release | Outside this preparation task |
+| A3 zero-init identity | PASS: 10,000 existing T3 states, max Q delta 0 |
+| A4 actual no-tower self-distillation | PASS: 1,024 actual states, 20 Adam updates, max Q drift 0, no argmax changes |
+| T3 grid smoke | PASS: nine actual fits on 32 saved rows, one update each; full sweep reserved for owner |
+| P5 independent live/sim byte tests | Focused tests passed; integrated rerun pending |
+| P4 core and fit artifact integration | Final verification pending |
+| A6 two-world / 200-update shared entrypoint | Final verification pending; fake engine is wiring evidence only |
+| Checkpoint input delivery | Existing public B8/league release; no new publication |
+| Production replay/probe integration | Depends on sibling engine export/factories and preregistered probe |
+| P2-bank planes, A2, real L4 run, gate, release | Outside this prep run; not claimed |

@@ -81,6 +81,9 @@ class ExitFitTowerNet(nn.Module):
         self.tower_fuse = nn.Linear(256, 256, bias=False)
         nn.init.zeros_(self.tower_fuse.weight)
         self.free_region_head: nn.Linear | None = nn.Linear(256, 1) if aux_head else None
+        self.new_parameter_names = tuple(
+            name for name, _ in self.named_parameters() if not name.startswith("base.")
+        )
 
     @classmethod
     def from_b8_checkpoint(cls, path: str, device: str | torch.device = "cpu") -> "ExitFitTowerNet":
@@ -194,6 +197,7 @@ def load_exit_fit_tower_checkpoint(
     stripped = bool(blob.get("aux_heads_stripped", False))
     net = ExitFitTowerNet(Ego2sNet(local_channels=7, n_scalars=60), aux_head=not stripped)
     net.load_state_dict(blob["state_dict"], strict=True)
+    net.new_parameter_names = ()
     return net.to(device).eval()
 
 

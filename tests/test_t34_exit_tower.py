@@ -9,6 +9,8 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
+from research.t34_exit_b8_fit import serving as tower_serving
+from research.t34_exit_b8_fit.check_a3 import _checked_delta
 from research.t34_exit_b8_fit.full_sight import LiveFullSight, full_sight_from_ego_view
 from research.t34_exit_b8_fit.network import (
     ARCH,
@@ -16,9 +18,7 @@ from research.t34_exit_b8_fit.network import (
     load_exit_fit_tower_checkpoint,
     save_exit_fit_tower_checkpoint,
 )
-from research.t34_exit_b8_fit.check_a3 import _checked_delta
 from research.t34_exit_b8_fit.serving import ExitFitTowerServingPolicy
-from research.t34_exit_b8_fit import serving as tower_serving
 from src.core.game_config import get_config, initialize_config
 from src.model.ego2s_network import Ego2sNet
 from src.simd_env.grid_sim import GridBatchSim
@@ -137,7 +137,9 @@ def test_opt_in_serving_policy_consumes_direct_selection_dispatch(tmp_path) -> N
     assert policy.select_action(None) == 0
 
 
-def test_opt_in_serving_policy_builds_and_dispatches_a_live_style_frame(tmp_path, monkeypatch) -> None:
+def test_opt_in_serving_policy_builds_and_dispatches_a_live_style_frame(
+    tmp_path, monkeypatch
+) -> None:
     """Exercise the policy's live-frame contract without opening a web server."""
     torch.set_num_threads(1)
     path = tmp_path / "candidate.pth"
@@ -159,7 +161,9 @@ def test_opt_in_serving_policy_builds_and_dispatches_a_live_style_frame(tmp_path
         "full_sight_from_ego_view",
         lambda *args, **kwargs: SimpleNamespace(planes=np.zeros((2, 4, 88, 152), dtype=np.uint8)),
     )
-    monkeypatch.setattr("src.simd_env.ego_live_bv8.game_state_to_v8_source", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        "src.simd_env.ego_live_bv8.game_state_to_v8_source", lambda *args, **kwargs: object()
+    )
     policy.attach_game(game)
     policy.prepare_frame()
     first, second = policy.q_for(71), policy.q_for(72)

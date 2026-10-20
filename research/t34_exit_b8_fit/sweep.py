@@ -51,9 +51,10 @@ def open_t3_shard(path: Path) -> Iterator[dict[str, np.ndarray]]:
             observation = ("packed",) if "packed.npy" in available else ("local", "global")
             keys = (*observation, "scalars", "mask", "surviving", "length")
             for key in keys:
-                with archive.open(key + ".npy") as reader, (root / (key + ".npy")).open(
-                    "xb"
-                ) as writer:
+                with (
+                    archive.open(key + ".npy") as reader,
+                    (root / (key + ".npy")).open("xb") as writer,
+                ):
                     shutil.copyfileobj(reader, writer, length=1024 * 1024)
         arrays = {key: np.load(root / (key + ".npy"), mmap_mode="r") for key in keys}
         if len({len(value) for value in arrays.values()}) != 1:
@@ -104,8 +105,12 @@ def fit_pair(
             batch = {key: value.to(device) for key, value in t3_batch(arrays, picked).items()}
             with torch.no_grad():
                 anchor = previous(batch["local"], batch["global"], batch["scalars"])
-            surviving = torch.as_tensor(np.array(arrays["surviving"][picked], copy=True), device=device).bool()
-            legal = torch.as_tensor(np.array(arrays["mask"][picked], copy=True), device=device).bool()
+            surviving = torch.as_tensor(
+                np.array(arrays["surviving"][picked], copy=True), device=device
+            ).bool()
+            legal = torch.as_tensor(
+                np.array(arrays["mask"][picked], copy=True), device=device
+            ).bool()
             if not surviving.any(1).all() or (surviving & ~legal).any():
                 raise ValueError("T3 surviving sets must be nonempty and advisory-legal")
             target = anchor.masked_fill(~surviving, -torch.inf).argmax(1)
@@ -137,7 +142,9 @@ def fit_pair(
             student = model(batch["local"], batch["global"], batch["scalars"])
             if not torch.isfinite(student).all() or not torch.isfinite(anchor).all():
                 raise ValueError("non-finite sweep diagnostic Q values")
-            legal = torch.as_tensor(np.array(arrays["mask"][picked], copy=True), device=device).bool()
+            legal = torch.as_tensor(
+                np.array(arrays["mask"][picked], copy=True), device=device
+            ).bool()
             if not legal.any(1).all():
                 raise ValueError("T3 diagnostic row lacks advisory-legal actions")
             old.extend(anchor.argmax(1).cpu().tolist())
@@ -153,7 +160,9 @@ def fit_pair(
         "optimizer_updates": updates,
         "elapsed_seconds": time.perf_counter() - started,
         "all_length_disagreement": float(np.mean(np.asarray(old) != np.asarray(new))),
-        "advisory_masked_disagreement": float(np.mean(np.asarray(old_masked) != np.asarray(new_masked))),
+        "advisory_masked_disagreement": float(
+            np.mean(np.asarray(old_masked) != np.asarray(new_masked))
+        ),
         "advisory_masked_boost_share": float(np.mean(np.asarray(new_masked) >= 3)),
         **diagnostics,
     }
@@ -167,28 +176,42 @@ def main() -> int:
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch", type=int, default=1024)
     parser.add_argument("--max-rows", type=int, default=None, help="tiny smoke prefix only")
-    parser.add_argument("--updates", type=int, default=None, help="tiny smoke updates per grid cell")
+    parser.add_argument(
+        "--updates", type=int, default=None, help="tiny smoke updates per grid cell"
+    )
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--seed", type=int, default=20261019)
     args = parser.parse_args()
     if not 4 <= args.epochs <= 6 or args.batch < 1:
         parser.error("epochs must be 4..6 and batch positive")
-    if (args.updates is not None and args.updates < 1) or (args.max_rows is not None and args.max_rows < 10):
+    if (args.updates is not None and args.updates < 1) or (
+        args.max_rows is not None and args.max_rows < 10
+    ):
         parser.error("updates positive; max-rows >=10")
     from src.model.ego2s_network import load_ego2s_checkpoint
 
     torch.set_num_threads(1)
     previous = load_ego2s_checkpoint(str(args.checkpoint), args.device).eval()
     with open_t3_shard(args.bank) as arrays:
-        result = run_sweep(lambda config: fit_pair(
-            previous, arrays, config, epochs=args.epochs, batch_size=args.batch,
-            max_rows=args.max_rows, max_updates=args.updates, seed=args.seed,
-        ))
+        result = run_sweep(
+            lambda config: fit_pair(
+                previous,
+                arrays,
+                config,
+                epochs=args.epochs,
+                batch_size=args.batch,
+                max_rows=args.max_rows,
+                max_updates=args.updates,
+                seed=args.seed,
+            )
+        )
     report = {
         "schema": "exit-fit-t3-sweep/v2",
         "smoke_only": args.max_rows is not None or args.updates is not None,
         "scope": "All lengths in saved T3 rows; not the full H5000 tripwire probe",
-        "weighting": "Uniform legacy T3 rows; P4 DAgger/death-window weights belong to the export loader",
+        "weighting": (
+            "Uniform legacy T3 rows; P4 DAgger/death-window weights belong to the export loader"
+        ),
         "bank_sha256": sha256(args.bank),
         "checkpoint_sha256": sha256(args.checkpoint),
         "epochs_requested": args.epochs,
@@ -198,7 +221,9 @@ def main() -> int:
     with args.out.open("x") as stream:
         json.dump(report, stream, indent=2, allow_nan=False)
         stream.write("\n")
-    print(json.dumps({"out": str(args.out), "cells": len(result), "smoke_only": report["smoke_only"]}))
+    print(
+        json.dumps({"out": str(args.out), "cells": len(result), "smoke_only": report["smoke_only"]})
+    )
     return 0
 
 

@@ -35,14 +35,15 @@ def prepare(source: Path, output: Path, states: int = 10_000, batch: int = 64) -
         temp = Path(temporary)
         with zipfile.ZipFile(source) as archive:
             names = set(archive.namelist())
-            keys = ("packed", "scalars") if "packed.npy" in names else (
-                "local", "global", "scalars"
+            keys = (
+                ("packed", "scalars") if "packed.npy" in names else ("local", "global", "scalars")
             )
             for key in keys:
                 # Exact named members only; never extract archive paths.
-                with archive.open(key + ".npy") as reader, (temp / (key + ".npy")).open(
-                    "xb"
-                ) as writer:
+                with (
+                    archive.open(key + ".npy") as reader,
+                    (temp / (key + ".npy")).open("xb") as writer,
+                ):
                     shutil.copyfileobj(reader, writer, length=1024 * 1024)
         arrays = {key: np.load(temp / (key + ".npy"), mmap_mode="r") for key in keys}
         if any(len(array) < states for array in arrays.values()):
