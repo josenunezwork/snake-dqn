@@ -112,6 +112,33 @@ def test_validator_guards_the_live_pre_action_world() -> None:
     assert report["fallback_reason"] == "world_mismatch"
 
 
+def test_validator_cannot_consume_past_the_absolute_deadline() -> None:
+    clock, executor = Clock(), Executor()
+    executor.future.value = result(completed=100.1)
+    subject = controller(clock, executor)
+    subject.submit(b"x", (1,), 101)
+
+    def slow_validator(_: dict) -> bool:
+        clock.value = 101
+        return True
+
+    action, report = subject.poll((1,), 1, [True, True, True], validate=slow_validator)
+    assert action == 1
+    assert report["deadline_miss"]
+    assert report["fallback_reason"] == "deadline_miss"
+
+
+def test_completed_timeout_is_a_deadline_miss_not_a_worker_error() -> None:
+    clock, executor = Clock(102), Executor()
+    executor.future.error = TimeoutError("deadline")
+    subject = controller(clock, executor)
+    subject.submit(b"x", (1,), 101)
+    action, report = subject.poll((1,), 1, [True, True])
+    assert action == 1
+    assert report["deadline_miss"]
+    assert report["fallback_reason"] == "deadline_miss"
+
+
 def test_invalid_worker_response_and_close_are_safe_and_nonblocking() -> None:
     clock, executor = Clock(), Executor()
     executor.future.value = result(action=8)
@@ -121,6 +148,8 @@ def test_invalid_worker_response_and_close_are_safe_and_nonblocking() -> None:
     assert action == 1 and report["fallback_reason"] == "invalid_action"
     subject.close()
     assert executor.shutdown_calls == [(False, True)]
+    subject.close(wait=True)
+    assert executor.shutdown_calls == [(False, True), (True, False)]
     subject.close(wait=True)
     assert executor.shutdown_calls == [(False, True), (True, False)]
     assert not subject.submit(b"x", (1,), 101)

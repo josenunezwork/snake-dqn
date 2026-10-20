@@ -156,6 +156,9 @@ class DeadlineController:
         try:
             result = future.result()
         except Exception:
+            if self._clock() >= deadline:  # type: ignore[operator]
+                report["deadline_miss"] = True
+                return self._finish(bare, report, "deadline_miss")
             return self._finish(bare, report, "worker_error")
         if not isinstance(result, dict) or _encoded_size(result) > MAX_RESPONSE_BYTES:
             return self._finish(bare, report, "malformed_response")
@@ -186,6 +189,11 @@ class DeadlineController:
             if not valid_world:
                 report["stale_discarded"] = True
                 return self._finish(bare, report, "world_mismatch")
+        # A validator may hash a substantial live snapshot.  Consumption is
+        # still forbidden if that validation itself reaches the absolute limit.
+        if self._clock() >= deadline:  # type: ignore[operator]
+            report["deadline_miss"] = True
+            return self._finish(bare, report, "deadline_miss")
         if not self._legal_action(proposed, mask):
             return self._finish(bare, report, "invalid_action")
         report["accepted"] = True
