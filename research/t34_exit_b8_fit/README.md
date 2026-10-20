@@ -1,5 +1,102 @@
 # T34 ExIt-B8 fit preparation
 
+## v2 fit cache (2026-10-20)
+
+Implements [the v2 fit-cache spec](../../docs/research/specs/2026-10-19_t34_v2_fitcache.md)
+under [DESIGN_V2_SHADOW.md and Amendment 1](../../docs/research/final_run_20261019/DESIGN_V2_SHADOW.md)
+and [SUCCESS_CONTRACT.md](../../docs/research/final_run_20261019/SUCCESS_CONTRACT.md).
+The normal fit/preflight entrypoint now regenerates **once**, before the first
+optimizer update, into a local memory-mapped observation cache. It also caches
+the held-out replay stream when the source supplies one. Subsequent epochs use
+the original deterministic sampler, batch shuffle, fp32 loss and Adam recipe.
+The low-level `fit(cache_dir=None)` path remains the regeneration reference.
+
+Raster planes remain lossless uint8, including optional full-sight planes.
+Scalar/Q arrays retain their original dtypes. S1b omits the tower cache; S1a
+includes it. The receipt reports measured payload and disk sizes per row rather
+than assuming the spec's approximate GB estimates. Cache manifests bind caller
+input/checkpoint/source identities and SHA-256 of payloads; incomplete, changed,
+or mismatched caches are refused. A failed build never publishes a complete cache.
+Cache directories are create-only. `--cache-dir` selects a local SSD directory
+to build or validate/reuse; the default is `OUT/observation-cache`. Keep it out
+of the supervisor's exported artifact payload. Delete it only after retaining
+the fit receipt; it is reproducible data, not a candidate checkpoint.
+
+Sampling still keeps every searched row and an equal number of anchors. The
+source's optional bank-wide inventory behavior is preserved. Caching requires
+an epoch-invariant round export: epochs change sampling, not world/row facts.
+No epoch-varying augmentation or teacher recollection is supported. CUDA uses
+one batch of pinned prefetch on a copy stream (current plus next batch at most),
+without DataLoader processes or CPU worker threads. CPU uses ordinary tensors.
+The CUDA path is implemented but is not qualified by this Mac-only task.
+
+`normalize_row` accepts the following **replayed observation** additions:
+
+- `label_kind="shadow_confirm"`: maps to unsearched, nondecisive KL anchors;
+  hinge, advantage-MSE and auxiliary losses are masked out. Old death-window
+  and decisive flags cannot turn these into independent decisive labels.
+- `label_kind="lad"` or `"transition"`: requires `t_star`, `a_star`, `F`,
+  and explicit `death_window_id`, with replayed `decision` equal to `t_star`.
+  Maps to searched decisive death-window rows; each window retains weight 10
+  (5 for older rounds) and its internal decisive ratio of 20. Supply the normal
+  six-action `forbidden_mask`, or tested `per_action` outcomes from which dying
+  actions can be derived. The shadow helper's `F` means surviving alternatives;
+  it must never be passed directly to the forbidden-action hinge.
+
+The current main tree has v1 world exports and v2 **measurement diagnostics**,
+but no production v2 export schema or `ReplaySource` factory. This implementation
+defines the fit-side adapter boundary and tests it; a production producer must
+still supply hash-verified observations, previous-student Q, round/split metadata,
+and the preregistered probe. Measurement receipts alone are not fit exports.
+
+Run these exact commands sequentially on the Mac. They create only small local
+smoke artifacts and do not allocate services, touch tmux, or change serving:
+
+```bash
+cd /Users/josenunez/Projects/ml/snake-dqn-v2-fitcache
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu
+PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+B8=/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth
+ARTIFACTS=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-fitcache-20261020
+mkdir -p "$ARTIFACTS"
+RUN=$(mktemp -d "$ARTIFACTS/operator.XXXXXX")
+"$PY" -m research.t34_exit_b8_fit.cache_smoke --checkpoint "$B8" --out "$RUN/s1b"
+"$PY" -m research.t34_exit_b8_fit.cache_smoke --checkpoint "$B8" --tower --out "$RUN/s1a"
+"$PY" -m pytest -q tests/test_t34_fitcache.py tests/test_t34_fitcache_recipe.py \
+  tests/test_t34_exit_fit.py tests/test_t34_exit_tools.py \
+  tests/test_t34_exit_tower.py tests/test_t34_exit_jobs.py
+"$PY" -m black --workers 1 --check --line-length 100 research/t34_exit_b8_fit \
+  tests/test_t34_fitcache.py tests/test_t34_fitcache_recipe.py
+"$PY" -m isort --profile black --check-only research/t34_exit_b8_fit \
+  tests/test_t34_fitcache.py tests/test_t34_fitcache_recipe.py
+"$PY" -m flake8 --jobs 1 research/t34_exit_b8_fit \
+  tests/test_t34_fitcache.py tests/test_t34_fitcache_recipe.py
+git diff --check
+```
+
+To exercise the actual Bash preflight entrypoint with its fixed 200-update
+limit and the new default cache path:
+
+```bash
+mkdir -p "$RUN/script-inputs/checkpoints"
+ln -s "$B8" "$RUN/script-inputs/checkpoints/B8_s3_final.pth"
+env PATH="/Users/josenunez/Projects/ml/snake-dqn/venv/bin:$PATH" \
+  T34_FIT_INPUT_MODE=local-preflight T34_FIT_INPUT_DIR="$RUN/script-inputs" \
+  T34_FIT_OUTPUT_DIR="$RUN/bash-output" T34_FIT_DEVICE=cpu \
+  T34_FIT_FAKE_ENGINE=1 bash research/t34_exit_b8_fit/fit.sh
+```
+
+The two smokes use two synthetic worlds and eight actual optimizer updates,
+optionally initialized from read-only B8. `timing.json` records cache regeneration
+seconds/row, bytes/row, epoch minutes, peak process RSS and VRAM. GPU busy is
+null with an explicit reason on the CPU Mac; no GPU utilization is inferred.
+These timings establish plumbing only, not full-bank throughput or efficacy.
+`tests/fixtures/t34_fitcache/data_pre_cache.py` is the byte-frozen loader from
+`65df507a` (SHA-256 `144098b9688fb52c1e9c57558612b467ea26d4883694a9a41b72ba9faed68596`).
+Parity tests compare every batch byte and every Adam loss/parameter update for
+three epochs, both with and without bank-wide inventory sampling.
+
 Implements P4, P5 and the fit-only P6 entrypoint from
 [`2026-10-19_exit_fit_prep.md`](../../docs/research/specs/2026-10-19_exit_fit_prep.md),
 following the binding
@@ -18,7 +115,7 @@ training round, allocation, promotion, or serving release.
 package owns the teacher exports and replay regenerator; this package never
 modifies it. A production factory supplies `replay_epoch(epoch)` and
 `replay_heldout(epoch)` streams of `ReplayWorld` objects. Observations are
-regenerated each epoch. A whole world must be verified before its rows are
+regenerated once for the cache (each epoch in the reference path). A whole world must be verified before its rows are
 exposed, with matching expected/actual SHA-256 proof, a `chunk_id`, and rows
 containing:
 
@@ -89,7 +186,7 @@ venv, at most two CPU threads, and no tmux, Phase 0/S1 manipulation, Colab,
 pods, dispatch or paid services. Future L4 launches explicitly require CUDA.
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-exit-fit
+cd /Users/josenunez/Projects/ml/snake-dqn-v2-fitcache
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 B8=/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth
 T3=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/bank-00000.npz

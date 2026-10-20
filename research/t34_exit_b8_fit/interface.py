@@ -107,7 +107,7 @@ def normalize_row(row: Mapping[str, Any]) -> Mapping[str, Any]:
         raise ValueError("v2 LAD/transition labels require t_star, a_star, F")
     if type(row["t_star"]) is not int or row["t_star"] < 0:
         raise ValueError("v2 t_star must be a nonnegative decision index")
-    if "decision" in row and row["decision"] != row["t_star"]:
+    if "decision" not in row or row["decision"] != row["t_star"]:
         raise ValueError("v2 label must be attached to its replayed t_star decision")
     action = row["a_star"]
     if type(action) is not int or not 0 <= action < 6:
