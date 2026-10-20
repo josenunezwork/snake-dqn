@@ -1,1 +1,2 @@
 # Uses only the project venv and repository dependencies.  No services or paid runtime.
+cloudpickle
