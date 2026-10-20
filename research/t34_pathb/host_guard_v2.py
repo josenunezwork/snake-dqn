@@ -191,8 +191,9 @@ class HostGuard:
         ac_power, lid_open, thermal_ok = _power_thermal()
         load_1m, own, now = os.getloadavg()[0], _own_pids(), self._clock()
         other = [row for row in _processes() if row["pid"] not in own]
+        cpu_count = os.cpu_count() or 1
         if self._idle_load_1m is None:
-            self._idle_load_1m = load_1m
+            self._idle_load_1m = min(load_1m, cpu_count / 4)
         hot: list[dict[str, Any]] = []
         active: set[int] = set()
         for row in other:
@@ -233,7 +234,8 @@ class HostGuard:
             "load_1m": load_1m,
             "load_1m_excess": excess,
             "idle_load_1m": self._idle_load_1m,
-            "cpu_count": os.cpu_count(),
+            "cpu_count": cpu_count,
+            "idle_load_1m_ceiling": cpu_count / 4,
             "load_1m_threshold": self._idle_load_1m + self.policy["max_load_1m_excess"],
             "quiet": not (reasons or load_exceeded or active),
             "other_processes_over_cpu_limit": hot,

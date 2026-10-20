@@ -14,6 +14,7 @@ from research.t34_pathb.retention_v2 import (
     precheck_receipt,
     require_registration,
 )
+from tests.test_t34_pathb_analysis_v2 import _host_summary
 
 
 def _rows(survivors=50):
@@ -86,12 +87,14 @@ def test_non_smoke_registration_rechecks_raw_evidence_and_source_closure(monkeyp
         "max_elapsed_hours": 40.0,
         "max_cpu_hours": 60.0,
         "precheck_max_elapsed_hours": 8.0,
+        "timing_max_elapsed_hours": 1.0,
         "fresh_disjoint_banks": True,
         "source_hashes": {source: digest},
     }
     # Source/receipt identity gets past the committed-closure guard; the
     # independent external receipt mapping remains mandatory.
     precheck = precheck_receipt(_rows())
+    precheck["host_summary"] = _host_summary(phase="precheck")
     certificate_path = tmp_path / "source_validated.json"
     precheck["source_validation_path"] = str(certificate_path.resolve())
     certificate_path.write_text(
@@ -107,6 +110,7 @@ def test_non_smoke_registration_rechecks_raw_evidence_and_source_closure(monkeyp
     with pytest.raises(RegistrationError, match="checkpoint bytes"):
         require_registration(base, precheck)
     bad_precheck = precheck_receipt(_rows(49))
+    bad_precheck["host_summary"] = _host_summary(phase="precheck")
     bad_certificate_path = tmp_path / "bad-source_validated.json"
     bad_precheck["source_validation_path"] = str(bad_certificate_path.resolve())
     bad_certificate_path.write_text(

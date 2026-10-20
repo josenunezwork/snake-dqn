@@ -198,6 +198,7 @@ def _draft_inputs(tmp_path: Path, monkeypatch) -> tuple[dict, Path]:
         "max_elapsed_hours": 40.0,
         "max_cpu_hours": 60.0,
         "precheck_max_elapsed_hours": 8.0,
+        "timing_max_elapsed_hours": 1.0,
         "survival_band": {"amendment": {"path": str(amendment), "sha256": _sha(amendment)}},
     }
     pool = {"source_files": {"source.py": source_hashes["source.py"]}, "rows": [1, 2]}

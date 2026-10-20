@@ -1,4 +1,4 @@
-# Path B v2 — Amendments 2–4
+# Path B v2 — Amendments 2–5
 
 The v2 implementation is an offline, opt-in assisted hero over released B8 s3.
 Read [PROTOCOL_V2.md](PROTOCOL_V2.md) and the prospective
@@ -17,7 +17,8 @@ calculation, or Claim B decision. A missing or failed Colab row remains
 descriptive evidence; only an unconditional fault in the Mac bare/paced arms can
 KILL. See the [descriptive-arm amendment](PREREGISTRATION_RETENTION_V2.md#amendment-3-addendum--pre-data-descriptive-unpaced-colab)
 and [contention/fault amendment](PREREGISTRATION_RETENTION_V2.md#amendment-4-addendum--pre-data-contention-accounting-and-arm-scoped-faults)
-for the binding rationale and caps.
+for the binding rationale and caps. The later [FIX-FIRST #4 timing amendment](PREREGISTRATION_RETENTION_V2.md#amendment-5-addendum--fix-first-4-timing-cap-and-contention-precedence)
+supersedes the earlier 40-hour timing-contention wording in place.
 
 `engine_v2.py` maintains a D500 exact continuation, stops its future at hero
 death, and searches still-future decisions earliest-first. Windows of at most
@@ -134,20 +135,26 @@ the paced arm never waits, and only Mac work is charged to the registered
 Copy the exact measured `load_policy` keys from the profile to `load_profile`;
 the runtime computes contention from fresh samples. The profile freezes 5-second
 sampling, the load/CPU thresholds, a >60-second continuous persistence rule,
-and `max_contended_fraction: 0.02`. At admission, the runner records the
-measured idle baseline and CPU count with those thresholds. It then adds 5
-seconds for each contended sample. It checks the 2% allowance only when a phase
-ends: the timing phase uses its registered 40-hour study cap, the pre-check its
-separate 8-hour cap, and the study its 40-hour cap. An early contended sample or
-interim excess never stops a phase; an end-of-phase excess is INCONCLUSIVE for
-that phase. It pauses only between rows, after dropping pending assistance
-requests as counted fallbacks.
+and `max_contended_fraction: 0.02`. At admission, the idle baseline is
+`min(first measured load_1m, (os.cpu_count() or 1) / 4)`; the record retains the
+CPU count, ceiling, capped baseline, and resulting threshold. It then adds 5
+seconds for each contended sample. The phase map is timing 3600 seconds (72
+contended seconds), pre-check 28800 seconds (576), and study 144000 seconds
+(2880). Each 2% allowance is checked only at phase end. An early contended
+sample or interim excess does not stop a phase. The exception is timing: any
+contended **scored** probe tick is exactly INCONCLUSIVE-retry before timing bars
+are judged. Warmup contention remains separately tracked and uses the timing
+phase's 72-second budget. The runner pauses only between rows, after dropping
+pending assistance requests as counted fallbacks.
 
 Before each timing, pre-check, or study phase, the host must meet a 120-second
 quiet admission window covering raw load and other-process CPU, as well as AC,
 lid, and thermal telemetry. A failed window refuses to start: the command exits
-nonzero without `decision.json` or a terminal phase record, and the operator may
-retry later. This refusal does not create a scientific verdict.
+nonzero without `decision.json` or a terminal phase record. For a timing attempt,
+the create-only `timing_attempt.json` preserves that admission-refusal
+diagnostic. The operator may manually retry only after the host is quiet and in
+a fresh output directory; no retry is automatic. This refusal does not create a
+scientific verdict.
 Product and timing rows declare `mix:"mixed"`; the timing seed is also disjoint
 from every study seed. A nested terminal `roster` must repeat its outer row's
 seed and mix exactly.
@@ -187,7 +194,7 @@ proof.
 | Fresh 48/mix H5000 +32 paired Watch6 sessions | Registered runner implemented; full run reserved for operator |
 | P7 paired-world/session inference and frozen Holm family | Analyzer rule applies the paced one-sided p <= .05 worst-case threshold; unpaced has no decision p-value |
 | First-result p95 <=2 s | Engineering target; no final timing claim from implementation smoke |
-| 24 fps update p95 <=11.688 ms, zero 12/24 fps overruns | Registered probes; 5-second samples add 5 seconds when contended, and only an end-of-phase excess above 2% of that phase's registered cap is INCONCLUSIVE |
+| 24 fps update p95 <=11.688 ms, zero 12/24 fps overruns | Registered probes; any contended scored probe tick is INCONCLUSIVE-retry before timing bars, while separately tracked warmup and other phase contention use their 2% phase budgets |
 | All contract skill/product bars | Full registered decision; no efficacy claim from smoke |
 | Colab unpaced descriptive record | Per-world immutable export and shared bare-prefix physical-state-hash comparison; missing/invalid exports stay descriptive |
 | Default serving OFF / no release | No serving-selector or pin change |
@@ -421,12 +428,14 @@ cd "$FROZEN"
   --registration "$READY" --ready
 
 # FIRST: admission requires 120 quiet seconds. If refused, this exits nonzero
-# without a decision.json or terminal receipt; remedy host conditions and retry.
-# Then run quiet-host ON/OFF Watch6 timing at 24 and 12 fps (~.36 h).
+# without a decision.json or terminal receipt; preserve timing_attempt.json,
+# remedy host conditions, then manually retry in a fresh output directory.
+# Then run quiet-host ON/OFF Watch6 timing at 24 and 12 fps (~.36 h; hard cap 1 h).
 "$PY" -m research.t34_pathb.retention_v2 timing-gate \
   --registration "$READY" --out "$E/timing"
 # Stop unless the create-only timing gate receipt says PASS.
-# A timing failure writes decision.json (KILL-timing); no pre-check or efficacy.
+# Any contended scored probe tick writes INCONCLUSIVE-retry before timing bars;
+# any other failed timing bar writes KILL-timing. Neither admits pre-check/efficacy.
 "$PY" -m research.t34_pathb.precheck_v2 --out "$E/t3-dense-64.json"
 "$PY" -m research.t34_pathb.retention_v2 precheck \
   --registration "$READY" --timing-gate "$E/timing/timing_gate.json" \
@@ -442,22 +451,26 @@ Host monitoring samples asynchronously every 5 seconds and never sleeps inside
 collection or between ticks. It pauses only between completed rows, drops pending
 assistance as counted fallbacks, and does not exclude or retry a row. Before each
 phase it requires 120 continuous quiet seconds with acceptable AC, lid, and
-thermal telemetry plus quiet raw load and other-process CPU. The admission record
-includes the measured idle load baseline, CPU count, and configured thresholds.
-If admission does not complete, the command refuses to start with a nonzero exit
-and writes neither `decision.json` nor a terminal phase record; retry only after
-the host is quiet.
+thermal telemetry plus quiet raw load and other-process CPU. Its baseline is
+`min(first measured load_1m, (os.cpu_count() or 1) / 4)`; the admission record
+includes the CPU count, ceiling, capped baseline, and configured thresholds. If
+admission does not complete, the command refuses to start with a nonzero exit
+and writes neither `decision.json` nor a terminal phase record. A timing
+invocation still preserves an admission-refusal `timing_attempt.json`; retry
+manually only after the host is quiet and in a fresh directory.
 
 After admission, load excess above the measured idle baseline plus the registered
 3.0 allowance and a known Phase 0/research pattern above the registered CPU
 threshold count only after each has persisted continuously for more than 60
 seconds. Every contended sample adds 5 seconds and retains raw load and
-PID/command evidence. At phase end only, the
-runner compares contended seconds to 2% of the phase's registered elapsed cap:
-40 hours for timing, 8 hours for pre-check, and 40 hours for study collection.
-An excess is INCONCLUSIVE for that phase; an early contended sample or interim
-excess does not end it. AC/lid/thermal changes pause between rows and a
-non-acceptable state persisting 120 seconds is INCONCLUSIVE. Unavailable
+PID/command evidence. At phase end only, the runner compares contended seconds
+to 2% of the registered phase cap: 72 seconds for 1-hour timing, 576 seconds for
+the 8-hour pre-check, and 2880 seconds for 40-hour study collection. An excess
+is INCONCLUSIVE for that phase; an early contended sample or interim excess does
+not end it. For timing, separately tracked warmup contention remains in this
+72-second budget, while any contended scored probe tick is first classified as
+INCONCLUSIVE-retry before timing bars. AC/lid/thermal changes pause between rows
+and a non-acceptable state persisting 120 seconds is INCONCLUSIVE. Unavailable
 telemetry cannot pass; pause time is charged. The profile and validator use the
 same policy keys; no load attestation is accepted as a measurement.
 
@@ -474,10 +487,11 @@ p95 and gates overruns/cadence. Near-zero mass uncertainty applies only when mas
 is the sole failing category and product passes.
 
 Exactly one complete fixed-N look. Preserve incomplete/fault evidence; no
-automatic retry, efficacy resume, bank replacement or extension. The first of
-40 h elapsed / 60 CPU-h / $0 wins for the study; the pre-check has its own 8 h
-elapsed cap and is never debited to that study budget. The timing gate is charged
-to the 40-hour study cap, which is also its registered contention denominator.
+automatic retry, efficacy resume, bank replacement or extension. Timing has a
+hard 1 h elapsed cap, and its elapsed/CPU debit also counts toward the first of
+40 h elapsed / 60 CPU-h / $0 study caps. The pre-check has its own 8 h elapsed
+cap and is never debited to that study budget. The timing contention denominator
+is its own 1-hour phase cap, not the 40-hour study cap.
 Product sessions and timing use actual offline Watch6; no release-monitor or
 leaderboard writes. Development GO only admits fresh Mac strict-gate preparation.
 Client latency, Watch8/12, Play, serving qualification, visible assisted
