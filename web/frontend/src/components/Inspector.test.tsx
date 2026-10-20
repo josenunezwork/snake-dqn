@@ -50,6 +50,20 @@ describe("Path B inspector identity", () => {
     expect(screen.queryByLabelText("Assisted hero status")).not.toBeInTheDocument();
   });
 
+  it("shows the assisted hero's initial state before its first decision", () => {
+    render(
+      <Inspector
+        inspector={inspector}
+        heroId={0}
+        pathb={{ active: true, label: "assisted hero", hero_id: 0, counts: {}, last: null }}
+      />,
+    );
+
+    const status = screen.getByLabelText("Assisted hero status");
+    expect(status).toHaveTextContent("Waiting for the first assisted-hero decision");
+    expect(status).not.toHaveTextContent("uses its own served controller");
+  });
+
   it("keeps the fixed assisted target visible and suppresses its actions for an opponent", () => {
     render(
       <Inspector
