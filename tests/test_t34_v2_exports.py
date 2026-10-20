@@ -20,12 +20,27 @@ def test_v2_label_roles_and_lad_provenance_roundtrip(tmp_path: Path) -> None:
         F=[0, 3],
         q=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0],
         lad={"doom": 20, "global_last_avoidable_proven": False},
+        searched=True,
+        decisive=True,
+        kl_anchor_only=False,
     )
     path = tmp_path / "world.json"
     write_world(path, result)
     loaded = load_world(path)
     assert loaded["teacher_v2"] == result["teacher_v2"]
-    for key in ("label_role", "shadow_id", "shadow_confirmed", "t_star", "a_star", "F", "q", "lad"):
+    for key in (
+        "label_role",
+        "shadow_id",
+        "shadow_confirmed",
+        "t_star",
+        "a_star",
+        "F",
+        "q",
+        "lad",
+        "searched",
+        "decisive",
+        "kl_anchor_only",
+    ):
         assert loaded["labels"][0][key] == result["labels"][0][key]
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, Sequence
 
 import numpy as np
 import torch
@@ -109,6 +109,50 @@ class B8Policy:
 
         obs = build_ego_raster(sim, EgoRasterConfig(version="bv8"), backend="numba", rows=rows)
         return self._forward(net, obs)
+
+    def evaluate_worlds(
+        self, worlds: Sequence[Any], *, bucket_size: int = 64
+    ) -> list[PolicyEvaluation]:
+        """Evaluate independent prepared roots in bounded fp32 inference buckets.
+
+        Physical state and RNG remain private to each world. This is an explicit
+        batching recipe: batch-N float32 forwards need not match batch-one bits.
+        All worlds in one invocation must carry the same immutable hero model.
+        """
+        from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
+
+        if type(bucket_size) is not int or not 1 <= bucket_size <= 1536:
+            raise ValueError("inference bucket size must lie in [1, 1536]")
+        if not worlds:
+            return []
+        if any(world.hero.net is not worlds[0].hero.net for world in worlds):
+            raise ValueError("batched roots must share the immutable hero model")
+        results = []
+        for start in range(0, len(worlds), bucket_size):
+            chunk = worlds[start : start + bucket_size]
+            observations = [
+                build_ego_raster(
+                    world.sim,
+                    EgoRasterConfig(version="bv8"),
+                    backend="numba",
+                    rows=np.asarray([[0, 0]], dtype=np.int64),
+                )
+                for world in chunk
+            ]
+            obs = {
+                key: np.concatenate([item[key] for item in observations], axis=0)
+                for key in observations[0]
+            }
+            values = self._forward(chunk[0].hero.net, obs)
+            for world, q in zip(chunk, values):
+                legal = np.asarray(world.sim.get_legal_action_mask()[0, 0], dtype=bool).copy()
+                if not legal.any():
+                    legal[:3] = True
+                select = np.asarray(world.sim.get_advisory_action_mask()[0, 0], dtype=bool).copy()
+                if not select.any():
+                    select[:3] = legal[:3]
+                results.append(PolicyEvaluation(q=q, legal=legal, select=select))
+        return results
 
     def dispatch(
         self, sim: Any, runtime: Any, opponents: list[list[Any]], grid: np.ndarray
