@@ -6,7 +6,8 @@ execution. [Preregistration](PREREGISTRATION_ROUND0.md) fixes the bank, statisti
 ordered GO/STOP/INCONCLUSIVE rules, and isolation. [OC note](OPERATING_CHARACTERISTICS.md)
 discloses power and cost limitations. The source-bound [A5 erratum](ERRATUM_A5_ADDENDUM_B.md)
 applies binding Amendment 2 addendum B without altering the original draft bytes.
-No labels from this study go to fitting.
+No labels from this study go to fitting. [VERIFICATION.md](VERIFICATION.md) records
+the final preflight, focused checks, full-suite failures and source qualification.
 
 The operator supplies the actual A5 receipt; no rate or successful rehearsal is
 fabricated. Existing public release `s1-inputs-20261019` supplies pinned B8 and
