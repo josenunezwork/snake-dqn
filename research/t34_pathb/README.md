@@ -7,6 +7,10 @@ run a v1 efficacy bank. M1–M4 measurements and the v2 rework are separate work
 Only implementation smoke checks have been run here; they yield no efficacy
 estimate. Controller bounds, paced banks, timing tools and assisted identity
 remain available for that later rework.
+The later owner-ratified [P7 rules](../../docs/research/final_run_20261019/P7_STATISTICS.md)
+also supersede v1's statistical frame: fixed-controller inference uses paired
+worlds (at least 16 per mix), and product inference uses complete paired sessions.
+The frozen v1 analyzer is historical tooling and cannot establish P7 compliance.
 
 The implementation is **development tooling, default OFF**. It neither qualifies
 nor releases an assisted hero. Read [PROTOCOL.md](PROTOCOL.md) and its prospective
@@ -93,7 +97,7 @@ body/search regime too different to price real long-body search. Any future v2 b
 needs its own prospective protocol and sizing. Cap
 expiry means `INCOMPLETE`, with no resume or automatic extension.
 
-## Evidence and acceptance against SUCCESS_CONTRACT
+## Historical v1 evidence mapping against SUCCESS_CONTRACT
 
 | Contract | Produced evidence | Required acceptance |
 | --- | --- | --- |
@@ -105,7 +109,7 @@ expiry means `INCOMPLETE`, with no resume or automatic extension.
 | §4 cadence/tails | Delivered cadence; natural L>=600 and busy-worker distributions | <=5% cadence loss; missing tails explicitly `NOT_MEASURED` |
 | §4 client latency | Local full-tick p95 proxy, separate from browser/network latency | Proxy <=10% worse; true client latency `NOT_MEASURED` pending qualification |
 | §4 identity/resource | One bounded request/process; frame/life/session/checkpoint/world guards; decision JSONL | No wait at action selection; all misses/fallbacks included; visible assisted label |
-| Strict gate / release | No gate worlds or publication change | Fresh Mac Tier 1+2 and owner release approval remain required |
+| Strict gate / release | No gate worlds or publication change | Fresh Mac strict gate and serving qualification versus B8 s3 under P7; owner release approval |
 
 Analysis emits `INCOMPLETE`, `SMOKE_ONLY`, or development-bar pass/fail; none is a
 strict pass. Uncertainty with fewer than two independent blocks is not estimable.
