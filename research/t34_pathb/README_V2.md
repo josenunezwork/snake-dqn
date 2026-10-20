@@ -263,12 +263,15 @@ T34_UNPACED_CATALOG="$CAT" \
 T34_UNPACED_DEVELOPMENT_ROWS="$E/dev-rows.json" \
 T34_UNPACED_SOURCE_COMMIT="$("$PY" -c 'import json; print(json.load(open("research/t34_pathb/REGISTRATION_RETENTION_V2.json"))["source_commit"])')" \
 T34_UNPACED_FRAMES=4 \
-bash research/t34_pathb/unpaced_colab.sh
+bash research/t34_exit_b8/unpaced_retention.sh
 ```
 
 The preflight creates `$E/preflight/preflight.json` with `.sha256` and
 `.complete` sidecars. It records the two-world transport exercise and platform
 configuration but no efficacy metric, timing result, or decision input.
+Manifests pin this small campaign launcher so the unchanged shared broker
+rechecks qualified transport bytes during every later validation and dispatch,
+including saved manifests. The launcher executes the hash-bound Path B script.
 
 For the production descriptive export, replace `REG` with the published
 `REGISTRATION_RETENTION_V2_RATIFIED.json`. Before building or allocating a lane,
