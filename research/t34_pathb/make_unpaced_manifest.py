@@ -23,7 +23,7 @@ from research.t34_pathb.unpaced_colab import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = "research/t34_pathb/unpaced_colab.sh"
+SCRIPT = "research/t34_exit_b8/unpaced_retention.sh"
 
 
 def _sha(path: Path) -> str:

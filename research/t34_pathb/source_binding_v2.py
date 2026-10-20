@@ -50,6 +50,7 @@ DECLARED_DATA_FILES: Final = frozenset(
         "docs/research/final_run_20261019/P7_STATISTICS.md",
         "web/backend/served_checkpoint_pins.json",
         "research/t34_pathb/unpaced_colab.sh",
+        "research/t34_exit_b8/unpaced_retention.sh",
         "research/t34_exit_b8/PUBLIC_INPUTS.json",
         "research/colab_cli/QUALIFICATION.md",
     }
