@@ -62,13 +62,13 @@
   "max_elapsed_hours": 40.0,
   "operating_characteristic": {
     "path": "research/t34_pathb/RETENTION_OC_V2.json",
-    "sha256": "9a270030405e71f7927d31bd5489e5a428a26cd7880281e33bfbc711651c94fd"
+    "sha256": "bf93b96a85b16f7a38f4b34f86994dd780e4c80111a24b8de85d688111434361"
   },
   "paced_fps": 24,
   "precheck_max_elapsed_hours": 8.0,
   "preregistration": {
     "path": "research/t34_pathb/PREREGISTRATION_RETENTION_V2.md",
-    "sha256": "28821875b226833fa6d5fb4ba70ba07b907d907a05ce002963ccf31154f7e743"
+    "sha256": "6c69a9d42c5fec2ec1a90202345feb1d35da85317efdb55410ed1c40e3115e36"
   },
   "product_rows": [
     {
@@ -275,7 +275,7 @@
     "path": "research/t34_pathb/SEED_AUDIT_RETENTION_V2.json",
     "sha256": "7d895340b742d2011fde9e2731c3e73c1b58484023b3e4afbf66e769704f3b51"
   },
-  "source_commit": "8ca4170fc6df030108a8f1e4178cad089b6f79e2",
+  "source_commit": "e56c80cda39d8e680d4d8eb9a2ac05644ea4fe4e",
   "source_hashes": {
     "configs/default.yaml": "d3c254eced9023b1820100c29a55fa8559f86dac593ce7c34876c4a3c6c1b1a1",
     "configs/diag_arm_a.yaml": "42ce5e6e2571ccec1944f8e97b99b561f5fe98c480f2b2b3dcfed8b14a2bdf05",
@@ -343,7 +343,7 @@
     "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
     "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
     "research/t34_exit_b8/unpaced_retention.sh": "944de88c68970cd52a7589cc8ef7c947603105636a3e7a3090df95bbcf94b690",
-    "research/t34_pathb/PREREGISTRATION_RETENTION_V2.md": "28821875b226833fa6d5fb4ba70ba07b907d907a05ce002963ccf31154f7e743",
+    "research/t34_pathb/PREREGISTRATION_RETENTION_V2.md": "6c69a9d42c5fec2ec1a90202345feb1d35da85317efdb55410ed1c40e3115e36",
     "research/t34_pathb/PROTOCOL_V2.md": "d4f5318ae7f954ca913ce8c5610655d503634f3de71dbac8f96f861b59fe7634",
     "research/t34_pathb/PROTOCOL_V2_BUILD_RULES.md": "f03bf2065df8b60de0ff16311edaa16731b34afdfbd93e31327eb701f8eeab3d",
     "research/t34_pathb/RETENTION_BANK_V2.json": "af54fd499e99575bcc960c78fc3c52d756f8e1c1a52ca65edb95bb5b013f6d95",
@@ -361,9 +361,9 @@
     "research/t34_pathb/live.py": "39e8c010198660cf7f73db618024550c0d7b3b08c9d6e5dd26a73da097244bce",
     "research/t34_pathb/make_unpaced_manifest.py": "4d76df526f82ae6a3c7f68f5501b9adb6d3b650127af93569af0c1c820d9f8c9",
     "research/t34_pathb/precheck_v2.py": "277742640e81373c33bf2ef80886c85e017f5423f9d2bbc3baf2ab305971c53e",
-    "research/t34_pathb/registration_retention_v2.py": "165f8367abd39a334c7b8f689555320b43b65d0c03171bbcf4ce1f37a46fe524",
+    "research/t34_pathb/registration_retention_v2.py": "23b06649e3d1f118429502c121140d62d3660c549845cbc9a3a4e646af66f730",
     "research/t34_pathb/retention_oc_v2.py": "5fa5b4802e1d975f110d3a921a73e2c8fc1db5a2958fe7da0cd12b5d3e75c181",
-    "research/t34_pathb/retention_v2.py": "b3cc925a02e52a1659957dccb7bc2f806b2e70838dfe0a373c75b65b06073473",
+    "research/t34_pathb/retention_v2.py": "8058da6635e80869517597c260a2ad9c6c34c96e8e6c69cf0e07d05bed54114d",
     "research/t34_pathb/source_binding_v2.py": "b5cddf7b068620a6c233f1615622f66d6a2594517dcd244f5307548776f82d9f",
     "research/t34_pathb/timing_v2.py": "21cd1302daaf2acbad628011a91098f374aea52cbb9c064a59dcf3a8c57c2532",
     "research/t34_pathb/unpaced_colab.py": "672afe9bdb1e4ae641e3693f02e173c54a0ed7679d82124785ebd87784b79937",
@@ -484,6 +484,7 @@
     "web/backend/session.py": "84e4e812231f1b3ce4684df3987c214909d33fd33bd19c3032bc21995b97a1e0",
     "web/backend/state_labels.py": "6dcf856083b034e59a8c5c37836ed8ff06375bc981e4e8ea5d3514c255ba5610"
   },
+  "study_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-01",
   "terminal_per_mix": 48,
   "terminal_rows": [
     {
@@ -6247,6 +6248,8 @@
       "seed": 365977461
     }
   ],
+  "timing_attempt_parent": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-01/timing",
+  "timing_max_attempts": 3,
   "timing_max_elapsed_hours": 1.0,
   "timing_row": {
     "kind": "timing",
