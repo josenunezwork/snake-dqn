@@ -34,27 +34,27 @@ def _arm(mass=160, *, survival=1.0, deaths=0):
 def _records():
     rows = []
     for mix_index, mix in enumerate(analysis.MIXES):
-        for index in range(32):
+        for index in range(48):
             bare = _arm(100)
-            if mix == "scripted" and index == 0:
+            if mix == "scripted" and index < 2:
                 bare = _arm(100, survival=0.5, deaths=1)
             rows.append(
                 {
                     "kind": "terminal",
                     "mix": mix,
-                    "seed": mix_index * 32 + index,
+                    "seed": mix_index * 48 + index,
                     "horizon": 5000,
                     "identity_status": "PASS",
                     "parity_status": "PASS",
                     "arms": {"bare": bare, "paced": _arm(), "unpaced": _arm()},
                 }
             )
-    for index in range(16):
+    for index in range(32):
         rows.append(
             {
                 "kind": "product",
                 "mix": "mixed",
-                "seed": 96 + index,
+                "seed": 144 + index,
                 "horizon": 5000,
                 "identity_status": "PASS",
                 "parity_status": "PASS",
@@ -87,8 +87,8 @@ def test_go_requires_fixed_n_holm_and_all_bars():
     report = analysis.decide(_records(), _timing())
     assert report["verdict"] == "GO", report
     assert report["release_authorized"] is False
-    assert report["paced"]["mass"]["n"] == 96
-    assert report["product"]["death_rate_delta95"]["n"] == 16
+    assert report["paced"]["mass"]["n"] == 144
+    assert report["product"]["death_rate_delta95"]["n"] == 32
     assert report["multiplicity"]["family_alpha"] == 0.1
 
 
@@ -96,15 +96,15 @@ def test_independent_world_stratification_has_no_arbitrary_cross_mix_pairing():
     records = _records()
     effects = {}
     for mix_index, mix in enumerate(analysis.MIXES):
-        values = [((index - 15.5) * (mix_index + 1)) for index in range(32)]
+        values = [((index - 23.5) * (mix_index + 1)) for index in range(48)]
         effects[mix] = values
         rows = [row for row in records if row["kind"] == "terminal" and row["mix"] == mix]
         for row, value in zip(rows, values):
             row["arms"]["paced"]["mass_integral"] = 160 + value
     summary = analysis.skill_summary(records, "paced")["mass"]
-    expected_variances = [statistics.variance(values) / 32 / 9 for values in effects.values()]
+    expected_variances = [statistics.variance(values) / 48 / 9 for values in effects.values()]
     expected_se = math.sqrt(sum(expected_variances))
-    expected_df = sum(expected_variances) ** 2 / sum(v * v / 31 for v in expected_variances)
+    expected_df = sum(expected_variances) ** 2 / sum(v * v / 47 for v in expected_variances)
     assert summary["se"] == pytest.approx(expected_se)
     assert summary["df"] == pytest.approx(expected_df)
     # Reverse just one independent mix; the estimate/SE must stay unchanged.
@@ -129,18 +129,18 @@ def test_holm_includes_both_active_arms_at_lb90_family_alpha(monkeypatch, pvalue
 
 def test_survival_band_v2_is_strict_and_has_absolute_alive_floor():
     records = _records()
-    for row in records[:96]:
+    for row in records[:144]:
         for name in analysis.ARMS:
             row["arms"][name] = _arm(100 if name == "bare" else 160, survival=0.2, deaths=1)
     summary = analysis.skill_summary(records, "paced")
     assert summary["clauses"]["survival_guard_a_absolute_floor"] is False
     # A bound exactly on the NI margin fails, unlike >=.
-    for row in records[:96]:
+    for row in records[:144]:
         row["arms"]["bare"]["survival_fraction"] = 0.05
         row["arms"]["paced"]["survival_fraction"] = 0.0
     summary = analysis.skill_summary(records, "paced")
     assert summary["clauses"]["survival_guard_a_pooled"] is False
-    for row in records[:96]:
+    for row in records[:144]:
         row["arms"]["bare"]["survival_fraction"] = 0.075
         row["arms"]["paced"]["survival_fraction"] = 0.0
     summary = analysis.skill_summary(records, "paced")
@@ -164,11 +164,11 @@ def test_overrun_and_unconditional_fault_override_partial_and_uncertainty():
 
 def test_deadline_loss_and_both_skill_failure_kill():
     rows = _records()
-    for row in rows[:96]:
+    for row in rows[:144]:
         row["arms"]["paced"]["mass_integral"] = 110
     report = analysis.decide(rows, _timing())
     assert (report["verdict"], report["reason"]) == ("KILL", "deadline loss")
-    for row in rows[:96]:
+    for row in rows[:144]:
         row["arms"]["unpaced"]["mass_integral"] = 110
     report = analysis.decide(rows, _timing())
     assert (report["verdict"], report["reason"]) == ("KILL", "both arms failed skill bars")
@@ -176,10 +176,10 @@ def test_deadline_loss_and_both_skill_failure_kill():
 
 def test_near_zero_lb_with_material_point_precedes_scientific_kill():
     rows = _records()
-    for index, row in enumerate(rows[:96]):
+    for index, row in enumerate(rows[:144]):
         # Nonnegative masses, mean gain+60, large uncertainty near the zero LB.
         row["arms"]["bare"]["mass_integral"] = 1000
-        row["arms"]["paced"]["mass_integral"] = 1060 + (400 if index % 2 else -400)
+        row["arms"]["paced"]["mass_integral"] = 1060 + (500 if index % 2 else -500)
     report = analysis.decide(rows, _timing())
     assert report["paced"]["mass"]["mean"] >= 40
     assert abs(report["paced"]["mass"]["lower"]) <= 10
@@ -200,7 +200,7 @@ def test_product_pass_single_skill_miss_with_overlapping_interval_is_inconclusiv
 
 def test_product_mass_bar_is_gating_and_sessions_are_the_unit():
     rows = _records()
-    for row in rows[96:]:
+    for row in rows[144:]:
         row["arms"]["paced"]["mass_integral"] = 90
     report = analysis.decide(rows, _timing())
     assert not report["product"]["clauses"]["relative_mass_lower95_ge_minus005"]
@@ -376,7 +376,7 @@ def test_partial_receipt_preserves_fault_even_before_first_world(tmp_path, monke
     assert analysis.analyze_path(tmp_path)["verdict"] == "KILL"
 
 
-@pytest.mark.parametrize("cap,value", [("elapsed_seconds", 32 * 3600), ("cpu_seconds", 48 * 3600)])
+@pytest.mark.parametrize("cap,value", [("elapsed_seconds", 40 * 3600), ("cpu_seconds", 60 * 3600)])
 def test_recorded_cap_reached_is_inconclusive(tmp_path, monkeypatch, cap, value):
     import json
 

@@ -43,7 +43,9 @@ def test_pathb_power_grid_is_fixed_and_complete() -> None:
         for mass in (40.0, 60.0, 92.0)
     }
     assert set(oc.pathb_power_scenarios()) == expected
-    assert oc.N == 32
+    assert oc.N == 48
+    assert oc.WATCH_PRODUCT_SESSIONS == 32
+    assert oc.SEQUENTIAL_EARLY_LOOK == 24
 
 
 def test_pathb_and_product_power_are_deterministic_and_development_only() -> None:

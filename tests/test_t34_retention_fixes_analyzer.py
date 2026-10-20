@@ -29,27 +29,27 @@ def _arm(mass: float = 160.0, *, survival: float = 1.0, deaths: int = 0) -> dict
 def _records() -> list[dict]:
     rows = []
     for mix_index, mix in enumerate(analysis.MIXES):
-        for index in range(32):
+        for index in range(48):
             bare = _arm(100)
-            if mix == "scripted" and index == 0:
+            if mix == "scripted" and index < 2:
                 bare = _arm(100, survival=0.5, deaths=1)
             rows.append(
                 {
                     "kind": "terminal",
                     "mix": mix,
-                    "seed": mix_index * 32 + index,
+                    "seed": mix_index * 48 + index,
                     "horizon": 5000,
                     "identity_status": "PASS",
                     "parity_status": "PASS",
                     "arms": {"bare": bare, "paced": _arm(), "unpaced": _arm()},
                 }
             )
-    for index in range(16):
+    for index in range(32):
         rows.append(
             {
                 "kind": "product",
                 "mix": "mixed",
-                "seed": 96 + index,
+                "seed": 144 + index,
                 "horizon": 5000,
                 "identity_status": "PASS",
                 "parity_status": "PASS",
@@ -79,9 +79,9 @@ def _timing() -> dict:
 
 
 def _make_mass_near_zero(records: list[dict]) -> None:
-    for index, row in enumerate(records[:96]):
+    for index, row in enumerate(records[:144]):
         row["arms"]["bare"]["mass_integral"] = 1000
-        row["arms"]["paced"]["mass_integral"] = 1060 + (400 if index % 2 else -400)
+        row["arms"]["paced"]["mass_integral"] = 1060 + (500 if index % 2 else -500)
         row["arms"]["unpaced"]["mass_integral"] = 1060
 
 

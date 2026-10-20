@@ -71,7 +71,7 @@ def _stratified(groups: Mapping[str, list[float]], tail: float) -> dict[str, Any
     """Equal-mix effect and independent-stratum Welch-Satterthwaite uncertainty.
 
     P7 disjoint seeds remove cross-mix covariance. Pairing arbitrary row indices
-    would invent covariance and replace 96 independent worlds with 32 clusters.
+    would invent covariance and replace 144 independent worlds with 48 clusters.
     """
     variances = [statistics.variance(groups[mix]) / len(groups[mix]) / 9 for mix in MIXES]
     variance = sum(variances)
@@ -169,8 +169,8 @@ def _validate_records(records: list[Mapping[str, Any]]) -> None:
             if mix != "mixed":
                 raise InvalidRetention("product sessions must be mixed Watch6")
             products += 1
-    if set(counts.values()) != {32} or products != 16:
-        raise InvalidRetention("fixed N requires 32 terminal worlds/mix and 16 product sessions")
+    if set(counts.values()) != {48} or products != 32:
+        raise InvalidRetention("fixed N requires 48 terminal worlds/mix and 32 product sessions")
 
 
 def skill_summary(records: Iterable[Mapping[str, Any]], arm: str) -> dict[str, Any]:
@@ -181,8 +181,8 @@ def skill_summary(records: Iterable[Mapping[str, Any]], arm: str) -> dict[str, A
         mix: [row for row in records if row["kind"] == "terminal" and row["mix"] == mix]
         for mix in MIXES
     }
-    if any(len(rows) != 32 for rows in groups.values()):
-        raise InvalidRetention("requires 32 paired terminal worlds per mix")
+    if any(len(rows) != 48 for rows in groups.values()):
+        raise InvalidRetention("requires 48 paired terminal worlds per mix")
     metrics = {}
     for metric in ("mass_integral", "survival_fraction", "no_death"):
         metrics[metric] = {
@@ -233,8 +233,8 @@ def skill_summary(records: Iterable[Mapping[str, Any]], arm: str) -> dict[str, A
 def product_summary(records: Iterable[Mapping[str, Any]], arm: str) -> dict[str, Any]:
     """Paired session CIs, without treating lives or ticks as replicates."""
     rows = [row for row in records if row["kind"] == "product"]
-    if len(rows) != 16:
-        raise InvalidRetention("requires 16 paired product sessions")
+    if len(rows) != 32:
+        raise InvalidRetention("requires 32 paired product sessions")
     deaths, mass = [], []
     for row in rows:
         candidate, bare = row["arms"][arm], row["arms"]["bare"]
@@ -399,7 +399,7 @@ def decide(
             skill["mass_holm_adjusted_p"] = adjusted[index]
             tail = 0.10 / (2 - ranks[index])
             skill["mass_holm_interval"] = _interval(
-                skill["mass"]["mean"], skill["mass"]["se"], skill["mass"]["df"], tail, 96
+                skill["mass"]["mean"], skill["mass"]["se"], skill["mass"]["df"], tail, 144
             )
             skill["clauses"]["mass_holm_positive"] = rejected[index]
             skill["pass"] = all(skill["clauses"].values())
@@ -524,8 +524,8 @@ def analyze_path(root: Path) -> dict[str, Any]:
         ):
             raise InvalidRetention("completion receipt identity mismatch")
         if (
-            _finite(complete["elapsed_seconds"], "elapsed seconds", 0) >= 32 * 3600
-            or _finite(complete["cpu_seconds"], "CPU seconds", 0) >= 48 * 3600
+            _finite(complete["elapsed_seconds"], "elapsed seconds", 0) >= 40 * 3600
+            or _finite(complete["cpu_seconds"], "CPU seconds", 0) >= 60 * 3600
         ):
             return _inconclusive("registered elapsed or CPU cap reached")
         return decide(records, timing, complete=not (root / "incomplete.json").exists())

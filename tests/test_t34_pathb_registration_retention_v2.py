@@ -37,7 +37,7 @@ def test_allocate_rejects_the_whole_cross_namespace_bank_on_audit_hit(monkeypatc
     monkeypatch.setattr(registration.bank, "_audit_candidates", reject)
     with pytest.raises(RuntimeError, match="whole allocation"):
         registration.allocate_bank(repo=tmp_path)
-    assert len(seen) == 113
+    assert len(seen) == 177
     assert len(seen) == len(set(seen))
 
 
@@ -67,9 +67,9 @@ def test_allocate_materializes_exact_fixed_bank_with_separate_namespaces(monkeyp
 
     monkeypatch.setattr(registration, "_materialize_terminal", materialize)
     payload, audit = registration.allocate_bank(repo=tmp_path)
-    assert len(payload["terminal_rows"]) == 96
-    assert len(payload["product_rows"]) == 16
-    assert len(audit["seeds"]) == 113
+    assert len(payload["terminal_rows"]) == 144
+    assert len(payload["product_rows"]) == 32
+    assert len(audit["seeds"]) == 177
     assert audit["pass"] is True and audit["collisions"] == []
     assert set(payload["namespaces"]) == {
         "terminal_scripted",
@@ -79,6 +79,73 @@ def test_allocate_materializes_exact_fixed_bank_with_separate_namespaces(monkeyp
         "timing_mixed_watch6",
     }
     assert all(row["roster"]["seed"] == row["seed"] for row in payload["terminal_rows"])
+
+
+def _original_allocation(tmp_path, monkeypatch):
+    def candidates(namespace, count):
+        base = int(hashlib.sha256(namespace.encode()).hexdigest()[:7], 16)
+        return list(range(base, base + count))
+
+    monkeypatch.setattr(registration.bank, "_candidate_seeds", candidates)
+    monkeypatch.setattr(
+        registration.bank, "_audit_candidates", lambda _repo, _values: {"concrete_hits": {}}
+    )
+    monkeypatch.setattr(registration, "_materialize_terminal", lambda rows: rows)
+    monkeypatch.setattr(registration.subprocess, "check_output", lambda *_a, **_k: "a" * 40)
+    with monkeypatch.context() as original:
+        original.setattr(registration, "TERMINAL_PER_MIX", 32)
+        original.setattr(registration, "PRODUCT_SESSIONS", 16)
+        payload, audit = registration.allocate_bank(repo=tmp_path)
+    _json(tmp_path / registration.DEFAULT_BANK, payload)
+    _json(tmp_path / registration.DEFAULT_AUDIT, audit)
+    return payload, audit
+
+
+def test_resize_preserves_rows_and_audits_only_the_complete_extension(monkeypatch, tmp_path):
+    previous, previous_audit = _original_allocation(tmp_path, monkeypatch)
+    round0 = tmp_path / "research/t34_round0/BANK_ROUND0.json"
+    _json(round0, {"seed": 123})
+    seen = []
+
+    def audit(repo, seeds):
+        assert json.loads((repo / registration.DEFAULT_BANK).read_text()) == previous
+        seen.extend(seeds)
+        return {"candidate_count": len(seeds), "concrete_hits": {}}
+
+    monkeypatch.setattr(registration.bank, "_audit_candidates", audit)
+    resized, evidence = registration.resize_allocation(repo=tmp_path)
+    assert resized["terminal_rows"][:96] == previous["terminal_rows"]
+    assert resized["product_rows"][:16] == previous["product_rows"]
+    assert resized["timing_row"] == previous["timing_row"]
+    assert len(resized["terminal_rows"]) == 144
+    assert len(resized["product_rows"]) == 32
+    assert len(seen) == 64 and len(evidence["seeds"]) == 177
+    assert set(seen).isdisjoint(previous_audit["seeds"])
+    assert evidence["resize"]["previous_audit_evidence"] == previous_audit
+    assert evidence["resize"]["previous_bank"]["sha256"] == _sha(
+        tmp_path / registration.DEFAULT_BANK
+    )
+    assert evidence["resize"]["round0_bank"]["sha256"] == _sha(round0)
+
+
+def test_resize_rejects_the_whole_extension_on_a_historical_hit(monkeypatch, tmp_path):
+    _original_allocation(tmp_path, monkeypatch)
+
+    def reject(_repo, seeds):
+        assert len(seeds) == 64
+        raise RuntimeError("whole allocation rejected: Round 0 collision")
+
+    monkeypatch.setattr(registration.bank, "_audit_candidates", reject)
+    with pytest.raises(RuntimeError, match="whole allocation rejected"):
+        registration.resize_allocation(repo=tmp_path)
+
+
+def test_resize_rejects_retained_prefix_changes(monkeypatch, tmp_path):
+    previous, _audit = _original_allocation(tmp_path, monkeypatch)
+    previous["terminal_rows"][0]["seed"] += 1
+    _json(tmp_path / registration.DEFAULT_BANK, previous)
+    with pytest.raises(RegistrationError, match="original collision-free|allocator prefix"):
+        registration.resize_allocation(repo=tmp_path)
 
 
 def _draft_inputs(tmp_path: Path, monkeypatch) -> tuple[dict, Path]:
@@ -104,13 +171,13 @@ def _draft_inputs(tmp_path: Path, monkeypatch) -> tuple[dict, Path]:
     terminal = []
     seed = 1
     for mix in registration.MIXES:
-        for _ in range(32):
+        for _ in range(48):
             terminal.append(
                 {"seed": seed, "mix": mix, "roster": {"seed": seed, "mix": mix, "specs": []}}
             )
             seed += 1
-    product = [{"seed": seed + index, "mix": "mixed"} for index in range(16)]
-    timing = {"seed": seed + 16, "mix": "mixed"}
+    product = [{"seed": seed + index, "mix": "mixed"} for index in range(32)]
+    timing = {"seed": seed + 32, "mix": "mixed"}
     bank = {"terminal_rows": terminal, "product_rows": product, "timing_row": timing}
     audit = {
         "pass": True,
@@ -142,8 +209,8 @@ def _draft_inputs(tmp_path: Path, monkeypatch) -> tuple[dict, Path]:
         "development_pool": pool,
         "completed": 20_000,
         "reps": 20_000,
-        "n_per_mix": 32,
-        "looks": [32],
+        "n_per_mix": 48,
+        "looks": [48],
         "threads": 1,
         "development_only": True,
         "efficacy_rows_produced": False,
@@ -212,9 +279,9 @@ def _draft_inputs(tmp_path: Path, monkeypatch) -> tuple[dict, Path]:
     }
     oc["rates"].update(joint)
     oc["rates"].update(product_rates)
-    oc["pathb_joint_go_power"] = {"n_per_mix": 32, "effects": effects, "rates": joint}
+    oc["pathb_joint_go_power"] = {"n_per_mix": 48, "effects": effects, "rates": joint}
     oc["watch6_product_power"] = {
-        "sessions": 16,
+        "sessions": 32,
         "relative_death_reductions": [0.2, 0.4],
         "rates": product_rates,
     }

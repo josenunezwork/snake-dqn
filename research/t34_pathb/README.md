@@ -137,3 +137,9 @@ Implementation results, exact verification commands, source identities and
 artifact hashes are in [VERIFICATION.md](VERIFICATION.md). The required full
 non-slow run was non-green; its failures and focused follow-ups are recorded
 separately from the passing post-merge integration and plumbing checks.
+
+The v2 retention draft has a [pre-data resize amendment](PREREGISTRATION_RETENTION_V2.md#pre-data-resize-amendment--2026-10-20):
+48 terminal worlds per mix, 32 complete paired Watch6 sessions, 40 elapsed h /
+60 CPU-h / $0. See [README_V2](README_V2.md#retention-registration-package) and
+[resize verification](VERIFICATION_RETENTION_RESIZE.md) for the draft package,
+seed audit and development-only power. No retention efficacy is authorized here.
