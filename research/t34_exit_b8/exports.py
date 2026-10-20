@@ -147,6 +147,11 @@ def _labels(raw: Any, horizon: int) -> list[dict[str, Any]]:
                     "mean_mass": _fp16(mean_mass),
                 }
             )
+            # Amendment 2 carries censoring explicitly. Historical v1 rows
+            # retain their exact packed shape when these facts are absent.
+            for key in ("horizon", "censored", "tested"):
+                if key in source:
+                    packed[-1][key] = _plain(source[key])
         forbidden = item.get("forbidden", item.get("forbidden_set", [False] * 6))
         if isinstance(forbidden, Mapping):
             forbidden = [bool(forbidden.get(str(a), forbidden.get(a, False))) for a in range(6)]
@@ -189,6 +194,12 @@ def _labels(raw: Any, horizon: int) -> list[dict[str, Any]]:
             "kl_anchor_only",
             "legal",
             "per_action",
+            "ranked_actions",
+            "outcome_kind",
+            "delay_only",
+            "label_weight",
+            "horizon",
+            "censored",
         ):
             if key in item:
                 label[key] = _plain(item[key])

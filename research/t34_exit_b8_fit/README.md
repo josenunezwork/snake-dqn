@@ -419,3 +419,14 @@ focused suite and the compiler follow-up are green. The long suite began before
 the final isolated T34 refinements; the final 44-test focused run covers those
 refinements. [VERIFICATION.json](VERIFICATION.json) records exact commands,
 results, source identities and hashes of the local evidence files.
+
+
+### Amendment 2 ranked teacher rows
+
+Explicit `outcome_kind` rows preserve ranked teacher semantics at the replay
+boundary: `horizon_rescue` alone is decisive; `bare_survives` retains bare;
+`all_die_delay` retains its diagnostic ranked recommendation but is nondecisive
+and receives exactly zero loss weight. The loader zeros delay rows before
+window normalization, including all-delay windows. Legacy rows without this
+field keep their previous normalization. These additions do not admit a bank or
+authorize a fit.

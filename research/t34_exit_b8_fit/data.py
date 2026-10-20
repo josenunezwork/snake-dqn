@@ -57,6 +57,11 @@ def sample_weights(rows: Sequence[Mapping[str, Any]]) -> np.ndarray:
     """
     age = np.asarray([1.0 if int(r["round_age"]) == 0 else 0.5 for r in rows], dtype=np.float32)
     base = age * np.asarray([20.0 if bool(r["decisive"]) else 1.0 for r in rows], dtype=np.float32)
+    # Ranked all-die outcomes are retained for audit, never trained as rescues.
+    # Exclude them before window normalization so they cannot dilute survivors.
+    for index, row in enumerate(rows):
+        if row.get("outcome_kind") == "all_die_delay":
+            base[index] = 0.0
     groups: dict[tuple[str, int], list[int]] = {}
     for index, row in enumerate(rows):
         if bool(row["death_window"]):
@@ -66,7 +71,9 @@ def sample_weights(rows: Sequence[Mapping[str, Any]]) -> np.ndarray:
     for indices in groups.values():
         # Decisive rows are 20x inside the window too.  Its final mass is 10
         # for current and 5 for historical (the fixed 1.0 / 0.5 DAgger rule).
-        base[indices] *= (10.0 * age[indices[0]]) / float(base[indices].sum())
+        total = float(base[indices].sum())
+        if total > 0:
+            base[indices] *= (10.0 * age[indices[0]]) / total
     return base
 
 

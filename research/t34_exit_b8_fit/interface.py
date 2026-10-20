@@ -112,6 +112,49 @@ def normalize_row(row: Mapping[str, Any]) -> Mapping[str, Any]:
     action = row["a_star"]
     if type(action) is not int or not 0 <= action < 6:
         raise ValueError("v2 a_star must be an action in [0, 5]")
+    # Amendment 2 exports diagnostic all-die rankings but assigns them no
+    # training weight. Keep the historical LAD adapter unchanged for old banks.
+    outcome_kind = row.get("outcome_kind")
+    if outcome_kind is not None:
+        if outcome_kind not in {"horizon_rescue", "all_die_delay", "bare_survives"}:
+            raise ValueError("unknown v2 ranked outcome_kind")
+        outcomes = row.get("per_action")
+        if not isinstance(outcomes, Mapping) or str(action) not in outcomes:
+            raise ValueError("ranked v2 rows require tested per_action outcomes")
+
+        def survives(value: Mapping[str, Any]) -> bool:
+            return bool(value.get("survives", value.get("survive", False)))
+
+        delay = outcome_kind == "all_die_delay"
+        bare = int(row["student_action"])
+        if delay and any(survives(value) for value in outcomes.values()):
+            raise ValueError("all-die label contains a horizon survivor")
+        if not delay and not survives(outcomes[str(action)]):
+            raise ValueError("ranked recommendation must survive outside all-die rows")
+        if outcome_kind == "horizon_rescue" and (
+            str(bare) not in outcomes or survives(outcomes[str(bare)]) or action == bare
+        ):
+            raise ValueError("horizon rescue requires a dying bare action")
+        if outcome_kind == "bare_survives" and action != bare:
+            raise ValueError("surviving bare action must be retained")
+        result.update(
+            action_star=action,
+            searched=True,
+            death_window=True,
+            decisive=outcome_kind == "horizon_rescue",
+            kl_anchor_only=False,
+            delay_only=delay,
+            label_weight=0.0 if delay else 1.0,
+            forbidden_mask=(
+                np.asarray(
+                    [str(a) in outcomes and not survives(outcomes[str(a)]) for a in range(6)],
+                    dtype=bool,
+                )
+                if not delay
+                else np.zeros(6, dtype=bool)
+            ),
+        )
+        return result
     if "forbidden_mask" not in row:
         outcomes = row.get("per_action")
         if not isinstance(outcomes, Mapping) or str(action) not in outcomes:
