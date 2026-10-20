@@ -95,6 +95,7 @@ def test_ranked_outcomes_keep_bare_then_rescue_then_delay_tie_rules() -> None:
     assert result["outcome_kind"] == "bare_survives"
     assert result["ranked_actions"]
     assert result["label_weight"] == pytest.approx(1.0)
+    assert result["forbidden"] == [1, 2, 3, 4, 5]
 
     rescue = copy.deepcopy(base)
     rescue["2"]["survives"] = True

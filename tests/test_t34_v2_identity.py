@@ -161,15 +161,19 @@ def test_real_doom_batch_keeps_frozen_carry_and_source_identity() -> None:
     """Two real frozen/mixed source worlds share one compacted branch bucket."""
     import random
     from collections import defaultdict
-    from types import SimpleNamespace
 
     import numpy as np
 
     from research.t34_exit_b8.engine import ExitTeacher, ExitTeacherConfig
     from research.t34_exit_b8.policy import B8Policy, PolicyEvaluation
-    from research.t34_exit_b8.teacher_v2 import _search_dooms, _step
+    from research.t34_exit_b8.teacher_v2 import (
+        _build_doom_cache,
+        _search_dooms,
+        _shadow_stepper,
+        _step,
+    )
     from research.t34_exit_b8.trajectory import build_world, make_world_rows, prepare_world
-    from research.t34_shadow.shadow import full_digest
+    from research.t34_shadow.shadow import ShadowTrajectory, full_digest
 
     class StraightPolicy(B8Policy):
         def evaluate(self, world):
@@ -195,14 +199,19 @@ def test_real_doom_batch_keeps_frozen_carry_and_source_identity() -> None:
         sim._rebuild_env_grids(0, food=False)
         prepare_world(world)
         assert any(getattr(policy, "live_vetoes", {}) for policy in world.opponents)
+        rng = random.Random(row["world_seed"]).getstate()
+        shadow = ShadowTrajectory(4, checkpoint="fixture", stepper=_shadow_stepper(teacher))
+        shadow.fork(world, global_rng_state=rng)
+        shadow.catch_up()
+        assert len(shadow.frames) == 1 and not shadow.frames[-1].hero_alive
         states.append(
             {
                 "world": world,
                 "decision": 0,
                 "seed": row["world_seed"],
                 "shadow_id": 0,
-                "shadow": SimpleNamespace(frames=[SimpleNamespace(action=1)]),
-                "rng": random.Random(row["world_seed"]).getstate(),
+                "shadow": shadow,
+                "rng": rng,
                 "work": defaultdict(int),
                 "stages": defaultdict(float),
                 "pending_labels": {},
@@ -212,6 +221,8 @@ def test_real_doom_batch_keeps_frozen_carry_and_source_identity() -> None:
             }
         )
     before = [full_digest(state["world"], checkpoint="fixture") for state in states]
+    for state in states:
+        state["doom_cache"] = _build_doom_cache(state, teacher, float("inf"))
     _search_dooms(states, teacher, branch_bucket_size=12)
     assert before == [full_digest(state["world"], checkpoint="fixture") for state in states]
     for state in states:
@@ -220,4 +231,8 @@ def test_real_doom_batch_keeps_frozen_carry_and_source_identity() -> None:
         assert row["decisive"] and row["a_star"] == 2
         assert 1 in row["F"] and 2 not in row["F"]
         assert len(row["per_action"]) >= 3
-    assert teacher.profile()["peak_active_rows"] >= 6
+        assert row["per_action"]["1"]["row_steps"] == 0
+        assert row["per_action"]["1"]["cached_control"]
+        assert all(value["horizon"] == 4 for value in row["per_action"].values())
+        assert state["work"]["reconstruction_row_steps"] == 1
+    assert teacher.profile()["peak_active_rows"] >= 4

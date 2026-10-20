@@ -175,11 +175,7 @@ def _rank_outcomes(
         "delay_only": kind == "all_die_delay",
         "label_weight": 0.0 if kind == "all_die_delay" else 1.0,
         "decisive": decisive,
-        "forbidden": (
-            [a for a in tested if not outcomes[str(a)]["survives"]]
-            if kind == "horizon_rescue"
-            else []
-        ),
+        "forbidden": ([a for a in tested if not outcomes[str(a)]["survives"]] if survivors else []),
     }
 
 
@@ -319,7 +315,11 @@ def _search_dooms(
     # Bisection probes are discovered from cached roots.  Seed each interval
     # with its endpoints, then let the registered radius-three search request
     # only the adaptive midpoint/refinement positions.
-    coarse = [(i, t) for i, (first, doom) in enumerate(intervals) for t in (first, doom)]
+    coarse = list(
+        dict.fromkeys(
+            (i, interval[endpoint]) for endpoint in (0, 1) for i, interval in enumerate(intervals)
+        )
+    )
     evaluate(coarse)
     results: list[dict[str, Any] | None] = [None] * len(states)
     # A bisection's next midpoint depends on the real previous answer.  Run
