@@ -228,7 +228,7 @@ def test_live_phases_require_published_registration_even_with_mock_adapter(monke
     with pytest.raises(retention_v2.RegistrationError, match="registration|timing"):
         retention_v2.run_timing_gate(tmp_path / "timing", {}, adapter=adapter)
     with pytest.raises(retention_v2.RegistrationError, match="registration|timing"):
-        retention_v2.run_registered(tmp_path / "run", {}, {}, adapter=adapter)
+        retention_v2.run_registered(tmp_path / "efficacy", {}, {}, adapter=adapter)
     with pytest.raises(retention_v2.RegistrationError, match="registration|timing"):
         retention_v2.run_precheck([], open_terminal=adapter.open_watch)
 
@@ -240,7 +240,15 @@ def test_committed_registration_guard_requires_exact_head_bytes_and_published_ti
     authoring = tmp_path / "authoring-worktree"
     authoring.mkdir()
     path = authoring / "registration.json"
-    registration = {"ratified": True, "source_commit": "source"}
+    registration = {
+        "ratified": True,
+        "source_commit": "source",
+        "study_root": str(tmp_path),
+        "history_ledger": {
+            "repo": str(authoring),
+            "path": f"research/t34_pathb/ledger/{tmp_path.name}.jsonl",
+        },
+    }
     path.write_text(json.dumps(registration, sort_keys=True) + "\n")
     try:
         head_sha = "a" * 40
@@ -272,7 +280,14 @@ def test_committed_registration_guard_requires_exact_head_bytes_and_published_ti
 
 def test_committed_registration_guard_rejects_unpublished_head(monkeypatch):
     path = REPO / ".t34-registration-guard-test.json"
-    registration = {"ratified": True}
+    registration = {
+        "ratified": True,
+        "study_root": str(REPO),
+        "history_ledger": {
+            "repo": str(REPO),
+            "path": f"research/t34_pathb/ledger/{REPO.name}.jsonl",
+        },
+    }
     path.write_text(json.dumps(registration, sort_keys=True) + "\n")
     try:
 
@@ -328,7 +343,7 @@ def test_analyze_cli_is_descriptive_and_preserves_create_only_decision(
     assert json.loads((tmp_path / "decision.json").read_text()) == official
 
 
-def test_timing_gate_generic_fault_writes_one_inconclusive_decision(monkeypatch, tmp_path):
+def test_timing_gate_generic_fault_writes_one_kill_decision(monkeypatch, tmp_path):
     monkeypatch.setattr(retention_v2, "require_registration", lambda *_args: None)
     monkeypatch.setattr(retention_v2, "_execution_guard", lambda: None)
     monkeypatch.setattr(retention_v2, "_require_committed_pushed_registration", lambda *_args: None)
@@ -347,6 +362,9 @@ def test_timing_gate_generic_fault_writes_one_inconclusive_decision(monkeypatch,
         raise RuntimeError("missing timing session")
 
     registration = {
+        "study_root": str(tmp_path),
+        "timing_attempt_parent": str(tmp_path / "timing"),
+        "timing_max_attempts": 3,
         "load_profile": POLICY,
         "timing_row": {},
         "timing_ticks": 1,
@@ -356,6 +374,10 @@ def test_timing_gate_generic_fault_writes_one_inconclusive_decision(monkeypatch,
     registration.update(
         {
             "study_root": str(tmp_path),
+            "history_ledger": {
+                "repo": str(tmp_path),
+                "path": f"research/t34_pathb/ledger/{tmp_path.name}.jsonl",
+            },
             "timing_attempt_parent": str(tmp_path / "timing"),
             "timing_max_attempts": 3,
         }
@@ -371,7 +393,7 @@ def test_timing_gate_generic_fault_writes_one_inconclusive_decision(monkeypatch,
 
     decision = out / "decision.json"
     payload = json.loads(decision.read_text())
-    assert payload["verdict"] == "INCONCLUSIVE"
+    assert payload["verdict"] == "KILL"
     assert payload["release_authorized"] is False
     with pytest.raises(FileExistsError):
         retention_v2._write_new(decision, {**payload, "reason": "overwrite"})
@@ -401,6 +423,9 @@ def test_partial_unconditional_fault_writes_one_create_only_decision(monkeypatch
     adapter = SimpleNamespace(open_terminal=fail_open, open_watch=fail_open)
     timing_gate = {"elapsed_seconds": 0.0, "cpu_seconds": 0.0}
     registration = {
+        "study_root": str(tmp_path),
+        "timing_attempt_parent": str(tmp_path / "timing"),
+        "timing_max_attempts": 3,
         "load_profile": POLICY,
         "terminal_rows": [
             {"seed": 1, "mix": "scripted"},
@@ -409,23 +434,26 @@ def test_partial_unconditional_fault_writes_one_create_only_decision(monkeypatch
         ],
         "product_rows": [{"seed": 4, "mix": "mixed"}],
     }
+    precheck = {
+        "timing_gate_sha256": retention_v2._canonical_sha(timing_gate),
+        "registration_sha256": retention_v2._canonical_sha(registration),
+        "elapsed_seconds": 0.0,
+        "cpu_seconds": 0.0,
+    }
+    precheck["source_validation_path"] = str(tmp_path / "precheck/source_validated.json")
+    retention_v2._write_new(tmp_path / "precheck/precheck.json", precheck)
     registration_path = REPO / "tests/test_t34_retention_fixes_runner.py"
     with pytest.raises(retention_v2.UnconditionalFault, match="nonfinite_q"):
         retention_v2.run_registered(
-            tmp_path / "run",
+            tmp_path / "efficacy",
             registration,
-            {
-                "timing_gate_sha256": retention_v2._canonical_sha(timing_gate),
-                "registration_sha256": retention_v2._canonical_sha(registration),
-                "elapsed_seconds": 0.0,
-                "cpu_seconds": 0.0,
-            },
+            precheck,
             adapter=adapter,
             timing_gate=timing_gate,
             registration_path=registration_path,
         )
 
-    decision = tmp_path / "run" / "decision.json"
+    decision = tmp_path / "efficacy" / "decision.json"
     before = decision.read_bytes()
     payload = json.loads(before)
     assert payload["verdict"] == "KILL"
@@ -465,17 +493,28 @@ def test_precheck_admission_refuses_without_terminal_before_any_world(monkeypatc
         retention_v2.run_precheck(
             [],
             open_terminal=lambda *_args: pytest.fail("world constructed"),
-            registration={"load_profile": POLICY},
+            registration={
+                "study_root": str(tmp_path),
+                "timing_attempt_parent": str(tmp_path / "timing"),
+                "timing_max_attempts": 3,
+                "load_profile": POLICY,
+            },
             registration_path=Path(__file__),
             timing_gate={"elapsed_seconds": 10.0, "cpu_seconds": 2.0},
             out=out,
         )
     assert made == [POLICY]
-    assert not out.exists()
-    with pytest.raises(host_guard_v2.HostAdmissionError):
+    assert (out / "admission_refused.json").is_file()
+    assert not (out / "decision.json").exists()
+    with pytest.raises(retention_v2.RegistrationError, match="fresh"):
         retention_v2.run_precheck(
             [],
-            registration={"load_profile": POLICY},
+            registration={
+                "study_root": str(tmp_path),
+                "timing_attempt_parent": str(tmp_path / "timing"),
+                "timing_max_attempts": 3,
+                "load_profile": POLICY,
+            },
             registration_path=Path(__file__),
             timing_gate={"elapsed_seconds": 10.0, "cpu_seconds": 2.0},
             out=out,
@@ -486,10 +525,24 @@ def test_precheck_cannot_reuse_a_different_timing_gate(monkeypatch, tmp_path):
     monkeypatch.setattr(retention_v2, "require_timing_gate", lambda *_args: None)
     with pytest.raises(retention_v2.RegistrationError, match="does not bind"):
         retention_v2.run_registered(
-            tmp_path / "run",
+            tmp_path / "efficacy",
             {},
             {"timing_gate_sha256": "wrong"},
             timing_gate={"elapsed_seconds": 0.0, "cpu_seconds": 0.0},
             registration_path=Path(__file__),
             adapter=SimpleNamespace(open_terminal=lambda *_args: pytest.fail("world constructed")),
         )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_published_history(monkeypatch):
+    """These focused local tests isolate the FIX6 Git transport boundary.
+
+    Actual publication, receipt deletion and tampering are exercised against
+    a real temporary Git remote in test_t34_retention_fixes6.py.
+    """
+    from research.t34_pathb import retention_v2 as runner
+
+    monkeypatch.setattr(runner, "require_published_history", lambda *_: None)
+    monkeypatch.setattr(runner, "finalize_phase", lambda *_: None)
+    monkeypatch.setattr(runner, "claim_phase", lambda *_: None)

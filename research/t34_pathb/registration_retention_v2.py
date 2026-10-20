@@ -43,6 +43,7 @@ from research.t34_pathb.retention_v2 import (  # noqa: E402
     RegistrationError,
     _registered_seed_union,
     _validate_checkpoint_coverage,
+    ledger_policy,
     require_registration,
     source_inventory,
     timing_attempt_parent,
@@ -364,6 +365,7 @@ def _check_common(registration: Mapping[str, Any], *, root: Path) -> None:
         if registration.get(key) != value:
             raise RegistrationError(f"registration {key} differs from the fixed protocol")
     timing_attempt_parent(registration)
+    ledger_policy(registration)
     _check_rows(registration)
     for label in ("profile", "bank", "seed_audit", "preregistration", "operating_characteristic"):
         _bound_path(registration.get(label), root=root, label=label)
@@ -587,6 +589,10 @@ def build_draft(
         "study_root": str(study_root),
         "timing_attempt_parent": str(study_root / "timing"),
         "timing_max_attempts": TIMING_MAX_ATTEMPTS,
+        "history_ledger": {
+            "repo": str(root.resolve()),
+            "path": f"research/t34_pathb/ledger/{study_root.name}.jsonl",
+        },
         "ratified": False,
         "source_commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=root, text=True

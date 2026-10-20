@@ -443,8 +443,8 @@ cd "$FROZEN"
 # Stop unless the actual pre-check reaches >=50/64.
 "$PY" -m research.t34_pathb.retention_v2 run \
   --registration "$READY" --timing-gate "$E/timing/attempt-01/timing_gate.json" \
-  --precheck "$E/precheck/precheck.json" --out "$E/retention"
-"$PY" -m research.t34_pathb.retention_v2 analyze --out "$E/retention"
+  --precheck "$E/precheck/precheck.json" --out "$E/efficacy"
+"$PY" -m research.t34_pathb.retention_v2 analyze --out "$E/efficacy"
 ```
 
 Host monitoring samples asynchronously every 5 seconds and never sleeps inside
@@ -530,3 +530,49 @@ parent and require the exact latest PASS; an older PASS or a PASS copied from
 another directory cannot admit work. Missing, changed, foreign, incomplete,
 linked, or inconsistent history refuses admission. The draft remains
 unauthorized until separately ratified against its new source identity.
+
+### FIX-FIRST #6 publication and fixed phases
+
+The prospective draft now enforces a single `$E/precheck` and `$E/efficacy`.
+Replace the older `$E/retention` commands above with `$E/efficacy`; other fresh
+phase directories are refused. The original `$E/precheck/precheck.json` is the
+only admissible precheck. Both phase directories are atomically reserved before
+host admission and cannot be reused even when that admission is refused.
+
+Before creating the phase directory or constructing gameplay, admission pushes
+one create-only remote tag under `refs/tags/t34-retention/<study_id>/<phase>`.
+It binds the registration and phase path and marks an unmeasured unfinished
+invocation as Claim B KILL. It cannot be reused or force-updated by the runner.
+Even deleting an entire hard-killed local study cannot reset that admission.
+An unavailable remote refuses before gameplay; there is no automatic retry.
+
+The registration freezes the authoring checkout and the study-specific ledger
+under `research/t34_pathb/ledger/`. The detached execution checkout stays clean.
+After **every** timing attempt, precheck, or efficacy phase, the runner writes
+`phase_terminal.json` after the source fence closes, then appends its hash to the
+registered authoring ledger. Before any next phase or permitted timing retry,
+commit and push that append **from the authoring checkout**:
+
+```bash
+cd "$AUTHOR_ROOT"
+# Use the exact history_ledger.path printed in the ratified registration.
+LEDGER=research/t34_pathb/ledger/t34-retention-v2-operator-01.jsonl
+git add -- "$LEDGER"
+git commit -m 'Preserve T34 retention terminal history before next phase'
+git fetch origin
+git merge origin/main
+git push origin HEAD:main
+git push origin t34-retention-fixes6-20261020
+cd "$FROZEN"
+```
+
+Admission fetches main itself, rejects unpublished or rewritten ledger history,
+and requires all published hashes to match the retained local files. Deleting
+local attempts or shortening the ledger cannot reset the study. An interrupted
+or partially sealed reservation refuses subsequent admission; preserve it and
+report the failure. No automatic retry, repair, efficacy resume, or second look.
+Operator aborts and interruptions without an actual HostGuard-recorded cause
+KILL Claim B, including sampler failure, cap expiry, and source drift. Measured
+host interruptions retain the registered INCONCLUSIVE/retry rules. Hard kills
+cannot emit receipts: their unfinished reservations remain blocked and count
+as unmeasured Claim B KILL. Keep the draft unratified until independent review.

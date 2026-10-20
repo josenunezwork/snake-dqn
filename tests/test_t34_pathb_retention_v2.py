@@ -89,6 +89,10 @@ def test_non_smoke_registration_rechecks_raw_evidence_and_source_closure(monkeyp
         "precheck_max_elapsed_hours": 8.0,
         "timing_max_elapsed_hours": 1.0,
         "study_root": str(tmp_path),
+        "history_ledger": {
+            "repo": str(tmp_path),
+            "path": f"research/t34_pathb/ledger/{tmp_path.name}.jsonl",
+        },
         "timing_attempt_parent": str(tmp_path / "timing"),
         "timing_max_attempts": 3,
         "fresh_disjoint_banks": True,
@@ -333,6 +337,10 @@ def test_registered_timing_fault_retains_unconditional_marker(monkeypatch, tmp_p
     registration.update(
         {
             "study_root": str(tmp_path),
+            "history_ledger": {
+                "repo": str(tmp_path),
+                "path": f"research/t34_pathb/ledger/{tmp_path.name}.jsonl",
+            },
             "timing_attempt_parent": str(tmp_path / "timing"),
             "timing_max_attempts": 3,
         }
@@ -346,3 +354,17 @@ def test_registered_timing_fault_retains_unconditional_marker(monkeypatch, tmp_p
         "nonfinite_q"
     ]
     assert json.loads((out / "decision.json").read_text())["verdict"] == "KILL"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_published_history(monkeypatch):
+    """These focused local tests isolate the FIX6 Git transport boundary.
+
+    Actual publication, receipt deletion and tampering are exercised against
+    a real temporary Git remote in test_t34_retention_fixes6.py.
+    """
+    from research.t34_pathb import retention_v2 as runner
+
+    monkeypatch.setattr(runner, "require_published_history", lambda *_: None)
+    monkeypatch.setattr(runner, "finalize_phase", lambda *_: None)
+    monkeypatch.setattr(runner, "claim_phase", lambda *_: None)

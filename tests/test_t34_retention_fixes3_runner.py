@@ -63,14 +63,25 @@ def test_admission_refusal_creates_no_terminal_artifacts_or_worlds(
         return _AdmissionRefusingGuard()
 
     monkeypatch.setattr(retention_v2, "HostGuard", make_guard)
-    out = tmp_path / phase
-    registration = {"ratified": False, "load_profile": {}, "source_commit": "a" * 40}
+    out = tmp_path / ("efficacy" if phase == "study" else phase)
+    registration = {
+        "study_root": str(tmp_path),
+        "timing_attempt_parent": str(tmp_path / "timing"),
+        "timing_max_attempts": 3,
+        "ratified": False,
+        "load_profile": {},
+        "source_commit": "a" * 40,
+    }
     timing_gate = {"elapsed_seconds": 1.0, "cpu_seconds": 1.0, "status": "PASS"}
 
     if phase == "timing":
         registration.update(
             {
                 "study_root": str(tmp_path),
+                "history_ledger": {
+                    "repo": str(tmp_path),
+                    "path": f"research/t34_pathb/ledger/{tmp_path.name}.jsonl",
+                },
                 "timing_attempt_parent": str(tmp_path / "timing"),
                 "timing_max_attempts": 3,
             }
@@ -112,6 +123,8 @@ def test_admission_refusal_creates_no_terminal_artifacts_or_worlds(
             "timing_gate_sha256": retention_v2._canonical_sha(timing_gate),
             "registration_sha256": retention_v2._canonical_sha(registration),
         }
+        precheck["source_validation_path"] = str(tmp_path / "precheck/source_validated.json")
+        retention_v2._write_new(tmp_path / "precheck/precheck.json", precheck)
         adapter = SimpleNamespace(
             open_terminal=lambda *_args: pytest.fail("world constructed"),
             open_watch=lambda *_args: pytest.fail("world constructed"),
@@ -132,3 +145,17 @@ def test_admission_refusal_creates_no_terminal_artifacts_or_worlds(
 
     assert captured == [{"phase_cap_seconds": expected_cap_seconds}]
     assert not out.exists() or not ({path.name for path in out.iterdir()} & TERMINAL_FILES)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_published_history(monkeypatch):
+    """These focused local tests isolate the FIX6 Git transport boundary.
+
+    Actual publication, receipt deletion and tampering are exercised against
+    a real temporary Git remote in test_t34_retention_fixes6.py.
+    """
+    from research.t34_pathb import retention_v2 as runner
+
+    monkeypatch.setattr(runner, "require_published_history", lambda *_: None)
+    monkeypatch.setattr(runner, "finalize_phase", lambda *_: None)
+    monkeypatch.setattr(runner, "claim_phase", lambda *_: None)

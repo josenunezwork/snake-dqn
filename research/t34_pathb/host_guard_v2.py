@@ -370,6 +370,7 @@ class HostGuard:
                     "phase host contention exceeds registered cap fraction: "
                     f"{result['contended_fraction']:.6f}>{result['max_contended_fraction']:.6f}"
                 )
+                error.measured_records = [row for row in self.records if row["contended"]]
                 error.summary = result  # type: ignore[attr-defined]
                 raise error
             return result
@@ -391,9 +392,11 @@ class HostGuard:
                 now = self._clock()
                 pause_since = self._power_bad_since if self._power_bad_since is not None else now
                 if now - pause_since >= float(self.policy["persistence_seconds"]):
-                    raise HostContentionError(
+                    error = HostContentionError(
                         "power/lid/thermal contention persisted: " + ",".join(record["reasons"])
                     )
+                    error.measured_records = [record]
+                    raise error
                 if not paused:
                     paused = True
                     if on_pause is not None:

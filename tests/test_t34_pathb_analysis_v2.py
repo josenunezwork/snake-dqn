@@ -455,7 +455,7 @@ def test_analyze_cli_source_failure_invalidates_saved_decision(tmp_path, monkeyp
 
     assert retention_v2.main() == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["official_decision"]["verdict"] == "INCONCLUSIVE"
+    assert report["official_decision"]["verdict"] == "KILL"
     assert report["preserved_decision"] == official
     assert report["source_failure"]["invalidates_decision"] is True
 

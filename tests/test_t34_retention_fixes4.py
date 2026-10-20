@@ -175,6 +175,10 @@ def _fake_gate(monkeypatch, tmp_path, *, refuse=False, host_records=None):
     monkeypatch.setattr(retention_v2, "HostGuard", Guard)
     registration = {
         "study_root": str(tmp_path),
+        "history_ledger": {
+            "repo": str(tmp_path),
+            "path": f"research/t34_pathb/ledger/{tmp_path.name}.jsonl",
+        },
         "timing_attempt_parent": str(tmp_path / "timing"),
         "timing_max_attempts": 3,
         "ratified": False,
@@ -232,8 +236,8 @@ def test_timing_one_hour_cap_is_checked_inside_probe_and_records_failure(monkeyp
     with pytest.raises(TimeoutError, match="1-hour timing elapsed cap"):
         retention_v2.run_timing_gate(out, registration, registration_path=Path(__file__))
     assert caps == [3600]
-    assert json.loads((out / "decision.json").read_text())["verdict"] == "INCONCLUSIVE"
-    assert json.loads((out / "timing_attempt.json").read_text())["status"] == "INCONCLUSIVE"
+    assert json.loads((out / "decision.json").read_text())["verdict"] == "KILL"
+    assert json.loads((out / "timing_attempt.json").read_text())["status"] == "KILL"
     assert not (out / "records").exists()
 
 
@@ -249,11 +253,15 @@ def test_final_scored_sample_is_preserved_through_probe_or_boundary_exit(
         steps[0] += 1
         if steps[0] == 40:
             # Published inside the last scored tick, after its cached check.
-            records.append({"timestamp_monotonic": now[0], "contended": True})
+            records.append(
+                {"timestamp_monotonic": now[0], "contended": True, "reasons": ["thermal_not_ok"]}
+            )
 
     def boundary(_guard, _session=None):
         if steps[0] == 40 and boundary_failure:
-            raise host_guard_v2.HostContentionError("power persisted at row boundary")
+            error = host_guard_v2.HostContentionError("power persisted at row boundary")
+            error.measured_records = records[-1:]
+            raise error
 
     monkeypatch.setattr(retention_v2, "_between_rows", boundary)
     monkeypatch.setattr(
@@ -286,3 +294,17 @@ def test_final_scored_sample_is_preserved_through_probe_or_boundary_exit(
 def test_timing_guard_budget_is_exactly_72_seconds():
     guard = host_guard_v2.HostGuard(POLICY, phase_cap_seconds=analysis.PHASE_CAP_SECONDS["timing"])
     assert guard.summary()["contention_budget_seconds"] == 72
+
+
+@pytest.fixture(autouse=True)
+def _isolate_published_history(monkeypatch):
+    """These focused local tests isolate the FIX6 Git transport boundary.
+
+    Actual publication, receipt deletion and tampering are exercised against
+    a real temporary Git remote in test_t34_retention_fixes6.py.
+    """
+    from research.t34_pathb import retention_v2 as runner
+
+    monkeypatch.setattr(runner, "require_published_history", lambda *_: None)
+    monkeypatch.setattr(runner, "finalize_phase", lambda *_: None)
+    monkeypatch.setattr(runner, "claim_phase", lambda *_: None)

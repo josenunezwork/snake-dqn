@@ -539,3 +539,62 @@ resume of efficacy. GO admits fresh Mac strict-gate preparation only; strict
 gate, serving qualification, release, teacher labels and further funding remain
 separate operator decisions. A failure means this controller failed its
 registered bar, never that B8 is the bare ceiling.
+
+## Prospective Amendment 7 — FIX-FIRST #6 terminal history and abort rule
+
+Operator ruling: [2026-10-20 FIX-FIRST #6](../../docs/research/specs/2026-10-20_t34_retention_fixes6.md).
+This remains a pre-data, unratified draft. The following supersedes all earlier
+fresh-directory phase/retry and interruption wording in this draft.
+
+- Exactly one create-only `<study_root>/precheck` and one create-only
+  `<study_root>/efficacy` directory. Admission atomically reserves the fixed
+  directory before host admission; an existing directory refuses another
+  invocation. Efficacy accepts only the original precheck receipt from the
+  fixed precheck directory. No alternate directory, copied receipt, efficacy
+  resume, repeated look, or extension is permitted. A refused host admission
+  consumes that phase directory, retains an admission diagnostic, and writes
+  no scientific decision. It does not authorize another precheck/efficacy call.
+- Registration freezes `history_ledger.repo` (the absolute authoring checkout)
+  and `history_ledger.path` (`research/t34_pathb/ledger/<study_id>.jsonl`, with
+  `study_id` the registered study-root basename). The authoring checkout is
+  distinct from the clean detached execution checkout. The mutable ledger is
+  outside the executable source closure. After each timing attempt, precheck,
+  or efficacy invocation reserves its directory, the runner seals its retained
+  files in create-only `phase_terminal.json`, after the source fence closes
+  and any source failure is recorded. It then appends the phase path and seal
+  SHA-256 to the ledger and fsyncs the append. The seal binds registration and
+  all retained receipt/evidence bytes, including final source outcomes.
+- Before directory reservation/gameplay, the runner publishes a create-only
+  remote admission tag `refs/tags/t34-retention/<study_id>/<phase>` (timing uses
+  `timing/attempt-01..03`). Its unique commit object binds the phase path and
+  registration digest and records unmeasured unfinished interruption as Claim B
+  KILL. It never force-updates a ref. An existing or unverifiable claim refuses
+  admission; deleting every local file cannot reclaim a consumed phase. The
+  create-only remote claim remains even if a hard kill prevents terminal sealing.
+- The operator must commit and push each terminal append to main before proceeding.
+  Every next-phase or timing-retry admission freshly fetches `origin/main`,
+  requires the local and published ledger bytes to match, validates every
+  published ledger revision as append-only, and compares the complete ledger
+  with all retained fixed phase directories and hash-equal sealed files.
+  Missing/deleted local attempts, missing seals, altered files, unpublished
+  appends, branch-only publication, malformed or shortened ledgers, and
+  unavailable origin verification refuse admission before host/gameplay.
+  An append failure preserves the phase files and blocks progress; it never
+  permits a scientific rerun. Unfinished reservations (including hard kills)
+  block all later admission and cannot reset counts by local deletion.
+- An operator abort (including SIGINT, SIGTERM, SIGHUP, KeyboardInterrupt, and
+  SystemExit), or any interruption without a measured host/power/thermal cause
+  recorded by HostGuard, is **KILL for Claim B**. Unconditional controller
+  faults remain KILL. Cap interruptions and source-fence failures without a
+  measured host cause also KILL. A source failure invalidates any preserved
+  earlier decision and records `claim_b: KILL` in its immutable failure marker.
+  HostGuard attaches the actual contended measurements when its accumulated
+  contention budget or persistent power/lid/thermal rule interrupts a phase;
+  these retain existing INCONCLUSIVE semantics (timing scored contention:
+  INCONCLUSIVE-retry). Sampler errors, absent telemetry, or unrelated earlier
+  transient contention cannot excuse an interruption. A hard kill cannot run
+  a handler: preserve its unfinished reservation as unmeasured interruption,
+  KILL for Claim B, and do not rerun or resume it.
+
+The numerical thresholds, banks, identities, caps, fixed N, and look discipline
+are unchanged. No implementation command authorizes gameplay or ratification.

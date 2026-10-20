@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -51,6 +52,13 @@ from research.t34_pathb.host_guard_v2 import (  # noqa: E402
     HostGuard,
     validate_policy,
 )
+from research.t34_pathb.retention_history_v2 import (  # noqa: E402
+    RegistrationError,
+    claim_phase,
+    finalize_phase,
+    ledger_policy,
+    require_published_history,
+)
 
 ARMS = ("bare", "paced", "unpaced")
 MAC_ARMS = ("bare", "paced")
@@ -83,10 +91,6 @@ def unpaced_colab_policy() -> dict[str, Any]:
         "max_account_assignments": 3,
         "mac_mass_test_tail_alpha": 0.05,
     }
-
-
-class RegistrationError(RuntimeError):
-    """A non-smoke run is not authorized or does not match Amendment 2."""
 
 
 class UnconditionalFault(RuntimeError):
@@ -134,16 +138,20 @@ def _frozen_execution(function: Callable[..., Any]) -> Callable[..., Any]:
         arguments = signature(function).bind(*args, **kwargs).arguments
         registration = arguments.get("registration")
 
-        def finalize_timing() -> None:
+        def finalize_terminal() -> None:
             # Seal history only after the source fence has closed and any source
             # failure marker has been written, including exceptional exits.
             out = arguments.get("out")
-            if function.__name__ != "run_timing_gate" or out is None:
+            if out is None or not reserved_here[0]:
                 return
             root = Path(out)
             attempt = root / "timing_attempt.json"
             finalized = root / "timing_finalized.json"
-            if attempt.is_file() and not finalized.exists() and reserved_here[0]:
+            if (
+                function.__name__ == "run_timing_gate"
+                and attempt.is_file()
+                and not finalized.exists()
+            ):
                 _write_new(
                     finalized,
                     {
@@ -152,6 +160,8 @@ def _frozen_execution(function: Callable[..., Any]) -> Callable[..., Any]:
                         "source_failed": (root / "source_failure.json").exists(),
                     },
                 )
+
+            finalize_phase(root, registration)
 
         # A rejected duplicate invocation must never finalize another caller's
         # pending reservation. The producer signals its own reservation below.
@@ -162,7 +172,7 @@ def _frozen_execution(function: Callable[..., Any]) -> Callable[..., Any]:
                 return function(*args, **kwargs)  # Usual admission error.
             finally:
                 try:
-                    finalize_timing()
+                    finalize_terminal()
                 finally:
                     _TIMING_RESERVATION.reset(reservation_token)
         from research.t34_pathb.source_binding_v2 import FrozenWorktreeGuard, SourceBindingError
@@ -184,7 +194,7 @@ def _frozen_execution(function: Callable[..., Any]) -> Callable[..., Any]:
                 _ACTIVE_FENCE.reset(token)
                 fence.close()
             out = arguments.get("out")
-            if out is not None and Path(out).is_dir():
+            if out is not None and Path(out).is_dir() and reserved_here[0]:
                 root = Path(out)
                 receipts = {
                     name: _canonical_sha(_load(root / name))
@@ -203,22 +213,68 @@ def _frozen_execution(function: Callable[..., Any]) -> Callable[..., Any]:
             return result
         except SourceBindingError as exc:
             out = arguments.get("out")
-            if out is not None and Path(out).is_dir():
+            if out is not None and Path(out).is_dir() and reserved_here[0]:
                 marker = Path(out) / "source_failure.json"
                 if not marker.exists():
                     _write_new(
                         marker,
                         {
-                            "status": "INCONCLUSIVE",
+                            "status": "KILL",
+                            "claim_b": "KILL",
                             "reason": str(exc),
                             "invalidates_decision": True,
                             "release_authorized": False,
                         },
                     )
             raise
+        except HostAdmissionError:
+            raise
+        except BaseException as exc:
+            out = arguments.get("out")
+            measured = getattr(exc, "_retention_measured_interruption", False)
+            if out is not None and reserved_here[0] and not measured:
+                root = Path(out)
+                invalidation = {
+                    "status": "KILL",
+                    "claim_b": "KILL",
+                    "invalidates_decision": True,
+                    "reason": f"unmeasured interruption: {type(exc).__name__}: {exc}",
+                    "release_authorized": False,
+                }
+                _write_new(root / "interruption.json", invalidation)
+                if not (root / "decision.json").exists():
+                    _write_new(
+                        root / "decision.json",
+                        {
+                            "schema": "t34-pathb-v2-decision/v1",
+                            "verdict": "KILL",
+                            "reason": invalidation["reason"],
+                            "release_authorized": False,
+                        },
+                    )
+            raise
         finally:
             try:
-                finalize_timing()
+                finalize_terminal()
+            except BaseException as exc:
+                out = arguments.get("out")
+                if out is not None and reserved_here[0]:
+                    marker = Path(out) / "interruption.json"
+                    if not marker.exists():
+                        _write_new(
+                            marker,
+                            {
+                                "status": "KILL",
+                                "claim_b": "KILL",
+                                "invalidates_decision": True,
+                                "reason": (
+                                    "terminal history finalization interrupted: "
+                                    f"{type(exc).__name__}: {exc}"
+                                ),
+                                "release_authorized": False,
+                            },
+                        )
+                raise
             finally:
                 _TIMING_RESERVATION.reset(reservation_token)
 
@@ -244,8 +300,13 @@ def _require_phase_source(receipt: Mapping[str, Any], name: str) -> None:
     if not isinstance(value, str) or not Path(value).is_absolute():
         raise RegistrationError("phase receipt lacks its final source validation certificate")
     path = Path(value)
-    if (path.parent / "source_failure.json").exists():
-        raise RegistrationError("phase receipt was invalidated by its source fence")
+    if any(
+        (path.parent / marker).exists() for marker in ("source_failure.json", "interruption.json")
+    ):
+        raise RegistrationError("phase receipt was invalidated by source failure or interruption")
+    decision = path.parent / "decision.json"
+    if decision.exists() and _load(decision).get("verdict") not in ("PASS", "GO"):
+        raise RegistrationError("phase receipt has a terminal failure decision")
     certificate = _load(path)
     if (
         certificate.get("schema") != "t34-pathb-v2-source-validation/v1"
@@ -454,6 +515,7 @@ def require_registration(
     ):
         raise RegistrationError("registration cap differs from fixed phase contract")
     timing_attempt_parent(registration)
+    ledger_policy(registration)
     sources = registration.get("source_hashes")
     if (
         registration.get("fresh_disjoint_banks") is not True
@@ -617,6 +679,8 @@ def _require_committed_pushed_registration(path: Path, registration: Mapping[str
             ["git", "rev-parse", "--show-toplevel"], cwd=path.resolve().parent, text=True
         ).strip()
     )
+    if ledger_policy(registration)[0] != publication_repo:
+        raise RegistrationError("registration and history ledger must share the authoring checkout")
     relative = path.resolve().relative_to(publication_repo).as_posix()
     local = path.read_bytes()
     head = subprocess.check_output(["git", "show", f"HEAD:{relative}"], cwd=publication_repo)
@@ -756,11 +820,13 @@ def _reserve_timing_attempt(out: Path, registration: Mapping[str, Any]) -> None:
         raise RegistrationError("timing history already passed; no further attempt is allowed")
     if len(attempts) >= TIMING_MAX_ATTEMPTS:
         raise RegistrationError("timing attempt cap is 3; a fourth attempt is refused")
+    require_published_history(registration)
     expected = parent / f"attempt-{len(attempts) + 1:02d}"
     if out.absolute() != expected or out.resolve() != expected:
         raise RegistrationError(
             f"timing attempt must use the next registered directory: {expected}"
         )
+    claim_phase(out, registration)
     try:
         out.mkdir(parents=True, exist_ok=False)
     except FileExistsError as exc:
@@ -779,6 +845,7 @@ def _require_latest_timing_attempt(
         raise RegistrationError(
             "earlier timing attempts must be INCONCLUSIVE-retry or ADMISSION_REFUSED"
         )
+    require_published_history(registration)
     latest = attempts[-1][0]
     if timing.get("source_validation_path") != str(latest / "source_validated.json") or _load(
         latest / "timing_gate.json"
@@ -934,7 +1001,9 @@ def run_timing_gate(
         raise
     except HostContentionError as exc:
         guard.close()
-        verdict = "INCONCLUSIVE-retry" if scored_contention() else "INCONCLUSIVE"
+        verdict = _interruption_verdict(exc, guard)
+        if verdict == "INCONCLUSIVE" and scored_contention():
+            verdict = "INCONCLUSIVE-retry"
         _write_new(
             out / "host_snapshots.json",
             {
@@ -954,7 +1023,7 @@ def run_timing_gate(
             },
         )
         return {"status": verdict, "reason": str(exc)}
-    except Exception as exc:
+    except BaseException as exc:
         guard.close()
         unconditional = (
             isinstance(exc, (UnconditionalFault, timing_v2.ProbeFault))
@@ -981,11 +1050,7 @@ def run_timing_gate(
             out / "decision.json",
             {
                 "schema": "t34-pathb-v2-decision/v1",
-                "verdict": (
-                    "KILL"
-                    if unconditional
-                    else "INCONCLUSIVE-retry" if scored_contention() else "INCONCLUSIVE"
-                ),
+                "verdict": ("KILL" if unconditional else _interruption_verdict(exc, guard)),
                 "reason": f"timing execution fault: {type(exc).__name__}: {exc}",
                 "release_authorized": False,
                 "faults": faults,
@@ -1030,6 +1095,77 @@ def run_timing_gate(
                 "automatic_retry": False,
             },
         )
+
+
+def _reserve_phase(out: Path, registration: Mapping[str, Any], phase: str) -> None:
+    """Atomically reserve the only precheck/efficacy directory before admission."""
+    if phase not in ("precheck", "efficacy"):
+        raise RegistrationError("unknown fixed phase")
+    timing_attempt_parent(registration)
+    expected = Path(registration["study_root"]) / phase
+    if out.absolute() != expected or out.resolve() != expected:
+        raise RegistrationError(f"{phase} must use its fixed phase directory: {expected}")
+    if out.exists():
+        raise RegistrationError(f"{phase} output root must be fresh")
+    require_published_history(registration)
+    claim_phase(out, registration)
+    try:
+        out.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        raise RegistrationError(f"{phase} output root must be fresh") from exc
+    reservation = _TIMING_RESERVATION.get()
+    if reservation is not None:
+        reservation[0] = True
+    _write_new(out / "phase_reservation.json", {"phase": phase, "pid": os.getpid()})
+
+
+def _require_fixed_precheck(precheck: Mapping[str, Any], registration: Mapping[str, Any]) -> None:
+    """Accept only the original receipt at the registered precheck directory."""
+    study = registration.get("study_root")
+    if not isinstance(study, str):
+        raise RegistrationError("efficacy requires its fixed precheck study_root")
+    path = Path(study) / "precheck"
+    if (
+        precheck.get("source_validation_path") != str(path / "source_validated.json")
+        or path.is_symlink()
+        or (path / "precheck.json").is_symlink()
+        or _load(path / "precheck.json") != dict(precheck)
+    ):
+        raise RegistrationError("efficacy accepts only the fixed precheck receipt")
+
+
+def _interruption_verdict(exc: BaseException, guard: Any) -> str:
+    """Only a contemporaneous measured HostGuard cause excuses interruption."""
+    if isinstance(exc, (KeyboardInterrupt, SystemExit)) or not isinstance(exc, HostContentionError):
+        return "KILL"
+    records = getattr(guard, "records", [])
+    recognized = {
+        "ac_power_lost",
+        "lid_closed",
+        "thermal_not_ok",
+        "load_1m_excess",
+        "other_cpu_sustained",
+        "known_heavy_process",
+    }
+    # Sampler failures and absent telemetry are not measurements. A prior
+    # transient cannot excuse a later unrelated interruption.
+    if getattr(guard, "_sample_error", None) is not None or not records:
+        return "KILL"
+    measured = getattr(exc, "measured_records", [])
+    if measured and all(
+        row in records
+        and row.get("contended") is True
+        and row.get("reasons")
+        and set(row["reasons"]) <= recognized
+        for row in measured
+    ):
+        exc._retention_measured_interruption = True
+        return "INCONCLUSIVE"
+    return "KILL"
+
+
+def _operator_signal(signum: int, _frame: Any) -> None:
+    raise KeyboardInterrupt(f"operator signal {signum}")
 
 
 def _phase_debit(receipt: Mapping[str, Any]) -> tuple[float, float]:
@@ -1226,7 +1362,8 @@ def _precheck_rows(
         raise RegistrationError(
             "real pre-check requires a ratified registration and passed timing gate"
         )
-    require_timing_gate(timing_gate, registration)
+    if phase_start is None:
+        require_timing_gate(timing_gate, registration)
     _require_committed_pushed_registration(registration_path, registration)
     require_registration(registration, None)
     _phase_debit(timing_gate)
@@ -1329,14 +1466,12 @@ def run_precheck(
         raise RegistrationError("pre-check requires a fresh output root")
     _require_committed_pushed_registration(registration_path, registration)
     require_registration(registration, None)
-    if out.exists():
-        raise RegistrationError("pre-check output root must be fresh")
+    _reserve_phase(out, registration, "precheck")
     guard = host_guard or HostGuard(
         registration["load_profile"], phase_cap_seconds=PHASE_CAP_SECONDS["precheck"]
     )
     try:
         guard.admit()
-        out.mkdir(parents=True, exist_ok=False)
         phase_start = (time.monotonic(), time.process_time())
         receipt = _precheck_rows(
             rows, open_terminal, guard, timing_gate, registration, registration_path, phase_start
@@ -1344,9 +1479,12 @@ def run_precheck(
         receipt["source_validation_path"] = str((out / "source_validated.json").resolve())
         _write_new(out / "precheck.json", receipt)
         return receipt
-    except HostAdmissionError:
+    except HostAdmissionError as exc:
+        _write_new(
+            out / "admission_refused.json", {"status": "ADMISSION_REFUSED", "reason": str(exc)}
+        )
         raise
-    except Exception as exc:
+    except BaseException as exc:
         faults = (
             [str(exc)]
             if isinstance(exc, (UnconditionalFault, timing_v2.ProbeFault))
@@ -1367,7 +1505,7 @@ def run_precheck(
             out / "decision.json",
             {
                 "schema": "t34-pathb-v2-decision/v1",
-                "verdict": "KILL" if faults else "INCONCLUSIVE",
+                "verdict": "KILL" if faults else _interruption_verdict(exc, guard),
                 "reason": f"pre-check stopped: {type(exc).__name__}: {exc}",
                 "release_authorized": False,
             },
@@ -1404,11 +1542,10 @@ def run_registered(
         raise RegistrationError("pre-check exceeded its separate 8-hour elapsed cap")
     started = phase_started - timing_elapsed
     cpu_started = phase_cpu - timing_cpu
+    _require_fixed_precheck(precheck, registration)
     require_registration(registration, precheck)
     _require_committed_pushed_registration(registration_path, registration)
     _execution_guard()
-    if out.exists():
-        raise RegistrationError("output root must be fresh")
     terminal_rows = list(registration.get("terminal_rows", ()))
     product_rows = list(registration.get("product_rows", ()))
     if len(terminal_rows) != TERMINAL_PER_MIX * len(MIXES) or len(product_rows) != PRODUCT_SESSIONS:
@@ -1427,6 +1564,7 @@ def run_registered(
         raise RegistrationError("registered bank rows must not repeat seeds")
     if set(terminal_seeds) & set(product_seeds):
         raise RegistrationError("terminal and continuous banks must be disjoint")
+    _reserve_phase(out, registration, "efficacy")
     windows = {arm: ActionWindow() for arm in MAC_ARMS}
     guard = HostGuard(registration["load_profile"], phase_cap_seconds=PHASE_CAP_SECONDS["study"])
     guard.check_budget = lambda: _cap(started, cpu_started)
@@ -1529,9 +1667,12 @@ def run_registered(
                 "host_snapshots": guard.records if guard is not None else [],
             },
         )
-    except HostAdmissionError:
+    except HostAdmissionError as exc:
+        _write_new(
+            out / "admission_refused.json", {"status": "ADMISSION_REFUSED", "reason": str(exc)}
+        )
         raise
-    except Exception as exc:
+    except BaseException as exc:
         # Timing probes use the same adapter hooks as collection. A nonfinite
         # Q there is the same unconditional fault, even before a row is saved.
         faults = (
@@ -1554,7 +1695,7 @@ def run_registered(
             out / "decision.json",
             {
                 "schema": "t34-pathb-v2-decision/v1",
-                "verdict": "INCONCLUSIVE" if not faults else "KILL",
+                "verdict": _interruption_verdict(exc, guard) if not faults else "KILL",
                 "reason": f"{type(exc).__name__}: {exc}",
                 "release_authorized": False,
             },
@@ -1569,7 +1710,7 @@ def run_registered(
     except TimeoutError as exc:
         result = {
             "schema": "t34-pathb-v2-decision/v1",
-            "verdict": "INCONCLUSIVE",
+            "verdict": "KILL",
             "reason": f"analysis reached registered cap: {exc}",
             "release_authorized": False,
         }
@@ -1586,6 +1727,8 @@ def run_registered(
 
 
 def main() -> int:
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, _operator_signal)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "action",
@@ -1684,15 +1827,18 @@ def main() -> int:
         if not decision_path.is_file():
             parser.error("analyze is descriptive only and requires the create-only decision.json")
         official = _load(decision_path)
-        invalidation = (
-            _load(args.out / "source_failure.json")
-            if (args.out / "source_failure.json").exists()
-            else None
+        invalidation = next(
+            (
+                _load(args.out / name)
+                for name in ("source_failure.json", "interruption.json")
+                if (args.out / name).exists()
+            ),
+            None,
         )
         effective = (
             {
-                "verdict": "INCONCLUSIVE",
-                "reason": "source fence invalidated saved decision",
+                "verdict": "KILL",
+                "reason": "source failure or unmeasured interruption invalidated saved decision",
                 "release_authorized": False,
             }
             if invalidation is not None
@@ -1720,6 +1866,12 @@ def main() -> int:
         if args.registration is None or args.precheck is None or args.timing_gate is None:
             parser.error("run needs --registration, --precheck, and --timing-gate")
         registration = _load(args.registration)
+        expected_precheck = Path(registration["study_root"]) / "precheck" / "precheck.json"
+        if (
+            args.precheck.absolute() != expected_precheck
+            or args.precheck.resolve() != expected_precheck
+        ):
+            parser.error("run accepts only <study_root>/precheck/precheck.json")
         _require_committed_pushed_registration(args.registration, registration)
         result = run_registered(
             args.out,

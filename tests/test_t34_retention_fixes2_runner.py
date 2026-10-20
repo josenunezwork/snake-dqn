@@ -90,6 +90,9 @@ def test_registered_phase_does_not_debit_precheck_from_forty_hour_budget(
     )
 
     registration = {
+        "study_root": str(tmp_path),
+        "timing_attempt_parent": str(tmp_path / "timing"),
+        "timing_max_attempts": 3,
         "ratified": False,
         "load_profile": {},
         "source_commit": "a" * 40,
@@ -103,6 +106,8 @@ def test_registered_phase_does_not_debit_precheck_from_forty_hour_budget(
         "timing_gate_sha256": retention_v2._canonical_sha(timing_gate),
         "registration_sha256": retention_v2._canonical_sha(registration),
     }
+    precheck["source_validation_path"] = str(tmp_path / "precheck/source_validated.json")
+    retention_v2._write_new(tmp_path / "precheck/precheck.json", precheck)
     session = SimpleNamespace(
         controller_state=lambda: {},
         close=lambda **_kwargs: None,
@@ -116,7 +121,7 @@ def test_registered_phase_does_not_debit_precheck_from_forty_hour_budget(
     adapter = SimpleNamespace(open_terminal=open_session, open_watch=open_session)
 
     result = retention_v2.run_registered(
-        tmp_path / "run",
+        tmp_path / "efficacy",
         registration,
         precheck,
         adapter=adapter,
@@ -126,7 +131,7 @@ def test_registered_phase_does_not_debit_precheck_from_forty_hour_budget(
 
     assert result == {"verdict": "INCONCLUSIVE"}
     assert opened == [(24, "bare"), (24, "paced")] * 2
-    record = json.loads((tmp_path / "run/records/terminal-000.json").read_text())
+    record = json.loads((tmp_path / "efficacy/records/terminal-000.json").read_text())
     assert set(record["arms"]) == {"bare", "paced"}
     assert captured_starts
     # run_registered subtracts the timing phase only.  If the pre-check were
@@ -172,7 +177,7 @@ def test_collect_uses_nonblocking_cached_host_checks(monkeypatch: pytest.MonkeyP
     assert result["host_contended_ticks"] == [False, False, False]
 
 
-def test_frozen_source_close_failure_retains_an_inconclusive_marker(
+def test_frozen_source_close_failure_retains_a_kill_marker(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     from research.t34_pathb import source_binding_v2
@@ -192,21 +197,22 @@ def test_frozen_source_close_failure_retains_an_inconclusive_marker(
     @retention_v2._frozen_execution
     def phase(out: Path, registration: dict) -> str:
         out.mkdir()
+        retention_v2._TIMING_RESERVATION.get()[0] = True
         return "completed"
 
     with pytest.raises(source_binding_v2.SourceBindingError, match="HEAD moved"):
         phase(
-            tmp_path / "run",
+            tmp_path / "efficacy",
             {"ratified": True, "source_commit": "a" * 40},
         )
-    marker = tmp_path / "run" / "source_failure.json"
+    marker = tmp_path / "efficacy" / "source_failure.json"
     assert marker.is_file()
     assert marker.read_text().find('"invalidates_decision": true') >= 0
 
 
 def test_restored_pass_receipt_cannot_bypass_source_failure_marker(tmp_path: Path) -> None:
     """A late fence failure invalidates a restored PASS receipt beside its certificate."""
-    out = tmp_path / "run"
+    out = tmp_path / "efficacy"
     out.mkdir()
     certificate_path = out / "source_validated.json"
     receipt = {
@@ -254,3 +260,17 @@ def test_phase_source_requires_certificate_for_each_admission_receipt(
     certificate_path.write_text(json.dumps(certificate))
     with pytest.raises(retention_v2.RegistrationError, match="does not bind"):
         retention_v2._require_phase_source(receipt, receipt_name)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_published_history(monkeypatch):
+    """These focused local tests isolate the FIX6 Git transport boundary.
+
+    Actual publication, receipt deletion and tampering are exercised against
+    a real temporary Git remote in test_t34_retention_fixes6.py.
+    """
+    from research.t34_pathb import retention_v2 as runner
+
+    monkeypatch.setattr(runner, "require_published_history", lambda *_: None)
+    monkeypatch.setattr(runner, "finalize_phase", lambda *_: None)
+    monkeypatch.setattr(runner, "claim_phase", lambda *_: None)

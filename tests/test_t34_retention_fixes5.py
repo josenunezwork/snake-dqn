@@ -18,6 +18,10 @@ from tests.test_t34_retention_fixes4 import _fake_gate
 def _registration(tmp_path):
     return {
         "study_root": str(tmp_path),
+        "history_ledger": {
+            "repo": str(tmp_path),
+            "path": f"research/t34_pathb/ledger/{tmp_path.name}.jsonl",
+        },
         "timing_attempt_parent": str(tmp_path / "timing"),
         "timing_max_attempts": 3,
         "source_commit": "a" * 40,
@@ -446,3 +450,17 @@ def test_retry_remains_pending_until_enclosing_source_fence_finishes(
         )
         assert runner._load(out / "timing_finalized.json")["source_failed"] is False
         runner._reserve_timing_attempt(out.with_name("attempt-02"), registration)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_published_history(monkeypatch):
+    """These focused local tests isolate the FIX6 Git transport boundary.
+
+    Actual publication, receipt deletion and tampering are exercised against
+    a real temporary Git remote in test_t34_retention_fixes6.py.
+    """
+    from research.t34_pathb import retention_v2 as runner
+
+    monkeypatch.setattr(runner, "require_published_history", lambda *_: None)
+    monkeypatch.setattr(runner, "finalize_phase", lambda *_: None)
+    monkeypatch.setattr(runner, "claim_phase", lambda *_: None)
