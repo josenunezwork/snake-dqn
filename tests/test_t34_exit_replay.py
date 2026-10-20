@@ -107,7 +107,11 @@ def test_replay_rejects_entire_world_before_returning_observations(
     checkpoint = _checkpoint(tmp_path)
     exported = normalize_world(_result(checkpoint))
     monkeypatch.setattr(replay, "state_hash", lambda sim: f"h{sim.frame}")
-    observe = lambda world, label: {"decision": int(label["decision"])}
+
+    def observe(world, label):
+        del world
+        return {"decision": int(label["decision"])}
+
     result = replay.replay_world(
         exported, checkpoint, build_world=lambda row, ckpt: _FakeWorld(), observe=observe
     )

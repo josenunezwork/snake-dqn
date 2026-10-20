@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import importlib
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any, Mapping
@@ -15,13 +16,21 @@ def _cpu_ceiling(threads: int) -> None:
     """Install the cap only after legacy import-time env mutations finish."""
     if threads < 1:
         raise ValueError("threads must be positive")
-    for key, value in {"NUMBA_NUM_THREADS": str(threads), "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "VECLIB_MAXIMUM_THREADS": "1"}.items():
+    for key, value in {
+        "NUMBA_NUM_THREADS": str(threads),
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+    }.items():
         os.environ[key] = value
     import numba
+
     # Phase-0/T33 modify NUMBA_NUM_THREADS while importing.  Do that before
     # creating a pool so later compiler config reloads stay coherent.
     import research.phase0_search_20261019.teacher  # noqa: F401
     import research.t33_batched_teacher.teacher  # noqa: F401
+
     os.environ["NUMBA_NUM_THREADS"] = str(threads)
     numba.config.reload_config()
     numba.set_num_threads(threads)
@@ -36,9 +45,16 @@ def _load_policy(config: Mapping[str, Any]) -> Any | None:
     module, name = reference.split(":", 1)
     try:
         factory = getattr(importlib.import_module(module), name)
-        policy = factory(device=str(config["device"]), checkpoint=Path(str(config.get("student_checkpoint") or config["checkpoint"])))
-        if not callable(getattr(policy, "evaluate", None)) or not callable(getattr(policy, "evaluate_rows", None)):
-            raise TypeError("policy must implement evaluate(world) and evaluate_rows(sim, rows, net)")
+        policy = factory(
+            device=str(config["device"]),
+            checkpoint=Path(str(config.get("student_checkpoint") or config["checkpoint"])),
+        )
+        if not callable(getattr(policy, "evaluate", None)) or not callable(
+            getattr(policy, "evaluate_rows", None)
+        ):
+            raise TypeError(
+                "policy must implement evaluate(world) and evaluate_rows(sim, rows, net)"
+            )
         return policy
     except Exception as exc:
         raise RuntimeError(f"unsupported rollout-policy adapter {reference!r}") from exc
@@ -50,8 +66,13 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
     threads = int(config.get("threads", 5))
     device = str(config.get("device", "cuda"))
     max_worlds = int(config.get("max_worlds", config.get("worlds", 1)))
-    if max_worlds < 1:
+    if not 1 <= max_worlds <= 10000:
         raise ValueError("max_worlds must be positive")
+    seconds = float(config.get("seconds", 600 if preflight else 10200))
+    if not math.isfinite(seconds) or not 0 < seconds <= (600 if preflight else 10200):
+        raise ValueError("label wall bound exceeds the registered limit")
+    if not 1 <= int(config.get("frames", 5000)) <= 5000:
+        raise ValueError("label frames must lie in [1, 5000]")
     if preflight:
         if max_worlds > 2 or int(config.get("frames", 5000)) > 500:
             raise ValueError("A6 label preflight is capped at two worlds and 500 frames")
@@ -65,15 +86,37 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
         if key not in config:
             raise ValueError(f"label chunk requires {key}")
     _cpu_ceiling(threads)
-    from research.t34_exit_b8.trajectory import run_worlds
     import numba
+
+    from research.t34_exit_b8.trajectory import run_worlds
 
     # Phase-0 compatibility imports can rewrite these defaults; the configured
     # limit remains the actual Numba ceiling and labels use the recipe device.
     os.environ["SNAKE_DQN_DEVICE"] = device
     numba.set_num_threads(threads)
-    result = run_worlds({**config, "policy": _load_policy(config), "max_worlds": max_worlds})
-    result.update({"schema": "t34-exit-label-chunk/v1", "preflight": preflight, "round": str(config["round"]), "shard": int(config["shard"]), "attempt": int(config["attempt"]), "recipe": {"workers": 1 if preflight else 2, "threads_per_worker": threads, "device": device, "horizon": int(config.get("horizon", 300))}})
+    result = run_worlds(
+        {
+            **config,
+            "policy": _load_policy(config),
+            "max_worlds": max_worlds,
+            "worlds_per_process": min(2, max_worlds) if preflight else 256,
+        }
+    )
+    result.update(
+        {
+            "schema": "t34-exit-label-chunk/v1",
+            "preflight": preflight,
+            "round": str(config["round"]),
+            "shard": int(config["shard"]),
+            "attempt": int(config["attempt"]),
+            "recipe": {
+                "workers": 1,
+                "threads_per_worker": threads,
+                "device": device,
+                "horizon": int(config.get("horizon", 300)),
+            },
+        }
+    )
     return result
 
 
@@ -109,7 +152,10 @@ def main() -> None:
     parser.add_argument("--beta", type=float, default=1.0)
     parser.add_argument("--preflight", action="store_true")
     args = parser.parse_args()
-    _write_once(args.out, run_label_chunk(vars(args)))
+    result = run_label_chunk(vars(args))
+    _write_once(args.out, result)
+    if not result["complete"]:
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

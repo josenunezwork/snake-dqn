@@ -198,6 +198,7 @@ def normalize_world(result: Mapping[str, Any]) -> dict[str, Any]:
         "mix": str(raw["mix"]),
         "row": row,
         "checkpoint_sha256": str(raw["checkpoint_sha256"]),
+        "rollout_policy_sha256": str(raw.get("rollout_policy_sha256", raw["checkpoint_sha256"])),
         "actions": [[int(action) for action in frame] for frame in actions],
         "hashes": hashes,
         "rng_stream_ids": _plain(raw.get("rng_stream_ids", {"food": seed, "scripted": seed})),

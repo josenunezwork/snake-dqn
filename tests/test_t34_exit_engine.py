@@ -108,7 +108,8 @@ def test_failure_expands_all_alternatives_and_prefers_highest_q_survivor() -> No
     assert diagnostic.forbidden == (0, 1, 3, 5)
     assert diagnostic.outcomes[2].survives
     assert diagnostic.outcomes[4].survives
-    assert diagnostic.active_row_steps < diagnostic.resident_row_steps
+    assert diagnostic.active_row_steps == diagnostic.resident_row_steps
+    assert diagnostic.active_row_steps < diagnostic.nominal_row_steps
     assert teacher.profile()["expansions"] == 1
 
 

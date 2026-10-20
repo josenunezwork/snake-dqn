@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # T34 A5 transport entrypoint. The supervisor owns allocation and export.
 set -euo pipefail
+started_seconds=${SECONDS}
 
 if [[ -n "${COLAB_CLI_ROOT:-}" ]]; then
   [[ "${T34_INPUT_MODE:-public}" == "public" ]] || { echo "runtime accepts public input mode only" >&2; exit 2; }
@@ -30,21 +31,23 @@ terminate_children() {
   sleep 2
   kill -KILL "${pids[@]}" 2>/dev/null || true
 }
-watchdog=""
 cleanup() {
   terminate_children
-  [[ -z "${watchdog}" ]] || kill "${watchdog}" 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 143' INT TERM
 for lane in 0 1; do
   NUMBA_NUM_THREADS="${threads}" python -m research.t34_exit_b8.benchmark --checkpoint "${input_root}/B8_s3_final.pth" --output-dir "${output_root}/lane${lane}/worlds" --out "${output_root}/benchmark-lane${lane}.json" --worlds "${worlds}" --max-worlds "${T34_MAX_WORLDS:-256}" --frames "${T34_FRAMES:-5000}" --seconds "${T34_SECONDS:-1500}" --horizon "${T34_HORIZON:-300}" --threads "${threads}" --device "${device}" --namespace "${T34_NAMESPACE:-t34-exit-a5/v1}/lane${lane}" &
   pids+=("$!")
 done
-( sleep "$(( ${T34_SECONDS:-1500} + 30 ))"; terminate_children ) &
-watchdog="$!"
 status=0
 remaining=("${pids[@]}")
 while ((${#remaining[@]})); do
+  if (( SECONDS - started_seconds >= ${T34_SECONDS:-1500} + 30 )); then
+    status=124
+    terminate_children
+    break
+  fi
   next=()
   reaped=0
   for pid in "${remaining[@]}"; do
@@ -60,8 +63,6 @@ while ((${#remaining[@]})); do
   (( reaped )) || sleep 1
 done
 for pid in "${pids[@]}"; do wait "${pid}" 2>/dev/null || true; done
-kill "${watchdog}" 2>/dev/null || true
-wait "${watchdog}" 2>/dev/null || true
 trap - EXIT INT TERM
 (( status == 0 )) || exit "${status}"
 python -m research.t34_exit_b8.benchmark --aggregate "${output_root}/benchmark-lane0.json" "${output_root}/benchmark-lane1.json" --out "${output_root}/benchmark-lane-aggregate.json"

@@ -54,8 +54,10 @@ def _rows(path: Path, *, local: bool) -> list[dict[str, Any]]:
     required = {"name", "dest", "size_bytes", "sha256"}
     if local:
         required.add("local_path")
-    if not isinstance(rows, list) or len(rows) != 6 or any(
-        not isinstance(row, dict) or not required.issubset(row) for row in rows
+    if (
+        not isinstance(rows, list)
+        or len(rows) != 6
+        or any(not isinstance(row, dict) or not required.issubset(row) for row in rows)
     ):
         raise ManifestRefused("T34 needs exactly six complete checkpoint identities")
     if {row["dest"] for row in rows} != EXPECTED_DESTINATIONS:
@@ -65,9 +67,9 @@ def _rows(path: Path, *, local: bool) -> list[dict[str, Any]]:
 
 def _same_identities(local: list[dict[str, Any]], public: list[dict[str, Any]]) -> bool:
     fields = ("name", "dest", "size_bytes", "sha256")
-    return {
-        tuple(row[field] for field in fields) for row in local
-    } == {tuple(row[field] for field in fields) for row in public}
+    return {tuple(row[field] for field in fields) for row in local} == {
+        tuple(row[field] for field in fields) for row in public
+    }
 
 
 def upload_inputs(rows: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
@@ -113,41 +115,94 @@ def make_manifest(
     if local_upload_preflight:
         inputs = upload_inputs(local)
         input_mode, claim = "local-preflight", "LOCAL_UPLOAD_PREFLIGHT_ONLY"
-        transport = {"mode": "local_upload_preflight", "status": "LOCAL_ONLY_NOT_A_PRODUCTION_CLAIM", "dispatch_ready": False}
+        transport = {
+            "mode": "local_upload_preflight",
+            "status": "LOCAL_ONLY_NOT_A_PRODUCTION_CLAIM",
+            "dispatch_ready": False,
+        }
     else:
         public = _rows(public_catalog_path, local=False)
         if not _same_identities(local, public):
             raise ManifestRefused("public catalog does not exactly bind the T34 inventory")
-        ready = all(isinstance(row.get("public_url"), str) and row["public_url"].startswith("https://") for row in public)
+        ready = all(
+            isinstance(row.get("public_url"), str) and row["public_url"].startswith("https://")
+            for row in public
+        )
         if ready:
             # The runtime consumes asset URLs (not the per-member convenience
             # fields), so validate that exact archive transport before calling
             # a draft dispatch-ready.
             from research.t34_exit_b8.public_inputs import _load
+
             _load(public_catalog_path)
         inputs = [_public_catalog_input(public_catalog_path)]
         input_mode, claim = "public", "DRAFT_NO_ALLOCATION_AUTHORIZED"
-        transport = {"mode": "public_release_urls", "status": "PUBLICATION_READY" if ready else "PUBLICATION_BLOCKED", "dispatch_ready": ready, "publishing_pending": not ready}
+        transport = {
+            "mode": "public_release_urls",
+            "status": "PUBLICATION_READY" if ready else "PUBLICATION_BLOCKED",
+            "dispatch_ready": ready,
+            "publishing_pending": not ready,
+        }
     if shard < 0 or attempt < 0:
         raise ManifestRefused("shard and attempt must be nonnegative")
     if kind == "benchmark":
-        script, job_id, estimate, cap = f"{PACKAGE}/bench.sh", f"t34-exit-b8-a5-s{shard}-a{attempt}", 15, 1.0
-        env = {"T34_WORLDS": "256", "T34_MAX_WORLDS": "256", "T34_FRAMES": "5000", "T34_SECONDS": "1500", "T34_NAMESPACE": f"t34-exit-a5/s{shard}/a{attempt}"}
+        script, job_id, estimate, cap = (
+            f"{PACKAGE}/bench.sh",
+            f"t34-exit-b8-a5-s{shard}-a{attempt}",
+            15,
+            1.0,
+        )
+        env = {
+            "T34_WORLDS": "256",
+            "T34_MAX_WORLDS": "256",
+            "T34_FRAMES": "5000",
+            "T34_SECONDS": "1500",
+            "T34_NAMESPACE": f"t34-exit-a5/s{shard}/a{attempt}",
+        }
     else:
         if shard < 0 or attempt < 0 or not round_id.replace("-", "").replace("_", "").isalnum():
             raise ManifestRefused("round, shard, and attempt must form a safe unique namespace")
         if worlds is None or not 1 <= worlds <= 10000:
             raise ManifestRefused("label worlds must be a bounded positive chunk count")
-        script, job_id, estimate, cap = f"{PACKAGE}/label.sh", f"t34-exit-b8-{round_id}-s{shard}-a{attempt}", 180, 12.0
-        env = {"T34_WORLDS": str(worlds), "T34_MAX_WORLDS": str(worlds), "T34_FRAMES": "5000", "T34_SECONDS": "10200", "T34_ROUND": round_id, "T34_SHARD": str(shard), "T34_ATTEMPT": str(attempt), "T34_NAMESPACE": f"t34-exit/{round_id}/s{shard}/a{attempt}"}
+        script, job_id, estimate, cap = (
+            f"{PACKAGE}/label.sh",
+            f"t34-exit-b8-{round_id}-s{shard}-a{attempt}",
+            180,
+            12.0,
+        )
+        env = {
+            "T34_WORLDS": str(worlds),
+            "T34_MAX_WORLDS": str(worlds),
+            "T34_FRAMES": "5000",
+            "T34_SECONDS": "10200",
+            "T34_ROUND": round_id,
+            "T34_SHARD": str(shard),
+            "T34_ATTEMPT": str(attempt),
+            "T34_NAMESPACE": f"t34-exit/{round_id}/s{shard}/a{attempt}",
+        }
     return {
         "job_id": job_id,
         "commit": commit,
         "script": script,
         "claim": claim,
         "transport": transport,
-        "env": {"PYTHONUNBUFFERED": "1", "T34_INPUT_MODE": input_mode, "T34_DEVICE": "cuda", "T34_WORKERS": "2", "T34_THREADS": "5", "NUMBA_NUM_THREADS": "5", "T34_HORIZON": "300", "T34_TELEMETRY_SECONDS": "120", **env},
-        "requirements": {"gpu": "L4", "allowed_gpus": ["L4"], "min_vcpu": 12, "est_minutes": estimate},
+        "env": {
+            "PYTHONUNBUFFERED": "1",
+            "T34_INPUT_MODE": input_mode,
+            "T34_DEVICE": "cuda",
+            "T34_WORKERS": "2",
+            "T34_THREADS": "5",
+            "NUMBA_NUM_THREADS": "5",
+            "T34_HORIZON": "300",
+            "T34_TELEMETRY_SECONDS": "120",
+            **env,
+        },
+        "requirements": {
+            "gpu": "L4",
+            "allowed_gpus": ["L4"],
+            "min_vcpu": 12,
+            "est_minutes": estimate,
+        },
         "timeout_minutes": 360 if kind == "label" else 30,
         "output_dir": str(output_dir),
         "inputs": inputs,
@@ -181,7 +236,18 @@ def main() -> None:
     parser.add_argument("--worlds", type=int)
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
-    manifest = make_manifest(kind=args.kind, commit=args.commit or git_head(), output_dir=args.output_dir, inventory_path=args.inventory, public_catalog_path=args.public_catalog, local_upload_preflight=args.local_upload_preflight, round_id=args.round, shard=args.shard, attempt=args.attempt, worlds=args.worlds)
+    manifest = make_manifest(
+        kind=args.kind,
+        commit=args.commit or git_head(),
+        output_dir=args.output_dir,
+        inventory_path=args.inventory,
+        public_catalog_path=args.public_catalog,
+        local_upload_preflight=args.local_upload_preflight,
+        round_id=args.round,
+        shard=args.shard,
+        attempt=args.attempt,
+        worlds=args.worlds,
+    )
     if args.validate:
         validate_manifest(manifest)
     args.out.parent.mkdir(parents=True, exist_ok=True)

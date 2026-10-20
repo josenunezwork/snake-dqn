@@ -37,7 +37,7 @@ class TriggerConfig:
             raise ValueError("trigger interval and length must be non-negative")
         if not 0.0 <= self.low_length_probability <= 1.0:
             raise ValueError("low_length_probability must be in [0, 1]")
-        if self.death_window < 1 or self.max_rewinds < 0:
+        if self.death_window < 1 or not 0 <= self.max_rewinds <= 2:
             raise ValueError("invalid death-window rewind limits")
 
     def fires(self, *, decision: int, length: int, seed: int) -> bool:
@@ -89,6 +89,7 @@ class DecisionDiagnostic:
     outcomes: dict[int, ActionOutcome]
     active_row_steps: int
     resident_row_steps: int
+    nominal_row_steps: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         """Return a JSON-ready representation without NumPy scalar leakage."""
@@ -129,6 +130,9 @@ class ExitTeacher:
         if device not in ("cpu", "mps", "cuda"):
             raise ValueError("device must be cpu, mps, or cuda")
         self.config, self.policy, self.device = config, (policy or B8Policy(device=device)), device
+        self._opponents = (
+            self.policy if isinstance(self.policy, B8Policy) else B8Policy(device=device)
+        )
         self.deadline: float | None = None
         self._profile: dict[str, int | float] = {
             "decisions": 0,
@@ -136,6 +140,7 @@ class ExitTeacher:
             "expansions": 0,
             "active_row_steps": 0,
             "resident_row_steps": 0,
+            "nominal_row_steps": 0,
             "policy_s": 0.0,
             "sim_s": 0.0,
         }
@@ -163,9 +168,7 @@ class ExitTeacher:
 
     def actions(self, world: Any, hero_action: int) -> np.ndarray:
         """Expose T3's six-snake dispatcher with the hero action overridden."""
-        if hasattr(self.policy, "dispatch"):
-            return action_grid(world, hero_action, device=self.device, cache=self.policy)
-        return action_grid(world, hero_action)
+        return action_grid(world, hero_action, device=self.device, cache=self._opponents)
 
     def choose(self, worlds: Sequence[Any]) -> tuple[np.ndarray, list[DecisionDiagnostic]]:
         """Verify each prepared world, expanding only those whose student action dies."""
@@ -173,6 +176,19 @@ class ExitTeacher:
         if not worlds:
             return np.empty(0, dtype=np.int64), []
         self._check_deadline()
+        if any(hasattr(world.sim, "cfg") for world in worlds) and not callable(
+            getattr(self.policy, "evaluate_rows", None)
+        ):
+            raise TypeError("rollout policy must implement evaluate and evaluate_rows")
+        networks = {
+            id(world.hero.net): world.hero.net for world in worlds if hasattr(world.hero, "net")
+        }
+        if len(networks) > 1:
+            from research.t33_batched_teacher.teacher import _model_digest
+
+            digests = {_model_digest(net) for net in networks.values()}
+            if len(digests) != 1:
+                raise ValueError("all roots must use identical student checkpoint weights")
         evaluations = [self.evaluate(world) for world in worlds]
         students = [evaluation.greedy_action() for evaluation in evaluations]
         if all(hasattr(world.sim, "cfg") for world in worlds):
@@ -206,7 +222,7 @@ class ExitTeacher:
                 if not outcome.survives and result[action].survives
             )
             active = sum(outcome.row_steps for outcome in result.values())
-            resident = len(result) * self.config.horizon
+            resident = active
             diagnostics.append(
                 DecisionDiagnostic(
                     student_action=student,
@@ -219,6 +235,7 @@ class ExitTeacher:
                     outcomes=result,
                     active_row_steps=active,
                     resident_row_steps=resident,
+                    nominal_row_steps=len(result) * self.config.horizon,
                 )
             )
             actions.append(action)
@@ -235,7 +252,14 @@ class ExitTeacher:
     def _clone(self, world: Any) -> Any:
         if not hasattr(world, "clone"):
             raise TypeError("ExitTeacher requires a captured world with clone()")
-        return world.clone()
+        clone = world.clone()
+        for policy in getattr(clone, "opponents", []):
+            for name in ("veto_counters", "boost_counters", "live_vetoes"):
+                if hasattr(policy, name):
+                    setattr(policy, name, {})
+            if hasattr(policy, "last_veto"):
+                policy.last_veto = None
+        return clone
 
     def _rollout(self, world: Any, actions: Iterable[int]) -> dict[int, ActionOutcome]:
         """Run requested first-actions in one T33 merged batch when available.
@@ -254,7 +278,7 @@ class ExitTeacher:
         alive_steps = {action: 0 for action in branches}
         mass = {action: 0.0 for action in branches}
         steps = {action: 0 for action in branches}
-        self._profile["resident_row_steps"] += len(branches) * self.config.horizon
+        self._profile["nominal_row_steps"] += len(branches) * self.config.horizon
         first = True
         for _ in range(self.config.horizon):
             self._check_deadline()
@@ -264,6 +288,7 @@ class ExitTeacher:
             for action, branch in remaining.items():
                 steps[action] += 1
                 self._profile["active_row_steps"] += 1
+                self._profile["resident_row_steps"] += 1
                 started = time.perf_counter()
                 if first:
                     self._first_step(branch, action)
@@ -356,13 +381,14 @@ class ExitTeacher:
         row_steps = np.zeros_like(alive_steps)
         mass = np.zeros_like(alive_steps, dtype=np.float64)
         survives = np.zeros_like(alive_steps, dtype=bool)
-        self._profile["resident_row_steps"] += count * self.config.horizon
+        self._profile["nominal_row_steps"] += count * self.config.horizon
         for tick in range(self.config.horizon):
             self._check_deadline()
             sim = merged.sim
             if not sim.E:
                 break
             self._profile["active_row_steps"] += int(sim.E)
+            self._profile["resident_row_steps"] += int(sim.E)
             self._profile["peak_active_rows"] = max(
                 int(self._profile.get("peak_active_rows", 0)), int(sim.E)
             )
@@ -398,6 +424,7 @@ class ExitTeacher:
             if not live.any():
                 break
             if not live.all() and tick + 1 < self.config.horizon:
+                self._profile["compactions"] = int(self._profile.get("compactions", 0)) + 1
                 merged, _ = self._compact_merged(merged, np.flatnonzero(live))
         for index, requested in enumerate(choices):
             results[index] = {
@@ -493,24 +520,13 @@ class ExitTeacher:
 
     def _dispatch_merged(self, merged: Any, grid: np.ndarray, active: np.ndarray) -> None:
         """Batch every frozen policy and retain Vector61's exact veto path."""
-        if hasattr(self.policy, "dispatch"):
-            self.policy.dispatch(merged.sim, merged.runtime, merged.opponents, grid)
-            return
-        for slot in range(1, merged.sim.S):
-            grouped: dict[int, list[int]] = {}
-            for env, row in enumerate(merged.opponents):
-                if active[env] and merged.sim.alive[env, slot]:
-                    grouped.setdefault(id(row[slot - 1]), []).append(env)
-            # Do not coalesce different shallow clones: their v8 hook state is
-            # environment-local.  Each call is still vectorised over matching
-            # rows when a caller deliberately supplies a shared stateless policy.
-            for envs in grouped.values():
-                policy = merged.opponents[envs[0]][slot - 1]
-                rows = np.column_stack((envs, np.full(len(envs), slot, dtype=np.int64)))
-                masks = merged.sim.get_resolved_action_mask()[rows[:, 0], slot]
-                grid[rows[:, 0], slot] = policy.actions(masks, merged.sim, rows)
+        del active
+        self._opponents.dispatch(merged.sim, merged.runtime, merged.opponents, grid)
 
     def _check_deadline(self) -> None:
+        progress = getattr(self, "progress", None)
+        if progress is not None:
+            progress()
         if self.deadline is not None and time.monotonic() >= self.deadline:
             raise TimeoutError("ExitTeacher deadline reached")
 

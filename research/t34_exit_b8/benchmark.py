@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import importlib
 import json
+import math
 import os
 import resource
 import time
@@ -23,16 +24,21 @@ def _cpu_ceiling(threads: int) -> None:
     if threads < 1:
         raise ValueError("threads must be positive")
     for key, value in {
-        "NUMBA_NUM_THREADS": str(threads), "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
-        "OPENBLAS_NUM_THREADS": "1", "VECLIB_MAXIMUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": str(threads),
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
     }.items():
         os.environ[key] = value
     import numba
+
     # These modules rewrite NUMBA_NUM_THREADS at import time.  Import them
     # before set_num_threads launches the pool, then restore the registered
     # ceiling before a compiler config reload can observe a 5->1 mismatch.
     import research.phase0_search_20261019.teacher  # noqa: F401
     import research.t33_batched_teacher.teacher  # noqa: F401
+
     os.environ["NUMBA_NUM_THREADS"] = str(threads)
     numba.config.reload_config()
     numba.set_num_threads(threads)
@@ -45,7 +51,10 @@ def _gpu_utilization() -> float | None:
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
-            capture_output=True, check=True, text=True, timeout=3,
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=3,
         )
         return float(result.stdout.splitlines()[0])
     except (OSError, subprocess.SubprocessError, ValueError, IndexError):
@@ -69,9 +78,16 @@ def _load_policy(config: Mapping[str, Any]) -> Any | None:
     module, name = reference.split(":", 1)
     try:
         factory = getattr(importlib.import_module(module), name)
-        policy = factory(device=str(config["device"]), checkpoint=Path(str(config.get("student_checkpoint") or config["checkpoint"])))
-        if not callable(getattr(policy, "evaluate", None)) or not callable(getattr(policy, "evaluate_rows", None)):
-            raise TypeError("policy must implement evaluate(world) and evaluate_rows(sim, rows, net)")
+        policy = factory(
+            device=str(config["device"]),
+            checkpoint=Path(str(config.get("student_checkpoint") or config["checkpoint"])),
+        )
+        if not callable(getattr(policy, "evaluate", None)) or not callable(
+            getattr(policy, "evaluate_rows", None)
+        ):
+            raise TypeError(
+                "policy must implement evaluate(world) and evaluate_rows(sim, rows, net)"
+            )
         return policy
     except Exception as exc:
         raise RuntimeError(f"unsupported rollout-policy adapter {reference!r}") from exc
@@ -83,6 +99,13 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
     worlds_per_process = int(config.get("worlds", 256))
     max_worlds = int(config.get("max_worlds", worlds_per_process))
     preflight = bool(config.get("preflight", False))
+    seconds = float(config.get("seconds", 1500))
+    if not math.isfinite(seconds) or not 0 < seconds <= (600 if preflight else 1500):
+        raise ValueError("benchmark wall bound must be positive and at most 1500s (600s preflight)")
+    if not preflight and threads != 5:
+        raise ValueError("A5 requires exactly five Numba threads per worker")
+    if preflight and int(config.get("frames", 5000)) > 500:
+        raise ValueError("A6 benchmark preflight is capped at 500 frames")
     if not preflight and worlds_per_process != 256:
         raise ValueError("A5 production benchmark requires exactly W=256 root worlds")
     if preflight and not 1 <= worlds_per_process <= 2:
@@ -104,15 +127,25 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
     if tuple(mixes) != ("scripted", "frozen", "mixed"):
         raise ValueError("A5 needs all three mixes in scripted,frozen,mixed order")
     _cpu_ceiling(threads)
-    from research.t34_exit_b8.trajectory import run_worlds
     import numba
+
+    from research.t34_exit_b8.trajectory import run_worlds
 
     os.environ["SNAKE_DQN_DEVICE"] = device
     numba.set_num_threads(threads)
     started = time.monotonic()
     policy = _load_policy(config)
-    result = run_worlds({**config, "policy": policy, "worlds_per_process": worlds_per_process, "max_worlds": max_worlds,
-                         "mixes": mixes, "output_dir": config["output_dir"]})
+    result = run_worlds(
+        {
+            **config,
+            "policy": policy,
+            "gpu_utilization_sampler": _gpu_utilization if device == "cuda" else None,
+            "worlds_per_process": worlds_per_process,
+            "max_worlds": max_worlds,
+            "mixes": mixes,
+            "output_dir": config["output_dir"],
+        }
+    )
     elapsed = time.monotonic() - started
     profile = dict(result.get("teacher_profile", {}))
     active = _profile_value(profile, "active_row_steps")
@@ -123,17 +156,36 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
         for name, metrics in dict(result["mixes"]).items()
     }
     result = {
-        "schema": "t34-a5-benchmark/v1", "complete": bool(result["complete"]), "preflight": preflight,
+        "schema": "t34-a5-benchmark/v1",
+        "complete": bool(result["complete"]),
+        "preflight": preflight,
         "preflight_total_root_cap": 2 if preflight else None,
-        "recipe": {"workers": 1, "threads_per_worker": threads, "root_worlds_per_worker": worlds_per_process, "horizon": 300, "device": device},
-        "elapsed_seconds": elapsed, "mixes": by_mix, "active_row_steps": active, "resident_row_steps": resident,
-        "active_row_steps_per_second": active / max(elapsed, 1e-9), "active_resident_fraction": active / max(resident, 1),
-        "completed_worlds": result["worlds"], "worlds_per_hour": result["worlds_per_hour"],
-        "decisions": result["decisions"], "decisions_per_second": result["decisions_per_second"],
-        "export_bytes": result["export_bytes"], "export_bytes_per_world": result["export_bytes_per_world"],
-        "configured_root_capacity": result["configured_root_capacity"], "peak_root_worlds": result["peak_root_worlds"],
-        "search_batch_peak": result["search_batch_peak"], "ram_peak_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * (1 if os.uname().sysname == "Darwin" else 1024),
-        "gpu_utilization_samples_percent": [] if sample is None else [sample],
+        "recipe": {
+            "workers": 1,
+            "threads_per_worker": threads,
+            "root_worlds_per_worker": worlds_per_process,
+            "horizon": 300,
+            "device": device,
+        },
+        "elapsed_seconds": elapsed,
+        "mixes": by_mix,
+        "active_row_steps": active,
+        "resident_row_steps": resident,
+        "active_row_steps_per_second": active / max(elapsed, 1e-9),
+        "active_resident_fraction": active / max(resident, 1),
+        "completed_worlds": result["worlds"],
+        "worlds_per_hour": result["worlds_per_hour"],
+        "decisions": result["decisions"],
+        "decisions_per_second": result["decisions_per_second"],
+        "export_bytes": result["export_bytes"],
+        "export_bytes_per_world": result["export_bytes_per_world"],
+        "configured_root_capacity": result["configured_root_capacity"],
+        "peak_root_worlds": result["peak_root_worlds"],
+        "search_batch_peak": result["search_batch_peak"],
+        "ram_peak_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        * (1 if os.uname().sysname == "Darwin" else 1024),
+        "gpu_utilization_samples_percent": list(result.get("gpu_utilization_samples_percent", []))
+        + ([] if sample is None else [sample]),
         "worker_rate_descriptive_only": True,
     }
     return result
@@ -161,11 +213,18 @@ def aggregate_lane_reports(paths: list[Path]) -> dict[str, Any]:
     active = sum(int(row["active_row_steps"]) for row in rows)
     resident = sum(int(row["resident_row_steps"]) for row in rows)
     rate = active / max(wall, 1e-9)
-    return {"schema": "t34-a5-lane-aggregate/v1", "complete": all(bool(row["complete"]) for row in rows), "workers": 2,
-            "worker_reports": [path.name for path in paths], "elapsed_seconds": wall,
-            "active_row_steps": active, "resident_row_steps": resident,
-            "active_row_steps_per_second": rate, "active_resident_fraction": active / max(resident, 1),
-            "go_rule": {"active_row_steps_per_second": 3000, "met": rate >= 3000, "enforced": False}}
+    return {
+        "schema": "t34-a5-lane-aggregate/v1",
+        "complete": all(bool(row["complete"]) for row in rows),
+        "workers": 2,
+        "worker_reports": [path.name for path in paths],
+        "elapsed_seconds": wall,
+        "active_row_steps": active,
+        "resident_row_steps": resident,
+        "active_row_steps_per_second": rate,
+        "active_resident_fraction": active / max(resident, 1),
+        "go_rule": {"active_row_steps_per_second": 3000, "met": rate >= 3000, "enforced": False},
+    }
 
 
 def main() -> None:

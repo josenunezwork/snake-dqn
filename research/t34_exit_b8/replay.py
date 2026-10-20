@@ -165,7 +165,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         json.dump(report, stream, sort_keys=True, indent=2, allow_nan=False)
         stream.write("\n")
     print(json.dumps(report, sort_keys=True))
-    return 2 if report["kill"] else 0
+    # This CLI is the P3/A2 identity gate, whose threshold is ZERO mismatches.
+    # The separate >2% ``kill`` field remains the fit-ingestion drop rule.
+    return 2 if report["kill"] or report["dropped"] else 0
 
 
 if __name__ == "__main__":

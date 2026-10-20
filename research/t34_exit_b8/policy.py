@@ -45,6 +45,9 @@ class RolloutPolicy(Protocol):
     def evaluate(self, world: Any) -> PolicyEvaluation:
         """Return decision-time float32 Q values and the legal action mask."""
 
+    def evaluate_rows(self, sim: Any, rows: np.ndarray, net: Any) -> np.ndarray:
+        """Return float32 (N, 6) rollout Qs at prepared compacted rows."""
+
 
 class _Fp32ModelCache:
     """Immutable source-model copies keyed only by weights identity and device."""
@@ -67,6 +70,13 @@ class B8Policy:
 
     def __init__(self, device: str = "cpu") -> None:
         self.device = str(device)
+        if self.device.startswith("cuda"):
+            # Float32 tensors alone do not exclude CUDA's reduced-mantissa
+            # TF32 convolution/matmul paths. Labels use the full fp32 recipe.
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.backends.cudnn.allow_tf32 = False
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
         self._models = _Fp32ModelCache(self.device)
 
     def _forward(self, net: Any, obs: dict[str, np.ndarray]) -> np.ndarray:

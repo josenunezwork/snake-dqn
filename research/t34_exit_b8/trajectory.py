@@ -10,6 +10,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import resource
+import sys
 import time
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -102,9 +105,19 @@ def make_world_rows(config: Mapping[str, Any], count: int) -> list[dict[str, Any
 
 def build_world(row: Mapping[str, Any], checkpoint: Path | str) -> Any:
     """Reuse the strict constructor, installing the plan's frozen v8 opponents."""
+    requested_threads = int(os.environ.get("NUMBA_NUM_THREADS", "1"))
+    requested_device = os.environ.get("SNAKE_DQN_DEVICE", "cpu")
     from research.phase0_search_20261019.teacher import build_world as base_build
 
     world = base_build(dict(row), checkpoint)
+    # Phase-0's compatibility import forces CPU/one thread. It is used only as
+    # a world constructor here; restore the explicit T34 recipe after that lazy
+    # import and before any labels or continuations execute.
+    import numba
+
+    os.environ["NUMBA_NUM_THREADS"] = str(requested_threads)
+    os.environ["SNAKE_DQN_DEVICE"] = requested_device
+    numba.set_num_threads(requested_threads)
     world.hero.net = _share_network(checkpoint, world.hero.net)
     # Different snake slots own independent v8 bookkeeping; model tensors alone
     # are shared. Veto hooks are keyed by environment, so sharing one hook among
@@ -352,15 +365,60 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
     teacher.deadline = deadline
     checkpoint = Path(str(config["checkpoint"]))
     checkpoint_sha = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+    rollout_checkpoint = Path(str(config.get("student_checkpoint") or checkpoint))
+    rollout_sha = hashlib.sha256(rollout_checkpoint.read_bytes()).hexdigest()
     output = Path(str(config["output_dir"]))
     output.mkdir(parents=True, exist_ok=True)
     done, decisions, active, resident, export_bytes = 0, 0, 0, 0, 0
-    mixes: dict[str, dict[str, int]] = {}
+    mixes = {str(row["mix"]): {"searched": 0, "expanded": 0, "worlds": 0} for row in rows}
     peak_roots = search_batch_peak = 0
     heartbeat = started
+    root_steps = boost_steps = teacher_flips = roots_started = 0
+    gpu_samples: list[float] = []
     iterator = iter(enumerate(rows))
     states: list[dict[str, Any]] = []
     exhausted = False
+
+    def progress() -> None:
+        nonlocal heartbeat
+        now = time.monotonic()
+        if now - heartbeat < 110:
+            return
+        elapsed = max(now - started, 1e-9)
+        profile = teacher.profile()
+        active_work = int(profile.get("active_row_steps", 0))
+        resident_work = int(profile.get("resident_row_steps", 0))
+        sampler = config.get("gpu_utilization_sampler")
+        if sampler is not None:
+            sample = sampler()
+            if sample is not None:
+                gpu_samples.append(float(sample))
+        print(
+            json.dumps(
+                {
+                    "event": "t34_progress",
+                    "done": done,
+                    "total": len(rows),
+                    "resident_roots": len(states),
+                    "elapsed_seconds": elapsed,
+                    "active_row_steps_per_second": active_work / elapsed,
+                    "resident_row_steps_per_second": resident_work / elapsed,
+                    "active_resident_fraction": active_work / max(1, resident_work),
+                    "expansion_fraction_per_mix": {
+                        mix: m["expanded"] / max(m["searched"], 1) for mix, m in mixes.items()
+                    },
+                    "worlds_per_hour": done * 3600 / elapsed,
+                    "boost_share": boost_steps / max(root_steps, 1),
+                    "flips_per_world": teacher_flips / max(roots_started, 1),
+                    "ram_peak_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+                    * (1 if sys.platform == "darwin" else 1024),
+                }
+            ),
+            flush=True,
+        )
+        heartbeat = now
+
+    teacher.progress = progress
     while time.monotonic() < deadline:
         while not exhausted and len(states) < capacity and time.monotonic() < deadline:
             pair = next(iterator, None)
@@ -369,6 +427,7 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                 break
             index, row = pair
             world = config.get("world_builder", build_world)(row, checkpoint)
+            roots_started += 1
             states.append(
                 {
                     "index": index,
@@ -389,6 +448,7 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                     "expanded": 0,
                 }
             )
+            progress()
         peak_roots = max(peak_roots, len(states))
         if not states:
             break
@@ -445,12 +505,17 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                 state["labels"].append(diag)
                 state["searched"] += 1
                 state["expanded"] += bool(diag.get("expanded", False))
+                mixes[str(state["row"]["mix"])]["searched"] += 1
+                mixes[str(state["row"]["mix"])]["expanded"] += bool(diag.get("expanded", False))
                 state["active"] += int(diag.get("active_row_steps", 0))
                 state["resident"] += int(diag.get("resident_row_steps", 0))
         remaining = []
         for state in states:
             world = state["world"]
             grid = teacher.actions(world, state["chosen"])
+            root_steps += 1
+            boost_steps += int(state["chosen"] >= 3)
+            teacher_flips += int(state["chosen"] != state["student"])
             world.sim.step(grid)
             world.runtime.observe_step(world.sim)
             state["actions"].append(np.asarray(grid[0], dtype=np.int64).tolist())
@@ -486,6 +551,7 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                 "mix": state["row"]["mix"],
                 "row": state["row"],
                 "checkpoint_sha256": checkpoint_sha,
+                "rollout_policy_sha256": rollout_sha,
                 "actions": state["actions"],
                 "hashes": state["hashes"],
                 "labels": state["labels"],
@@ -515,8 +581,6 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
             entry = mixes.setdefault(
                 str(state["row"]["mix"]), {"searched": 0, "expanded": 0, "worlds": 0}
             )
-            entry["searched"] += state["searched"]
-            entry["expanded"] += state["expanded"]
             entry["worlds"] += 1
             print(
                 json.dumps(
@@ -530,22 +594,9 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                 flush=True,
             )
         states = remaining
-        now = time.monotonic()
-        if now - heartbeat >= 110:
-            print(
-                json.dumps(
-                    {
-                        "event": "t34_progress",
-                        "done": done,
-                        "total": len(rows),
-                        "resident_roots": len(states),
-                        "elapsed_seconds": now - started,
-                        "active_row_steps": teacher.profile().get("active_row_steps", 0),
-                    }
-                ),
-                flush=True,
-            )
-            heartbeat = now
+        progress()
+    import numba
+
     elapsed = time.monotonic() - started
     return {
         "worlds": done,
@@ -561,9 +612,16 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
         "mixes": mixes,
         "export_bytes": export_bytes,
         "export_bytes_per_world": export_bytes / max(done, 1),
+        "world_rate_scope": "completed terminal-or-horizon worlds; unfinished roots are censored",
         "complete": done == len(rows),
         "configured_root_capacity": capacity,
         "peak_root_worlds": peak_roots,
         "search_batch_peak": search_batch_peak,
         "teacher_profile": teacher.profile(),
+        "actual_policy_device": str(getattr(teacher.policy, "device", config.get("device", "cpu"))),
+        "actual_numba_threads": int(numba.get_num_threads()),
+        "boost_share": boost_steps / max(root_steps, 1),
+        "flips_per_world": teacher_flips / max(roots_started, 1),
+        "root_steps_including_rewinds": root_steps,
+        "gpu_utilization_samples_percent": gpu_samples,
     }

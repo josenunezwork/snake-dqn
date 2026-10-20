@@ -15,12 +15,14 @@ def _checkpoint() -> str:
     inventory = json.loads(Path("research/t34_exit_b8/INPUTS_REQUIRED.json").read_text())
     if not all(Path(row["local_path"]).is_file() for row in inventory["inputs"]):
         pytest.skip("the pinned B8/frozen checkpoint inventory is unavailable")
-    return next(row["local_path"] for row in inventory["inputs"] if row["name"] == "B8_s3_final.pth")
+    return next(
+        row["local_path"] for row in inventory["inputs"] if row["name"] == "B8_s3_final.pth"
+    )
 
 
 def test_real_three_mix_exports_match_two_runs_in_two_processes(tmp_path: Path) -> None:
     checkpoint = _checkpoint()
-    program = r'''
+    program = r"""
 import sys
 from pathlib import Path
 import torch
@@ -39,17 +41,35 @@ for attempt in range(2):
     assert result['complete']
     assert result['search_batch_peak'] == 3
     assert result['teacher_profile']['peak_active_rows'] >= 3
-'''
+"""
     env = dict(os.environ)
-    for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-                 "VECLIB_MAXIMUM_THREADS", "NUMBA_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    for name in (
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "NUMBA_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+    ):
         env[name] = "1"
     env["SNAKE_DQN_DEVICE"] = "cpu"
     for process in range(2):
-        subprocess.run([sys.executable, "-c", program, str(tmp_path / str(process)), checkpoint],
-                       env=env, check=True, timeout=180, capture_output=True, text=True)
-    groups = [[path.read_bytes() for path in sorted((tmp_path / str(process) / str(run)).glob("world-*.json"))]
-              for process in range(2) for run in range(2)]
+        subprocess.run(
+            [sys.executable, "-c", program, str(tmp_path / str(process)), checkpoint],
+            env=env,
+            check=True,
+            timeout=180,
+            capture_output=True,
+            text=True,
+        )
+    groups = [
+        [
+            path.read_bytes()
+            for path in sorted((tmp_path / str(process) / str(run)).glob("world-*.json"))
+        ]
+        for process in range(2)
+        for run in range(2)
+    ]
     assert len(groups[0]) == 3
     assert groups[1:] == [groups[0]] * 3
 
@@ -67,11 +87,14 @@ def test_real_compaction_keeps_source_action_and_rng_identity() -> None:
 
     class StraightPolicy(B8Policy):
         def _forward(self, net, obs):
-            return np.tile(np.array([0, 10, 0, 0, 0, 0], dtype=np.float32), (len(obs["scalars"]), 1))
+            return np.tile(
+                np.array([0, 10, 0, 0, 0, 0], dtype=np.float32), (len(obs["scalars"]), 1)
+            )
 
     checkpoint = _checkpoint()
-    rows = make_world_rows({"namespace": "t34-exit-compaction-fixture/v1",
-                            "mixes": ("scripted", "frozen", "mixed")}, 3)
+    rows = make_world_rows(
+        {"namespace": "t34-exit-compaction-fixture/v1", "mixes": ("scripted", "frozen", "mixed")}, 3
+    )
     worlds = [build_world(row, checkpoint) for row in rows]
     for world in worlds:
         sim = world.sim
