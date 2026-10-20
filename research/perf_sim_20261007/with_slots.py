@@ -4,7 +4,8 @@ Usage: ``./venv/bin/python research/perf_sim_20261007/with_slots.py --slots 2 --
 
 Uses ``dev_screen.acquire_cpu_slots`` with the dev pool (slot 3 first, then 1, 2), so strict
 slots are taken only when the dev slot is busy. Every child gets ``OMP_NUM_THREADS=1`` and
-``SNAKE_DQN_DEVICE=cpu``. Refuses on battery or with the lid closed.
+``SNAKE_DQN_DEVICE=cpu``. Refuses on battery or with the lid closed before waiting for slots
+and again after slots are acquired.
 """
 
 from __future__ import annotations
@@ -46,9 +47,12 @@ def main() -> int:
     handles = dev_screen.acquire_cpu_slots(
         dev_screen.DEFAULT_SLOT_LOCK_ROOT, args.slots, args.timeout, pool=3
     )
-    print(f"holding {[h.name for h in handles]}", file=sys.stderr, flush=True)
-    env = dict(os.environ, OMP_NUM_THREADS="1", SNAKE_DQN_DEVICE="cpu", MKL_NUM_THREADS="1")
     try:
+        if not (on_ac() and lid_open()):
+            print("refusing: need AC power and lid open", file=sys.stderr)
+            return 2
+        print(f"holding {[h.name for h in handles]}", file=sys.stderr, flush=True)
+        env = dict(os.environ, OMP_NUM_THREADS="1", SNAKE_DQN_DEVICE="cpu", MKL_NUM_THREADS="1")
         return subprocess.call(cmd, env=env)
     finally:
         dev_screen.release_cpu_slots(handles)

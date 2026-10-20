@@ -1,0 +1,101 @@
+{
+  "artifacts": {
+    "parity-v1/comparison.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/phase0-search-20261019/parity-v1/comparison.json",
+      "sha256": "d45d822e44843ee49ee38c4f29acfd1304f0a291b2294929bbb9eb0f95d9cfbe"
+    },
+    "parity-v1/parallel-merged.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/phase0-search-20261019/parity-v1/parallel-merged.json",
+      "sha256": "32ef34e646b3e192346e6c32b6cfa03515b739a696b80d249c2a3fa44ca9dcc9"
+    },
+    "parity-v1/plan.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/phase0-search-20261019/parity-v1/plan.json",
+      "sha256": "fbea744ff5aa66edfe90bce7a8b9db5c8a6cc0607fc9cb5bb2910f53d46272e0"
+    },
+    "parity-v1/serial-merged.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/phase0-search-20261019/parity-v1/serial-merged.json",
+      "sha256": "32ef34e646b3e192346e6c32b6cfa03515b739a696b80d249c2a3fa44ca9dcc9"
+    },
+    "proof-v1/analysis-smoke-rejected.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/phase0-search-20261019/proof-v1/analysis-smoke-rejected.json",
+      "sha256": "41806d0a315911fbddf8b1b386b05bcb442cf781b33b21d112bf05281561465f"
+    },
+    "proof-v1/parallel-merged.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/phase0-search-20261019/proof-v1/parallel-merged.json",
+      "sha256": "632ae099dcd0a4069cc025fa6509f874223780b2b68f9993cd7c0a7ef0e7c547"
+    },
+    "proof-v1/plan.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/phase0-search-20261019/proof-v1/plan.json",
+      "sha256": "709741125ff030fadfec81eb34250e1cdc7118e11fa296c6753097c5b1c48f76"
+    },
+    "proof-v1/serial-merged.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/phase0-search-20261019/proof-v1/serial-merged.json",
+      "sha256": "632ae099dcd0a4069cc025fa6509f874223780b2b68f9993cd7c0a7ef0e7c547"
+    }
+  },
+  "limits": [
+    "No selection H5000 paired search bank was executed.",
+    "No Linux, Colab or remote CPU was accessed.",
+    "Eligible float32 ties remain rejected pending a separately verified forced replay.",
+    "One in-flight bounded search can finish after the next wall or thermal check becomes due."
+  ],
+  "lint": {
+    "black_line_length_100": "PASS",
+    "flake8": "PASS",
+    "git_diff_check": "PASS",
+    "isort_black_profile": "PASS"
+  },
+  "negative_controls": {
+    "draft_selection_prepare_exit": 2,
+    "smoke_analyzer_decision": "INVALID_INCOMPLETE",
+    "smoke_analyzer_exit": 2
+  },
+  "parity": {
+    "cross_platform_verified": false,
+    "exact_passes": 4,
+    "outer_horizon": 8,
+    "platforms": [
+      "Mac",
+      "Mac"
+    ],
+    "rollouts": 1,
+    "search_horizon": 2,
+    "workers": [
+      1,
+      2
+    ],
+    "worlds": 4
+  },
+  "proof_implementation_commit": "7b244508b79cbac385d814bb796b2e1974cd96c1",
+  "schema": "phase0-search-implementation-verification/v1",
+  "selection_launched": false,
+  "smoke": {
+    "byte_identical_merge": true,
+    "forced_search": true,
+    "outer_horizon": 8,
+    "resume_reused_partials": true,
+    "rollouts": 1,
+    "search_horizon": 2,
+    "workers": [
+      1,
+      2
+    ],
+    "worlds": 2
+  },
+  "source_sha256_at_final_tests": {
+    "research/phase0_search_20261019/__init__.py": "337a8841059801d6a0065ae6859448005b1cd1800fc89962552eecfcf334ec79",
+    "research/phase0_search_20261019/analyze.py": "1e213fb43cc329aaed93912e9fda36f6241348468a624cc74b9341d0a1b4f6c3",
+    "research/phase0_search_20261019/bank.py": "c5f5e3056d9ad2f0960175ca45e0b49697f54f6e973c46660792d4b5979e65e5",
+    "research/phase0_search_20261019/parity.py": "cab3b78c1ebf52fa65166af65e69a58cff4783321e3d6f5e3fcc662132591a87",
+    "research/phase0_search_20261019/preflight.py": "c5569b3d955615c0d31b8e400428a115bbc8a752dde37446f4ef224213d8a7cf",
+    "research/phase0_search_20261019/runner.py": "4253f20f56cfdf053ac601c23a17ad003858dec103d003965cd82b35a5695cee",
+    "research/phase0_search_20261019/teacher.py": "d15960f0dab45b3e08d49549990620e341a0e6b2c665654ebf669b43d9d14f17"
+  },
+  "status": "VERIFIED_LOCAL_IMPLEMENTATION_ONLY",
+  "test_command": "SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -m pytest -q tests/test_phase0_teacher.py tests/test_phase0_runner.py tests/test_phase0_bank_analysis.py tests/test_t4_snapshots.py tests/test_grid_sim_parity.py -k 'phase0 or snapshots or big_bodies_full_arena or direct_live_reference_parity'",
+  "tests": {
+    "deselected": 88,
+    "passed": 31,
+    "seconds": 8.46
+  }
+}

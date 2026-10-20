@@ -1,8 +1,24 @@
 # Current state — release updated 2026-10-17
 
 Start: [documentation map](README.md) · [study index](research/INDEX.md) · [glossary](research/GLOSSARY.md).
-This is a dated documentary snapshot, not a live job or deployment check. Newest Claude
-memory/decision records take precedence over older launch notes; source pointers are below.
+This is a dated documentary snapshot, not a live job or deployment check. The owner-ratified campaign
+documents named below take precedence over older launch notes and over memory; this file is updated
+when they change.
+
+## Campaign authority (owner-ratified 2026-10-19) — overrides older text
+
+Active campaign: **T34 ExIt-B8**. Binding documents on main, in order:
+[SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CONTRACT.md) ·
+[DESIGN_V2_SHADOW.md](research/final_run_20261019/DESIGN_V2_SHADOW.md) (+ Amendment 1) ·
+[P7_STATISTICS.md](research/final_run_20261019/P7_STATISTICS.md) · unsuperseded parts of
+[FINAL_PLAN.md](research/final_run_20261019/FINAL_PLAN.md).
+Superseded by them: the "single bare network only" goal (now **Claim A**; **Claim B** = a visibly labelled
+assisted hero may also succeed; bare wins unresolved ties); "beat frp3-s12+v8 without a veto" (met by B8 s3,
+closed); "M3-C next"; five-training-seed inference for fixed controllers (unit = paired world); historical
+FRP3/champion "Tier 1 + Tier 2" guards as automatic T34 obligations (comparator is B8 s3 for every bar);
+RunPod for T34 (none); the Q0/Q1 budget envelope. Watch product metrics are binding per contract §3.
+Kept: Mac-only strict gate and serving qualification, fresh paired banks, survival band v2, pre-data freezing.
+
 
 ## Released agent
 

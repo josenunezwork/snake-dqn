@@ -1,0 +1,48 @@
+{
+  "environment": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  },
+  "host": "macOS-27.2-arm64-arm-64bit",
+  "nice_requested": 10,
+  "python": "3.12.3",
+  "rounds": 3,
+  "rows_per_second": {
+    "v61_grid_array_staging": [
+      202176761.07538143,
+      215933157.41985878,
+      216216213.8832611
+    ],
+    "v61_list_staging": [
+      19562891.652261686,
+      22139792.462350603,
+      25786238.473927367
+    ],
+    "v8_owner_pad": [
+      574764.2569394362,
+      575137.1733122016,
+      588010.1153655268
+    ],
+    "v8_painted_reference": [
+      567278.3227244151,
+      737350.9785121856,
+      755533.7038057927
+    ]
+  },
+  "schema": "t33-round2-v8-v61-microbench/v1",
+  "shape": {
+    "envs": 48,
+    "snakes": 3,
+    "v8_rows": 48
+  },
+  "source_sha256": {
+    "research/t33_batched_teacher/v8_v61_microbench.py": "c04d1e7e686de9d79bd1f60bfbd078fbc7141cfd0745da1a28238ee482526e69",
+    "src/simd_env/ego_raster_bv8.py": "2d62739d3fca32f5d6d8ca4f2f6eaf363dc05a9af1615419865e26a97aca7a67",
+    "src/simd_env/v8_nb.py": "6bda3b12bf1eb5e93b21eb2b6ce072e4b4a8e7f5e801e611c60e07fe57d06584",
+    "src/simd_env/vector61_nb.py": "f433f87fe97d97af4e6600d804bd7b9e2534af348a4093f84c6304168bd57caa"
+  },
+  "threads": 1,
+  "warmup_excluded": true
+}

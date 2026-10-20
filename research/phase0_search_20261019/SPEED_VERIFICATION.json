@@ -1,0 +1,209 @@
+{
+  "L800_observed_maximum_score_error": 8.344650268554688e-07,
+  "benchmark_commands": [
+    {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/preflight.py",
+        "--bank",
+        "research/phase0_search_20261019/WORLD_BANK.json",
+        "--config",
+        "research/phase0_search_20261019/config.json",
+        "--mode",
+        "calibrate",
+        "--out",
+        "research/phase0_search_20261019/SPEED_CALIBRATION.json"
+      ],
+      "receipt": "research/phase0_search_20261019/SPEED_CALIBRATION.json"
+    },
+    {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/preflight.py",
+        "--bank",
+        "research/phase0_search_20261019/WORLD_BANK.json",
+        "--config",
+        "research/phase0_search_20261019/config.json",
+        "--mode",
+        "scaling",
+        "--workers",
+        "1",
+        "--out",
+        "research/phase0_search_20261019/SPEED_SCALING_1.json"
+      ],
+      "receipt": "research/phase0_search_20261019/SPEED_SCALING_1.json"
+    },
+    {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/preflight.py",
+        "--bank",
+        "research/phase0_search_20261019/WORLD_BANK.json",
+        "--config",
+        "research/phase0_search_20261019/config.json",
+        "--mode",
+        "scaling",
+        "--workers",
+        "2",
+        "--out",
+        "research/phase0_search_20261019/SPEED_SCALING_2.json"
+      ],
+      "receipt": "research/phase0_search_20261019/SPEED_SCALING_2.json"
+    },
+    {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/preflight.py",
+        "--bank",
+        "research/phase0_search_20261019/WORLD_BANK.json",
+        "--config",
+        "research/phase0_search_20261019/config.json",
+        "--mode",
+        "scaling",
+        "--workers",
+        "6",
+        "--out",
+        "research/phase0_search_20261019/SPEED_SCALING_6.json"
+      ],
+      "receipt": "research/phase0_search_20261019/SPEED_SCALING_6.json"
+    },
+    {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/preflight.py",
+        "--bank",
+        "research/phase0_search_20261019/WORLD_BANK.json",
+        "--config",
+        "research/phase0_search_20261019/config.json",
+        "--mode",
+        "timing",
+        "--rounds",
+        "3",
+        "--out",
+        "research/phase0_search_20261019/SPEED_TIMING_CPU.json"
+      ],
+      "receipt": "research/phase0_search_20261019/SPEED_TIMING_CPU.json"
+    },
+    {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/preflight.py",
+        "--bank",
+        "research/phase0_search_20261019/WORLD_BANK.json",
+        "--config",
+        "research/phase0_search_20261019/config.json",
+        "--mode",
+        "timing",
+        "--device",
+        "mps",
+        "--rounds",
+        "3",
+        "--out",
+        "research/phase0_search_20261019/SPEED_TIMING_MPS.json"
+      ],
+      "receipt": "research/phase0_search_20261019/SPEED_TIMING_MPS.json"
+    },
+    {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/profile_teacher.py",
+        "--implementation",
+        "batched",
+        "--device",
+        "cpu",
+        "--rounds",
+        "3",
+        "--out",
+        "research/phase0_search_20261019/PROFILE_CPU_FINAL.json"
+      ],
+      "receipt": "research/phase0_search_20261019/PROFILE_CPU_FINAL.json"
+    },
+    {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/profile_teacher.py",
+        "--implementation",
+        "batched",
+        "--device",
+        "mps",
+        "--rounds",
+        "3",
+        "--out",
+        "research/phase0_search_20261019/PROFILE_MPS_FINAL.json"
+      ],
+      "receipt": "research/phase0_search_20261019/PROFILE_MPS_FINAL.json"
+    }
+  ],
+  "boundaries": "No colab-safety worktree, Colab, RunPod, tmux, serving, released checkpoint or pin modifications.",
+  "cpu_mps_registered_oracle_cases": 18,
+  "full_N8_H128_L1500_mixed_scoring_equal_1_2_6_workers": true,
+  "implementation_head_before_report": "3fe804230f78e2dee423f86c52d4abe2b3dd9f97",
+  "independent_review": "No open correctness findings after rollout and byte-input reuse review; fixed Q-tie threshold is not a universal bound.",
+  "lint_commands": [
+    "./venv/bin/python -m black --check --line-length 100 research/phase0_search_20261019 tests/test_phase0_teacher_speed.py",
+    "./venv/bin/python -m isort --check-only --profile black research/phase0_search_20261019 tests/test_phase0_teacher_speed.py",
+    "./venv/bin/python -m flake8 research/phase0_search_20261019 tests/test_phase0_teacher_speed.py",
+    "git diff --check"
+  ],
+  "lint_pass": true,
+  "outcome": "IMPLEMENTED_FIXTURE_VERIFIED_CPU_20X_TARGET_NOT_MET",
+  "protected_file_sha256": {
+    "research/phase0_search_20261019/PREFLIGHT.json": "ce9c34556ebe1f7871988729b759707c89bc0c7964fa6e3bc6df31f0b39281c9",
+    "research/phase0_search_20261019/PREREGISTRATION.md": "0f195d9b6d35e1f748242c043735edb30b18bc358f12b0bee84cb5776fc8872d",
+    "research/phase0_search_20261019/SEED_AUDIT.json": "c7a461fbb78adba56cded523b0b0a767a4328b687394d4c5cd99baaa15ba3fe2",
+    "research/phase0_search_20261019/VERIFICATION.json": "c78f60483d02b1b8e5df522be39a67ebd275698cdadb71b54d42e6e389eb9fe8",
+    "research/phase0_search_20261019/WORLD_BANK.json": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+    "research/phase0_search_20261019/config.json": "36dd82d3a1f9f3225d6ba09a14e038109b2fe509228c6487ebf827c87e28405d",
+    "research/phase0_search_20261019/smoke_config.json": "c74c048c5f9dc4794137379f62bd0eaeee35aa8bc662a95d761a75bf7764714e"
+  },
+  "schema": "phase0-search-teacher-speed-verification/v1",
+  "score_absolute_tolerance": 0.001,
+  "smoke": {
+    "head": "3fe804230f78e2dee423f86c52d4abe2b3dd9f97",
+    "horizon": 8,
+    "merged_file_sha256": "075faaef06994259ffd5bbff6f13acf3b785f7dd3d1780c04bbf4568eacb5dc4",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/docs/agent_notes/phase0-speed-smoke-v1",
+    "plan_file_sha256": "e707a58beee8c6f66622472e40d8b26b02973fb9b69d7432eee43653a6377337",
+    "plan_sha256": "dcf46e41a354e2033c9c3d5dabcb42ddfbdeeed79b7c9261d9350df4cff20151",
+    "search": {
+      "horizon": 2,
+      "rollouts": 1
+    },
+    "serial_parallel_bytes_equal": true,
+    "world_count": 2
+  },
+  "source_sha256": {
+    "research/phase0_search_20261019/forecast_speed.py": "dfd47300b518f16b21008ca24175c3831fa93ff2c84b671e5c8a771e84e50caa",
+    "research/phase0_search_20261019/preflight.py": "887d597228092c0bd35a8ba2d9db32da0e331242211060060ca68ead142b9eac",
+    "research/phase0_search_20261019/profile_teacher.py": "562967f33e5672c7a4c552b4bcee66bf93a70e8c9aa82ae7ed64f1b62f606d34",
+    "research/phase0_search_20261019/teacher.py": "10270e520ce096d967832fe2b8acc19eca1e6f66a746daae566d7a46bb7130e5",
+    "tests/fixtures/phase0_teacher_speed/teacher_pre_45069720.py": "d15960f0dab45b3e08d49549990620e341a0e6b2c665654ebf669b43d9d14f17",
+    "tests/test_phase0_teacher_speed.py": "3f2a602b0f890ae908e55f8400be286dcb1c5580003a4ba6b9118c400b8790cb"
+  },
+  "spec_sha256": "d8554e644b79bd9d482c25612dbffa04112b3b67d6531f90b1a7baab1efddbb2",
+  "tests": [
+    {
+      "command": "./venv/bin/python -m pytest -q tests/test_phase0_teacher.py tests/test_phase0_runner.py tests/test_phase0_bank_analysis.py tests/test_t4_snapshots.py tests/test_grid_sim_parity.py -k 'phase0 or snapshots or big_bodies_full_arena or direct_live_reference_parity'",
+      "deselected": 88,
+      "passed": 31,
+      "seconds": 9.26
+    },
+    {
+      "command": "./venv/bin/python -m pytest -q tests/test_phase0_teacher_speed.py",
+      "note": "Before final near-score fallback addition; same final teacher bytes.",
+      "passed": 24,
+      "seconds": 119.4
+    },
+    {
+      "command": "./venv/bin/python -m pytest -q tests/test_phase0_teacher_speed.py::test_near_score_tie_reruns_frozen_reference",
+      "passed": 1
+    }
+  ],
+  "unverified": [
+    "CUDA unavailable",
+    "Remote teacher throughput, topology, rates, setup, transfers and identity",
+    "Natural mature gameplay distribution and Phase 0 efficacy",
+    "Universal action identity beyond fixtures",
+    "Serving latency/qualification"
+  ]
+}

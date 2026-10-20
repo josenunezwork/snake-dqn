@@ -1,0 +1,12 @@
+{
+  "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/B8_s3_final.pth",
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "search": {
+    "epsilon": 0.02,
+    "horizon": 128,
+    "leaf_scale": 1.0,
+    "length_gate": 600,
+    "margin_threshold": 0.0,
+    "rollouts": 8
+  }
+}

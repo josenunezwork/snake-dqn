@@ -1,0 +1,730 @@
+{
+  "argv": [
+    "/Users/josenunez/Projects/ml/snake-dqn-batched-teacher/research/t33_batched_teacher/ablation.py",
+    "--smoke",
+    "--decisions",
+    "3",
+    "--workers",
+    "1",
+    "--out",
+    "research/t33_batched_teacher/ABLATION_BUDGET_SMOKE_V2.json"
+  ],
+  "audit_sha256": "c7a461fbb78adba56cded523b0b0a767a4328b687394d4c5cd99baaa15ba3fe2",
+  "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "margin_gate": null,
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "reference": {
+    "epsilon": 0.02,
+    "horizon": 128,
+    "leaf_scale": 1.0,
+    "length_gate": 0,
+    "margin_threshold": 0.0,
+    "rollouts": 8
+  },
+  "rows": [
+    {
+      "decision": 0,
+      "legacy_action": 3,
+      "legacy_scores": {
+        "0": 75423.96610748768,
+        "1": 82688.79356408119,
+        "2": 0.0,
+        "3": 88609.2924798131,
+        "4": 69386.64874148369,
+        "5": 0.0
+      },
+      "length": 800,
+      "margin": 0.08641767501831055,
+      "mix": "scripted",
+      "reference_action": 1,
+      "reference_scores": {
+        "0": 75423.96610748768,
+        "1": 79496.8089568615,
+        "2": 0.0,
+        "3": 62825.42774891853,
+        "4": 71529.90650129318,
+        "5": 0.0
+      },
+      "seconds": 25.525928249990102,
+      "variants": [
+        {
+          "action": 1,
+          "agreement": true,
+          "horizon": 32,
+          "id": "h32-n4-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 5920.498915731907,
+          "regret": 0.0,
+          "rollouts": 4,
+          "scores": {
+            "0": 24831.83964574337,
+            "1": 25689.93911111355,
+            "2": 0.0,
+            "3": 25635.45338499546,
+            "4": 25626.026644825935,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.8939105419849511
+        },
+        {
+          "action": 1,
+          "agreement": true,
+          "horizon": 32,
+          "id": "h32-n4-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 5920.498915731907,
+          "regret": 0.0,
+          "rollouts": 4,
+          "scores": {
+            "0": 24828.533561468124,
+            "1": 25689.75751034419,
+            "2": 0.0,
+            "3": 25635.24258615573,
+            "4": 25624.590411206085,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.8976642919878941
+        },
+        {
+          "action": 1,
+          "agreement": true,
+          "horizon": 32,
+          "id": "h32-n8-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 5920.498915731907,
+          "regret": 0.0,
+          "rollouts": 8,
+          "scores": {
+            "0": 23730.58964574337,
+            "1": 24175.202584803104,
+            "2": 0.0,
+            "3": 24132.651705384254,
+            "4": 24123.261982560158,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.7700630420004018
+        },
+        {
+          "action": 1,
+          "agreement": true,
+          "horizon": 32,
+          "id": "h32-n8-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 5920.498915731907,
+          "regret": 0.0,
+          "rollouts": 8,
+          "scores": {
+            "0": 23727.283561468124,
+            "1": 24174.83977689346,
+            "2": 0.0,
+            "3": 24132.463136086863,
+            "4": 24121.849782655634,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.7308846669911873
+        },
+        {
+          "action": 1,
+          "agreement": true,
+          "horizon": 64,
+          "id": "h64-n4-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 5920.498915731907,
+          "regret": 0.0,
+          "rollouts": 4,
+          "scores": {
+            "0": 44104.2387907505,
+            "1": 51504.26396346092,
+            "2": 0.0,
+            "3": 49078.1617937088,
+            "4": 50165.27378845215,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.6867647079925518
+        },
+        {
+          "action": 1,
+          "agreement": true,
+          "horizon": 64,
+          "id": "h64-n4-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 5920.498915731907,
+          "regret": 0.0,
+          "rollouts": 4,
+          "scores": {
+            "0": 44104.08793171247,
+            "1": 51504.06949329377,
+            "2": 0.0,
+            "3": 49077.29902191956,
+            "4": 50163.17643101017,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.6539174170175102
+        },
+        {
+          "action": 1,
+          "agreement": true,
+          "horizon": 64,
+          "id": "h64-n8-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 5920.498915731907,
+          "regret": 0.0,
+          "rollouts": 8,
+          "scores": {
+            "0": 43003.95786702633,
+            "1": 46343.20334684849,
+            "2": 0.0,
+            "3": 43569.173664331436,
+            "4": 45653.24884939194,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 3.1668265000043903
+        },
+        {
+          "action": 1,
+          "agreement": true,
+          "horizon": 64,
+          "id": "h64-n8-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 5920.498915731907,
+          "regret": 0.0,
+          "rollouts": 8,
+          "scores": {
+            "0": 43003.4076115638,
+            "1": 46342.85310085614,
+            "2": 0.0,
+            "3": 43568.722348431744,
+            "4": 45651.76867669821,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 3.1854776249965653
+        }
+      ],
+      "world_id": "timing-scripted-0000-2354291486"
+    },
+    {
+      "decision": 0,
+      "legacy_action": 3,
+      "legacy_scores": {
+        "0": 48081.67088675499,
+        "1": 93324.09876000881,
+        "2": 0.0,
+        "3": 94107.06194531918,
+        "4": 81600.21339058876,
+        "5": 0.0
+      },
+      "length": 800,
+      "margin": 0.10472345352172852,
+      "mix": "frozen",
+      "reference_action": 3,
+      "reference_scores": {
+        "0": 48081.67088675499,
+        "1": 80911.70582258701,
+        "2": 0.0,
+        "3": 93571.77754473686,
+        "4": 48718.16900241375,
+        "5": 0.0
+      },
+      "seconds": 25.1840777079924,
+      "variants": [
+        {
+          "action": 3,
+          "agreement": true,
+          "horizon": 32,
+          "id": "h32-n4-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 0.0,
+          "rollouts": 4,
+          "scores": {
+            "0": 14604.108352184296,
+            "1": 25634.060220003128,
+            "2": 0.0,
+            "3": 25634.78774547577,
+            "4": 25620.579366207123,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.8689555840101093
+        },
+        {
+          "action": 3,
+          "agreement": true,
+          "horizon": 32,
+          "id": "h32-n4-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 0.0,
+          "rollouts": 4,
+          "scores": {
+            "0": 14603.156355381012,
+            "1": 25633.068636149168,
+            "2": 0.0,
+            "3": 25634.598612447582,
+            "4": 25619.25570685665,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.8571962499991059
+        },
+        {
+          "action": 3,
+          "agreement": true,
+          "horizon": 32,
+          "id": "h32-n8-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 0.0,
+          "rollouts": 8,
+          "scores": {
+            "0": 18407.261265277863,
+            "1": 22529.247668981552,
+            "2": 0.0,
+            "3": 25631.933779358864,
+            "4": 22517.652886629105,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.671162667014869
+        },
+        {
+          "action": 3,
+          "agreement": true,
+          "horizon": 32,
+          "id": "h32-n8-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 0.0,
+          "rollouts": 8,
+          "scores": {
+            "0": 18406.284164746605,
+            "1": 22528.668077672522,
+            "2": 0.0,
+            "3": 25631.572328954935,
+            "4": 22516.920005654298,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.673015791020589
+        },
+        {
+          "action": 1,
+          "agreement": false,
+          "horizon": 64,
+          "id": "h64-n4-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 782.9631853103638,
+          "regret": 12660.071722149849,
+          "rollouts": 4,
+          "scores": {
+            "0": 25410.747037529945,
+            "1": 45297.031853437424,
+            "2": 0.0,
+            "3": 45286.23577427864,
+            "4": 37038.32282733917,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.4585434160253499
+        },
+        {
+          "action": 1,
+          "agreement": false,
+          "horizon": 64,
+          "id": "h64-n4-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 782.9631853103638,
+          "regret": 12660.071722149849,
+          "rollouts": 4,
+          "scores": {
+            "0": 25410.2845137318,
+            "1": 45296.333113759756,
+            "2": 0.0,
+            "3": 45285.77187131842,
+            "4": 37037.846949219704,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.420682250027312
+        },
+        {
+          "action": 3,
+          "agreement": true,
+          "horizon": 64,
+          "id": "h64-n8-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 0.0,
+          "rollouts": 8,
+          "scores": {
+            "0": 33124.90180504322,
+            "1": 41993.18653714657,
+            "2": 0.0,
+            "3": 48286.78600215912,
+            "4": 37546.1245906353,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 3.0961034579959232
+        },
+        {
+          "action": 3,
+          "agreement": true,
+          "horizon": 64,
+          "id": "h64-n8-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 0.0,
+          "rollouts": 8,
+          "scores": {
+            "0": 33124.19721265634,
+            "1": 41992.76477748652,
+            "2": 0.0,
+            "3": 48285.83124664426,
+            "4": 37545.63114405175,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 3.0834366669878364
+        }
+      ],
+      "world_id": "timing-frozen-0000-3515193536"
+    },
+    {
+      "decision": 0,
+      "legacy_action": 1,
+      "legacy_scores": {
+        "0": 97202.24258160591,
+        "1": 103365.25340926647,
+        "2": 0.0,
+        "3": 88436.93831348419,
+        "4": 89223.74127745628,
+        "5": 0.0
+      },
+      "length": 800,
+      "margin": 0.1319446563720703,
+      "mix": "mixed",
+      "reference_action": 0,
+      "reference_scores": {
+        "0": 97202.24258160591,
+        "1": 82995.89728498459,
+        "2": 0.0,
+        "3": 97152.7201782465,
+        "4": 72702.91305279732,
+        "5": 0.0
+      },
+      "seconds": 31.037430874974234,
+      "variants": [
+        {
+          "action": 1,
+          "agreement": false,
+          "horizon": 32,
+          "id": "h32-n4-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 14206.345296621323,
+          "rollouts": 4,
+          "scores": {
+            "0": 25652.724818468094,
+            "1": 25659.598158359528,
+            "2": 0.0,
+            "3": 25656.685035705566,
+            "4": 25467.303286790848,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.9259465830109548
+        },
+        {
+          "action": 1,
+          "agreement": false,
+          "horizon": 32,
+          "id": "h32-n4-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 14206.345296621323,
+          "rollouts": 4,
+          "scores": {
+            "0": 25649.291049897674,
+            "1": 25659.403339823086,
+            "2": 0.0,
+            "3": 25653.264922857285,
+            "4": 25467.138969063762,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.9327301250013988
+        },
+        {
+          "action": 3,
+          "agreement": false,
+          "horizon": 32,
+          "id": "h32-n8-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 14928.31509578228,
+          "regret": 49.52240335941315,
+          "rollouts": 8,
+          "scores": {
+            "0": 25651.952664852142,
+            "1": 24156.780007600784,
+            "2": 0.0,
+            "3": 25654.651953339577,
+            "4": 23558.5907715559,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.8828340410254896
+        },
+        {
+          "action": 3,
+          "agreement": false,
+          "horizon": 32,
+          "id": "h32-n8-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 14928.31509578228,
+          "regret": 49.52240335941315,
+          "rollouts": 8,
+          "scores": {
+            "0": 25648.003410408895,
+            "1": 24154.504654705524,
+            "2": 0.0,
+            "3": 25650.70090887944,
+            "4": 23558.424075841904,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.8877670840010978
+        },
+        {
+          "action": 1,
+          "agreement": false,
+          "horizon": 64,
+          "id": "h64-n4-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 14206.345296621323,
+          "rollouts": 4,
+          "scores": {
+            "0": 51433.003495931625,
+            "1": 51445.71448588371,
+            "2": 0.0,
+            "3": 51437.25486254692,
+            "4": 44794.91213583946,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.9219989589764737
+        },
+        {
+          "action": 1,
+          "agreement": false,
+          "horizon": 64,
+          "id": "h64-n4-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 14206.345296621323,
+          "rollouts": 4,
+          "scores": {
+            "0": 51432.77652653058,
+            "1": 51445.51689271133,
+            "2": 0.0,
+            "3": 51436.3220543166,
+            "4": 44793.559449364744,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 1.891829833999509
+        },
+        {
+          "action": 0,
+          "agreement": true,
+          "horizon": 64,
+          "id": "h64-n8-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 6163.010827660561,
+          "regret": 0.0,
+          "rollouts": 8,
+          "scores": {
+            "0": 51430.53147256374,
+            "1": 43995.79561328888,
+            "2": 0.0,
+            "3": 51426.600444078445,
+            "4": 40162.853003025055,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 3.6664126670220867
+        },
+        {
+          "action": 0,
+          "agreement": true,
+          "horizon": 64,
+          "id": "h64-n8-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 6163.010827660561,
+          "regret": 0.0,
+          "rollouts": 8,
+          "scores": {
+            "0": 51429.93309873839,
+            "1": 43995.65933609009,
+            "2": 0.0,
+            "3": 51425.66793257494,
+            "4": 40161.736130326986,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 3.6409152080013882
+        }
+      ],
+      "world_id": "timing-mixed-0000-2506198438"
+    }
+  ],
+  "schema": "t33-ablation/v1",
+  "scope": "synthetic-smoke",
+  "seconds": 82.87370366699179,
+  "sources": {
+    "research/phase0_search_20261019/teacher.py": "10270e520ce096d967832fe2b8acc19eca1e6f66a746daae566d7a46bb7130e5",
+    "research/t33_batched_teacher/ablation.py": "f8eeb471e9c338824d66a4211771f86f1193753a9ac502580a5c6024fc57afaa",
+    "research/t33_batched_teacher/reference.py": "c64573f3403782d5b6f1c922bb3dfcdb4a6d6a689e153bc634ee0347bcfb54cf"
+  },
+  "summary": {
+    "h32-n4-max": {
+      "agreement": 0.6666666666666666,
+      "decisions": 3,
+      "legacy_agreement": 0.6666666666666666,
+      "legacy_regret": 1973.4996385773022,
+      "max_regret": 14206.345296621323,
+      "regret": 4735.4484322071075,
+      "searched": 3,
+      "seconds": 0.8962709030020051
+    },
+    "h32-n4-value": {
+      "agreement": 0.6666666666666666,
+      "decisions": 3,
+      "legacy_agreement": 0.6666666666666666,
+      "legacy_regret": 1973.4996385773022,
+      "max_regret": 14206.345296621323,
+      "regret": 4735.4484322071075,
+      "searched": 3,
+      "seconds": 0.8958635556627996
+    },
+    "h32-n8-max": {
+      "agreement": 0.6666666666666666,
+      "decisions": 3,
+      "legacy_agreement": 0.3333333333333333,
+      "legacy_regret": 6949.604670504729,
+      "max_regret": 49.52240335941315,
+      "regret": 16.50746778647105,
+      "searched": 3,
+      "seconds": 1.77468658334692
+    },
+    "h32-n8-value": {
+      "agreement": 0.6666666666666666,
+      "decisions": 3,
+      "legacy_agreement": 0.3333333333333333,
+      "legacy_regret": 6949.604670504729,
+      "max_regret": 49.52240335941315,
+      "regret": 16.50746778647105,
+      "searched": 3,
+      "seconds": 1.763889180670958
+    },
+    "h64-n4-max": {
+      "agreement": 0.3333333333333333,
+      "decisions": 3,
+      "legacy_agreement": 0.3333333333333333,
+      "legacy_regret": 2234.48736701409,
+      "max_regret": 14206.345296621323,
+      "regret": 8955.472339590391,
+      "searched": 3,
+      "seconds": 1.689102360998125
+    },
+    "h64-n4-value": {
+      "agreement": 0.3333333333333333,
+      "decisions": 3,
+      "legacy_agreement": 0.3333333333333333,
+      "legacy_regret": 2234.48736701409,
+      "max_regret": 14206.345296621323,
+      "regret": 8955.472339590391,
+      "searched": 3,
+      "seconds": 1.6554765003481104
+    },
+    "h64-n8-max": {
+      "agreement": 1.0,
+      "decisions": 3,
+      "legacy_agreement": 0.3333333333333333,
+      "legacy_regret": 4027.8365811308227,
+      "max_regret": 0.0,
+      "regret": 0.0,
+      "searched": 3,
+      "seconds": 3.309780875007467
+    },
+    "h64-n8-value": {
+      "agreement": 1.0,
+      "decisions": 3,
+      "legacy_agreement": 0.3333333333333333,
+      "legacy_regret": 4027.8365811308227,
+      "max_regret": 0.0,
+      "regret": 0.0,
+      "searched": 3,
+      "seconds": 3.3032764999952633
+    }
+  },
+  "workers": 1
+}

@@ -211,13 +211,45 @@ def test_pricing_requires_current_counter_sources_and_bound_final_transfer(tmp_p
     assert bound["per_arm_gpu_hours"]["n1"] > 68 / 60
 
 
-def test_primary_forecast_fits_caps_without_pre_funding_optional_reruns() -> None:
-    from research.s1_mature_20261018 import ledger, price
+def test_primary_forecast_fits_caps_without_pre_funding_optional_reruns(tmp_path: Path) -> None:
+    from research.s1_mature_20261018 import bank, ledger, price
 
-    root = admission.ROOT / "research/s1_mature_20261018"
-    forecast = price.forecast(
-        root / "EVAL_PREFLIGHT_FINAL.json", root / "TRAIN_PREFLIGHT_FINAL_ONLY.json"
+    # This is an accounting unit fixture, not fresh timing/qualification evidence.
+    # Historical receipts must keep rejecting source changes after optimizations.
+    relative = "src/simd_env/ego_raster_bv8.py"
+    timing = {
+        "status": "completed",
+        "workers": 2,
+        "episode_count": 10,
+        "parallel_elapsed_seconds": [1.0] * 10,
+        "identity": {
+            "world_hashes": [
+                world["world_semantic_sha256"] for world in bank.load_world_bank()["timing_worlds"]
+            ],
+            "source_manifest": {relative: admission.sha256(admission.ROOT / relative)},
+        },
+    }
+    evaluation = tmp_path / "synthetic-evaluation.json"
+    evaluation.write_text(json.dumps(timing))
+    training = tmp_path / "synthetic-training.json"
+    training.write_text(
+        json.dumps(
+            {
+                "status": "PASS",
+                "counter_admission": "PASS",
+                "identity": {
+                    "source_manifest": {
+                        name: admission.sha256(admission.ROOT / name)
+                        for name in (
+                            "research/redesign_m3c_20261008/train_m3c.py",
+                            "research/s1_mature_20261018/train.py",
+                        )
+                    }
+                },
+            }
+        )
     )
+    forecast = price.forecast(evaluation, training)
     hard = forecast["primary_hard_reservation"]
     assert hard["gpu_allocation_hours"] == pytest.approx(5 * (65 + 141) / 60 + 2)
     assert hard["units"] == pytest.approx(38.333333333333336)
@@ -227,3 +259,8 @@ def test_primary_forecast_fits_caps_without_pre_funding_optional_reruns() -> Non
     assert forecast["complete_upper_bound"] is None  # Missing live transfer qualification.
     assert forecast["status"] == "REFUSED"
     assert not any("exceeds usable" in reason for reason in forecast["refusal_reasons"])
+
+    timing["identity"]["source_manifest"][relative] = "0" * 64
+    evaluation.write_text(json.dumps(timing))
+    with pytest.raises(ValueError, match="timing source changed"):
+        price.forecast(evaluation, training)

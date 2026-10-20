@@ -1,0 +1,410 @@
+{
+  "forecast": {
+    "all_decisions_searched_serial_core_hours_scenario": 1201.1602777767823,
+    "mac_cloud_rental_usd": 0,
+    "mac_six_worker_aggregate_worker_hours": 533.1252500646203,
+    "mac_six_worker_wall_hours": 88.8542083441034,
+    "mac_wall_hours_with_20pct_reserve": 106.62505001292408,
+    "pod_32_vcpu_cost_usd_at_historical_0_89_to_0_95_per_hour": [
+      22.517659063540954,
+      24.035703494790905
+    ],
+    "pod_32_vcpu_historical_2_4x_core_slowdown_wall_hours": 25.300740520832534,
+    "pod_ideal_same_speed_core_wall_hours_scenario": 10.541975217013556,
+    "pod_speedup_vs_measured_six_worker_mac_scenario": 3.511921252697769,
+    "reserve_fraction": 0.2,
+    "searched_decisions_calibration_extrapolation": 276256,
+    "single_worker_core_hours": 337.3432069444338,
+    "six_worker_measured_speedup": 3.796592341895766
+  },
+  "forecast_method": "Selection mix counts times calibration mandatory decisions/world times mean L800/L1500 search time by mix, plus twice calibration bare-world cost; divide by measured six-task speedup. These are scenarios, not upper bounds.",
+  "limitations": [
+    "Only one calibration world per mix; search changes visitation and survival.",
+    "Synthetic self-avoiding bodies and real strict-roster policies; early rollout deaths reduce timing.",
+    "Scaling measured six identical L1500 mixed tasks including process startup; not a full-bank benchmark.",
+    "32-vCPU teacher throughput and current rental price unverified; 2.4x per-core slowdown and $0.89-$0.95/h are dated planning inputs, not live quotes.",
+    "All-searched scenario uses measured maximum timing, not a certified runtime upper bound.",
+    "Mac cost excludes electricity, hardware depreciation and opportunity cost.",
+    "Runtime identity on another CPU remains unverified; no remote operations performed."
+  ],
+  "raw_file_sha256": {
+    "calibration": "69c30fa7828b940dc9dec8d9bca02b4272fde703e1f13d4393f584f7d4754300",
+    "scaling-1": "673758be1a79919dd23d25ecddb5f6353bee1e84d3824804155d77ad4a196ee6",
+    "scaling-2": "fccd0b7b91fcd1f59f9ff2e88be5fb357095bce09701f19cf169a3f51aa57825",
+    "scaling-6": "1ead45148752e6e77ae5242239c97bc2bb9073190792cf4a339cfd584a4ca42e",
+    "timing": "472318f957c5f2edc58184d14ac7e7b85ffbd4bd01d5df06ce0e0c96fd5934e7"
+  },
+  "raw_receipts": {
+    "calibration": {
+      "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "config": {
+        "epsilon": 0.02,
+        "horizon": 128,
+        "leaf_scale": 1.0,
+        "length_gate": 600,
+        "margin_threshold": 0.0,
+        "rollouts": 8
+      },
+      "decisions": 11446,
+      "horizon": 5000,
+      "mandatory_length_fraction": 0.43395072514415517,
+      "margin_threshold": 0.0,
+      "method": "all alive bare-B8 decisions pooled; mandatory L>=600 first; strict margin threshold fills remaining target, ties admitted together",
+      "mode": "calibrate",
+      "searched_fraction": 0.43395072514415517,
+      "source_sha256": {
+        "preflight.py": "c5569b3d955615c0d31b8e400428a115bbc8a752dde37446f4ef224213d8a7cf",
+        "teacher.py": "d15960f0dab45b3e08d49549990620e341a0e6b2c665654ebf669b43d9d14f17"
+      },
+      "target_fraction": 0.1,
+      "total_seconds": 20.371892333001597,
+      "worlds": [
+        {
+          "decisions": 3837,
+          "mandatory_length_decisions": 1833,
+          "seconds": 5.775012208992848,
+          "world_id": "calibration-scripted-0000-1043291414"
+        },
+        {
+          "decisions": 3052,
+          "mandatory_length_decisions": 1113,
+          "seconds": 5.762325332994806,
+          "world_id": "calibration-frozen-0000-3956431332"
+        },
+        {
+          "decisions": 4557,
+          "mandatory_length_decisions": 2021,
+          "seconds": 8.163195000000997,
+          "world_id": "calibration-mixed-0000-3794991016"
+        }
+      ]
+    },
+    "scaling-1": {
+      "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+      "batch_wall_seconds": 27.486426709016087,
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "config": {
+        "epsilon": 0.02,
+        "horizon": 128,
+        "leaf_scale": 1.0,
+        "length_gate": 600,
+        "margin_threshold": 0.0,
+        "rollouts": 8
+      },
+      "decisions_per_wall_second": 0.2182895602807433,
+      "mode": "scaling",
+      "note": "Synthetic self-avoiding body placement; real strict-profile roster. Costs include early branch deaths; not a representative gameplay sample.",
+      "rows": [
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.41445054198266,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.506119124998804,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.350758416985627,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.578702916012844,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.4668191249947995,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.429232417023741,
+          "world_id": "timing-mixed-0000-2506198438"
+        }
+      ],
+      "search_seconds_median": 4.44802577100927,
+      "source_sha256": {
+        "preflight.py": "c5569b3d955615c0d31b8e400428a115bbc8a752dde37446f4ef224213d8a7cf",
+        "teacher.py": "d15960f0dab45b3e08d49549990620e341a0e6b2c665654ebf669b43d9d14f17"
+      },
+      "total_seconds": 27.794778834009776,
+      "workers": 1
+    },
+    "scaling-2": {
+      "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+      "batch_wall_seconds": 16.422991792001994,
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "config": {
+        "epsilon": 0.02,
+        "horizon": 128,
+        "leaf_scale": 1.0,
+        "length_gate": 600,
+        "margin_threshold": 0.0,
+        "rollouts": 8
+      },
+      "decisions_per_wall_second": 0.36534147224758423,
+      "mode": "scaling",
+      "note": "Synthetic self-avoiding body placement; real strict-profile roster. Costs include early branch deaths; not a representative gameplay sample.",
+      "rows": [
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.992998666013591,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.946789792011259,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 5.076096917007817,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 5.065043040987803,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.901505707995966,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.975365584017709,
+          "world_id": "timing-mixed-0000-2506198438"
+        }
+      ],
+      "search_seconds_median": 4.98418212501565,
+      "source_sha256": {
+        "preflight.py": "c5569b3d955615c0d31b8e400428a115bbc8a752dde37446f4ef224213d8a7cf",
+        "teacher.py": "d15960f0dab45b3e08d49549990620e341a0e6b2c665654ebf669b43d9d14f17"
+      },
+      "total_seconds": 16.73105833301088,
+      "workers": 2
+    },
+    "scaling-6": {
+      "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+      "batch_wall_seconds": 7.239762459008489,
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "config": {
+        "epsilon": 0.02,
+        "horizon": 128,
+        "leaf_scale": 1.0,
+        "length_gate": 600,
+        "margin_threshold": 0.0,
+        "rollouts": 8
+      },
+      "decisions_per_wall_second": 0.8287564728776642,
+      "mode": "scaling",
+      "note": "Synthetic self-avoiding body placement; real strict-profile roster. Costs include early branch deaths; not a representative gameplay sample.",
+      "rows": [
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 5.84204779099673,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 5.697428458981449,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 5.844697917025769,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 5.763689124985831,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 5.782079750002595,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 5.79965662502218,
+          "world_id": "timing-mixed-0000-2506198438"
+        }
+      ],
+      "search_seconds_median": 5.7908681875123875,
+      "source_sha256": {
+        "preflight.py": "c5569b3d955615c0d31b8e400428a115bbc8a752dde37446f4ef224213d8a7cf",
+        "teacher.py": "d15960f0dab45b3e08d49549990620e341a0e6b2c665654ebf669b43d9d14f17"
+      },
+      "total_seconds": 7.544575582985999,
+      "workers": 6
+    },
+    "timing": {
+      "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+      "batch_wall_seconds": 42.66747883299831,
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "config": {
+        "epsilon": 0.02,
+        "horizon": 128,
+        "leaf_scale": 1.0,
+        "length_gate": 600,
+        "margin_threshold": 0.0,
+        "rollouts": 8
+      },
+      "decisions_per_wall_second": 0.21093348484981378,
+      "mode": "timing",
+      "note": "Synthetic self-avoiding body placement; real strict-profile roster. Costs include early branch deaths; not a representative gameplay sample.",
+      "rows": [
+        {
+          "legal_actions": 6,
+          "length": 200,
+          "mix": "scripted",
+          "searched": true,
+          "seconds": 4.711434166994877,
+          "world_id": "timing-scripted-0000-2354291486"
+        },
+        {
+          "legal_actions": 6,
+          "length": 200,
+          "mix": "frozen",
+          "searched": true,
+          "seconds": 4.843784708005842,
+          "world_id": "timing-frozen-0000-3515193536"
+        },
+        {
+          "legal_actions": 6,
+          "length": 200,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.836862666998059,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 800,
+          "mix": "scripted",
+          "searched": true,
+          "seconds": 4.210124207980698,
+          "world_id": "timing-scripted-0000-2354291486"
+        },
+        {
+          "legal_actions": 6,
+          "length": 800,
+          "mix": "frozen",
+          "searched": true,
+          "seconds": 4.742818583996268,
+          "world_id": "timing-frozen-0000-3515193536"
+        },
+        {
+          "legal_actions": 6,
+          "length": 800,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 5.40522124999552,
+          "world_id": "timing-mixed-0000-2506198438"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "scripted",
+          "searched": true,
+          "seconds": 4.1271791250037495,
+          "world_id": "timing-scripted-0000-2354291486"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "frozen",
+          "searched": true,
+          "seconds": 4.505360124981962,
+          "world_id": "timing-frozen-0000-3515193536"
+        },
+        {
+          "legal_actions": 6,
+          "length": 1500,
+          "mix": "mixed",
+          "searched": true,
+          "seconds": 4.311337583989371,
+          "world_id": "timing-mixed-0000-2506198438"
+        }
+      ],
+      "search_seconds_median": 4.711434166994877,
+      "source_sha256": {
+        "preflight.py": "c5569b3d955615c0d31b8e400428a115bbc8a752dde37446f4ef224213d8a7cf",
+        "teacher.py": "d15960f0dab45b3e08d49549990620e341a0e6b2c665654ebf669b43d9d14f17"
+      },
+      "total_seconds": 42.97186012499151,
+      "workers": 1
+    }
+  },
+  "schema": "phase0-search-preflight/v1",
+  "scope": "disjoint local CPU calibration/timing only; no selection efficacy result",
+  "selected_search": {
+    "epsilon": 0.02,
+    "horizon": 128,
+    "leaf_scale": 1.0,
+    "length_gate": 600,
+    "margin_threshold": 0.0,
+    "rollouts": 8
+  }
+}

@@ -1,0 +1,157 @@
+{
+  "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+  "batch_wall_seconds": 8.174185999989277,
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "command": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/preflight.py",
+    "--bank",
+    "research/phase0_search_20261019/WORLD_BANK.json",
+    "--config",
+    "research/phase0_search_20261019/config.json",
+    "--mode",
+    "scaling",
+    "--workers",
+    "1",
+    "--out",
+    "research/phase0_search_20261019/SPEED_SCALING_1.json"
+  ],
+  "config": {
+    "epsilon": 0.02,
+    "horizon": 128,
+    "leaf_scale": 1.0,
+    "length_gate": 600,
+    "margin_threshold": 0.0,
+    "rollouts": 8
+  },
+  "decisions_per_wall_second": 0.7340180416750819,
+  "device": "cpu",
+  "implementation": "batched",
+  "mode": "scaling",
+  "note": "Synthetic self-avoiding body placement; real strict-profile roster. Costs include early branch deaths; not a representative gameplay sample.",
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "rounds": 1,
+  "rows": [
+    {
+      "action": 2,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "mixed",
+      "scores": {
+        "0": 0.0,
+        "1": 140244.28944087029,
+        "2": 175568.25082087517,
+        "3": 0.0,
+        "4": 126645.27575063705,
+        "5": 107097.29345369339
+      },
+      "searched": true,
+      "seconds": 1.2083456659747753,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 2,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "mixed",
+      "scores": {
+        "0": 0.0,
+        "1": 140244.28944087029,
+        "2": 175568.25082087517,
+        "3": 0.0,
+        "4": 126645.27575063705,
+        "5": 107097.29345369339
+      },
+      "searched": true,
+      "seconds": 1.2385562499985099,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 2,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "mixed",
+      "scores": {
+        "0": 0.0,
+        "1": 140244.28944087029,
+        "2": 175568.25082087517,
+        "3": 0.0,
+        "4": 126645.27575063705,
+        "5": 107097.29345369339
+      },
+      "searched": true,
+      "seconds": 1.2303086659812834,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 2,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "mixed",
+      "scores": {
+        "0": 0.0,
+        "1": 140244.28944087029,
+        "2": 175568.25082087517,
+        "3": 0.0,
+        "4": 126645.27575063705,
+        "5": 107097.29345369339
+      },
+      "searched": true,
+      "seconds": 1.249096624989761,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 2,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "mixed",
+      "scores": {
+        "0": 0.0,
+        "1": 140244.28944087029,
+        "2": 175568.25082087517,
+        "3": 0.0,
+        "4": 126645.27575063705,
+        "5": 107097.29345369339
+      },
+      "searched": true,
+      "seconds": 1.2611453749996144,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 2,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "mixed",
+      "scores": {
+        "0": 0.0,
+        "1": 140244.28944087029,
+        "2": 175568.25082087517,
+        "3": 0.0,
+        "4": 126645.27575063705,
+        "5": 107097.29345369339
+      },
+      "searched": true,
+      "seconds": 1.255052542022895,
+      "world_id": "timing-mixed-0000-2506198438"
+    }
+  ],
+  "search_seconds_median": 1.2438264374941355,
+  "source_sha256": {
+    "preflight.py": "887d597228092c0bd35a8ba2d9db32da0e331242211060060ca68ead142b9eac",
+    "teacher.py": "10270e520ce096d967832fe2b8acc19eca1e6f66a746daae566d7a46bb7130e5"
+  },
+  "total_seconds": 8.487237374996766,
+  "workers": 1
+}

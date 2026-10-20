@@ -18,11 +18,12 @@ hold; ``cache=True`` keeps the JIT cost to the first call per environment.
 from __future__ import annotations
 
 import sys
+import threading
 from typing import Optional, Tuple
 
 import numba
 import numpy as np
-from numba import njit
+from numba import get_num_threads, njit, prange
 
 from src.simd_env.ego_raster import (
     GLOBAL_CHANNELS,
@@ -131,15 +132,21 @@ def _local_kernel(
     cap: int,
     K: int,
     out: np.ndarray,  # (N, 6, n) uint8, zeroed
+    workspace=None,
 ) -> None:
     n = size * size
-    ttlg = np.zeros(n, dtype=np.int64)
-    wall = np.zeros(n, dtype=np.bool_)
-    arr = np.empty(n, dtype=np.int64)
-    bhead = np.empty(K + 2, dtype=np.int64)
-    nnext = np.empty(4 * n + 1, dtype=np.int64)
-    ncell = np.empty(4 * n + 1, dtype=np.int64)
-    reach = np.empty(n, dtype=np.int64)
+    if workspace is None:
+        ttlg = np.empty(n, dtype=np.int64)
+        wall = np.empty(n, dtype=np.bool_)
+        arr = np.empty(n, dtype=np.int64)
+        bhead = np.empty(K + 2, dtype=np.int64)
+        nnext = np.empty(4 * n + 1, dtype=np.int64)
+        ncell = np.empty(4 * n + 1, dtype=np.int64)
+        reach = np.empty(n, dtype=np.int64)
+    else:
+        ttlg, wall, arr, bhead, nnext, ncell, reach = workspace
+    # Every live row writes ttlg/wall completely; _reach_one resets all used
+    # bucket/arrival cells. Dead rows never consume scratch.
     for i in range(rows.shape[0]):
         e = rows[i, 0]
         s = rows[i, 1]
@@ -522,6 +529,7 @@ def _region_kernel(
     dxs: np.ndarray,
     dys: np.ndarray,
     out: np.ndarray,  # (N, 3) int64, zeroed
+    workspace=None,
 ) -> None:
     """``ego_raster_b.region_sizes`` by run-length union-find (TTL > 1 blocks).
 
@@ -530,11 +538,15 @@ def _region_kernel(
     sizes equal a cell-by-cell BFS (the Python reference) at a fraction of the cost.
     """
     max_runs = H * (W // 2 + 1) + H
-    run_start = np.empty(max_runs, dtype=np.int64)
-    run_end = np.empty(max_runs, dtype=np.int64)
-    parent = np.empty(max_runs, dtype=np.int64)
-    total = np.empty(max_runs, dtype=np.int64)
-    row_first = np.empty(H + 1, dtype=np.int64)
+    if workspace is None:
+        run_start = np.empty(max_runs, dtype=np.int64)
+        run_end = np.empty(max_runs, dtype=np.int64)
+        parent = np.empty(max_runs, dtype=np.int64)
+        total = np.empty(max_runs, dtype=np.int64)
+        row_first = np.empty(H + 1, dtype=np.int64)
+    else:
+        run_start, run_end, parent, total, row_first = workspace
+    # Each environment initializes all used runs, parents, totals and row bounds.
     order = np.argsort(rows[:, 0], kind="mergesort")
     current = -1
     for jj in range(rows.shape[0]):
@@ -613,6 +625,78 @@ def _region_kernel(
                         break
 
 
+@njit(cache=True, nogil=True, parallel=True)
+def _region_kernel_chunks(
+    owner_pad,
+    owner_w,
+    use_words,
+    slot_pad,
+    pad,
+    H,
+    W,
+    cap,
+    head_ptr,
+    length,
+    alive,
+    direction,
+    heads,
+    rows,
+    dxs,
+    dys,
+    out,
+    parts,
+    workspace,
+):
+    """Partition rows into a bounded number of persistent private workspaces."""
+    total = rows.shape[0]
+    for part in prange(parts):
+        begin = part * total // parts
+        end = (part + 1) * total // parts
+        _region_kernel(
+            owner_pad,
+            owner_w,
+            use_words,
+            slot_pad,
+            pad,
+            H,
+            W,
+            cap,
+            head_ptr,
+            length,
+            alive,
+            direction,
+            heads,
+            rows[begin:end],
+            dxs,
+            dys,
+            out[begin:end],
+            (
+                workspace[0][part],
+                workspace[1][part],
+                workspace[2][part],
+                workspace[3][part],
+                workspace[4][part],
+            ),
+        )
+
+
+_REGION_SCRATCH = threading.local()
+
+
+def _region_workspace(height: int, width: int, parts: int) -> tuple:
+    """Retain union-find arrays per Python caller and disjoint Numba partition."""
+    key = (height, width, parts)
+    cache = getattr(_REGION_SCRATCH, "cache", None)
+    if cache is None:
+        cache = _REGION_SCRATCH.cache = {}
+    if key not in cache:
+        runs = height * (width // 2 + 1) + height
+        cache[key] = tuple(
+            np.empty((parts, size), dtype=np.int64) for size in (runs, runs, runs, runs, height + 1)
+        )
+    return cache[key]
+
+
 def region_sizes_numba(view: EgoGridView, rows: np.ndarray) -> np.ndarray:
     """Compiled :func:`src.simd_env.ego_raster_b.region_sizes` (bitwise equal)."""
     rows = _i64(rows)
@@ -622,7 +706,7 @@ def region_sizes_numba(view: EgoGridView, rows: np.ndarray) -> np.ndarray:
     owner_pad = np.ascontiguousarray(view.owner_pad)
     food_pad = np.ascontiguousarray(view.food_pad)
     words = word_views(owner_pad, food_pad)
-    _region_kernel(
+    args = (
         owner_pad,
         words[0] if words is not None else np.zeros((1, 1, 1), dtype=np.uint64),
         words is not None,
@@ -641,4 +725,10 @@ def region_sizes_numba(view: EgoGridView, rows: np.ndarray) -> np.ndarray:
         np.array([-1, 0, 1, 0], dtype=np.int64),
         out,
     )
+    parts = min(len(rows), get_num_threads())
+    workspace = _region_workspace(int(view.grid_h), int(view.grid_w), max(1, parts))
+    if parts <= 1:
+        _region_kernel(*args, tuple(a[0] for a in workspace))
+    else:
+        _region_kernel_chunks(*args, parts, workspace)
     return out

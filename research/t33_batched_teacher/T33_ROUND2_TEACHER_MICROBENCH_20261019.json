@@ -1,0 +1,46 @@
+{
+  "kind": "T33 round-2 teacher matched microbenchmark",
+  "status": "DEVELOPMENT_ONLY",
+  "host": "local Mac",
+  "thread_limits": {
+    "OMP_NUM_THREADS": 1,
+    "MKL_NUM_THREADS": 1,
+    "OPENBLAS_NUM_THREADS": 1,
+    "NUMBA_NUM_THREADS": 1,
+    "VECLIB_MAXIMUM_THREADS": 1,
+    "nice": 10
+  },
+  "baseline_teacher_git_object": "f76820776e39a6a53c13197f6f0948aa7c6a95f4",
+  "candidate_head_before_uncommitted_changes": "24af8d4c050573e98710caceafff8e2e4d91f407",
+  "fixture": {
+    "bank": "research/phase0_search_20261019/WORLD_BANK.json",
+    "mix": "scripted",
+    "source_worlds": 2,
+    "rollouts": 4,
+    "assembly_horizon": 32,
+    "search_horizon": 8,
+    "epsilon": 0.5,
+    "common_random": false,
+    "resident_rows": 48
+  },
+  "rounds": 3,
+  "assembly": {
+    "before_seconds": [0.042736667, 0.033117, 0.032847041],
+    "after_seconds": [0.0080725, 0.009972542, 0.008258],
+    "before_rows_per_second": [1123.16, 1449.41, 1461.32],
+    "after_rows_per_second": [5946.11, 4813.22, 5812.55],
+    "after_body_capacity": 833,
+    "after_body_bytes_per_row": 79968
+  },
+  "search": {
+    "before_seconds": [0.443300542, 0.397033375, 0.381975375],
+    "after_seconds": [0.329792875, 0.318272958, 0.313792917],
+    "before_source_decisions_per_second": [4.5116, 5.0374, 5.2359],
+    "after_source_decisions_per_second": [6.0644, 6.2839, 6.3736]
+  },
+  "notes": [
+    "The baseline source was loaded in memory via git show; no other worktree was read or changed.",
+    "Search is source-bound development evidence, not a calibrated lockstep throughput result.",
+    "The pre-drawn epsilon schedule intentionally differs from the Phase-0 per-row lazy Generator draw order."
+  ]
+}

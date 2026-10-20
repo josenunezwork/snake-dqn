@@ -1,0 +1,276 @@
+"""A5 bounded, real-root ExIt benchmark.
+
+This module deliberately builds all requested prepared roots before one
+``ExitTeacher.choose`` call.  It must never turn the registered W=256 A5 shape
+into a serial collection and still describe it as the production kernel.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import importlib
+import json
+import math
+import os
+import resource
+import time
+from pathlib import Path
+from typing import Any, Mapping
+
+
+def _cpu_ceiling(threads: int) -> None:
+    """Set the Numba ceiling after legacy imports have finished mutating env."""
+    if threads < 1:
+        raise ValueError("threads must be positive")
+    for key, value in {
+        "NUMBA_NUM_THREADS": str(threads),
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+    }.items():
+        os.environ[key] = value
+    import numba
+
+    # These modules rewrite NUMBA_NUM_THREADS at import time.  Import them
+    # before set_num_threads launches the pool, then restore the registered
+    # ceiling before a compiler config reload can observe a 5->1 mismatch.
+    import research.phase0_search_20261019.teacher  # noqa: F401
+    import research.t33_batched_teacher.teacher  # noqa: F401
+
+    os.environ["NUMBA_NUM_THREADS"] = str(threads)
+    numba.config.reload_config()
+    numba.set_num_threads(threads)
+
+
+def _gpu_utilization() -> float | None:
+    """Best-effort one-shot GPU utilisation sample; timing is authoritative."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=3,
+        )
+        return float(result.stdout.splitlines()[0])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
+def _profile_value(profile: Mapping[str, Any], name: str) -> int:
+    value = profile.get(name, 0)
+    if not isinstance(value, (int, float)):
+        raise TypeError(f"teacher profile {name} must be numeric")
+    return int(value)
+
+
+def _load_policy(config: Mapping[str, Any]) -> Any | None:
+    """Load an opt-in future student adapter; default remains the B8 policy."""
+    reference = config.get("policy_factory")
+    if not reference:
+        if config.get("student_checkpoint"):
+            raise ValueError("--student-checkpoint requires --policy-factory")
+        return None
+    if not isinstance(reference, str) or ":" not in reference:
+        raise ValueError("--policy-factory must be module:callable")
+    module, name = reference.split(":", 1)
+    try:
+        factory = getattr(importlib.import_module(module), name)
+        policy = factory(
+            device=str(config["device"]),
+            checkpoint=Path(str(config.get("student_checkpoint") or config["checkpoint"])),
+        )
+        if not callable(getattr(policy, "evaluate", None)) or not callable(
+            getattr(policy, "evaluate_rows", None)
+        ):
+            raise TypeError(
+                "policy must implement evaluate(world) and evaluate_rows(sim, rows, net)"
+            )
+        return policy
+    except Exception as exc:
+        raise RuntimeError(f"unsupported rollout-policy adapter {reference!r}") from exc
+
+
+def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Run the shared resident-root scheduler; it owns complete-world metrics."""
+    threads = int(config.get("threads", 5))
+    worlds_per_process = int(config.get("worlds", 256))
+    max_worlds = int(config.get("max_worlds", worlds_per_process))
+    preflight = bool(config.get("preflight", False))
+    seconds = float(config.get("seconds", 1500))
+    if not math.isfinite(seconds) or not 0 < seconds <= (600 if preflight else 1500):
+        raise ValueError("benchmark wall bound must be positive and at most 1500s (600s preflight)")
+    if not preflight and threads != 5:
+        raise ValueError("A5 requires exactly five Numba threads per worker")
+    if preflight and int(config.get("frames", 5000)) > 500:
+        raise ValueError("A6 benchmark preflight is capped at 500 frames")
+    if not preflight and worlds_per_process != 256:
+        raise ValueError("A5 production benchmark requires exactly W=256 root worlds")
+    if preflight and not 1 <= worlds_per_process <= 2:
+        raise ValueError("Mac A6 preflight is limited to one or two root worlds")
+    if max_worlds < worlds_per_process:
+        raise ValueError("max_worlds cannot be smaller than the requested root batch")
+    if int(config.get("horizon", 300)) != 300:
+        raise ValueError("A5 benchmark requires deterministic H=300")
+    device = str(config.get("device", "cuda"))
+    if not preflight and device != "cuda":
+        raise ValueError("A5 recipe requires CUDA on an L4")
+    if preflight and device != "cpu":
+        raise ValueError("A6 preflight must stay on Mac CPU")
+    if preflight and threads > 1:
+        raise ValueError("A6 preflight permits one CPU thread per process")
+    mixes = config.get("mixes", ("scripted", "frozen", "mixed"))
+    if isinstance(mixes, str):
+        mixes = tuple(piece for piece in mixes.split(",") if piece)
+    if tuple(mixes) != ("scripted", "frozen", "mixed"):
+        raise ValueError("A5 needs all three mixes in scripted,frozen,mixed order")
+    triggers = dict(config.get("triggers", {}))
+    for name in (
+        "confirm_interval",
+        "confirm_min_length",
+        "low_length_probability",
+        "death_window",
+        "max_rewinds",
+    ):
+        if config.get(name) is not None:
+            triggers[name] = config[name]
+    _cpu_ceiling(threads)
+    import numba
+
+    from research.t34_exit_b8.trajectory import run_worlds
+
+    os.environ["SNAKE_DQN_DEVICE"] = device
+    numba.set_num_threads(threads)
+    started = time.monotonic()
+    policy = _load_policy(config)
+    result = run_worlds(
+        {
+            **config,
+            "policy": policy,
+            "triggers": triggers,
+            "gpu_utilization_sampler": _gpu_utilization if device == "cuda" else None,
+            "worlds_per_process": worlds_per_process,
+            "max_worlds": max_worlds,
+            "mixes": mixes,
+            "output_dir": config["output_dir"],
+        }
+    )
+    elapsed = time.monotonic() - started
+    profile = dict(result.get("teacher_profile", {}))
+    active = _profile_value(profile, "active_row_steps")
+    resident = _profile_value(profile, "resident_row_steps")
+    sample = _gpu_utilization() if device == "cuda" else None
+    by_mix = {
+        name: {**metrics, "expansion_fraction": metrics["expanded"] / max(metrics["searched"], 1)}
+        for name, metrics in dict(result["mixes"]).items()
+    }
+    result = {
+        "schema": "t34-a5-benchmark/v1",
+        "complete": bool(result["complete"]),
+        "preflight": preflight,
+        "preflight_total_root_cap": 2 if preflight else None,
+        "recipe": {
+            "workers": 1,
+            "threads_per_worker": threads,
+            "root_worlds_per_worker": worlds_per_process,
+            "horizon": 300,
+            "device": device,
+        },
+        "elapsed_seconds": elapsed,
+        "mixes": by_mix,
+        "active_row_steps": active,
+        "resident_row_steps": resident,
+        "active_row_steps_per_second": active / max(elapsed, 1e-9),
+        "active_resident_fraction": active / max(resident, 1),
+        "completed_worlds": result["worlds"],
+        "worlds_per_hour": result["worlds_per_hour"],
+        "decisions": result["decisions"],
+        "decisions_per_second": result["decisions_per_second"],
+        "export_bytes": result["export_bytes"],
+        "export_bytes_per_world": result["export_bytes_per_world"],
+        "configured_root_capacity": result["configured_root_capacity"],
+        "peak_root_worlds": result["peak_root_worlds"],
+        "search_batch_peak": result["search_batch_peak"],
+        "ram_peak_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        * (1 if os.uname().sysname == "Darwin" else 1024),
+        "gpu_utilization_samples_percent": list(result.get("gpu_utilization_samples_percent", []))
+        + ([] if sample is None else [sample]),
+        "worker_rate_descriptive_only": True,
+    }
+    return result
+
+
+def _write_once(path: Path, result: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    with path.open("x", encoding="utf-8") as stream:
+        stream.write(payload)
+    with path.with_name(path.name + ".sha256").open("x", encoding="utf-8") as stream:
+        stream.write(hashlib.sha256(payload.encode()).hexdigest() + "\n")
+    with path.with_name(path.name + ".complete").open("x", encoding="utf-8") as stream:
+        stream.write("complete\n")
+
+
+def aggregate_lane_reports(paths: list[Path]) -> dict[str, Any]:
+    """Produce the only A5 lane-level go rule from both concurrent workers."""
+    if len(paths) != 2:
+        raise ValueError("A5 aggregate requires exactly two worker reports")
+    rows = [json.loads(path.read_text()) for path in paths]
+    if any(row.get("schema") != "t34-a5-benchmark/v1" or row.get("preflight") for row in rows):
+        raise ValueError("aggregate inputs must be production A5 worker reports")
+    wall = max(float(row["elapsed_seconds"]) for row in rows)
+    active = sum(int(row["active_row_steps"]) for row in rows)
+    resident = sum(int(row["resident_row_steps"]) for row in rows)
+    rate = active / max(wall, 1e-9)
+    return {
+        "schema": "t34-a5-lane-aggregate/v1",
+        "complete": all(bool(row["complete"]) for row in rows),
+        "workers": 2,
+        "worker_reports": [path.name for path in paths],
+        "elapsed_seconds": wall,
+        "active_row_steps": active,
+        "resident_row_steps": resident,
+        "active_row_steps_per_second": rate,
+        "active_resident_fraction": active / max(resident, 1),
+        "go_rule": {"active_row_steps_per_second": 3000, "met": rate >= 3000, "enforced": False},
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--student-checkpoint", type=Path)
+    parser.add_argument("--policy-factory")
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--worlds", type=int, default=256)
+    parser.add_argument("--max-worlds", type=int, default=256)
+    parser.add_argument("--frames", type=int, default=5000)
+    parser.add_argument("--seconds", type=float, default=1500)
+    parser.add_argument("--horizon", type=int, default=300)
+    parser.add_argument("--threads", type=int, default=5)
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--mixes", default="scripted,frozen,mixed")
+    parser.add_argument("--namespace", default="t34-exit-a5/v1")
+    parser.add_argument("--confirm-interval", type=int)
+    parser.add_argument("--confirm-min-length", type=int)
+    parser.add_argument("--low-length-probability", type=float)
+    parser.add_argument("--death-window", type=int)
+    parser.add_argument("--max-rewinds", type=int)
+    parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--aggregate", type=Path, nargs=2, metavar=("LANE0", "LANE1"))
+    args = parser.parse_args()
+    if args.aggregate:
+        _write_once(args.out, aggregate_lane_reports(args.aggregate))
+        return
+    if args.checkpoint is None or args.output_dir is None:
+        parser.error("--checkpoint and --output-dir are required unless --aggregate is used")
+    _write_once(args.out, run_benchmark(vars(args)))
+
+
+if __name__ == "__main__":
+    main()

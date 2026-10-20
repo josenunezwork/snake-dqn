@@ -26,7 +26,14 @@ __all__ = ["N_V8_SCALARS", "v8_scalars"]
 N_V8_SCALARS = 30
 
 
-def v8_scalars(sim, rows: Optional[np.ndarray], mask: Optional[np.ndarray] = None, lam=8.0):
+def v8_scalars(
+    sim,
+    rows: Optional[np.ndarray],
+    mask: Optional[np.ndarray] = None,
+    lam=8.0,
+    *,
+    membership: str = "painted",
+):
     """``((N, 30) float32 features, V8Result or None)`` for ``rows`` (``None``: all ``E*S``).
 
     Args:
@@ -35,6 +42,9 @@ def v8_scalars(sim, rows: Optional[np.ndarray], mask: Optional[np.ndarray] = Non
         mask: ``(N, 6)`` hard mask for the rows (default: the sim's advisory mask). Ignored
             for ``rows=None``.
         lam: v8 ``lambda`` (does not affect the features; kept for the reused decision).
+        membership: ``"painted"`` is the overlap-safe reference used by every
+            existing caller. T33's isolated GridBatchSim path may opt into
+            ``"owner_pad"`` after its dedicated parity check.
 
     Returns:
         The features and the ``features=True`` :class:`~src.simd_env.v8_nb.V8Result` for
@@ -60,7 +70,7 @@ def v8_scalars(sim, rows: Optional[np.ndarray], mask: Optional[np.ndarray] = Non
     res = None
     if len(live):
         q0 = np.zeros((len(live), 6), dtype=np.float32)
-        res = v8_decide(sim, rows[live], q0, mask[live], lam, features=True)
+        res = v8_decide(sim, rows[live], q0, mask[live], lam, features=True, membership=membership)
         out[live] = v8_feature_planes(res).reshape(len(live), N_V8_SCALARS)
     if whole or len(live) != len(rows):
         res = None  # only returned when it lines up with ``rows`` (all alive)

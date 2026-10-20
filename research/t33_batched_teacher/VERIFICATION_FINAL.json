@@ -1,0 +1,148 @@
+{
+  "benchmark_source_binding": {
+    "commit": "21ac014ecd1b0e224e7f0528934c4bb20407724d",
+    "files_per_receipt": 184,
+    "numba_bootstrap_import_order_only_fix_at_implementation_commit": true,
+    "verified_against_worktree_or_pinned_git_bytes": true
+  },
+  "boundaries": "Only handed worktree changed. Excluded worktrees, Phase0 artifacts, Colab, RunPod, tmux, serving, released checkpoints, pins and asset publication untouched. Only requested Git branch pushed.",
+  "checks": [
+    {
+      "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 10 ./venv/bin/python -m pytest -q tests/test_t33_*.py",
+      "result": "46 passed, 1 skipped",
+      "seconds": 41.98
+    },
+    {
+      "command": "OMP_NUM_THREADS=2 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=1 T33_OBS_THREAD_PARITY=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q tests/test_t33_observations.py -k prange",
+      "result": "1 passed, 11 deselected",
+      "seconds": 1.05
+    },
+    {
+      "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 10 ./venv/bin/python -m pytest -q tests/test_phase0_teacher.py tests/test_ego_raster.py tests/test_vector61_nb.py tests/test_fast_anchors.py tests/test_grid_sim_parity.py -m 'not slow'",
+      "result": "151 passed, 1 deselected",
+      "seconds": 32.57
+    },
+    {
+      "command": "BLACK_NUM_WORKERS=1 ./venv/bin/python -m black --check --line-length 100 research/t33_batched_teacher tests/test_t33_*.py",
+      "result": "23 files unchanged"
+    },
+    {
+      "command": "./venv/bin/python -m isort --profile black --check-only research/t33_batched_teacher tests/test_t33_*.py",
+      "result": "passed"
+    },
+    {
+      "command": "./venv/bin/python -m flake8 --jobs 1 research/t33_batched_teacher tests/test_t33_*.py",
+      "result": "passed"
+    },
+    {
+      "command": "bash -n research/t33_batched_teacher/bench.sh",
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "cuda_fp16_qualified": false,
+  "fallback_inference": {
+    "cpu": {
+      "masked_matches": 1000,
+      "raw_matches": 1000,
+      "states": 1000
+    },
+    "mps": {
+      "masked_matches": 1000,
+      "raw_matches": 1000,
+      "states": 1000
+    }
+  },
+  "full_300_decision_ablation_run": false,
+  "immutable_export_triples": [
+    {
+      "path": "research/t33_batched_teacher/FALLBACK_PREFLIGHT.json",
+      "sha256": "d711917e2403a320d6b3b111980946f4832c5922dd7b58d01e0dae6e644907c1",
+      "size_bytes": 25217
+    },
+    {
+      "path": "research/t33_batched_teacher/bench_mac_cpu/benchmark.json",
+      "sha256": "f3929a3f47d076fa5f7ac2ad4389045e8f5d3998c892f7240e4e84a7b70b9706",
+      "size_bytes": 29626
+    },
+    {
+      "path": "research/t33_batched_teacher/bench_mac_cpu_final/benchmark.json",
+      "sha256": "639e3f3d60b2e8e87645703f58586d273f9ad12fe831560c407231c054ed06df",
+      "size_bytes": 29145
+    },
+    {
+      "path": "research/t33_batched_teacher/bench_mac_mps/benchmark.json",
+      "sha256": "a31868b84d0774636ff5481d2e281d23a07a513e31ec4decb9290c735329ed93",
+      "size_bytes": 29635
+    },
+    {
+      "path": "research/t33_batched_teacher/bench_mac_mps_final/benchmark.json",
+      "sha256": "27f8b7035775173e4037f2318a351e351e2c7cf9370315a16f7b18eed9cdae56",
+      "size_bytes": 29141
+    },
+    {
+      "path": "research/t33_batched_teacher/preflight_cpu/benchmark.json",
+      "sha256": "5893421bad33f4e90bf71a5355a7e7270faca23011bdaaf052d5460c5d36931c",
+      "size_bytes": 29545
+    },
+    {
+      "path": "research/t33_batched_teacher/preflight_two_threads_v2/benchmark.json",
+      "sha256": "2b967b78acc199acce757b8a790bdae42122ca760d328fe4aa9406c1dfec2cdf",
+      "size_bytes": 23877
+    }
+  ],
+  "implementation_commit": "7cbf8e974a6e7cbe9cce638ddd1f216e07305f34",
+  "limits": "Mac compute commands used at most four simultaneous active native threads; no idle-host claim; no full repository test suite was run",
+  "local_structural_validation_manifest": "L4_LOCAL_VALIDATION_ONLY_V2.json",
+  "mac_n8_h128_observed_rates": {
+    "cpu": [
+      {
+        "branch_rows": 48,
+        "decisions_per_s": 0.2903696814359522,
+        "iterations": 3,
+        "source_worlds": 1
+      },
+      {
+        "branch_rows": 96,
+        "decisions_per_s": 0.27880990040521664,
+        "iterations": 3,
+        "source_worlds": 2
+      },
+      {
+        "branch_rows": 144,
+        "decisions_per_s": 0.2790048476334821,
+        "iterations": 3,
+        "source_worlds": 3
+      }
+    ],
+    "mps": [
+      {
+        "branch_rows": 48,
+        "decisions_per_s": 0.9035695286514767,
+        "iterations": 3,
+        "source_worlds": 1
+      },
+      {
+        "branch_rows": 96,
+        "decisions_per_s": 0.724328868184011,
+        "iterations": 3,
+        "source_worlds": 2
+      },
+      {
+        "branch_rows": 144,
+        "decisions_per_s": 0.8007475453083168,
+        "iterations": 3,
+        "source_worlds": 3
+      }
+    ]
+  },
+  "public_manifest": "L4_MANIFEST_PUBLICATION_BLOCKED_V2.json",
+  "public_manifest_status": "PUBLICATION_BLOCKED; readiness validation refuses before dispatch",
+  "remote_job_run": false,
+  "review": "Independent read-only reviewer closed actionable findings; CUDA execution and actual memory feasibility remain unverified",
+  "schema": "t33-final-verification/v1",
+  "step5_deferred_until_l4_host_bound_evidence": true
+}

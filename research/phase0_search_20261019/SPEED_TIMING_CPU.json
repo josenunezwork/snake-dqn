@@ -1,0 +1,556 @@
+{
+  "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+  "batch_wall_seconds": 39.74814158299705,
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "command": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/preflight.py",
+    "--bank",
+    "research/phase0_search_20261019/WORLD_BANK.json",
+    "--config",
+    "research/phase0_search_20261019/config.json",
+    "--mode",
+    "timing",
+    "--rounds",
+    "3",
+    "--out",
+    "research/phase0_search_20261019/SPEED_TIMING_CPU.json"
+  ],
+  "config": {
+    "epsilon": 0.02,
+    "horizon": 128,
+    "leaf_scale": 1.0,
+    "length_gate": 600,
+    "margin_threshold": 0.0,
+    "rollouts": 8
+  },
+  "decisions_per_wall_second": 0.6792770410063578,
+  "device": "cpu",
+  "implementation": "batched",
+  "mode": "timing",
+  "note": "Synthetic self-avoiding body placement; real strict-profile roster. Costs include early branch deaths; not a representative gameplay sample.",
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "rounds": 3,
+  "rows": [
+    {
+      "action": 3,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 200,
+      "mix": "scripted",
+      "scores": {
+        "0": 21395.04073178768,
+        "1": 25980.455711364746,
+        "2": 0.0,
+        "3": 26773.24328482151,
+        "4": 24923.3548797369,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.3722009169869125,
+      "world_id": "timing-scripted-0000-2354291486"
+    },
+    {
+      "action": 1,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 200,
+      "mix": "frozen",
+      "scores": {
+        "0": 24716.032650351524,
+        "1": 25287.225973129272,
+        "2": 0.0,
+        "3": 22133.059553980827,
+        "4": 21594.516399621964,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.558173416997306,
+      "world_id": "timing-frozen-0000-3515193536"
+    },
+    {
+      "action": 1,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 200,
+      "mix": "mixed",
+      "scores": {
+        "0": 23160.6548807621,
+        "1": 26030.263687968254,
+        "2": 0.0,
+        "3": 23203.60340476036,
+        "4": 19907.969849705696,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.480253583024023,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 3,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 800,
+      "mix": "scripted",
+      "scores": {
+        "0": 75423.96610832214,
+        "1": 82688.79356396198,
+        "2": 0.0,
+        "3": 88609.29247915745,
+        "4": 69386.64874076843,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.0612343749962747,
+      "world_id": "timing-scripted-0000-2354291486"
+    },
+    {
+      "action": 3,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 800,
+      "mix": "frozen",
+      "scores": {
+        "0": 48081.6708868742,
+        "1": 93324.09876024723,
+        "2": 0.0,
+        "3": 94107.06194472313,
+        "4": 81600.21339082718,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.42014533400652,
+      "world_id": "timing-frozen-0000-3515193536"
+    },
+    {
+      "action": 1,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 800,
+      "mix": "mixed",
+      "scores": {
+        "0": 97202.24258089066,
+        "1": 103365.25340890884,
+        "2": 0.0,
+        "3": 88436.93831276894,
+        "4": 89223.74127721786,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.6740019170101732,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 4,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "scripted",
+      "scores": {
+        "0": 0.0,
+        "1": 110594.49498569965,
+        "2": 156332.70741260052,
+        "3": 0.0,
+        "4": 161191.11880731583,
+        "5": 139046.47881126404
+      },
+      "searched": true,
+      "seconds": 1.03407850000076,
+      "world_id": "timing-scripted-0000-2354291486"
+    },
+    {
+      "action": 4,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "frozen",
+      "scores": {
+        "0": 0.0,
+        "1": 150438.4191941023,
+        "2": 134676.83117735386,
+        "3": 0.0,
+        "4": 160320.56974959373,
+        "5": 124731.9604833126
+      },
+      "searched": true,
+      "seconds": 1.3455722499929834,
+      "world_id": "timing-frozen-0000-3515193536"
+    },
+    {
+      "action": 2,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "mixed",
+      "scores": {
+        "0": 0.0,
+        "1": 140244.28944087029,
+        "2": 175568.25082087517,
+        "3": 0.0,
+        "4": 126645.27575063705,
+        "5": 107097.29345369339
+      },
+      "searched": true,
+      "seconds": 1.2565411670075264,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 3,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 200,
+      "mix": "scripted",
+      "scores": {
+        "0": 21395.04073178768,
+        "1": 25980.455711364746,
+        "2": 0.0,
+        "3": 26773.24328482151,
+        "4": 24923.3548797369,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.395856957999058,
+      "world_id": "timing-scripted-0000-2354291486"
+    },
+    {
+      "action": 1,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 200,
+      "mix": "frozen",
+      "scores": {
+        "0": 24716.032650351524,
+        "1": 25287.225973129272,
+        "2": 0.0,
+        "3": 22133.059553980827,
+        "4": 21594.516399621964,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.5586890839913394,
+      "world_id": "timing-frozen-0000-3515193536"
+    },
+    {
+      "action": 1,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 200,
+      "mix": "mixed",
+      "scores": {
+        "0": 23160.6548807621,
+        "1": 26030.263687968254,
+        "2": 0.0,
+        "3": 23203.60340476036,
+        "4": 19907.969849705696,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.4857443750079256,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 3,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 800,
+      "mix": "scripted",
+      "scores": {
+        "0": 75423.96610832214,
+        "1": 82688.79356396198,
+        "2": 0.0,
+        "3": 88609.29247915745,
+        "4": 69386.64874076843,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.0696232079935726,
+      "world_id": "timing-scripted-0000-2354291486"
+    },
+    {
+      "action": 3,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 800,
+      "mix": "frozen",
+      "scores": {
+        "0": 48081.6708868742,
+        "1": 93324.09876024723,
+        "2": 0.0,
+        "3": 94107.06194472313,
+        "4": 81600.21339082718,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.431688667013077,
+      "world_id": "timing-frozen-0000-3515193536"
+    },
+    {
+      "action": 1,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 800,
+      "mix": "mixed",
+      "scores": {
+        "0": 97202.24258089066,
+        "1": 103365.25340890884,
+        "2": 0.0,
+        "3": 88436.93831276894,
+        "4": 89223.74127721786,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.6919442089856602,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 4,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "scripted",
+      "scores": {
+        "0": 0.0,
+        "1": 110594.49498569965,
+        "2": 156332.70741260052,
+        "3": 0.0,
+        "4": 161191.11880731583,
+        "5": 139046.47881126404
+      },
+      "searched": true,
+      "seconds": 1.00071525000385,
+      "world_id": "timing-scripted-0000-2354291486"
+    },
+    {
+      "action": 4,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "frozen",
+      "scores": {
+        "0": 0.0,
+        "1": 150438.4191941023,
+        "2": 134676.83117735386,
+        "3": 0.0,
+        "4": 160320.56974959373,
+        "5": 124731.9604833126
+      },
+      "searched": true,
+      "seconds": 1.3361557080061175,
+      "world_id": "timing-frozen-0000-3515193536"
+    },
+    {
+      "action": 2,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "mixed",
+      "scores": {
+        "0": 0.0,
+        "1": 140244.28944087029,
+        "2": 175568.25082087517,
+        "3": 0.0,
+        "4": 126645.27575063705,
+        "5": 107097.29345369339
+      },
+      "searched": true,
+      "seconds": 1.244512292003492,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 3,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 200,
+      "mix": "scripted",
+      "scores": {
+        "0": 21395.04073178768,
+        "1": 25980.455711364746,
+        "2": 0.0,
+        "3": 26773.24328482151,
+        "4": 24923.3548797369,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.3888971660053357,
+      "world_id": "timing-scripted-0000-2354291486"
+    },
+    {
+      "action": 1,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 200,
+      "mix": "frozen",
+      "scores": {
+        "0": 24716.032650351524,
+        "1": 25287.225973129272,
+        "2": 0.0,
+        "3": 22133.059553980827,
+        "4": 21594.516399621964,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.5707157909928355,
+      "world_id": "timing-frozen-0000-3515193536"
+    },
+    {
+      "action": 1,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 200,
+      "mix": "mixed",
+      "scores": {
+        "0": 23160.6548807621,
+        "1": 26030.263687968254,
+        "2": 0.0,
+        "3": 23203.60340476036,
+        "4": 19907.969849705696,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.58217304199934,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 3,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 800,
+      "mix": "scripted",
+      "scores": {
+        "0": 75423.96610832214,
+        "1": 82688.79356396198,
+        "2": 0.0,
+        "3": 88609.29247915745,
+        "4": 69386.64874076843,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.0720884170150384,
+      "world_id": "timing-scripted-0000-2354291486"
+    },
+    {
+      "action": 3,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 800,
+      "mix": "frozen",
+      "scores": {
+        "0": 48081.6708868742,
+        "1": 93324.09876024723,
+        "2": 0.0,
+        "3": 94107.06194472313,
+        "4": 81600.21339082718,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.4344668750127312,
+      "world_id": "timing-frozen-0000-3515193536"
+    },
+    {
+      "action": 1,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 800,
+      "mix": "mixed",
+      "scores": {
+        "0": 97202.24258089066,
+        "1": 103365.25340890884,
+        "2": 0.0,
+        "3": 88436.93831276894,
+        "4": 89223.74127721786,
+        "5": 0.0
+      },
+      "searched": true,
+      "seconds": 1.705303292023018,
+      "world_id": "timing-mixed-0000-2506198438"
+    },
+    {
+      "action": 4,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "scripted",
+      "scores": {
+        "0": 0.0,
+        "1": 110594.49498569965,
+        "2": 156332.70741260052,
+        "3": 0.0,
+        "4": 161191.11880731583,
+        "5": 139046.47881126404
+      },
+      "searched": true,
+      "seconds": 1.0025251249899156,
+      "world_id": "timing-scripted-0000-2354291486"
+    },
+    {
+      "action": 4,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "frozen",
+      "scores": {
+        "0": 0.0,
+        "1": 150438.4191941023,
+        "2": 134676.83117735386,
+        "3": 0.0,
+        "4": 160320.56974959373,
+        "5": 124731.9604833126
+      },
+      "searched": true,
+      "seconds": 1.33605958300177,
+      "world_id": "timing-frozen-0000-3515193536"
+    },
+    {
+      "action": 2,
+      "device": "cpu",
+      "implementation": "batched",
+      "legal_actions": 6,
+      "length": 1500,
+      "mix": "mixed",
+      "scores": {
+        "0": 0.0,
+        "1": 140244.28944087029,
+        "2": 175568.25082087517,
+        "3": 0.0,
+        "4": 126645.27575063705,
+        "5": 107097.29345369339
+      },
+      "searched": true,
+      "seconds": 1.2338170409784652,
+      "world_id": "timing-mixed-0000-2506198438"
+    }
+  ],
+  "search_seconds_median": 1.3888971660053357,
+  "source_sha256": {
+    "preflight.py": "887d597228092c0bd35a8ba2d9db32da0e331242211060060ca68ead142b9eac",
+    "teacher.py": "10270e520ce096d967832fe2b8acc19eca1e6f66a746daae566d7a46bb7130e5"
+  },
+  "total_seconds": 40.06447025001398,
+  "workers": 1
+}

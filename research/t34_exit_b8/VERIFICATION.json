@@ -1,0 +1,520 @@
+{
+  "baseline_failure_proof": {
+    "current_file_sha256": "2d62739d3fca32f5d6d8ca4f2f6eaf363dc05a9af1615419865e26a97aca7a67",
+    "file": "src/simd_env/ego_raster_bv8.py",
+    "historical_receipt_pin_sha256": "7dc4068101563b7a6a84614d82a4b18310e88aa7a2afaca70cc689dafc48c017",
+    "runtime_source_modified_by_t34": false,
+    "starting_commit_file_sha256": "2d62739d3fca32f5d6d8ca4f2f6eaf363dc05a9af1615419865e26a97aca7a67"
+  },
+  "branch": "t34-exit-engine-20261019",
+  "commands": {
+    "a6_benchmark": "env PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu T34_INPUT_MODE=local-preflight T34_INPUT_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/inputs T34_OUTPUT_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/a6-postflags-benchmark T34_WORLDS=2 T34_FRAMES=500 T34_SECONDS=600 T34_NAMESPACE=t34-exit-postflags-benchmark-v1 bash research/t34_exit_b8/bench.sh",
+    "a6_benchmark_replay": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.t34_exit_b8.replay --export-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/a6-postflags-benchmark/worlds --checkpoint /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/inputs/B8_s3_final.pth --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/a6-postflags-benchmark-replay.json",
+    "a6_label": "env PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu T34_INPUT_MODE=local-preflight T34_INPUT_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/inputs T34_OUTPUT_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/a6-postflags-label T34_WORLDS=2 T34_FRAMES=500 T34_SECONDS=600 T34_MAX_WORLDS=2 T34_ROUND=r0 T34_SHARD=0 T34_ATTEMPT=1 T34_NAMESPACE=t34-exit-postflags-label-v1 bash research/t34_exit_b8/label.sh",
+    "a6_label_replay": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.t34_exit_b8.replay --export-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/a6-postflags-label/worlds --checkpoint /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/inputs/B8_s3_final.pth --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/a6-postflags-label-replay.json",
+    "focused_final": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -n0 tests/test_t34_exit_engine.py tests/test_t34_exit_trajectory.py tests/test_t34_exit_replay.py tests/test_t34_exit_identity.py tests/test_t34_exit_manifests.py tests/test_t34_exit_scripts.py -k 'not legacy_imports' --junitxml=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/focused-final.xml > /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/focused-final.log 2>&1",
+    "format": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m black --workers 1 --line-length 100 --check research/t34_exit_b8 tests/test_t34_exit_*.py tests/test_s1_admission.py",
+    "full_cpu_gate": "nice -n 10 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu TORCHINDUCTOR_COMPILE_THREADS=1 DYLD_LIBRARY_PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/torch/lib:/usr/lib /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -n0 -m 'not slow and not requires_gpu' -k 'not mps' --junitxml=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/full-cpu-non-slow-v2.xml > /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/full-cpu-non-slow-v2.log 2>&1",
+    "global_format": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m black --workers 1 --line-length 100 --check src web/backend",
+    "global_imports": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m isort --profile black --check-only src web/backend",
+    "global_lint": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m flake8 --jobs 1 src web/backend",
+    "imports": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m isort --profile black --check-only research/t34_exit_b8 tests/test_t34_exit_*.py tests/test_s1_admission.py",
+    "inherited_reproduction": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -n0 tests/test_t22_frozen_pool.py::test_all_six_real_policy_streams_match_frozen_source_and_recording tests/test_t22_frozen_pool.py::test_all_six_real_policy_streams_match_prechange_v8_on_physical_long_bodies tests/test_t4_snapshots.py::test_graft_nonzero_row_preserves_neighbors_and_seeds --junitxml=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/inherited-final.xml > /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/inherited-final.log 2>&1",
+    "lint": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m flake8 --jobs 1 research/t34_exit_b8 tests/test_t34_exit_*.py tests/test_s1_admission.py",
+    "merged_focused": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -n0 tests/test_t34_exit_*.py tests/test_s1_admission.py -k 'not legacy_imports' --junitxml=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/merged-focused-v2.xml > /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/merged-focused-v2.log 2>&1",
+    "numba_ceiling_final": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -n0 tests/test_t34_exit_manifests.py -k legacy_imports --junitxml=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/numba-ceiling-final.xml > /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/numba-ceiling-final.log 2>&1",
+    "s1_admission_repaired": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -n0 tests/test_s1_admission.py --junitxml=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/s1-admission-repaired.xml > /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/s1-admission-repaired.log 2>&1",
+    "shell": "bash -n research/t34_exit_b8/bench.sh research/t34_exit_b8/label.sh",
+    "validate_a5_0": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.t34_exit_b8.make_manifest --kind benchmark --commit 0981d0f1498a7d9be08fb3edff2a9c798b4cd699 --shard 0 --output-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-l4-0-output --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-a5-0.json --validate",
+    "validate_a5_1": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.t34_exit_b8.make_manifest --kind benchmark --commit 0981d0f1498a7d9be08fb3edff2a9c798b4cd699 --shard 1 --output-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-l4-1-output --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-a5-1.json --validate",
+    "validate_r0": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.t34_exit_b8.make_manifest --kind label --commit 0981d0f1498a7d9be08fb3edff2a9c798b4cd699 --round r0 --worlds 100 --output-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-r0-output --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-r0.json --validate",
+    "whitespace": "git diff --check"
+  },
+  "created_utc": "2026-10-20T03:00:11.717657+00:00",
+  "implementation_base": "846a7077c520be08252bb62685f1dbc96ca633b4",
+  "independent_baseline_attribution": {
+    "content": {
+      "identical_file_sha256": {
+        "research/s1_mature_20261018/EVAL_PREFLIGHT_FINAL.json": "8181d170ce3f8c523ca48449830cb9079bf567d667f89d654135afaab48f3188",
+        "research/s1_mature_20261018/price.py": "e256b2fa564fe6c05753b394d6865b5994ba99b1bd278dcebc3ef279e1f192d4",
+        "research/t4_snapshot_restart_20261016/snapshots.py": "30746659576aafcc0f4502de6c53e28cb3d864ca9330a576012714c8040442ad",
+        "src/simd_env/ego_raster_bv8.py": "2d62739d3fca32f5d6d8ca4f2f6eaf363dc05a9af1615419865e26a97aca7a67",
+        "src/simd_env/grid_sim.py": "ae48ae8270610e5d617e1af6e6c6dc35e524750dec26f15499b05355e4a0de02",
+        "tests/fixtures/t24/v8_nb_pre_t24.py": "72947d97a3d3d293a6f99e76a88236f38c933eda3dbf605e99399e1b58082e32",
+        "tests/test_t22_frozen_pool.py": "2543bf5afb77b4e9d0264e5c09a02726660adca2ec2bc42307e894f1b19adff2",
+        "tests/test_t4_snapshots.py": "7b2346a44c8af694079395c01503afaabce949a024495895da92f3b87cd5e386"
+      },
+      "independent_baseline_commit": "e8a4425f88dd32cc0e706a0685c30889ef576dc0",
+      "starting_commit": "846a7077c520be08252bb62685f1dbc96ca633b4",
+      "verified_independent_log": {
+        "bytes": 14683,
+        "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/baseline-four-failures.log",
+        "sha256": "7725c8da5aedd58d065e740292d8e48ce755b448c80a646030bad4985164cf21"
+      }
+    },
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/baseline-attribution.json",
+    "sha256": "94d0d0d6f33a4a895f2fc1f0c54b881ebd685f2517c56a12e0e97b25fa70a3fd"
+  },
+  "local_checks": {
+    "bash_n": "PASS",
+    "global_lint": "PASS",
+    "package_lint": "PASS"
+  },
+  "reports": {
+    "a6-postflags-benchmark-replay.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/a6-postflags-benchmark-replay.json",
+      "result": {
+        "accepted": 2,
+        "drop_rate": 0.0,
+        "dropped": 0,
+        "kill": false,
+        "mismatches": [],
+        "schema": "t34-exit-replay-report/v1",
+        "worlds": 2
+      },
+      "sha256": "3955d5d39e625cdedcfe24d46c4b5ddba28b871f3a01b11e5c7de51bdcd2131d"
+    },
+    "a6-postflags-benchmark/benchmark.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/a6-postflags-benchmark/benchmark.json",
+      "result": {
+        "active_resident_fraction": 1.0,
+        "active_row_steps": 5100,
+        "active_row_steps_per_second": 302.6723123805699,
+        "complete": true,
+        "completed_worlds": 2,
+        "configured_root_capacity": 2,
+        "decisions": 1000,
+        "decisions_per_second": 59.35247884982714,
+        "elapsed_seconds": 16.849905958981253,
+        "export_bytes": 87596,
+        "export_bytes_per_world": 43798.0,
+        "gpu_utilization_samples_percent": [],
+        "mixes": {
+          "frozen": {
+            "expanded": 0,
+            "expansion_fraction": 0.0,
+            "searched": 9,
+            "worlds": 1
+          },
+          "scripted": {
+            "expanded": 0,
+            "expansion_fraction": 0.0,
+            "searched": 8,
+            "worlds": 1
+          }
+        },
+        "peak_root_worlds": 2,
+        "preflight": true,
+        "preflight_total_root_cap": 2,
+        "ram_peak_bytes": 435716096,
+        "recipe": {
+          "device": "cpu",
+          "horizon": 300,
+          "root_worlds_per_worker": 2,
+          "threads_per_worker": 1,
+          "workers": 1
+        },
+        "resident_row_steps": 5100,
+        "schema": "t34-a5-benchmark/v1",
+        "search_batch_peak": 1,
+        "worker_rate_descriptive_only": true,
+        "worlds_per_hour": 427.3378477187554
+      },
+      "sha256": "88142c5f6a12afc20d60a5545cfbceb354a733cb3d735e096a614b14b155e769"
+    },
+    "a6-postflags-label-replay.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/a6-postflags-label-replay.json",
+      "result": {
+        "accepted": 2,
+        "drop_rate": 0.0,
+        "dropped": 0,
+        "kill": false,
+        "mismatches": [],
+        "schema": "t34-exit-replay-report/v1",
+        "worlds": 2
+      },
+      "sha256": "3955d5d39e625cdedcfe24d46c4b5ddba28b871f3a01b11e5c7de51bdcd2131d"
+    },
+    "a6-postflags-label/label.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/a6-postflags-label/label.json",
+      "result": {
+        "active_resident_fraction": 1.0,
+        "active_row_steps": 9300,
+        "active_row_steps_per_second": 622.3048980667563,
+        "actual_numba_threads": 1,
+        "actual_policy_device": "cpu",
+        "attempt": 1,
+        "boost_share": 0.0,
+        "complete": true,
+        "configured_root_capacity": 2,
+        "decisions": 1000,
+        "decisions_per_second": 66.91450516846842,
+        "elapsed_seconds": 14.94444287501392,
+        "export_bytes": 102306,
+        "export_bytes_per_world": 51153.0,
+        "flips_per_world": 0.0,
+        "gpu_utilization_samples_percent": [],
+        "mixes": {
+          "scripted": {
+            "expanded": 0,
+            "searched": 31,
+            "worlds": 2
+          }
+        },
+        "peak_root_worlds": 2,
+        "preflight": true,
+        "recipe": {
+          "device": "cpu",
+          "horizon": 300,
+          "threads_per_worker": 1,
+          "workers": 1
+        },
+        "requested_worlds": 2,
+        "resident_row_steps": 9300,
+        "root_steps_including_rewinds": 1000,
+        "round": "r0",
+        "schema": "t34-exit-label-chunk/v1",
+        "search_batch_peak": 1,
+        "shard": 0,
+        "teacher_profile": {
+          "active_row_steps": 9300,
+          "decisions": 31,
+          "expansions": 0,
+          "nominal_row_steps": 9300,
+          "peak_active_rows": 1,
+          "policy_s": 1.083400796778733,
+          "resident_row_steps": 9300,
+          "sim_s": 12.461764343519462,
+          "verifications": 31
+        },
+        "world_rate_scope": "completed terminal-or-horizon worlds; unfinished roots are censored",
+        "worlds": 2,
+        "worlds_per_hour": 481.78443721297265
+      },
+      "sha256": "eefb82a714f14845025d1c62014aa47a73333a8b8d75e832fcdd237f2546bba6"
+    },
+    "qualified-a5-0.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-a5-0.json",
+      "result": {
+        "budget": {
+          "rate_units_per_hour": 2.0,
+          "reserve_units": 0.0,
+          "unit_cap": 1.0
+        },
+        "claim": "DRAFT_NO_ALLOCATION_AUTHORIZED",
+        "commit": "0981d0f1498a7d9be08fb3edff2a9c798b4cd699",
+        "env": {
+          "NUMBA_NUM_THREADS": "5",
+          "PYTHONUNBUFFERED": "1",
+          "T34_CONFIRM_INTERVAL": "8",
+          "T34_CONFIRM_MIN_LENGTH": "600",
+          "T34_DEATH_WINDOW": "150",
+          "T34_DEVICE": "cuda",
+          "T34_FRAMES": "5000",
+          "T34_HORIZON": "300",
+          "T34_INPUT_MODE": "public",
+          "T34_LOW_LENGTH_PROBABILITY": "0.03",
+          "T34_MAX_REWINDS": "2",
+          "T34_MAX_WORLDS": "256",
+          "T34_NAMESPACE": "t34-exit-a5/s0/a0",
+          "T34_SECONDS": "600",
+          "T34_TELEMETRY_SECONDS": "120",
+          "T34_THREADS": "5",
+          "T34_WORKERS": "2",
+          "T34_WORLDS": "256"
+        },
+        "inputs": [
+          {
+            "dest": "public-inputs.json",
+            "path": "/Users/josenunez/Projects/ml/snake-dqn-exit-engine/research/t34_exit_b8/PUBLIC_INPUTS.json",
+            "sha256": "736f7b4e7730f760b8b81db00772d14abcf84c74b261a8dc7630732fdd383a10"
+          }
+        ],
+        "job_id": "t34-exit-b8-a5-s0-a0",
+        "lease_seconds": 600,
+        "max_export_bytes": 67108864,
+        "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-l4-0-output",
+        "requirements": {
+          "allowed_gpus": [
+            "L4"
+          ],
+          "est_minutes": 15,
+          "gpu": "L4",
+          "min_vcpu": 12
+        },
+        "script": "research/t34_exit_b8/bench.sh",
+        "timeout_minutes": 30,
+        "transport": {
+          "dispatch_ready": true,
+          "mode": "public_release_urls",
+          "publishing_pending": false,
+          "status": "PUBLICATION_READY"
+        }
+      },
+      "sha256": "35503e9349279df3d137cb9b4c5ef6f482baa86fefa5abfb5361b805d14215dc"
+    },
+    "qualified-a5-1.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-a5-1.json",
+      "result": {
+        "budget": {
+          "rate_units_per_hour": 2.0,
+          "reserve_units": 0.0,
+          "unit_cap": 1.0
+        },
+        "claim": "DRAFT_NO_ALLOCATION_AUTHORIZED",
+        "commit": "0981d0f1498a7d9be08fb3edff2a9c798b4cd699",
+        "env": {
+          "NUMBA_NUM_THREADS": "5",
+          "PYTHONUNBUFFERED": "1",
+          "T34_CONFIRM_INTERVAL": "8",
+          "T34_CONFIRM_MIN_LENGTH": "600",
+          "T34_DEATH_WINDOW": "150",
+          "T34_DEVICE": "cuda",
+          "T34_FRAMES": "5000",
+          "T34_HORIZON": "300",
+          "T34_INPUT_MODE": "public",
+          "T34_LOW_LENGTH_PROBABILITY": "0.03",
+          "T34_MAX_REWINDS": "2",
+          "T34_MAX_WORLDS": "256",
+          "T34_NAMESPACE": "t34-exit-a5/s1/a0",
+          "T34_SECONDS": "600",
+          "T34_TELEMETRY_SECONDS": "120",
+          "T34_THREADS": "5",
+          "T34_WORKERS": "2",
+          "T34_WORLDS": "256"
+        },
+        "inputs": [
+          {
+            "dest": "public-inputs.json",
+            "path": "/Users/josenunez/Projects/ml/snake-dqn-exit-engine/research/t34_exit_b8/PUBLIC_INPUTS.json",
+            "sha256": "736f7b4e7730f760b8b81db00772d14abcf84c74b261a8dc7630732fdd383a10"
+          }
+        ],
+        "job_id": "t34-exit-b8-a5-s1-a0",
+        "lease_seconds": 600,
+        "max_export_bytes": 67108864,
+        "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-l4-1-output",
+        "requirements": {
+          "allowed_gpus": [
+            "L4"
+          ],
+          "est_minutes": 15,
+          "gpu": "L4",
+          "min_vcpu": 12
+        },
+        "script": "research/t34_exit_b8/bench.sh",
+        "timeout_minutes": 30,
+        "transport": {
+          "dispatch_ready": true,
+          "mode": "public_release_urls",
+          "publishing_pending": false,
+          "status": "PUBLICATION_READY"
+        }
+      },
+      "sha256": "fc6d5d716f7e03990368dc87102aa20a4edc8535ba66e2ea5fcba19381a3a6cc"
+    },
+    "qualified-r0.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-r0.json",
+      "result": {
+        "budget": {
+          "rate_units_per_hour": 2.0,
+          "reserve_units": 0.0,
+          "unit_cap": 12.0
+        },
+        "claim": "DRAFT_NO_ALLOCATION_AUTHORIZED",
+        "commit": "0981d0f1498a7d9be08fb3edff2a9c798b4cd699",
+        "env": {
+          "NUMBA_NUM_THREADS": "5",
+          "PYTHONUNBUFFERED": "1",
+          "T34_ATTEMPT": "0",
+          "T34_BETA": "1",
+          "T34_CONFIRM_INTERVAL": "4",
+          "T34_CONFIRM_MIN_LENGTH": "600",
+          "T34_DEATH_WINDOW": "150",
+          "T34_DEVICE": "cuda",
+          "T34_FRAMES": "5000",
+          "T34_HORIZON": "300",
+          "T34_INPUT_MODE": "public",
+          "T34_LOW_LENGTH_PROBABILITY": "0.03",
+          "T34_MAX_REWINDS": "2",
+          "T34_MAX_WORLDS": "100",
+          "T34_NAMESPACE": "t34-exit/r0/s0/a0",
+          "T34_ROUND": "r0",
+          "T34_SECONDS": "10200",
+          "T34_SHARD": "0",
+          "T34_TELEMETRY_SECONDS": "120",
+          "T34_THREADS": "5",
+          "T34_WORKERS": "2",
+          "T34_WORLDS": "100"
+        },
+        "inputs": [
+          {
+            "dest": "public-inputs.json",
+            "path": "/Users/josenunez/Projects/ml/snake-dqn-exit-engine/research/t34_exit_b8/PUBLIC_INPUTS.json",
+            "sha256": "736f7b4e7730f760b8b81db00772d14abcf84c74b261a8dc7630732fdd383a10"
+          }
+        ],
+        "job_id": "t34-exit-b8-r0-s0-a0",
+        "lease_seconds": 600,
+        "max_export_bytes": 67108864,
+        "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/qualified-r0-output",
+        "requirements": {
+          "allowed_gpus": [
+            "L4"
+          ],
+          "est_minutes": 180,
+          "gpu": "L4",
+          "min_vcpu": 12
+        },
+        "script": "research/t34_exit_b8/label.sh",
+        "timeout_minutes": 360,
+        "transport": {
+          "dispatch_ready": true,
+          "mode": "public_release_urls",
+          "publishing_pending": false,
+          "status": "PUBLICATION_READY"
+        }
+      },
+      "sha256": "1e7fc595b4336eeb88ddb082a6f2960bddd9915f77a4ab78cf73520599dd84ea"
+    }
+  },
+  "resolved_baseline_failure": {
+    "error": "timing source changed: src/simd_env/ego_raster_bv8.py",
+    "resolution": "Accounting unit fixture uses fresh temporary synthetic timings and explicitly rejects a corrupted source hash. Historical S1 receipts/runtime source unchanged.",
+    "test": "test_primary_forecast_fits_caps_without_pre_funding_optional_reruns",
+    "whole_suite_rerun_after_test_only_fix": false
+  },
+  "schema": "t34-exit-preparation-verification/v1",
+  "scope": {
+    "a5_maximum_cli_work_window_seconds": 1500,
+    "a5_prepared_window": "600s work / 15min estimate / 30min transport timeout / 1u per lane; two lanes total 2u",
+    "current_design_hold": "Original v1 prep only. Incoming main DESIGN_V2_SHADOW.md supersedes trigger/rewind mechanics; no current v2 A5 or label dispatch acceptance is claimed.",
+    "external_addendum_preserved": {
+      "backup": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/preserved-exit-inputs-addendum.md",
+      "note": "Incoming main added byte-identical tracked content; original untracked bytes backed up and verified identical after merge.",
+      "path": "docs/research/specs/2026-10-19_exit_inputs_addendum.md",
+      "sha256": "3455c68922b5ab04964ff776aefcb7b583955fbe64b8072150093769142fdda9"
+    },
+    "full_gate_note": "Full CPU gate began before final transport-only fixes and the S1 accounting fixture repair. It completed with four independently baseline-reproduced failures. The S1 test fixture is repaired and verified; three inherited T22/T4 failures remain. Final T34/preflight and merged focused checks were rerun separately. No green whole-suite run is claimed.",
+    "hardware_test_exclusions": "requires_gpu and names matching mps; explicit MPS cases otherwise bypass the CPU environment",
+    "host": "Mac CPU only",
+    "live_colab_pod_tmux_service_operations": 0,
+    "pending": [
+      "Approved v2 shadow/LAD migration and M1/M2/M3 before current A5",
+      "Live two-L4 A5 rehearsal",
+      "A2 >=150-world L4/Mac/second-L4 replay",
+      "Sibling P5 tower adapter/checkpoint publication binding",
+      "P7 campaign bank audit/preregistration and owner pre-decisions"
+    ],
+    "preliminary_interrupted_logs": [
+      "full-non-slow.log",
+      "full-cpu-non-slow.log"
+    ],
+    "t33_inventory_resolution": "Six files total: B8 plus five frozen checkpoints; no seventh identity was invented.",
+    "test_probe_cpu_thread_ceiling": 2,
+    "unresolved_inherited_failures": [
+      "Two T22 oracle tests: membership keyword absent from frozen v8_decide API",
+      "T4 snapshot graft: derived _food_array capacity shape mismatch"
+    ]
+  },
+  "source_commit_before_receipt": "407c6182ce7a7070bf947fd787fbb3406c31dba7",
+  "source_sha256": {
+    "research/t34_exit_b8/INPUTS_REQUIRED.json": "49045b2edb9a452eb4257a166444774c90a7890614638c89d3c157449a16b6a6",
+    "research/t34_exit_b8/PUBLIC_INPUTS.json": "736f7b4e7730f760b8b81db00772d14abcf84c74b261a8dc7630732fdd383a10",
+    "research/t34_exit_b8/README.md": "b76fa44759853f1b119f7a9d895dca9a79e33839912d7fde22bcc143983d3fc3",
+    "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
+    "research/t34_exit_b8/bench.sh": "e517afd86d1e7aaab4ce5a34448789dfb18d07d297045a590f0c374c6ae96da6",
+    "research/t34_exit_b8/benchmark.py": "f071f7e35534b3c7ba3b530527dbd8659228dac570d24edb786ea0f3e57783ad",
+    "research/t34_exit_b8/engine.py": "9936641b02537e379c625d23cded38dd453caa1b3471af314945893adad3705c",
+    "research/t34_exit_b8/exports.py": "86e9b602edd9775f3191b91a65f3b04091deb04634d09a34bd18ac01301c970b",
+    "research/t34_exit_b8/label.py": "ccd4f248a41be0a8ef2a727d838fcf2e8ac41b9c6f6be9c5f48e47eada8a93e2",
+    "research/t34_exit_b8/label.sh": "ce979f452490a0397f25b9d16256d04258df6d78f891378829e2e880ac7a3317",
+    "research/t34_exit_b8/make_manifest.py": "2915fa77b0e9e2decef74a5641157d508af2171bda5b9b4a00da772cd0d1592b",
+    "research/t34_exit_b8/policy.py": "21b39eb4a3a5290a0fedc840fddc519c6c8b6b2b0fca096df661075bac29620f",
+    "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
+    "research/t34_exit_b8/replay.py": "c64f219ae7ab5aa3d1b8358bfaaefbe23f195a6a07b94e07b8ab1636226f598c",
+    "research/t34_exit_b8/trajectory.py": "aeefbeec207bf4f1eab9fff277aa55bc4866fe872d73dc743b2db6fe10e8a2f3",
+    "tests/test_s1_admission.py": "76ece8c2678cb04275b893ab52e57f4021d0181baa43ec618ae0f141d3757424",
+    "tests/test_t34_exit_engine.py": "b11268390251744af333af1c85ef1d7203e7c7be2682070b1a08d8ebf7563f33",
+    "tests/test_t34_exit_fit.py": "d13fcaec772b4e46a28dd182c69bbb1522e2fdef0ec59fb5d43e6362e6369aec",
+    "tests/test_t34_exit_identity.py": "22eb73801a84c9a6a44c1638f60fc392ab2efd007afcc81fe0b72a3c818bdc2e",
+    "tests/test_t34_exit_jobs.py": "daa92bc80ebb3806fe00c6ca6067707dadf716c614a2e2a6f6a93fcbcb8ae61e",
+    "tests/test_t34_exit_manifests.py": "20327474ecf2d9674af1a1e83e33ead6a524a01080c801c92315cf6c475236fd",
+    "tests/test_t34_exit_replay.py": "c813f284890813241538029a30f7b3aa8882ac66eea59e2621b1373918a55484",
+    "tests/test_t34_exit_scripts.py": "de9f09597a97774b7d6679c05d595cf0aee4dcb8cf43cf1c71e1369fcf5b8fc1",
+    "tests/test_t34_exit_tools.py": "a912335e53bb16ea1122da05e131655923dc544bbef21359e35efab0cea6d7de",
+    "tests/test_t34_exit_tower.py": "2ef076b23210101ac703f77ee2bf2f18126d2d73b4cd331729a167be3b2b03e3",
+    "tests/test_t34_exit_trajectory.py": "3c58c533309dd70a9a2d09ff2e7ef12731f77698ac300faa1aa33ede26f5cc29"
+  },
+  "test_recorder_correction": {
+    "fix": "Separate per-process argv capture; validate every worker invocation; no launcher behavior change.",
+    "initial_log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/merged-focused.log",
+    "initial_result": "1 failed, 90 passed, 2 deselected; parallel fake argv writes interleaved",
+    "sha256": "82cf5eb60dab8650f8922d0eaf7fade7b6c1e4143fe1b35e5ed3f49b56c9295e"
+  },
+  "tests": {
+    "focused_final": {
+      "errors": 0,
+      "failures": 0,
+      "passed": 39,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/focused-final.xml",
+      "seconds": 19.743,
+      "sha256": "837a7384853557008d8b8db3a9a562bdbffad17adcc886c7928c4827c3b67da8",
+      "skipped": 0,
+      "tests": 39
+    },
+    "full_cpu_non_slow": {
+      "deselected": 134,
+      "errors": 0,
+      "failures": 4,
+      "passed": 8139,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/full-cpu-non-slow-v2.xml",
+      "pytest_elapsed_seconds": 4233.44,
+      "seconds": 4233.25,
+      "sha256": "456c268f802374e5e7e8be2c38e13c76125160c826ac65767db4f1d3094d58fc",
+      "skipped": 29,
+      "tests": 8172
+    },
+    "inherited_three_reproduced": {
+      "errors": 0,
+      "failures": 3,
+      "passed": 0,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/inherited-final.xml",
+      "seconds": 1.813,
+      "sha256": "11423d69cb54dc594c21e9f012a52e9bce927fffbe57c7a53d4582112f30cce9",
+      "skipped": 0,
+      "tests": 3
+    },
+    "merged_focused": {
+      "errors": 0,
+      "failures": 0,
+      "passed": 91,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/merged-focused-v2.xml",
+      "seconds": 21.28,
+      "sha256": "cb76c887211377ed8a6356391fd1935af1318165f4bbec0dd025e84ab8f337b5",
+      "skipped": 0,
+      "tests": 91
+    },
+    "s1_admission_repaired": {
+      "errors": 0,
+      "failures": 0,
+      "passed": 8,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/s1-admission-repaired.xml",
+      "seconds": 0.806,
+      "sha256": "7c7a7b72fdc5e68e167dd166ef35d5e3c39179ba392b7d74c5049267c6a83749",
+      "skipped": 0,
+      "tests": 8
+    },
+    "two_thread_numba_ceiling": {
+      "errors": 0,
+      "failures": 0,
+      "passed": 2,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/numba-ceiling-final.xml",
+      "seconds": 3.149,
+      "sha256": "7a260835378f7a4d079ca6230d894cdcf64ebaf757956152156631ae01f67153",
+      "skipped": 0,
+      "tests": 2
+    }
+  },
+  "worktree": "/Users/josenunez/Projects/ml/snake-dqn-exit-engine"
+}

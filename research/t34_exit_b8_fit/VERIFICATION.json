@@ -1,0 +1,209 @@
+{
+  "schema": "t34-exit-fit-preparation-verification/v1",
+  "created_utc": "2026-10-20T02:42:25.501280+00:00",
+  "worktree": "/Users/josenunez/Projects/ml/snake-dqn-exit-fit",
+  "branch": "t34-exit-fit-20261019",
+  "implementation_commit": "31ecbe076b21d1620bbdbebab681896ecc718dcb",
+  "starting_commit": "e8a4425f88dd32cc0e706a0685c30889ef576dc0",
+  "compute": {
+    "placement": "Mac only",
+    "max_cpu_math_threads": 2,
+    "focused_probe_threads": 1,
+    "live_services_launched": [],
+    "phase0_and_s1_modified": false
+  },
+  "full_non_slow": {
+    "command": "env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=2 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -m 'not slow'",
+    "exit_code": 1,
+    "passed": 8173,
+    "failed": 17,
+    "skipped": 29,
+    "deselected": 101,
+    "seconds": 4100.38,
+    "launch_commit": "c20bcd9a77bd33cf1f7661850fd9c8d68ab315e2",
+    "note": "Only T34 package/tests/docs evolved during the long run; final focused suite covers all final T34 changes. Shared baseline code was unchanged. Whole suite remains non-green."
+  },
+  "focused_final": {
+    "command": "env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_t34_exit_fit.py tests/test_t34_exit_tools.py tests/test_t34_exit_tower.py tests/test_t34_exit_jobs.py",
+    "exit_code": 0,
+    "passed": 44,
+    "seconds": 2.03
+  },
+  "compiler_follow_up": {
+    "command": "env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu CXX=/usr/bin/clang++ DYLD_LIBRARY_PATH=/usr/lib TORCHINDUCTOR_CACHE_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/compile-cache-apple-clang /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -m 'not slow' tests/test_perf_compile.py",
+    "exit_code": 0,
+    "passed": 26,
+    "deselected": 2,
+    "seconds": 99.06,
+    "reason": "Process-local system libc++ lookup resolves the 13 broad-run compiler failures; no global libraries/config changed.",
+    "earlier_attempts": [
+      "Fresh cache alone retained loader failures; stopped its owned process tree after noticing two slow tests were included.",
+      "Homebrew C++ runtime path caused a collection-time bus error; preserved log, did not change installed libraries."
+    ]
+  },
+  "inherited_failures": {
+    "command": "env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_s1_admission.py::test_primary_forecast_fits_caps_without_pre_funding_optional_reruns tests/test_t22_frozen_pool.py::test_all_six_real_policy_streams_match_frozen_source_and_recording tests/test_t22_frozen_pool.py::test_all_six_real_policy_streams_match_prechange_v8_on_physical_long_bodies tests/test_t4_snapshots.py::test_graft_nonzero_row_preserves_neighbors_and_seeds",
+    "cwd": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/baseline-e8a4425f",
+    "checkout_commit": "e8a4425f88dd32cc0e706a0685c30889ef576dc0",
+    "exit_code": 1,
+    "failed": 4,
+    "seconds": 5.99,
+    "cases": [
+      "tests/test_s1_admission.py::test_primary_forecast_fits_caps_without_pre_funding_optional_reruns",
+      "tests/test_t22_frozen_pool.py::test_all_six_real_policy_streams_match_frozen_source_and_recording",
+      "tests/test_t22_frozen_pool.py::test_all_six_real_policy_streams_match_prechange_v8_on_physical_long_bodies",
+      "tests/test_t4_snapshots.py::test_graft_nonzero_row_preserves_neighbors_and_seeds"
+    ],
+    "note": "Same failures reproduced in clean detached starting checkout. Checkout removed after recording; evidence log retained. Independent reviewer verified identical affected Git blobs; no bound receipt/frozen fixture modified."
+  },
+  "acceptance": {
+    "a3": {
+      "acceptance": "A3",
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "max_abs_q_delta": 0.0,
+      "observation_sha256": {
+        "global": "9865dda9e7e633f90e54aeba047f85b5a2d81f3218f5ba0d3f329215e1ef7519",
+        "local": "f57295d9337ab1d93d3ed8875d6141e03b8c42bca4f9c739fb3ad55020f5db77",
+        "scalars": "34a53d151d7a3458910882b5d8f293676063c9b366a649755ca44162c84e27c1"
+      },
+      "pass": true,
+      "states": 10000
+    },
+    "a4": {
+      "schema": "exit-fit-a4/v2",
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "rows_provenance": {
+        "schema": "t34-a3-observation-prefix/v1",
+        "source": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/bank-00000.npz",
+        "source_sha256": "96da3b448fc7ebd708304d4fc50d661b5771df23a2cd6a70051a1c5ae32aea67",
+        "states": 10000,
+        "batch": 64,
+        "claim": "Existing T3 actual observation prefix; not teacher replay acceptance",
+        "arrays": {
+          "local": "f57295d9337ab1d93d3ed8875d6141e03b8c42bca4f9c739fb3ad55020f5db77",
+          "global": "9865dda9e7e633f90e54aeba047f85b5a2d81f3218f5ba0d3f329215e1ef7519",
+          "scalars": "34a53d151d7a3458910882b5d8f293676063c9b366a649755ca44162c84e27c1"
+        }
+      },
+      "states": 1024,
+      "optimizer_updates": 20,
+      "batch_size": 32,
+      "tower": false,
+      "labels": "B8 argmax; empty forbidden set; B8 Q anchor",
+      "max_abs_q_error": 0.0,
+      "argmax_mismatches": 0,
+      "max_abs_loss": 0.0,
+      "tolerance": 1e-05,
+      "passed": true
+    },
+    "sweep": {
+      "status": "tiny smoke only",
+      "cells": 9,
+      "rows": 32,
+      "updates_per_cell": 1
+    },
+    "a6": {
+      "status": "PASS",
+      "worlds": 2,
+      "updates": 200,
+      "elapsed_seconds": 2.7226787919935305,
+      "exports": [
+        {
+          "path": "fit-preflight/fit-output/selected_fit.pth",
+          "sha256": "b4c1e37147d7cf50e855028cb89a616c36fd0cd1e011fa31e9753f95a1d96d11",
+          "size": 6561973
+        },
+        {
+          "path": "fit-preflight/fit-output/selected_training_state.pth",
+          "sha256": "4333e6f1b816d941cbd256822587b2cb9df2ddbaf967655e406dc3b5431d23be",
+          "size": 19695517
+        },
+        {
+          "path": "fit-preflight/fit-preflight.json",
+          "sha256": "b88eea3e25fd8ce3049c684274fb0da1b96b632b550d635dec394b2a6357b040",
+          "size": 45710
+        }
+      ],
+      "selected_epoch": 1,
+      "selected_updates": 2,
+      "exact_resume_qualified": false
+    }
+  },
+  "style": {
+    "status": "PASS",
+    "commands": [
+      "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m black --workers 1 --check --line-length 100 src web/backend",
+      "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m isort --check-only --profile black src web/backend",
+      "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m flake8 --jobs 1 src web/backend",
+      "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m black --workers 1 --check research/t34_exit_b8_fit tests/test_t34_exit_fit.py tests/test_t34_exit_tools.py tests/test_t34_exit_tower.py tests/test_t34_exit_jobs.py",
+      "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m isort --check-only --profile black research/t34_exit_b8_fit tests/test_t34_exit_fit.py tests/test_t34_exit_tools.py tests/test_t34_exit_tower.py tests/test_t34_exit_jobs.py",
+      "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m flake8 --jobs 1 research/t34_exit_b8_fit tests/test_t34_exit_fit.py tests/test_t34_exit_tools.py tests/test_t34_exit_tower.py tests/test_t34_exit_jobs.py",
+      "bash -n research/t34_exit_b8_fit/fit.sh",
+      "git diff --check"
+    ]
+  },
+  "remaining_dependencies": [
+    "Sibling engine exports, verified retained row counts and source/probe factories",
+    "Production preregistration and measured fit-resource binding",
+    "Owner full tau/margin sweep",
+    "P2-bank full-sight byte acceptance and A2 cross-runtime replay",
+    "Real L4 execution, Mac strict gate, serving qualification, owner release decision"
+  ],
+  "evidence": [
+    {
+      "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/non-slow.log",
+      "sha256": "96518f60da74bb3ac785691d1a2d282b9d455ee34ac4b6d685d1fb7f52ce2e2c",
+      "bytes": 97546
+    },
+    {
+      "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/baseline-four-failures.log",
+      "sha256": "7725c8da5aedd58d065e740292d8e48ce755b448c80a646030bad4985164cf21",
+      "bytes": 14683
+    },
+    {
+      "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/compile-fresh-cache.log",
+      "sha256": "5d72ea1c66f4f5b960bdac23b6b39ddbfd5bc426eca46af422c7739dcd4a34a0",
+      "bytes": 385
+    },
+    {
+      "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/compile-runtime-path.log",
+      "sha256": "b1604886a189af632feab54277c70a88278284f927442044301af132b368f304",
+      "bytes": 5853
+    },
+    {
+      "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/compile-system-runtime.log",
+      "sha256": "165d5a08fcabda4a916555890f295231fdb8d3435aab6186db24741da74b87d5",
+      "bytes": 647
+    },
+    {
+      "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/a3-full-tower.json",
+      "sha256": "10a5cccfcc9e18c710050ae6ad2802492e4021c9214d3829bf39338e5fe7e038",
+      "bytes": 453
+    },
+    {
+      "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/a4-final.json",
+      "sha256": "e459f8fc24b2d9910ffa8419d1e4448a81031cb73c43b29c776d3d29dfb32364",
+      "bytes": 1053
+    },
+    {
+      "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/sweep-final-smoke.json",
+      "sha256": "aca97262d6710130098756d2c98660a64625a8c8bfaf0fdbaa02e76543445587",
+      "bytes": 7822
+    },
+    {
+      "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/a6-final-export-check.json",
+      "sha256": "265f1476d5057ca252229d41a22685b60c6fa1992cf42e6695c94c2c55e18028",
+      "bytes": 734
+    },
+    {
+      "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/manifest-check-final.json",
+      "sha256": "ee86a84a59bda6076722acc43e8fabcf466b70f98a0ca8dddd681bb282da6f58",
+      "bytes": 752
+    },
+    {
+      "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-fit-prep-20261019/acceptance.ZCCuSG/public-input-check.json",
+      "sha256": "7d15d42a090118f34c2409fd0816f36793acd66fe2b54bd70cc953e841b38d7a",
+      "bytes": 1017
+    }
+  ]
+}
