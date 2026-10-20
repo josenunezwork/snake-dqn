@@ -121,7 +121,15 @@ def _extract_members(row: dict[str, Any], archive: Path, out_dir: Path) -> list[
     outputs: list[Path] = []
     try:
         with tarfile.open(archive, "r:gz") as bundle:
-            available = {member.name: member for member in bundle.getmembers() if member.isfile()}
+            available = {}
+            for member in bundle.getmembers():
+                if not member.isfile():
+                    continue
+                # The existing S1 release archive uses './filename.pth'.
+                name = str(PurePosixPath(member.name))
+                if name in available:
+                    raise PublicInputError(f"duplicate normalized league member: {name}")
+                available[name] = member
             for spec in members:
                 name, dest, digest = (
                     spec.get("name"),

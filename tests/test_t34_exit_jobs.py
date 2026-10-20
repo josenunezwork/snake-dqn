@@ -33,7 +33,7 @@ def test_manifest_is_l4_only_and_remains_blocked(tmp_path: Path) -> None:
     assert manifest["requirements"]["allowed_gpus"] == ["L4"]
     assert manifest["env"]["T34_FIT_DEVICE"] == "cuda"
     assert manifest["transport"]["dispatch_ready"] is False
-    with pytest.raises(make_manifest.ManifestRefused, match="publication is pending"):
+    with pytest.raises(make_manifest.ManifestRefused, match="engine export"):
         make_manifest.validate_manifest(manifest)
 
 
@@ -145,12 +145,85 @@ def test_fit_shell_forces_cuda_for_colab_runtime() -> None:
 
 
 def test_repeated_public_download_preserves_preexisting_verified_input(tmp_path):
-    row = {"name": "engine", "dest": "payload.json", "size_bytes": 2,
-           "sha256": hashlib.sha256(b"{}").hexdigest(), "url": "https://example.test/file"}
+    row = {
+        "name": "engine",
+        "dest": "payload.json",
+        "size_bytes": 2,
+        "sha256": hashlib.sha256(b"{}").hexdigest(),
+        "url": "https://example.test/file",
+    }
     target = tmp_path / "payload.json"
     target.write_bytes(b"{}")
+
     def must_not_contact_network(*args, **kwargs):
         raise AssertionError("existing destination must be refused before network")
+
     with pytest.raises(FileExistsError):
-        public_inputs._download(row, tmp_path, must_not_contact_network, 1.)
+        public_inputs._download(row, tmp_path, must_not_contact_network, 1.0)
     assert target.read_bytes() == b"{}"
+
+
+def test_existing_s1_archive_dot_prefix_is_supported(tmp_path):
+    import io
+    import tarfile
+
+    archive = tmp_path / "league.tar.gz"
+    payload = b"checkpoint"
+    with tarfile.open(archive, "w:gz") as bundle:
+        info = tarfile.TarInfo("./model.pth")
+        info.size = len(payload)
+        bundle.addfile(info, io.BytesIO(payload))
+    row = {
+        "members": [
+            {
+                "name": "model.pth",
+                "dest": "checkpoints/model.pth",
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        ]
+    }
+    paths = public_inputs._extract_members(row, archive, tmp_path / "inputs")
+    assert paths[0].read_bytes() == payload
+
+
+def test_full_fit_manifest_refuses_bad_epoch_before_any_runtime(tmp_path):
+    binding = {
+        "approved": True,
+        "source_factory": "x:source",
+        "probe_factory": "x:probe",
+        "preregistration_sha256": "a" * 64,
+        "inputs": [
+            {
+                "name": "engine",
+                "dest": "engine-export/payload.json",
+                "size_bytes": 2,
+                "sha256": "a" * 64,
+                "url": "https://example.test/payload",
+                "complete_marker": True,
+            }
+        ],
+        "worlds": 800,
+        "epochs": 2,
+        "job_id": "t34-fit-test-only",
+        "fit_resources": {
+            "est_minutes": 120,
+            "timeout_minutes": 240,
+            "unit_cap": 8.0,
+            "rate_units_per_hour": 2.0,
+            "reserve_units": 0.4,
+        },
+    }
+    path = tmp_path / "binding.json"
+    path.write_text(json.dumps(binding))
+    with pytest.raises(make_manifest.ManifestRefused, match="epochs"):
+        make_manifest.make_manifest(
+            commit="a" * 40, output_dir=tmp_path / "out", engine_binding_path=path, mode="fit"
+        )
+    binding["epochs"] = 5
+    path.write_text(json.dumps(binding))
+    manifest = make_manifest.make_manifest(
+        commit="a" * 40, output_dir=tmp_path / "out", engine_binding_path=path, mode="fit"
+    )
+    assert manifest["env"]["T34_FIT_MODE"] == "fit"
+    assert manifest["env"]["T34_FIT_WORLDS"] == "800"
+    assert manifest["env"]["T34_FIT_EPOCHS"] == "5"

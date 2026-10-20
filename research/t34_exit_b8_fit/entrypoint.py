@@ -92,6 +92,12 @@ def run(
             hashlib.sha256(payload.read_bytes()).hexdigest() != expected["sha256"]
         ):
             raise EntrypointRefused("engine export differs from the immutable binding")
+        previous = binding["inputs"][1] if len(binding["inputs"]) == 2 else None
+        if previous is not None and (
+            checkpoint.stat().st_size != previous["size_bytes"]
+            or hashlib.sha256(checkpoint.read_bytes()).hexdigest() != previous["sha256"]
+        ):
+            raise EntrypointRefused("previous student differs from the immutable binding")
     result = runner.run(
         exports=exports,
         checkpoint=checkpoint,

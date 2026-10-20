@@ -51,6 +51,8 @@ def _identity(row: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def _public_ready(catalog: list[dict[str, Any]], inventory: list[dict[str, Any]]) -> bool:
+    if any(not isinstance(row, dict) for row in (*catalog, *inventory)):
+        raise ManifestRefused("public catalog rows must be objects")
     if {_identity(row) for row in catalog} != {_identity(row) for row in inventory}:
         raise ManifestRefused("public catalog identities differ from INPUTS_REQUIRED")
     for row in catalog:
@@ -70,7 +72,7 @@ def validate_binding(value: Any) -> dict[str, Any]:
     required = ("source_factory", "probe_factory", "preregistration_sha256")
     if (
         not isinstance(rows, list)
-        or len(rows) != 1
+        or len(rows) not in {1, 2}
         or value.get("approved") is not True
         or any(not isinstance(value.get(key), str) or not value[key] for key in required)
     ):
@@ -89,6 +91,10 @@ def validate_binding(value: Any) -> dict[str, Any]:
         raise ManifestRefused("engine payload must request verified completion markers")
     if row.get("dest") != "engine-export/payload.json" or not _public_ready(rows, rows):
         raise ManifestRefused("engine payload public identity/destination is incomplete")
+    if len(rows) == 2 and rows[1].get("dest") != "checkpoints/student_previous.pth":
+        raise ManifestRefused(
+            "the optional previous student must use checkpoints/student_previous.pth"
+        )
     return value
 
 
@@ -140,6 +146,12 @@ def make_manifest(
         resources = {key: supplied[key] for key in required}
         if type(binding.get("worlds")) is not int or binding["worlds"] < 1:
             raise ManifestRefused("fit mode requires the preregistered positive world count")
+        if type(binding.get("epochs")) is not int or not 4 <= binding["epochs"] <= 6:
+            raise ManifestRefused("fit mode requires preregistered epochs in 4..6")
+        if not isinstance(binding.get("job_id"), str) or not re.fullmatch(
+            r"[a-z0-9][a-z0-9_-]{0,63}", binding["job_id"]
+        ):
+            raise ManifestRefused("fit mode requires a unique valid job_id")
     ready = binding is not None
     inputs = [
         {
@@ -185,6 +197,11 @@ def make_manifest(
             "T34_FIT_MODE": mode,
             "T34_FIT_EPOCHS": str((binding or {}).get("epochs", 5)),
             "T34_FIT_WORLDS": str(2 if mode == "preflight" else binding["worlds"]),
+            "T34_FIT_CHECKPOINT_REL": (
+                "checkpoints/student_previous.pth"
+                if binding and len(binding["inputs"]) == 2
+                else "checkpoints/B8_s3_final.pth"
+            ),
             "OMP_NUM_THREADS": "1",
             "OPENBLAS_NUM_THREADS": "1",
             "MKL_NUM_THREADS": "1",
@@ -200,7 +217,8 @@ def make_manifest(
         "output_dir": str(output_dir),
         "inputs": inputs,
         "budget": {
-            key: resources[key] for key in ("unit_cap", "rate_units_per_hour", "reserve_units")
+            **{key: resources[key] for key in ("unit_cap", "rate_units_per_hour", "reserve_units")},
+            "other_assignments": (binding or {}).get("other_assignments", []),
         },
         "lease_seconds": 600,
         "max_export_bytes": 64 * 1024 * 1024,
@@ -209,7 +227,9 @@ def make_manifest(
 
 def validate_manifest(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[str, Any]:
     if not manifest.get("transport", {}).get("dispatch_ready"):
-        raise ManifestRefused("public input publication is pending; manifest is not dispatch-ready")
+        raise ManifestRefused(
+            "engine export and preregistration binding are pending; manifest refused"
+        )
     from research.colab_cli.supervisor import validate
 
     return validate(manifest, repo=repo)

@@ -34,7 +34,7 @@ fi
 
 exec python -m research.t34_exit_b8_fit.entrypoint \
   --exports "${input_root}/engine-export" \
-  --checkpoint "${input_root}/checkpoints/B8_s3_final.pth" \
+  --checkpoint "${input_root}/${T34_FIT_CHECKPOINT_REL:-checkpoints/B8_s3_final.pth}" \
   --out "${output_root}/fit-preflight" \
   --worlds "${T34_FIT_WORLDS:-2}" --updates "${T34_FIT_UPDATES:-200}" \
   --mode "${T34_FIT_MODE:-preflight}" --epochs "${T34_FIT_EPOCHS:-5}" \
