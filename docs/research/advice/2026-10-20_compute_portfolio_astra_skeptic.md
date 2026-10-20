@@ -1,8 +1,10 @@
 # Colab portfolio: buy decisive exits before buying scale
 
-2026-10-20 · skeptical research-lead advice · source snapshot `9e241fb29e865225fae1718e79adf72a6ad19258`
+2026-10-20 · skeptical research-lead advice · evidence snapshot `9e241fb29e865225fae1718e79adf72a6ad19258`; authority update `4248f00c`
 
 **Prioritize shipping Claim B, preserve T34's bounded Claim A attempt, and buy one genuinely different fallback. I would provision the month but reject 39 units/day as a utilization target. Spending the entire 1,160 is worthwhile only if earlier decisions admit useful successors.** Advice only: proposed thresholds require prospective registration; existing studies retain their rules. No jobs launched.
+
+Latest [authority](../../STATUS.md): Colab use is pre-approved; ratification, funding-gate and release approvals go to one independent Fable judge, recorded in CAMPAIGN_LOG and reported to the owner.
 
 The [contract](../final_run_20261019/SUCCESS_CONTRACT.md) requires +40 pooled H5000 mass, LB90>0, scripted no-death +.03, survival guards, and binding Watch6 persistence/growth/timing bars. Bare wins unresolved ties. [P7](../final_run_20261019/P7_STATISTICS.md) makes fixed-controller inference world-paired and product inference session-paired; recipe claims need independent training replicates. Colab cannot establish Mac deadline efficacy or release.
 
