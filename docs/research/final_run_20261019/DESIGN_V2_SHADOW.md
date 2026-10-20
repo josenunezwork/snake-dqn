@@ -51,3 +51,22 @@ Supersedes FINAL_PLAN §3 steps 1–2 (trigger/verify/death-window mechanics) an
 - **M4 B8 batch-1 runtime:** ONNX Runtime / Accelerate-BNNS vs PyTorch CPU (≤ 10-min probe).
 
 Path B v2 efficacy (contract §5) runs only after M1 and M3; the teacher's A5 benchmark uses the v2 kernel.
+
+## Amendment 1 (2026-10-19 ~22:15 PT, pre-data) — LAD search rule for teacher labels
+
+Astra flagged, and Fable confirmed on T1's 75 late deaths, that rescue availability is **not monotone** in
+time (47/75 deaths have a non-surviving decision before the latest surviving one; gap quartiles 6/38/101
+decisions). Bisection always returns a surviving branch point, so it stays valid **for Path B intervention**,
+but it misses the true LAD by >30 decisions in 9/75, so it is **not used for teacher labels**.
+
+Teacher label rule (T1's validated rule): on shadow doom at t_d, expand at **stride 10** over [t_live, t_d]
+(≤ 30 expansions), then **stride 1 within ±5 of every survive→die transition**; label every transition's
+decisive decision (a*, F) and take the latest surviving decision as the LAD. Cost ≈ 40–50 expansions ×
+≤ 1,500 row-steps ≈ 60–75k row-steps per death (3–4x cheaper than v1's 150 dense expansions, not ~20x).
+Shadow confirm labels are KL-anchor rows only, not independent decisive examples.
+M2 now measures BOTH rules on the T3 dense bank (work/world, recovery of T3's interventions, LAD error);
+GO for the teacher rule = ≥ 90% of T3 interventions recovered.
+
+Hardware (GPU panel, 4 advisors, `speed_advice/`): teacher on **L4 only** (host-bound ~35:1); also probe
+the Colab CPU-only runtime (`nproc` + 10-world shadow run) and the free Mac; Path B on Mac CPU; fits: cache
+observations first, time one full L4 fit, try A100-40 only if that fit is GPU-bound beyond ~1 h.
