@@ -14,14 +14,14 @@ started or operated by this implementation task.
 | A1 identity | Real scripted/frozen/mixed exports byte-identical in two runs in each of two spawned processes; forced-death compaction preserves source/RNG/runtime state | Longer studies and cross-runtime identity remain separate |
 | P2 / A5 | Same resident-root collector as labels, W256 capacity per worker, two workers × five Numba threads per L4 lane; measured work/expansion/RAM/export/throughput fields; bounded launcher and lane aggregate | Actual two-L4-lane rehearsal; tower adapter from sibling P5; ≥3,000 active row-steps/s **per L4 lane** |
 | P3 / A2 | Six-action replay, initial/every-250/final state hashes, B8 raster regeneration, whole-world rejection, strict CLI exit on any mismatch | ≥150 worlds across all three mixes: L4→Mac and L4→second L4; zero unexplained mismatches |
-| P6 benchmark A6 | Final `bench.sh`, CPU/one thread, two worlds ×500 frames, H300: 24.410 s; earlier isolated run 19.305 s, 6,300 active row-steps, 91,730 export bytes | CUDA and 2×5-thread execution have not run here |
-| P6 label A6 | Final `label.sh`, CPU/one thread, two worlds ×500 frames, H300: 19.280 s; earlier isolated run 12.023 s; local benchmark replay accepted 2/2 worlds, zero mismatches | Campaign bank audit, P7 preregistration, owner pre-decisions, and round funding before labels are dispatched |
+| P6 benchmark A6 | Final `bench.sh`, CPU/one thread, two worlds ×500 frames, H300: 16.850 s, 5,100 active row-steps, 87,596 export bytes; earlier concurrent run 24.410 s | CUDA and 2×5-thread execution have not run here |
+| P6 label A6 | Final `label.sh`, CPU/one thread, two worlds ×500 frames, H300: 14.944 s, 9,300 active row-steps, 102,306 export bytes; each final entrypoint replay accepted 2/2 worlds, zero mismatches | Campaign bank audit, P7 preregistration, owner pre-decisions, and round funding before labels are dispatched |
 
 Local evidence is under
 `/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-exit-engine-prep-20261019-v1/`.
 `VERIFICATION.json` records final test/lint commands and source hashes. The Mac timings above include
-startup/JIT and describe tiny preflight fixtures; final entrypoints ran concurrently at one CPU thread
-each. They do not predict L4 performance or full-H5000 cost.
+startup/JIT and describe tiny preflight fixtures. Final entrypoints ran sequentially at one CPU thread
+each while the offline CPU gate ran; an earlier pair also ran concurrently. They do not predict L4 performance or full-H5000 cost.
 T3 dense receipts were not re-scored: the new roots/rosters are not their receipt bank, so there is no
 like-for-like historical agreement percentage. This comparison is descriptive, never an A1 gate.
 
@@ -110,6 +110,7 @@ export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 export SNAKE_DQN_DEVICE=cpu
 export TORCHINDUCTOR_COMPILE_THREADS=1
+export DYLD_LIBRARY_PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/torch/lib:/usr/lib
 
 "$T34_PY" - <<'PY'
 import json, os
@@ -144,9 +145,9 @@ env PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin
 ```
 
 The full local gate deselects `requires_gpu` and MPS-named cases as well as `slow`: explicit MPS tests otherwise run
-despite the CPU device environment. This preserves the spec's CPU-only Mac rule. A preliminary plain
-`not slow` invocation was interrupted before any hardware-marked test executed; its partial log is not
-a full-suite pass.
+despite the CPU device environment. This preserves the spec's CPU-only Mac rule. Two preliminary invocations (plain `not slow`, then the marker-only CPU selection) were interrupted
+before hardware tests executed while identifying unmarked MPS cases. Their partial logs are not
+full-suite passes.
 
 To use public inputs on a Mac without the local inventory, replace the symlink loop with:
 
