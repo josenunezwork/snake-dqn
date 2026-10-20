@@ -1,5 +1,9 @@
 # T34 ExIt-B8 engine preparation
 
+For the shadow/LAD teacher implementation and its operator commands, see
+[README_V2.md](README_V2.md). The v1 closeout and commands below remain a
+historical record; select the v2 kernel explicitly for the current teacher.
+
 Implements P1, the P2/A5 entrypoint, P3/A2 replay tooling, and P6 labelling preparation from
 `docs/research/specs/2026-10-19_exit_engine_prep.md` and the binding
 `docs/research/final_run_20261019/FINAL_PLAN.md`. This package has no serving or promotion authority.

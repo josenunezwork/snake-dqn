@@ -244,6 +244,7 @@ class ShadowFrame:
     digest: str
     frame: int
     hero_alive: bool
+    hero_length: float
 
 
 class ShadowTrajectory:
@@ -319,6 +320,7 @@ class ShadowTrajectory:
                         ),
                         frame=int(self.world.sim.frame[0]),
                         hero_alive=bool(self.world.sim.alive[0, 0]),
+                        hero_length=float(self.world.sim.length[0, 0]),
                     )
                 )
                 made += 1

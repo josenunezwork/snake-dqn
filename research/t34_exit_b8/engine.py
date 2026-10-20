@@ -22,6 +22,52 @@ from research.t34_exit_b8.policy import B8Policy, PolicyEvaluation, RolloutPolic
 NUM_ACTIONS = 6
 
 
+def _merged_policy_key(policy: Any, source_id: int, slot: int) -> tuple[Any, ...]:
+    """Identify one source-slot policy without conflating its veto configuration."""
+    return (
+        int(source_id),
+        type(policy),
+        getattr(policy, "checkpoint_path", id(policy)),
+        int(slot),
+        getattr(policy, "veto_spec", None),
+        tuple(sorted(getattr(policy, "veto_slots", frozenset()))),
+    )
+
+
+def _clone_merged_policy(policy: Any, runtime: Any, branch_envs: np.ndarray) -> Any:
+    """Bind a source policy to a merged runtime with independent per-branch carry."""
+    import copy
+
+    clone = copy.copy(policy)
+    state = dict(clone.__dict__)
+    try:
+        clone.__dict__ = state
+    except AttributeError:
+        clone.__dict__.clear()
+        clone.__dict__.update(state)
+    clone.runtime = runtime
+    # Native veto dispatch must keep the source forward recipe.  Non-veto
+    # policies retain the historical batched forward used by this branch path.
+    if not getattr(policy, "veto_slots", frozenset()):
+        clone.forward = "batched"
+    for name in ("veto_counters", "boost_counters", "live_vetoes"):
+        carry = getattr(policy, name, None)
+        if not isinstance(carry, dict):
+            continue
+        setattr(
+            clone,
+            name,
+            {
+                int(env): copy.deepcopy(carry[0])
+                for env in np.asarray(branch_envs, dtype=np.int64)
+                if 0 in carry
+            },
+        )
+    if hasattr(policy, "last_veto"):
+        clone.last_veto = copy.deepcopy(policy.last_veto)
+    return clone
+
+
 @dataclass(frozen=True)
 class TriggerConfig:
     """Configurable trajectory admission rules from FINAL_PLAN section 3."""
@@ -252,14 +298,13 @@ class ExitTeacher:
     def _clone(self, world: Any) -> Any:
         if not hasattr(world, "clone"):
             raise TypeError("ExitTeacher requires a captured world with clone()")
-        clone = world.clone()
-        for policy in getattr(clone, "opponents", []):
-            for name in ("veto_counters", "boost_counters", "live_vetoes"):
-                if hasattr(policy, name):
-                    setattr(policy, name, {})
-            if hasattr(policy, "last_veto"):
-                policy.last_veto = None
-        return clone
+        # Branches begin from the source's actual vector/v8 carry.  ``World.clone``
+        # intentionally makes only a shallow policy-state copy for old T3 uses;
+        # the shadow helper deep-copies mutable hook state while retaining frozen
+        # network tensors by identity.
+        from research.t34_shadow.shadow import clone_world_exact
+
+        return clone_world_exact(world)
 
     def _rollout(self, world: Any, actions: Iterable[int]) -> dict[int, ActionOutcome]:
         """Run requested first-actions in one T33 merged batch when available.
@@ -318,11 +363,9 @@ class ExitTeacher:
 
         T33's assembler supplies isolated simulator/runtime carry. Disposable
         source policy copies suppress its no-veto admission check only during
-        assembly; the true frozen configurations are then restored on private,
-        checkpoint-grouped T34 policies before any transition is executed.
+        assembly; the true frozen configurations and their carried hook state
+        are then restored on private T34 policies before any transition.
         """
-        import copy
-
         from research.t33_batched_teacher.teacher import merge_worlds
         from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
 
@@ -347,6 +390,10 @@ class ExitTeacher:
         merged, _ = self._compact_merged(merged, np.flatnonzero(merged.layout.active))
         seeds = [int(worlds[int(source)].seed) for source in merged.layout.source]
         cache: dict[tuple, Any] = {}
+        branch_envs = {
+            source_id: np.flatnonzero(merged.layout.source == source_id)
+            for source_id in range(len(worlds))
+        }
         roster = []
         for source_id in merged.layout.source:
             row = []
@@ -356,24 +403,16 @@ class ExitTeacher:
                     if key not in cache:
                         cache[key] = FastProfileAnchorSimdPolicy(policy.kind, seeds)
                 else:
-                    # Slot is included: live v8 hooks are keyed by environment,
-                    # so different snake slots must own separate hook maps.
-                    key = (
-                        type(policy),
-                        getattr(policy, "checkpoint_path", id(policy)),
-                        slot,
-                        getattr(policy, "veto_spec", None),
-                    )
+                    # A source has one carried vector policy per slot.  Its
+                    # candidate-action branches each receive an independent
+                    # copy of that source's env-0 hook/counter carry.  Sharing
+                    # across sources would make a v8 hook cross-contaminate
+                    # rows even when its immutable checkpoint is identical.
+                    key = _merged_policy_key(policy, int(source_id), slot)
                     if key not in cache:
-                        clone = copy.copy(policy)
-                        clone.__dict__ = dict(clone.__dict__)
-                        clone.runtime = merged.runtime
-                        clone.forward = "batched"
-                        for name in ("veto_counters", "boost_counters", "live_vetoes"):
-                            if hasattr(clone, name):
-                                setattr(clone, name, {})
-                        clone.last_veto = None
-                        cache[key] = clone
+                        cache[key] = _clone_merged_policy(
+                            policy, merged.runtime, branch_envs[int(source_id)]
+                        )
                 row.append(cache[key])
             roster.append(row)
         merged.opponents = roster

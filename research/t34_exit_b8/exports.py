@@ -134,7 +134,7 @@ def _labels(raw: Any, horizon: int) -> list[dict[str, Any]]:
         tested = []
         for action in range(6):
             source = outcomes.get(str(action), outcomes.get(action, {}))
-            tested.append(bool(source))
+            tested.append(bool(source) and bool(source.get("tested", True)))
             # ``mass`` is a branch integral in the search engine.  Export the
             # requested mean-horizon statistic so binary16 cannot overflow.
             mean_mass = float(source.get("mean_mass", source.get("mass", 0.0))) / (
@@ -147,6 +147,11 @@ def _labels(raw: Any, horizon: int) -> list[dict[str, Any]]:
                     "mean_mass": _fp16(mean_mass),
                 }
             )
+            # Amendment 2 carries censoring explicitly. Historical v1 rows
+            # retain their exact packed shape when these facts are absent.
+            for key in ("horizon", "censored", "tested"):
+                if key in source:
+                    packed[-1][key] = _plain(source[key])
         forbidden = item.get("forbidden", item.get("forbidden_set", [False] * 6))
         if isinstance(forbidden, Mapping):
             forbidden = [bool(forbidden.get(str(a), forbidden.get(a, False))) for a in range(6)]
@@ -157,20 +162,48 @@ def _labels(raw: Any, horizon: int) -> list[dict[str, Any]]:
             forbidden = [action in set(int(value) for value in forbidden) for action in range(6)]
         if len(forbidden) != 6:
             raise ValueError("forbidden action set must have six entries")
-        out.append(
-            {
-                "decision": int(item["decision"]),
-                "action": int(item.get("action", item.get("recommended_action", 0))),
-                "student_action": int(item["student_action"]),
-                "executed_action": int(item.get("executed_action", item.get("action", 0))),
-                "forbidden": [bool(value) for value in forbidden],
-                "outcomes": packed,
-                "tested": tested,
-                "length": int(item.get("length", 0)),
-                "reason": str(item.get("reason", "unknown")),
-                "expanded": bool(item.get("expanded", False)),
-            }
-        )
+        label = {
+            "decision": int(item["decision"]),
+            "action": int(item.get("action", item.get("recommended_action", 0))),
+            "student_action": int(item["student_action"]),
+            "executed_action": int(item.get("executed_action", item.get("action", 0))),
+            "forbidden": [bool(value) for value in forbidden],
+            "outcomes": packed,
+            "tested": tested,
+            "length": int(item.get("length", 0)),
+            "reason": str(item.get("reason", "unknown")),
+            "expanded": bool(item.get("expanded", False)),
+        }
+        # V2 adds provenance and label roles without changing the replay schema.
+        # In particular KL anchors must not silently become decisive examples.
+        for key in (
+            "label_role",
+            "label_kind",
+            "shadow",
+            "shadow_id",
+            "shadow_frame",
+            "shadow_confirmed",
+            "lad",
+            "t_star",
+            "a_star",
+            "F",
+            "q",
+            "search",
+            "searched",
+            "decisive",
+            "kl_anchor_only",
+            "legal",
+            "per_action",
+            "ranked_actions",
+            "outcome_kind",
+            "delay_only",
+            "label_weight",
+            "horizon",
+            "censored",
+        ):
+            if key in item:
+                label[key] = _plain(item[key])
+        out.append(label)
     return out
 
 
@@ -191,7 +224,7 @@ def normalize_world(result: Mapping[str, Any]) -> dict[str, Any]:
         if str(frame) not in hashes:
             raise ValueError("exports require a state hash every 250 frames")
     horizon = int(raw.get("horizon", 300))
-    return {
+    normalized = {
         "schema": SCHEMA,
         "world_id": str(raw["world_id"]),
         "seed": seed,
@@ -221,6 +254,9 @@ def normalize_world(result: Mapping[str, Any]) -> dict[str, Any]:
             )
         },
     }
+    if "teacher_v2" in raw:
+        normalized["teacher_v2"] = _plain(raw["teacher_v2"])
+    return normalized
 
 
 def write_world(path: str | Path, result: Mapping[str, Any]) -> Path:

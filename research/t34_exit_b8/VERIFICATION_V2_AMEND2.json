@@ -1,0 +1,1192 @@
+{
+  "domain_gate": {
+    "errors": 0,
+    "exit": {
+      "returncode": 0,
+      "wall_seconds": 102.91317845799495
+    },
+    "failed": 0,
+    "passed": 285,
+    "pytest_seconds": 100.29,
+    "skip_reasons": [
+      "explicit two-thread authorization fixture",
+      "NUMBA_NUM_THREADS>=2 fixture"
+    ],
+    "skipped": 2,
+    "source_commit": "517df50086f7c829f1769a8b354bda04de954ef4"
+  },
+  "evidence": {
+    "a5-v2-l4-amend2-0.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/a5-v2-l4-amend2-0.json",
+      "sha256": "8e13fffe784308d57c9c5ba386d8f83d202f22755191cce4b9acde10493b8bd9"
+    },
+    "a5-v2-l4-amend2-1.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/a5-v2-l4-amend2-1.json",
+      "sha256": "286bda2f0b4dc3ed190fcf5e954938994714c2af7d98c067085a3aa1eff3feb9"
+    },
+    "amend2-domain-01-junit.xml": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-domain-01-junit.xml",
+      "sha256": "882e3c82e8e3184c8bedf460a1cacdd403dd112367a6ccfc2583c8ae7350e4c0"
+    },
+    "amend2-domain-01-launch.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-domain-01-launch.json",
+      "sha256": "ce74b4a7ed98a57a061fc982f9166e1cb18906e2cabc9956aef3ebde8a64e527"
+    },
+    "amend2-domain-01.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-domain-01.log",
+      "sha256": "a7eaeac473d8d64e0578149d1ea5ad54f2e61a38288ed1c2bc7f164e0c3e31e5"
+    },
+    "amend2-domain-02-exit.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-domain-02-exit.json",
+      "sha256": "c8f8d80fa44625e6aec5ea83dbed45b50d2d3656a9f1efd851528518d892970e"
+    },
+    "amend2-domain-02-junit.xml": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-domain-02-junit.xml",
+      "sha256": "999ebc62b6677caccf45c91903ee30aaf30ffce78291e778c9e1f24af6a56365"
+    },
+    "amend2-domain-02-launch.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-domain-02-launch.json",
+      "sha256": "875066eb16b1cbd4236fafbcb847129661c9bd310d3b86522cb1dfcf32f6bd6d"
+    },
+    "amend2-domain-02.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-domain-02.log",
+      "sha256": "96ac449b695fcb7b60d3e40fae6dd80adab9ca46e6636139b7a26e5c4cd29c24"
+    },
+    "amend2-postmerge-01-exit.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-postmerge-01-exit.json",
+      "sha256": "dc9f8dceb5782137e789095efedc0a090eb0834e3dbb029115fcf90e2401141f"
+    },
+    "amend2-postmerge-01-junit.xml": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-postmerge-01-junit.xml",
+      "sha256": "ddda00222cf22b991c5c3195d68cdc68ddc1ba4485aa1b6665119ef004cf8a55"
+    },
+    "amend2-postmerge-01-launch.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-postmerge-01-launch.json",
+      "sha256": "909f2f5078e77f638424b67430bc1d703260c5b0875d6b37a217aa1248a2669d"
+    },
+    "amend2-postmerge-01.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-postmerge-01.log",
+      "sha256": "4d85ec2f4dc023834171c9ab45b68f6170a1df7d386cc9421ee21cd299ac1655"
+    },
+    "benchmark-03.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/benchmark-03.log",
+      "sha256": "8011e7503087f70e46a07c97be31d105c4699763f91550f5d7a1031d2d1e1cc8"
+    },
+    "benchmark-exit-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/benchmark-exit-03.json",
+      "sha256": "8647cd7e2f64f0b50d1849c2325fa3b7bf19fa08e058ab8114ad3f068ab76959"
+    },
+    "benchmark-launch-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/benchmark-launch-03.json",
+      "sha256": "8c1c3a2fe8d50bacbab1007b634a6eba1cd2bda33fe3b824c1c66d529ff4061b"
+    },
+    "cpu-probe-03.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/cpu-probe-03.log",
+      "sha256": "8011e7503087f70e46a07c97be31d105c4699763f91550f5d7a1031d2d1e1cc8"
+    },
+    "cpu-probe-exit-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/cpu-probe-exit-03.json",
+      "sha256": "61ad8aedda493a43f293e4e827f495f3e627d07bbaf82a132e4ec558f64f1129"
+    },
+    "cpu-probe-launch-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/cpu-probe-launch-03.json",
+      "sha256": "6a3bf8f7a526b307b5be20f2c6706a641c5656bc73ea89815811afc70143f846"
+    },
+    "label-03.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/label-03.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "label-exit-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/label-exit-03.json",
+      "sha256": "78394228e7283c2e34280cc2dd131afeafd9ca5c06b5741f202356d9f20360ba"
+    },
+    "label-launch-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/label-launch-03.json",
+      "sha256": "2792b149af9e34aba3cc7480597d0b8b72ec66689448ffdcc148c099bb342969"
+    },
+    "mac-benchmark-03.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-benchmark-03.log",
+      "sha256": "8011e7503087f70e46a07c97be31d105c4699763f91550f5d7a1031d2d1e1cc8"
+    },
+    "mac-benchmark-exit-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-benchmark-exit-03.json",
+      "sha256": "6e117e7b73029ea0109d872a18243ac66ed29db0c4320c06fd5fad99559015da"
+    },
+    "mac-benchmark-launch-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-benchmark-launch-03.json",
+      "sha256": "438229321884f1046e8161a0b285cb4eb93cff155d53c9b6503db44c4ad89cea"
+    },
+    "mac-label-03.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-label-03.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "mac-label-exit-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-label-exit-03.json",
+      "sha256": "abaf44378e7021d412edba7b5a12fbc8dfe3f4402620ce12b68e349f859852dd"
+    },
+    "mac-label-launch-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-label-launch-03.json",
+      "sha256": "e22feeb62128d9b792a61d255fbd7683fc1b874e713e465302271b74f95f5b8f"
+    },
+    "preflight-summary-amend2.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/preflight-summary-amend2.json",
+      "sha256": "1d5e69eaf6e632d4a368d3e68e64deeaf5a3a693c082219ed2cb55be603f8222"
+    },
+    "preflight_amend2.py": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/preflight_amend2.py",
+      "sha256": "23c43462f1e4c0be7c53d01bf9e3d3c775d7f0113dfc869aca5fb66e91eb0d22"
+    },
+    "prepare_amend2_source.py": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/prepare_amend2_source.py",
+      "sha256": "e714542f5ab5a287fb44af852766577b48807ba9918d4152cebd2ad4a31126d0"
+    },
+    "replay-amend2-preflights-exit.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/replay-amend2-preflights-exit.json",
+      "sha256": "15ea8207219547d5fb16241939261b555833f16c89f6d61c9652b5127d07c7db"
+    },
+    "replay-amend2-preflights-launch.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/replay-amend2-preflights-launch.json",
+      "sha256": "f17809a1a55bfb97e793668878afe8962f3347faaa31f12e1c3e65bf58152837"
+    },
+    "replay-amend2-preflights.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/replay-amend2-preflights.log",
+      "sha256": "f91f1561411502f2fe535ec2ef5c07010154b7ca8a9c254cc6ad167edaa34d4d"
+    },
+    "replay_preflights_amend2.py": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/replay_preflights_amend2.py",
+      "sha256": "e681a0ed6687ce7528dc33fb24c9c718bd47cbc69351af8008d47455ff3346ab"
+    },
+    "run_amend2_checks_02.py": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/run_amend2_checks_02.py",
+      "sha256": "4fc4937093b7118ce87ad135f56998bffdd850858234e074dcfb692a2ffa77c4"
+    },
+    "run_amend2_postmerge.py": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/run_amend2_postmerge.py",
+      "sha256": "88073e66c5206baac12b824bc4cf9a84cbc9b20d7f9872f9d299dd456d4df6d6"
+    },
+    "source-amend2-0/source-plan.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/source-amend2-0/source-plan.json",
+      "sha256": "83194c785d2ffb54db2631b5f9bd42afc544c1657e9a97e67aa8f78c7cff6f24"
+    },
+    "source-amend2-1/source-plan.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/source-amend2-1/source-plan.json",
+      "sha256": "13c45796b699267ed990f8793540143aa7338582f5544cf4eeb4d3f033a62aaa"
+    },
+    "source-amend2-installed.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/source-amend2-installed.json",
+      "sha256": "743a8d451ba10edb2f454eedb360ff47d830043c7ac46a45c898eefcc24ef0de"
+    },
+    "sparse-amend2-exit.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/sparse-amend2-exit.json",
+      "sha256": "0bc1be2de459ff171e75d597c607363132697fb5f0ab6d676f70dd412eeb09cf"
+    },
+    "sparse-amend2-launch.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/sparse-amend2-launch.json",
+      "sha256": "57a1f3fb3774bfdc22674b488b19415f0ad380bcb82ef791558a6db60dc42fbc"
+    },
+    "sparse-smoke-amend2.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/sparse-smoke-amend2.log",
+      "sha256": "8011e7503087f70e46a07c97be31d105c4699763f91550f5d7a1031d2d1e1cc8"
+    },
+    "sparse_preflight_amend2.py": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/sparse_preflight_amend2.py",
+      "sha256": "f18e97ed3867301e0fd56d53da95b5acb181c8a1777e27f9338c8d1ca6414866"
+    },
+    "t22-baseline-fingerprints.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/t22-baseline-fingerprints.json",
+      "sha256": "ef8645810346877fa1f8f2820dc55e76e108006f970a243b0b03434865316f6e"
+    }
+  },
+  "exact_launches": {
+    "amend2-domain-01-launch.json": {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "pytest",
+        "-p",
+        "pytest_thread_cap",
+        "-q",
+        "-n0",
+        "-m",
+        "not slow",
+        "tests/test_t33_ablation.py",
+        "tests/test_t33_ablation_execution.py",
+        "tests/test_t33_benchmark.py",
+        "tests/test_t33_inference.py",
+        "tests/test_t33_manifest.py",
+        "tests/test_t33_observations.py",
+        "tests/test_t33_round2_anchors.py",
+        "tests/test_t33_round2_features.py",
+        "tests/test_t33_round2_parallel.py",
+        "tests/test_t33_round2_pipeline.py",
+        "tests/test_t33_round2_prefix.py",
+        "tests/test_t33_round2_sim_obs.py",
+        "tests/test_t33_round2_teacher.py",
+        "tests/test_t33_runtime.py",
+        "tests/test_t33_teacher.py",
+        "tests/test_t33_teacher_integration.py",
+        "tests/test_t34_exit_engine.py",
+        "tests/test_t34_exit_fit.py",
+        "tests/test_t34_exit_identity.py",
+        "tests/test_t34_exit_jobs.py",
+        "tests/test_t34_exit_manifests.py",
+        "tests/test_t34_exit_replay.py",
+        "tests/test_t34_exit_scripts.py",
+        "tests/test_t34_exit_tools.py",
+        "tests/test_t34_exit_tower.py",
+        "tests/test_t34_exit_trajectory.py",
+        "tests/test_t34_fitcache.py",
+        "tests/test_t34_fitcache_recipe.py",
+        "tests/test_t34_lad.py",
+        "tests/test_t34_pathb_analysis.py",
+        "tests/test_t34_pathb_controller.py",
+        "tests/test_t34_pathb_harness.py",
+        "tests/test_t34_pathb_serving.py",
+        "tests/test_t34_shadow.py",
+        "tests/test_t34_teacher_v2.py",
+        "tests/test_t34_transport_qualification.py",
+        "tests/test_t34_v2_exports.py",
+        "tests/test_t34_v2_identity.py",
+        "tests/test_t34_v2_jobs.py",
+        "tests/test_t34_v2_policy.py",
+        "--junitxml=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-domain-01-junit.xml"
+      ],
+      "environment": {
+        "BLIS_NUM_THREADS": "1",
+        "CXX": "/usr/bin/clang++",
+        "DYLD_LIBRARY_PATH": "/usr/lib",
+        "MAX_JOBS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/usr/bin:/bin:/usr/sbin:/sbin",
+        "PYTHONPATH": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020:/Users/josenunez/Projects/ml/snake-dqn-v2-teacher",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "source_commit": "d22bbeff1bc94eadf2b54bd9a52696e6282c5a99",
+      "source_sha256": {
+        "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
+        "research/t34_exit_b8/benchmark.py": "d01fcc79e3e6dfce4f069a22346c892233d0f03b1ca084394c3e341e4de6c32d",
+        "research/t34_exit_b8/engine.py": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
+        "research/t34_exit_b8/exports.py": "7475130b190f6d2a845da5e9051bb15d21ea8808faf5944b6a24aec6251d232e",
+        "research/t34_exit_b8/label.py": "cb9d771196ce1f957a67872eff92e7a2c0fcbb86c643fa0d5ba84003149b5045",
+        "research/t34_exit_b8/make_manifest.py": "500ebd18490e69fa33f16bd2731c94889ae5639af96f932296b1f542f71f32fa",
+        "research/t34_exit_b8/policy.py": "ae0be54e70957fa3936b0b950cdc20fcf1b16fdfce3852c9618b110103c08635",
+        "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
+        "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
+        "research/t34_exit_b8/replay.py": "c64f219ae7ab5aa3d1b8358bfaaefbe23f195a6a07b94e07b8ab1636226f598c",
+        "research/t34_exit_b8/teacher_v2.py": "3f074df3434ebd55b96b387778869692ddf8f139dd2bedf8a6fe75445ee09d00",
+        "research/t34_exit_b8/trajectory.py": "aeefbeec207bf4f1eab9fff277aa55bc4866fe872d73dc743b2db6fe10e8a2f3",
+        "research/t34_exit_b8_fit/__init__.py": "bb453877105264f27c148dc447bec24e8027a88374632ca0be126aea566c1107",
+        "research/t34_exit_b8_fit/cache.py": "7cf95893bd69c5b4ca08728a8d2fb64cb07b922fa54817d99bb8692aa11d331f",
+        "research/t34_exit_b8_fit/cache_smoke.py": "b8d4970ce9b9900977b77eb5d3e83b85bf92b53173a217d92aaeb5718f4065b0",
+        "research/t34_exit_b8_fit/check_a3.py": "8338ba0e7ce1d897b6cb57e2882a4be375f20dfa88dd32018634af086acad159",
+        "research/t34_exit_b8_fit/check_a4.py": "ec8f411940883246ca9e8103c54c602bd429c56745ecd79761c0f19020de7fa7",
+        "research/t34_exit_b8_fit/data.py": "16d396dbecb34769b6c34b791e93028faa003dfb4061e3166d6bcd5b462669eb",
+        "research/t34_exit_b8_fit/diagnostics.py": "40b64e59a5236a1e22c377f3d65ca143c7e5483024232f0febe288dd38c37ba7",
+        "research/t34_exit_b8_fit/entrypoint.py": "964a31a683d8011622cc45c3846c9fdee80907344bfe0fdbe46d02291dbeea78",
+        "research/t34_exit_b8_fit/full_sight.py": "65954639de7b141f08abb18e5e98614aefd00962fa590dfdccf5baedb39daf0e",
+        "research/t34_exit_b8_fit/interface.py": "15d9fa96e2c73cb4ef9482788146353f180d5990a6e4f66379e99bada92f3e09",
+        "research/t34_exit_b8_fit/loss.py": "b7e2f4ca6bf5f5e7a38b7645d6f96fae1a2e656556fdf6f4933c6353da09845d",
+        "research/t34_exit_b8_fit/make_manifest.py": "f9fa4ca20161607cc3b7f9cc9e1c0f8a018e465ce946a35e8a2d147171d007d3",
+        "research/t34_exit_b8_fit/network.py": "643a67484744b5531c9f62dc8edbfa809b24a3ca93efce9af52e498b40683c45",
+        "research/t34_exit_b8_fit/prepare_a3_rows.py": "3e2aba92d2d749e9b36476ae4e22b55a0802f0ad301eea7430497598bc83076f",
+        "research/t34_exit_b8_fit/public_inputs.py": "3c42ac26c3f7fc4c1b32924c2615a42f986184937617122dc88bed269c14c0ea",
+        "research/t34_exit_b8_fit/runner.py": "81b7859e7e4e23a01763a75492ceb706a753baf167c6349ac7387800fa74dc65",
+        "research/t34_exit_b8_fit/serving.py": "6860c60ba8388fe85e95c20942c16673588938867a9f50706434f05343252d8e",
+        "research/t34_exit_b8_fit/sweep.py": "c36f546489a53831de02e556945566f28a14ac4bf5525f50fba0ecd2532cd1e3",
+        "research/t34_exit_b8_fit/train.py": "b389bc01113eb6b9b21e5238dae6d8445296f8268c5caa5c3dfc1a4696849791",
+        "research/t34_shadow/__init__.py": "0d3874720d9057ea8c6a6ddb87ddb82d1c9755e2978f37b88c0330dcdc80c051",
+        "research/t34_shadow/bank_measure.py": "94067c9bbfafcfe9f5dcc4df036aede2298260244bd527710339ff9c63dad7e7",
+        "research/t34_shadow/common.py": "e9116f3552554e797228b6d5dfc3fab90e3e1a54ca2995d729655507bf49994b",
+        "research/t34_shadow/identity.py": "4ad8653d594f75f8ccc43371ef6c3cb4c0b151eab2a6058b1b4a8354dd1dc216",
+        "research/t34_shadow/lad.py": "86458eb56b9f4d41a04be993695560730d72ef79b683687af3681fd447d97d81",
+        "research/t34_shadow/latency.py": "472d3a0b1eb5e11a274d9751896d3d0239a7d4e97e0e36b4d0f1dc1033ac2319",
+        "research/t34_shadow/roster_lad.py": "a14a5334a741a10b3fda439125e3f4b618474846a1c66df68df4a44b354301df",
+        "research/t34_shadow/run.py": "96b35254227752a9b8e30b40327bdce4ccd791a5bdf9da5bef96f8d539de5924",
+        "research/t34_shadow/runtime_probe.py": "7d7a0281e1981df35c97a3472bf6f0bb90d84f143c7bfc0270d045a91812cbfb",
+        "research/t34_shadow/shadow.py": "08b0ed1864c8f7c79049f80b61adf775c6faf889a9ebcf58b9eae2263c363838"
+      }
+    },
+    "amend2-domain-02-launch.json": {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "pytest",
+        "-p",
+        "pytest_thread_cap",
+        "-q",
+        "-n0",
+        "-m",
+        "not slow",
+        "tests/test_t33_ablation.py",
+        "tests/test_t33_ablation_execution.py",
+        "tests/test_t33_benchmark.py",
+        "tests/test_t33_inference.py",
+        "tests/test_t33_manifest.py",
+        "tests/test_t33_observations.py",
+        "tests/test_t33_round2_anchors.py",
+        "tests/test_t33_round2_features.py",
+        "tests/test_t33_round2_parallel.py",
+        "tests/test_t33_round2_pipeline.py",
+        "tests/test_t33_round2_prefix.py",
+        "tests/test_t33_round2_sim_obs.py",
+        "tests/test_t33_round2_teacher.py",
+        "tests/test_t33_runtime.py",
+        "tests/test_t33_teacher.py",
+        "tests/test_t33_teacher_integration.py",
+        "tests/test_t34_exit_engine.py",
+        "tests/test_t34_exit_fit.py",
+        "tests/test_t34_exit_identity.py",
+        "tests/test_t34_exit_jobs.py",
+        "tests/test_t34_exit_manifests.py",
+        "tests/test_t34_exit_replay.py",
+        "tests/test_t34_exit_scripts.py",
+        "tests/test_t34_exit_tools.py",
+        "tests/test_t34_exit_tower.py",
+        "tests/test_t34_exit_trajectory.py",
+        "tests/test_t34_fitcache.py",
+        "tests/test_t34_fitcache_recipe.py",
+        "tests/test_t34_lad.py",
+        "tests/test_t34_pathb_analysis.py",
+        "tests/test_t34_pathb_controller.py",
+        "tests/test_t34_pathb_harness.py",
+        "tests/test_t34_pathb_serving.py",
+        "tests/test_t34_shadow.py",
+        "tests/test_t34_teacher_v2.py",
+        "tests/test_t34_transport_qualification.py",
+        "tests/test_t34_v2_exports.py",
+        "tests/test_t34_v2_identity.py",
+        "tests/test_t34_v2_jobs.py",
+        "tests/test_t34_v2_policy.py",
+        "--junitxml=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-domain-02-junit.xml"
+      ],
+      "environment": {
+        "BLIS_NUM_THREADS": "1",
+        "CXX": "/usr/bin/clang++",
+        "DYLD_LIBRARY_PATH": "/usr/lib",
+        "MAX_JOBS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/usr/bin:/bin:/usr/sbin:/sbin",
+        "PYTHONPATH": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020:/Users/josenunez/Projects/ml/snake-dqn-v2-teacher",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "source_commit": "517df50086f7c829f1769a8b354bda04de954ef4",
+      "source_sha256": {
+        "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
+        "research/t34_exit_b8/benchmark.py": "d01fcc79e3e6dfce4f069a22346c892233d0f03b1ca084394c3e341e4de6c32d",
+        "research/t34_exit_b8/engine.py": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
+        "research/t34_exit_b8/exports.py": "7475130b190f6d2a845da5e9051bb15d21ea8808faf5944b6a24aec6251d232e",
+        "research/t34_exit_b8/label.py": "cb9d771196ce1f957a67872eff92e7a2c0fcbb86c643fa0d5ba84003149b5045",
+        "research/t34_exit_b8/make_manifest.py": "500ebd18490e69fa33f16bd2731c94889ae5639af96f932296b1f542f71f32fa",
+        "research/t34_exit_b8/policy.py": "ae0be54e70957fa3936b0b950cdc20fcf1b16fdfce3852c9618b110103c08635",
+        "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
+        "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
+        "research/t34_exit_b8/replay.py": "c64f219ae7ab5aa3d1b8358bfaaefbe23f195a6a07b94e07b8ab1636226f598c",
+        "research/t34_exit_b8/teacher_v2.py": "b6b343335ab726013403895eda0e9ac2fbb907a124c16a524f9a10a6fcb729a8",
+        "research/t34_exit_b8/trajectory.py": "aeefbeec207bf4f1eab9fff277aa55bc4866fe872d73dc743b2db6fe10e8a2f3",
+        "research/t34_exit_b8_fit/__init__.py": "bb453877105264f27c148dc447bec24e8027a88374632ca0be126aea566c1107",
+        "research/t34_exit_b8_fit/cache.py": "7cf95893bd69c5b4ca08728a8d2fb64cb07b922fa54817d99bb8692aa11d331f",
+        "research/t34_exit_b8_fit/cache_smoke.py": "b8d4970ce9b9900977b77eb5d3e83b85bf92b53173a217d92aaeb5718f4065b0",
+        "research/t34_exit_b8_fit/check_a3.py": "8338ba0e7ce1d897b6cb57e2882a4be375f20dfa88dd32018634af086acad159",
+        "research/t34_exit_b8_fit/check_a4.py": "ec8f411940883246ca9e8103c54c602bd429c56745ecd79761c0f19020de7fa7",
+        "research/t34_exit_b8_fit/data.py": "16d396dbecb34769b6c34b791e93028faa003dfb4061e3166d6bcd5b462669eb",
+        "research/t34_exit_b8_fit/diagnostics.py": "40b64e59a5236a1e22c377f3d65ca143c7e5483024232f0febe288dd38c37ba7",
+        "research/t34_exit_b8_fit/entrypoint.py": "964a31a683d8011622cc45c3846c9fdee80907344bfe0fdbe46d02291dbeea78",
+        "research/t34_exit_b8_fit/full_sight.py": "65954639de7b141f08abb18e5e98614aefd00962fa590dfdccf5baedb39daf0e",
+        "research/t34_exit_b8_fit/interface.py": "15d9fa96e2c73cb4ef9482788146353f180d5990a6e4f66379e99bada92f3e09",
+        "research/t34_exit_b8_fit/loss.py": "b7e2f4ca6bf5f5e7a38b7645d6f96fae1a2e656556fdf6f4933c6353da09845d",
+        "research/t34_exit_b8_fit/make_manifest.py": "f9fa4ca20161607cc3b7f9cc9e1c0f8a018e465ce946a35e8a2d147171d007d3",
+        "research/t34_exit_b8_fit/network.py": "643a67484744b5531c9f62dc8edbfa809b24a3ca93efce9af52e498b40683c45",
+        "research/t34_exit_b8_fit/prepare_a3_rows.py": "3e2aba92d2d749e9b36476ae4e22b55a0802f0ad301eea7430497598bc83076f",
+        "research/t34_exit_b8_fit/public_inputs.py": "3c42ac26c3f7fc4c1b32924c2615a42f986184937617122dc88bed269c14c0ea",
+        "research/t34_exit_b8_fit/runner.py": "81b7859e7e4e23a01763a75492ceb706a753baf167c6349ac7387800fa74dc65",
+        "research/t34_exit_b8_fit/serving.py": "6860c60ba8388fe85e95c20942c16673588938867a9f50706434f05343252d8e",
+        "research/t34_exit_b8_fit/sweep.py": "c36f546489a53831de02e556945566f28a14ac4bf5525f50fba0ecd2532cd1e3",
+        "research/t34_exit_b8_fit/train.py": "b389bc01113eb6b9b21e5238dae6d8445296f8268c5caa5c3dfc1a4696849791",
+        "research/t34_shadow/__init__.py": "0d3874720d9057ea8c6a6ddb87ddb82d1c9755e2978f37b88c0330dcdc80c051",
+        "research/t34_shadow/bank_measure.py": "94067c9bbfafcfe9f5dcc4df036aede2298260244bd527710339ff9c63dad7e7",
+        "research/t34_shadow/common.py": "e9116f3552554e797228b6d5dfc3fab90e3e1a54ca2995d729655507bf49994b",
+        "research/t34_shadow/identity.py": "4ad8653d594f75f8ccc43371ef6c3cb4c0b151eab2a6058b1b4a8354dd1dc216",
+        "research/t34_shadow/lad.py": "86458eb56b9f4d41a04be993695560730d72ef79b683687af3681fd447d97d81",
+        "research/t34_shadow/latency.py": "472d3a0b1eb5e11a274d9751896d3d0239a7d4e97e0e36b4d0f1dc1033ac2319",
+        "research/t34_shadow/roster_lad.py": "a14a5334a741a10b3fda439125e3f4b618474846a1c66df68df4a44b354301df",
+        "research/t34_shadow/run.py": "96b35254227752a9b8e30b40327bdce4ccd791a5bdf9da5bef96f8d539de5924",
+        "research/t34_shadow/runtime_probe.py": "7d7a0281e1981df35c97a3472bf6f0bb90d84f143c7bfc0270d045a91812cbfb",
+        "research/t34_shadow/shadow.py": "08b0ed1864c8f7c79049f80b61adf775c6faf889a9ebcf58b9eae2263c363838"
+      }
+    },
+    "amend2-postmerge-01-launch.json": {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "pytest",
+        "-p",
+        "pytest_thread_cap",
+        "-q",
+        "-n0",
+        "-m",
+        "not slow",
+        "tests/test_t34_v2_identity.py",
+        "tests/test_t34_shadow.py",
+        "tests/test_t34_pathb_controller_v2.py",
+        "tests/test_t34_pathb_engine_v2.py",
+        "--junitxml=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/amend2-postmerge-01-junit.xml"
+      ],
+      "environment": {
+        "BLIS_NUM_THREADS": "1",
+        "CXX": "/usr/bin/clang++",
+        "DYLD_LIBRARY_PATH": "/usr/lib",
+        "MAX_JOBS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/usr/bin:/bin:/usr/sbin:/sbin",
+        "PYTHONPATH": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020:/Users/josenunez/Projects/ml/snake-dqn-v2-teacher",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "source_commit": "773ae8cbfb9b0faca153f26c341d324ea4091e42",
+      "source_sha256": {
+        "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
+        "research/t34_exit_b8/benchmark.py": "d01fcc79e3e6dfce4f069a22346c892233d0f03b1ca084394c3e341e4de6c32d",
+        "research/t34_exit_b8/engine.py": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
+        "research/t34_exit_b8/exports.py": "7475130b190f6d2a845da5e9051bb15d21ea8808faf5944b6a24aec6251d232e",
+        "research/t34_exit_b8/label.py": "cb9d771196ce1f957a67872eff92e7a2c0fcbb86c643fa0d5ba84003149b5045",
+        "research/t34_exit_b8/make_manifest.py": "500ebd18490e69fa33f16bd2731c94889ae5639af96f932296b1f542f71f32fa",
+        "research/t34_exit_b8/policy.py": "ae0be54e70957fa3936b0b950cdc20fcf1b16fdfce3852c9618b110103c08635",
+        "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
+        "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
+        "research/t34_exit_b8/replay.py": "c64f219ae7ab5aa3d1b8358bfaaefbe23f195a6a07b94e07b8ab1636226f598c",
+        "research/t34_exit_b8/teacher_v2.py": "b6b343335ab726013403895eda0e9ac2fbb907a124c16a524f9a10a6fcb729a8",
+        "research/t34_exit_b8/trajectory.py": "aeefbeec207bf4f1eab9fff277aa55bc4866fe872d73dc743b2db6fe10e8a2f3",
+        "research/t34_exit_b8_fit/__init__.py": "bb453877105264f27c148dc447bec24e8027a88374632ca0be126aea566c1107",
+        "research/t34_exit_b8_fit/cache.py": "7cf95893bd69c5b4ca08728a8d2fb64cb07b922fa54817d99bb8692aa11d331f",
+        "research/t34_exit_b8_fit/cache_smoke.py": "b8d4970ce9b9900977b77eb5d3e83b85bf92b53173a217d92aaeb5718f4065b0",
+        "research/t34_exit_b8_fit/check_a3.py": "8338ba0e7ce1d897b6cb57e2882a4be375f20dfa88dd32018634af086acad159",
+        "research/t34_exit_b8_fit/check_a4.py": "ec8f411940883246ca9e8103c54c602bd429c56745ecd79761c0f19020de7fa7",
+        "research/t34_exit_b8_fit/data.py": "16d396dbecb34769b6c34b791e93028faa003dfb4061e3166d6bcd5b462669eb",
+        "research/t34_exit_b8_fit/diagnostics.py": "40b64e59a5236a1e22c377f3d65ca143c7e5483024232f0febe288dd38c37ba7",
+        "research/t34_exit_b8_fit/entrypoint.py": "964a31a683d8011622cc45c3846c9fdee80907344bfe0fdbe46d02291dbeea78",
+        "research/t34_exit_b8_fit/full_sight.py": "65954639de7b141f08abb18e5e98614aefd00962fa590dfdccf5baedb39daf0e",
+        "research/t34_exit_b8_fit/interface.py": "15d9fa96e2c73cb4ef9482788146353f180d5990a6e4f66379e99bada92f3e09",
+        "research/t34_exit_b8_fit/loss.py": "b7e2f4ca6bf5f5e7a38b7645d6f96fae1a2e656556fdf6f4933c6353da09845d",
+        "research/t34_exit_b8_fit/make_manifest.py": "f9fa4ca20161607cc3b7f9cc9e1c0f8a018e465ce946a35e8a2d147171d007d3",
+        "research/t34_exit_b8_fit/network.py": "643a67484744b5531c9f62dc8edbfa809b24a3ca93efce9af52e498b40683c45",
+        "research/t34_exit_b8_fit/prepare_a3_rows.py": "3e2aba92d2d749e9b36476ae4e22b55a0802f0ad301eea7430497598bc83076f",
+        "research/t34_exit_b8_fit/public_inputs.py": "3c42ac26c3f7fc4c1b32924c2615a42f986184937617122dc88bed269c14c0ea",
+        "research/t34_exit_b8_fit/runner.py": "81b7859e7e4e23a01763a75492ceb706a753baf167c6349ac7387800fa74dc65",
+        "research/t34_exit_b8_fit/serving.py": "6860c60ba8388fe85e95c20942c16673588938867a9f50706434f05343252d8e",
+        "research/t34_exit_b8_fit/sweep.py": "c36f546489a53831de02e556945566f28a14ac4bf5525f50fba0ecd2532cd1e3",
+        "research/t34_exit_b8_fit/train.py": "b389bc01113eb6b9b21e5238dae6d8445296f8268c5caa5c3dfc1a4696849791",
+        "research/t34_shadow/__init__.py": "0d3874720d9057ea8c6a6ddb87ddb82d1c9755e2978f37b88c0330dcdc80c051",
+        "research/t34_shadow/bank_measure.py": "94067c9bbfafcfe9f5dcc4df036aede2298260244bd527710339ff9c63dad7e7",
+        "research/t34_shadow/common.py": "e9116f3552554e797228b6d5dfc3fab90e3e1a54ca2995d729655507bf49994b",
+        "research/t34_shadow/identity.py": "4ad8653d594f75f8ccc43371ef6c3cb4c0b151eab2a6058b1b4a8354dd1dc216",
+        "research/t34_shadow/lad.py": "86458eb56b9f4d41a04be993695560730d72ef79b683687af3681fd447d97d81",
+        "research/t34_shadow/latency.py": "472d3a0b1eb5e11a274d9751896d3d0239a7d4e97e0e36b4d0f1dc1033ac2319",
+        "research/t34_shadow/roster_lad.py": "a14a5334a741a10b3fda439125e3f4b618474846a1c66df68df4a44b354301df",
+        "research/t34_shadow/run.py": "96b35254227752a9b8e30b40327bdce4ccd791a5bdf9da5bef96f8d539de5924",
+        "research/t34_shadow/runtime_probe.py": "7d7a0281e1981df35c97a3472bf6f0bb90d84f143c7bfc0270d045a91812cbfb",
+        "research/t34_shadow/shadow.py": "08b0ed1864c8f7c79049f80b61adf775c6faf889a9ebcf58b9eae2263c363838"
+      }
+    },
+    "benchmark-launch-03.json": {
+      "argv": [
+        "bash",
+        "research/t34_exit_b8/bench.sh"
+      ],
+      "commit": "517df50086f7c829f1769a8b354bda04de954ef4",
+      "environment": {
+        "DYLD_LIBRARY_PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/torch/lib:/usr/lib",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "T34_ATTEMPT": "1",
+        "T34_FRAMES": "500",
+        "T34_INPUT_DIR": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs",
+        "T34_INPUT_MODE": "local-preflight",
+        "T34_KERNEL": "v2",
+        "T34_MAX_WORLDS": "2",
+        "T34_NAMESPACE": "t34-v2-amend2-preflight/benchmark/03",
+        "T34_OUTPUT_DIR": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/benchmark-03",
+        "T34_ROUND": "a6",
+        "T34_SECONDS": "600",
+        "T34_SHARD": "0",
+        "T34_THREADS": "1",
+        "T34_WORLDS": "2"
+      },
+      "source_sha256": {
+        "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
+        "research/t34_exit_b8/benchmark.py": "d01fcc79e3e6dfce4f069a22346c892233d0f03b1ca084394c3e341e4de6c32d",
+        "research/t34_exit_b8/engine.py": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
+        "research/t34_exit_b8/exports.py": "7475130b190f6d2a845da5e9051bb15d21ea8808faf5944b6a24aec6251d232e",
+        "research/t34_exit_b8/label.py": "cb9d771196ce1f957a67872eff92e7a2c0fcbb86c643fa0d5ba84003149b5045",
+        "research/t34_exit_b8/make_manifest.py": "500ebd18490e69fa33f16bd2731c94889ae5639af96f932296b1f542f71f32fa",
+        "research/t34_exit_b8/policy.py": "ae0be54e70957fa3936b0b950cdc20fcf1b16fdfce3852c9618b110103c08635",
+        "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
+        "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
+        "research/t34_exit_b8/replay.py": "c64f219ae7ab5aa3d1b8358bfaaefbe23f195a6a07b94e07b8ab1636226f598c",
+        "research/t34_exit_b8/teacher_v2.py": "b6b343335ab726013403895eda0e9ac2fbb907a124c16a524f9a10a6fcb729a8",
+        "research/t34_exit_b8/trajectory.py": "aeefbeec207bf4f1eab9fff277aa55bc4866fe872d73dc743b2db6fe10e8a2f3"
+      }
+    },
+    "cpu-probe-launch-03.json": {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "research.t34_exit_b8.benchmark",
+        "--kernel",
+        "v2",
+        "--cpu-runtime-probe",
+        "--device",
+        "cpu",
+        "--threads",
+        "1",
+        "--worlds",
+        "2",
+        "--max-worlds",
+        "2",
+        "--frames",
+        "500",
+        "--seconds",
+        "600",
+        "--horizon",
+        "300",
+        "--namespace",
+        "t34-v2-amend2-preflight/cpu-probe/03",
+        "--checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs/B8_s3_final.pth",
+        "--output-dir",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/cpu-probe-03/worlds",
+        "--out",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/cpu-probe-03/benchmark.json"
+      ],
+      "commit": "517df50086f7c829f1769a8b354bda04de954ef4",
+      "environment": {
+        "DYLD_LIBRARY_PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/torch/lib:/usr/lib",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "T34_ATTEMPT": "1",
+        "T34_FRAMES": "500",
+        "T34_INPUT_DIR": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs",
+        "T34_INPUT_MODE": "local-preflight",
+        "T34_KERNEL": "v2",
+        "T34_MAX_WORLDS": "2",
+        "T34_NAMESPACE": "t34-v2-amend2-preflight/cpu-probe/03",
+        "T34_OUTPUT_DIR": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/cpu-probe-03",
+        "T34_ROUND": "a6",
+        "T34_SECONDS": "600",
+        "T34_SHARD": "0",
+        "T34_THREADS": "1",
+        "T34_WORLDS": "2"
+      },
+      "source_sha256": {
+        "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
+        "research/t34_exit_b8/benchmark.py": "d01fcc79e3e6dfce4f069a22346c892233d0f03b1ca084394c3e341e4de6c32d",
+        "research/t34_exit_b8/engine.py": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
+        "research/t34_exit_b8/exports.py": "7475130b190f6d2a845da5e9051bb15d21ea8808faf5944b6a24aec6251d232e",
+        "research/t34_exit_b8/label.py": "cb9d771196ce1f957a67872eff92e7a2c0fcbb86c643fa0d5ba84003149b5045",
+        "research/t34_exit_b8/make_manifest.py": "500ebd18490e69fa33f16bd2731c94889ae5639af96f932296b1f542f71f32fa",
+        "research/t34_exit_b8/policy.py": "ae0be54e70957fa3936b0b950cdc20fcf1b16fdfce3852c9618b110103c08635",
+        "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
+        "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
+        "research/t34_exit_b8/replay.py": "c64f219ae7ab5aa3d1b8358bfaaefbe23f195a6a07b94e07b8ab1636226f598c",
+        "research/t34_exit_b8/teacher_v2.py": "b6b343335ab726013403895eda0e9ac2fbb907a124c16a524f9a10a6fcb729a8",
+        "research/t34_exit_b8/trajectory.py": "aeefbeec207bf4f1eab9fff277aa55bc4866fe872d73dc743b2db6fe10e8a2f3"
+      }
+    },
+    "label-launch-03.json": {
+      "argv": [
+        "bash",
+        "research/t34_exit_b8/label.sh"
+      ],
+      "commit": "517df50086f7c829f1769a8b354bda04de954ef4",
+      "environment": {
+        "DYLD_LIBRARY_PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/torch/lib:/usr/lib",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "T34_ATTEMPT": "1",
+        "T34_FRAMES": "500",
+        "T34_INPUT_DIR": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs",
+        "T34_INPUT_MODE": "local-preflight",
+        "T34_KERNEL": "v2",
+        "T34_MAX_WORLDS": "2",
+        "T34_NAMESPACE": "t34-v2-amend2-preflight/label/03",
+        "T34_OUTPUT_DIR": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/label-03",
+        "T34_ROUND": "a6",
+        "T34_SECONDS": "600",
+        "T34_SHARD": "0",
+        "T34_THREADS": "1",
+        "T34_WORLDS": "2"
+      },
+      "source_sha256": {
+        "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
+        "research/t34_exit_b8/benchmark.py": "d01fcc79e3e6dfce4f069a22346c892233d0f03b1ca084394c3e341e4de6c32d",
+        "research/t34_exit_b8/engine.py": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
+        "research/t34_exit_b8/exports.py": "7475130b190f6d2a845da5e9051bb15d21ea8808faf5944b6a24aec6251d232e",
+        "research/t34_exit_b8/label.py": "cb9d771196ce1f957a67872eff92e7a2c0fcbb86c643fa0d5ba84003149b5045",
+        "research/t34_exit_b8/make_manifest.py": "500ebd18490e69fa33f16bd2731c94889ae5639af96f932296b1f542f71f32fa",
+        "research/t34_exit_b8/policy.py": "ae0be54e70957fa3936b0b950cdc20fcf1b16fdfce3852c9618b110103c08635",
+        "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
+        "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
+        "research/t34_exit_b8/replay.py": "c64f219ae7ab5aa3d1b8358bfaaefbe23f195a6a07b94e07b8ab1636226f598c",
+        "research/t34_exit_b8/teacher_v2.py": "b6b343335ab726013403895eda0e9ac2fbb907a124c16a524f9a10a6fcb729a8",
+        "research/t34_exit_b8/trajectory.py": "aeefbeec207bf4f1eab9fff277aa55bc4866fe872d73dc743b2db6fe10e8a2f3"
+      }
+    },
+    "mac-benchmark-launch-03.json": {
+      "argv": [
+        "bash",
+        "research/t34_exit_b8/bench.sh"
+      ],
+      "commit": "517df50086f7c829f1769a8b354bda04de954ef4",
+      "environment": {
+        "DYLD_LIBRARY_PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/torch/lib:/usr/lib",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "T34_ATTEMPT": "1",
+        "T34_FRAMES": "500",
+        "T34_INPUT_DIR": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs",
+        "T34_INPUT_MODE": "local-preflight",
+        "T34_KERNEL": "v2",
+        "T34_MAC_FULL_ROUND": "1",
+        "T34_MAX_WORLDS": "2",
+        "T34_NAMESPACE": "t34-v2-amend2-preflight/mac-benchmark/03",
+        "T34_OUTPUT_DIR": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-benchmark-03",
+        "T34_ROUND": "a6",
+        "T34_SECONDS": "600",
+        "T34_SHARD": "0",
+        "T34_THREADS": "1",
+        "T34_WORLDS": "2"
+      },
+      "source_sha256": {
+        "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
+        "research/t34_exit_b8/benchmark.py": "d01fcc79e3e6dfce4f069a22346c892233d0f03b1ca084394c3e341e4de6c32d",
+        "research/t34_exit_b8/engine.py": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
+        "research/t34_exit_b8/exports.py": "7475130b190f6d2a845da5e9051bb15d21ea8808faf5944b6a24aec6251d232e",
+        "research/t34_exit_b8/label.py": "cb9d771196ce1f957a67872eff92e7a2c0fcbb86c643fa0d5ba84003149b5045",
+        "research/t34_exit_b8/make_manifest.py": "500ebd18490e69fa33f16bd2731c94889ae5639af96f932296b1f542f71f32fa",
+        "research/t34_exit_b8/policy.py": "ae0be54e70957fa3936b0b950cdc20fcf1b16fdfce3852c9618b110103c08635",
+        "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
+        "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
+        "research/t34_exit_b8/replay.py": "c64f219ae7ab5aa3d1b8358bfaaefbe23f195a6a07b94e07b8ab1636226f598c",
+        "research/t34_exit_b8/teacher_v2.py": "b6b343335ab726013403895eda0e9ac2fbb907a124c16a524f9a10a6fcb729a8",
+        "research/t34_exit_b8/trajectory.py": "aeefbeec207bf4f1eab9fff277aa55bc4866fe872d73dc743b2db6fe10e8a2f3"
+      }
+    },
+    "mac-label-launch-03.json": {
+      "argv": [
+        "bash",
+        "research/t34_exit_b8/label.sh"
+      ],
+      "commit": "517df50086f7c829f1769a8b354bda04de954ef4",
+      "environment": {
+        "DYLD_LIBRARY_PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/torch/lib:/usr/lib",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "T34_ATTEMPT": "1",
+        "T34_FRAMES": "500",
+        "T34_INPUT_DIR": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs",
+        "T34_INPUT_MODE": "local-preflight",
+        "T34_KERNEL": "v2",
+        "T34_MAC_FULL_ROUND": "1",
+        "T34_MAX_WORLDS": "2",
+        "T34_NAMESPACE": "t34-v2-amend2-preflight/mac-label/03",
+        "T34_OUTPUT_DIR": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-label-03",
+        "T34_ROUND": "a6",
+        "T34_SECONDS": "600",
+        "T34_SHARD": "0",
+        "T34_THREADS": "1",
+        "T34_WORLDS": "2"
+      },
+      "source_sha256": {
+        "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
+        "research/t34_exit_b8/benchmark.py": "d01fcc79e3e6dfce4f069a22346c892233d0f03b1ca084394c3e341e4de6c32d",
+        "research/t34_exit_b8/engine.py": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
+        "research/t34_exit_b8/exports.py": "7475130b190f6d2a845da5e9051bb15d21ea8808faf5944b6a24aec6251d232e",
+        "research/t34_exit_b8/label.py": "cb9d771196ce1f957a67872eff92e7a2c0fcbb86c643fa0d5ba84003149b5045",
+        "research/t34_exit_b8/make_manifest.py": "500ebd18490e69fa33f16bd2731c94889ae5639af96f932296b1f542f71f32fa",
+        "research/t34_exit_b8/policy.py": "ae0be54e70957fa3936b0b950cdc20fcf1b16fdfce3852c9618b110103c08635",
+        "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
+        "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
+        "research/t34_exit_b8/replay.py": "c64f219ae7ab5aa3d1b8358bfaaefbe23f195a6a07b94e07b8ab1636226f598c",
+        "research/t34_exit_b8/teacher_v2.py": "b6b343335ab726013403895eda0e9ac2fbb907a124c16a524f9a10a6fcb729a8",
+        "research/t34_exit_b8/trajectory.py": "aeefbeec207bf4f1eab9fff277aa55bc4866fe872d73dc743b2db6fe10e8a2f3"
+      }
+    },
+    "replay-amend2-preflights-launch.json": {
+      "argv": [
+        [
+          "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+          "-m",
+          "research.t34_exit_b8.replay",
+          "--export-dir",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/benchmark-03/worlds",
+          "--checkpoint",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs/B8_s3_final.pth",
+          "--out",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/benchmark-03-replay.json"
+        ],
+        [
+          "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+          "-m",
+          "research.t34_exit_b8.replay",
+          "--export-dir",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/label-03/worlds",
+          "--checkpoint",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs/B8_s3_final.pth",
+          "--out",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/label-03-replay.json"
+        ],
+        [
+          "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+          "-m",
+          "research.t34_exit_b8.replay",
+          "--export-dir",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-benchmark-03/worlds",
+          "--checkpoint",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs/B8_s3_final.pth",
+          "--out",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-benchmark-03-replay.json"
+        ],
+        [
+          "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+          "-m",
+          "research.t34_exit_b8.replay",
+          "--export-dir",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-label-03/worlds",
+          "--checkpoint",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs/B8_s3_final.pth",
+          "--out",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-label-03-replay.json"
+        ],
+        [
+          "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+          "-m",
+          "research.t34_exit_b8.replay",
+          "--export-dir",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/cpu-probe-03/worlds",
+          "--checkpoint",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs/B8_s3_final.pth",
+          "--out",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/cpu-probe-03-replay.json"
+        ],
+        [
+          "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+          "-m",
+          "research.t34_exit_b8.replay",
+          "--export-dir",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/sparse-smoke-amend2/worlds",
+          "--checkpoint",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs/B8_s3_final.pth",
+          "--out",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/sparse-smoke-amend2-replay.json"
+        ]
+      ],
+      "environment": {
+        "DYLD_LIBRARY_PATH": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/torch/lib:/usr/lib",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_CKPT_DIR": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs/checkpoints",
+        "SNAKE_DQN_DEVICE": "cpu"
+      }
+    },
+    "sparse-amend2-launch.json": {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "research.t34_exit_b8.benchmark",
+        "--kernel",
+        "v2",
+        "--preflight",
+        "--checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/inputs/B8_s3_final.pth",
+        "--output-dir",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/sparse-smoke-amend2/worlds",
+        "--out",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/sparse-smoke-amend2/benchmark.json",
+        "--device",
+        "cpu",
+        "--threads",
+        "1",
+        "--worlds",
+        "2",
+        "--max-worlds",
+        "2",
+        "--frames",
+        "2",
+        "--seconds",
+        "600",
+        "--namespace",
+        "t34-v2-sparse-source/amend2"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/source-amend2-0/repo",
+      "source_plan": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/source-amend2-0/source-plan.json"
+    }
+  },
+  "historical_holds": [
+    "M2 recovery NO-GO remains",
+    "M3 serial continuation NO-GO remains"
+  ],
+  "initial_domain_attempt": {
+    "errors": 0,
+    "failed": 1,
+    "passed": 284,
+    "reason": "real-doom test fixture omitted prepared doom_cache; corrected to build exact shadow and cache; endpoint requests deduplicated and short-H surviving-control F aligned",
+    "skipped": 2,
+    "source_commit": "d22bbeff1bc94eadf2b54bd9a52696e6282c5a99"
+  },
+  "input_sha256_proof": {
+    "B8_s3_final.pth": {
+      "matches_inventory": true,
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+    },
+    "best_apex_fs.pth": {
+      "matches_inventory": true,
+      "sha256": "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+    },
+    "best_apex_pre_fs.pth": {
+      "matches_inventory": true,
+      "sha256": "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+    },
+    "best_apex_stage1_fs.pth": {
+      "matches_inventory": true,
+      "sha256": "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+    },
+    "champion_a5_freespace_20260621.pth": {
+      "matches_inventory": true,
+      "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+    },
+    "frp3_m3_s12_u60000_20261005.pth": {
+      "matches_inventory": true,
+      "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+    }
+  },
+  "integrated_test_commit": "773ae8cbfb9b0faca153f26c341d324ea4091e42",
+  "limits": {
+    "cost_dollars": 0,
+    "executor_cap": 2,
+    "new_live_cloud_or_pod_work": false,
+    "numerical_threads_per_process": 1,
+    "placement": "Mac only",
+    "tmux_operations": false
+  },
+  "not_done": [
+    "live L4 A5 qualification",
+    ">=150-world cross-runtime A2",
+    "funded label rounds",
+    "student fits",
+    "paced retention efficacy",
+    "serving release"
+  ],
+  "post_merge_gate": {
+    "coverage": [
+      "12 anchor exports across two processes/two repetitions/three mixes; byte-identical and replayed",
+      "8 searched H300 exports across two processes/two repetitions; byte-identical and replayed; deliberately reused two-world development bank",
+      "real two-world forced doom: exact prepared cache, native carried v8 and source-state preservation",
+      "shared shadow tests",
+      "14 upstream Path B v2 engine/controller integration tests"
+    ],
+    "errors": 0,
+    "exit": {
+      "returncode": 0,
+      "wall_seconds": 142.53239637499792
+    },
+    "failed": 0,
+    "passed": 25,
+    "pytest_seconds": 139.93,
+    "skipped": 0,
+    "source_commit": "773ae8cbfb9b0faca153f26c341d324ea4091e42"
+  },
+  "preflights": {
+    "preflights": [
+      {
+        "active_row_steps": 11184,
+        "complete": true,
+        "divergences": 0,
+        "elapsed_seconds": 24.436268666991964,
+        "emitted_searched_rows": 1,
+        "export_bytes": 1776901,
+        "interventions": 0,
+        "labels": 1000,
+        "name": "benchmark",
+        "report": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/benchmark-03/benchmark.json",
+        "sha256": "28a614cff7a658140af4dfda991efdc5772636da89e58cbac0337471031e0676",
+        "shadow_searches": 1,
+        "worlds": 2
+      },
+      {
+        "active_row_steps": 2598,
+        "complete": true,
+        "divergences": 0,
+        "elapsed_seconds": 10.56564154100488,
+        "emitted_searched_rows": 0,
+        "export_bytes": 1774726,
+        "interventions": 0,
+        "labels": 1000,
+        "name": "label",
+        "report": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/label-03/label.json",
+        "sha256": "7dc7721c393add54889d0a19078c576f592ae47851a466250cf7ff36d74e861f",
+        "shadow_searches": 0,
+        "worlds": 2
+      },
+      {
+        "active_row_steps": 2598,
+        "complete": true,
+        "divergences": 0,
+        "elapsed_seconds": 18.174241374974372,
+        "emitted_searched_rows": 0,
+        "export_bytes": 1774288,
+        "interventions": 0,
+        "labels": 1000,
+        "name": "mac-benchmark",
+        "report": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-benchmark-03/benchmark.json",
+        "sha256": "3008a6229dd1e8a786830ab2fbaa0071f4799b11c39c164391fd392ae1356853",
+        "shadow_searches": 0,
+        "worlds": 2
+      },
+      {
+        "active_row_steps": 2598,
+        "complete": true,
+        "divergences": 0,
+        "elapsed_seconds": 10.88777441601269,
+        "emitted_searched_rows": 0,
+        "export_bytes": 1774957,
+        "interventions": 0,
+        "labels": 1000,
+        "name": "mac-label",
+        "report": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-label-03/label.json",
+        "sha256": "de0c141bdd8d40b9aa9aaffa841f11d93407192484512e9b569f485efefb5049",
+        "shadow_searches": 0,
+        "worlds": 2
+      },
+      {
+        "active_row_steps": 2598,
+        "complete": true,
+        "divergences": 0,
+        "elapsed_seconds": 18.624269499996444,
+        "emitted_searched_rows": 0,
+        "export_bytes": 1774151,
+        "interventions": 0,
+        "labels": 1000,
+        "name": "cpu-probe",
+        "report": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/cpu-probe-03/benchmark.json",
+        "sha256": "23bb662e08a653f93469312fc81b0b81336403e9a17d1653524fb6212dc3c19d",
+        "shadow_searches": 0,
+        "worlds": 2
+      }
+    ],
+    "replays": [
+      {
+        "name": "benchmark-03",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/benchmark-03-replay.json",
+        "report": {
+          "accepted": 2,
+          "drop_rate": 0.0,
+          "dropped": 0,
+          "kill": false,
+          "mismatches": [],
+          "schema": "t34-exit-replay-report/v1",
+          "worlds": 2
+        },
+        "sha256": "3955d5d39e625cdedcfe24d46c4b5ddba28b871f3a01b11e5c7de51bdcd2131d"
+      },
+      {
+        "name": "label-03",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/label-03-replay.json",
+        "report": {
+          "accepted": 2,
+          "drop_rate": 0.0,
+          "dropped": 0,
+          "kill": false,
+          "mismatches": [],
+          "schema": "t34-exit-replay-report/v1",
+          "worlds": 2
+        },
+        "sha256": "3955d5d39e625cdedcfe24d46c4b5ddba28b871f3a01b11e5c7de51bdcd2131d"
+      },
+      {
+        "name": "mac-benchmark-03",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-benchmark-03-replay.json",
+        "report": {
+          "accepted": 2,
+          "drop_rate": 0.0,
+          "dropped": 0,
+          "kill": false,
+          "mismatches": [],
+          "schema": "t34-exit-replay-report/v1",
+          "worlds": 2
+        },
+        "sha256": "3955d5d39e625cdedcfe24d46c4b5ddba28b871f3a01b11e5c7de51bdcd2131d"
+      },
+      {
+        "name": "mac-label-03",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/mac-label-03-replay.json",
+        "report": {
+          "accepted": 2,
+          "drop_rate": 0.0,
+          "dropped": 0,
+          "kill": false,
+          "mismatches": [],
+          "schema": "t34-exit-replay-report/v1",
+          "worlds": 2
+        },
+        "sha256": "3955d5d39e625cdedcfe24d46c4b5ddba28b871f3a01b11e5c7de51bdcd2131d"
+      },
+      {
+        "name": "cpu-probe-03",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/cpu-probe-03-replay.json",
+        "report": {
+          "accepted": 2,
+          "drop_rate": 0.0,
+          "dropped": 0,
+          "kill": false,
+          "mismatches": [],
+          "schema": "t34-exit-replay-report/v1",
+          "worlds": 2
+        },
+        "sha256": "3955d5d39e625cdedcfe24d46c4b5ddba28b871f3a01b11e5c7de51bdcd2131d"
+      },
+      {
+        "name": "sparse-smoke-amend2",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/sparse-smoke-amend2-replay.json",
+        "report": {
+          "accepted": 2,
+          "drop_rate": 0.0,
+          "dropped": 0,
+          "kill": false,
+          "mismatches": [],
+          "schema": "t34-exit-replay-report/v1",
+          "worlds": 2
+        },
+        "sha256": "3955d5d39e625cdedcfe24d46c4b5ddba28b871f3a01b11e5c7de51bdcd2131d"
+      }
+    ],
+    "source_commit": "517df50086f7c829f1769a8b354bda04de954ef4"
+  },
+  "preserved_untracked_operator_file": "docs/research/specs/2026-10-20_t34_v2_teacher_addendum_amendment2.md",
+  "prior_full_suite": {
+    "deselected": 103,
+    "failed": 20,
+    "failed_node_postcheck": {
+      "failed": 2,
+      "passed": 18
+    },
+    "not_relabelled_green": true,
+    "passed": 8412,
+    "receipt": "research/t34_exit_b8/VERIFICATION_V2.json",
+    "remaining_failures": "T22 frozen-pool v8_decide membership TypeError; baseline fingerprints unchanged",
+    "sha256": "fb2bab9028ed23c7ac60898e8ce56e672697281366e6b24d73771f9713344233",
+    "skipped": 29,
+    "source_commit": "c44475f663b75fea4dd1be21088169cfc6e9861a"
+  },
+  "schema": "t34-teacher-v2-amendment2-verification/v1",
+  "source_archives": [
+    {
+      "bytes": 1893878,
+      "commit": "517df50086f7c829f1769a8b354bda04de954ef4",
+      "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/a5-v2-l4-amend2-0.json",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/source-amend2-0/source.tar.gz",
+      "sha256": "e6442d7b6f1710956084f83fca98969398bf15513aca28a77376dc6a212a0562"
+    },
+    {
+      "bytes": 1893878,
+      "commit": "517df50086f7c829f1769a8b354bda04de954ef4",
+      "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/a5-v2-l4-amend2-1.json",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/source-amend2-1/source.tar.gz",
+      "sha256": "9250cc411afa38fb9db9ce329e7cc6b70020a24e291f3979fd9637567063651f"
+    }
+  ],
+  "status": "implementation_and_amended_domain_checks_complete; historical_full_suite_not_green",
+  "teacher_source_unchanged_after_upstream_merge": true,
+  "venv_verification_repair": [
+    "requests 2.34.2",
+    "charset_normalizer 3.5.2",
+    "urllib3 2.8.0"
+  ],
+  "verified_executable_commit": "517df50086f7c829f1769a8b354bda04de954ef4",
+  "verified_source_sha256": {
+    "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
+    "research/t34_exit_b8/benchmark.py": "d01fcc79e3e6dfce4f069a22346c892233d0f03b1ca084394c3e341e4de6c32d",
+    "research/t34_exit_b8/engine.py": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
+    "research/t34_exit_b8/exports.py": "7475130b190f6d2a845da5e9051bb15d21ea8808faf5944b6a24aec6251d232e",
+    "research/t34_exit_b8/label.py": "cb9d771196ce1f957a67872eff92e7a2c0fcbb86c643fa0d5ba84003149b5045",
+    "research/t34_exit_b8/make_manifest.py": "500ebd18490e69fa33f16bd2731c94889ae5639af96f932296b1f542f71f32fa",
+    "research/t34_exit_b8/policy.py": "ae0be54e70957fa3936b0b950cdc20fcf1b16fdfce3852c9618b110103c08635",
+    "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
+    "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
+    "research/t34_exit_b8/replay.py": "c64f219ae7ab5aa3d1b8358bfaaefbe23f195a6a07b94e07b8ab1636226f598c",
+    "research/t34_exit_b8/teacher_v2.py": "b6b343335ab726013403895eda0e9ac2fbb907a124c16a524f9a10a6fcb729a8",
+    "research/t34_exit_b8/trajectory.py": "aeefbeec207bf4f1eab9fff277aa55bc4866fe872d73dc743b2db6fe10e8a2f3",
+    "research/t34_exit_b8_fit/__init__.py": "bb453877105264f27c148dc447bec24e8027a88374632ca0be126aea566c1107",
+    "research/t34_exit_b8_fit/cache.py": "7cf95893bd69c5b4ca08728a8d2fb64cb07b922fa54817d99bb8692aa11d331f",
+    "research/t34_exit_b8_fit/cache_smoke.py": "b8d4970ce9b9900977b77eb5d3e83b85bf92b53173a217d92aaeb5718f4065b0",
+    "research/t34_exit_b8_fit/check_a3.py": "8338ba0e7ce1d897b6cb57e2882a4be375f20dfa88dd32018634af086acad159",
+    "research/t34_exit_b8_fit/check_a4.py": "ec8f411940883246ca9e8103c54c602bd429c56745ecd79761c0f19020de7fa7",
+    "research/t34_exit_b8_fit/data.py": "16d396dbecb34769b6c34b791e93028faa003dfb4061e3166d6bcd5b462669eb",
+    "research/t34_exit_b8_fit/diagnostics.py": "40b64e59a5236a1e22c377f3d65ca143c7e5483024232f0febe288dd38c37ba7",
+    "research/t34_exit_b8_fit/entrypoint.py": "964a31a683d8011622cc45c3846c9fdee80907344bfe0fdbe46d02291dbeea78",
+    "research/t34_exit_b8_fit/full_sight.py": "65954639de7b141f08abb18e5e98614aefd00962fa590dfdccf5baedb39daf0e",
+    "research/t34_exit_b8_fit/interface.py": "15d9fa96e2c73cb4ef9482788146353f180d5990a6e4f66379e99bada92f3e09",
+    "research/t34_exit_b8_fit/loss.py": "b7e2f4ca6bf5f5e7a38b7645d6f96fae1a2e656556fdf6f4933c6353da09845d",
+    "research/t34_exit_b8_fit/make_manifest.py": "f9fa4ca20161607cc3b7f9cc9e1c0f8a018e465ce946a35e8a2d147171d007d3",
+    "research/t34_exit_b8_fit/network.py": "643a67484744b5531c9f62dc8edbfa809b24a3ca93efce9af52e498b40683c45",
+    "research/t34_exit_b8_fit/prepare_a3_rows.py": "3e2aba92d2d749e9b36476ae4e22b55a0802f0ad301eea7430497598bc83076f",
+    "research/t34_exit_b8_fit/public_inputs.py": "3c42ac26c3f7fc4c1b32924c2615a42f986184937617122dc88bed269c14c0ea",
+    "research/t34_exit_b8_fit/runner.py": "81b7859e7e4e23a01763a75492ceb706a753baf167c6349ac7387800fa74dc65",
+    "research/t34_exit_b8_fit/serving.py": "6860c60ba8388fe85e95c20942c16673588938867a9f50706434f05343252d8e",
+    "research/t34_exit_b8_fit/sweep.py": "c36f546489a53831de02e556945566f28a14ac4bf5525f50fba0ecd2532cd1e3",
+    "research/t34_exit_b8_fit/train.py": "b389bc01113eb6b9b21e5238dae6d8445296f8268c5caa5c3dfc1a4696849791",
+    "research/t34_shadow/__init__.py": "0d3874720d9057ea8c6a6ddb87ddb82d1c9755e2978f37b88c0330dcdc80c051",
+    "research/t34_shadow/bank_measure.py": "94067c9bbfafcfe9f5dcc4df036aede2298260244bd527710339ff9c63dad7e7",
+    "research/t34_shadow/common.py": "e9116f3552554e797228b6d5dfc3fab90e3e1a54ca2995d729655507bf49994b",
+    "research/t34_shadow/identity.py": "4ad8653d594f75f8ccc43371ef6c3cb4c0b151eab2a6058b1b4a8354dd1dc216",
+    "research/t34_shadow/lad.py": "86458eb56b9f4d41a04be993695560730d72ef79b683687af3681fd447d97d81",
+    "research/t34_shadow/latency.py": "472d3a0b1eb5e11a274d9751896d3d0239a7d4e97e0e36b4d0f1dc1033ac2319",
+    "research/t34_shadow/roster_lad.py": "a14a5334a741a10b3fda439125e3f4b618474846a1c66df68df4a44b354301df",
+    "research/t34_shadow/run.py": "96b35254227752a9b8e30b40327bdce4ccd791a5bdf9da5bef96f8d539de5924",
+    "research/t34_shadow/runtime_probe.py": "7d7a0281e1981df35c97a3472bf6f0bb90d84f143c7bfc0270d045a91812cbfb",
+    "research/t34_shadow/shadow.py": "08b0ed1864c8f7c79049f80b61adf775c6faf889a9ebcf58b9eae2263c363838"
+  }
+}

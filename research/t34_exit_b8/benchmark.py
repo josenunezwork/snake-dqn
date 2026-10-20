@@ -19,6 +19,35 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
+def _runtime_hardware() -> dict[str, int | str | None]:
+    """Describe a CPU runtime without embedding a host path in an export."""
+    total: int | None = None
+    try:
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        pages = int(os.sysconf("SC_PHYS_PAGES"))
+        total = page_size * pages
+    except (AttributeError, OSError, ValueError):
+        pass
+    return {
+        "kind": "cpu-runtime-probe",
+        "nproc": int(os.cpu_count() or 1),
+        "ram_bytes": total,
+    }
+
+
+def _kernel_runner(kernel: str) -> Any:
+    """Select a governed teacher kernel without changing v1 replay semantics."""
+    if kernel == "v1":
+        from research.t34_exit_b8.trajectory import run_worlds
+
+        return run_worlds
+    if kernel == "v2":
+        from research.t34_exit_b8.teacher_v2 import run_worlds
+
+        return run_worlds
+    raise ValueError("kernel must be v1 or v2")
+
+
 def _cpu_ceiling(threads: int) -> None:
     """Set the Numba ceiling after legacy imports have finished mutating env."""
     if threads < 1:
@@ -97,18 +126,27 @@ def _load_policy(config: Mapping[str, Any]) -> Any | None:
 
 def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
     """Run the shared resident-root scheduler; it owns complete-world metrics."""
+    kernel = str(config.get("kernel", "v1"))
     threads = int(config.get("threads", 5))
     worlds_per_process = int(config.get("worlds", 256))
     max_worlds = int(config.get("max_worlds", worlds_per_process))
     preflight = bool(config.get("preflight", False))
+    mac_full_round = bool(config.get("mac_full_round", False))
     seconds = float(config.get("seconds", 1500))
     if not math.isfinite(seconds) or not 0 < seconds <= (600 if preflight else 1500):
         raise ValueError("benchmark wall bound must be positive and at most 1500s (600s preflight)")
-    if not preflight and threads != 5:
+    cpu_runtime_probe = bool(config.get("cpu_runtime_probe", False))
+    if cpu_runtime_probe and kernel != "v2":
+        raise ValueError("CPU runtime probe is available only for the v2 kernel")
+    if cpu_runtime_probe and preflight:
+        raise ValueError("CPU runtime probe is a Colab-only descriptive variant")
+    if mac_full_round and (kernel != "v2" or preflight or cpu_runtime_probe):
+        raise ValueError("Mac full rounds require the non-preflight v2 kernel")
+    if not preflight and not cpu_runtime_probe and not mac_full_round and threads != 5:
         raise ValueError("A5 requires exactly five Numba threads per worker")
     if preflight and int(config.get("frames", 5000)) > 500:
         raise ValueError("A6 benchmark preflight is capped at 500 frames")
-    if not preflight and worlds_per_process != 256:
+    if not preflight and not cpu_runtime_probe and not mac_full_round and worlds_per_process != 256:
         raise ValueError("A5 production benchmark requires exactly W=256 root worlds")
     if preflight and not 1 <= worlds_per_process <= 2:
         raise ValueError("Mac A6 preflight is limited to one or two root worlds")
@@ -117,8 +155,14 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
     if int(config.get("horizon", 300)) != 300:
         raise ValueError("A5 benchmark requires deterministic H=300")
     device = str(config.get("device", "cuda"))
-    if not preflight and device != "cuda":
+    if not preflight and not cpu_runtime_probe and not mac_full_round and device != "cuda":
         raise ValueError("A5 recipe requires CUDA on an L4")
+    if cpu_runtime_probe and device != "cpu":
+        raise ValueError("CPU runtime probe requires CPU")
+    if cpu_runtime_probe and threads > 2:
+        raise ValueError("CPU runtime probe is capped at two CPU threads")
+    if mac_full_round and (device != "cpu" or not 1 <= threads <= 2):
+        raise ValueError("Mac full rounds require CPU and one or two CPU threads")
     if preflight and device != "cpu":
         raise ValueError("A6 preflight must stay on Mac CPU")
     if preflight and threads > 1:
@@ -141,13 +185,11 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
     _cpu_ceiling(threads)
     import numba
 
-    from research.t34_exit_b8.trajectory import run_worlds
-
     os.environ["SNAKE_DQN_DEVICE"] = device
     numba.set_num_threads(threads)
     started = time.monotonic()
     policy = _load_policy(config)
-    result = run_worlds(
+    result = _kernel_runner(kernel)(
         {
             **config,
             "policy": policy,
@@ -169,9 +211,12 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
         for name, metrics in dict(result["mixes"]).items()
     }
     result = {
-        "schema": "t34-a5-benchmark/v1",
+        "schema": f"t34-a5-benchmark/{kernel}",
+        "kernel": kernel,
         "complete": bool(result["complete"]),
         "preflight": preflight,
+        "mac_full_round": mac_full_round,
+        "cpu_runtime_probe": cpu_runtime_probe,
         "preflight_total_root_cap": 2 if preflight else None,
         "recipe": {
             "workers": 1,
@@ -180,10 +225,15 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
             "horizon": 300,
             "device": device,
         },
+        "namespace": str(config.get("namespace", "")),
         "elapsed_seconds": elapsed,
         "mixes": by_mix,
         "active_row_steps": active,
         "resident_row_steps": resident,
+        "executed_row_steps_per_world": result.get(
+            "executed_row_steps_per_world",
+            active / int(result["worlds"]) if int(result["worlds"]) else None,
+        ),
         "active_row_steps_per_second": active / max(elapsed, 1e-9),
         "active_resident_fraction": active / max(resident, 1),
         "completed_worlds": result["worlds"],
@@ -199,7 +249,23 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
         * (1 if os.uname().sysname == "Darwin" else 1024),
         "gpu_utilization_samples_percent": list(result.get("gpu_utilization_samples_percent", []))
         + ([] if sample is None else [sample]),
+        "teacher_profile": profile,
+        "host_stage_seconds": dict(
+            result.get("host_stage_seconds", profile.get("host_stage_seconds", {}))
+        ),
         "worker_rate_descriptive_only": True,
+        **({"runtime_hardware": _runtime_hardware()} if cpu_runtime_probe else {}),
+        **{
+            key: result[key]
+            for key in (
+                "invalid_reason",
+                "unfinished_worlds",
+                "world_rate_scope",
+                "root_inference_bucket_peak",
+                "branch_bucket_capacity",
+            )
+            if key in result
+        },
     }
     return result
 
@@ -220,14 +286,44 @@ def aggregate_lane_reports(paths: list[Path]) -> dict[str, Any]:
     if len(paths) != 2:
         raise ValueError("A5 aggregate requires exactly two worker reports")
     rows = [json.loads(path.read_text()) for path in paths]
-    if any(row.get("schema") != "t34-a5-benchmark/v1" or row.get("preflight") for row in rows):
+    if any(
+        row.get("schema") not in {"t34-a5-benchmark/v1", "t34-a5-benchmark/v2"}
+        or row.get("preflight")
+        or row.get("cpu_runtime_probe")
+        for row in rows
+    ):
         raise ValueError("aggregate inputs must be production A5 worker reports")
+    kernels = {row.get("kernel", "v1") for row in rows}
+    if len(kernels) != 1:
+        raise ValueError("aggregate inputs must use one teacher kernel")
+    if kernels == {"v2"}:
+        expected_recipe = {
+            "workers": 1,
+            "threads_per_worker": 5,
+            "root_worlds_per_worker": 256,
+            "horizon": 300,
+            "device": "cuda",
+        }
+        if any(
+            row.get("mac_full_round")
+            or row.get("recipe") != expected_recipe
+            or not isinstance(row.get("namespace"), str)
+            or not row["namespace"]
+            for row in rows
+        ):
+            raise ValueError("v2 aggregate requires two CUDA L4 A5 worker recipes")
+        if paths[0].resolve() == paths[1].resolve() or rows[0]["namespace"] == rows[1]["namespace"]:
+            raise ValueError("v2 aggregate requires distinct worker report paths and namespaces")
     wall = max(float(row["elapsed_seconds"]) for row in rows)
     active = sum(int(row["active_row_steps"]) for row in rows)
     resident = sum(int(row["resident_row_steps"]) for row in rows)
     rate = active / max(wall, 1e-9)
     return {
-        "schema": "t34-a5-lane-aggregate/v1",
+        "schema": (
+            "t34-a5-lane-aggregate/v2"
+            if all(row.get("kernel") == "v2" for row in rows)
+            else "t34-a5-lane-aggregate/v1"
+        ),
         "complete": all(bool(row["complete"]) for row in rows),
         "workers": 2,
         "worker_reports": [path.name for path in paths],
@@ -236,7 +332,11 @@ def aggregate_lane_reports(paths: list[Path]) -> dict[str, Any]:
         "resident_row_steps": resident,
         "active_row_steps_per_second": rate,
         "active_resident_fraction": active / max(resident, 1),
-        "go_rule": {"active_row_steps_per_second": 3000, "met": rate >= 3000, "enforced": False},
+        "go_rule": {
+            "active_row_steps_per_second": 3000,
+            "met": all(bool(row["complete"]) for row in rows) and rate >= 3000,
+            "enforced": False,
+        },
     }
 
 
@@ -254,6 +354,9 @@ def main() -> None:
     parser.add_argument("--horizon", type=int, default=300)
     parser.add_argument("--threads", type=int, default=5)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--kernel", choices=("v1", "v2"), default="v1")
+    parser.add_argument("--cpu-runtime-probe", action="store_true")
+    parser.add_argument("--mac-full-round", action="store_true")
     parser.add_argument("--mixes", default="scripted,frozen,mixed")
     parser.add_argument("--namespace", default="t34-exit-a5/v1")
     parser.add_argument("--confirm-interval", type=int)
