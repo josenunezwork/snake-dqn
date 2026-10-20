@@ -11,6 +11,7 @@ import copy
 import hashlib
 import random
 import time
+import types
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -29,6 +30,17 @@ def _update_value(digest: "hashlib._Hash", value: Any, seen: set[int]) -> None:
         return
     if isinstance(value, np.generic):
         _update_value(digest, value.item(), seen)
+        return
+    if isinstance(value, types.ModuleType):
+        digest.update(b"module:")
+        digest.update(value.__name__.encode())
+        return
+    if isinstance(value, (types.FunctionType, types.MethodType, types.BuiltinFunctionType)):
+        digest.update(b"callable:")
+        digest.update(str(getattr(value, "__qualname__", value.__name__)).encode())
+        return
+    if isinstance(value, np.random.Generator):
+        _update_value(digest, value.bit_generator.state, seen)
         return
     if isinstance(value, np.ndarray):
         digest.update(b"ndarray")
