@@ -65,7 +65,9 @@ def reachability(catchup: dict[str, Any], search: dict[str, Any]) -> dict[str, A
         "late_deaths": 49,
         "censored_failures": sum(row.get("H_LAD") is None for row in late),
         "condition": "(300-H_LAD)/fps > search_seconds [+ catchup_seconds for cold]",
-        "interpretation": "empirical timing projection; not measured online reachability or efficacy",
+        "interpretation": (
+            "empirical timing projection; not measured online reachability or efficacy"
+        ),
         "projections": projections,
     }
 
