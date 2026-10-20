@@ -44,6 +44,24 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 10-20 13:50 | FIX-FIRST #2 rulings: import-closure source binding + frozen worktree; guard never sleeps mid-row, pauses only between rows, outstanding requests dropped; contention counted only >50% CPU >60 s, ≤2% of elapsed allowed; pre-check own 8 h cap; unpaced-arm cost smoke | `docs/research/specs/2026-10-20_t34_retention_fixes2.md` |
 | 10-20 ~13:05 | FIX-FIRST #2 merged (154 tests, 180 bindings). Cost smoke 38.45 h vs 40 h cap (17.7 h unpaced) → unpaced descriptive arm moved to Colab lanes (standing Colab rule); Mac runs bare + paced only (~20.7 h) | `docs/research/specs/2026-10-20_t34_unpaced_arm_colab.md` |
 | 10-20 ~13:14 | Shadow batching merged (byte-identical; Mac −19%, L4 untested). A5 v2 GO re-based pre-run: ≥ 50 completed worlds/h per L4 lane (v1 3k row-steps/s floor priced 0.4M rows/world). A5 #2 dispatched | DESIGN_V2 Amendment 2 addendum B |
+| 10-20 ~13:45 | A5 #2: STOP by telemetry (~28 row-steps/s/worker, ~56/lane, 0/256 worlds in 23 min; ~35 ms/world-step even batched; session hit the 30-min wall cap before export, ~1 u lost). 2-advisor speed review launched | `snake-dqn-artifacts/t34-a5-speed-review/` |
+| 10-20 ~13:50 | 30-day compute portfolio: 8 Astra personas + 1 Fable judge (= approval). Adopted the judge's merged portfolio (below) | `docs/research/advice/2026-10-20_compute_portfolio_FABLE_JUDGMENT.md` |
+
+## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
+
+| Lane | Question | Units | Start | Kill / gate |
+|---|---|---:|---|---|
+| L0 engine placement | Which runtime layout (10 procs x 1 thread L4; CPU-only runtime; unpaced 2-world smoke) gives the most completed worlds per unit? | <= 10 | now | pick the best layout; if no layout reaches a priced admission, teacher labels stay on the Mac |
+| L1 T34 deciders | A5 STOP -> pre-data priced admission (<= 180 u / <= 4 days) -> Round 0 240 paired -> unpaced retention arm | ~180-310 | Oct 21-23 | per registrations |
+| L2 Claim A chain | R1/R2 labels (Colab only if L0 >= 300 row-steps/s/lane, else Mac), CUDA fit qualification, ~10 cached fits, bare-student screens | 160-310 | after L1 | per screen bars |
+| L3 projection fix | 2x2: KL-anchor only on non-decisive vs frozen loss x trainable vs frozen B8 trunk (loss.py: KL tau=0.05 dominates the 0.1 hinge) | ~140 | after R1 labels | screen vs B8 |
+| L4 search successor | Offline successor chosen by retention attribution | ~150 | after paced verdict | — |
+| L5 replication/census | Independent census + replication | 100-150 | Nov 3+ | — |
+| Reserve | | ~150 | | |
+
+Not funded: 4,096-root runs (~900 u at measured engine), H20000 product sessions, self-play/league/PPO, T5-family search,
+distill lane C at 6,400 worlds, A100/G4/H100 for host-bound work, Colab "strict" evidence, idle allocations.
+**Units spent tracker:** start 1,174.37 (10-18); now ~1,159.1 (10-20 13:45).
 
 ## Measured results so far
 
