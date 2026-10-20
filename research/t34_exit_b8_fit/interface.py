@@ -121,13 +121,16 @@ def normalize_row(row: Mapping[str, Any]) -> Mapping[str, Any]:
         outcomes = row.get("per_action")
         if not isinstance(outcomes, Mapping) or str(action) not in outcomes:
             raise ValueError("ranked v2 rows require tested per_action outcomes")
+        tested = {str(a): value for a, value in outcomes.items() if value.get("tested") is True}
+        bare = int(row["student_action"])
+        if str(action) not in tested or str(bare) not in tested:
+            raise ValueError("ranked recommendation and bare control must be tested")
 
         def survives(value: Mapping[str, Any]) -> bool:
             return bool(value.get("survives", value.get("survive", False)))
 
         delay = outcome_kind == "all_die_delay"
-        bare = int(row["student_action"])
-        if delay and any(survives(value) for value in outcomes.values()):
+        if delay and any(survives(value) for value in tested.values()):
             raise ValueError("all-die label contains a horizon survivor")
         if not delay and not survives(outcomes[str(action)]):
             raise ValueError("ranked recommendation must survive outside all-die rows")
@@ -147,7 +150,7 @@ def normalize_row(row: Mapping[str, Any]) -> Mapping[str, Any]:
             label_weight=0.0 if delay else 1.0,
             forbidden_mask=(
                 np.asarray(
-                    [str(a) in outcomes and not survives(outcomes[str(a)]) for a in range(6)],
+                    [str(a) in tested and not survives(tested[str(a)]) for a in range(6)],
                     dtype=bool,
                 )
                 if not delay

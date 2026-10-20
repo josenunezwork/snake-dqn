@@ -134,7 +134,7 @@ def _labels(raw: Any, horizon: int) -> list[dict[str, Any]]:
         tested = []
         for action in range(6):
             source = outcomes.get(str(action), outcomes.get(action, {}))
-            tested.append(bool(source))
+            tested.append(bool(source) and bool(source.get("tested", True)))
             # ``mass`` is a branch integral in the search engine.  Export the
             # requested mean-horizon statistic so binary16 cannot overflow.
             mean_mass = float(source.get("mean_mass", source.get("mass", 0.0))) / (

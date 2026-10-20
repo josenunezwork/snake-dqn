@@ -182,7 +182,37 @@ def test_ranked_outcome_adapter_rejects_false_rescue() -> None:
         _v2("lad"),
         student_action=0,
         outcome_kind="horizon_rescue",
-        per_action={"0": {"survives": True}, "2": {"survives": True}},
+        per_action={
+            "0": {"survives": True, "tested": True},
+            "2": {"survives": True, "tested": True},
+        },
     )
     with pytest.raises(ValueError, match="dying bare"):
+        normalize_row(raw)
+
+
+def test_ranked_outcome_adapter_ignores_untested_placeholders() -> None:
+    from research.t34_exit_b8_fit.interface import normalize_row
+    from tests.test_t34_fitcache_recipe import _v2
+
+    raw = dict(
+        _v2("lad"),
+        student_action=0,
+        outcome_kind="horizon_rescue",
+        per_action={
+            "0": {"survives": False, "tested": True},
+            "1": {"survives": False, "tested": False},
+            "2": {"survives": True, "tested": True},
+        },
+    )
+    assert normalize_row(raw)["forbidden_mask"].tolist() == [
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+    ]
+    raw["per_action"]["2"]["tested"] = False
+    with pytest.raises(ValueError, match="must be tested"):
         normalize_row(raw)
