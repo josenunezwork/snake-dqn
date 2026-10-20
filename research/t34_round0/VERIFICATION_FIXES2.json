@@ -1,0 +1,115 @@
+{
+  "a6": {
+    "aggregation": "maximum single-fixture cost, then 10x horizon scaling",
+    "bare_h5000_seconds_per_world": 91.90805916994577,
+    "bare_rollout_seconds_per_pair": [
+      9.190805916994577,
+      3.045130499987863
+    ],
+    "elapsed_seconds": 23.800773541006492,
+    "first_pair_cold_jit_outlier": "consistent with cold/JIT; not separately profiled",
+    "horizon": 500,
+    "metric_h5000_seconds_per_pair": 3.895575829956215,
+    "operational": {
+      "device": "cpu",
+      "drop_limit_fraction": 0.02,
+      "dropped_pairs": 0,
+      "inference": "cpu",
+      "seconds_cap": 600.0,
+      "threads": 1,
+      "workers": 1,
+      "worlds_per_process": 1
+    },
+    "pairs": 2
+  },
+  "a6_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01",
+  "checks": {
+    "a6-fixes2-01/A5_RECEIPT.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/A5_RECEIPT.json",
+      "sha256": "a57fbe6a28bb107facbf2e06b758b02ea503881d6bf8795e3c4db6a9aff41b7e"
+    },
+    "a6-fixes2-01/VERIFICATION.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/VERIFICATION.json",
+      "sha256": "37398d20f654390b6b6c09c19a789022955b4b6a96ceeaeb875dc9df2c574adb"
+    },
+    "a6-fixes2-01/inputs/audit.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/inputs/audit.json",
+      "sha256": "953a769af74d61e61da83d55b613f775fa617d79418187cb8cf4e07b745a6e60"
+    },
+    "a6-fixes2-01/inputs/bank.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/inputs/bank.json",
+      "sha256": "86eaf89b9af4fac6a4b251103dc3c4caaef59883fdf11be2e27ec5a8d01f5935"
+    },
+    "a6-fixes2-01/output/chunk.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/output/chunk.json",
+      "sha256": "58e595abef2b6a9cbbb6e486e2a60972d83e3736a437d3a396b636d9dbe84dce"
+    },
+    "a6-fixes2-01/output/pairs/000-b2e4ace040fa29d33476ed97.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/output/pairs/000-b2e4ace040fa29d33476ed97.json",
+      "sha256": "033ce5df72b61012843232fd122845d30cbca6f263e21eab4a5507d3007b7923"
+    },
+    "a6-fixes2-01/output/pairs/001-861815a67f1203dfa12d2ec3.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/output/pairs/001-861815a67f1203dfa12d2ec3.json",
+      "sha256": "00c9c37a29653e2f0ffc1461b3cc13cde1a7b27b1ac11d23f8135352974464d0"
+    },
+    "a6-fixes2-01/output/traces/861815a67f1203dfa12d2ec3/bare.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/output/traces/861815a67f1203dfa12d2ec3/bare.json",
+      "sha256": "72d1e30cae854751fbaa45f0050750733a175af3753db04990a5435b9a3263b9"
+    },
+    "a6-fixes2-01/output/traces/861815a67f1203dfa12d2ec3/teacher.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/output/traces/861815a67f1203dfa12d2ec3/teacher.json",
+      "sha256": "1977e8185d3c003281ac3866e2305a34b4cef786a7f64c8d40bd041d233b956d"
+    },
+    "a6-fixes2-01/output/traces/b2e4ace040fa29d33476ed97/bare.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/output/traces/b2e4ace040fa29d33476ed97/bare.json",
+      "sha256": "69b85593e45a882641069354661d7e286c4108d7d87790ef044fe7827e45e464"
+    },
+    "a6-fixes2-01/output/traces/b2e4ace040fa29d33476ed97/teacher.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/output/traces/b2e4ace040fa29d33476ed97/teacher.json",
+      "sha256": "6634a0aa7bcd8b311aabfb8ddcc0aa3c8432187437e9e068bba05b1c76804ac7"
+    },
+    "draft-01/CHUNKS.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes2-20261020/draft-01/CHUNKS.json",
+      "sha256": "6a1cc3dd7cf77d7f4b3ff30ce051de7c4ebbd101214a9dad2b2d382addde01cd"
+    },
+    "draft-01/REGISTRATION_DRAFT.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes2-20261020/draft-01/REGISTRATION_DRAFT.json",
+      "sha256": "87d6fad76c6ce6a8c8a602383207fee1775ffbd8328c25ec232ba2169b22e939"
+    },
+    "draft-01/VALIDATION.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes2-20261020/draft-01/VALIDATION.json",
+      "sha256": "4e45a6d8652550a2c35cc121ab6058ae76555da5fd7ccb4e1bc48eb43daa59eb"
+    },
+    "draft-01/manifests/t34-round0-chunk-000-attempt-01-l1.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes2-20261020/draft-01/manifests/t34-round0-chunk-000-attempt-01-l1.json",
+      "sha256": "9a55aff4a05d79e87812fc0498f75168de6ee928ec860ffa9b628007c0d9184d"
+    },
+    "draft-01/manifests/t34-round0-chunk-001-attempt-01-l1.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes2-20261020/draft-01/manifests/t34-round0-chunk-001-attempt-01-l1.json",
+      "sha256": "afc1b52e8eddcd8870fb2df91c36a73dd7682be7eb4cf42966fb6c45dabf72f8"
+    },
+    "draft-01/manifests/t34-round0-chunk-002-attempt-01-l1.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes2-20261020/draft-01/manifests/t34-round0-chunk-002-attempt-01-l1.json",
+      "sha256": "c40a83c93da387df774e90fe8ae80e07fdeb59b3b1fa9c34ae807c2cf2f30898"
+    }
+  },
+  "dispatched": false,
+  "draft_manifests_validated": 3,
+  "draft_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes2-20261020/draft-01",
+  "initial_cap_plus_reserve_units": 32.64,
+  "maximum_with_mechanical_reruns_units": 65.28,
+  "ratified": false,
+  "release_authorized": false,
+  "schema": "t34-round0-fixes2-preparation/v1",
+  "selection_gameplay_run": false,
+  "source_commit": "b60b0e3a25ac391ec40dc5dee82772901750c139",
+  "source_current_preflight": true,
+  "source_files": 844,
+  "status": "DRAFT_VALIDATED_NOT_RATIFIED",
+  "tests": {
+    "adjacent_passed": 20,
+    "round0_passed": 119,
+    "seconds": 41.64,
+    "total_passed": 139
+  }
+}
