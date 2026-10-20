@@ -70,3 +70,35 @@ GO for the teacher rule = ≥ 90% of T3 interventions recovered.
 Hardware (GPU panel, 4 advisors, `speed_advice/`): teacher on **L4 only** (host-bound ~35:1); also probe
 the Colab CPU-only runtime (`nproc` + 10-world shadow run) and the free Mac; Path B on Mac CPU; fits: cache
 observations first, time one full L4 fit, try A100-40 only if that fit is GPU-bound beyond ~1 h.
+
+## Amendment 2 (2026-10-20 ~01:00 PT, operator decision under owner delegation; pre-data for every new test)
+
+Evidence: M1–M4 results (`research/t34_shadow/RESULTS.md`, shadow branch `f5b45365`): M1 GO; **M2 NO-GO stands**
+(registered 90% recovery bar failed: bisection 39/75, stride rule 37/75; not relabelled); **M3 NO-GO** for the serial
+continuation path (30–63 s per doom vs 12.5–24.9 s of D=300 lead). Advice: `speed_advice/m2m3_*.md` and
+`../advice/2026-10-20_t34_m2m3_astra_perf.md` (Astra perf + Fable search, dissent resolved by Fable judging Astra).
+Owner delegated the call ("u make calls on how to proceed", 2026-10-20 00:15 PT).
+
+1. **Labels.** Export the full ranked per-action outcome (T3 rule: keep bare if it survives; else horizon survivors;
+   if all die, longest alive; ties B8 Q → bare → index), with horizon/censoring, alive frames and mass. **Decisive**
+   rows = horizon rescues only. All-die "delay" choices are tagged and weighted ~0 (the 33 such T3 changes sat in
+   worlds that died anyway, +1/2/4 frames). Amendment 1's stride-10 rule is **dropped**; bisection (radius 3) is the
+   search rule; label the rescue across the escape island, not only the exact LAD. Shadow confirms stay KL-anchor rows.
+2. **Path B v2 search.** No LAD search. On shadow doom, expand alternatives **earliest-first** from the first
+   detection decision (all 42 truth-capable T3 intervals were already positive there), batched across alternatives
+   with prepared-snapshot reuse and persistent scratch, exact opponent carry/v8, isolated RNG state (no process-global
+   `random`), native work releasing the GIL, library pools capped at 1 thread; D = 500. Publish the first fully
+   evaluated improving action at a still-future frame; stale/late → bare. Stop advancing a dead future after doom.
+   Engineering target (not a gate): first-result p95 ≤ 2 s.
+3. **Deciding sequence (no label rounds funded before it):**
+   (a) **Pre-check (development, not evidence):** Path B v2 online vs bare B8 on the reused 64-world T3 dense bank
+       at real 24 fps pacing; proceed only if ≥ 50/64 survive. ~1.5 h Mac.
+   (b) **Registered test — "Path B v2 paced retention":** fresh disjoint namespaces, 32 paired H5000 worlds per mix +
+       16 fresh continuous-respawn mixed-Watch6 sessions; arms bare B8 s3 vs frozen successor paced at 24 fps (one
+       worker, one request, bounded memory, stale rejection, bare fallback) + the same successor unpaced (descriptive);
+       one look, fixed N, Holm over the two active arms, P7 inference. GO / KILL / INCONCLUSIVE exactly as in
+       `speed_advice/m2m3_fable_on_astra.md` §4 (GO = every contract bar under deadlines incl. +40/LB90>0, zero
+       overruns, update p95 ≤ 11.688 ms). Cap 32 h elapsed / 48 CPU-h, $0, after Phase 0 frees the Mac. Its full
+       pre-registration (source SHA, banks, seeds, load profile) is committed before (b) runs.
+4. Teacher label rounds (R1+) wait for (b) or Round 0; the teacher v2 build continues as infrastructure with the
+   §1 label rule.
