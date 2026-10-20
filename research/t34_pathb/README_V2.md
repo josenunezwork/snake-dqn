@@ -429,20 +429,20 @@ cd "$FROZEN"
 
 # FIRST: admission requires 120 quiet seconds. If refused, this exits nonzero
 # without a decision.json or terminal receipt; preserve timing_attempt.json,
-# remedy host conditions, then manually retry in a fresh output directory.
+# remedy host conditions, then manually use the next numbered attempt (maximum 3).
 # Then run quiet-host ON/OFF Watch6 timing at 24 and 12 fps (~.36 h; hard cap 1 h).
 "$PY" -m research.t34_pathb.retention_v2 timing-gate \
-  --registration "$READY" --out "$E/timing"
+  --registration "$READY" --out "$E/timing/attempt-01"
 # Stop unless the create-only timing gate receipt says PASS.
 # Any contended scored probe tick writes INCONCLUSIVE-retry before timing bars;
 # any other failed timing bar writes KILL-timing. Neither admits pre-check/efficacy.
 "$PY" -m research.t34_pathb.precheck_v2 --out "$E/t3-dense-64.json"
 "$PY" -m research.t34_pathb.retention_v2 precheck \
-  --registration "$READY" --timing-gate "$E/timing/timing_gate.json" \
+  --registration "$READY" --timing-gate "$E/timing/attempt-01/timing_gate.json" \
   --input "$E/t3-dense-64.json" --out "$E/precheck"
 # Stop unless the actual pre-check reaches >=50/64.
 "$PY" -m research.t34_pathb.retention_v2 run \
-  --registration "$READY" --timing-gate "$E/timing/timing_gate.json" \
+  --registration "$READY" --timing-gate "$E/timing/attempt-01/timing_gate.json" \
   --precheck "$E/precheck/precheck.json" --out "$E/retention"
 "$PY" -m research.t34_pathb.retention_v2 analyze --out "$E/retention"
 ```
@@ -506,3 +506,27 @@ new result.
 
 Package verification, exact preparation commands and the development-only OC
 results are recorded in [VERIFICATION_RETENTION_V2.md](VERIFICATION_RETENTION_V2.md).
+
+
+### FIX-FIRST #5 timing history
+
+The draft freezes `study_root` (default `$E` in the operator example above),
+`timing_attempt_parent: <study_root>/timing`, and `timing_max_attempts: 3`.
+A different root must be frozen by `registration_retention_v2 build --study-root`
+before ratification or data; it cannot be changed at execution. All prior advice
+to retry in an arbitrary fresh directory is superseded. Use consecutive
+`$E/timing/attempt-01`, `attempt-02`, `attempt-03`; preserve every directory.
+Directory reservation is atomic and happens before host admission. The
+`timing_finalized.json` seal is written only after source-fence closure; an
+unfinalized attempt blocks another invocation. Refusal
+consumes an attempt. No automatic retry or fourth attempt is permitted.
+
+Only `INCONCLUSIVE-retry` and `ADMISSION_REFUSED` permit the next manual timing
+attempt. `KILL-timing`, `KILL`, and plain `INCONCLUSIVE` close timing and block
+both pre-check and efficacy. PASS also prevents a further timing invocation.
+For a permitted second or third attempt, update every `--timing-gate` argument
+above to that attempt's receipt. Both later phases enumerate the entire frozen
+parent and require the exact latest PASS; an older PASS or a PASS copied from
+another directory cannot admit work. Missing, changed, foreign, incomplete,
+linked, or inconsistent history refuses admission. The draft remains
+unauthorized until separately ratified against its new source identity.

@@ -30,6 +30,7 @@ for _thread_env in (
 from research.t34_pathb import bank  # noqa: E402
 from research.t34_pathb.retention_v2 import (  # noqa: E402
     ARMS,
+    DEFAULT_STUDY_ROOT,
     MAC_ARMS,
     MAX_CPU_HOURS,
     MAX_ELAPSED_HOURS,
@@ -37,12 +38,14 @@ from research.t34_pathb.retention_v2 import (  # noqa: E402
     PRECHECK_MAX_ELAPSED_HOURS,
     PRODUCT_SESSIONS,
     TERMINAL_PER_MIX,
+    TIMING_MAX_ATTEMPTS,
     TIMING_MAX_ELAPSED_HOURS,
     RegistrationError,
     _registered_seed_union,
     _validate_checkpoint_coverage,
     require_registration,
     source_inventory,
+    timing_attempt_parent,
     unpaced_colab_policy,
 )
 
@@ -360,6 +363,7 @@ def _check_common(registration: Mapping[str, Any], *, root: Path) -> None:
     for key, value in expected.items():
         if registration.get(key) != value:
             raise RegistrationError(f"registration {key} differs from the fixed protocol")
+    timing_attempt_parent(registration)
     _check_rows(registration)
     for label in ("profile", "bank", "seed_audit", "preregistration", "operating_characteristic"):
         _bound_path(registration.get(label), root=root, label=label)
@@ -569,6 +573,7 @@ def build_draft(
     preregistration: Path = DEFAULT_PREREG,
     operating_characteristic: Path = DEFAULT_OC,
     checkpoints: Sequence[Mapping[str, Any]],
+    study_root: Path = DEFAULT_STUDY_ROOT,
     root: Path = ROOT,
 ) -> dict[str, Any]:
     """Build an unratified package; it remains unauthorized by construction."""
@@ -579,6 +584,9 @@ def build_draft(
         raise RegistrationError("profile requires a prospective load_policy object")
     registration = {
         "schema": SCHEMA,
+        "study_root": str(study_root),
+        "timing_attempt_parent": str(study_root / "timing"),
+        "timing_max_attempts": TIMING_MAX_ATTEMPTS,
         "ratified": False,
         "source_commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=root, text=True
@@ -741,6 +749,7 @@ def main() -> None:
     resize.add_argument("--out-bank", type=Path, required=True)
     resize.add_argument("--out-audit", type=Path, required=True)
     build = commands.add_parser("build", help="create an unauthorized draft registration")
+    build.add_argument("--study-root", type=Path, default=DEFAULT_STUDY_ROOT)
     build.add_argument("--out", type=Path, default=DEFAULT_REGISTRATION)
     build.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
     build.add_argument("--bank", type=Path, default=DEFAULT_BANK)
@@ -776,6 +785,7 @@ def main() -> None:
         print(json.dumps({"retained": 113, "added": 64, "total": len(audit["seeds"])}))
     elif args.command == "build":
         value = build_draft(
+            study_root=args.study_root,
             profile=args.profile,
             bank_path=args.bank,
             audit_path=args.audit,

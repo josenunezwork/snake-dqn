@@ -353,7 +353,14 @@ def test_timing_gate_generic_fault_writes_one_inconclusive_decision(monkeypatch,
         "timing_warmup": 0,
     }
     adapter = SimpleNamespace(open_watch=fail_open)
-    out = tmp_path / "timing"
+    registration.update(
+        {
+            "study_root": str(tmp_path),
+            "timing_attempt_parent": str(tmp_path / "timing"),
+            "timing_max_attempts": 3,
+        }
+    )
+    out = tmp_path / "timing" / "attempt-01"
     with pytest.raises(RuntimeError, match="missing timing session"):
         retention_v2.run_timing_gate(
             out,

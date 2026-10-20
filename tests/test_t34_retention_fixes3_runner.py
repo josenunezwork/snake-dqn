@@ -68,6 +68,14 @@ def test_admission_refusal_creates_no_terminal_artifacts_or_worlds(
     timing_gate = {"elapsed_seconds": 1.0, "cpu_seconds": 1.0, "status": "PASS"}
 
     if phase == "timing":
+        registration.update(
+            {
+                "study_root": str(tmp_path),
+                "timing_attempt_parent": str(tmp_path / "timing"),
+                "timing_max_attempts": 3,
+            }
+        )
+        out = tmp_path / "timing" / "attempt-01"
         registration.update({"timing_row": {}, "timing_ticks": 1, "timing_warmup": 0})
         adapter = SimpleNamespace(open_watch=lambda *_args: pytest.fail("world constructed"))
 

@@ -62,6 +62,10 @@ MAX_ELAPSED_HOURS = 40.0
 MAX_CPU_HOURS = 60.0
 PRECHECK_MAX_ELAPSED_HOURS = 8.0
 TIMING_MAX_ELAPSED_HOURS = 1.0
+TIMING_MAX_ATTEMPTS = 3
+DEFAULT_STUDY_ROOT = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-01"
+)
 
 
 def unpaced_colab_policy() -> dict[str, Any]:
@@ -119,6 +123,7 @@ def source_inventory(repo: Path) -> dict[str, str]:
 
 
 _ACTIVE_FENCE: ContextVar[Any] = ContextVar("retention_frozen_execution", default=None)
+_TIMING_RESERVATION: ContextVar[Any] = ContextVar("retention_timing_reservation", default=None)
 
 
 def _frozen_execution(function: Callable[..., Any]) -> Callable[..., Any]:
@@ -128,14 +133,48 @@ def _frozen_execution(function: Callable[..., Any]) -> Callable[..., Any]:
     def execute(*args: Any, **kwargs: Any) -> Any:
         arguments = signature(function).bind(*args, **kwargs).arguments
         registration = arguments.get("registration")
+
+        def finalize_timing() -> None:
+            # Seal history only after the source fence has closed and any source
+            # failure marker has been written, including exceptional exits.
+            out = arguments.get("out")
+            if function.__name__ != "run_timing_gate" or out is None:
+                return
+            root = Path(out)
+            attempt = root / "timing_attempt.json"
+            finalized = root / "timing_finalized.json"
+            if attempt.is_file() and not finalized.exists() and reserved_here[0]:
+                _write_new(
+                    finalized,
+                    {
+                        "schema": "t34-pathb-v2-timing-finalized/v1",
+                        "attempt_sha256": _sha(attempt),
+                        "source_failed": (root / "source_failure.json").exists(),
+                    },
+                )
+
+        # A rejected duplicate invocation must never finalize another caller's
+        # pending reservation. The producer signals its own reservation below.
+        reserved_here = [False]
+        reservation_token = _TIMING_RESERVATION.set(reserved_here)
         if not registration or not registration.get("ratified"):
-            return function(*args, **kwargs)  # The phase emits its usual admission error.
+            try:
+                return function(*args, **kwargs)  # Usual admission error.
+            finally:
+                try:
+                    finalize_timing()
+                finally:
+                    _TIMING_RESERVATION.reset(reservation_token)
         from research.t34_pathb.source_binding_v2 import FrozenWorktreeGuard, SourceBindingError
 
         fence = FrozenWorktreeGuard(
             Path(__file__).resolve().parents[2], registration["source_commit"]
         )
-        fence.start()
+        try:
+            fence.start()
+        except BaseException:
+            _TIMING_RESERVATION.reset(reservation_token)
+            raise
         token = _ACTIVE_FENCE.set(fence)
         try:
             try:
@@ -177,6 +216,11 @@ def _frozen_execution(function: Callable[..., Any]) -> Callable[..., Any]:
                         },
                     )
             raise
+        finally:
+            try:
+                finalize_timing()
+            finally:
+                _TIMING_RESERVATION.reset(reservation_token)
 
     return execute
 
@@ -409,6 +453,7 @@ def require_registration(
         or registration.get("timing_max_elapsed_hours") != TIMING_MAX_ELAPSED_HOURS
     ):
         raise RegistrationError("registration cap differs from fixed phase contract")
+    timing_attempt_parent(registration)
     sources = registration.get("source_hashes")
     if (
         registration.get("fresh_disjoint_banks") is not True
@@ -612,14 +657,144 @@ def _timing_passes(timing: Mapping[str, Any]) -> tuple[bool, str]:
     return True, "PASS"
 
 
+def timing_attempt_parent(registration: Mapping[str, Any]) -> Path:
+    """Validate the prospectively fixed timing location and three-attempt cap."""
+    study = registration.get("study_root")
+    parent = registration.get("timing_attempt_parent")
+    if not isinstance(study, str) or not isinstance(parent, str):
+        raise RegistrationError(
+            "registration requires a fixed study_root and timing_attempt_parent"
+        )
+    root, path = Path(study), Path(parent)
+    if (
+        not root.is_absolute()
+        or str(root.resolve()) != study
+        or parent != str(root / "timing")
+        or path.resolve() != path
+        or type(registration.get("timing_max_attempts")) is not int
+        or registration["timing_max_attempts"] != TIMING_MAX_ATTEMPTS
+    ):
+        raise RegistrationError("timing parent must be <study_root>/timing with at most 3 attempts")
+    return path
+
+
+def _timing_attempts(registration: Mapping[str, Any]) -> list[tuple[Path, str]]:
+    """Enumerate the entire registered history, refusing gaps or unsafe evidence."""
+    parent = timing_attempt_parent(registration)
+    try:
+        entries = sorted(parent.iterdir()) if parent.exists() else []
+        if len(entries) > TIMING_MAX_ATTEMPTS:
+            raise RegistrationError("timing attempt cap is 3; a fourth attempt is refused")
+        attempts = []
+        for number, path in enumerate(entries, 1):
+            if path.name != f"attempt-{number:02d}" or path.is_symlink() or not path.is_dir():
+                raise RegistrationError(
+                    "timing history requires contiguous attempt-01..03 directories"
+                )
+            if (path / "timing_attempt.json").is_symlink():
+                raise RegistrationError("timing history cannot use linked attempt records")
+            record = _load(path / "timing_attempt.json")
+            if (
+                record.get("schema") != "t34-pathb-v2-timing-attempt/v1"
+                or record.get("attempt_id") != str(path)
+                or record.get("registration_sha256") != _canonical_sha(registration)
+                or record.get("source_commit") != registration.get("source_commit")
+            ):
+                raise RegistrationError("timing attempt does not bind its registered history")
+            finalized = _load(path / "timing_finalized.json")
+            if (
+                (path / "timing_finalized.json").is_symlink()
+                or finalized.get("schema") != "t34-pathb-v2-timing-finalized/v1"
+                or finalized.get("attempt_sha256") != _sha(path / "timing_attempt.json")
+                or finalized.get("source_failed") is not False
+            ):
+                raise RegistrationError("timing attempt has no valid finalized source outcome")
+            status = record.get("status")
+            # Inspect every retained verdict as well as the diagnostic, so a
+            # terminal result cannot be hidden behind a retry label.
+            if (path / "source_failure.json").exists():
+                raise RegistrationError("terminal timing history: source failure")
+            evidence = record.get("evidence_sha256")
+            if not isinstance(evidence, dict):
+                raise RegistrationError("timing attempt lacks immutable evidence bindings")
+            for name in ("decision.json", "timing_gate.json", "incomplete.json"):
+                receipt_path = path / name
+                if receipt_path.is_symlink():
+                    raise RegistrationError("timing history cannot use linked receipts")
+                if receipt_path.exists() != (name in evidence):
+                    raise RegistrationError("timing attempt evidence inventory differs")
+                if not receipt_path.exists():
+                    continue
+                if _sha(receipt_path) != evidence[name]:
+                    raise RegistrationError("timing attempt evidence bytes differ")
+                receipt = _load(receipt_path)
+                if name != "incomplete.json":
+                    label = receipt.get("verdict", receipt.get("status"))
+                    if label != status:
+                        raise RegistrationError("terminal or inconsistent timing history verdict")
+            if status == "ADMISSION_REFUSED" and evidence:
+                raise RegistrationError("admission refusal cannot conceal timing evidence")
+            if status == "PASS" and "timing_gate.json" not in evidence:
+                raise RegistrationError("passing timing attempt lacks its gate receipt")
+            if status != "ADMISSION_REFUSED" and not evidence:
+                raise RegistrationError("timing attempt lacks terminal evidence")
+            if status not in ("INCONCLUSIVE-retry", "ADMISSION_REFUSED", "PASS"):
+                raise RegistrationError(f"terminal timing history: {status}")
+            attempts.append((path, status))
+        return attempts
+    except (OSError, ValueError, TypeError) as exc:
+        raise RegistrationError(f"unreadable or incomplete timing history: {exc}") from exc
+
+
+def _reserve_timing_attempt(out: Path, registration: Mapping[str, Any]) -> None:
+    """Reserve the next numbered directory atomically, before host admission."""
+    parent = timing_attempt_parent(registration)
+    if out.exists():
+        raise RegistrationError("timing-gate output root must be fresh")
+    attempts = _timing_attempts(registration)
+    if any(status not in ("INCONCLUSIVE-retry", "ADMISSION_REFUSED") for _, status in attempts):
+        raise RegistrationError("timing history already passed; no further attempt is allowed")
+    if len(attempts) >= TIMING_MAX_ATTEMPTS:
+        raise RegistrationError("timing attempt cap is 3; a fourth attempt is refused")
+    expected = parent / f"attempt-{len(attempts) + 1:02d}"
+    if out.absolute() != expected or out.resolve() != expected:
+        raise RegistrationError(
+            f"timing attempt must use the next registered directory: {expected}"
+        )
+    try:
+        out.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        raise RegistrationError("timing-gate output root must be fresh") from exc
+
+
+def _require_latest_timing_attempt(
+    timing: Mapping[str, Any], registration: Mapping[str, Any]
+) -> None:
+    attempts = _timing_attempts(registration)
+    if not attempts or attempts[-1][1] != "PASS":
+        raise RegistrationError("timing admission requires the latest attempt to PASS")
+    if any(
+        status not in ("INCONCLUSIVE-retry", "ADMISSION_REFUSED") for _, status in attempts[:-1]
+    ):
+        raise RegistrationError(
+            "earlier timing attempts must be INCONCLUSIVE-retry or ADMISSION_REFUSED"
+        )
+    latest = attempts[-1][0]
+    if timing.get("source_validation_path") != str(latest / "source_validated.json") or _load(
+        latest / "timing_gate.json"
+    ) != dict(timing):
+        raise RegistrationError("supplied PASS is not the LATEST registered timing attempt")
+
+
 def require_timing_gate(
     timing: Mapping[str, Any], registration: Mapping[str, Any] | None = None
 ) -> None:
-    """Reject T3/efficacy admission unless the sole pre-data timing gate passed."""
+    """Reject T3/efficacy admission unless the latest registered attempt passed."""
     passed, reason = _timing_passes(timing)
     if not passed:
         raise RegistrationError(f"timing gate did not pass: {reason}")
     if registration is not None:
+        _require_latest_timing_attempt(timing, registration)
         _require_phase_source(timing, "timing_gate.json")
         if timing.get("status") != "PASS":
             raise RegistrationError("timing gate has no passing producer receipt")
@@ -661,8 +836,10 @@ def run_timing_gate(
     _require_committed_pushed_registration(registration_path, registration)
     require_registration(registration, None)
     _execution_guard()
-    if out.exists():
-        raise RegistrationError("timing-gate output root must be fresh")
+    _reserve_timing_attempt(out, registration)
+    reservation = _TIMING_RESERVATION.get()
+    if reservation is not None:
+        reservation[0] = True
     guard = HostGuard(registration["load_profile"], phase_cap_seconds=PHASE_CAP_SECONDS["timing"])
     guard.check_budget = lambda: _timing_cap(started, cpu_started)
     admission_refused = False
@@ -684,7 +861,6 @@ def run_timing_gate(
     try:
         _timing_cap(started, cpu_started)
         guard.admit()
-        out.mkdir(parents=True, exist_ok=False)
         started, cpu_started = time.monotonic(), time.process_time()
         guard.start()
         _between_rows(guard)
@@ -716,7 +892,7 @@ def run_timing_gate(
             else (
                 "INCONCLUSIVE-retry"
                 if reason.startswith("INCONCLUSIVE-retry")
-                else "INCONCLUSIVE" if reason.startswith("INCONCLUSIVE") else "FAILED"
+                else "INCONCLUSIVE" if reason.startswith("INCONCLUSIVE") else "KILL-timing"
             )
         )
         _write_new(
@@ -834,6 +1010,11 @@ def run_timing_gate(
             {
                 "schema": "t34-pathb-v2-timing-attempt/v1",
                 "attempt_id": str(out.resolve()),
+                "evidence_sha256": {
+                    name: _sha(out / name)
+                    for name in ("decision.json", "timing_gate.json", "incomplete.json")
+                    if (out / name).is_file()
+                },
                 "registration_sha256": _canonical_sha(registration),
                 "source_commit": registration.get("source_commit"),
                 "status": (

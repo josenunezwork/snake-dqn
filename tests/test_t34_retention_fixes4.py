@@ -134,7 +134,7 @@ def test_warmup_contention_is_separate_from_scored_probe_ticks(monkeypatch):
     assert result["contended"] is False
 
 
-def _fake_gate(monkeypatch, *, refuse=False, host_records=None):
+def _fake_gate(monkeypatch, tmp_path, *, refuse=False, host_records=None):
     now = [100.0]
     caps = []
     monkeypatch.setattr(retention_v2.time, "monotonic", lambda: now[0])
@@ -174,6 +174,9 @@ def _fake_gate(monkeypatch, *, refuse=False, host_records=None):
 
     monkeypatch.setattr(retention_v2, "HostGuard", Guard)
     registration = {
+        "study_root": str(tmp_path),
+        "timing_attempt_parent": str(tmp_path / "timing"),
+        "timing_max_attempts": 3,
         "ratified": False,
         "source_commit": "a" * 40,
         "source_hashes": {},
@@ -187,12 +190,12 @@ def _fake_gate(monkeypatch, *, refuse=False, host_records=None):
 
 @pytest.mark.parametrize("refuse", [False, True])
 def test_each_timing_attempt_is_recorded_and_cannot_be_overwritten(monkeypatch, tmp_path, refuse):
-    registration, _, caps = _fake_gate(monkeypatch, refuse=refuse)
+    registration, _, caps = _fake_gate(monkeypatch, tmp_path, refuse=refuse)
     timing = _timing()
     timing["probes"]["paced-24"]["contended"] = True
     monkeypatch.setattr(retention_v2.timing_v2, "run_probes", lambda *_a, **_k: timing)
     for name in ("attempt-01", "attempt-02"):
-        out = tmp_path / name
+        out = tmp_path / "timing" / name
         if refuse:
             with pytest.raises(host_guard_v2.HostAdmissionError):
                 retention_v2.run_timing_gate(out, registration, registration_path=Path(__file__))
@@ -215,7 +218,7 @@ def test_each_timing_attempt_is_recorded_and_cannot_be_overwritten(monkeypatch, 
 
 
 def test_timing_one_hour_cap_is_checked_inside_probe_and_records_failure(monkeypatch, tmp_path):
-    registration, now, caps = _fake_gate(monkeypatch)
+    registration, now, caps = _fake_gate(monkeypatch, tmp_path)
 
     def probes(*_args, check_cap, **_kwargs):
         now[0] += 3599
@@ -225,7 +228,7 @@ def test_timing_one_hour_cap_is_checked_inside_probe_and_records_failure(monkeyp
         pytest.fail("timing continued past one hour")
 
     monkeypatch.setattr(retention_v2.timing_v2, "run_probes", probes)
-    out = tmp_path / "cap"
+    out = tmp_path / "timing" / "attempt-01"
     with pytest.raises(TimeoutError, match="1-hour timing elapsed cap"):
         retention_v2.run_timing_gate(out, registration, registration_path=Path(__file__))
     assert caps == [3600]
@@ -239,7 +242,7 @@ def test_final_scored_sample_is_preserved_through_probe_or_boundary_exit(
     monkeypatch, tmp_path, boundary_failure
 ):
     records = []
-    registration, now, _ = _fake_gate(monkeypatch, host_records=records)
+    registration, now, _ = _fake_gate(monkeypatch, tmp_path, host_records=records)
     steps = [0]
 
     def step():
@@ -263,7 +266,7 @@ def test_final_scored_sample_is_preserved_through_probe_or_boundary_exit(
             close=lambda **_: None,
         )
     )
-    out = tmp_path / "last-tick"
+    out = tmp_path / "timing" / "attempt-01"
     result = retention_v2.run_timing_gate(
         out, registration, adapter=adapter, registration_path=Path(__file__)
     )

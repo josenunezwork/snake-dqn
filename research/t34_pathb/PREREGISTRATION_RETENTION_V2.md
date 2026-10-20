@@ -16,6 +16,37 @@ ratification decision to Claude; only the operator ratifies after review. This
 draft, its committed banks and its OC simulation authorize no pre-check,
 efficacy, strict-gate run, training, cloud spending or serving change.
 
+## Amendment 6 addendum — FIX-FIRST #5 fixed timing history
+
+The [FIX-FIRST #5 ruling](../../docs/research/specs/2026-10-20_t34_retention_fixes5.md)
+amends this unauthorized draft before data and supersedes all unrestricted
+fresh-directory timing retry language below. The registration freezes one
+absolute `study_root` and its sole `timing_attempt_parent: <study_root>/timing`.
+The default study root is
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-01`.
+The only permitted attempts are consecutive, create-only `attempt-01`,
+`attempt-02`, and `attempt-03`; `timing_max_attempts` is exactly 3. Atomic
+directory reservation occurs before host admission. Admission refusal consumes
+an attempt and retains its diagnostic without a terminal phase receipt.
+
+Before another timing invocation, enumerate every attempt under that parent.
+Every predecessor must be **INCONCLUSIVE-retry** or **ADMISSION_REFUSED**.
+**KILL-timing**, **KILL**, and plain **INCONCLUSIVE** anywhere are terminal:
+no further attempt, no pre-check, and no efficacy. A PASS ends timing attempts.
+A fourth invocation is refused. Retries are manual, never automatic.
+
+Pre-check and efficacy admission enumerate the same complete history, require
+all earlier attempts to have one of the two retryable statuses, and require the
+supplied PASS to be the **latest** attempt's exact on-disk gate receipt with
+its final source validation. Missing or malformed records, gaps, foreign
+registration identities, symlinks, inconsistent verdicts, changed bound evidence,
+and source failure markers refuse admission. Every attempt binds its numbered
+path, registration digest, source commit, and retained terminal evidence hashes.
+A create-only `timing_finalized.json` binds the attempt record only after its
+source fence closes and source failures are recorded; an unfinished predecessor
+cannot admit another attempt. No older source/identity evidence may qualify
+the rebuilt registration.
+
 ## Amendment 5 addendum — FIX-FIRST #4 timing cap and contention precedence
 
 The [FIX-FIRST #4 ruling](../../docs/research/specs/2026-10-20_t34_retention_fixes4.md)

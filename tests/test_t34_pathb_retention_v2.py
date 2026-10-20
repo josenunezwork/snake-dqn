@@ -88,6 +88,9 @@ def test_non_smoke_registration_rechecks_raw_evidence_and_source_closure(monkeyp
         "max_cpu_hours": 60.0,
         "precheck_max_elapsed_hours": 8.0,
         "timing_max_elapsed_hours": 1.0,
+        "study_root": str(tmp_path),
+        "timing_attempt_parent": str(tmp_path / "timing"),
+        "timing_max_attempts": 3,
         "fresh_disjoint_banks": True,
         "source_hashes": {source: digest},
     }
@@ -327,7 +330,14 @@ def test_registered_timing_fault_retains_unconditional_marker(monkeypatch, tmp_p
             close=lambda: None,
         ),
     )
-    out = tmp_path / "fresh"
+    registration.update(
+        {
+            "study_root": str(tmp_path),
+            "timing_attempt_parent": str(tmp_path / "timing"),
+            "timing_max_attempts": 3,
+        }
+    )
+    out = tmp_path / "timing" / "attempt-01"
     with pytest.raises(type(fault)):
         retention_v2.run_timing_gate(
             out, registration, adapter=adapter, registration_path=Path(__file__)
