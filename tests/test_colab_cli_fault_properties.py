@@ -12,6 +12,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -19,7 +20,17 @@ from typing import Any
 
 import pytest
 
-from research.colab_cli import acceptance, cli_guard, policy, supervisor
+from research.colab_cli import (
+    acceptance,
+    acceptance_faults,
+    accounting,
+    cli_guard,
+    inputs,
+    policy,
+    release,
+    supervisor,
+    transfers,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 FAKE = REPO / "tests" / "fixtures" / "fake_colab.py"
@@ -70,6 +81,22 @@ class _TransportClock:
         for owner in list(self.beats):
             if owner is cli or owner._lease_stop is cli._lease_stop:
                 self.beats.pop(owner, None)
+
+
+class _TransportTime:
+    """Virtualize application waits without changing subprocess or pytest clocks."""
+
+    def __init__(self, clock: _TransportClock) -> None:
+        self.clock = clock
+
+    def monotonic(self) -> float:
+        return self.clock.now
+
+    def sleep(self, seconds: float) -> None:
+        self.clock.advance(seconds)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(time, name)
 
 
 def _fake_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, plan: dict[str, Any]) -> str:
@@ -223,8 +250,20 @@ def _isolate_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Transp
             return result
 
     monkeypatch.setattr(supervisor.subprocess, "run", run)
-    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock.now)
-    monkeypatch.setattr(supervisor.time, "sleep", clock.advance)
+    # Mutating attributes on the shared stdlib module also changes Popen.wait's
+    # real timeout backoff, which can advance this clock past a provider grace.
+    virtual_time = _TransportTime(clock)
+    for module in (
+        acceptance,
+        acceptance_faults,
+        accounting,
+        cli_guard,
+        inputs,
+        release,
+        supervisor,
+        transfers,
+    ):
+        monkeypatch.setattr(module, "time", virtual_time)
     monkeypatch.setattr(
         supervisor.CLI,
         "start_lease",
@@ -234,6 +273,21 @@ def _isolate_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Transp
         supervisor.CLI, "stop_lease", lambda cli, wait=False: clock.stop(cli, wait=wait)
     )
     return clock
+
+
+def test_subprocess_wait_does_not_advance_transport_clock(
+    _isolate_account: _TransportClock,
+) -> None:
+    """Waiting for a real child must not consume the virtual provider deadline."""
+    before = _isolate_account.now
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.05)"])
+    try:
+        assert child.wait(timeout=1) == 0
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=1)
+    assert _isolate_account.now == before
 
 
 @pytest.mark.parametrize(
