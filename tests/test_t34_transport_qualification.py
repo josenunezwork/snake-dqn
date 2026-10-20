@@ -158,14 +158,14 @@ def test_both_builders_and_validators_refuse_transport_drift(
         )
 
 
-def test_record_matches_actual_historical_accepted_source() -> None:
+def test_record_matches_actual_accepted_source() -> None:
     """Independently resolve the checked-in receipt inventory against its Git commit."""
     repo = Path(__file__).resolve().parents[1]
     document = (repo / "research/colab_cli/QUALIFICATION.md").read_text()
     record = json.loads(document.split("```json\n", 1)[1].split("\n```", 1)[0])
-    assert record["qualified_commit"] == "cd766c639c37acfb956d677ab95fdf7359a1bb61"
+    assert record["qualified_commit"] == "dab00823e1849efed67a721740032f63500e224b"
     assert record["receipt_sha256"] == (
-        "54e9f2f84dda243f138ab3f374e2d4b4be13c22b4977939f3c810020bf40e101"
+        "dc419e2a95c4e9239f97e8134ca6c444ec2baed62bdf195555071dc29c446089"
     )
     available = subprocess.run(
         ["git", "cat-file", "-e", record["qualified_commit"]],

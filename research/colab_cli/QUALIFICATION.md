@@ -1,8 +1,8 @@
 # Colab CLI source qualification for T34
 
-The recorded transport passed live `final-only` acceptance. **The accounting fix
-in this branch changes these bytes: final-only acceptance must be rerun by the
-operator before T34 dispatch.** Offline tests do not renew live qualification.
+**QUALIFIED 2026-10-19:** live `final-only` acceptance PASS on `dab00823` (accounting lag + carry-over
+fixes included); T34 manifests may dispatch on these exact bytes. Any further colab_cli change requires a
+new final-only acceptance. Offline tests do not renew live qualification.
 No live Colab, pod or tmux action was taken by this implementation task.
 
 The 2026-10-19 carry-over correction also bounds broker-departed endpoints
@@ -166,13 +166,52 @@ changing unrelated research code or weakening the tests.
 
 ## Machine-readable accepted executable inventory
 
+**Current PASS (2026-10-19, operator Claude):** live final-only acceptance on `dab00823` after two
+independent pre-execution reviews (REVIEW: ACCEPT). All 10 required gates OBSERVED; L4 64 MiB final export
+SHA-256 verified on the Mac (lower bound ~0.89 MB/s end to end). Previous PASS (`cd766c63`, S1) is kept below
+as history.
+
+```json
+{
+  "profile": "final-only",
+  "qualified_commit": "dab00823e1849efed67a721740032f63500e224b",
+  "receipt_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-carryover-dab00823/acceptance-1792473566/acceptance-result.json",
+  "receipt_sha256": "dc419e2a95c4e9239f97e8134ca6c444ec2baed62bdf195555071dc29c446089",
+  "schema": "snake-dqn-t34-transport-qualification/v1",
+  "source_manifest": {
+    "research/colab_cli/__init__.py": "624677cd409539df23ec6c1f21ad999059fe779715ee5eab0183b7b2498851f1",
+    "research/colab_cli/acceptance.py": "e5856edf7d097c170ac4c27049bbbb256e34dd8f12cee81ad166bca5c965d489",
+    "research/colab_cli/acceptance_faults.py": "437437e8695f7f45b144f12343332399a6f960dcc462f50c02a86d65b9be8d2f",
+    "research/colab_cli/acceptance_probe.py": "5fe350618270ecbb51ecdb44b16fc80a071d80633ac94679ba94541694251610",
+    "research/colab_cli/acceptance_probe.sh": "9e7163c63bda2a86c96fe2eabee9be538d77e8151c13422467fe497d55be9064",
+    "research/colab_cli/accounting.py": "60ccfec58138adf9400c93ca1b8837cccd6da5b4fb2194a8ec4874f2ad33caeb",
+    "research/colab_cli/admission.py": "113ec7307777defd6f692dadc336fbb3ed37ddec7915966c3adb97bbfa9053cd",
+    "research/colab_cli/backup.py": "125b73b512c63e06f4b7656e52b534967510685314ab5b2c1b9fbbe4232239fe",
+    "research/colab_cli/bootstrap.sh": "e4a7bc69ba9da3ef5d5df6755a60bcb73878364d18b38f9d5a38d6ac18bbef7e",
+    "research/colab_cli/cli_guard.py": "e563610fc9fadb59df824a38a93699428800b31b6b85bce3b90aba503c583bc8",
+    "research/colab_cli/inputs.py": "56cce4bd7a6c9487f52ac914c743f34051b5e818893c8e48ca0da9ff08f03ae1",
+    "research/colab_cli/launch.sh": "173b51e74e5c0b44c40d0d549b0d4a3a1dc1ab787baa68eb854ca0663b50ea79",
+    "research/colab_cli/policy.py": "e2c43f8e0c5bb3c45b3d25303c7e41a3a938becbbfe1dd70455adac0aeeb3014",
+    "research/colab_cli/release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+    "research/colab_cli/runtime.py": "e1ff8c5a3b13fae272f98aa884d9210d1bec26e2eedc7490a8ad1ba22eeb1797",
+    "research/colab_cli/source.py": "8b5fccfc809d7345faacda58dec3b497787ddf4961218fdbbe6ef90a1b2eef6a",
+    "research/colab_cli/supervisor.py": "5b9ed88426a45993bec92df1bccc24a56bba14a31bf45a012fce161e7982a897",
+    "research/colab_cli/transfers.py": "a8fd12c425d7dff168e300a6bf0a6bec38230d75520c6251e86a59b0df83d95c"
+  },
+  "status": "PASS"
+}
+```
+
+### Historical PASS (superseded)
+
+
 This is historical PASS evidence. The accounting repair, shared T34 admission
 guard, and formatting change the accepted source bytes. Imported overlong
 evidence/error strings in `acceptance.py` and `acceptance_faults.py` were wrapped
 to the repository line limit without changing their values. T34 must remain
 refused until the operator supplies a new reviewed PASS.
 
-```json
+```text
 {
   "profile": "final-only",
   "qualified_commit": "cd766c639c37acfb956d677ab95fdf7359a1bb61",
