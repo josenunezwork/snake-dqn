@@ -275,3 +275,52 @@ def test_public_input_materializer_verifies_archive_members(
     )
     assert len(paths) == 6
     assert all(path.is_file() for path in paths)
+
+
+@pytest.mark.parametrize(
+    "round_id,beta,interval",
+    (("r0", "1", "8"), ("r1", "1", "8"), ("r2", "0.5", "8"), ("r3", "0", "8")),
+)
+def test_manifest_carries_round_schedule_and_trigger_overrides(
+    tmp_path: Path, round_id: str, beta: str, interval: str
+) -> None:
+    inventory = _inventory(tmp_path)
+    manifest = manifests.make_manifest(
+        kind="label",
+        commit="a" * 40,
+        output_dir=tmp_path / "fresh",
+        inventory_path=inventory,
+        public_catalog_path=_catalog(tmp_path, inventory),
+        round_id=round_id,
+        worlds=2,
+        triggers={"death_window": 75},
+        policy_factory="future.module:factory",
+    )
+    assert manifest["env"]["T34_BETA"] == beta
+    assert manifest["env"]["T34_CONFIRM_INTERVAL"] == interval
+    assert manifest["env"]["T34_DEATH_WINDOW"] == "75"
+    assert manifest["env"]["T34_POLICY_FACTORY"] == "future.module:factory"
+
+
+@pytest.mark.parametrize(
+    "options",
+    (
+        {"student_checkpoint": "student.pth"},
+        {"checkpoint": "other.pth"},
+        {"triggers": {"max_rewinds": 3}},
+    ),
+)
+def test_unbound_students_and_excess_rewinds_are_refused(tmp_path: Path, options: dict) -> None:
+    with pytest.raises(manifests.ManifestRefused):
+        manifests.make_manifest(
+            kind="label", commit="a" * 40, output_dir=tmp_path / "fresh", worlds=2, **options
+        )
+
+
+@pytest.mark.parametrize("entrypoint", ("benchmark", "label"))
+def test_student_checkpoint_cannot_be_silently_ignored(entrypoint: str) -> None:
+    import importlib
+
+    module = importlib.import_module(f"research.t34_exit_b8.{entrypoint}")
+    with pytest.raises(ValueError, match="requires --policy-factory"):
+        module._load_policy({"student_checkpoint": "student.pth"})

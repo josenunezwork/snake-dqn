@@ -70,6 +70,16 @@ uses `--policy-factory module:callable --student-checkpoint PATH`; the factory r
 `--checkpoint` remains the B8 carrier used to construct/replay the world. The sibling tower loader and
 its A3/serving qualification are outside this worktree's implementation scope.
 
+The command-line and shell entrypoints forward all five trigger settings. Defaults remain interval 8,
+minimum length 600, low-length probability 0.03, death window 150, and at most two rewinds. Label
+rounds R1/R2/R3 default to beta 1/0.5/0; `--beta` or `T34_BETA` can select an explicit governed value.
+The builder accepts `--triggers '{"confirm_interval":8,"max_rewinds":2}'` and
+`--policy-factory module:callable`. Shell adapters use `T34_POLICY_FACTORY`, `T34_STUDENT_CHECKPOINT`
+and optional `T34_CHECKPOINT`, with checkpoint names relative to the materialized input directory.
+A student checkpoint without a factory fails explicitly. The production manifest builder refuses
+nondefault checkpoint inputs until their publication and SHA binding are added; the current public
+catalog binds only the B8 carrier and frozen roster. This is a protocol seam, not completed P5 integration.
+
 ## Inputs and bounded-upload alternative
 
 The owner's input addendum supplies an existing S1 public release. No release was created or changed.
@@ -130,10 +140,10 @@ env PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin
   --checkpoint "$T34_PREP/inputs/B8_s3_final.pth" --out "$T34_PREP/a6-replay.json"
 
 "$T34_PY" -m pytest -q tests/test_t34_exit_identity.py
-"$T34_PY" -m pytest -q -n0 -m 'not slow and not requires_gpu'
+"$T34_PY" -m pytest -q -n0 -m 'not slow and not requires_gpu' -k 'not mps'
 ```
 
-The full local gate deselects `requires_gpu` as well as `slow`: an explicit MPS test otherwise runs
+The full local gate deselects `requires_gpu` and MPS-named cases as well as `slow`: explicit MPS tests otherwise run
 despite the CPU device environment. This preserves the spec's CPU-only Mac rule. A preliminary plain
 `not slow` invocation was interrupted before any hardware-marked test executed; its partial log is not
 a full-suite pass.

@@ -39,6 +39,8 @@ def _cpu_ceiling(threads: int) -> None:
 def _load_policy(config: Mapping[str, Any]) -> Any | None:
     reference = config.get("policy_factory")
     if not reference:
+        if config.get("student_checkpoint"):
+            raise ValueError("--student-checkpoint requires --policy-factory")
         return None
     if not isinstance(reference, str) or ":" not in reference:
         raise ValueError("--policy-factory must be module:callable")
@@ -85,6 +87,19 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
     for key in ("round", "shard", "attempt"):
         if key not in config:
             raise ValueError(f"label chunk requires {key}")
+    beta = config.get("beta")
+    if beta is None:
+        beta = {"r2": 0.5, "r3": 0.0}.get(str(config["round"]).lower(), 1.0)
+    triggers = dict(config.get("triggers", {}))
+    for name in (
+        "confirm_interval",
+        "confirm_min_length",
+        "low_length_probability",
+        "death_window",
+        "max_rewinds",
+    ):
+        if config.get(name) is not None:
+            triggers[name] = config[name]
     _cpu_ceiling(threads)
     import numba
 
@@ -99,6 +114,8 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
             **config,
             "policy": _load_policy(config),
             "max_worlds": max_worlds,
+            "beta": beta,
+            "triggers": triggers,
             "worlds_per_process": min(2, max_worlds) if preflight else 256,
         }
     )
@@ -149,7 +166,12 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=5)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--namespace", required=True)
-    parser.add_argument("--beta", type=float, default=1.0)
+    parser.add_argument("--beta", type=float, choices=(0.0, 0.5, 1.0))
+    parser.add_argument("--confirm-interval", type=int)
+    parser.add_argument("--confirm-min-length", type=int)
+    parser.add_argument("--low-length-probability", type=float)
+    parser.add_argument("--death-window", type=int)
+    parser.add_argument("--max-rewinds", type=int)
     parser.add_argument("--preflight", action="store_true")
     args = parser.parse_args()
     result = run_label_chunk(vars(args))

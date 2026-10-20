@@ -17,8 +17,25 @@ export SNAKE_CKPT_DIR="${input_root}/checkpoints"
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 mkdir -p "${output_root}"
 
+# Optional adapters consume explicitly materialized runtime-relative inputs.
+checkpoint="${T34_CHECKPOINT:-B8_s3_final.pth}"
+student="${T34_STUDENT_CHECKPOINT:-}"
+for relative in "${checkpoint}" "${student}"; do
+  [[ "${relative}" != /* && "/${relative}/" != *"/../"* ]] || { echo "checkpoint must be input-relative" >&2; exit 2; }
+done
+extra=(--confirm-interval "${T34_CONFIRM_INTERVAL:-8}" --confirm-min-length "${T34_CONFIRM_MIN_LENGTH:-600}" --low-length-probability "${T34_LOW_LENGTH_PROBABILITY:-0.03}" --death-window "${T34_DEATH_WINDOW:-150}" --max-rewinds "${T34_MAX_REWINDS:-2}")
+if [[ -n "${T34_POLICY_FACTORY:-}" ]]; then extra+=(--policy-factory "${T34_POLICY_FACTORY}"); fi
+if [[ -n "${student}" ]]; then
+  [[ -n "${T34_POLICY_FACTORY:-}" ]] || { echo "student checkpoint requires policy factory" >&2; exit 2; }
+  extra+=(--student-checkpoint "${input_root}/${student}")
+fi
+case "${T34_ROUND:-a6}" in
+  r2|R2) beta_default=0.5 ;;
+  r3|R3) beta_default=0 ;;
+  *) beta_default=1 ;;
+esac
 if [[ "${device}" == "cpu" ]]; then
-  exec python -m research.t34_exit_b8.label --preflight --checkpoint "${input_root}/B8_s3_final.pth" --output-dir "${output_root}/worlds" --out "${output_root}/label.json" --round "${T34_ROUND:-a6}" --shard "${T34_SHARD:-0}" --attempt "${T34_ATTEMPT:-0}" --worlds "${T34_WORLDS:-2}" --max-worlds "${T34_MAX_WORLDS:-2}" --frames "${T34_FRAMES:-500}" --seconds "${T34_SECONDS:-600}" --threads 1 --device cpu --namespace "${T34_NAMESPACE:-t34-exit-a6/v1}"
+  exec python -m research.t34_exit_b8.label --preflight --checkpoint "${input_root}/${checkpoint}" --output-dir "${output_root}/worlds" --out "${output_root}/label.json" --round "${T34_ROUND:-a6}" --shard "${T34_SHARD:-0}" --attempt "${T34_ATTEMPT:-0}" --worlds "${T34_WORLDS:-2}" --max-worlds "${T34_MAX_WORLDS:-2}" --frames "${T34_FRAMES:-500}" --seconds "${T34_SECONDS:-600}" --threads 1 --device cpu --beta "${T34_BETA:-${beta_default}}" "${extra[@]}" --namespace "${T34_NAMESPACE:-t34-exit-a6/v1}"
 fi
 declare -a pids=()
 terminate_children() {
@@ -35,7 +52,7 @@ trap 'exit 143' INT TERM
 for lane in 0 1; do
   lane_worlds=$(( (${T34_WORLDS:?} + 1 - lane) / 2 ))
   (( lane_worlds > 0 )) || continue
-  NUMBA_NUM_THREADS="${threads}" python -m research.t34_exit_b8.label --checkpoint "${input_root}/B8_s3_final.pth" --output-dir "${output_root}/lane${lane}" --out "${output_root}/label-lane${lane}.json" --round "${T34_ROUND:?}" --shard "${T34_SHARD:?}" --attempt "${T34_ATTEMPT:?}" --worlds "${lane_worlds}" --max-worlds "${lane_worlds}" --frames "${T34_FRAMES:-5000}" --seconds "${T34_SECONDS:-10200}" --horizon "${T34_HORIZON:-300}" --threads "${threads}" --device "${device}" --namespace "${T34_NAMESPACE:?}/lane${lane}" &
+  NUMBA_NUM_THREADS="${threads}" python -m research.t34_exit_b8.label --checkpoint "${input_root}/${checkpoint}" --output-dir "${output_root}/lane${lane}" --out "${output_root}/label-lane${lane}.json" --round "${T34_ROUND:?}" --shard "${T34_SHARD:?}" --attempt "${T34_ATTEMPT:?}" --worlds "${lane_worlds}" --max-worlds "${lane_worlds}" --frames "${T34_FRAMES:-5000}" --seconds "${T34_SECONDS:-10200}" --horizon "${T34_HORIZON:-300}" --threads "${threads}" --device "${device}" --beta "${T34_BETA:-${beta_default}}" "${extra[@]}" --namespace "${T34_NAMESPACE:?}/lane${lane}" &
   pids+=("$!")
 done
 status=0

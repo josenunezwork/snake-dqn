@@ -72,6 +72,8 @@ def _load_policy(config: Mapping[str, Any]) -> Any | None:
     """Load an opt-in future student adapter; default remains the B8 policy."""
     reference = config.get("policy_factory")
     if not reference:
+        if config.get("student_checkpoint"):
+            raise ValueError("--student-checkpoint requires --policy-factory")
         return None
     if not isinstance(reference, str) or ":" not in reference:
         raise ValueError("--policy-factory must be module:callable")
@@ -126,6 +128,16 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
         mixes = tuple(piece for piece in mixes.split(",") if piece)
     if tuple(mixes) != ("scripted", "frozen", "mixed"):
         raise ValueError("A5 needs all three mixes in scripted,frozen,mixed order")
+    triggers = dict(config.get("triggers", {}))
+    for name in (
+        "confirm_interval",
+        "confirm_min_length",
+        "low_length_probability",
+        "death_window",
+        "max_rewinds",
+    ):
+        if config.get(name) is not None:
+            triggers[name] = config[name]
     _cpu_ceiling(threads)
     import numba
 
@@ -139,6 +151,7 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
         {
             **config,
             "policy": policy,
+            "triggers": triggers,
             "gpu_utilization_sampler": _gpu_utilization if device == "cuda" else None,
             "worlds_per_process": worlds_per_process,
             "max_worlds": max_worlds,
@@ -243,6 +256,11 @@ def main() -> None:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--mixes", default="scripted,frozen,mixed")
     parser.add_argument("--namespace", default="t34-exit-a5/v1")
+    parser.add_argument("--confirm-interval", type=int)
+    parser.add_argument("--confirm-min-length", type=int)
+    parser.add_argument("--low-length-probability", type=float)
+    parser.add_argument("--death-window", type=int)
+    parser.add_argument("--max-rewinds", type=int)
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--aggregate", type=Path, nargs=2, metavar=("LANE0", "LANE1"))
     args = parser.parse_args()

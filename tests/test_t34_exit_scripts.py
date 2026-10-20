@@ -106,3 +106,70 @@ def test_all_success_workers_are_reaped_without_ps_notfound_errexit(
         timeout=8,
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("script", ("bench.sh", "label.sh"))
+@pytest.mark.parametrize("runtime", (False, True))
+def test_policy_and_trigger_arguments_reach_both_launch_paths(
+    tmp_path: Path, script: str, runtime: bool
+) -> None:
+    """Inspect actual child argv, including quoting of the optional adapter."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    argv_log = tmp_path / "argv"
+    fake_python = fake_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$*" == *public_inputs* ]]; then exit 0; fi\n'
+        f'printf "%s\\n" "$@" >> "{argv_log}"\n'
+        "exit 0\n"
+    )
+    fake_python.chmod(0o755)
+    env = dict(
+        os.environ,
+        PATH=f"{fake_bin}:{os.environ['PATH']}",
+        T34_INPUT_DIR=str(tmp_path / "inputs"),
+        T34_OUTPUT_DIR=str(tmp_path / "outputs"),
+        T34_POLICY_FACTORY="future.module:factory",
+        T34_STUDENT_CHECKPOINT="student weights.pth",
+        T34_CHECKPOINT="other.pth",
+        T34_CONFIRM_INTERVAL="4",
+        T34_CONFIRM_MIN_LENGTH="500",
+        T34_LOW_LENGTH_PROBABILITY="0.04",
+        T34_DEATH_WINDOW="75",
+        T34_MAX_REWINDS="1",
+        T34_BETA="0.5",
+        T34_WORLDS="2",
+        T34_ROUND="r2",
+        T34_SHARD="0",
+        T34_ATTEMPT="1",
+        T34_NAMESPACE="test",
+    )
+    if runtime:
+        env.update(
+            COLAB_CLI_ROOT=str(tmp_path / "runtime"), COLAB_INPUT_DIR=str(tmp_path / "catalog")
+        )
+    else:
+        env.pop("COLAB_CLI_ROOT", None)
+    result = subprocess.run(
+        ["bash", str(Path("research/t34_exit_b8") / script)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=8,
+    )
+    assert result.returncode == 0, result.stderr
+    args = argv_log.read_text().splitlines()
+    for flag, value in (
+        ("--policy-factory", "future.module:factory"),
+        ("--confirm-interval", "4"),
+        ("--confirm-min-length", "500"),
+        ("--low-length-probability", "0.04"),
+        ("--death-window", "75"),
+        ("--max-rewinds", "1"),
+    ):
+        assert args[args.index(flag) + 1] == value
+    assert args[args.index("--student-checkpoint") + 1].endswith("/student weights.pth")
+    assert args[args.index("--checkpoint") + 1].endswith("/other.pth")
+    if script == "label.sh":
+        assert args[args.index("--beta") + 1] == "0.5"

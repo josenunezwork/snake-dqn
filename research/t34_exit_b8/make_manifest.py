@@ -102,6 +102,10 @@ def make_manifest(
     shard: int = 0,
     attempt: int = 0,
     worlds: int | None = None,
+    policy_factory: str | None = None,
+    checkpoint: str = "B8_s3_final.pth",
+    student_checkpoint: str | None = None,
+    triggers: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an A5 or label draft, refusing unsafe identities and namespaces."""
     if kind not in {"benchmark", "label"}:
@@ -111,6 +115,40 @@ def make_manifest(
     output_dir = output_dir.expanduser()
     if not output_dir.is_absolute():
         raise ManifestRefused("output_dir must be an absolute fresh Mac directory")
+    if checkpoint != "B8_s3_final.pth" or student_checkpoint:
+        raise ManifestRefused(
+            "student input publication and SHA binding are pending; only pinned B8 is supported"
+        )
+    if policy_factory and (":" not in policy_factory or any(c.isspace() for c in policy_factory)):
+        raise ManifestRefused("policy_factory must be module:callable")
+    trigger_values = {
+        "confirm_interval": 8,
+        "confirm_min_length": 600,
+        "low_length_probability": 0.03,
+        "death_window": 150,
+        "max_rewinds": 2,
+    }
+    trigger_values.update(triggers or {})
+    # This pure builder must not import the simulator or initialize CPU pools.
+    if set(trigger_values) != {
+        "confirm_interval",
+        "confirm_min_length",
+        "low_length_probability",
+        "death_window",
+        "max_rewinds",
+    }:
+        raise ManifestRefused("unknown trigger setting")
+    integer_keys = ("confirm_interval", "confirm_min_length", "death_window", "max_rewinds")
+    if any(type(trigger_values[key]) is not int for key in integer_keys):
+        raise ManifestRefused("trigger counters must be integers")
+    if (
+        trigger_values["confirm_interval"] < 1
+        or trigger_values["confirm_min_length"] < 0
+        or trigger_values["death_window"] < 1
+        or not 0 <= trigger_values["max_rewinds"] <= 2
+        or not 0 <= trigger_values["low_length_probability"] <= 1
+    ):
+        raise ManifestRefused("invalid trigger limits")
     local = _rows(inventory_path, local=True)
     if local_upload_preflight:
         inputs = upload_inputs(local)
@@ -179,6 +217,8 @@ def make_manifest(
             "T34_SHARD": str(shard),
             "T34_ATTEMPT": str(attempt),
             "T34_NAMESPACE": f"t34-exit/{round_id}/s{shard}/a{attempt}",
+            "T34_BETA": {"r2": "0.5", "r3": "0"}.get(round_id.lower(), "1"),
+            "T34_CONFIRM_INTERVAL": "8",
         }
     return {
         "job_id": job_id,
@@ -196,6 +236,8 @@ def make_manifest(
             "T34_HORIZON": "300",
             "T34_TELEMETRY_SECONDS": "120",
             **env,
+            **{f"T34_{key.upper()}": str(value) for key, value in trigger_values.items()},
+            **({"T34_POLICY_FACTORY": policy_factory} if policy_factory else {}),
         },
         "requirements": {
             "gpu": "L4",
@@ -234,6 +276,10 @@ def main() -> None:
     parser.add_argument("--shard", type=int, default=0)
     parser.add_argument("--attempt", type=int, default=0)
     parser.add_argument("--worlds", type=int)
+    parser.add_argument("--policy-factory")
+    parser.add_argument("--checkpoint", default="B8_s3_final.pth")
+    parser.add_argument("--student-checkpoint")
+    parser.add_argument("--triggers", type=json.loads, help="JSON object of trigger overrides")
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
     manifest = make_manifest(
@@ -247,6 +293,10 @@ def main() -> None:
         shard=args.shard,
         attempt=args.attempt,
         worlds=args.worlds,
+        policy_factory=args.policy_factory,
+        checkpoint=args.checkpoint,
+        student_checkpoint=args.student_checkpoint,
+        triggers=args.triggers,
     )
     if args.validate:
         validate_manifest(manifest)
