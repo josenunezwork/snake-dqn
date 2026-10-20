@@ -31,6 +31,10 @@ LABEL_RULE = "teacher-stride10-transition-refine5"
 WORK_KEYS = ("root_row_steps", "shadow_row_steps", "reconstruction_row_steps", "search_row_steps")
 
 
+class ShadowControlMismatch(RuntimeError):
+    """Batched greedy control did not reproduce the confirmed shadow's doom."""
+
+
 def _outcome_dict(outcomes: Mapping[int, Any]) -> dict[str, dict[str, Any]]:
     return {
         str(a): {
@@ -189,6 +193,15 @@ def _search_dooms(
                 state["search_bucket_peak"] = max(
                     state["search_bucket_peak"], sum(map(len, choices))
                 )
+                greedy = evaluation.greedy_action()
+                control = outcome[greedy]
+                expected_steps = intervals[index][1] - decision + 1
+                if control.survives or int(control.row_steps) != expected_steps:
+                    raise ShadowControlMismatch(
+                        f"world {state.get('seed')} decision {decision}: greedy branch "
+                        f"survives={control.survives}, steps={control.row_steps}; "
+                        f"shadow death requires {expected_steps} steps"
+                    )
                 memos[index][decision] = {
                     "greedy": evaluation.greedy_action(),
                     "q": [float(v) for v in evaluation.q],
@@ -391,6 +404,7 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
             state["work"]["shadow_row_steps"] += len(shadow.frames) - before
             state["stages"]["shadow_s"] += time.perf_counter() - stage
 
+    invalid_reason = None
     try:
         while True:
             check()
@@ -587,6 +601,8 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                     state.pop(key, None)
             states = remaining
             progress()
+    except ShadowControlMismatch as exc:
+        invalid_reason = str(exc)
     except TimeoutError:
         pass
     elapsed = time.monotonic() - started
@@ -610,7 +626,8 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
         "worlds": done,
         "requested_worlds": len(rows),
         "decisions": decisions_done,
-        "complete": done == len(rows),
+        "complete": done == len(rows) and invalid_reason is None,
+        "invalid_reason": invalid_reason,
         "elapsed_seconds": elapsed,
         "decisions_per_second": decisions_done / max(elapsed, 1e-9),
         "mixes": mixes,
