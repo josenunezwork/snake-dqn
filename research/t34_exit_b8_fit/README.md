@@ -270,9 +270,43 @@ spent fitting while the data generator is suspended.
 | A4 actual no-tower self-distillation | PASS: 1,024 actual states, 20 Adam updates, max Q drift 0, no argmax changes |
 | T3 grid smoke | PASS: nine actual fits on 32 saved rows, one update each; full sweep reserved for owner |
 | P5 independent live/sim byte tests | PASS in focused suite; paired simulator/live producers, plus trained reload and live dispatch checks |
-| P4 core and fit artifact integration | PASS: 44 focused tests; full non-slow run in progress |
+| P4 core and fit artifact integration | PASS: 44 focused tests, including bank-wide sampling and export delivery |
+| Full non-slow suite | Completed: 8,173 passed, 29 skipped, 17 failed, 101 deselected; follow-up attribution below |
 | A6 two-world / 200-update shared entrypoint | PASS: actual Bash entrypoint, B8 loaded, 200 updates, 2.723 seconds; fake engine is wiring evidence only |
 | Export delivery | PASS: supervisor local export reader verifies all three artifacts; candidate reload and selected training-state tensors agree |
 | Checkpoint input delivery | Existing public B8/league release; no new publication |
 | Production replay/probe integration | Depends on sibling engine export/factories and preregistered probe |
 | P2-bank planes, A2, real L4 run, gate, release | Outside this prep run; not claimed |
+
+The full non-slow run took 4,100.38 seconds. Thirteen failures were the existing
+`torch.compile` module's macOS `@rpath/libc++.1.dylib` loading error. Its complete
+non-slow module subsequently passed **26 tests, 2 deselected** with the system C++
+runtime supplied only to that process. A fresh cache alone did not fix the loader;
+using the Homebrew C++ runtime caused a collection-time bus error and is not the
+recommended command. No shared library, global cache, or global configuration was
+modified. The successful follow-up command was:
+
+```bash
+env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu \
+  CXX=/usr/bin/clang++ DYLD_LIBRARY_PATH=/usr/lib \
+  TORCHINDUCTOR_CACHE_DIR="$OUT/compile-cache-apple-clang" \
+  "$PY" -m pytest -q -m 'not slow' tests/test_perf_compile.py
+```
+
+Four failures remain inherited from starting commit
+`e8a4425f88dd32cc0e706a0685c30889ef576dc0`; all four reproduced in a clean,
+detached checkout of that commit with identical errors:
+
+- S1 admission's bound timing receipt rejects the earlier T33 source-hash change.
+- Two T22 frozen-oracle tests forward `membership` to a frozen function without
+  that parameter.
+- T4 snapshot graft rejects differing `_food_array` cache capacities.
+
+Affected sources, tests, frozen fixtures and bound receipts are byte-identical
+between that baseline and this T34 implementation. They remain unchanged under
+this prep task's no-S1/no-Phase0 rules. **The whole suite is not green**; the T34
+focused suite and the compiler follow-up are green. The long suite began before
+the final isolated T34 refinements; the final 44-test focused run covers those
+refinements. [VERIFICATION.json](VERIFICATION.json) records exact commands,
+results, source identities and hashes of the local evidence files.
