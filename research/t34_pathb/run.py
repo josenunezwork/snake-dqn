@@ -172,8 +172,15 @@ def create_bank(args: argparse.Namespace) -> Path:
         or min(args.scripted_worlds, args.frozen_worlds, args.mixed_worlds, args.product_worlds) < 1
     ):
         raise RuntimeError("real development bank requires H5000 and all four world groups")
-    if _git("status", "--porcelain"):
+    if _git("status", "--porcelain", "--untracked-files=no"):
         raise RuntimeError("commit the implementation before preparing its immutable bank")
+    untracked = _git("ls-files", "--others", "--exclude-standard").splitlines()
+    if any(
+        name.endswith((".py", ".yaml", ".yml"))
+        and name.startswith(("src/", "research/", "web/backend/", "configs/"))
+        for name in untracked
+    ):
+        raise RuntimeError("untracked producer code/config cannot enter an immutable bank")
     plan = bank.allocation(
         blocks=args.blocks,
         scripted=args.scripted_worlds,
