@@ -41,7 +41,7 @@ def _records() -> list[dict]:
                     "horizon": 5000,
                     "identity_status": "PASS",
                     "parity_status": "PASS",
-                    "arms": {"bare": bare, "paced": _arm(), "unpaced": _arm()},
+                    "arms": {"bare": bare, "paced": _arm()},
                 }
             )
     for index in range(32):
@@ -56,7 +56,6 @@ def _records() -> list[dict]:
                 "arms": {
                     "bare": _arm(100, survival=0.9, deaths=5),
                     "paced": _arm(110, survival=0.95, deaths=3),
-                    "unpaced": _arm(110, survival=0.95, deaths=3),
                 },
             }
         )
@@ -82,7 +81,6 @@ def _make_mass_near_zero(records: list[dict]) -> None:
     for index, row in enumerate(records[:144]):
         row["arms"]["bare"]["mass_integral"] = 1000
         row["arms"]["paced"]["mass_integral"] = 1060 + (500 if index % 2 else -500)
-        row["arms"]["unpaced"]["mass_integral"] = 1060
 
 
 def test_paced_efficacy_overruns_are_reported_but_do_not_kill() -> None:
@@ -134,4 +132,4 @@ def test_near_zero_exception_does_not_mask_a_non_mass_skill_failure() -> None:
     assert report["paced"]["mass"]["mean"] >= 40
     assert abs(report["paced"]["mass"]["lower"]) <= 10
     assert report["paced"]["clauses"]["boost_share"] is False
-    assert (report["verdict"], report["reason"]) == ("KILL", "deadline loss")
+    assert (report["verdict"], report["reason"]) == ("KILL", "paced skill bars failed")

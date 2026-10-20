@@ -30,6 +30,7 @@ for _thread_env in (
 from research.t34_pathb import bank  # noqa: E402
 from research.t34_pathb.retention_v2 import (  # noqa: E402
     ARMS,
+    MAC_ARMS,
     MAX_CPU_HOURS,
     MAX_ELAPSED_HOURS,
     MIXES,
@@ -41,6 +42,7 @@ from research.t34_pathb.retention_v2 import (  # noqa: E402
     _validate_checkpoint_coverage,
     require_registration,
     source_inventory,
+    unpaced_colab_policy,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -340,6 +342,8 @@ def _check_common(registration: Mapping[str, Any], *, root: Path) -> None:
     if registration.get("arms") != list(ARMS) or registration.get("paced_fps") != 24:
         raise RegistrationError("arms or 24 fps paced design differs from protocol")
     expected = {
+        "mac_arms": list(MAC_ARMS),
+        "unpaced_colab": unpaced_colab_policy(),
         "terminal_per_mix": TERMINAL_PER_MIX,
         "product_sessions": PRODUCT_SESSIONS,
         "horizon": 5000,
@@ -574,6 +578,8 @@ def build_draft(
         ).strip(),
         "source_hashes": source_inventory(root),
         "arms": list(ARMS),
+        "mac_arms": list(MAC_ARMS),
+        "unpaced_colab": unpaced_colab_policy(),
         "paced_fps": 24,
         "terminal_per_mix": TERMINAL_PER_MIX,
         "product_sessions": PRODUCT_SESSIONS,

@@ -29,8 +29,18 @@ def test_terminal_adapter_runs_real_bare_b8_world_without_controller() -> None:
         assert session.controller is None
         assert session.world.mix == "scripted"
         assert session.identity().checkpoint == B8_SHA
+        assert session.bare_prefix_trace() is None  # Timing probes never enable this work.
+        session.enable_bare_prefix_trace()
+        initial = session.bare_prefix_trace()["initial_sha256"]
+        original_path = session.world.hero.checkpoint_path
+        session.world.hero.checkpoint_path = "/content/public/B8_s3_final.pth"
+        assert session._bare_prefix_digest() == initial
+        session.world.hero.checkpoint_path = original_path
         session.step()
         assert session.frame == 1
+        prefix = session.bare_prefix_trace()
+        assert len(prefix["steps"]) == 1 and len(prefix["steps"][0]) == 64
+        assert prefix["ended_by_intervention"] is False
         assert session.controller_state() == {"active": False, "label": "bare B8 s3"}
     finally:
         session.close()

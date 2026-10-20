@@ -38,7 +38,6 @@ os.environ["SNAKE_DQN_DEVICE"] = "cpu"
 
 from research.t34_pathb import timing_v2  # noqa: E402
 from research.t34_pathb.analyze_v2 import (  # noqa: E402
-    ACTIVE_ARMS,
     MIXES,
     analyze_path,
     timing_summary,
@@ -49,7 +48,8 @@ from research.t34_pathb.host_guard_v2 import (  # noqa: E402
     validate_policy,
 )
 
-ARMS = ("bare", *ACTIVE_ARMS)
+ARMS = ("bare", "paced", "unpaced")
+MAC_ARMS = ("bare", "paced")
 PRECHECK_WORLDS = 64
 PRECHECK_MIN_SURVIVORS = 50
 TERMINAL_PER_MIX = 48
@@ -57,6 +57,23 @@ PRODUCT_SESSIONS = 32
 MAX_ELAPSED_HOURS = 40.0
 MAX_CPU_HOURS = 60.0
 PRECHECK_MAX_ELAPSED_HOURS = 8.0
+
+
+def unpaced_colab_policy() -> dict[str, Any]:
+    """Return the prospective, smoke-priced descriptive-arm execution envelope."""
+    return {
+        "transport": "research/colab_cli",
+        "public_release": "s1-inputs-20261019",
+        "descriptive_only": True,
+        "default_gpu": "L4",
+        "rate_units_per_hour": 2.0,
+        "smoke_seconds_per_world": 362.498247,
+        "worlds": 176,
+        "unit_cap": 42.533128,
+        "reserve_units": 7.088855,
+        "max_account_assignments": 3,
+        "mac_mass_test_tail_alpha": 0.05,
+    }
 
 
 class RegistrationError(RuntimeError):
@@ -361,6 +378,11 @@ def require_registration(
     verify_frozen_worktree(Path(__file__).resolve().parents[2], source_commit)
     if registration.get("arms") != list(ARMS) or registration.get("paced_fps") != 24:
         raise RegistrationError("registration arms/pacing differ from Amendment 2")
+    if (
+        registration.get("mac_arms") != list(MAC_ARMS)
+        or registration.get("unpaced_colab") != unpaced_colab_policy()
+    ):
+        raise RegistrationError("registration differs from the unpaced Colab amendment")
     if (
         registration.get("terminal_per_mix") != TERMINAL_PER_MIX
         or registration.get("product_sessions") != PRODUCT_SESSIONS
@@ -790,6 +812,8 @@ def _collect(
     check_cap: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     check_cap = check_cap or (lambda: _cap(started, cpu_started))
+    if hasattr(session, "enable_bare_prefix_trace"):
+        session.enable_bare_prefix_trace()
     contention_ticks: list[bool] = []
     masses: list[int] = []
     deaths = boosts = decisions = overruns = large = late = overlap = 0
@@ -900,6 +924,9 @@ def _collect(
             else getattr(session, "identity_status", "NOT_VERIFIED")
         ),
         "parity_status": getattr(session, "parity_status", "NOT_VERIFIED"),
+        "bare_prefix_trace": (
+            session.bare_prefix_trace() if hasattr(session, "bare_prefix_trace") else None
+        ),
     }
 
 
@@ -1113,7 +1140,7 @@ def run_registered(
     if timing_gate is not None:
         _write_new(out / "timing_gate.json", dict(timing_gate))
         _write_new(out / "timing.json", dict(timing_gate))
-    windows = {arm: ActionWindow() for arm in ARMS}
+    windows = {arm: ActionWindow() for arm in MAC_ARMS}
     guard = HostGuard(
         registration["load_profile"],
         prior_elapsed_seconds=timing_elapsed,
@@ -1135,10 +1162,10 @@ def run_registered(
         ):
             for index, row in enumerate(rows):
                 arms: dict[str, Any] = {}
-                for arm in ARMS:
+                for arm in MAC_ARMS:
                     _cap(started, cpu_started)
                     _between_rows(guard)
-                    arm_fps = 0 if arm == "unpaced" else 24
+                    arm_fps = 24
                     session = opener(row, arm_fps, arm)
                     try:
                         arms[arm] = _collect(
@@ -1277,6 +1304,7 @@ def main() -> int:
     parser.add_argument("--registration", type=Path)
     parser.add_argument("--precheck", type=Path)
     parser.add_argument("--timing-gate", type=Path)
+    parser.add_argument("--unpaced-shards", type=Path, nargs="*", default=[])
     parser.add_argument("--frames", type=int, default=4)
     args = parser.parse_args()
     if args.action == "validate-precheck":
@@ -1378,7 +1406,7 @@ def main() -> int:
             if invalidation is not None
             else official
         )
-        descriptive = analyze_path(args.out)
+        descriptive = analyze_path(args.out, unpaced_shards=args.unpaced_shards)
         descriptive.pop("verdict", None)
         descriptive.pop("reason", None)
         print(

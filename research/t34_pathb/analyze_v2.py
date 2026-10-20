@@ -15,12 +15,18 @@ import subprocess
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from src.scripts.eval_stats import holm, student_t_isf, student_t_sf
+from src.scripts.eval_stats import student_t_isf, student_t_sf
 
 MIXES = ("scripted", "frozen", "mixed")
-ACTIVE_ARMS = ("paced", "unpaced")
-ARMS = ("bare", *ACTIVE_ARMS)
+# The registered identity list retains the unpaced controller, but the Mac
+# efficacy execution has only these arms.  Unpaced observations are loaded from
+# independent Colab exports below and are never inputs to ``decide``.
+ACTIVE_ARMS = ("paced",)
+MAC_ARMS = ("bare", *ACTIVE_ARMS)
+ARMS = ("bare", "paced", "unpaced")
 HORIZON = 5000
+UNPACED_WORLD_SCHEMA = "t34-unpaced-world/v1"
+UNPACED_SHARD_SCHEMA = "t34-unpaced-shard/v1"
 
 
 class InvalidRetention(ValueError):
@@ -159,8 +165,8 @@ def _validate_records(records: list[Mapping[str, Any]]) -> None:
                 "duplicate seed; all mix and product namespaces must be disjoint"
             )
         seen.add(seed)
-        if set(row["arms"]) != set(ARMS):
-            raise InvalidRetention("missing or unexpected arm")
+        if set(row["arms"]) != set(MAC_ARMS):
+            raise InvalidRetention("Mac record is missing or has an unexpected arm")
         for arm in row["arms"].values():
             _validate_arm(arm, kind)
         if kind == "terminal":
@@ -175,7 +181,7 @@ def _validate_records(records: list[Mapping[str, Any]]) -> None:
 
 def skill_summary(records: Iterable[Mapping[str, Any]], arm: str) -> dict[str, Any]:
     """Calculate contract skill bars vs bare B8 s3, with P7 paired-world units."""
-    if arm not in ACTIVE_ARMS:
+    if arm not in (*ACTIVE_ARMS, "unpaced"):
         raise InvalidRetention("unknown active arm")
     groups = {
         mix: [row for row in records if row["kind"] == "terminal" and row["mix"] == mix]
@@ -355,7 +361,7 @@ def decide(
         timing_overrun = False
         paced_efficacy_overruns = 0
         for row in records:
-            for name in ACTIVE_ARMS:
+            for name in MAC_ARMS:
                 evidence = row.get("arms", {}).get(name, {})
                 arm_faults = evidence.get("unconditional_faults", [])
                 if not isinstance(arm_faults, list) or any(
@@ -390,20 +396,18 @@ def decide(
         return _inconclusive("missing rows, cap reached, or producer did not complete")
     try:
         _validate_records(records)
-        skills = [skill_summary(records, arm) for arm in ACTIVE_ARMS]
-        rejected, adjusted = holm([skill["mass_p_one_sided"] for skill in skills], 0.10)
-        order = sorted(range(2), key=lambda index: skills[index]["mass_p_one_sided"])
-        ranks = {index: rank for rank, index in enumerate(order)}
-        for index, skill in enumerate(skills):
-            skill["mass_holm_rejected"] = rejected[index]
-            skill["mass_holm_adjusted_p"] = adjusted[index]
-            tail = 0.10 / (2 - ranks[index])
-            skill["mass_holm_interval"] = _interval(
-                skill["mass"]["mean"], skill["mass"]["se"], skill["mass"]["df"], tail, 144
-            )
-            skill["clauses"]["mass_holm_positive"] = rejected[index]
-            skill["pass"] = all(skill["clauses"].values())
-        paced, unpaced = skills
+        paced = skill_summary(records, "paced")
+        # Pre-data amendment: preserve the former two-controller family even
+        # though unpaced is descriptive and executes elsewhere.  Applying the
+        # fixed worst-case Holm threshold avoids relaxing the paced bar after
+        # observing (or failing to observe) any Colab export.
+        paced["mass_holm_rejected"] = paced["mass_p_one_sided"] <= 0.05
+        paced["mass_holm_adjusted_p"] = min(1.0, 2.0 * paced["mass_p_one_sided"])
+        paced["mass_holm_interval"] = _interval(
+            paced["mass"]["mean"], paced["mass"]["se"], paced["mass"]["df"], 0.05, 144
+        )
+        paced["clauses"]["mass_holm_positive"] = paced["mass_holm_rejected"]
+        paced["pass"] = all(paced["clauses"].values())
         product, timing_report = product_summary(records, "paced"), timing_summary(timing)
         failed_paced_bars = {key for key, passed in paced["clauses"].items() if not passed}
         mass_bars = {"mass_gain_ge_40", "mass_lb90_positive", "mass_holm_positive"}
@@ -426,9 +430,7 @@ def decide(
         elif near_zero_mass_only or (product["pass"] and _uncertain_skill(paced)):
             verdict, reason = "INCONCLUSIVE", "registered near-boundary uncertainty exception"
         elif not paced["pass"]:
-            verdict, reason = "KILL", (
-                "deadline loss" if unpaced["pass"] else "both arms failed skill bars"
-            )
+            verdict, reason = "KILL", "paced skill bars failed"
         elif product["pass"]:
             verdict, reason = "GO", "all registered delivered-controller bars passed"
         else:
@@ -438,11 +440,17 @@ def decide(
             "verdict": verdict,
             "reason": reason,
             "paced": paced,
-            "unpaced_descriptive": unpaced,
             "product": product,
             "timing": timing_report,
             "paced_efficacy_overruns_diagnostic": paced_efficacy_overruns,
-            "multiplicity": {"method": "Holm", "arms": 2, "looks": 1, "family_alpha": 0.10},
+            "multiplicity": {
+                "method": "Holm fixed worst-case threshold",
+                "registered_hypotheses": 2,
+                "paced_p_one_sided_threshold": 0.05,
+                "looks": 1,
+                "family_alpha": 0.10,
+                "unpaced_role": "separate descriptive Colab input; never relaxes paced threshold",
+            },
             "client_latency": "NOT_MEASURED",
             "serving_qualification": "NOT_MEASURED",
             "release_authorized": False,
@@ -476,7 +484,252 @@ def _load(path: Path) -> dict[str, Any]:
     return result
 
 
-def analyze_path(root: Path) -> dict[str, Any]:
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _require_export_sidecars(path: Path, digest: str) -> None:
+    sha_path = path.with_name(f"{path.name}.sha256")
+    complete_path = path.with_name(f"{path.name}.complete")
+    if sha_path.read_text() != f"{digest}  {path.name}\n":
+        raise InvalidRetention("export sha256 sidecar does not bind its payload")
+    if complete_path.read_text() != "complete\n":
+        raise InvalidRetention("export completion marker is missing or malformed")
+
+
+def _sha256_text(value: Any, name: str) -> str:
+    if not isinstance(value, str) or len(value) != 64:
+        raise InvalidRetention(f"{name} must be a sha256 hex digest")
+    try:
+        int(value, 16)
+    except ValueError as exc:
+        raise InvalidRetention(f"{name} must be a sha256 hex digest") from exc
+    return value.lower()
+
+
+def _prefix_trace(trace: Any, label: str) -> tuple[str, list[str], bool]:
+    if not isinstance(trace, Mapping):
+        raise InvalidRetention(f"{label} bare prefix trace is missing")
+    initial = _sha256_text(trace.get("initial_sha256"), f"{label} initial prefix")
+    steps = trace.get("steps")
+    if not isinstance(steps, list):
+        raise InvalidRetention(f"{label} prefix steps are missing")
+    return (
+        initial,
+        [_sha256_text(step, f"{label} prefix step") for step in steps],
+        trace.get("ended_by_intervention") is True,
+    )
+
+
+def _prefix_divergence(mac_trace: Any, colab_trace: Any) -> dict[str, Any]:
+    """Compare only the physical bare prefix shared before either intervention."""
+    mac_initial, mac_steps, mac_intervened = _prefix_trace(mac_trace, "Mac")
+    colab_initial, colab_steps, colab_intervened = _prefix_trace(colab_trace, "Colab")
+    if mac_initial != colab_initial:
+        return {
+            "status": "DIVERGED",
+            "first_divergence_tick": 0,
+            "shared_steps": 0,
+            "mac_steps": len(mac_steps),
+            "colab_steps": len(colab_steps),
+            "mac_ended_by_intervention": mac_intervened,
+            "colab_ended_by_intervention": colab_intervened,
+        }
+    shared = min(len(mac_steps), len(colab_steps))
+    for index in range(shared):
+        if mac_steps[index] != colab_steps[index]:
+            return {
+                "status": "DIVERGED",
+                "first_divergence_tick": index + 1,
+                "shared_steps": index,
+                "mac_steps": len(mac_steps),
+                "colab_steps": len(colab_steps),
+                "mac_ended_by_intervention": mac_intervened,
+                "colab_ended_by_intervention": colab_intervened,
+            }
+    return {
+        "status": "MATCHED_SHARED_PREFIX",
+        "first_divergence_tick": None,
+        "shared_steps": shared,
+        "mac_steps": len(mac_steps),
+        "colab_steps": len(colab_steps),
+        "mac_ended_by_intervention": mac_intervened,
+        "colab_ended_by_intervention": colab_intervened,
+    }
+
+
+def _expected_worlds(registration: Mapping[str, Any]) -> dict[tuple[str, int], Mapping[str, Any]]:
+    return {
+        (kind, _integer(row["seed"], "registered seed")): row
+        for kind, key in (("terminal", "terminal_rows"), ("product", "product_rows"))
+        for row in registration[key]
+    }
+
+
+def _registered_bank_sha(registration: Mapping[str, Any]) -> str:
+    value = registration.get("bank_sha256")
+    if value is None and isinstance(registration.get("bank"), Mapping):
+        value = registration["bank"].get("sha256")
+    return _sha256_text(value, "registered bank")
+
+
+def load_unpaced_descriptive(
+    registration: Mapping[str, Any],
+    registration_sha256: str,
+    mac_records: Iterable[Mapping[str, Any]],
+    shard_paths: Iterable[Path],
+) -> dict[str, Any]:
+    """Load optional Colab exports without granting them any decision authority.
+
+    A bad or absent shard stays visible as a descriptive missing row.  This
+    routine deliberately does not raise to the efficacy analyzer: changing a
+    Colab transport outcome must not change fault precedence or GO/KILL/
+    INCONCLUSIVE from the Mac-registered observations.
+    """
+    expected = _expected_worlds(registration)
+    mac_by_key = {(row["kind"], _integer(row["seed"], "Mac seed")): row for row in mac_records}
+    result: dict[str, Any] = {
+        "role": "descriptive_only",
+        "schema": UNPACED_SHARD_SCHEMA,
+        "status": "MISSING",
+        "rows": [],
+        "missing_rows": [],
+        "errors": [],
+        "summary": {"expected": len(expected), "valid": 0, "missing_or_invalid": len(expected)},
+    }
+    seen: set[tuple[str, int]] = set()
+    duplicate_keys: set[tuple[str, int]] = set()
+    exports: dict[tuple[str, int], Mapping[str, Any]] = {}
+    try:
+        bank_sha256 = _registered_bank_sha(registration)
+        source_commit = registration["source_commit"]
+        if not isinstance(source_commit, str) or len(source_commit) != 40:
+            raise InvalidRetention("registered source commit is malformed")
+    except (InvalidRetention, KeyError) as exc:
+        result["errors"].append(f"registration binding unavailable: {exc}")
+        result["missing_rows"] = [
+            {"kind": kind, "seed": seed, "reason": "registration_binding_unavailable"}
+            for kind, seed in sorted(expected)
+        ]
+        return result
+
+    for shard_path in shard_paths:
+        shard_path = Path(shard_path)
+        try:
+            _require_export_sidecars(shard_path, _sha256_file(shard_path))
+            shard = _load(shard_path)
+            if (
+                shard.get("schema") != UNPACED_SHARD_SCHEMA
+                or shard.get("status") != "COMPLETE"
+                or shard.get("registration_sha256") != registration_sha256
+                or shard.get("source_commit") != source_commit
+                or shard.get("bank_sha256") != bank_sha256
+            ):
+                raise InvalidRetention("shard identity or completion status mismatch")
+            entries = shard.get("worlds")
+            if not isinstance(entries, list):
+                raise InvalidRetention("shard worlds are missing")
+            for entry in entries:
+                if not isinstance(entry, Mapping) or not isinstance(entry.get("path"), str):
+                    raise InvalidRetention("malformed shard world entry")
+                payload_path = Path(entry["path"])
+                if payload_path.is_absolute() or ".." in payload_path.parts:
+                    raise InvalidRetention("world export path must stay below its shard index")
+                payload_path = (shard_path.parent / payload_path).resolve()
+                if not payload_path.is_relative_to(shard_path.parent.resolve()):
+                    raise InvalidRetention("world export path escapes its shard index")
+                digest = _sha256_text(entry.get("sha256"), "shard world digest")
+                if not payload_path.is_file() or _sha256_file(payload_path) != digest:
+                    raise InvalidRetention("world export is missing or hash mismatched")
+                _require_export_sidecars(payload_path, digest)
+                payload = _load(payload_path)
+                kind = payload.get("kind")
+                seed = payload.get("seed")
+                if not isinstance(kind, str):
+                    raise InvalidRetention("world export kind is malformed")
+                key = (kind, _integer(seed, "unpaced seed"))
+                if key in seen:
+                    duplicate_keys.add(key)
+                    exports.pop(key, None)
+                    continue
+                seen.add(key)
+                if (
+                    payload.get("schema") != UNPACED_WORLD_SCHEMA
+                    or payload.get("registration_sha256") != registration_sha256
+                    or payload.get("source_commit") != source_commit
+                    or payload.get("bank_sha256") != bank_sha256
+                    or payload.get("arm") != "unpaced"
+                    or payload.get("horizon") != HORIZON
+                    or key not in expected
+                    or payload.get("world") != expected[key]
+                    or payload.get("mix") != expected[key].get("mix", "mixed")
+                    or not isinstance(payload.get("metrics"), Mapping)
+                ):
+                    raise InvalidRetention("world export identity mismatch")
+                metrics = payload["metrics"]
+                _validate_arm(metrics, kind)
+                if (
+                    metrics.get("identity_status") != "PASS"
+                    or metrics.get("parity_status") != "PASS"
+                    or metrics.get("unconditional_faults")
+                ):
+                    raise InvalidRetention("world export fault, parity, or identity failure")
+                exports[key] = payload
+        except (OSError, InvalidRetention, KeyError, TypeError, ValueError) as exc:
+            result["errors"].append(f"{shard_path}: {type(exc).__name__}: {exc}")
+
+    for key in sorted(expected):
+        payload = exports.get(key)
+        if payload is None:
+            result["missing_rows"].append(
+                {
+                    "kind": key[0],
+                    "seed": key[1],
+                    "reason": "duplicate_export" if key in duplicate_keys else "not_exported",
+                }
+            )
+            continue
+        row: dict[str, Any] = {"kind": key[0], "seed": key[1], "status": "VALID"}
+        mac = mac_by_key.get(key)
+        if mac is None:
+            row.update({"status": "INVALID", "reason": "Mac row is unavailable"})
+        else:
+            try:
+                row["bare_prefix_divergence"] = _prefix_divergence(
+                    mac["arms"]["bare"]["bare_prefix_trace"],
+                    payload["metrics"]["bare_prefix_trace"],
+                )
+            except (InvalidRetention, KeyError, TypeError, ValueError) as exc:
+                row.update({"status": "INVALID", "reason": f"prefix trace: {exc}"})
+        result["rows"].append(row)
+    valid = sum(row["status"] == "VALID" for row in result["rows"])
+    missing = len(expected) - valid
+    result["summary"] = {"expected": len(expected), "valid": valid, "missing_or_invalid": missing}
+    result["status"] = "COMPLETE" if valid == len(expected) else ("PARTIAL" if valid else "MISSING")
+    if result["status"] == "COMPLETE":
+        descriptive_records = []
+        for key in sorted(expected):
+            mac = mac_by_key[key]
+            descriptive_records.append(
+                {
+                    **mac,
+                    "arms": {"bare": mac["arms"]["bare"], "unpaced": exports[key]["metrics"]},
+                }
+            )
+        try:
+            result["statistics"] = {
+                "skill": skill_summary(descriptive_records, "unpaced"),
+                "product": product_summary(descriptive_records, "unpaced"),
+            }
+        except (InvalidRetention, KeyError, TypeError, ValueError, ArithmeticError) as exc:
+            result["errors"].append(f"descriptive statistics invalid: {type(exc).__name__}: {exc}")
+            result["statistics"] = {"status": "INVALID", "reason": str(exc)}
+    else:
+        result["statistics"] = {"status": "NOT_COMPUTED_INCOMPLETE_EXPORTS"}
+    return result
+
+
+def analyze_path(root: Path, unpaced_shards: Iterable[Path] = ()) -> dict[str, Any]:
     """Fence the entire analysis at the detached ratified source revision."""
     from research.t34_pathb.source_binding_v2 import FrozenWorktreeGuard
 
@@ -486,7 +739,25 @@ def analyze_path(root: Path) -> dict[str, Any]:
         with FrozenWorktreeGuard(
             Path(__file__).resolve().parents[2], registration["source_commit"]
         ):
-            return _analyze_path(root)
+            report = _analyze_path(root)
+            # This attachment is intentionally after the Mac decision and does
+            # not inspect its verdict or mutate its fault evidence.
+            try:
+                registration = _load(root / "registration.json")
+                mac_records = [_load(path) for path in sorted((root / "records").glob("*.json"))]
+                report["unpaced_descriptive"] = load_unpaced_descriptive(
+                    registration,
+                    _sha256_file(root / "registration.json"),
+                    mac_records,
+                    unpaced_shards,
+                )
+            except (OSError, InvalidRetention, KeyError, TypeError, ValueError) as exc:
+                report["unpaced_descriptive"] = {
+                    "role": "descriptive_only",
+                    "status": "MISSING",
+                    "errors": [f"descriptive loader unavailable: {type(exc).__name__}: {exc}"],
+                }
+            return report
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as exc:
         return _inconclusive(f"identity_or_completeness: {type(exc).__name__}: {exc}")
 

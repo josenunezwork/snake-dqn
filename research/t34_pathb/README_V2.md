@@ -1,10 +1,21 @@
-# Path B v2 — Amendment 2
+# Path B v2 — Amendments 2–3
 
 The v2 implementation is an offline, opt-in assisted hero over released B8 s3.
 Read [PROTOCOL_V2.md](PROTOCOL_V2.md) and the prospective
 [build details](PROTOCOL_V2_BUILD_RULES.md) before using it. The historical v1 files
 and evidence remain intact. The registered runner imports only the v2 adapter,
-controller, engine, timing and analysis modules. Serving defaults stay OFF.
+controller, engine, timing and analysis modules. The separate descriptive
+unpaced collector and manifest builder are included in the frozen source
+inventory. Serving defaults stay OFF.
+
+The retention package remains **DRAFT_PENDING_OPERATOR_RATIFICATION**. Its
+pre-data Colab amendment runs only the unpaced descriptive arm through the
+already qualified CLI transport. The Mac runs the timing gate, T3 pre-check, and
+the bare/paced study records. The Colab arm uses the same 144 terminal worlds
+and 32 product sessions, but it cannot affect a Mac verdict, fault, multiplicity
+calculation, or Claim B decision. See
+[PREREGISTRATION_RETENTION_V2.md](PREREGISTRATION_RETENTION_V2.md#amendment-3-addendum--pre-data-descriptive-unpaced-colab)
+for the binding rationale and caps.
 
 `engine_v2.py` maintains a D500 exact continuation, stops its future at hero
 death, and searches still-future decisions earliest-first. Windows of at most
@@ -31,8 +42,10 @@ does not start a server, write a score or write release-monitor telemetry.
 
 ## Commands
 
-Run from this worktree. Use the existing primary interpreter. Every command
-below is local; no tmux, service or cloud allocation is involved.
+Run the local smoke commands in this section from this worktree with the
+existing primary interpreter. They use no tmux, service, or cloud allocation.
+The later **Descriptive unpaced Colab arm — operator only** section is the sole
+exception and dispatches only through the qualified supervisor.
 
 ```bash
 cd /Users/josenunez/Projects/ml/snake-dqn-v2-pathb2
@@ -88,31 +101,33 @@ Use the complete timing-first operator sequence in
 pass before constructing the pre-check gameplay; the input materializer alone
 only reads historical records.
 
-Real execution requires Mac CPU, AC, open lid and admitted thermal telemetry.
-The harness refuses existing output roots. No automatic retry, resume, extension
-or replacement bank is provided. Numerical pools are capped before imports.
+Mac timing, pre-check, and bare/paced execution require Mac CPU, AC, open lid
+and admitted thermal telemetry. The harness refuses existing output roots. No
+automatic retry, resume, extension or replacement bank is provided. Numerical
+pools are capped before imports.
 
 ## Registration schema and evidence
 
 The operator prepares `schema:"t34-pathb-v2-registration/v1"`, `ratified:true`,
 `source_commit` (the exact detached execution `HEAD`), `source_hashes` from
-`retention_v2.source_inventory()`, `arms:["bare","paced",
-"unpaced"]`, `paced_fps:24`, `terminal_per_mix:48`, `product_sessions:32`,
-`horizon:5000`, `workers:1`, `max_elapsed_hours:40`, `max_cpu_hours:60`,
-`precheck_max_elapsed_hours:8`,
+`retention_v2.source_inventory()`, `arms:["bare","paced","unpaced"]`,
+`mac_arms:["bare","paced"]`, and the fixed `unpaced_colab` policy,
+`paced_fps:24`, `terminal_per_mix:48`, `product_sessions:32`, `horizon:5000`,
+`workers:1`, `max_elapsed_hours:40`, `max_cpu_hours:60`, `precheck_max_elapsed_hours:8`,
 `fresh_disjoint_banks:true`, and the complete materialized `terminal_rows`,
 `product_rows`, `timing_row`, `timing_ticks` and `timing_warmup`. Freeze the load
 profile and full contract bars in the committed preregistration. The registered
 entry-point import graph determines the source inventory: it contains only the
 transitive modules and data files actually read by `retention_v2`, `analyze_v2`,
-`timing_v2`, `host_guard_v2`, `registration_retention_v2`, and
-`retention_oc_v2`, plus their imports. It is not a whole-`research/` inventory.
-The unpaced
-descriptive arm uses the same successor with no pacing sleep. Between simulated
-ticks the harness holds the simulation clock while its sole worker finishes
-maintenance and search, then uses the ordinary action boundary. This reference
-has no rewind. The paced arm never waits. Settle time stays outside ON timing
-and counts against the study's elapsed/CPU caps.
+`timing_v2`, `host_guard_v2`, `registration_retention_v2`, `retention_oc_v2`,
+`unpaced_colab`, and `make_unpaced_manifest`, plus their imports. It is not a
+whole-`research/` inventory.
+The unpaced descriptive arm uses the same successor with no pacing sleep. Between
+simulated ticks the harness holds the simulation clock while its sole worker
+finishes maintenance and search, then uses the ordinary action boundary. This
+reference has no rewind. It is exported by the separately priced Colab path;
+the paced arm never waits, and only Mac work is charged to the registered
+40 elapsed-hour / 60 CPU-hour study caps.
 
 Copy the exact measured `load_policy` keys from the profile to `load_profile`;
 the runtime computes contention from fresh samples. It records per-tick row
@@ -157,10 +172,11 @@ proof.
 | Real terminal + continuous Watch adapter | Tiny actual adapter smoke, physical/carry/v8 comparison |
 | T3 pre-check >=50/64 at 24 fps | Separately authorized development pre-check with an 8 h cap; full run reserved for operator |
 | Fresh 48/mix H5000 +32 paired Watch6 sessions | Registered runner implemented; full run reserved for operator |
-| P7 paired-world/session inference and Holm family | Analyzer rule and boundary tests |
+| P7 paired-world/session inference and frozen Holm family | Analyzer rule applies the paced one-sided p <= .05 worst-case threshold; unpaced has no decision p-value |
 | First-result p95 <=2 s | Engineering target; no final timing claim from implementation smoke |
 | 24 fps update p95 <=11.688 ms, zero 12/24 fps overruns | Registered probes; their contention is reported and only cumulative contention above 2% is inconclusive |
 | All contract skill/product bars | Full registered decision; no efficacy claim from smoke |
+| Colab unpaced descriptive record | Per-world immutable export and shared bare-prefix physical-state-hash comparison; missing/invalid exports stay descriptive |
 | Default serving OFF / no release | No serving-selector or pin change |
 
 Passing this implementation's tests does not pass Claim B. A development GO
@@ -192,25 +208,126 @@ audited together against the retained bank, Round 0 draft and prior history.
 The updated seed audit embeds the original audit and its historical hashes.
 `resize --out-bank NEW --out-audit NEW` is create-only and accepts only the
 original N32/16 inputs; do not rerun it on the published resized bank.
-Minimum pacing exposure is (144+32)*2*5000/24/3600 = **20.370 h**, plus
-~.361 h timing/warmup, setup and descriptive unpaced work. The separately
+Minimum Mac pacing exposure is (144+32)*2*5000/24/3600 = **20.370 h**, plus
+~.361 h timing/warmup and Mac setup. The separately
 authorized reused-T3 pre-check has its own 8 h elapsed cap and is not debited
 against the 40 h/60 CPU-h study caps. Stop the study at its first cap as
-INCONCLUSIVE. Before full execution, run the required bounded, **contended**,
-cost-only three-world unpaced smoke. It supplies a per-world cost projection
-against the 40 h study cap; it produces no efficacy row and cannot qualify any
-timing or contract bar. If the projection exceeds 40 h, report that fact without
-changing N. The new OC power numbers and complete
+INCONCLUSIVE. The unpaced arm has a separate 42.533128-unit Colab envelope,
+including a 7.088855-unit reserve; it is not debited to the Mac caps. Before a
+Colab allocation, the operator runs the required Mac preflight of two
+development worlds at short frames. It produces no efficacy row and cannot
+qualify timing or any contract bar. The new OC power numbers and complete
 verification are in [VERIFICATION_RETENTION_RESIZE.md](VERIFICATION_RETENTION_RESIZE.md).
 
 Package validation (safe during implementation; no pre-check or efficacy):
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-retention-resize
+cd /Users/josenunez/Projects/ml/snake-dqn-unpaced-colab
 export SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 "$PY" -m research.t34_pathb.registration_retention_v2 validate
+```
+
+### Descriptive unpaced Colab arm — operator only
+
+The Mac-only two-development-world preflight is development work authorized by
+this pre-data amendment. It is not an efficacy run: it persists no world metrics,
+uses two development rows outside the registered bank, and is limited to four
+frames. Production Colab collection begins only after the operator has published
+the ratified registration. Provide the two fully materialized development rows
+as `{"rows":[...two rows...]}` at the path below; the runner rejects a
+registered-bank seed. Do not dispatch from this implementation task or replace
+the qualified `research/colab_cli` transport.
+
+```bash
+cd /Users/josenunez/Projects/ml/snake-dqn-unpaced-colab
+PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+E=/absolute/path/to/a-fresh-t34-unpaced-operator-root
+# The preflight accepts the current source-matching draft registration.
+REG=research/t34_pathb/REGISTRATION_RETENTION_V2.json
+CAT=research/t34_exit_b8/PUBLIC_INPUTS.json
+mkdir -p "$E"
+
+# The public release is downloaded and hash-checked into a fresh local cache.
+"$PY" -m research.t34_exit_b8.public_inputs --catalog "$CAT" --out-dir "$E/inputs"
+
+# Mac-only transport/entrypoint preflight: exactly two development rows, <=4 frames.
+# $E/dev-rows.json is operator-prepared and has {"rows":[...two disjoint rows...]}.
+T34_UNPACED_PREFLIGHT=1 \
+T34_UNPACED_PYTHON="$PY" \
+T34_UNPACED_INPUT_ROOT="$E/inputs" \
+T34_UNPACED_OUTPUT_ROOT="$E/preflight" \
+T34_UNPACED_REGISTRATION="$REG" \
+T34_UNPACED_CATALOG="$CAT" \
+T34_UNPACED_DEVELOPMENT_ROWS="$E/dev-rows.json" \
+T34_UNPACED_SOURCE_COMMIT="$("$PY" -c 'import json; print(json.load(open("research/t34_pathb/REGISTRATION_RETENTION_V2.json"))["source_commit"])')" \
+T34_UNPACED_FRAMES=4 \
+bash research/t34_pathb/unpaced_colab.sh
+```
+
+The preflight creates `$E/preflight/preflight.json` with `.sha256` and
+`.complete` sidecars. It records the two-world transport exercise and platform
+configuration but no efficacy metric, timing result, or decision input.
+
+For the production descriptive export, replace `REG` with the published
+`REGISTRATION_RETENTION_V2_RATIFIED.json`. Before building or allocating a lane,
+inspect the account with `"$COLAB_BIN" --auth oauth2 usage` and `sessions`.
+Set `OTHER_ASSIGNMENTS` to the complete endpoint-to-positive-rate map for every
+existing assignment, then set `LANES` to the remaining account capacity. It must
+be 1 through 3, and the new lanes plus existing assignments must never exceed
+three. The empty map and `LANES=3` are valid only when the sessions list is
+empty. A CPU runtime requires a measured positive provider rate and
+`--cpu-rate-units-per-hour`; do not use an L4 rate for it. Cold setup, export and
+timeout are priced by each manifest and must remain inside the 42.533128-unit
+aggregate envelope, including its 7.088855-unit reserve.
+
+```bash
+LAUNCH=/Users/josenunez/Projects/ml/snake-dqn-unpaced-colab/research/colab_cli/launch.sh
+COLAB_BIN=/Users/josenunez/.local/bin/colab
+REG=/absolute/path/to/REGISTRATION_RETENTION_V2_RATIFIED.json
+OTHER_ASSIGNMENTS='{}'  # Only after `"$COLAB_BIN" --auth oauth2 sessions` is empty.
+LANES=3                 # Set to 3 minus the count of OTHER_ASSIGNMENTS.
+COMMIT="$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["source_commit"])' "$REG")"
+
+for SHARD in $(seq 0 $((LANES - 1))); do
+  "$PY" -m research.t34_pathb.make_unpaced_manifest \
+    --registration "$REG" --catalog "$CAT" \
+    --output-dir "$E/colab/shard-$SHARD" --out "$E/manifest-$SHARD.json" \
+    --shard "$SHARD" --shard-count "$LANES" --nproc 12 --commit "$COMMIT" \
+    --other-assignments "$OTHER_ASSIGNMENTS"
+done
+
+# `--check` only prints the guarded command. The second validation performs the
+# no-allocation manifest check. Give each lane its own durable supervisor state.
+for SHARD in $(seq 0 $((LANES - 1))); do
+  STATE="$E/colab-state-$SHARD"
+  "$LAUNCH" --check --state-dir "$STATE" --colab "$COLAB_BIN" \
+    validate "$E/manifest-$SHARD.json"
+  "$LAUNCH" --state-dir "$STATE" --colab "$COLAB_BIN" \
+    validate "$E/manifest-$SHARD.json"
+done
+
+# After reviewing the validated manifests and live assignment capacity, dispatch each lane once.
+for SHARD in $(seq 0 $((LANES - 1))); do
+  STATE="$E/colab-state-$SHARD"
+  tmux new-session -d -s "colab-cli-t34-unpaced-$SHARD" \
+    "'$LAUNCH' --state-dir '$STATE' --colab '$COLAB_BIN' run '$E/manifest-$SHARD.json'"
+done
+```
+
+The supervisor retrieves each completed lane under
+`$E/colab/shard-N/exports/unpaced/`: `shard.json` and
+`worlds/{terminal,product}-NNN.json` each have a SHA-256 sidecar and completion
+marker. A missing, failed, or hash-invalid shard remains a descriptive missing
+row. After the Mac runner has already written its create-only `decision.json`,
+attach whatever verified shard receipts are available; this command preserves
+that decision and only prints the descriptive comparison:
+
+```bash
+"$PY" -m research.t34_pathb.retention_v2 analyze \
+  --out /absolute/path/to/the-complete-Mac-retention-root \
+  --unpaced-shards "$E"/colab/shard-*/exports/unpaced/shard.json
 ```
 
 The OC receipt contains 20,000 replicates per declared proxy/stress model,
@@ -274,7 +391,7 @@ git commit -m 'Ratify T34 retention before timing and pre-check'
 git fetch origin
 git merge origin/main
 git push origin HEAD:main
-git push origin t34-retention-fixes2-20261020
+git push origin t34-unpaced-colab-20261020
 
 # Create the owned execution worktree. It must remain detached, clean and stationary
 # through timing, the optional pre-check and final analysis.

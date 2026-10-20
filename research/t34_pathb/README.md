@@ -1,8 +1,11 @@
 > Current retention implementation: [README_V2.md](README_V2.md#retention-registration-package).
 > The 2026-10-20 FIX-FIRST update requires committed/pushed ratified JSON, then
-> quiet-host timing, then the T3 pre-check, then efficacy. Implementation produced
-> no gameplay rows. The runner's create-only `decision.json` is the sole verdict;
-> re-analysis is descriptive. See [verification](VERIFICATION_RETENTION_FIXES.md).
+> quiet-host timing, then the T3 pre-check, then Mac bare/paced efficacy.
+> The unpaced arm is a separate, qualified-Colab descriptive export over the
+> same 144 terminal worlds and 32 Watch6 sessions; it has no verdict, fault, or
+> multiplicity authority. Implementation produced no gameplay rows. The runner's
+> create-only `decision.json` is the sole verdict; re-analysis is descriptive.
+> See [verification](VERIFICATION_RETENTION_FIXES.md).
 
 # T34 Path B deadline-feasibility check
 
@@ -138,8 +141,10 @@ artifact hashes are in [VERIFICATION.md](VERIFICATION.md). The required full
 non-slow run was non-green; its failures and focused follow-ups are recorded
 separately from the passing post-merge integration and plumbing checks.
 
-The v2 retention draft has a [pre-data resize amendment](PREREGISTRATION_RETENTION_V2.md#pre-data-resize-amendment--2026-10-20):
+The v2 retention draft has [pre-data resize and Colab-unpaced amendments](PREREGISTRATION_RETENTION_V2.md):
 48 terminal worlds per mix, 32 complete paired Watch6 sessions, 40 elapsed h /
-60 CPU-h / $0. See [README_V2](README_V2.md#retention-registration-package) and
+60 CPU-h / $0 for the Mac timing-plus-bare/paced study, and a separate
+42.533128-unit Colab envelope for the unpaced descriptive arm. See
+[README_V2](README_V2.md#retention-registration-package) and
 [resize verification](VERIFICATION_RETENTION_RESIZE.md) for the draft package,
 seed audit and development-only power. No retention efficacy is authorized here.

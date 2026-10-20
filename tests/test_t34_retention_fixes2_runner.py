@@ -43,7 +43,6 @@ def test_registered_phase_does_not_debit_precheck_from_forty_hour_budget(
     monkeypatch.setattr(retention_v2, "MIXES", ("mixed",))
     monkeypatch.setattr(retention_v2, "TERMINAL_PER_MIX", 1)
     monkeypatch.setattr(retention_v2, "PRODUCT_SESSIONS", 1)
-    monkeypatch.setattr(retention_v2, "ARMS", ("bare",))
 
     def capture_cap(started: float, cpu_started: float) -> None:
         captured_starts.append((started, cpu_started, bool(analysis_seen)))
@@ -105,10 +104,13 @@ def test_registered_phase_does_not_debit_precheck_from_forty_hour_budget(
         controller_state=lambda: {},
         close=lambda **_kwargs: None,
     )
-    adapter = SimpleNamespace(
-        open_terminal=lambda *_args: session,
-        open_watch=lambda *_args: session,
-    )
+    opened: list[tuple[int, str]] = []
+
+    def open_session(_row: dict, fps: int, arm: str) -> SimpleNamespace:
+        opened.append((fps, arm))
+        return session
+
+    adapter = SimpleNamespace(open_terminal=open_session, open_watch=open_session)
 
     result = retention_v2.run_registered(
         tmp_path / "run",
@@ -120,6 +122,9 @@ def test_registered_phase_does_not_debit_precheck_from_forty_hour_budget(
     )
 
     assert result == {"verdict": "INCONCLUSIVE"}
+    assert opened == [(24, "bare"), (24, "paced")] * 2
+    record = json.loads((tmp_path / "run/records/terminal-000.json").read_text())
+    assert set(record["arms"]) == {"bare", "paced"}
     assert captured_starts
     # run_registered subtracts the timing phase only.  If the pre-check were
     # charged against the study clock, this would be roughly eight hours old.

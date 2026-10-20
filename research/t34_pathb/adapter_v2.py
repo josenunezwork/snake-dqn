@@ -8,6 +8,7 @@ needed. Only construction happens before the background controller starts.
 
 from __future__ import annotations
 
+import hashlib
 import random
 import time
 from pathlib import Path
@@ -89,7 +90,47 @@ class RunSession:
         self._live_lives, self._grid_lives = [0] * world.sim.S, [0] * world.sim.S
         self._prev_live = self._prev_grid = [True] * world.sim.S
         self._closed = False
+        self._prefix_initial: str | None = None
+        self._prefix_steps: list[str] = []
+        self._prefix_intervened = False
+        self._prefix_enabled = False
         self._offer_snapshot()
+
+    def enable_bare_prefix_trace(self) -> None:
+        """Enable diagnostic prefix hashing outside registered timing probes."""
+        if self.frame != 0:
+            raise RuntimeError("bare-prefix tracing must start before the first tick")
+        self._prefix_enabled = self.arm in {"bare", "unpaced"}
+        if self._prefix_enabled:
+            self._prefix_initial = self._bare_prefix_digest()
+
+    def _bare_prefix_digest(self) -> str:
+        """Hash portable physical/carry/v8 state, excluding checkpoint locations."""
+        from research.t34_shadow.identity import _carry, _physical, _value_digest, _veto
+
+        return _value_digest(
+            {
+                "checkpoint_sha256": self.checkpoint_sha,
+                "physical": _physical(None, self.world, self.specs, self._grid_lives, live=False),
+                "carry": _carry(None, self.world, self.specs, live=False),
+                "v8": _veto(None, self.world, self.specs, live=False),
+            }
+        )
+
+    def bare_prefix_trace(self) -> dict[str, Any] | None:
+        """Expose physical-state hashes only through the first assisted intervention.
+
+        Baseline and unpaced traces can be compared across platforms. The first
+        intervened transition is excluded, so deliberate assistance is never
+        counted as floating-point divergence. Paced/timing traces are omitted.
+        """
+        if not self._prefix_enabled:
+            return None
+        return {
+            "initial_sha256": self._prefix_initial,
+            "steps": list(self._prefix_steps),
+            "ended_by_intervention": self._prefix_intervened,
+        }
 
     @property
     def frame(self) -> int:
@@ -162,6 +203,16 @@ class RunSession:
 
         self.world.sim.step_with_policy(choose)
         self.world.runtime.observe_step(self.world.sim)
+        if self._prefix_enabled and not self._prefix_intervened:
+            if self.executed_action != self.bare_action:
+                self._prefix_intervened = True
+            else:
+                # Include the delivered action even if two post-step states coincide.
+                self._prefix_steps.append(
+                    hashlib.sha256(
+                        f"{self.executed_action}:{self._bare_prefix_digest()}".encode()
+                    ).hexdigest()
+                )
         self.hero_death = bool(self.world.sim.get_transition_valid()[0, 0] and not self.hero_alive)
         self.death_length = int(selected.get("pre_action_length", 0)) if self.hero_death else 0
         self.decisions += self.decisions_delta
@@ -270,7 +321,9 @@ def open_terminal(row: Mapping[str, Any], fps: int, arm: str) -> RunSession:
     plan = dict(row.get("roster", row))
     if "specs" not in plan:
         raise ValueError("terminal row requires a materialized roster/specs")
-    return RunSession(build_world("b8_s3", plan), arm, terminal_horizon=5000)
+    return RunSession(
+        build_world("b8_s3", plan), arm, specs=list(plan["specs"]), terminal_horizon=5000
+    )
 
 
 def open_precheck(row: Mapping[str, Any], fps: int, arm: str) -> RunSession:
@@ -282,7 +335,11 @@ def open_precheck(row: Mapping[str, Any], fps: int, arm: str) -> RunSession:
     validate_t3_row(row)
     world = build_world(str(row["t3_source_arm"]), dict(row))
     return RunSession(
-        world, arm, terminal_horizon=5000, checkpoint_sha=str(row["t3_checkpoint"]["sha256"])
+        world,
+        arm,
+        specs=list(row["specs"]),
+        terminal_horizon=5000,
+        checkpoint_sha=str(row["t3_checkpoint"]["sha256"]),
     )
 
 

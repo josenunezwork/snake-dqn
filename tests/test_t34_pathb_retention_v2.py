@@ -70,6 +70,8 @@ def test_non_smoke_registration_rechecks_raw_evidence_and_source_closure(monkeyp
         "ratified": True,
         "source_commit": source_commit,
         "arms": ["bare", "paced", "unpaced"],
+        "mac_arms": list(retention_v2.MAC_ARMS),
+        "unpaced_colab": retention_v2.unpaced_colab_policy(),
         "paced_fps": 24,
         "terminal_per_mix": 48,
         "product_sessions": 32,

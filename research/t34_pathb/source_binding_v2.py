@@ -1,7 +1,7 @@
 """Fail-closed source closure and frozen-worktree fence for T34 retention.
 
 The closure is intentionally derived from Python syntax instead of a broad
-directory glob.  It binds only the executable import graph rooted at the six
+directory glob.  It binds only the executable import graph rooted at the eight
 registered entry points, their package initializers, and the static repository
 data inputs those programs read.
 """
@@ -27,6 +27,8 @@ ENTRYPOINTS: Final = (
     "research.t34_pathb.host_guard_v2",
     "research.t34_pathb.registration_retention_v2",
     "research.t34_pathb.retention_oc_v2",
+    "research.t34_pathb.unpaced_colab",
+    "research.t34_pathb.make_unpaced_manifest",
 )
 
 # These are repository inputs read by the retained execution path.  Runtime
@@ -47,6 +49,9 @@ DECLARED_DATA_FILES: Final = frozenset(
         "docs/research/final_run_20261019/SUCCESS_CONTRACT.md",
         "docs/research/final_run_20261019/P7_STATISTICS.md",
         "web/backend/served_checkpoint_pins.json",
+        "research/t34_pathb/unpaced_colab.sh",
+        "research/t34_exit_b8/PUBLIC_INPUTS.json",
+        "research/colab_cli/QUALIFICATION.md",
     }
 )
 DECLARED_DATA_GLOBS: Final = ("configs/**/*.yaml", "configs/**/*.yml")

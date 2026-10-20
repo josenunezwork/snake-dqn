@@ -2,9 +2,11 @@
 
 DRAFT_PENDING_OPERATOR_RATIFICATION
 
-The pre-data FIX-FIRST rulings, including the second review, are incorporated
+The pre-data FIX-FIRST rulings, including the second review and the unpaced
+Colab ruling, are incorporated
 from [the first operator specification](../../docs/research/specs/2026-10-20_t34_retention_prereg_fixes.md)
-and [the second operator specification](../../docs/research/specs/2026-10-20_t34_retention_fixes2.md).
+and [the second operator specification](../../docs/research/specs/2026-10-20_t34_retention_fixes2.md),
+with the [unpaced-arm ruling](../../docs/research/specs/2026-10-20_t34_unpaced_arm_colab.md).
 They supersede the earlier draft precedence and execution ordering below.
 
 Written 2026-10-20 before any retention efficacy row. The owner delegated the
@@ -40,6 +42,55 @@ If T3-like joint GO power at 20% Watch death reduction remains <.5, report it;
 ratification requirements and scope are unchanged. This package remains an
 unauthorized draft; no efficacy, timing or pre-check gameplay is run here.
 
+## Amendment 3 addendum — pre-data descriptive unpaced Colab arm
+
+Before any retention efficacy row, the operator moved only the `unpaced` arm
+to the qualified `research/colab_cli` transport. It remains a **descriptive
+deadline-loss reference**, not a Claim B test: it has no mass hypothesis, no
+decision authority, and no role in fault precedence, multiplicity, GO, KILL or
+INCONCLUSIVE. Missing, failed, malformed, or incomplete unpaced exports are
+retained and reported as descriptive missing/invalid rows; they never change
+the Mac verdict. A valid export with a cross-platform bare-prefix divergence is
+retained as a valid descriptive row with its divergence report, not relabelled
+missing or invalid.
+
+This prospective addendum authorizes only the local Mac preflight of exactly two
+disjoint development worlds at no more than four frames each. It persists no
+efficacy metric and cannot dispatch Colab, spend credits, ratify the draft, or
+admit a timing/pre-check/efficacy phase. All production collection remains
+operator-only after ratification.
+
+The Colab arm consumes the same already registered bank: 144 terminal H5000
+worlds (48 each scripted/frozen/mixed) and 32 complete mixed-Watch6 H5000
+product sessions. It does not allocate, substitute, retry, or extend a world.
+Each create-only world export carries its identity and SHA-256, and the final
+descriptive report compares the physical-state hash stream of its shared bare
+prefix against the Mac bare record for that world. Prefix tracing is a
+world-record diagnostic only; it is not collected as timing-probe overhead.
+Cross-platform fp32 argmax ties are expected in roughly one episode per 50; a
+reported prefix divergence is descriptive evidence, not an automatic Mac
+identity failure or a reason to rerun a world.
+
+The Mac study now runs only `bare` and 24-fps `paced` efficacy records, after
+the Mac-only timing gate and the separately capped pre-check. Its registered
+40 h elapsed / 60 CPU-h study caps and separate 8 h pre-check cap are unchanged.
+The original two-hypothesis Holm family is preserved conservatively without
+observing an unpaced result: the paced one-sided pooled mass p-value must be
+`<= .05` (equivalently its fixed worst-case Holm tail is `.05`) as well as
+meeting the raw LB90 and all other paced bars. No unpaced mass value can relax,
+reorder, or otherwise affect that threshold.
+
+The separately priced Colab envelope is **42.533128 units**, including
+**7.088855 units** reserve: `362.498247 s/world * 176 / 3600 * 2.0 L4
+units/h * 1.20`. Its unreserved projection is 35.444273 units. Cold setup,
+exports, idle time, and the manifest timeout must fit the aggregate unit cap
+and reserve; the manifest builder enforces that budget. L4 is the default at
+2.0 units/h. A CPU runtime is admissible only after its positive measured rate
+is recorded and priced; it is never treated as zero-cost. At most three
+account-wide Colab assignments may exist, including unrelated notebook or CLI
+work. The qualified transport is used as-is; this amendment authorizes no
+`research/colab_cli` change.
+
 ## Authority and question
 
 Binding in order: [SUCCESS_CONTRACT](../../docs/research/final_run_20261019/SUCCESS_CONTRACT.md),
@@ -66,8 +117,9 @@ carry no gating authority.
 2. `paced`: the same B8 s3 plus the frozen v2 controller, real 24 fps pacing.
 3. `unpaced`: the identical assisted controller with the simulation clock held
    between ticks until its sole worker finishes maintenance/search. No rewind;
-   no extra request or backend. Wait time counts toward both resource caps.
-   Descriptive deadline-loss reference only, never independently advances Claim B.
+   no extra request or backend. It runs only as the separately priced Colab
+   descriptive arm. It is never part of the Mac study's resource caps or a
+   Claim B decision.
 
 D=500 exact greedy shadow, one confirmed advance per consumed real transition;
 initial/refork catch-up is background work. Stop a doomed future at hero death.
@@ -102,9 +154,11 @@ contention.
 48 paired terminal H5000 worlds **per mix**, scripted/frozen/mixed; 32 complete
 paired continuous-respawn mixed-Watch6 H5000 sessions; one disjoint timing seed.
 Each group has its own namespace. All 177 seeds are unique and disjoint from
-prior visible banks, including strict banks. All three arms share each world's
-seed, hero slot 0 and ordered opponents. Execute terminal rows in committed
-order, then product rows; within every row execute bare, paced, unpaced.
+prior visible banks, including strict banks. The Mac `bare` and `paced` arms,
+and the Colab `unpaced` descriptive arm, share each world's seed, hero slot 0
+and ordered opponents. Execute the Mac terminal rows in committed order, then
+the Mac product rows. The separately dispatched Colab arm uses that same order
+within its immutable shards; it is not a third Mac pass through the bank.
 
 Terminal rosters are materialized by the frozen historical
 `bank_engine.planned_rosters(gid._context(1), seeds, mixes)` authority. They are
@@ -149,7 +203,7 @@ use Student t with n−1 df. Do not pair arbitrary indices across disjoint mixes
 | Bar | Metric and denominator | Frozen rule |
 |---|---|---|
 | Skill mass | Mean post-transition hero logical length over all 5000 frames, dead frames zero; equal-weight mix means of paired deltas | pooled point >= +40 and one-sided LB90 > 0 |
-| Mass multiplicity | Two active-arm superiority hypotheses vs the shared bare comparator, one look | Holm family alpha .10; paced must reject in addition to raw LB90 > 0 |
+| Mass multiplicity | Original two-hypothesis family retained prospectively; only paced is decision-bearing | fixed worst-case Holm: paced one-sided p <= .05, plus raw LB90 > 0 |
 | Survival guard A pooled | Alive frames / 5000 per terminal world; equal-weight pooled paired differences | one-sided 95% lower bound strictly > −.05 |
 | Survival guard A each mix | Same alive fraction, 48 paired differences per mix | every one-sided 95% lower bound strictly > −.075 |
 | Survival absolute floor | Mean candidate alive-frame fraction in each mix | >= .30 in every mix |
@@ -160,9 +214,10 @@ use Student t with n−1 df. Do not pair arbitrary indices across disjoint mixes
 | Processing | Real Watch6 ON/OFF at both 12/24 fps, fixed 5000 scored ticks after 200 warmup ticks per mode/rate | zero paced overruns (full tick >= period is overrun); paced update p95 <=11.688 ms at 24 fps; report p95 at 12 fps |
 | Delivered cadence | Scored ticks / measured paced elapsed seconds, ON compared with OFF at matching rate | ON >= .95 * OFF at each rate |
 
-Holm orders the two one-sided pooled mass p-values (paced wins stable equal-p
-ordering), compares to .05 then .10; report raw and adjusted p-values. Unpaced
-is in this family despite being descriptive, as required by Amendment 2.
+The original two-hypothesis Holm family is frozen before data. Because unpaced
+is now descriptive and may be absent, apply the conservative worst-case paced
+threshold directly: one-sided pooled mass p <= .05 (and report its adjusted
+p-value). Do not compute, rank, or use an unpaced p-value in a decision.
 The survival intersection-union components use alpha .05 without dividing
 across mixes: every component must pass. Survival band v2 margins and floor
 are unchanged. The profile binds the original amendment document by SHA-256
@@ -190,8 +245,9 @@ Rollback at a separately authorized release disables assistance and pins
 - **GO (Claim B proceeds to the strict gate):** paced arm meets every contract bar — pooled mass ≥ +40 with
   LB90 > 0, scripted no-death ≥ +0.03, survival guards A/B, boost share [0.5%, 10%], Watch6 deaths/1k lower
   with paired 95% CI excluding 0, zero paced overruns, update p95 ≤ 11.688 ms — with misses/fallbacks counted.
-- **KILL (drop Claim B):** paced arm fails any skill bar while the unpaced arm passes them (deadline loss), or
-  both arms fail the skill bars, or any unconditional fault/timing overrun; teacher labels then wait on Round 0.
+- **KILL (drop Claim B):** paced arm fails any skill bar, or any unconditional
+  Mac fault/timing overrun occurs; teacher labels then wait on Round 0. The
+  Colab descriptive arm cannot cause or avoid KILL.
 - **INCONCLUSIVE:** missing rows, parity/identity failure, cap reached, LB90 within ±10 of 0 with point estimate
   ≥ +40, or product bars pass but one skill bar misses by less than its interval — report, no extension, owner
   decides whether to fund a second fixed block.
@@ -204,9 +260,9 @@ pre-check/efficacy work. Cumulative measured contention above the registered 2%
 allowance, or an AC/lid/thermal interruption beyond the registered 120-second
 pause limit, is INCONCLUSIVE. Missing or invalid evidence
 is INCONCLUSIVE. At the sole complete valid look, failed timing is KILL;
-failed paced skill decides KILL (deadline loss if unpaced passes, otherwise
-both fail), subject only to the uncertainty exceptions below; all paced
-skill/product bars pass -> GO; product bars not established -> INCONCLUSIVE.
+failed paced skill decides KILL, subject only to the uncertainty exceptions
+below; all paced skill/product bars pass -> GO; product bars not established ->
+INCONCLUSIVE. Unpaced Colab evidence has no branch in this precedence.
 
 The near-zero exception (`abs(raw_mass_LB90) <= 10`, point >=40) applies only
 when mass is the sole failing category and product passes. Raw/Holm
@@ -250,24 +306,27 @@ Keep N=48/mix even if joint GO power at T3-like effects is <.5: flag it for the
 operator; implementation may not change N.
 
 P7 §5's cost comparison is prospective: fixed N consumes 144 paired terminal
-worlds and 32 paired product sessions, every arm observed. Report illustrative
+worlds and 32 paired product sessions for the Mac `bare` and `paced` records.
+The same rows are also exported by the separately capped Colab descriptive arm.
+Report illustrative
 sequential expected cost at +40 using development variance and explicit spending
 and stop assumptions; this does not authorize a sequential design. The pre-data resize amendment
 fixes this study at N=48/mix and one look; do not convert after commencement.
-Minimum pacing exposure if all heroes survive: 176 rows * 2 paced arms *
-5000/24 = 20.370 h, plus four timing probes (0.347 h + 0.014 h warmup), setup and
-unpaced work; 40 h is a hard cap, not a runtime promise. Terminal early deaths
-shorten pacing only; their dead remainder remains zero-scored. Descriptive
-unpaced search cost can dominate and is included in both caps.
+Minimum pacing exposure if all heroes survive: 176 rows * 2 Mac arms *
+5000/24 = 20.370 h, plus four timing probes (0.347 h + 0.014 h warmup) and Mac
+setup; 40 h is a hard cap, not a runtime promise. Terminal early deaths shorten
+pacing only; their dead remainder remains zero-scored. Descriptive unpaced
+search cost is priced only against the separate Colab unit envelope.
 
 ## Admission, resources and evidence lifecycle
 
 Mac CPU only, $0, first of **40 h elapsed / 60 CPU-h** wins for the registered
-timing-plus-efficacy study. Main simulation plus one assistance worker uses at
-most two CPU threads; every numerical pool is capped at one
+timing-plus-efficacy study. It runs only the `bare` and `paced` arms. Main
+simulation plus one assistance worker uses at most two CPU threads; every
+numerical pool is capped at one
 (OMP/MKL/OpenBLAS/VECLIB/NumExpr/Numba/Torch). One process, no parallel worlds.
-Charge setup, source checks, waiting, failed work and exports to the phase that
-incurs them. The separately authorized reused-T3 pre-check has its own **8 h
+Charge Mac setup, source checks, waiting, failed work and exports to the phase
+that incurs them. The separately authorized reused-T3 pre-check has its own **8 h
 elapsed cap** and does not debit the study's elapsed or CPU-hour caps. OC has
 its own bounded resumable simulation budget and is not retention gameplay. Use
 AC, open lid, available and acceptable thermal telemetry. No service or tmux

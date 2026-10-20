@@ -62,7 +62,7 @@ def _records():
                     "horizon": 5000,
                     "identity_status": "PASS",
                     "parity_status": "PASS",
-                    "arms": {"bare": bare, "paced": _arm(), "unpaced": _arm()},
+                    "arms": {"bare": bare, "paced": _arm()},
                 }
             )
     for index in range(32):
@@ -77,7 +77,6 @@ def _records():
                 "arms": {
                     "bare": _arm(100, survival=0.9, deaths=5),
                     "paced": _arm(110, survival=0.95, deaths=3),
-                    "unpaced": _arm(110, survival=0.95, deaths=3),
                 },
             }
         )
@@ -105,7 +104,7 @@ def test_go_requires_fixed_n_holm_and_all_bars():
     assert report["release_authorized"] is False
     assert report["paced"]["mass"]["n"] == 144
     assert report["product"]["death_rate_delta95"]["n"] == 32
-    assert report["multiplicity"]["family_alpha"] == 0.1
+    assert report["multiplicity"]["paced_p_one_sided_threshold"] == 0.05
 
 
 def test_independent_world_stratification_has_no_arbitrary_cross_mix_pairing():
@@ -131,22 +130,20 @@ def test_independent_world_stratification_has_no_arbitrary_cross_mix_pairing():
     assert analysis.skill_summary(records, "paced")["mass"] == summary
 
 
-@pytest.mark.parametrize(
-    "pvalues,rejected",
-    [((0.04, 0.09), (True, True)), ((0.075, 0.09), (False, False)), ((0.12, 0.01), (False, True))],
-)
-def test_holm_includes_both_active_arms_at_lb90_family_alpha(monkeypatch, pvalues, rejected):
-    values = iter(pvalues)
-    monkeypatch.setattr(analysis, "_one_sided_p", lambda _: next(values))
+@pytest.mark.parametrize("pvalue,rejected", [(0.05, True), (0.0500001, False)])
+def test_holm_preserves_fixed_worst_case_threshold_without_unpaced_data(
+    monkeypatch, pvalue, rejected
+):
+    monkeypatch.setattr(analysis, "_one_sided_p", lambda _: pvalue)
     report = analysis.decide(_records(), _timing())
-    assert report["paced"]["mass_holm_rejected"] == rejected[0]
-    assert report["unpaced_descriptive"]["mass_holm_rejected"] == rejected[1]
+    assert report["paced"]["mass_holm_rejected"] == rejected
+    assert "unpaced_descriptive" not in report
 
 
 def test_survival_band_v2_is_strict_and_has_absolute_alive_floor():
     records = _records()
     for row in records[:144]:
-        for name in analysis.ARMS:
+        for name in analysis.MAC_ARMS:
             row["arms"][name] = _arm(100 if name == "bare" else 160, survival=0.2, deaths=1)
     summary = analysis.skill_summary(records, "paced")
     assert summary["clauses"]["survival_guard_a_absolute_floor"] is False
@@ -173,21 +170,20 @@ def test_overrun_and_unconditional_fault_override_partial_and_uncertainty():
     rows = _records()
     rows[0]["arms"]["paced"]["unconditional_faults"] = ["illegal_action"]
     assert analysis.decide(rows[:1], {}, complete=False)["verdict"] == "KILL"
+    rows = _records()
+    rows[0]["arms"]["bare"]["unconditional_faults"] = ["nonfinite_q"]
+    assert analysis.decide(rows[:1], {}, complete=False)["verdict"] == "KILL"
     timing = _timing()
     timing["probes"]["paced-12"]["overruns"] = 1
     assert analysis.decide([], timing, complete=False)["verdict"] == "KILL"
 
 
-def test_deadline_loss_and_both_skill_failure_kill():
+def test_paced_skill_failure_kills_without_unpaced_efficacy_comparator():
     rows = _records()
     for row in rows[:144]:
         row["arms"]["paced"]["mass_integral"] = 110
     report = analysis.decide(rows, _timing())
-    assert (report["verdict"], report["reason"]) == ("KILL", "deadline loss")
-    for row in rows[:144]:
-        row["arms"]["unpaced"]["mass_integral"] = 110
-    report = analysis.decide(rows, _timing())
-    assert (report["verdict"], report["reason"]) == ("KILL", "both arms failed skill bars")
+    assert (report["verdict"], report["reason"]) == ("KILL", "paced skill bars failed")
 
 
 def test_near_zero_lb_with_material_point_precedes_scientific_kill():
@@ -303,10 +299,10 @@ def test_null_fault_evidence_cannot_crash_or_establish_a_decision():
     assert analysis.decide(rows, _timing())["verdict"] == "INCONCLUSIVE"
 
 
-def test_unpaced_latency_does_not_become_a_paced_deadline_fault():
+def test_embedded_unpaced_arm_is_not_a_valid_mac_record():
     rows = _records()
-    rows[0]["arms"]["unpaced"]["overruns"] = 4
-    assert analysis.decide(rows, _timing())["verdict"] == "GO"
+    rows[0]["arms"]["unpaced"] = _arm()
+    assert analysis.decide(rows, _timing())["verdict"] == "INCONCLUSIVE"
 
 
 def _write_artifacts(root, monkeypatch):
