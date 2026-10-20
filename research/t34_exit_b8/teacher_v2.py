@@ -105,7 +105,7 @@ def _shadow_evaluations(worlds: list[Any], teacher: ExitTeacher) -> list[Any]:
 
 def _catch_up_lockstep(states: list[dict[str, Any]], teacher: ExitTeacher, deadline: float) -> None:
     """Cold-fill or refill every active shadow in compacted batch rounds."""
-    if not all(
+    if not str(teacher.device).startswith("cuda") or not all(
         isinstance(state["shadow"], ShadowTrajectory) and hasattr(state["shadow"].world.sim, "cfg")
         for state in states
         if state["shadow"].world is not None
@@ -333,9 +333,15 @@ def _build_doom_caches(states: list[dict[str, Any]], teacher: ExitTeacher, deadl
         worlds = [sources[index] for index in active]
         for world in worlds:
             prepare_world(world)
-        grids = step_prepared_worlds(
-            worlds, [states[index]["shadow"].frames[offset].action for index in active], teacher
-        )
+        if str(teacher.device).startswith("cuda"):
+            grids = step_prepared_worlds(
+                worlds, [states[index]["shadow"].frames[offset].action for index in active], teacher
+            )
+        else:
+            grids = [
+                _step(world, teacher, states[index]["shadow"].frames[offset].action)
+                for index, world in zip(active, worlds)
+            ]
         del grids
         for index in active:
             state, source = states[index], sources[index]
@@ -404,7 +410,9 @@ def _search_dooms(
                 choices.append([int(a) for a in ordered])
                 evaluations.append(evaluation)
             stage = time.perf_counter()
-            if all(hasattr(source.sim, "cfg") for source in sources):
+            if str(getattr(teacher, "device", "cpu")).startswith("cuda") and all(
+                hasattr(source.sim, "cfg") for source in sources
+            ):
                 outcomes = teacher._rollout_merged(sources, choices)
             else:
                 outcomes = [
@@ -612,7 +620,10 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("v2 output directory must be fresh")
     output.mkdir(parents=True, exist_ok=True)
     states, all_states = [], []
-    iterator = iter(enumerate(rows))
+    indices = list(config.get("row_indices", range(len(rows))))
+    if len(indices) != len(rows) or len(set(indices)) != len(indices):
+        raise ValueError("export row indices must be unique and match the world bank")
+    iterator = iter(zip(indices, rows))
     done = decisions_done = export_bytes = peak = root_batch_peak = 0
     stages: dict[str, float] = defaultdict(float)
     doom_cache_peak_roots = 0
@@ -774,7 +785,8 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
             root_bucket = len(states) if str(teacher.device).startswith("cuda") else 64
             evaluations = (
                 evaluator([s["world"] for s in states], bucket_size=root_bucket)
-                if callable(evaluator)
+                if (str(teacher.device).startswith("cuda") or len(states) > 1)
+                and callable(evaluator)
                 else [teacher.evaluate(s["world"]) for s in states]
             )
             stages["root_policy_s"] += time.perf_counter() - stage
@@ -797,9 +809,12 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                 length = int(world.sim.length[0, 0])
                 planned.append((state, evaluation, student, executed, pending, length, valid))
             stage = time.perf_counter()
-            grids = step_prepared_worlds(
-                [item[0]["world"] for item in planned], [item[3] for item in planned], teacher
-            )
+            if str(teacher.device).startswith("cuda"):
+                grids = step_prepared_worlds(
+                    [item[0]["world"] for item in planned], [item[3] for item in planned], teacher
+                )
+            else:
+                grids = [_step(item[0]["world"], teacher, item[3]) for item in planned]
             root_step_elapsed = time.perf_counter() - stage
             if first_decision_elapsed is None and planned:
                 first_decision_elapsed = time.monotonic() - started

@@ -99,7 +99,7 @@ def _assert_same_divergence(mutator) -> None:
 
 
 def test_schema_is_explicit_and_digest_values_are_versioned() -> None:
-    assert FULL_DIGEST_SCHEMA == "t34-shadow-full-digest/v2"
+    assert FULL_DIGEST_SCHEMA == "t34-shadow-full-digest/v3"
     assert full_digest(_world(), checkpoint="pin") != _prechange_module().full_digest(
         _world(), checkpoint="pin"
     )
@@ -160,6 +160,13 @@ def test_nested_carry_structure_has_unambiguous_boundaries() -> None:
     assert full_digest(first, checkpoint="pin") != full_digest(second, checkpoint="pin")
 
 
+def test_coordinate_set_fast_path_preserves_bool_vs_int_type() -> None:
+    first, second = _world(), _world()
+    first.runtime.extra_state = {"coords": {(True, 2)}}
+    second.runtime.extra_state = {"coords": {(1, 2)}}
+    assert full_digest(first, checkpoint="pin") != full_digest(second, checkpoint="pin")
+
+
 def test_legacy_ignored_nested_timers_do_not_cause_shadow_divergence() -> None:
     first, second = _world(), _world()
     first.runtime.extra_state = {"nested": {"reference_seconds_total": 1.0}}
@@ -180,3 +187,10 @@ def test_m1_style_independent_equal_copies_have_zero_digest_difference() -> None
     assert full_digest(left, checkpoint={"hero": "B8"}) == full_digest(
         right, checkpoint={"hero": "B8"}
     )
+
+
+def test_runtime_aliases_and_equal_rebound_copies_share_digest_content() -> None:
+    shared, rebound = _world(), _world()
+    rebound.hero.runtime = copy.deepcopy(rebound.runtime)
+    rebound.opponents[0].runtime = copy.deepcopy(rebound.runtime)
+    assert full_digest(shared, checkpoint="pin") == full_digest(rebound, checkpoint="pin")

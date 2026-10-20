@@ -274,4 +274,4 @@ def test_real_doom_batch_keeps_frozen_carry_and_source_identity() -> None:
         assert row["per_action"]["1"]["cached_control"]
         assert all(value["horizon"] == 4 for value in row["per_action"].values())
         assert state["work"]["reconstruction_row_steps"] == 1
-    assert teacher.profile()["peak_active_rows"] >= 4
+    assert teacher.profile()["peak_active_rows"] >= 2

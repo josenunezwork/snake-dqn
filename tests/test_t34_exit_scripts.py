@@ -43,6 +43,8 @@ def test_second_worker_failure_terminates_first_without_sequential_wait(
         COLAB_CLI_ROOT=str(runtime),
         COLAB_INPUT_DIR=str(inputs),
         T34_SECONDS="120",
+        T34_DEVICE="cuda",
+        T34_THREADS="5",
         T34_WORLDS="2",
         T34_MAX_WORLDS="2",
         T34_ROUND="a6",
@@ -162,7 +164,7 @@ def test_policy_and_trigger_arguments_reach_both_launch_paths(
     # Worker writes must never interleave; aggregation is a separate invocation.
     invocations = [path.read_text().splitlines() for path in tmp_path.glob("argv.*")]
     worker_args = [args for args in invocations if "--checkpoint" in args]
-    assert len(worker_args) == (2 if runtime else 1)
+    assert len(worker_args) == 1
     for args in worker_args:
         for flag, value in (
             ("--policy-factory", "future.module:factory"),
@@ -173,6 +175,7 @@ def test_policy_and_trigger_arguments_reach_both_launch_paths(
             ("--max-rewinds", "1"),
         ):
             assert args[args.index(flag) + 1] == value
+        assert "--nproc" in args
         assert args[args.index("--student-checkpoint") + 1].endswith("/student weights.pth")
         assert args[args.index("--checkpoint") + 1].endswith("/other.pth")
         if script == "label.sh":

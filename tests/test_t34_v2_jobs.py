@@ -68,7 +68,10 @@ def test_v2_l4_manifest_has_complete_sparse_source_closure(tmp_path: Path) -> No
     )
     assert manifest["requirements"]["allowed_gpus"] == ["L4"]
     assert manifest["env"]["T34_KERNEL"] == "v2"
-    assert manifest["env"]["T34_WORKERS"] == "2"
+    assert manifest["env"]["T34_DEVICE"] == "cpu"
+    assert manifest["env"]["T34_NPROC"] == "12"
+    assert manifest["env"]["T34_THREADS"] == "1"
+    assert manifest["env"]["T34_MAX_WORLDS"] == "256"
     assert {"research/t34_shadow", "research/t33_batched_teacher", "web/backend", "configs"} <= set(
         manifest["source_paths"]
     )
@@ -86,17 +89,27 @@ def test_v2_cpu_probe_requires_observed_rate_and_records_hardware_shape(tmp_path
         "inventory_path": inventory,
         "public_catalog_path": public,
     }
-    with pytest.raises(manifests.ManifestRefused, match="observed positive provider rate"):
-        manifests.make_manifest(**kwargs)
+    ceiling = manifests.make_manifest(**kwargs)
+    assert ceiling["budget"]["rate_units_per_hour"] == 0.5
+    assert ceiling["budget"]["unit_cap"] == 0.12
+    assert ceiling["budget"]["reserve_units"] == pytest.approx(0.02)
+    assert ceiling["timeout_minutes"] == 12
+    assert ceiling["env"]["T34_CPU_PROFILE"] == "1"
+    assert ceiling["env"]["T34_WORLDS"] == "1"
+    assert "T34_NPROC" not in ceiling["env"]
+    assert "T34_WORKERS" not in ceiling["env"]
+    assert ceiling["max_export_bytes"] == 64 * 1024**2
+    assert ceiling["script"] == "research/t34_exit_b8/profile_cpu.sh"
     manifest = manifests.make_manifest(**kwargs, cpu_rate_units_per_hour=0.25)
     assert manifest["requirements"] == {
         "gpu": "cpu",
         "allowed_gpus": ["cpu"],
         "min_vcpu": 2,
-        "est_minutes": 15,
+        "est_minutes": 6,
     }
     assert manifest["env"]["T34_RUNTIME_VARIANT"] == "cpu"
-    assert manifest["env"]["T34_THREADS"] == "2"
+    assert "T34_NPROC" not in manifest["env"]
+    assert manifest["env"]["T34_THREADS"] == "1"
     assert manifest["budget"]["rate_units_per_hour"] == 0.25
 
 

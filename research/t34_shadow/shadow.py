@@ -139,10 +139,11 @@ def _ordered_bodies(sim: Any) -> list[list[list[int]]]:
     return bodies
 
 
-# ``full_digest`` is carried by Path B controller bindings.  Consumers that
-# persist one must record this value beside it; v1 and v2 values are purposely
-# incomparable because v2 removes the recursive/repr serialization.
-FULL_DIGEST_SCHEMA = "t34-shadow-full-digest/v2"
+# ``full_digest`` is carried by Path B controller bindings. Consumers that
+# persist one must record this value beside it; versions are purposely
+# incomparable as v2 removed recursive/repr serialization and v3 added
+# content fragments for repeated carry aliases.
+FULL_DIGEST_SCHEMA = "t34-shadow-full-digest/v3"
 _FAST_DIGEST_VERSION = FULL_DIGEST_SCHEMA.encode("ascii") + b"\0"
 _SIM_EXCLUDED_FIELDS = frozenset({"bodies", "food_cells", "corpse_cells", "_kernels", "_det"})
 _STATIC_OBJECT_FIELDS = frozenset(
@@ -271,8 +272,22 @@ def _digest_value(
         # Cell sets are semantically unordered. Their integer tuple keys are stable.
         ordered = sorted(value)
         digest.update(len(ordered).to_bytes(8, "little"))
-        for index, item in enumerate(ordered):
-            _digest_value(digest, str(index), item, seen)
+        coordinate_width = len(ordered[0]) if ordered and isinstance(ordered[0], tuple) else 0
+        if coordinate_width and all(
+            isinstance(item, tuple)
+            and len(item) == coordinate_width
+            and all(type(part) is int and -(2**63) <= part < 2**63 for part in item)
+            for item in ordered
+        ):
+            # ``food_set`` is commonly hundreds of lattice coordinate tuples.
+            # Retain set/tuple/arity framing, then move its scalar payload in
+            # one contiguous NumPy buffer instead of recursive Python visits.
+            digest.update(b"P")
+            digest.update(coordinate_width.to_bytes(4, "little"))
+            _digest_array(digest, "coordinates", np.asarray(ordered, dtype=np.int64))
+        else:
+            for index, item in enumerate(ordered):
+                _digest_value(digest, str(index), item, seen)
     elif isinstance(value, dict):
         _digest_label(digest, label)
         digest.update(b"D")
@@ -358,6 +373,57 @@ def _digest_runtime(digest: "hashlib._Hash", runtime: Any) -> None:
         _digest_value(digest, name, value)
 
 
+def _digest_fragment(label: str, value: Any) -> bytes:
+    """Return a content-addressed encoding for repeated runtime state.
+
+    The fragment is keyed by bytes, never object identity: a deep-copied but
+    equal runtime stays indistinguishable from an alias, as it was under the
+    legacy serializer.  It saves hashing the same large carry arrays through
+    every opponent policy in a six-snake world.
+    """
+    fragment = hashlib.sha256()
+    _digest_value(fragment, label, value)
+    return fragment.digest()
+
+
+def _digest_runtime_fragment(
+    digest: "hashlib._Hash", label: str, value: Any, memo: dict[int, bytes]
+) -> None:
+    _digest_label(digest, label)
+    digest.update(b"H")
+    identity = id(value)
+    fragment = memo.get(identity)
+    if fragment is None:
+        # The inner label is deliberately independent of its outer policy path:
+        # aliases and separately copied equal runtimes serialize identically.
+        fragment = _digest_fragment("runtime-content", value)
+        memo[identity] = fragment
+    digest.update(fragment)
+
+
+def _digest_policy(
+    digest: "hashlib._Hash", label: str, policy: Any, runtime_memo: dict[int, bytes]
+) -> None:
+    """Hash policy carry while compacting only semantically equal runtime aliases."""
+    if policy is None or not hasattr(policy, "__dict__"):
+        _digest_value(digest, label, policy)
+        return
+    _digest_label(digest, label)
+    digest.update(f"O:{type(policy).__module__}.{type(policy).__qualname__}".encode())
+    fields = [
+        (name, value)
+        for name, value in sorted(vars(policy).items())
+        if name not in _STATIC_OBJECT_FIELDS
+        and not name.endswith(("_seconds", "_seconds_total", "_seconds_max"))
+    ]
+    digest.update(len(fields).to_bytes(8, "little"))
+    for name, value in fields:
+        if name == "runtime":
+            _digest_runtime_fragment(digest, name, value, runtime_memo)
+        else:
+            _digest_value(digest, name, value)
+
+
 def full_digest(
     world: Any, *, checkpoint: Any = None, global_rng_state: object | None = None
 ) -> str:
@@ -383,9 +449,19 @@ def full_digest(
             _digest_value(result, f"sim.{name}", value)
     for index, rng in enumerate(getattr(sim, "_rngs", ())):
         _digest_mt_state(result, f"env_rng.{index}", getattr(rng, "_rng", rng).getstate())
-    _digest_runtime(result, getattr(world, "runtime", None))
-    _digest_value(result, "hero", getattr(world, "hero", None))
-    _digest_value(result, "opponents", getattr(world, "opponents", None))
+    runtime = getattr(world, "runtime", None)
+    runtime_memo: dict[int, bytes] = {}
+    _digest_runtime_fragment(result, "runtime", runtime, runtime_memo)
+    _digest_policy(result, "hero", getattr(world, "hero", None), runtime_memo)
+    opponents = getattr(world, "opponents", None)
+    if isinstance(opponents, list):
+        _digest_label(result, "opponents")
+        result.update(b"L")
+        result.update(len(opponents).to_bytes(8, "little"))
+        for index, opponent in enumerate(opponents):
+            _digest_policy(result, str(index), opponent, runtime_memo)
+    else:
+        _digest_value(result, "opponents", opponents)
     _digest_value(result, "checkpoint", checkpoint)
     _digest_mt_state(
         result, "global_random", random.getstate() if global_rng_state is None else global_rng_state

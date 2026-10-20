@@ -1,9 +1,11 @@
-# Full-state digest v2
+# Full-state digest schema history
 
 The engine-fanout optimization replaces `full_digest`'s recursive scalar/repr
 encoding with typed contiguous buffers. Its schema is
-`t34-shadow-full-digest/v2` (`FULL_DIGEST_SCHEMA`). Unversioned historical
-full-state digest strings use v1 and cannot be compared to v2 strings.
+`t34-shadow-full-digest/v3` (`FULL_DIGEST_SCHEMA`). The first buffer encoder
+was published as v2; v3 adds per-call content fragments for repeated runtime
+carry and contiguous coordinate-set encoding. Unversioned historical
+full-state digest strings use v1. Strings from different schemas cannot be compared.
 
 The fixed top-level field order is ordered live bodies, ordered food and corpse
 cells with environment offsets, simulator attributes in lexical order,
