@@ -1,6 +1,6 @@
 # T34 shadow measurements — 2026-10-19
 
-**Outcome: INCOMPLETE — remaining M2/M3 measurements and final verification are running.**
+**Outcome: INCOMPLETE — remaining M2 measurements and final verification are running.**
 M1 identity is GO on the requested coverage. This document reports measurement
 evidence only; it does not authorize efficacy, training, a gate, or a serving change.
 
@@ -17,7 +17,7 @@ implemented before any M2 data. The two search rules were committed in `6bc83348
 | M1 live/rolling shadow identity | 5,000 frames per mix; zero unexplained differences | 15,000 compared; all physical/carry/v8/action/shadow difference counts zero | GO |
 | M2 bisection work and recovery | >=5x below 400,000 row-steps/world and >=90% intervention recovery | Pending complete 64-world bank | INCOMPLETE |
 | M2 teacher rule, Amendment 1 | >=90% intervention recovery; report work and LAD error against stride-one truth | Pending complete 64-world bank | INCOMPLETE |
-| M3 single-thread latency/reachability | Report p50/p95/p99 and empirical T1 timing projection | Running | INCOMPLETE |
+| M3 single-thread latency/reachability | Report p50/p95/p99 and empirical T1 timing projection | Exact Watch searches exceed the maximum D=300 lead in all five sampled dooms | NO-GO for this serial continuation path; scripted-bank projection pending |
 | M4 CPU runtime | <=10-minute probe; report available backends | PyTorch and ONNX measured; direct BNNS unsupported | MEASURED |
 
 The spec's phrase “54/64 interventions” is a denominator error: the immutable
@@ -104,6 +104,43 @@ requires that slack to exceed search latency; the conservative cold projection
 also subtracts catch-up latency. These are empirical timing projections, not
 observed online reachability or efficacy. Host contention from Phase 0 and
 other owner jobs is recorded in every receipt.
+
+| Mix | Advance p50/p95/p99, ms | Confirm + advance p50/p95/p99, ms | Full 300 catch-up p50/p95/p99, s |
+|---|---|---|---|
+| scripted | 5.422 / 6.576 / 6.984 | 9.221 / 10.624 / 11.017 | 1.639 / 1.672 / 1.681 |
+| frozen | 14.306 / 16.607 / 17.416 | 21.839 / 23.975 / 24.877 | 4.330 / 4.384 / 4.390 |
+| mixed | 11.339 / 12.904 / 13.887 | 17.507 / 19.138 / 19.884 | 3.281 / 3.319 / 3.330 |
+
+Each mix has 500 complete advance/tick samples and 30 complete catch-ups.
+Receipts are `latency-{scripted,frozen,mixed}.json`. Re-forks after doom/respawn
+are separately counted; they are excluded from the single-frame samples.
+
+Fresh LAD timing on the exact live Watch rosters is a separate, prospectively
+bounded slice (`cfda5987`): fixed seeds 2026101934/35/36, at most 5,000 source
+frames per seed and at most three doom cases per mix. Suggested alternatives
+are advisory and never applied to the source. Every rollout isolates mutable
+opponent and v8 state. The source snapshot is captured after prepare and before
+action dispatch. This uses the current **serial T3 continuation path**, rather
+than assuming scripted-bank timing represents frozen opponents.
+
+| Mix | Doom cases | Search p50/p95/p99, s | Raw search seconds | Snapshot retention p50/p95/p99, s |
+|---|---:|---|---|---|
+| frozen | 3 | 53.480 / 61.767 / 62.504 | 53.480, 62.688, 41.629 | 0.415 / 0.419 / 0.420 |
+| mixed | 2 | 33.408 / 37.113 / 37.443 | 37.525, 29.291 | 0.403 / 0.457 / 0.461 |
+
+The mixed slice exhausted all three seed trajectories with two eligible dooms;
+it was not extended after inspecting timing. Search includes branch clone and
+rollout; retaining the 300 prepared source snapshots is measured separately.
+All five searches exceed the maximum 25 seconds of D=300 lead at 12 fps (12.5 s
+at 24 fps). Thus all p50/p95/p99 projections for both Watch mixes are **0/49**
+late T1 deaths reachable, warm and cold, at both frame rates. Cold additionally
+charges catch-up and snapshot retention; warm assumes both were already paid.
+This is a timing NO-GO for this implementation on this Mac under the recorded
+host contention, not a registered efficacy decision or a claim that every T33
+optimization is infeasible. Quantiles from two or three cases are descriptive.
+Raw receipts: `lad-frozen.json`, `lad-mixed.json`. Independent read-only source
+review at `cfda5987` found no remaining phase, carry, horizon or control issue.
+
 
 ## M4: batch-one CPU inference
 
