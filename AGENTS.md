@@ -2,7 +2,24 @@
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
-## Current state and operating rules (2026-10-08) — read first
+## Current state and operating rules — read first
+
+## Campaign authority (owner-ratified 2026-10-19) — overrides older text
+
+Active campaign: **T34 ExIt-B8**. Binding documents on main, in order:
+[SUCCESS_CONTRACT.md](docs/research/final_run_20261019/SUCCESS_CONTRACT.md) ·
+[DESIGN_V2_SHADOW.md](docs/research/final_run_20261019/DESIGN_V2_SHADOW.md) (+ Amendment 1) ·
+[P7_STATISTICS.md](docs/research/final_run_20261019/P7_STATISTICS.md) · unsuperseded parts of
+[FINAL_PLAN.md](docs/research/final_run_20261019/FINAL_PLAN.md).
+Superseded by them: the "single bare network only" goal (now **Claim A**; **Claim B** = a visibly labelled
+assisted hero may also succeed; bare wins unresolved ties); "beat frp3-s12+v8 without a veto" (met by B8 s3,
+closed); "M3-C next"; five-training-seed inference for fixed controllers (unit = paired world); historical
+FRP3/champion "Tier 1 + Tier 2" guards as automatic T34 obligations (comparator is B8 s3 for every bar);
+RunPod for T34 (none); the Q0/Q1 budget envelope. Watch product metrics are binding per contract §3.
+Kept: Mac-only strict gate and serving qualification, fresh paired banks, survival band v2, pre-data freezing.
+
+Older summary (2026-10-08; released-agent and goal bullets are SUPERSEDED — B8 s3 is served since
+2026-10-17, see docs/STATUS.md):
 
 [docs/STATUS.md](docs/STATUS.md) is the current-truth source. Where it conflicts with older
 text below or in dated docs, STATUS.md wins. Summary:
@@ -58,11 +75,12 @@ Multi-agent reinforcement learning platform for training AI snakes. Built with
 PyTorch (model/training) and a FastAPI + React/TypeScript web UI (the PyQt5
 desktop GUI was retired — see `web/` and `docs/` references below).
 
-**Two training stacks live here side by side** — do not assume there is only one:
+**Three model stacks live here side by side** (B8 is the ego2s CNN, not the Apex MLP) — do not assume there is only one:
 
 | Stack | Algorithm | Env | Network | Obs spec | Entry point |
 |-------|-----------|-----|---------|----------|-------------|
 | **Apex** (incumbent) | Distributed Apex DQN (PER + target net + n-step) | Python `GameState` | `ApexNetwork` (feedforward) | `vector61` | `src/scripts/apex_train.py`, `src/main.py --headless` |
+| **ego2s-bv8 CNN** (B8, served; T34 main line) | distilled DQN / dueling CNN (`src/model/ego2s_network.py`, ~1.64M params) | `GridBatchSim` (numba, cell-exact) | `Ego2sNet` | ego2s-b raster + 60 scalars | `research/` campaign packages (T7/T34); served via `web/backend/served_checkpoint.py` |
 | **Raster/PQN** (blueprint P3) | PQN Q(λ), synchronous — no replay, no target net, no PER | `BatchSim` (NumPy-vectorized) | `RasterDuelingNetwork` (dual-scale conv) | `raster31v2` | `src/scripts/train_pqn.py` |
 
 The Apex stack is the incumbent champion. The raster/PQN stack is the in-progress
@@ -356,8 +374,9 @@ bit-identical; constants live in `src/core/mechanics_constants.py`.
 
 ## Promotion Gate
 
-`src/scripts/tournament_eval.py` is the **only** promotion authority, repaired per
-blueprint §5.1-§5.2 (P0). Key properties agents get wrong:
+`src/scripts/tournament_eval.py` is the shared **evaluation** tool, repaired per blueprint §5.1-§5.2
+(P0). It does not by itself grant release authority: release follows the active campaign's Mac strict
+gate and serving qualification (see "Campaign authority" above). Key properties agents get wrong:
 
 - Headline metric is the **mass integral**: mean per-frame mass over the TOTAL
   horizon, dead frames contributing 0. (The old gate averaged over alive frames

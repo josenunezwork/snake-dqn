@@ -159,6 +159,8 @@ async def lifespan(app: FastAPI):
                 await hub.engine_task
         if hub.store is not None:
             hub.store.close()
+        if hub.session is not None:
+            await asyncio.to_thread(hub.session.close, True)
 
 
 app = FastAPI(title="snake-dqn web", lifespan=lifespan)

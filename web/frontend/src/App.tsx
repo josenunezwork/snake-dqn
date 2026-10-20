@@ -866,6 +866,15 @@ export default function App() {
         {session && (
           <span className="pill">{session.checkpoint ?? "no model"}</span>
         )}
+        {session?.mode === "watch" && session.pathb?.active === true && (
+          <span
+            className="pill on"
+            aria-label="assisted hero"
+            title={session.pathb.label || "Path B advisory controller enabled"}
+          >
+            assisted hero
+          </span>
+        )}
         {opponentVetoCounters.length > 0 && (
           <span
             className="pill"
@@ -1025,6 +1034,8 @@ export default function App() {
                 inspector={frame.inspector}
                 tick={frame.frame}
                 heroId={session?.hero_id ?? 0}
+                checkpointName={frame.checkpoint_name ?? session?.checkpoint ?? null}
+                pathb={session?.pathb ?? null}
               />
             ) : tab === "raster" ? (
               <EgoRasterViewer
