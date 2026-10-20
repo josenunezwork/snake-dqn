@@ -72,6 +72,7 @@ def source_hashes(repo: Path = ROOT) -> dict[str, str]:
     selected = {n for n in names if n and Path(n).suffix in {".py", ".sh", ".yaml", ".yml"}}
     selected.update(BINDING_DOCS)
     selected.add("research/t34_round0/PREREGISTRATION_ROUND0.md")
+    selected.add("research/t34_round0/ERRATUM_A5_ADDENDUM_B.md")
     selected.add("research/t34_round0/BANK_ROUND0.json")
     selected.add("research/t34_round0/SEED_AUDIT_ROUND0.json")
     selected.add("research/t34_round0/TABULAR_SEED_AUDIT.json")

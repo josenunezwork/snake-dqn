@@ -4,7 +4,10 @@ Status: **DRAFT_PENDING_OPERATOR_RATIFICATION**. This package prepares the
 240-pair teacher premise test; implementing it does not authorize scientific
 execution. [Preregistration](PREREGISTRATION_ROUND0.md) fixes the bank, statistics,
 ordered GO/STOP/INCONCLUSIVE rules, and isolation. [OC note](OPERATING_CHARACTERISTICS.md)
-discloses power and cost limitations. No labels from this study go to fitting.
+discloses power and cost limitations. The source-bound [A5 erratum](ERRATUM_A5_ADDENDUM_B.md)
+applies binding Amendment 2 addendum B without altering the original draft bytes.
+No labels from this study go to fitting. [VERIFICATION.md](VERIFICATION.md) records
+the final preflight, focused checks, full-suite failures and source qualification.
 
 The operator supplies the actual A5 receipt; no rate or successful rehearsal is
 fabricated. Existing public release `s1-inputs-20261019` supplies pinned B8 and
@@ -60,7 +63,10 @@ The operator places a real, immutable receipt at `$T34_ART/A5_RECEIPT.json`:
 {
   "schema": "t34-round0-a5/v1",
   "paired_worlds_per_hour": "REPLACE_WITH_MEASURED_NUMBER",
-  "active_row_steps_per_second": "REPLACE_WITH_MEASURED_NUMBER_AT_LEAST_3000",
+  "completed_worlds_per_hour_per_lane": "REPLACE_WITH_MEASURED_NUMBER_AT_LEAST_50",
+  "steady_window_seconds": 1200,
+  "cold_fill_excluded": true,
+  "active_row_steps_per_second": "REPLACE_WITH_MEASURED_NUMBER",
   "two_lane_rehearsal_complete": true,
   "measured_export_bytes_per_pair": "REPLACE_WITH_MEASURED_NUMBER",
   "evidence_sha256": "REPLACE_WITH_64_HEX_DIGEST_OF_REAL_A5_EVIDENCE"
@@ -68,7 +74,9 @@ The operator places a real, immutable receipt at `$T34_ART/A5_RECEIPT.json`:
 ```
 
 The strings above deliberately fail validation; use actual JSON numbers and the
-real evidence digest. Measure the actual paired entrypoint's throughput and
+real evidence digest. A5 v2 requires at least 50 completed worlds/hour per L4 lane
+over its registered 1,200-second steady window excluding cold fill; row-steps/s
+is reported without the superseded 3,000 floor. Measure the actual paired entrypoint's throughput and
 setup/export/cleanup time. The receipt must describe the frozen recipe and a clean
 two-lane rehearsal; lane 3 requires that rehearsal first. Keep its raw evidence
 with the receipt. Unknown/missing evidence holds dispatch.
@@ -78,7 +86,9 @@ package. This package does not authorize or expose an unratified L4 benchmark
 mode. A teacher-only A5 worlds/hour number must not be passed off as paired
 throughput: the operator must account for bare evaluation and metric regeneration
 using excluded development measurements, with the recipe and derivation in the
-hash-bound evidence. If those measurements are unavailable, preparation stays on
+hash-bound evidence. Both Round 0 arms retain native vector-opponent dispatch
+on CUDA; the teacher explicitly opts out of the newer optional vector batching.
+The paired estimate must describe this exact recipe. If those measurements are unavailable, preparation stays on
 hold; running selection worlds to manufacture A5 would violate the registration.
 
 With clean committed source and reviewed evidence, the delegated operator runs:
@@ -87,7 +97,7 @@ With clean committed source and reviewed evidence, the delegated operator runs:
 cd /Users/josenunez/Projects/ml/snake-dqn-round0
 export T34_PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 export T34_ART=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-20261020
-export T34_A6_RECORD="$T34_ART/a6-02/VERIFICATION.json"
+export T34_A6_RECORD="$T34_ART/a6-04/VERIFICATION.json"
 : "${T34_OPERATOR:?Set the approving operator name}"
 "$T34_PY" -m research.t34_round0.registration --operator "$T34_OPERATOR" \
   --a5 "$T34_ART/A5_RECEIPT.json" --preflight-record "$T34_A6_RECORD" \

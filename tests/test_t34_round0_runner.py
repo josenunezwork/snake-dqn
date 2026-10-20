@@ -11,6 +11,32 @@ import pytest
 from research.t34_round0 import runner
 
 
+@pytest.mark.parametrize("opt_in", [None, False, True])
+def test_teacher_cuda_vector_recipe_can_preserve_paired_native_dispatch(tmp_path, opt_in) -> None:
+    from research.t34_exit_b8.teacher_v2 import run_worlds
+
+    checkpoint = tmp_path / "checkpoint.pth"
+    checkpoint.write_bytes(b"fixture")
+    output = tmp_path / "occupied"
+    output.mkdir()
+    (output / "sentinel").write_text("fixture")
+    opponents = SimpleNamespace(batch_device_vectors=False)
+    teacher = SimpleNamespace(device="cuda", _opponents=opponents)
+    config = {
+        "checkpoint": checkpoint,
+        "output_dir": output,
+        "rows": [{"world_id": "fixture"}],
+        "teacher": teacher,
+    }
+    if opt_in is not None:
+        config["batch_device_vectors"] = opt_in
+    # Stop before constructing any world or executing any policy, while testing
+    # the actual CUDA recipe selection independently of CUDA availability.
+    with pytest.raises(ValueError, match="output directory must be fresh"):
+        run_worlds(config)
+    assert opponents.batch_device_vectors is (True if opt_in is None else opt_in)
+
+
 @pytest.mark.parametrize(
     "message",
     [
