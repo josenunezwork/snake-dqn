@@ -262,13 +262,26 @@ def main() -> int:
         export_path = args.artifact_dir / (args.receipt.stem + ".onnx")
         if export_path.exists():
             raise FileExistsError(f"refusing to overwrite existing ONNX export: {export_path}")
-        output, timing = onnx_backend(net, inputs, args.warmup, args.samples, export_path, budget)
-        backends["onnxruntime_cpu"] = {
-            "status": "measured",
-            "timing": timing,
-            "export_path": str(export_path),
-            "comparison_to_pytorch": comparison(reference, output),
-        }
+        try:
+            output, timing = onnx_backend(
+                net, inputs, args.warmup, args.samples, export_path, budget
+            )
+        except (
+            Exception
+        ) as error:  # Receipt must retain a measured PyTorch result on backend failure.
+            backends["onnxruntime_cpu"] = {
+                "status": "failed",
+                "error_type": type(error).__name__,
+                "reason": str(error),
+                "export_path": str(export_path),
+            }
+        else:
+            backends["onnxruntime_cpu"] = {
+                "status": "measured",
+                "timing": timing,
+                "export_path": str(export_path),
+                "comparison_to_pytorch": comparison(reference, output),
+            }
     else:
         missing = [name for name in ("onnx", "onnxruntime") if not available(name)]
         backends["onnxruntime_cpu"][
