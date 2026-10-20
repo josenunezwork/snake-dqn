@@ -624,6 +624,9 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                 state["stages"]["root_step_s"] += time.perf_counter() - stage
                 state["work"]["root_row_steps"] += 1
                 state["actions"].append(grid)
+                on_action = config.get("on_action")
+                if callable(on_action):
+                    on_action(state["row"], int(executed))
                 state["decision"] += 1
                 if valid and (matched or executed != student):
                     item = pending or _label(

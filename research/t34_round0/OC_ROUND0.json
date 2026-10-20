@@ -1,0 +1,617 @@
+{
+  "models": {
+    "frp2_phase1": {
+      "counterfactual_limit": "Optimistic mass-only cost; excludes survival/scripted/boost bars; not adopted",
+      "counterfactual_mass_only_two_look_expected_pairs_at_40": 180.552,
+      "fixed_expected_pairs_at_40": 240,
+      "joint_mass_survival_rates": {
+        "20/frozen_minus_0075": {
+          "rate": 0.0141,
+          "wilson_upper95": 0.01582984217652084
+        },
+        "20/mixed_minus_0075": {
+          "rate": 0.0118,
+          "wilson_upper95": 0.013393110465257648
+        },
+        "20/no_change": {
+          "rate": 0.0562,
+          "wilson_upper95": 0.05947789774196385
+        },
+        "20/pooled_minus_005": {
+          "rate": 0.00435,
+          "wilson_upper95": 0.005362124753720463
+        },
+        "20/scripted_minus_0075": {
+          "rate": 0.01385,
+          "wilson_upper95": 0.015565572346063218
+        },
+        "26.8/frozen_minus_0075": {
+          "rate": 0.0194,
+          "wilson_upper95": 0.021405860585671576
+        },
+        "26.8/mixed_minus_0075": {
+          "rate": 0.0168,
+          "wilson_upper95": 0.018676219928057302
+        },
+        "26.8/no_change": {
+          "rate": 0.1185,
+          "wilson_upper95": 0.12305266145004691
+        },
+        "26.8/pooled_minus_005": {
+          "rate": 0.00445,
+          "wilson_upper95": 0.0054724248877160535
+        },
+        "26.8/scripted_minus_0075": {
+          "rate": 0.01895,
+          "wilson_upper95": 0.020934112674674415
+        },
+        "40/frozen_minus_0075": {
+          "rate": 0.02165,
+          "wilson_upper95": 0.023760772861625316
+        },
+        "40/mixed_minus_0075": {
+          "rate": 0.0189,
+          "wilson_upper95": 0.020881679393528335
+        },
+        "40/no_change": {
+          "rate": 0.23945,
+          "wilson_upper95": 0.24541399303715028
+        },
+        "40/pooled_minus_005": {
+          "rate": 0.00445,
+          "wilson_upper95": 0.0054724248877160535
+        },
+        "40/scripted_minus_0075": {
+          "rate": 0.02045,
+          "wilson_upper95": 0.022505584746243444
+        },
+        "60/frozen_minus_0075": {
+          "rate": 0.02165,
+          "wilson_upper95": 0.023760772861625316
+        },
+        "60/mixed_minus_0075": {
+          "rate": 0.0189,
+          "wilson_upper95": 0.020881679393528335
+        },
+        "60/no_change": {
+          "rate": 0.25685,
+          "wilson_upper95": 0.26295124999085495
+        },
+        "60/pooled_minus_005": {
+          "rate": 0.00445,
+          "wilson_upper95": 0.0054724248877160535
+        },
+        "60/scripted_minus_0075": {
+          "rate": 0.02045,
+          "wilson_upper95": 0.022505584746243444
+        },
+        "80/frozen_minus_0075": {
+          "rate": 0.02165,
+          "wilson_upper95": 0.023760772861625316
+        },
+        "80/mixed_minus_0075": {
+          "rate": 0.0189,
+          "wilson_upper95": 0.020881679393528335
+        },
+        "80/no_change": {
+          "rate": 0.25685,
+          "wilson_upper95": 0.26295124999085495
+        },
+        "80/pooled_minus_005": {
+          "rate": 0.00445,
+          "wilson_upper95": 0.0054724248877160535
+        },
+        "80/scripted_minus_0075": {
+          "rate": 0.02045,
+          "wilson_upper95": 0.022505584746243444
+        }
+      },
+      "mass_only_power": {
+        "20.0": 0.0653,
+        "26.8": 0.1584,
+        "40.0": 0.49855,
+        "60.0": 0.93195,
+        "80.0": 0.99865
+      },
+      "mass_sd": {
+        "frozen": 197.06290949253057,
+        "mixed": 180.71213368372997,
+        "scripted": 240.3763808858198
+      },
+      "max_protected_regression_joint_error": 0.02165,
+      "protected_regression_check_pass": true
+    },
+    "frp2_phase2": {
+      "counterfactual_limit": "Optimistic mass-only cost; excludes survival/scripted/boost bars; not adopted",
+      "counterfactual_mass_only_two_look_expected_pairs_at_40": 180.048,
+      "fixed_expected_pairs_at_40": 240,
+      "joint_mass_survival_rates": {
+        "20/frozen_minus_0075": {
+          "rate": 0.01475,
+          "wilson_upper95": 0.016516336870068038
+        },
+        "20/mixed_minus_0075": {
+          "rate": 0.0116,
+          "wilson_upper95": 0.013180590503988659
+        },
+        "20/no_change": {
+          "rate": 0.06435,
+          "wilson_upper95": 0.06783502977114907
+        },
+        "20/pooled_minus_005": {
+          "rate": 0.0048,
+          "wilson_upper95": 0.005857588777697522
+        },
+        "20/scripted_minus_0075": {
+          "rate": 0.01555,
+          "wilson_upper95": 0.017360116839744057
+        },
+        "26.8/frozen_minus_0075": {
+          "rate": 0.0208,
+          "wilson_upper95": 0.022871855955070297
+        },
+        "26.8/mixed_minus_0075": {
+          "rate": 0.01525,
+          "wilson_upper95": 0.01704384081841334
+        },
+        "26.8/no_change": {
+          "rate": 0.1311,
+          "wilson_upper95": 0.13584848910945088
+        },
+        "26.8/pooled_minus_005": {
+          "rate": 0.0048,
+          "wilson_upper95": 0.005857588777697522
+        },
+        "26.8/scripted_minus_0075": {
+          "rate": 0.01995,
+          "wilson_upper95": 0.02198208044060771
+        },
+        "40/frozen_minus_0075": {
+          "rate": 0.02325,
+          "wilson_upper95": 0.025431867233236916
+        },
+        "40/mixed_minus_0075": {
+          "rate": 0.01725,
+          "wilson_upper95": 0.0191493801225671
+        },
+        "40/no_change": {
+          "rate": 0.26175,
+          "wilson_upper95": 0.2678875957162822
+        },
+        "40/pooled_minus_005": {
+          "rate": 0.0048,
+          "wilson_upper95": 0.005857588777697522
+        },
+        "40/scripted_minus_0075": {
+          "rate": 0.0212,
+          "wilson_upper95": 0.023290273646273747
+        },
+        "60/frozen_minus_0075": {
+          "rate": 0.02325,
+          "wilson_upper95": 0.025431867233236916
+        },
+        "60/mixed_minus_0075": {
+          "rate": 0.01725,
+          "wilson_upper95": 0.0191493801225671
+        },
+        "60/no_change": {
+          "rate": 0.28385,
+          "wilson_upper95": 0.2901396006622011
+        },
+        "60/pooled_minus_005": {
+          "rate": 0.0048,
+          "wilson_upper95": 0.005857588777697522
+        },
+        "60/scripted_minus_0075": {
+          "rate": 0.0212,
+          "wilson_upper95": 0.023290273646273747
+        },
+        "80/frozen_minus_0075": {
+          "rate": 0.02325,
+          "wilson_upper95": 0.025431867233236916
+        },
+        "80/mixed_minus_0075": {
+          "rate": 0.01725,
+          "wilson_upper95": 0.0191493801225671
+        },
+        "80/no_change": {
+          "rate": 0.28385,
+          "wilson_upper95": 0.2901396006622011
+        },
+        "80/pooled_minus_005": {
+          "rate": 0.0048,
+          "wilson_upper95": 0.005857588777697522
+        },
+        "80/scripted_minus_0075": {
+          "rate": 0.0212,
+          "wilson_upper95": 0.023290273646273747
+        }
+      },
+      "mass_only_power": {
+        "20.0": 0.073,
+        "26.8": 0.17055,
+        "40.0": 0.49845,
+        "60.0": 0.92905,
+        "80.0": 0.99795
+      },
+      "mass_sd": {
+        "frozen": 213.91685049083824,
+        "mixed": 176.1415855435832,
+        "scripted": 247.1450551251587
+      },
+      "max_protected_regression_joint_error": 0.02325,
+      "protected_regression_check_pass": true
+    },
+    "normal_sensitivity_alive_sd_0.25": {
+      "counterfactual_limit": "Optimistic mass-only cost; excludes survival/scripted/boost bars; not adopted",
+      "counterfactual_mass_only_two_look_expected_pairs_at_40": 180.078,
+      "fixed_expected_pairs_at_40": 240,
+      "joint_mass_survival_rates": {
+        "20/frozen_minus_0075": {
+          "rate": 0.0171,
+          "wilson_upper95": 0.018991695837043826
+        },
+        "20/mixed_minus_0075": {
+          "rate": 0.0129,
+          "wilson_upper95": 0.014560084180131723
+        },
+        "20/no_change": {
+          "rate": 0.06655,
+          "wilson_upper95": 0.0700881503478376
+        },
+        "20/pooled_minus_005": {
+          "rate": 0.0091,
+          "wilson_upper95": 0.010513555356182192
+        },
+        "20/scripted_minus_0075": {
+          "rate": 0.0176,
+          "wilson_upper95": 0.019517174116265752
+        },
+        "26.8/frozen_minus_0075": {
+          "rate": 0.02755,
+          "wilson_upper95": 0.029910764651674082
+        },
+        "26.8/mixed_minus_0075": {
+          "rate": 0.0218,
+          "wilson_upper95": 0.02391755518147272
+        },
+        "26.8/no_change": {
+          "rate": 0.1546,
+          "wilson_upper95": 0.15967664754116867
+        },
+        "26.8/pooled_minus_005": {
+          "rate": 0.00935,
+          "wilson_upper95": 0.010781244080229893
+        },
+        "26.8/scripted_minus_0075": {
+          "rate": 0.02635,
+          "wilson_upper95": 0.028662463776988785
+        },
+        "40/frozen_minus_0075": {
+          "rate": 0.0365,
+          "wilson_upper95": 0.03918927765249625
+        },
+        "40/mixed_minus_0075": {
+          "rate": 0.03455,
+          "wilson_upper95": 0.03717189205128813
+        },
+        "40/no_change": {
+          "rate": 0.41455,
+          "wilson_upper95": 0.4213933482639534
+        },
+        "40/pooled_minus_005": {
+          "rate": 0.00935,
+          "wilson_upper95": 0.010781244080229893
+        },
+        "40/scripted_minus_0075": {
+          "rate": 0.0327,
+          "wilson_upper95": 0.03525596832261448
+        },
+        "60/frozen_minus_0075": {
+          "rate": 0.0367,
+          "wilson_upper95": 0.039396073588241785
+        },
+        "60/mixed_minus_0075": {
+          "rate": 0.0354,
+          "wilson_upper95": 0.03805152061353456
+        },
+        "60/no_change": {
+          "rate": 0.5847,
+          "wilson_upper95": 0.5915124675648011
+        },
+        "60/pooled_minus_005": {
+          "rate": 0.00935,
+          "wilson_upper95": 0.010781244080229893
+        },
+        "60/scripted_minus_0075": {
+          "rate": 0.0328,
+          "wilson_upper95": 0.035359584041839094
+        },
+        "80/frozen_minus_0075": {
+          "rate": 0.0367,
+          "wilson_upper95": 0.039396073588241785
+        },
+        "80/mixed_minus_0075": {
+          "rate": 0.0354,
+          "wilson_upper95": 0.03805152061353456
+        },
+        "80/no_change": {
+          "rate": 0.5859,
+          "wilson_upper95": 0.5927093585232642
+        },
+        "80/pooled_minus_005": {
+          "rate": 0.00935,
+          "wilson_upper95": 0.010781244080229893
+        },
+        "80/scripted_minus_0075": {
+          "rate": 0.0328,
+          "wilson_upper95": 0.035359584041839094
+        }
+      },
+      "mass_only_power": {
+        "20.0": 0.06895,
+        "26.8": 0.1651,
+        "40.0": 0.5004,
+        "60.0": 0.9295,
+        "80.0": 0.99795
+      },
+      "mass_sd": {
+        "frozen": 213.91685049083824,
+        "mixed": 176.1415855435832,
+        "scripted": 247.1450551251587
+      },
+      "max_protected_regression_joint_error": 0.0367,
+      "protected_regression_check_pass": true
+    },
+    "normal_sensitivity_alive_sd_0.35": {
+      "counterfactual_limit": "Optimistic mass-only cost; excludes survival/scripted/boost bars; not adopted",
+      "counterfactual_mass_only_two_look_expected_pairs_at_40": 179.724,
+      "fixed_expected_pairs_at_40": 240,
+      "joint_mass_survival_rates": {
+        "20/frozen_minus_0075": {
+          "rate": 0.0128,
+          "wilson_upper95": 0.014454121339260316
+        },
+        "20/mixed_minus_0075": {
+          "rate": 0.01215,
+          "wilson_upper95": 0.013764758778588794
+        },
+        "20/no_change": {
+          "rate": 0.05655,
+          "wilson_upper95": 0.05983715438221265
+        },
+        "20/pooled_minus_005": {
+          "rate": 0.0037,
+          "wilson_upper95": 0.004642058905930527
+        },
+        "20/scripted_minus_0075": {
+          "rate": 0.0116,
+          "wilson_upper95": 0.013180590503988659
+        },
+        "26.8/frozen_minus_0075": {
+          "rate": 0.01675,
+          "wilson_upper95": 0.018623626493589892
+        },
+        "26.8/mixed_minus_0075": {
+          "rate": 0.01615,
+          "wilson_upper95": 0.01799218177285048
+        },
+        "26.8/no_change": {
+          "rate": 0.1117,
+          "wilson_upper95": 0.11614034073324961
+        },
+        "26.8/pooled_minus_005": {
+          "rate": 0.00375,
+          "wilson_upper95": 0.00469765720189737
+        },
+        "26.8/scripted_minus_0075": {
+          "rate": 0.01455,
+          "wilson_upper95": 0.0163051988729607
+        },
+        "40/frozen_minus_0075": {
+          "rate": 0.01765,
+          "wilson_upper95": 0.01956970081080177
+        },
+        "40/mixed_minus_0075": {
+          "rate": 0.01855,
+          "wilson_upper95": 0.020514549993259752
+        },
+        "40/no_change": {
+          "rate": 0.2012,
+          "wilson_upper95": 0.20681319272753035
+        },
+        "40/pooled_minus_005": {
+          "rate": 0.00375,
+          "wilson_upper95": 0.00469765720189737
+        },
+        "40/scripted_minus_0075": {
+          "rate": 0.0148,
+          "wilson_upper95": 0.016569109007622082
+        },
+        "60/frozen_minus_0075": {
+          "rate": 0.01765,
+          "wilson_upper95": 0.01956970081080177
+        },
+        "60/mixed_minus_0075": {
+          "rate": 0.01855,
+          "wilson_upper95": 0.020514549993259752
+        },
+        "60/no_change": {
+          "rate": 0.2096,
+          "wilson_upper95": 0.2152964506163037
+        },
+        "60/pooled_minus_005": {
+          "rate": 0.00375,
+          "wilson_upper95": 0.00469765720189737
+        },
+        "60/scripted_minus_0075": {
+          "rate": 0.0148,
+          "wilson_upper95": 0.016569109007622082
+        },
+        "80/frozen_minus_0075": {
+          "rate": 0.01765,
+          "wilson_upper95": 0.01956970081080177
+        },
+        "80/mixed_minus_0075": {
+          "rate": 0.01855,
+          "wilson_upper95": 0.020514549993259752
+        },
+        "80/no_change": {
+          "rate": 0.2096,
+          "wilson_upper95": 0.2152964506163037
+        },
+        "80/pooled_minus_005": {
+          "rate": 0.00375,
+          "wilson_upper95": 0.00469765720189737
+        },
+        "80/scripted_minus_0075": {
+          "rate": 0.0148,
+          "wilson_upper95": 0.016569109007622082
+        }
+      },
+      "mass_only_power": {
+        "20.0": 0.07185,
+        "26.8": 0.16735,
+        "40.0": 0.4992,
+        "60.0": 0.9255,
+        "80.0": 0.9981
+      },
+      "mass_sd": {
+        "frozen": 213.91685049083824,
+        "mixed": 176.1415855435832,
+        "scripted": 247.1450551251587
+      },
+      "max_protected_regression_joint_error": 0.01855,
+      "protected_regression_check_pass": true
+    },
+    "normal_sensitivity_alive_sd_0.5": {
+      "counterfactual_limit": "Optimistic mass-only cost; excludes survival/scripted/boost bars; not adopted",
+      "counterfactual_mass_only_two_look_expected_pairs_at_40": 179.652,
+      "fixed_expected_pairs_at_40": 240,
+      "joint_mass_survival_rates": {
+        "20/frozen_minus_0075": {
+          "rate": 0.007,
+          "wilson_upper95": 0.008253900133961054
+        },
+        "20/mixed_minus_0075": {
+          "rate": 0.0059,
+          "wilson_upper95": 0.007060404194893775
+        },
+        "20/no_change": {
+          "rate": 0.03245,
+          "wilson_upper95": 0.03499690208035654
+        },
+        "20/pooled_minus_005": {
+          "rate": 0.00125,
+          "wilson_upper95": 0.0018446952464811048
+        },
+        "20/scripted_minus_0075": {
+          "rate": 0.0057,
+          "wilson_upper95": 0.006842480926671937
+        },
+        "26.8/frozen_minus_0075": {
+          "rate": 0.0075,
+          "wilson_upper95": 0.008793916469116909
+        },
+        "26.8/mixed_minus_0075": {
+          "rate": 0.00655,
+          "wilson_upper95": 0.007766623300536823
+        },
+        "26.8/no_change": {
+          "rate": 0.0466,
+          "wilson_upper95": 0.049609301758871086
+        },
+        "26.8/pooled_minus_005": {
+          "rate": 0.00125,
+          "wilson_upper95": 0.0018446952464811048
+        },
+        "26.8/scripted_minus_0075": {
+          "rate": 0.0058,
+          "wilson_upper95": 0.006951481638357018
+        },
+        "40/frozen_minus_0075": {
+          "rate": 0.0075,
+          "wilson_upper95": 0.008793916469116909
+        },
+        "40/mixed_minus_0075": {
+          "rate": 0.00655,
+          "wilson_upper95": 0.007766623300536823
+        },
+        "40/no_change": {
+          "rate": 0.05155,
+          "wilson_upper95": 0.05470149913375984
+        },
+        "40/pooled_minus_005": {
+          "rate": 0.00125,
+          "wilson_upper95": 0.0018446952464811048
+        },
+        "40/scripted_minus_0075": {
+          "rate": 0.0058,
+          "wilson_upper95": 0.006951481638357018
+        },
+        "60/frozen_minus_0075": {
+          "rate": 0.0075,
+          "wilson_upper95": 0.008793916469116909
+        },
+        "60/mixed_minus_0075": {
+          "rate": 0.00655,
+          "wilson_upper95": 0.007766623300536823
+        },
+        "60/no_change": {
+          "rate": 0.05155,
+          "wilson_upper95": 0.05470149913375984
+        },
+        "60/pooled_minus_005": {
+          "rate": 0.00125,
+          "wilson_upper95": 0.0018446952464811048
+        },
+        "60/scripted_minus_0075": {
+          "rate": 0.0058,
+          "wilson_upper95": 0.006951481638357018
+        },
+        "80/frozen_minus_0075": {
+          "rate": 0.0075,
+          "wilson_upper95": 0.008793916469116909
+        },
+        "80/mixed_minus_0075": {
+          "rate": 0.00655,
+          "wilson_upper95": 0.007766623300536823
+        },
+        "80/no_change": {
+          "rate": 0.05155,
+          "wilson_upper95": 0.05470149913375984
+        },
+        "80/pooled_minus_005": {
+          "rate": 0.00125,
+          "wilson_upper95": 0.0018446952464811048
+        },
+        "80/scripted_minus_0075": {
+          "rate": 0.0058,
+          "wilson_upper95": 0.006951481638357018
+        }
+      },
+      "mass_only_power": {
+        "20.0": 0.0748,
+        "26.8": 0.1693,
+        "40.0": 0.50425,
+        "60.0": 0.93105,
+        "80.0": 0.99825
+      },
+      "mass_sd": {
+        "frozen": 213.91685049083824,
+        "mixed": 176.1415855435832,
+        "scripted": 247.1450551251587
+      },
+      "max_protected_regression_joint_error": 0.0075,
+      "protected_regression_check_pass": true
+    }
+  },
+  "no_gameplay": true,
+  "protected_regression_check_pass": true,
+  "reps": 20000,
+  "schema": "t34-round0-oc/v1",
+  "seed": 202610200,
+  "simulator_sha256": "84da8f5307fcbb206bd52f37cb82037954a212d89d01bd5542dae56b3fbf8835",
+  "source_pool_sha256": "6295400a2bee43f425e83a6f23dfb275f1d2cdb343e18ea4e7541c69900dc06a",
+  "unit": "independent synthetic paired world within mix"
+}
