@@ -65,6 +65,7 @@ def run(
     mode: str = "preflight",
     epochs: int = 5,
     binding_path: Path | None = None,
+    cache_dir: Path | None = None,
 ) -> Path:
     if mode not in {"preflight", "fit"}:
         raise EntrypointRefused("mode must be preflight or fit")
@@ -98,6 +99,7 @@ def run(
             or hashlib.sha256(checkpoint.read_bytes()).hexdigest() != previous["sha256"]
         ):
             raise EntrypointRefused("previous student differs from the immutable binding")
+    cache_args = {"cache_dir": cache_dir} if cache_dir is not None else {}
     result = runner.run(
         exports=exports,
         checkpoint=checkpoint,
@@ -109,6 +111,7 @@ def run(
         epochs=epochs,
         fake_engine=fake_engine,
         binding=binding,
+        **cache_args,
     )
     if not isinstance(result, dict):
         raise EntrypointRefused("fit adapter must return a JSON object")
@@ -151,6 +154,9 @@ def main() -> None:
     parser.add_argument("--mode", choices=("preflight", "fit"), default="preflight")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--binding", type=Path)
+    parser.add_argument(
+        "--cache-dir", type=Path, help="local SSD cache; validate and reuse if present"
+    )
     args = parser.parse_args()
     result = run(
         exports=args.exports,
@@ -163,6 +169,7 @@ def main() -> None:
         mode=args.mode,
         epochs=args.epochs,
         binding_path=args.binding,
+        cache_dir=args.cache_dir,
     )
     print(json.dumps({"report": str(result)}, sort_keys=True))
 

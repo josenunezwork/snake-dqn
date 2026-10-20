@@ -10,12 +10,14 @@ from __future__ import annotations
 import copy
 import hashlib
 import importlib
+import inspect
 from pathlib import Path
 from typing import Any
 
 import torch
 
 from . import train
+from .cache import CacheValidationError
 from .data import ReplayDivergenceError
 from .diagnostics import FitTripwire
 from .interface import FakeReplaySource
@@ -102,6 +104,7 @@ def run(
     epochs: int,
     fake_engine: bool,
     binding: dict[str, Any] | None,
+    cache_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Run either the real P6 preflight or a bounded production fit artifact."""
     seed = int((binding or {}).get("seed", 0))
@@ -136,6 +139,35 @@ def run(
             exports=exports, binding=binding, previous_model=previous
         )
         probe = _factory(str(binding["probe_factory"]))(binding=binding, previous_model=previous)
+    # Bind immutable data/recipe inputs plus every repository Python source.
+    # A replay factory supplied outside the repository is bound separately.
+    repo = Path(__file__).resolve().parents[2]
+    paths = sorted(
+        {path for base in (repo / "src", repo / "research") for path in base.rglob("*.py")}
+    )
+    closure = hashlib.sha256()
+    for path in paths:
+        closure.update(str(path.relative_to(repo)).encode())
+        closure.update(path.read_bytes())
+    factory_file = inspect.getsourcefile(type(source))
+    include_tower = (binding or {}).get("arm") == "S1a"
+    cache_identity = {
+        "binding": binding,
+        "checkpoint_sha256": (
+            hashlib.sha256(checkpoint.read_bytes()).hexdigest() if checkpoint else None
+        ),
+        "python_source_sha256": closure.hexdigest(),
+        "source_file_sha256": (
+            hashlib.sha256(Path(factory_file).read_bytes()).hexdigest() if factory_file else None
+        ),
+        "fake_engine": fake_engine,
+        "include_tower": include_tower,
+    }
+    cache_args = {
+        "cache_dir": cache_dir or output_dir.parent / "observation-cache",
+        "cache_identity": cache_identity,
+        "include_tower": include_tower,
+    }
     try:
         if mode == "preflight":
             result = train.run_fit_preflight(
@@ -149,6 +181,7 @@ def run(
                 allow_fake=fake_engine,
                 probe_hook=probe,
                 seed=seed,
+                **cache_args,
             )
         else:
             result = train.fit(
@@ -160,8 +193,9 @@ def run(
                 probe_hook=probe,
                 allow_fake=False,
                 seed=seed,
+                **cache_args,
             )
-    except (FitTripwire, ReplayDivergenceError, ValueError) as exc:
+    except (FitTripwire, ReplayDivergenceError, CacheValidationError, ValueError) as exc:
         return {
             "completed": False,
             "tripwire": str(exc),
