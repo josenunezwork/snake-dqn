@@ -25,10 +25,22 @@ Identity = Tuple[Any, ...]
 Worker = Callable[[bytes], Dict[str, Any]]
 
 
+def _set_math_thread_env() -> None:
+    """Set inherited numerical-library caps before a spawned child imports them."""
+    for name in (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "NUMBA_NUM_THREADS",
+    ):
+        os.environ[name] = "1"
+
+
 def _pin_math_threads() -> None:
     """Keep the spawned worker within the registered one-math-thread budget."""
-    for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
-        os.environ[name] = "1"
+    _set_math_thread_env()
     try:
         import torch
 
@@ -47,7 +59,17 @@ def _run_worker(worker: Worker, payload: bytes) -> Dict[str, Any]:
         raise TypeError("Path B worker must return a dict")
     stamped = dict(result)
     stamped["_completion_monotonic"] = time.monotonic()
+    if _encoded_size(stamped) > MAX_RESPONSE_BYTES:
+        raise ValueError("Path B worker response exceeds 64 KiB")
     return stamped
+
+
+def _encoded_size(value: Dict[str, Any]) -> int:
+    """Bound the object that crosses the process IPC boundary."""
+    try:
+        return len(pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL))
+    except (pickle.PickleError, TypeError, ValueError):
+        return MAX_RESPONSE_BYTES + 1
 
 
 class DeadlineController:
@@ -65,6 +87,9 @@ class DeadlineController:
         clock: Callable[[], float] = time.monotonic,
         executor: Optional[Any] = None,
     ) -> None:
+        # This runs before ``ProcessPoolExecutor`` creates the spawned child, so
+        # BLAS/Numba see the limits during import as well as in its initializer.
+        _set_math_thread_env()
         self._worker = worker
         self._clock = clock
         self._executor = executor or concurrent.futures.ProcessPoolExecutor(
@@ -76,6 +101,7 @@ class DeadlineController:
         self._identity: Optional[Identity] = None
         self._deadline: Optional[float] = None
         self._closed = False
+        self._nonblocking_shutdown = False
         self._recent: Deque[Dict[str, Any]] = deque(maxlen=MAX_RECENT_DECISIONS)
         self._counts: Dict[str, int] = {
             "requested": 0,
@@ -131,7 +157,7 @@ class DeadlineController:
             result = future.result()
         except Exception:
             return self._finish(bare, report, "worker_error")
-        if not isinstance(result, dict) or self._encoded_size(result) > MAX_RESPONSE_BYTES:
+        if not isinstance(result, dict) or _encoded_size(result) > MAX_RESPONSE_BYTES:
             return self._finish(bare, report, "malformed_response")
         completed = result.get("_completion_monotonic")
         if not isinstance(completed, (int, float)) or not math.isfinite(completed):
@@ -173,17 +199,25 @@ class DeadlineController:
         return {
             "active": self._future is not None,
             "label": "assisted hero",
-            "counts": {**self._counts, "fallback_reasons": dict(self._fallback_reasons)},
+            "counts": dict(self._counts),
+            "fallback_reasons": dict(self._fallback_reasons),
             "last": self._last,
             "recent": list(self._recent),
         }
 
     def close(self, wait: bool = False) -> None:
         """Make subsequent submissions fail without blocking a game tick."""
-        if self._closed:
+        if self._closed and (not wait or not self._nonblocking_shutdown):
             return
-        self._closed = True
-        self._executor.shutdown(wait=wait, cancel_futures=not wait)
+        if not self._closed:
+            self._closed = True
+            self._executor.shutdown(wait=wait, cancel_futures=not wait)
+            self._nonblocking_shutdown = not wait
+        elif wait:
+            # The tick path returns promptly; an explicit harness close can
+            # subsequently join that same already-shutting-down worker.
+            self._executor.shutdown(wait=True, cancel_futures=False)
+            self._nonblocking_shutdown = False
 
     def record(self, log: Dict[str, Any]) -> None:
         """Add a synchronous diagnostic or snapshot failure to the same audit ring."""
@@ -193,13 +227,6 @@ class DeadlineController:
         self._future = None
         self._identity = None
         self._deadline = None
-
-    @staticmethod
-    def _encoded_size(value: Dict[str, Any]) -> int:
-        try:
-            return len(pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL))
-        except (pickle.PickleError, TypeError, ValueError):
-            return MAX_RESPONSE_BYTES + 1
 
     @staticmethod
     def _legal_action(action: Any, mask: Sequence[bool]) -> bool:
@@ -231,6 +258,8 @@ class DeadlineController:
 
     def _record(self, report: Dict[str, Any]) -> None:
         """Record by reference so serving may enrich the same log after ``poll``."""
+        self._counts.setdefault("decisions", 0)
+        self._counts["decisions"] += 1
         if report.get("applied"):
             self._counts["applied"] += 1
         if report.get("accepted"):

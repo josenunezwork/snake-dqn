@@ -121,6 +121,8 @@ def test_invalid_worker_response_and_close_are_safe_and_nonblocking() -> None:
     assert action == 1 and report["fallback_reason"] == "invalid_action"
     subject.close()
     assert executor.shutdown_calls == [(False, True)]
+    subject.close(wait=True)
+    assert executor.shutdown_calls == [(False, True), (True, False)]
     assert not subject.submit(b"x", (1,), 101)
 
 
