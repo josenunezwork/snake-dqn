@@ -1,5 +1,6 @@
 # snake-dqn — common tasks. Override the interpreter with `make PY=python test`.
 PY ?= ./venv/bin/python
+PYTEST_WORKERS ?= 2
 SRC := src web/backend
 
 .PHONY: help install install-dev test test-fast test-web lint format web build-web clean
@@ -24,10 +25,10 @@ install-dev:
 	$(PY) -m pre_commit install
 
 test:
-	$(PY) -m pytest -q
+	$(PY) -m pytest -q -n $(PYTEST_WORKERS)
 
 test-fast:
-	$(PY) -m pytest -q -n auto -m "not slow"
+	$(PY) -m pytest -q -n $(PYTEST_WORKERS) -m "not slow"
 
 test-web:
 	cd web/frontend && npm ci && npm test
