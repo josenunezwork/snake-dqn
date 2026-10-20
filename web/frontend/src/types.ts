@@ -121,6 +121,32 @@ export interface ServingContract {
   deployment_target_manifest?: Record<string, unknown>;
 }
 
+// Path B is an opt-in, Watch6-only advisory controller. These records are
+// observational: the frontend renders the server's decision accounting and
+// never derives whether a move was assisted locally.
+export interface PathBDecisionLog {
+  hero_id?: number;
+  frame?: number;
+  life?: number;
+  bare_action?: number | null;
+  proposed_action?: number | null;
+  executed_action?: number | null;
+  fallback_reason?: string | null;
+  requested?: boolean;
+  applied?: boolean;
+  stale_discarded?: boolean;
+  deadline_miss?: boolean;
+}
+
+export interface PathBState {
+  active: boolean;
+  label: string;
+  hero_id?: number;
+  counts: Record<string, number>;
+  last?: PathBDecisionLog | null;
+  recent?: PathBDecisionLog[];
+}
+
 export interface SessionState {
   playing: boolean;
   speed: number;
@@ -155,6 +181,9 @@ export interface SessionState {
     wrapped_snake_ids: number[];
     counters: Record<string, { decisions: number; vetoes_applied?: number }>;
   } | null;
+  // Absent when SNAKE_SERVE_PATHB is unset. An enabled controller remains
+  // visibly assisted even if every request falls back to bare B8.
+  pathb?: PathBState | null;
 }
 
 export interface PendingRun {

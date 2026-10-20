@@ -17,6 +17,48 @@ from research.b8_death_census_20261014 import census
 from research.t1_commitment_20261015.replay import Replay
 
 
+def verify_expand(
+    prepared: Any, bare: int, q: Sequence[float], mask: Sequence[bool], depth: int
+) -> dict[str, Any]:
+    """Reuse T3's forced-first-action continuations with a clone/step adapter.
+
+    The adapter owns the simulator, policy and private RNG. Verify the bare
+    action first; only on failure expand alternatives in lockstep. This seam
+    supports the real live simulator without duplicating any game dynamics.
+    """
+    if depth < 1 or len(q) != 6 or len(mask) != 6 or not np.isfinite(q).all():
+        raise ValueError("invalid verify/expand input")
+    choices = [a for a in range(6) if mask[a]]
+    if bare not in choices:
+        raise ValueError("bare action must belong to the resolved mask")
+
+    def advance(branches: dict[int, Any]) -> dict[int, dict[str, Any]]:
+        counts = {a: 0 for a in branches}
+        for frame in range(depth):
+            for action, branch in branches.items():
+                if branch.alive:
+                    branch.step(action if frame == 0 else None)
+                    counts[action] += int(branch.alive)
+        return {
+            a: {"survives": branch.alive, "frames_survived": counts[a]}
+            for a, branch in branches.items()
+        }
+
+    outcomes = advance({bare: prepared.clone()})
+    if outcomes[bare]["survives"]:
+        return {"proposed_action": bare, "outcomes": outcomes}
+    outcomes.update(advance({a: prepared.clone() for a in choices if a != bare}))
+    survivors = [a for a in choices if outcomes[a]["survives"]]
+    pool = survivors or choices
+    if not survivors:
+        longest = max(outcomes[a]["frames_survived"] for a in pool)
+        pool = [a for a in pool if outcomes[a]["frames_survived"] == longest]
+    best_q = max(float(q[a]) for a in pool)
+    tied = [a for a in pool if float(q[a]) == best_q]
+    chosen = bare if bare in tied else min(tied)
+    return {"proposed_action": chosen, "outcomes": outcomes}
+
+
 def _restore_grid_views(sim: Any) -> None:
     """Restore GridBatchSim's padded-grid views after changing E."""
     if getattr(sim, "_grids_ready", False) and hasattr(sim, "_owner_pad"):

@@ -1,0 +1,11 @@
+{
+  "blocks": 1,
+  "scripted_worlds": 1,
+  "frozen_worlds": 1,
+  "mixed_worlds": 1,
+  "product_worlds": 1,
+  "horizon": 4,
+  "workers": 1,
+  "warmup": 1,
+  "ticks": 4
+}

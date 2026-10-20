@@ -600,6 +600,11 @@ class AISnake(Snake):
             action = masked_q.argmax().item()
             if self.safety_veto is not None:
                 action = self.safety_veto.apply(self, other_snakes, masked_q, action_mask, action)
+            # Optional forward-only controller. Keep raw Q and the bare proposal intact
+            # for inspection; an absent hook preserves the historical action path.
+            transform = getattr(self, "action_transform", None)
+            if transform is not None:
+                action = transform(self, other_snakes, masked_q, action_mask, action)
         else:
             saved_epsilon = getattr(self.policy, "epsilon", None)
             if saved_epsilon is not None:
