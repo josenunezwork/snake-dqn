@@ -6,6 +6,9 @@ transport must not become another route into the registered Mac decision.
 
 import hashlib
 import json
+from contextlib import nullcontext
+
+import pytest
 
 from research.t34_pathb import analyze_v2 as analysis
 
@@ -220,3 +223,38 @@ def test_missing_or_hash_failed_unpaced_exports_are_reported_not_raised(tmp_path
     assert invalid["status"] == "MISSING"
     assert invalid["errors"]
     assert invalid["missing_rows"] == [{"kind": "terminal", "seed": 17, "reason": "not_exported"}]
+
+
+def test_numeric_overflow_is_missing_descriptive_evidence(tmp_path):
+    registration, world, shard = _write_shard(tmp_path)
+    payload_path = tmp_path / "world.json"
+    payload = json.loads(payload_path.read_text())
+    payload["metrics"]["mass_integral"] = 10**1000
+    payload_path.write_text(json.dumps(payload))
+    shard_payload = json.loads(shard.read_text())
+    shard_payload["worlds"][0]["sha256"] = _write_sidecars(payload_path)
+    shard.write_text(json.dumps(shard_payload))
+    _write_sidecars(shard)
+    report = analysis.load_unpaced_descriptive(
+        registration, _digest("registration"), [_mac_record(world)], [shard]
+    )
+    assert report["status"] == "MISSING"
+    assert "OverflowError" in report["errors"][0]
+
+
+@pytest.mark.parametrize("error", [OverflowError("huge integer"), RecursionError("deep JSON")])
+def test_optional_loader_failure_never_replaces_mac_verdict(tmp_path, monkeypatch, error):
+    from research.t34_pathb import source_binding_v2
+
+    registration = _registration()
+    (tmp_path / "registration.json").write_text(json.dumps(registration))
+    monkeypatch.setattr(source_binding_v2, "FrozenWorktreeGuard", lambda *_args: nullcontext())
+    monkeypatch.setattr(analysis, "_analyze_path", lambda _root: {"verdict": "GO", "reason": "Mac"})
+
+    def broken_loader(*_args):
+        raise error
+
+    monkeypatch.setattr(analysis, "load_unpaced_descriptive", broken_loader)
+    report = analysis.analyze_path(tmp_path, unpaced_shards=[tmp_path / "malformed.json"])
+    assert (report["verdict"], report["reason"]) == ("GO", "Mac")
+    assert report["unpaced_descriptive"]["status"] == "MISSING"

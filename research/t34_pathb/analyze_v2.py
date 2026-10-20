@@ -27,6 +27,7 @@ ARMS = ("bare", "paced", "unpaced")
 HORIZON = 5000
 UNPACED_WORLD_SCHEMA = "t34-unpaced-world/v1"
 UNPACED_SHARD_SCHEMA = "t34-unpaced-shard/v1"
+DESCRIPTIVE_ERRORS = (OSError, KeyError, TypeError, ValueError, ArithmeticError, RuntimeError)
 
 
 class InvalidRetention(ValueError):
@@ -675,7 +676,7 @@ def load_unpaced_descriptive(
                 ):
                     raise InvalidRetention("world export fault, parity, or identity failure")
                 exports[key] = payload
-        except (OSError, InvalidRetention, KeyError, TypeError, ValueError) as exc:
+        except DESCRIPTIVE_ERRORS as exc:
             result["errors"].append(f"{shard_path}: {type(exc).__name__}: {exc}")
 
     for key in sorted(expected):
@@ -699,7 +700,7 @@ def load_unpaced_descriptive(
                     mac["arms"]["bare"]["bare_prefix_trace"],
                     payload["metrics"]["bare_prefix_trace"],
                 )
-            except (InvalidRetention, KeyError, TypeError, ValueError) as exc:
+            except DESCRIPTIVE_ERRORS as exc:
                 row.update({"status": "INVALID", "reason": f"prefix trace: {exc}"})
         result["rows"].append(row)
     valid = sum(row["status"] == "VALID" for row in result["rows"])
@@ -721,7 +722,7 @@ def load_unpaced_descriptive(
                 "skill": skill_summary(descriptive_records, "unpaced"),
                 "product": product_summary(descriptive_records, "unpaced"),
             }
-        except (InvalidRetention, KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        except DESCRIPTIVE_ERRORS as exc:
             result["errors"].append(f"descriptive statistics invalid: {type(exc).__name__}: {exc}")
             result["statistics"] = {"status": "INVALID", "reason": str(exc)}
     else:
@@ -751,7 +752,7 @@ def analyze_path(root: Path, unpaced_shards: Iterable[Path] = ()) -> dict[str, A
                     mac_records,
                     unpaced_shards,
                 )
-            except (OSError, InvalidRetention, KeyError, TypeError, ValueError) as exc:
+            except DESCRIPTIVE_ERRORS as exc:
                 report["unpaced_descriptive"] = {
                     "role": "descriptive_only",
                     "status": "MISSING",
