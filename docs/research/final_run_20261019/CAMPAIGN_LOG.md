@@ -43,6 +43,7 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 10-20 13:30 | Pre-data resize after power review: 48 worlds/mix, 32 Watch6 sessions, caps 40 h / 60 CPU-h (joint GO 0.27–0.32 → 0.80–0.83) | `docs/research/specs/2026-10-20_t34_retention_resize.md`, Amendment 2 addendum |
 | 10-20 13:50 | FIX-FIRST #2 rulings: import-closure source binding + frozen worktree; guard never sleeps mid-row, pauses only between rows, outstanding requests dropped; contention counted only >50% CPU >60 s, ≤2% of elapsed allowed; pre-check own 8 h cap; unpaced-arm cost smoke | `docs/research/specs/2026-10-20_t34_retention_fixes2.md` |
 | 10-20 14:15 | FIX-FIRST #2 merged (154 tests, 180 bindings). Cost smoke 38.45 h vs 40 h cap (17.7 h unpaced) → unpaced descriptive arm moved to Colab lanes (standing Colab rule); Mac runs bare + paced only (~20.7 h) | `docs/research/specs/2026-10-20_t34_unpaced_arm_colab.md` |
+| 10-20 14:30 | Shadow batching merged (byte-identical; Mac −19%, L4 untested). A5 v2 GO re-based pre-run: ≥ 50 completed worlds/h per L4 lane (v1 3k row-steps/s floor priced 0.4M rows/world). A5 #2 dispatched | DESIGN_V2 Amendment 2 addendum B |
 
 ## Measured results so far
 
