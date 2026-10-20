@@ -239,7 +239,11 @@ def artifacts(tmp_path, monkeypatch):
             ),
         ),
     )
-    selected = [row["world"]["world_id"] for row in rows[:24]]
+    selected = [
+        row["world"]["world_id"]
+        for mix, count in (("scripted", 10), ("frozen", 7), ("mixed", 7))
+        for row in [r for r in rows if r["world"]["mix"] == mix][:count]
+    ]
     from research.t34_round0.common import ROOT
 
     inventory = []

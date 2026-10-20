@@ -265,3 +265,26 @@ def test_frozen_worktree_rejects_untracked_bytes(tmp_path: Path) -> None:
     (repo / "later.txt").write_text("changed\n")
     with pytest.raises(SourceBindingError, match="untracked"):
         verify_frozen_worktree(repo, commit)
+
+
+def test_real_chunk_sample_retains_all_three_mixes() -> None:
+    from collections import Counter
+
+    rows = [
+        {"world_id": f"{mix}-{i}", "mix": mix}
+        for mix, count in (("scripted", 96), ("frozen", 72), ("mixed", 72))
+        for i in range(count)
+    ]
+    chunks = [
+        {
+            "slice": {
+                "start": start,
+                "count": count,
+                "world_ids": [r["world_id"] for r in rows[start : start + count]],
+            }
+        }
+        for start, count in ((0, 141), (141, 99))
+    ]
+    sample = history.selected_rows(rows, chunks)
+    assert len(sample) == 25
+    assert Counter(r["mix"] for r in sample) == {"scripted": 10, "frozen": 8, "mixed": 7}

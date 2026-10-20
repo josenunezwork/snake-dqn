@@ -164,7 +164,7 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
         "platform": {"system": platform.system(), "machine": platform.machine()},
         "run_identity": dict(expected, commit=identities[0].get("commit")),
         "selected_ids": [row["world_id"] for row in selected],
-        "sampling": "first ceil(10% of allocated pairs) within each bank-order chunk",
+        "sampling": "ceil(10% of allocated pairs), mix-stratified within each bank-order chunk",
         "chunks": drop_reports,
         "checked_pairs": checked,
         "divergences": divergences,

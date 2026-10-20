@@ -167,8 +167,8 @@ SNAKE_CKPT_DIR=/Users/josenunez/Projects/ml/snake-dqn/saved_snakes \
 # Publish the terminal ledger again before reporting the decision.
 ```
 
-Replay selects the first ceil(10% of allocation) canonical worlds **within each
-chunk**, both arms, before inspecting outcomes. Reports include allocated,
+Replay selects the ceil(10% of allocation) canonical worlds **within each
+chunk**, stratified by mix with largest-remainder quotas and bank-order ties, both arms, before inspecting outcomes. Reports include allocated,
 completed and dropped counts plus all divergences. >2% drops in any chunk stop
 and report; any missing pair still blocks the whole 240-pair look. Trace replay
 is distinct from a Mac strict gate or cross-platform greedy-policy equivalence.

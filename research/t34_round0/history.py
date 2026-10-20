@@ -235,7 +235,23 @@ def selected_rows(
         if len(group) != count or chunk["slice"].get("world_ids") != [r["world_id"] for r in group]:
             raise HistoryError("chunk slice differs from frozen bank")
         covered.extend(r["world_id"] for r in group)
-        selected.extend(group[: math.ceil(count / 10)])
+        # Preserve A2's mix coverage rather than selecting only the prefix mix
+        # of a contiguous chunk. Largest remainders fix the exact ceil(10%) N;
+        # ties follow the frozen scripted/frozen/mixed order, without outcomes.
+        sample_count = math.ceil(count / 10)
+        mixes = [
+            mix
+            for mix in ("scripted", "frozen", "mixed", None)
+            if any(row.get("mix") == mix for row in group)
+        ]
+        groups = {mix: [row for row in group if row.get("mix") == mix] for mix in mixes}
+        quotas = {mix: sample_count * len(groups[mix]) // count for mix in mixes}
+        remaining = sample_count - sum(quotas.values())
+        ranked = sorted(mixes, key=lambda mix: -(sample_count * len(groups[mix]) % count))
+        for mix in ranked[:remaining]:
+            quotas[mix] += 1
+        wanted = {row["world_id"] for mix in mixes for row in groups[mix][: quotas[mix]]}
+        selected.extend(row for row in group if row["world_id"] in wanted)
     if covered != [r["world_id"] for r in rows]:
         raise HistoryError("chunks must partition the whole bank in canonical order")
     return selected

@@ -53,8 +53,9 @@ unconditional controller fault retains the original scientific **STOP** rule,
 blocks further dispatch, and admits only the sole fault-verifying STOP decision. Hard kills
 leave unfinished remote reservations that block all further admission as KILL.
 
-The Mac replays both arms of the first ceil(0.10*n) canonical bank rows **in
-each chunk**, selected without outcomes. Report chunk allocation/completion/drop
+The Mac replays both arms of the ceil(0.10*n) canonical bank rows **in
+each chunk**, stratified by mix with largest-remainder quotas and bank-order
+ties (first allocated rows within each mix), selected without outcomes. Report chunk allocation/completion/drop
 counts and every divergence. >2% dropped worlds in any chunk stops work and is
 reported; any missing world prevents the fixed-N look even below that threshold.
 No world replacement, efficacy resume, bank extension or second look.
