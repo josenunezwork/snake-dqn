@@ -110,7 +110,7 @@ debited against the 40 h. Reason: development-only OC gave joint GO 0.27–0.32 
 gives 0.80–0.83 (`research/t34_pathb/RETENTION_OC_V2.json`, `VERIFICATION_RETENTION_RESIZE.md`). No retention or
 pre-check data existed.
 
-### Amendment 2 addendum B (2026-10-20 ~14:30 PT, before A5 run #2)
+### Amendment 2 addendum B (2026-10-20 ~13:14 PT, before A5 run #2)
 The FINAL_PLAN A5 floor (≥ 3,000 active row-steps/s per lane) priced the v1 teacher (~0.4M row-steps/world). The v2
 teacher needs ~13–31k row-steps/world (M2; Mac 32-world profile), so A5 v2 is judged on useful output instead:
 **GO = ≥ 50 completed worlds/hour per L4 lane** (800-world round ≈ 5.3 h on 3 lanes ≈ 32 u at 2 u/h), measured over
