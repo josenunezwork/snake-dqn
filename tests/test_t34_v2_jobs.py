@@ -100,6 +100,62 @@ def test_v2_cpu_probe_requires_observed_rate_and_records_hardware_shape(tmp_path
     assert manifest["budget"]["rate_units_per_hour"] == 0.25
 
 
+def test_v2_label_manifest_binds_measured_export_projection(tmp_path: Path) -> None:
+    inventory, public = _catalogs(tmp_path)
+    kwargs = {
+        "kind": "label",
+        "kernel": "v2",
+        "commit": "a" * 40,
+        "output_dir": tmp_path / "fresh",
+        "inventory_path": inventory,
+        "public_catalog_path": public,
+        "round_id": "r1",
+        "worlds": 100,
+    }
+    with pytest.raises(manifests.ManifestRefused, match="measured_export_bytes_per_world"):
+        manifests.make_manifest(**kwargs)
+    manifest = manifests.make_manifest(**kwargs, measured_export_bytes_per_world=1000)
+    sizing = manifest["export_sizing"]
+    assert manifest["max_export_bytes"] == 2 * 1024**3
+    assert sizing["projected_bytes"] == 16 * 1024**2 + 125_000
+    assert sizing["provisional_until_full_a5"] is True
+
+
+@pytest.mark.parametrize("value", (None, 0, -1, True, float("nan")))
+def test_v2_label_manifest_refuses_invalid_measured_export_size(
+    tmp_path: Path, value: object
+) -> None:
+    inventory, public = _catalogs(tmp_path)
+    with pytest.raises(manifests.ManifestRefused, match="measured_export_bytes_per_world"):
+        manifests.make_manifest(
+            kind="label",
+            kernel="v2",
+            commit="a" * 40,
+            output_dir=tmp_path / "fresh",
+            inventory_path=inventory,
+            public_catalog_path=public,
+            round_id="r1",
+            worlds=2,
+            measured_export_bytes_per_world=value,  # type: ignore[arg-type]
+        )
+
+
+def test_v2_label_manifest_refuses_export_projection_over_cap(tmp_path: Path) -> None:
+    inventory, public = _catalogs(tmp_path)
+    with pytest.raises(manifests.ManifestRefused, match="reduce chunk worlds"):
+        manifests.make_manifest(
+            kind="label",
+            kernel="v2",
+            commit="a" * 40,
+            output_dir=tmp_path / "fresh",
+            inventory_path=inventory,
+            public_catalog_path=public,
+            round_id="r1",
+            worlds=2,
+            measured_export_bytes_per_world=1024**3,
+        )
+
+
 def test_v2_shells_select_kernel_and_mac_full_round_guard() -> None:
     bench = Path("research/t34_exit_b8/bench.sh").read_text()
     labels = Path("research/t34_exit_b8/label.sh").read_text()
@@ -190,6 +246,11 @@ def test_v2_zero_completion_keeps_per_world_work_null(
             "configured_root_capacity": 2,
             "peak_root_worlds": 0,
             "search_batch_peak": 0,
+            "invalid_reason": "shadow_control_mismatch",
+            "unfinished_worlds": 2,
+            "world_rate_scope": "complete_worlds_only",
+            "root_inference_bucket_peak": 2,
+            "branch_bucket_capacity": 32,
         }
 
     monkeypatch.setattr(benchmark, "_cpu_ceiling", lambda _threads: None)
@@ -210,3 +271,5 @@ def test_v2_zero_completion_keeps_per_world_work_null(
         }
     )
     assert report["executed_row_steps_per_world"] is None
+    assert report["invalid_reason"] == "shadow_control_mismatch"
+    assert report["unfinished_worlds"] == 2

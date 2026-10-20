@@ -255,6 +255,17 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "worker_rate_descriptive_only": True,
         **({"runtime_hardware": _runtime_hardware()} if cpu_runtime_probe else {}),
+        **{
+            key: result[key]
+            for key in (
+                "invalid_reason",
+                "unfinished_worlds",
+                "world_rate_scope",
+                "root_inference_bucket_peak",
+                "branch_bucket_capacity",
+            )
+            if key in result
+        },
     }
     return result
 

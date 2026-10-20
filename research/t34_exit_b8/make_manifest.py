@@ -52,6 +52,9 @@ V2_SOURCE_PATHS = [
     "research/redesign_m2_20261008",
     "research/redesign_scope_20261007",
 ]
+MAX_V2_EXPORT_BYTES = 2 * 1024**3
+EXPORT_SIZING_FACTOR = 1.25
+EXPORT_SIZING_RESERVE_BYTES = 16 * 1024**2
 
 
 class ManifestRefused(ValueError):
@@ -135,6 +138,7 @@ def make_manifest(
     kernel: str = "v1",
     cpu_runtime_probe: bool = False,
     cpu_rate_units_per_hour: float | None = None,
+    measured_export_bytes_per_world: int | None = None,
 ) -> dict[str, Any]:
     """Build an A5 or label draft, refusing unsafe identities and namespaces."""
     if kind not in {"benchmark", "label"}:
@@ -149,6 +153,16 @@ def make_manifest(
         or float(cpu_rate_units_per_hour) <= 0
     ):
         raise ManifestRefused("CPU runtime probe requires an observed positive provider rate")
+    if (
+        kind == "label"
+        and kernel == "v2"
+        and (
+            isinstance(measured_export_bytes_per_world, bool)
+            or not isinstance(measured_export_bytes_per_world, int)
+            or measured_export_bytes_per_world <= 0
+        )
+    ):
+        raise ManifestRefused("v2 labels require positive measured_export_bytes_per_world")
     if len(commit) != 40 or any(char not in "0123456789abcdef" for char in commit):
         raise ManifestRefused("commit must be a full lowercase 40-character SHA")
     output_dir = output_dir.expanduser()
@@ -312,6 +326,28 @@ def make_manifest(
         rate = float(cpu_rate_units_per_hour)
         # The same 30-minute benchmark window governs this descriptive probe.
         budget = {"unit_cap": rate * 0.5, "rate_units_per_hour": rate, "reserve_units": 0.0}
+    export_sizing: dict[str, Any] | None = None
+    max_export_bytes = 64 * 1024**2
+    if kernel == "v2":
+        max_export_bytes = MAX_V2_EXPORT_BYTES
+        if kind == "label":
+            assert worlds is not None and measured_export_bytes_per_world is not None
+            projected = (
+                math.ceil(worlds * measured_export_bytes_per_world * EXPORT_SIZING_FACTOR)
+                + EXPORT_SIZING_RESERVE_BYTES
+            )
+            if projected > MAX_V2_EXPORT_BYTES:
+                raise ManifestRefused(
+                    "v2 label export projection exceeds 2 GiB; reduce chunk worlds"
+                )
+            export_sizing = {
+                "measured_export_bytes_per_world": measured_export_bytes_per_world,
+                "factor": EXPORT_SIZING_FACTOR,
+                "reserve_bytes": EXPORT_SIZING_RESERVE_BYTES,
+                "projected_bytes": projected,
+                "limit_bytes": MAX_V2_EXPORT_BYTES,
+                "provisional_until_full_a5": True,
+            }
     return {
         "job_id": job_id,
         "commit": commit,
@@ -330,7 +366,8 @@ def make_manifest(
         "inputs": inputs,
         "budget": budget,
         "lease_seconds": 600,
-        "max_export_bytes": 64 * 1024**2,
+        "max_export_bytes": max_export_bytes,
+        **({"export_sizing": export_sizing} if export_sizing is not None else {}),
         **({"source_paths": V2_SOURCE_PATHS} if kernel == "v2" else {}),
     }
 
@@ -368,6 +405,7 @@ def main() -> None:
     parser.add_argument("--kernel", choices=("v1", "v2"), default="v1")
     parser.add_argument("--cpu-runtime-probe", action="store_true")
     parser.add_argument("--cpu-rate-units-per-hour", type=float)
+    parser.add_argument("--measured-export-bytes-per-world", type=int)
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
     manifest = make_manifest(
@@ -388,6 +426,7 @@ def main() -> None:
         kernel=args.kernel,
         cpu_runtime_probe=args.cpu_runtime_probe,
         cpu_rate_units_per_hour=args.cpu_rate_units_per_hour,
+        measured_export_bytes_per_world=args.measured_export_bytes_per_world,
     )
     if args.validate:
         validate_manifest(manifest)
