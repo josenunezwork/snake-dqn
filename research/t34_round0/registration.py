@@ -27,7 +27,25 @@ def check_audit(bank_path: Path, audit_path: Path, *, preflight: bool = False) -
     """Validate the saved Mac audit instead of re-scanning partial Colab history."""
     bank, audit = read_json(bank_path), read_json(audit_path)
     validate_bank(bank, preflight=preflight)
+    if not preflight:
+        tables = read_json(PACKAGE / "TABULAR_SEED_AUDIT.json")
+        if (
+            tables.get("status") != "CLEAR"
+            or tables.get("collisions") != []
+            or tables.get("bank_sha256") != sha256(bank_path)
+            or tables.get("candidate_count") != 242
+            or not tables.get("files")
+        ):
+            raise ValueError("CSV/TSV historical-bank audit does not bind this allocation")
     seeds = {r["world_seed"] for r in bank["rows"]}
+    # Retention can grow concurrently on main. Recheck its current frozen bytes
+    # rather than treating the original audit's historical hash as current.
+    retention = read_json(ROOT / "research/t34_pathb/RETENTION_BANK_V2.json")
+    other_rows = [*retention["terminal_rows"], *retention["product_rows"], retention["timing_row"]]
+    other_seeds = {row["seed"] for row in other_rows}
+    own_seeds = seeds | {r["world_seed"] for r in bank.get("excluded_preflight_rows", [])}
+    if len(other_seeds) != len(other_rows) or not other_rows or own_seeds & other_seeds:
+        raise ValueError("whole Round 0 allocation collides with the current retention bank")
     if (
         audit.get("schema") != "t34-round0-seed-audit/v1"
         or audit.get("status") != "CLEAR"

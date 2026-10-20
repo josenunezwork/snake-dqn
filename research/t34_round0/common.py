@@ -74,6 +74,8 @@ def source_hashes(repo: Path = ROOT) -> dict[str, str]:
     selected.add("research/t34_round0/PREREGISTRATION_ROUND0.md")
     selected.add("research/t34_round0/BANK_ROUND0.json")
     selected.add("research/t34_round0/SEED_AUDIT_ROUND0.json")
+    selected.add("research/t34_round0/TABULAR_SEED_AUDIT.json")
+    selected.add("research/t34_pathb/RETENTION_BANK_V2.json")
     selected.add("research/t34_round0/OC_ROUND0.json")
     selected.add("research/colab_cli/QUALIFICATION.md")
     selected.add("research/t34_exit_b8/PUBLIC_INPUTS.json")
