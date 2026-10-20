@@ -88,6 +88,13 @@
   "schema": "t34-pathb-v2-retention-profile/v1",
   "survival_band": {
     "alpha": 0.05,
+    "amendment": {
+      "changes": "none",
+      "decision": "ratified",
+      "option": 1,
+      "path": "docs/research/governance_amendment_survival_band_v2_2026-10-06.md",
+      "sha256": "6a1035627eec1c78f828b9258d54324649bd1f797b97dddc538a8319ff4c0cd2"
+    },
     "amendment_option": 1,
     "bound": "rci_obf",
     "floor": 0.3,

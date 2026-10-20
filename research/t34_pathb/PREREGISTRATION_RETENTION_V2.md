@@ -125,7 +125,8 @@ ordering), compares to .05 then .10; report raw and adjusted p-values. Unpaced
 is in this family despite being descriptive, as required by Amendment 2.
 The survival intersection-union components use alpha .05 without dividing
 across mixes: every component must pass. Survival band v2 margins and floor
-are unchanged. The single final look uses its one-look OBF level .05; no
+are unchanged. The profile binds the original amendment document by SHA-256
+and its exact ratification tuple (Decision: ratified; Option: 1; Changes: none). The single final look uses its one-look OBF level .05; no
 sequential continuation is introduced. A fixed-controller independent-stratum
 Welch bound replaces arbitrary shared-index covariance, per P7.
 
@@ -202,7 +203,7 @@ sequential expected cost at +40 using development variance and explicit spending
 and stop assumptions; this does not authorize a sequential design. Amendment 2
 fixes this study at N=32/mix and one look; do not convert after commencement.
 Minimum pacing exposure if all heroes survive: 112 rows * 2 paced arms *
-5000/24 = 12.963 h, plus four timing probes (0.361 h + warmup), setup and
+5000/24 = 12.963 h, plus four timing probes (0.347 h + 0.014 h warmup), setup and
 unpaced work; 32 h is a hard cap, not a runtime promise. Terminal early deaths
 shorten pacing only; their dead remainder remains zero-scored. Descriptive
 unpaced search cost can dominate and is included in both caps.

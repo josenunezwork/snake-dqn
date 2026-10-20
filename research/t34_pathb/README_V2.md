@@ -166,3 +166,145 @@ prospective registration; an opaque success flag or CLI exit status is not proof
 Passing this implementation's tests does not pass Claim B. A development GO
 admits fresh Mac strict-gate preparation; release and wider-roster qualification
 remain separate operator decisions.
+
+## Retention registration package
+
+The 2026-10-20 package is **DRAFT_PENDING_OPERATOR_RATIFICATION**. Read
+[PREREGISTRATION_RETENTION_V2.md](PREREGISTRATION_RETENTION_V2.md), including the
+explicit near-boundary INCONCLUSIVE precedence, before ratification. The draft
+JSON binds the committed bank, audit, profile, checkpoints and development-only
+OC receipt. Its only deferred evidence binding is the final-source trace receipt.
+It is unauthorized; pending quiet-host conditions are not observed facts.
+
+`registration_retention_v2` only allocates, hashes, validates and writes
+create-only registrations. It cannot start gameplay. The full 113-seed allocation
+was audited before bank publication; **do not run allocate again** on these
+namespaces, because their declarations are now searchable history. A collision
+rejects the whole allocation. A future namespace needs a prospective sibling
+erratum, never a replacement seed. The bank fixes 96 terminal rows, 16 product
+rows and one separate timing seed, with exact historical terminal rosters.
+
+Package validation (safe during implementation; no pre-check or efficacy):
+
+```bash
+cd /Users/josenunez/Projects/ml/snake-dqn-retention-prereg
+export SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+"$PY" -m research.t34_pathb.registration_retention_v2 validate
+```
+
+The OC receipt contains 20,000 replicates per declared proxy/stress model,
+protected-regression scenarios, +40 mass power and a fixed-N/sequential cost
+comparison. T3's 32 physical seeds are resampled separately for s0/s3; they are
+not 64 independent worlds. Frozen/mixed terminal variance is a disclosed proxy.
+Power for a positive mass bound is distinct from power to meet point gain +40;
+product, boost and no-death bars can reduce joint success further. Fixed N stays
+fixed. The simulator is one-thread, checkpointed every 250 replicates, with a
+60-second command budget. To reproduce it prospectively into **new** paths:
+
+```bash
+"$PY" -m research.t34_pathb.retention_oc_v2 \
+  --out /absolute/path/new-oc.json \
+  --state /absolute/path/new-oc-state.json \
+  --reps 20000 --seed 3420261020 --max-seconds 60
+# If INCOMPLETE, repeat that exact command with --resume; do not change its inputs.
+```
+
+The following is an **operator-only sequence**, not run by the implementation
+job. Phase 0 must have finished and the Mac must be quiet, on AC, lid open and
+thermally admitted. No live service, tmux or cloud command is needed. Do not
+continue if validation fails. Numerical sources must be committed and unchanged
+through trace verification, pre-check, ratification and efficacy. The trace
+receipt must come from actual final-source identity/trace verification and bind
+`retention_v2.source_inventory()`; the old implementation receipt is stale for
+this expanded inventory. This package deliberately does not manufacture it.
+
+First obtain the actual Phase 0 completion receipt and final-source PASS trace
+receipt, then set their existing absolute paths below. The completion receipt
+is evidence the operator reviews; mere file existence does not prove Phase 0
+finished. The operator authorizes the pre-check separately, then runs:
+
+```bash
+cd /Users/josenunez/Projects/ml/snake-dqn-retention-prereg
+export SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+E=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-01
+export PHASE0_RECEIPT=/absolute/path/actual-phase0-completion-receipt.json
+TRACE=/absolute/path/actual-final-source-trace-receipt.json
+mkdir "$E"
+
+"$PY" -m research.t34_pathb.registration_retention_v2 validate
+"$PY" -m research.t34_pathb.precheck_v2 --out "$E/t3-dense-64.json"
+"$PY" -m research.t34_pathb.retention_v2 precheck \
+  --input "$E/t3-dense-64.json" --out "$E/precheck"
+```
+
+Stop unless that actual pre-check reached **>=50/64**. It is reused development
+data, not Claim B evidence. Capture observed load only after verifying Phase 0
+completion and absence of other project compute. The command below records real
+load/power/lid/thermal readings and the reviewed completion receipt hash; the
+`phase0_finished` and zero competing-job fields are operator attestations to
+those checks. Run it only when they are true:
+
+```bash
+export RETENTION_OPERATOR_EVIDENCE="$E"
+"$PY" - <<'PY'
+import hashlib, json, os
+from datetime import datetime, timezone
+from pathlib import Path
+from research.compute.thermal_guard import read_pmset_therm, parse_pmset_therm, thermal_reasons
+from research.perf_sim_20261007 import with_slots
+phase0 = Path(os.environ['PHASE0_RECEIPT']).resolve(strict=True)
+thermal = read_pmset_therm()
+ac, lid = with_slots.on_ac(), with_slots.lid_open()
+ok = bool(thermal.get('available')) and not thermal_reasons(parse_pmset_therm(thermal.get('text') or ''))
+assert ac and lid and ok, 'AC/lid/thermal admission failed'
+record = {
+    'timestamp': datetime.now(timezone.utc).isoformat(),
+    'phase0_finished': True,
+    'phase0_completion_evidence': str(phase0),
+    'phase0_completion_sha256': hashlib.sha256(phase0.read_bytes()).hexdigest(),
+    'other_project_cpu_jobs': 0,
+    'load_average': list(os.getloadavg()),
+    'ac_power': ac, 'lid_open': lid, 'thermal_ok': ok,
+    'thermal_telemetry': thermal,
+}
+with (Path(os.environ['RETENTION_OPERATOR_EVIDENCE']) / 'quiet-host.json').open('x') as stream:
+    json.dump(record, stream, indent=2, allow_nan=False)
+    stream.write('\n')
+PY
+
+# Bind the exact HEAD recorded by the actual pre-check; later JSON-only commits are allowed.
+SOURCE_COMMIT=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["source_commit"])' "$E/precheck/precheck.json")
+READY=research/t34_pathb/REGISTRATION_RETENTION_V2_RATIFIED.json
+"$PY" -m research.t34_pathb.registration_retention_v2 ratify \
+  --source-commit "$SOURCE_COMMIT" --precheck "$E/precheck/precheck.json" \
+  --trace-receipt "$TRACE" --load-record "$E/quiet-host.json" \
+  --operator Claude --acknowledge-near-boundary-precedence --out "$READY"
+
+# Publish ratification before efficacy; preserve the draft's bytes.
+git add "$READY"
+git commit -m 'Ratify T34 paced retention before efficacy'
+git fetch origin
+git merge origin/main
+git push origin HEAD:main
+git push origin t34-retention-prereg-20261020
+
+# Any intervening execution-source change blocks this validation; do not bypass it.
+"$PY" -m research.t34_pathb.registration_retention_v2 validate \
+  --registration "$READY" --ready --precheck "$E/precheck/precheck.json"
+"$PY" -m research.t34_pathb.retention_v2 run \
+  --registration "$READY" --precheck "$E/precheck/precheck.json" \
+  --out "$E/retention"
+"$PY" -m research.t34_pathb.retention_v2 analyze --out "$E/retention"
+```
+
+Exactly one complete fixed-N look. Preserve incomplete/fault evidence; no
+automatic retry, efficacy resume, bank replacement or extension. The first of
+32 h elapsed / 48 CPU-h / $0 wins. Product sessions and timing use actual offline
+Watch6; no release-monitor or leaderboard writes. Development GO only admits
+fresh Mac strict-gate preparation. Client latency, Watch8/12, Play, serving
+qualification, visible assisted labelling and owner-approved release remain
+separate. Teacher label rounds are not funded by this package.
