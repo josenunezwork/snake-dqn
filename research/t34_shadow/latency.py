@@ -109,11 +109,17 @@ def benchmark(mix: str, warm_frames: int, samples: int, catchups: int, budget: B
         catchup_times.append(time.perf_counter() - start)
         catchup_counts.append(count)
     step_times, confirm_times, tick_times, confirmations = [], [], [], 0
-    for _ in range(samples):
+    observed_ticks, reforks = 0, 0
+    while len(step_times) < samples and observed_ticks < 5000:
         budget.check()
-        if not bool(source.sim.alive[0, 0]) or not shadow.frames:
-            break
         choose_and_step(source, capture_obs=False)
+        observed_ticks += 1
+        if not shadow.frames:
+            if bool(source.sim.alive[0, 0]):
+                shadow.fork(source)
+                shadow.catch_up(deadline=deadline)
+                reforks += 1
+            continue
         tick_started = time.perf_counter()
         if not shadow.confirm(source):
             raise RuntimeError("independent source/shadow full-state confirmation failed")
@@ -136,6 +142,8 @@ def benchmark(mix: str, warm_frames: int, samples: int, catchups: int, budget: B
         "timing_source_frame": source_frame,
         "selection": "latest fixed 500-frame checkpoint known to survive 300 frames, else initial",
         "confirmations": confirmations,
+        "observed_ticks": observed_ticks,
+        "untimed_reforks_after_doom_or_respawn": reforks,
         "step": quantiles(step_times),
         "confirm": quantiles(confirm_times),
         "confirm_plus_step": quantiles(tick_times),
