@@ -173,8 +173,10 @@ Only missing binary packages were installed, using `--no-deps`: ONNX 1.23.2,
 ONNX Runtime 1.31.0, ml_dtypes 0.6.0 and flatbuffers 25.12.19. Existing dependency
 versions were preserved. The first export failed because ml_dtypes was missing;
 the failed log and installation/repair receipts are retained. The successful
-raw receipt is `m4-runtime-02.json`. All active install/probe work stayed within
-the ten-minute cap.
+raw receipt is `m4-runtime-02.json`. Both probe attempts were bounded by 600-second supervisors and completed
+in under five seconds each. Installation was observed within the ten-minute
+M4 work window; install receipts preserve package changes but do not contain
+per-command elapsed timing, which limits retrospective timing audit.
 
 ## Execution, commands and verification
 
