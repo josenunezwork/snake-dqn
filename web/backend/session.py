@@ -985,7 +985,7 @@ class GameSession:
                         latency_eligible=latency_eligible,
                     )
             self._enforce_food_target()
-            if self.pathb is not None:
+            if getattr(self, "pathb", None) is not None:
                 self.pathb.after_step()
 
     def _is_b8_release_monitoring(self) -> bool:
@@ -1072,13 +1072,13 @@ class GameSession:
     # -- controls -----------------------------------------------------------
     def set_playing(self, value: bool) -> None:
         with self._lock:
-            if self.pathb is not None:
+            if getattr(self, "pathb", None) is not None:
                 self.pathb.invalidate()
             self.playing = bool(value)
 
     def set_speed(self, fps: float) -> None:
         with self._lock:
-            if self.pathb is not None:
+            if getattr(self, "pathb", None) is not None:
                 self.pathb.invalidate()
             self.speed = max(1.0, min(self.speed_ceiling, float(fps)))
 
@@ -1092,7 +1092,7 @@ class GameSession:
 
     def set_epsilon(self, eps: float) -> None:
         with self._lock:
-            if self.pathb is not None:
+            if getattr(self, "pathb", None) is not None:
                 self.pathb.invalidate()
             self.policy.epsilon = max(0.0, min(1.0, float(eps)))
 
@@ -1111,7 +1111,7 @@ class GameSession:
         trims the excess here. Persisted on the GameState so resets keep it.
         """
         with self._lock:
-            if self.pathb is not None:
+            if getattr(self, "pathb", None) is not None:
                 self.pathb.invalidate()
             target = max(0, min(1000, int(target)))
             if self.obs_spec == RASTER31V3:
@@ -1133,7 +1133,7 @@ class GameSession:
 
     def reset_game(self) -> None:
         with self._lock:
-            if self.pathb is not None:
+            if getattr(self, "pathb", None) is not None:
                 self.pathb.invalidate()
             self.game.reset()
             if self._is_b8_release_monitoring():
@@ -1478,7 +1478,7 @@ class GameSession:
     # -- state report -------------------------------------------------------
     def close(self, wait: bool = False) -> None:
         """Release only this session's optional worker, outside the serving tick."""
-        if self.pathb is not None:
+        if getattr(self, "pathb", None) is not None:
             self.pathb.close(wait=wait)
 
     def safety_veto_state(self) -> Optional[Dict[str, object]]:
@@ -1528,7 +1528,7 @@ class GameSession:
                         ),
                     }
                 )
-            if self.pathb is not None and self.pathb.active:
+            if getattr(self, "pathb", None) is not None and self.pathb.active:
                 state["pathb"] = self.pathb.state()
             return state
 

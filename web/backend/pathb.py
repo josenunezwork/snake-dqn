@@ -29,6 +29,7 @@ def eligible(session: Any) -> bool:
         and not choice.get("reason")
         and not choice.get("pin_problems")
         and session.game.snakes[0].policy is session.policy
+        and str(getattr(session.policy, "device", "cpu")) == "cpu"
         and session.game.snakes[0].safety_veto is None
     )
 
@@ -52,6 +53,7 @@ class ServingAssistance:
         self._sync: tuple[tuple, dict[str, Any]] | None = None
         self._scheduled_reason = "no_request"
         self._sync_requests = 0
+        self._submission_errors = 0
         self.cap_deadline: float | None = None
         self._alive = bool(session.game.snakes[0].is_alive)
         self.attach()
@@ -147,21 +149,14 @@ class ServingAssistance:
             self._scheduled_reason = "submitted"
         except Exception as exc:
             self._scheduled_reason = f"snapshot_or_worker_error:{type(exc).__name__}"
-            # Failure is a counted bare fallback, never a lost serving tick.
-            self.controller.record(
-                {
-                    "requested": False,
-                    "applied": False,
-                    "stale_discarded": False,
-                    "deadline_miss": False,
-                    "fallback_reason": f"snapshot_or_worker_error:{type(exc).__name__}",
-                    "proposed_action": None,
-                    "executed_action": None,
-                }
-            )
+            self._submission_errors += 1
+            # Count the fallback on the actual target decision, once. This is
+            # a submission event, not an extra executed hero decision.
+            _LOG.warning("pathb-request-error: frame=%s reason=%s", target, self._scheduled_reason)
 
     def state(self) -> dict[str, Any]:
         state = {**self.controller.state(), "active": self.active, "hero_id": 0}
+        state["counts"]["submission_errors"] = self._submission_errors
         if self.mode == "sync":
             state["counts"]["requested"] = self._sync_requests
         return state
