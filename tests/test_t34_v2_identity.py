@@ -48,27 +48,29 @@ torch.set_num_interop_threads(1)
 
 from research.t34_exit_b8.teacher_v2 import run_worlds
 
-result = run_worlds(
-    {
-        "checkpoint": sys.argv[2],
-        "output_dir": Path(sys.argv[1]),
-        "namespace": "t34-v2-a1-process-identity/v1",
-        "mixes": ("scripted", "frozen", "mixed"),
-        "max_worlds": 3,
-        "worlds_per_process": 3,
-        "frames": 2,
-        "horizon": 300,
-        "shadow_depth": 300,
-        "beta": 1.0,
-        "device": "cpu",
-        "seconds": 180,
-    }
-)
-assert result["complete"], result
-assert result["worlds"] == 3, result
-assert result["shadow_depth"] == 300, result
-assert result["label_rule"] == "teacher-stride10-transition-refine5", result
-Path(sys.argv[1], "summary.json").write_text(json.dumps(result, sort_keys=True))
+for repeat in range(2):
+    output = Path(sys.argv[1]) / f"repeat-{repeat}"
+    result = run_worlds(
+        {
+            "checkpoint": sys.argv[2],
+            "output_dir": output,
+            "namespace": "t34-v2-a1-process-identity/v1",
+            "mixes": ("scripted", "frozen", "mixed"),
+            "max_worlds": 3,
+            "worlds_per_process": 3,
+            "frames": 2,
+            "horizon": 300,
+            "shadow_depth": 300,
+            "beta": 1.0,
+            "device": "cpu",
+            "seconds": 180,
+        }
+    )
+    assert result["complete"], result
+    assert result["worlds"] == 3, result
+    assert result["shadow_depth"] == 300, result
+    assert result["label_rule"] == "teacher-stride10-transition-refine5", result
+    output.joinpath("summary.json").write_text(json.dumps(result, sort_keys=True))
 """
     child_env = dict(os.environ)
     for name in (
@@ -106,27 +108,36 @@ def test_v2_exports_are_byte_identical_across_spawned_processes_and_replay(
         root.mkdir()
         _run_in_child(root, checkpoint)
 
-    first = _export_files(roots[0])
-    second = _export_files(roots[1])
-    assert sorted(first) == sorted(second)
-    assert first == second
+    export_sets = [
+        _export_files(root / f"repeat-{repeat}") for root in roots for repeat in range(2)
+    ]
+    first = export_sets[0]
     payloads = [path for path in sorted(first) if path.endswith(".json")]
     assert len(payloads) == 3
+    assert all(len(path_set) == len(first) for path_set in export_sets)
+    assert all(path_set == first for path_set in export_sets[1:])
 
-    for relative in payloads:
-        path = roots[0] / relative
-        exported = load_world(path)
-        assert exported["teacher_v2"]["kernel"] == "shadow-lad-v2"
-        assert exported["teacher_v2"]["shadow_depth"] == 300
-        assert exported["teacher_v2"]["label_rule"] == "teacher-stride10-transition-refine5"
-        assert exported["teacher_v2"]["action_trace_width"] == 6
-        assert exported["teacher_v2"]["hash_interval"] == 250
-        assert exported["rng_stream_ids"]
-        result = replay.replay_world(exported, checkpoint)
-        assert result.accepted, f"{relative}: {result.mismatch}"
+    for repeat, root in enumerate(roots):
+        for attempt in range(2):
+            export_root = root / f"repeat-{attempt}"
+            for relative in payloads:
+                path = export_root / relative
+                exported = load_world(path)
+                assert len(exported["labels"]) >= 2, f"{relative}: labels were not regenerated"
+                assert exported["teacher_v2"]["kernel"] == "shadow-lad-v2"
+                assert exported["teacher_v2"]["shadow_depth"] == 300
+                assert exported["teacher_v2"]["label_rule"] == "teacher-stride10-transition-refine5"
+                assert exported["teacher_v2"]["action_trace_width"] == 6
+                assert exported["teacher_v2"]["hash_interval"] == 250
+                assert exported["rng_stream_ids"]
+                result = replay.replay_world(exported, checkpoint)
+                assert (
+                    result.accepted
+                ), f"process={repeat} repeat={attempt} {relative}: {result.mismatch}"
 
     # Keep the digest comparison explicit in the test receipt so a future
     # failure identifies a changed byte stream rather than only a row count.
-    assert hashlib.sha256(first[payloads[0]]).hexdigest() == hashlib.sha256(
-        second[payloads[0]]
-    ).hexdigest()
+    assert (
+        hashlib.sha256(first[payloads[0]]).hexdigest()
+        == hashlib.sha256(export_sets[-1][payloads[0]]).hexdigest()
+    )

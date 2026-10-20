@@ -16,8 +16,10 @@ def test_world_forward_buckets_are_bounded_and_scattered(monkeypatch) -> None:
     worlds = []
     for index in range(5):
         sim = SimpleNamespace(index=index)
-        sim.get_legal_action_mask = lambda: np.ones((1, 6), dtype=bool)
-        sim.get_advisory_action_mask = lambda: np.array([[True, True, True, False, False, False]])
+        sim.get_legal_action_mask = lambda: np.ones((1, 6, 6), dtype=bool)
+        sim.get_advisory_action_mask = lambda: np.tile(
+            np.array([True, True, True, False, False, False]), (1, 6, 1)
+        )
         worlds.append(SimpleNamespace(sim=sim, hero=SimpleNamespace(net=model)))
 
     def raster(sim, *args, **kwargs):
