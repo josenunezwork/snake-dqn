@@ -299,7 +299,7 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
         from research.t34_exit_b8.process_fanout import run_fanout
         from research.t34_exit_b8.trajectory import make_world_rows
 
-        rows = make_world_rows(config, max_worlds)
+        rows = list(config.get("rows") or make_world_rows({**config, "mixes": mixes}, max_worlds))
         effective_nproc = min(nproc, max_worlds)
         result = run_fanout(
             {
