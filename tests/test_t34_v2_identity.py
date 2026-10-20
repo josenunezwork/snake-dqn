@@ -33,7 +33,7 @@ def _export_files(root: Path) -> dict[str, bytes]:
     }
 
 
-def _run_in_child(output: Path, checkpoint: Path) -> None:
+def _run_in_child(output: Path, checkpoint: Path, *, searched: bool = False) -> None:
     """Run the v2 kernel once in a fresh interpreter with the Mac CPU cap."""
     program = r"""
 import json
@@ -48,17 +48,21 @@ torch.set_num_interop_threads(1)
 
 from research.t34_exit_b8.teacher_v2 import run_worlds
 
+searched = sys.argv[3] == "searched"
 for repeat in range(2):
     output = Path(sys.argv[1]) / f"repeat-{repeat}"
     result = run_worlds(
         {
             "checkpoint": sys.argv[2],
             "output_dir": output,
-            "namespace": "t34-v2-a1-process-identity/v1",
+            "namespace": (
+                "t34-v2-amend2-preflight/benchmark/03"
+                if searched else "t34-v2-a1-process-identity/v1"
+            ),
             "mixes": ("scripted", "frozen", "mixed"),
-            "max_worlds": 3,
-            "worlds_per_process": 3,
-            "frames": 2,
+            "max_worlds": 2 if searched else 3,
+            "worlds_per_process": 2 if searched else 3,
+            "frames": 500 if searched else 2,
             "horizon": 300,
             "shadow_depth": 300,
             "beta": 1.0,
@@ -67,7 +71,9 @@ for repeat in range(2):
         }
     )
     assert result["complete"], result
-    assert result["worlds"] == 3, result
+    assert result["worlds"] == (2 if searched else 3), result
+    if searched:
+        assert sum(mix['searched'] for mix in result['mixes'].values()) >= 1, result
     assert result["shadow_depth"] == 300, result
     assert result["label_rule"] == "bisection-radius3-prepared-cache", result
     output.joinpath("summary.json").write_text(json.dumps(result, sort_keys=True))
@@ -84,7 +90,14 @@ for repeat in range(2):
         child_env[name] = "1"
     child_env["SNAKE_DQN_DEVICE"] = "cpu"
     completed = subprocess.run(
-        [sys.executable, "-c", program, str(output), str(checkpoint)],
+        [
+            sys.executable,
+            "-c",
+            program,
+            str(output),
+            str(checkpoint),
+            "searched" if searched else "anchors",
+        ],
         check=False,
         env=child_env,
         capture_output=True,
@@ -155,6 +168,32 @@ def test_v2_exports_are_byte_identical_across_spawned_processes_and_replay(
         hashlib.sha256(first[payloads[0]]).hexdigest()
         == hashlib.sha256(export_sets[-1][payloads[0]]).hexdigest()
     )
+
+
+def test_h300_searched_exports_match_across_processes_and_replay(tmp_path: Path) -> None:
+    """Repeat the reused two-world development smoke that reaches a real doom.
+
+    This verifies the complete H300 search metadata, not an efficacy estimate.
+    The bank is deliberately reused and excluded from campaign inference.
+    """
+    checkpoint = _checkpoint()
+    roots = [tmp_path / "search-process-0", tmp_path / "search-process-1"]
+    for root in roots:
+        root.mkdir()
+        _run_in_child(root, checkpoint, searched=True)
+    sets = [_export_files(root / f"repeat-{i}") for root in roots for i in range(2)]
+    assert all(files == sets[0] for files in sets[1:])
+    assert len([path for path in sets[0] if path.endswith(".json")]) == 2
+    for root in roots:
+        for repeat in range(2):
+            exports = [
+                load_world(p) for p in sorted((root / f"repeat-{repeat}").glob("world-*.json"))
+            ]
+            assert sum(d["teacher_v2"]["shadow_searches"] for d in exports) >= 1
+            assert any(row.get("searched") for d in exports for row in d["labels"])
+            for exported in exports:
+                result = replay.replay_world(exported, checkpoint)
+                assert result.accepted, result.mismatch
 
 
 def test_real_doom_batch_keeps_frozen_carry_and_source_identity() -> None:
