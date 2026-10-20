@@ -308,3 +308,6 @@ Watch6; no release-monitor or leaderboard writes. Development GO only admits
 fresh Mac strict-gate preparation. Client latency, Watch8/12, Play, serving
 qualification, visible assisted labelling and owner-approved release remain
 separate. Teacher label rounds are not funded by this package.
+
+Package verification, exact preparation commands and the development-only OC
+results are recorded in [VERIFICATION_RETENTION_V2.md](VERIFICATION_RETENTION_V2.md).

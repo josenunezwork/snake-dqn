@@ -1,0 +1,3957 @@
+{
+  "fresh_disjoint_banks": true,
+  "namespaces": {
+    "product_mixed_watch6": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+    "terminal_frozen": "t34-retention-prereg-20261020/v1/terminal-frozen",
+    "terminal_mixed": "t34-retention-prereg-20261020/v1/terminal-mixed",
+    "terminal_scripted": "t34-retention-prereg-20261020/v1/terminal-scripted",
+    "timing_mixed_watch6": "t34-retention-prereg-20261020/v1/timing-mixed-watch6"
+  },
+  "product_rows": [
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 2926977967
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 2722209624
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 3950654580
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 1557870584
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 1454115876
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 172631367
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 740789451
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 2586353313
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 800499147
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 2806575336
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 266039859
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 1713307592
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 785567147
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 3389172889
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 2626612528
+    },
+    {
+      "kind": "product",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/product-mixed-watch6",
+      "seed": 1204021125
+    }
+  ],
+  "schema": "t34-pathb-v2-retention-bank/v1",
+  "terminal_rows": [
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 2578028336,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 0
+      },
+      "seed": 2578028336
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1436281915,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 1
+      },
+      "seed": 1436281915
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1767319626,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 2
+      },
+      "seed": 1767319626
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 2935927881,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 3
+      },
+      "seed": 2935927881
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 3968230456,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 4
+      },
+      "seed": 3968230456
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 3820738589,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 5
+      },
+      "seed": 3820738589
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 452297192,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 6
+      },
+      "seed": 452297192
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1631511831,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 7
+      },
+      "seed": 1631511831
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1066262380,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 8
+      },
+      "seed": 1066262380
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1137161898,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 9
+      },
+      "seed": 1137161898
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1881115315,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 10
+      },
+      "seed": 1881115315
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1125578869,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 11
+      },
+      "seed": 1125578869
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 3908868607,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 12
+      },
+      "seed": 3908868607
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 3238363051,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 13
+      },
+      "seed": 3238363051
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 968463620,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 14
+      },
+      "seed": 968463620
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 2005464953,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 15
+      },
+      "seed": 2005464953
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 564329460,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 16
+      },
+      "seed": 564329460
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 3596491155,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 17
+      },
+      "seed": 3596491155
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1481793738,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 18
+      },
+      "seed": 1481793738
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 3213555233,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 19
+      },
+      "seed": 3213555233
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 2451062663,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 20
+      },
+      "seed": 2451062663
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 2178988739,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 21
+      },
+      "seed": 2178988739
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 2921863692,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 22
+      },
+      "seed": 2921863692
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1421179633,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 23
+      },
+      "seed": 1421179633
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 2869715891,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 24
+      },
+      "seed": 2869715891
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1540141440,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 25
+      },
+      "seed": 1540141440
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 3761053491,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 26
+      },
+      "seed": 3761053491
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1547715604,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 27
+      },
+      "seed": 1547715604
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 2473825977,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 28
+      },
+      "seed": 2473825977
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 777015262,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 29
+      },
+      "seed": 777015262
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 2201608638,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 30
+      },
+      "seed": 2201608638
+    },
+    {
+      "kind": "terminal",
+      "mix": "scripted",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-scripted",
+      "roster": {
+        "member_sha256s": [
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+          "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+        ],
+        "mix": "scripted",
+        "seed": 1119224065,
+        "specs": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "world_index": 31
+      },
+      "seed": 1119224065
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "frozen",
+        "seed": 3883094916,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 32
+      },
+      "seed": 3883094916
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "frozen",
+        "seed": 1373207970,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 33
+      },
+      "seed": 1373207970
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "frozen",
+        "seed": 2619868300,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 34
+      },
+      "seed": 2619868300
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "frozen",
+        "seed": 2187690173,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 35
+      },
+      "seed": 2187690173
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "frozen",
+        "seed": 1498241368,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 36
+      },
+      "seed": 1498241368
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "frozen",
+        "seed": 631600532,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 37
+      },
+      "seed": 631600532
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "frozen",
+        "seed": 621654162,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 38
+      },
+      "seed": 621654162
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "frozen",
+        "seed": 1720509332,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 39
+      },
+      "seed": 1720509332
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "frozen",
+        "seed": 1558883682,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 40
+      },
+      "seed": 1558883682
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "frozen",
+        "seed": 3767641243,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 41
+      },
+      "seed": 3767641243
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "frozen",
+        "seed": 1997335844,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 42
+      },
+      "seed": 1997335844
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "frozen",
+        "seed": 2852954571,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 43
+      },
+      "seed": 2852954571
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "frozen",
+        "seed": 3214804680,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 44
+      },
+      "seed": 3214804680
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "frozen",
+        "seed": 1406090729,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 45
+      },
+      "seed": 1406090729
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "frozen",
+        "seed": 3597306228,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 46
+      },
+      "seed": 3597306228
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "frozen",
+        "seed": 3241274205,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 47
+      },
+      "seed": 3241274205
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "frozen",
+        "seed": 3800025754,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 48
+      },
+      "seed": 3800025754
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "frozen",
+        "seed": 2143675500,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 49
+      },
+      "seed": 2143675500
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "frozen",
+        "seed": 832086436,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 50
+      },
+      "seed": 832086436
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "frozen",
+        "seed": 1995852170,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 51
+      },
+      "seed": 1995852170
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "frozen",
+        "seed": 1855182688,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 52
+      },
+      "seed": 1855182688
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "frozen",
+        "seed": 880475400,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 53
+      },
+      "seed": 880475400
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "frozen",
+        "seed": 629681903,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 54
+      },
+      "seed": 629681903
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "frozen",
+        "seed": 1951394848,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 55
+      },
+      "seed": 1951394848
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "frozen",
+        "seed": 3885101686,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 56
+      },
+      "seed": 3885101686
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "frozen",
+        "seed": 4078808770,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 57
+      },
+      "seed": 4078808770
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "frozen",
+        "seed": 382295928,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 58
+      },
+      "seed": 382295928
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "frozen",
+        "seed": 1592085053,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 59
+      },
+      "seed": 1592085053
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "frozen",
+        "seed": 2174019823,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 60
+      },
+      "seed": 2174019823
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "frozen",
+        "seed": 2129873882,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 61
+      },
+      "seed": 2129873882
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "frozen",
+        "seed": 1948808352,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 62
+      },
+      "seed": 1948808352
+    },
+    {
+      "kind": "terminal",
+      "mix": "frozen",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-frozen",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "frozen",
+        "seed": 1267476970,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 63
+      },
+      "seed": 1267476970
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "mixed",
+        "seed": 887848596,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 64
+      },
+      "seed": 887848596
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "mixed",
+        "seed": 1830049890,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 65
+      },
+      "seed": 1830049890
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "mixed",
+        "seed": 3828112217,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 66
+      },
+      "seed": 3828112217
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "mixed",
+        "seed": 633476501,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 67
+      },
+      "seed": 633476501
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "mixed",
+        "seed": 4102970618,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 68
+      },
+      "seed": 4102970618
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "mixed",
+        "seed": 1952677033,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 69
+      },
+      "seed": 1952677033
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "mixed",
+        "seed": 2768629797,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 70
+      },
+      "seed": 2768629797
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "mixed",
+        "seed": 2117454885,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 71
+      },
+      "seed": 2117454885
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "mixed",
+        "seed": 51345801,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 72
+      },
+      "seed": 51345801
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "mixed",
+        "seed": 1899860787,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 73
+      },
+      "seed": 1899860787
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "mixed",
+        "seed": 3400778467,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 74
+      },
+      "seed": 3400778467
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "mixed",
+        "seed": 3459291954,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 75
+      },
+      "seed": 3459291954
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "mixed",
+        "seed": 3535190051,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 76
+      },
+      "seed": 3535190051
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "mixed",
+        "seed": 3109018017,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 77
+      },
+      "seed": 3109018017
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "mixed",
+        "seed": 2831480203,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 78
+      },
+      "seed": 2831480203
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "mixed",
+        "seed": 990701735,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 79
+      },
+      "seed": 990701735
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "mixed",
+        "seed": 605394728,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 80
+      },
+      "seed": 605394728
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "mixed",
+        "seed": 1481232136,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 81
+      },
+      "seed": 1481232136
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "mixed",
+        "seed": 1082532776,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 82
+      },
+      "seed": 1082532776
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "mixed",
+        "seed": 634837716,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 83
+      },
+      "seed": 634837716
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "mixed",
+        "seed": 612921690,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 84
+      },
+      "seed": 612921690
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "mixed",
+        "seed": 1624308337,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 85
+      },
+      "seed": 1624308337
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "mixed",
+        "seed": 2854465091,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 86
+      },
+      "seed": 2854465091
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "mixed",
+        "seed": 100481033,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 87
+      },
+      "seed": 100481033
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "mixed",
+        "seed": 3886709292,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 88
+      },
+      "seed": 3886709292
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "mixed",
+        "seed": 759528316,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 89
+      },
+      "seed": 759528316
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "mixed",
+        "seed": 2490592609,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 90
+      },
+      "seed": 2490592609
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "mixed",
+        "seed": 44043378,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 91
+      },
+      "seed": 44043378
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+        ],
+        "mix": "mixed",
+        "seed": 1625525837,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ]
+        ],
+        "world_index": 92
+      },
+      "seed": 1625525837
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"
+        ],
+        "mix": "mixed",
+        "seed": 792649775,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ]
+        ],
+        "world_index": 93
+      },
+      "seed": 792649775
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        "mix": "mixed",
+        "seed": 1911434321,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ]
+        ],
+        "world_index": 94
+      },
+      "seed": 1911434321
+    },
+    {
+      "kind": "terminal",
+      "mix": "mixed",
+      "namespace": "t34-retention-prereg-20261020/v1/terminal-mixed",
+      "roster": {
+        "member_sha256s": [
+          "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "ae30b423bef16f0cf99eae0322b6f19cf1eb1f24d2cf4c8c207a7551ffc045e4",
+          "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
+        ],
+        "mix": "mixed",
+        "seed": 3467403862,
+        "specs": [
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth"
+          ]
+        ],
+        "world_index": 95
+      },
+      "seed": 3467403862
+    }
+  ],
+  "timing_row": {
+    "kind": "timing",
+    "mix": "mixed",
+    "namespace": "t34-retention-prereg-20261020/v1/timing-mixed-watch6",
+    "seed": 4119672882
+  }
+}
