@@ -1,0 +1,45 @@
+{
+  "checks": {
+    "a6-03/A5_RECEIPT.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-03/A5_RECEIPT.json",
+      "sha256": "04088797cef3b01996e13ec907a9902903adc79dfce98a2ec42dcde3d60ff199"
+    },
+    "a6-03/VERIFICATION.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-03/VERIFICATION.json",
+      "sha256": "3a227b8753b3bba3b7f6f334b514ecc9b493265f3cddc6fa8c57fde69f18c440"
+    },
+    "a6-03/output/chunk.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-03/output/chunk.json",
+      "sha256": "0a842ad3e02328bb62c04f55ce8eac5a6f7d6b04f064b764dfd2d5cd8bd20d4f"
+    },
+    "source-01/qualification.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/source-01/qualification.json",
+      "sha256": "6701964ed840e2cb280c580ac6229c23d31a4bc39f1498676156b93aa4c8c419"
+    },
+    "worker-parity-01/receipt.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/worker-parity-01/receipt.json",
+      "sha256": "7b4aa64f1671b4ea67be3b4084a8fe14896c0dbf556cb524c0abab3046577848"
+    }
+  },
+  "dispatched": false,
+  "initial_cap_plus_reserve_units": 24.88,
+  "maximum_with_one_mechanical_rerun_per_chunk_units": 49.76,
+  "ratified": false,
+  "schema": "t34-round0-integrity-preparation/v1",
+  "source_commit": "8900d2b546bf6a2b0c8356ae9e99f877d865cb61",
+  "status": "DRAFT_VALIDATED_NOT_RATIFIED",
+  "tests": {
+    "combined_failed": 1,
+    "combined_passed": 176,
+    "combined_seconds": 560.53,
+    "failed_node": "tests/test_colab_cli_supervisor.py::test_provider_calibration_timeout_is_a_real_elapsed_bound",
+    "full_nonslow_completed": false,
+    "isolated_current_passed": 1,
+    "isolated_current_seconds": 14.91,
+    "isolated_starting_commit_passed": 1,
+    "isolated_starting_commit_seconds": 13.37,
+    "round0_passed": 68,
+    "timing_failure_cause": "UNRESOLVED_BATCH_SENSITIVITY",
+    "transport_code_changed": false
+  }
+}

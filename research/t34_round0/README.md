@@ -1,5 +1,7 @@
 # T34 Round 0 preparation and operator runbook
 
+Latest implementation evidence: [VERIFICATION_INTEGRITY_SIZING.md](VERIFICATION_INTEGRITY_SIZING.md).
+
 Status: **DRAFT_PENDING_OPERATOR_RATIFICATION**. This is a 240-pair development
 premise test against bare B8 s3, not a release. The original
 [preregistration](PREREGISTRATION_ROUND0.md), [A5 amendment](ERRATUM_A5_ADDENDUM_B.md),
