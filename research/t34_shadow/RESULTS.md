@@ -104,7 +104,9 @@ row-steps/world; the registered 5x comparison uses the smaller 400,000 reference
 
 The exact M1 rosters are timed on one CPU thread. A complete 300-frame catch-up
 includes cloning and full state digests. Shadow advance, confirmation, and the
-combined tick are reported separately. The first search rule in each bank unit
+combined tick are reported separately. The combined tick measures shadow-side
+confirmation plus advance; the independently stepped source is outside that
+timer, so this is additional shadow overhead rather than a full product frame. The first search rule in each bank unit
 performs fresh current-engine expansions; teacher/truth durations share cached
 outcomes and are not cold deployable latency measurements.
 
@@ -216,8 +218,15 @@ the corrected implementation passes 11 focused tests (`focused-03.log`).
 Product lint passed: `make PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python lint`.
 Study/test Black, isort and Flake8 passed. The initial unmodified non-slow suite
 was deliberately interrupted before tests that exceed two workers; its log is
-retained. Final capped non-slow verification is pending. A three-worker barrier
-test cannot execute within the requested two-thread budget and is deferred.
+retained. Final capped non-slow verification is pending. Two tests require three simultaneous workers and cannot execute within the
+requested two-thread budget; both are deferred explicitly:
+
+- `tests/test_colab_queue.py::test_three_workers_claim_same_job_and_lexical_winner_is_unique`
+- `tests/test_colab_queue_worker.py::test_three_local_workers_execute_each_job_once`
+
+The final non-slow run uses eight bounded serial file shards, external executor
+and numerical caps, and per-test progress logs. Sharding changes process
+isolation; no test source is edited. Final counts remain pending.
 
 No tmux command, live service, cloud runtime, paid service, Phase 0/S1 operation,
 checkpoint write, serving-pin change, or other T34 worktree access occurred.
