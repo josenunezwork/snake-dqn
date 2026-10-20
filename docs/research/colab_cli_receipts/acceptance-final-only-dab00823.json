@@ -1,0 +1,466 @@
+{
+  "final_artifact_transfer": {
+    "bytes_per_second_lower_bound": 890203,
+    "elapsed_seconds": 75.38601029201527,
+    "exported_bytes": 67108864,
+    "hardware": "L4",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-carryover-dab00823/acceptance-1792473566/outputs/l4/exports/final-artifact.bin",
+    "profile": "final-only",
+    "scope": "end-to-end immutable final export including Mac verification",
+    "sha256": "6caad9e7a24611f76602f8e231511b88bc40e09ee9b6f96b460beea987cddf5f",
+    "status": "PASS",
+    "verified_on_mac": true
+  },
+  "final_plan": {
+    "baseline_context": {
+      "active_notebook_assignments": 0,
+      "aggregate_usage_rate_units_per_hour": 0.0,
+      "balance_units": 1174.37,
+      "note": "Supplied context, not a new live measurement. Re-read usage and sessions before dispatch.",
+      "supplied_at": "2026-10-18 18:38 PT"
+    },
+    "commit": "dab00823e1849efed67a721740032f63500e224b",
+    "execution": [
+      {
+        "job": "cpu",
+        "measured_rate_units_per_hour": 0.08,
+        "priced_rate_units_per_hour": 0.5,
+        "rate_calibration": {
+          "observed_rate_units_per_hour": 0.08,
+          "priced_rate_units_per_hour": 0.5,
+          "samples": [
+            {
+              "elapsed_seconds": 1.2484629999962635,
+              "sessions": {
+                "m-s-kkb-usw1b1-1ctculxlnhpoi": "snake-acceptance-1792473566-cpu-85a7a357d757"
+              },
+              "usage": {
+                "assignments": 1.0,
+                "balance": 1161.44,
+                "rate": 0.08
+              }
+            },
+            {
+              "elapsed_seconds": 7.484251749992836,
+              "sessions": {
+                "m-s-kkb-usw1b1-1ctculxlnhpoi": "snake-acceptance-1792473566-cpu-85a7a357d757"
+              },
+              "usage": {
+                "assignments": 1.0,
+                "balance": 1161.44,
+                "rate": 0.08
+              }
+            },
+            {
+              "elapsed_seconds": 13.741571040998679,
+              "sessions": {
+                "m-s-kkb-usw1b1-1ctculxlnhpoi": "snake-acceptance-1792473566-cpu-85a7a357d757"
+              },
+              "usage": {
+                "assignments": 1.0,
+                "balance": 1161.44,
+                "rate": 0.08
+              }
+            }
+          ],
+          "status": "PASS"
+        },
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-carryover-dab00823/acceptance-1792473566/outputs/cpu/receipt.json",
+        "receipt_sha256": "ae31b902746dcbf44bd1589f1f7990f82eb1adda5b2433bd4831cde7e8ce38b3",
+        "status": "PASS"
+      },
+      {
+        "error": "INCOMPLETE: AccountingError('supervised assignment disappeared from sessions'); receipt: /Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-carryover-dab00823/acceptance-1792473566/outputs/l4/receipt.json",
+        "job": "l4",
+        "measured_rate_units_per_hour": 1.54,
+        "priced_rate_units_per_hour": 2.0,
+        "rate_calibration": {
+          "observed_rate_units_per_hour": 1.54,
+          "priced_rate_units_per_hour": 2.0,
+          "samples": [
+            {
+              "elapsed_seconds": 0.9722937080077827,
+              "sessions": {
+                "gpu-l4-s-kkb-ass1a1-2ifkhm4rj1uqb": "snake-acceptance-1792473566-l4-b70589bbba55"
+              },
+              "usage": {
+                "assignments": 1.0,
+                "balance": 1161.44,
+                "rate": 1.54
+              }
+            },
+            {
+              "elapsed_seconds": 6.982001291005872,
+              "sessions": {
+                "gpu-l4-s-kkb-ass1a1-2ifkhm4rj1uqb": "snake-acceptance-1792473566-l4-b70589bbba55"
+              },
+              "usage": {
+                "assignments": 1.0,
+                "balance": 1161.44,
+                "rate": 1.54
+              }
+            },
+            {
+              "elapsed_seconds": 13.155620833014837,
+              "sessions": {
+                "gpu-l4-s-kkb-ass1a1-2ifkhm4rj1uqb": "snake-acceptance-1792473566-l4-b70589bbba55"
+              },
+              "usage": {
+                "assignments": 1.0,
+                "balance": 1161.44,
+                "rate": 1.54
+              }
+            }
+          ],
+          "status": "PASS"
+        },
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-carryover-dab00823/acceptance-1792473566/outputs/l4/receipt.json",
+        "receipt_sha256": "da761e15891483258f4e88bad880ba918d8d1c59c2a7535a0ccc2f3d441ac2ff",
+        "status": "PASS"
+      }
+    ],
+    "expected_costs": {
+      "cpu_20_minutes_at_priced_rate": 0.16666666666666666,
+      "l4_30_minutes_at_priced_rate": 1.0,
+      "total": 1.1666666666666667
+    },
+    "gates": [
+      {
+        "evidence": "all pre-existing endpoints and their rates are recorded at admission",
+        "evidence_record": {
+          "arms": [
+            {
+              "arm": "cpu",
+              "assignments": [],
+              "baseline_balance_units": 1161.44,
+              "baseline_rate_units_per_hour": 0.0,
+              "declared_other_rate_units_per_hour": 0,
+              "unaccounted_endpoints": []
+            },
+            {
+              "arm": "L4",
+              "assignments": [],
+              "baseline_balance_units": 1161.44,
+              "baseline_rate_units_per_hour": 0.0,
+              "declared_other_rate_units_per_hour": 0,
+              "unaccounted_endpoints": []
+            }
+          ]
+        },
+        "id": "account-assignment-spend",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "OBSERVED"
+      },
+      {
+        "evidence": "fresh terminal whoami/usage after refresh; no browser prompt",
+        "evidence_record": {
+          "refreshed_in_memory": true,
+          "usage": {
+            "assignments": 1.0,
+            "balance": 1161.44,
+            "rate": 0.08
+          }
+        },
+        "id": "fresh-oauth-refresh",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "OBSERVED"
+      },
+      {
+        "evidence": "remote snapshot.complete.json, downloaded hash, atomic local file",
+        "id": "busy-full-snapshot",
+        "owner": "probe + supervisor",
+        "required": false,
+        "status": "NOT_REQUIRED"
+      },
+      {
+        "evidence": "over-60s gap and explicit supervisor timeout record",
+        "evidence_record": {
+          "rpc_timeout_seconds": 120.0,
+          "rpc_value": {
+            "after_silence": true
+          },
+          "silence_seconds": 65.87885670902324
+        },
+        "id": "silence-timeout",
+        "owner": "probe + supervisor",
+        "required": true,
+        "status": "OBSERVED"
+      },
+      {
+        "evidence": "sessions before/after url show same single assignment",
+        "evidence_record": {
+          "sessions_after": {
+            "m-s-kkb-usw1b1-1ctculxlnhpoi": "snake-acceptance-1792473566-cpu-85a7a357d757"
+          },
+          "sessions_before": {
+            "m-s-kkb-usw1b1-1ctculxlnhpoi": "snake-acceptance-1792473566-cpu-85a7a357d757"
+          }
+        },
+        "id": "url-no-second-allocation",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "OBSERVED"
+      },
+      {
+        "evidence": "generation fence and one remote execution identity after reconnect",
+        "evidence_record": {
+          "finished": {
+            "finished_at": 1792473724.2759895,
+            "request": "42a0a9163d8f47cd924eba39fcc74d1e"
+          },
+          "job": {
+            "execution_id": "a75af42da07c8e81f606af918de2fd6d",
+            "pid": 2365
+          },
+          "kernel_request": "42a0a9163d8f47cd924eba39fcc74d1e",
+          "killed_client_pid": 68719,
+          "sessions": {
+            "m-s-kkb-usw1b1-1ctculxlnhpoi": "snake-acceptance-1792473566-cpu-85a7a357d757"
+          }
+        },
+        "id": "client-loss-reconnect",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "OBSERVED"
+      },
+      {
+        "evidence": "intentional child exit recorded; corrupt download rejected",
+        "evidence_record": {
+          "corrupt_export_rejected": true,
+          "intentional_child_exit": 23
+        },
+        "id": "failure-and-corrupt-export",
+        "owner": "probe + supervisor",
+        "required": true,
+        "status": "OBSERVED"
+      },
+      {
+        "evidence": "uninterrupted and resumed full-state hashes match",
+        "id": "exact-resume",
+        "owner": "probe + supervisor",
+        "required": false,
+        "status": "NOT_REQUIRED"
+      },
+      {
+        "evidence": "lease expiry plus backend assignment disappearance",
+        "evidence_record": {
+          "assignment_disappeared_within_bound": true,
+          "checkpoint_exported_during_grace": true,
+          "checkpoint_sha256": "50931f64fafcc1ff4e62580b0cb8037484302cd13b8dc4ee099e9f29b2c5f9de",
+          "endpoint": "gpu-l4-s-kkb-ass1a1-2ifkhm4rj1uqb",
+          "lease_expiry_uncertainty_seconds": 2.4994338750257157,
+          "lease_seconds": 180,
+          "observed_after_lease_seconds": 26.066529208008433,
+          "release_bound_seconds": 300,
+          "renewal_suppressed": true,
+          "sessions_after": {}
+        },
+        "id": "mac-loss-watchdog-unassign",
+        "owner": "runtime watchdog + supervisor",
+        "required": true,
+        "status": "OBSERVED"
+      },
+      {
+        "evidence": "timed checkpoint overhead <= 2 percent",
+        "id": "checkpoint-overhead",
+        "owner": "supervisor",
+        "required": false,
+        "status": "NOT_REQUIRED"
+      },
+      {
+        "evidence": "stop issued then sessions/status proves assignment gone",
+        "evidence_record": {
+          "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-carryover-dab00823/acceptance-1792473566/outputs/cpu/receipt.json"
+        },
+        "id": "backend-stop-disappearance",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "OBSERVED"
+      },
+      {
+        "evidence": "bounded positive provider calibration for CPU and L4",
+        "evidence_record": {
+          "arms": [
+            {
+              "arm": "cpu",
+              "observed_rate_units_per_hour": 0.08,
+              "priced_rate_units_per_hour": 0.5,
+              "samples": [
+                {
+                  "elapsed_seconds": 1.2484629999962635,
+                  "sessions": {
+                    "m-s-kkb-usw1b1-1ctculxlnhpoi": "snake-acceptance-1792473566-cpu-85a7a357d757"
+                  },
+                  "usage": {
+                    "assignments": 1.0,
+                    "balance": 1161.44,
+                    "rate": 0.08
+                  }
+                },
+                {
+                  "elapsed_seconds": 7.484251749992836,
+                  "sessions": {
+                    "m-s-kkb-usw1b1-1ctculxlnhpoi": "snake-acceptance-1792473566-cpu-85a7a357d757"
+                  },
+                  "usage": {
+                    "assignments": 1.0,
+                    "balance": 1161.44,
+                    "rate": 0.08
+                  }
+                },
+                {
+                  "elapsed_seconds": 13.741571040998679,
+                  "sessions": {
+                    "m-s-kkb-usw1b1-1ctculxlnhpoi": "snake-acceptance-1792473566-cpu-85a7a357d757"
+                  },
+                  "usage": {
+                    "assignments": 1.0,
+                    "balance": 1161.44,
+                    "rate": 0.08
+                  }
+                }
+              ],
+              "status": "PASS"
+            },
+            {
+              "arm": "l4",
+              "observed_rate_units_per_hour": 1.54,
+              "priced_rate_units_per_hour": 2.0,
+              "samples": [
+                {
+                  "elapsed_seconds": 0.9722937080077827,
+                  "sessions": {
+                    "gpu-l4-s-kkb-ass1a1-2ifkhm4rj1uqb": "snake-acceptance-1792473566-l4-b70589bbba55"
+                  },
+                  "usage": {
+                    "assignments": 1.0,
+                    "balance": 1161.44,
+                    "rate": 1.54
+                  }
+                },
+                {
+                  "elapsed_seconds": 6.982001291005872,
+                  "sessions": {
+                    "gpu-l4-s-kkb-ass1a1-2ifkhm4rj1uqb": "snake-acceptance-1792473566-l4-b70589bbba55"
+                  },
+                  "usage": {
+                    "assignments": 1.0,
+                    "balance": 1161.44,
+                    "rate": 1.54
+                  }
+                },
+                {
+                  "elapsed_seconds": 13.155620833014837,
+                  "sessions": {
+                    "gpu-l4-s-kkb-ass1a1-2ifkhm4rj1uqb": "snake-acceptance-1792473566-l4-b70589bbba55"
+                  },
+                  "usage": {
+                    "assignments": 1.0,
+                    "balance": 1161.44,
+                    "rate": 1.54
+                  }
+                }
+              ],
+              "status": "PASS"
+            }
+          ],
+          "status": "PASS"
+        },
+        "id": "rate-calibration",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "OBSERVED"
+      },
+      {
+        "evidence": "exactly 64 MiB L4-to-Mac export, SHA256 verified, end-to-end bytes/s lower bound",
+        "evidence_record": {
+          "bytes_per_second_lower_bound": 890203,
+          "elapsed_seconds": 75.38601029201527,
+          "exported_bytes": 67108864,
+          "hardware": "L4",
+          "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-carryover-dab00823/acceptance-1792473566/outputs/l4/exports/final-artifact.bin",
+          "profile": "final-only",
+          "scope": "end-to-end immutable final export including Mac verification",
+          "sha256": "6caad9e7a24611f76602f8e231511b88bc40e09ee9b6f96b460beea987cddf5f",
+          "status": "PASS",
+          "verified_on_mac": true
+        },
+        "id": "final-artifact-download",
+        "owner": "probe + supervisor",
+        "required": true,
+        "status": "OBSERVED"
+      }
+    ],
+    "jobs": [
+      {
+        "expected_units": 0.16666666666666666,
+        "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-carryover-dab00823/acceptance-1792473566/manifests/cpu.json",
+        "name": "cpu",
+        "priced_rate_units_per_hour": 0.5
+      },
+      {
+        "expected_units": 1.0,
+        "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-carryover-dab00823/acceptance-1792473566/manifests/l4.json",
+        "name": "l4",
+        "priced_rate_units_per_hour": 2.0
+      }
+    ],
+    "limits": {
+      "first_cap_wins": true,
+      "max_units_including_reserve": 4.0,
+      "reserve_units": 0.8,
+      "usable_units": 3.2
+    },
+    "profile": "final-only",
+    "qualification": "PASS for this profile and source; independent review required for S1",
+    "schema": "snake-dqn-colab-cli-acceptance/v1",
+    "source_manifest": {
+      "research/colab_cli/__init__.py": "624677cd409539df23ec6c1f21ad999059fe779715ee5eab0183b7b2498851f1",
+      "research/colab_cli/acceptance.py": "e5856edf7d097c170ac4c27049bbbb256e34dd8f12cee81ad166bca5c965d489",
+      "research/colab_cli/acceptance_faults.py": "437437e8695f7f45b144f12343332399a6f960dcc462f50c02a86d65b9be8d2f",
+      "research/colab_cli/acceptance_probe.py": "5fe350618270ecbb51ecdb44b16fc80a071d80633ac94679ba94541694251610",
+      "research/colab_cli/acceptance_probe.sh": "9e7163c63bda2a86c96fe2eabee9be538d77e8151c13422467fe497d55be9064",
+      "research/colab_cli/accounting.py": "60ccfec58138adf9400c93ca1b8837cccd6da5b4fb2194a8ec4874f2ad33caeb",
+      "research/colab_cli/admission.py": "113ec7307777defd6f692dadc336fbb3ed37ddec7915966c3adb97bbfa9053cd",
+      "research/colab_cli/backup.py": "125b73b512c63e06f4b7656e52b534967510685314ab5b2c1b9fbbe4232239fe",
+      "research/colab_cli/bootstrap.sh": "e4a7bc69ba9da3ef5d5df6755a60bcb73878364d18b38f9d5a38d6ac18bbef7e",
+      "research/colab_cli/cli_guard.py": "e563610fc9fadb59df824a38a93699428800b31b6b85bce3b90aba503c583bc8",
+      "research/colab_cli/inputs.py": "56cce4bd7a6c9487f52ac914c743f34051b5e818893c8e48ca0da9ff08f03ae1",
+      "research/colab_cli/launch.sh": "173b51e74e5c0b44c40d0d549b0d4a3a1dc1ab787baa68eb854ca0663b50ea79",
+      "research/colab_cli/policy.py": "e2c43f8e0c5bb3c45b3d25303c7e41a3a938becbbfe1dd70455adac0aeeb3014",
+      "research/colab_cli/release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+      "research/colab_cli/runtime.py": "e1ff8c5a3b13fae272f98aa884d9210d1bec26e2eedc7490a8ad1ba22eeb1797",
+      "research/colab_cli/source.py": "8b5fccfc809d7345faacda58dec3b497787ddf4961218fdbbe6ef90a1b2eef6a",
+      "research/colab_cli/supervisor.py": "5b9ed88426a45993bec92df1bccc24a56bba14a31bf45a012fce161e7982a897",
+      "research/colab_cli/transfers.py": "a8fd12c425d7dff168e300a6bf0a6bec38230d75520c6251e86a59b0df83d95c"
+    },
+    "status": "PASS"
+  },
+  "profile": "final-only",
+  "qualified": true,
+  "return_code": 0,
+  "schema": "snake-dqn-colab-cli-acceptance-result/v1",
+  "source_manifest": {
+    "research/colab_cli/__init__.py": "624677cd409539df23ec6c1f21ad999059fe779715ee5eab0183b7b2498851f1",
+    "research/colab_cli/acceptance.py": "e5856edf7d097c170ac4c27049bbbb256e34dd8f12cee81ad166bca5c965d489",
+    "research/colab_cli/acceptance_faults.py": "437437e8695f7f45b144f12343332399a6f960dcc462f50c02a86d65b9be8d2f",
+    "research/colab_cli/acceptance_probe.py": "5fe350618270ecbb51ecdb44b16fc80a071d80633ac94679ba94541694251610",
+    "research/colab_cli/acceptance_probe.sh": "9e7163c63bda2a86c96fe2eabee9be538d77e8151c13422467fe497d55be9064",
+    "research/colab_cli/accounting.py": "60ccfec58138adf9400c93ca1b8837cccd6da5b4fb2194a8ec4874f2ad33caeb",
+    "research/colab_cli/admission.py": "113ec7307777defd6f692dadc336fbb3ed37ddec7915966c3adb97bbfa9053cd",
+    "research/colab_cli/backup.py": "125b73b512c63e06f4b7656e52b534967510685314ab5b2c1b9fbbe4232239fe",
+    "research/colab_cli/bootstrap.sh": "e4a7bc69ba9da3ef5d5df6755a60bcb73878364d18b38f9d5a38d6ac18bbef7e",
+    "research/colab_cli/cli_guard.py": "e563610fc9fadb59df824a38a93699428800b31b6b85bce3b90aba503c583bc8",
+    "research/colab_cli/inputs.py": "56cce4bd7a6c9487f52ac914c743f34051b5e818893c8e48ca0da9ff08f03ae1",
+    "research/colab_cli/launch.sh": "173b51e74e5c0b44c40d0d549b0d4a3a1dc1ab787baa68eb854ca0663b50ea79",
+    "research/colab_cli/policy.py": "e2c43f8e0c5bb3c45b3d25303c7e41a3a938becbbfe1dd70455adac0aeeb3014",
+    "research/colab_cli/release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+    "research/colab_cli/runtime.py": "e1ff8c5a3b13fae272f98aa884d9210d1bec26e2eedc7490a8ad1ba22eeb1797",
+    "research/colab_cli/source.py": "8b5fccfc809d7345faacda58dec3b497787ddf4961218fdbbe6ef90a1b2eef6a",
+    "research/colab_cli/supervisor.py": "5b9ed88426a45993bec92df1bccc24a56bba14a31bf45a012fce161e7982a897",
+    "research/colab_cli/transfers.py": "a8fd12c425d7dff168e300a6bf0a6bec38230d75520c6251e86a59b0df83d95c"
+  },
+  "status": "PASS"
+}
