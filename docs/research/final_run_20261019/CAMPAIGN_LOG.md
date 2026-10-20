@@ -54,6 +54,7 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 10-20 ~14:50 | Retention: reviewer REVIEW: RATIFY (ea1508b9) after 6 FIX-FIRST rounds; Fable approval judge APPROVE with conditions (protect `refs/tags/t34-retention/**` on GitHub before attempt-01 — owner action; ratify at source 97232d51; keep worktree snake-dqn-retention-fixes6; no timing until Phase 0 done + quiet). Awaiting final-source trace receipt (Sol) | `docs/research/specs/2026-10-20_t34_retention_trace_receipt.md` |
 | 10-20 ~14:55 | Engine fan-out merged: digest 6.16→3.59 ms/row-step (1.71×), byte-identical, M1 15,000 frames 0 diffs. L0 dispatched: CPU-only profile (cap 0.12 u) then A5 on 2 L4 lanes (12 single-thread procs, W1, 60 min, cap 4 u each) | tmux `t34-l0`, `snake-dqn-artifacts/t34-engine-fanout-20261020/` |
 | 10-20 ~15:00 | **Path B v2 paced retention RATIFIED** (7cd34b2e): trace receipt PASS (128 tests @97232d51), reviewer RATIFY, Fable approval APPROVE. Execution only from a frozen worktree at 97232d51 after Phase 0 + quiet admission: timing gate → T3-bank pre-check (≥ 50/64) → registered study | `research/t34_pathb/REGISTRATION_RETENTION_V2_RATIFIED.json` |
+| 10-20 ~15:35 | **A5 v2 GO** on L4: 57.2 / 54.4 completed worlds/h per lane (377/432 row-steps/s; 16–20k rows/world; ~8.7 MB/world) with K=12 single-thread procs, W1, fast digest — ~0.036 u per teacher world (800-world round ≈ 29 u). CPU-only runtime has nproc=2 (37 rows/s) → not used. L0 total ~1.5 u. Round 0 package getting the Path B integrity rules + A5 sizing (Sol) | `.../t34-engine-fanout-20261020/manifests-final-3ebf3991/a5-l4-s*-output/exports/benchmark.json` |
 
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
@@ -69,7 +70,7 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 Not funded: 4,096-root runs (~900 u at measured engine), H20000 product sessions, self-play/league/PPO, T5-family search,
 distill lane C at 6,400 worlds, A100/G4/H100 for host-bound work, Colab "strict" evidence, idle allocations.
-**Units spent tracker:** start 1,174.37 (10-18); now ~1,159.1 (10-20 13:45).
+**Units spent tracker:** start 1,174.37 (10-18); 1,159.1 (10-20 13:45); 1,157.6 (10-20 15:33).
 
 ## Measured results so far
 
