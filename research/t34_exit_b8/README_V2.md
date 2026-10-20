@@ -29,8 +29,8 @@ not collect a label round, run efficacy, fit a student, or authorize serving.
 - Commit/push coherent steps on the assigned branch; publish to main at the end
   after integration checks. Preserve campaign contracts and existing artifacts.
 
-Acceptance table and exact operator commands will be completed with the final
-implementation and measured preflight evidence.
+The acceptance table, exact operator commands and measured preflight evidence
+are recorded below.
 
 ## Acceptance boundaries
 
@@ -109,13 +109,18 @@ T34_KERNEL=v2 T34_INPUT_MODE=local-preflight T34_INPUT_DIR="$T34_PREP/inputs" \
   --out "$T34_PREP/label-replay.json"
 ```
 
-Whole-round Mac mode uses the same shell entrypoint. Set the governed beta and
+Whole-round Mac mode uses the same shell entrypoint through the existing CPU-slot
+wrapper, which refuses battery/closed-lid operation before and after slot admission.
+`caffeinate` keeps the admitted job awake. Do not take a slot owned by Phase 0 or
+another job; the wrapper waits rather than altering their processes. Set the governed beta and
 collision-audited namespace/count for an admitted round. The example below is
 a two-world development run (not a campaign bank or an authorized label round).
 `T34_THREADS=1` is suitable while sharing the two-thread verification budget.
 
 ```bash
-T34_KERNEL=v2 T34_MAC_FULL_ROUND=1 T34_THREADS=1 \
+"$T34_PY" /Users/josenunez/Projects/ml/snake-dqn-v2-teacher/research/perf_sim_20261007/with_slots.py \
+  --slots 1 -- /usr/bin/caffeinate -dims env \
+  T34_KERNEL=v2 T34_MAC_FULL_ROUND=1 T34_THREADS=1 \
   T34_INPUT_MODE=local-preflight T34_INPUT_DIR="$T34_PREP/inputs" \
   T34_OUTPUT_DIR="$T34_PREP/mac-label" T34_WORLDS=2 T34_MAX_WORLDS=2 \
   T34_FRAMES=5000 T34_SECONDS=10200 T34_ROUND=mac T34_SHARD=0 T34_ATTEMPT=1 \
@@ -158,12 +163,14 @@ supervisor only after campaign admission; preparing a manifest grants no spend.
 
 ## Export sizing and numerical recipe
 
-V2 manifests allow at most 2 GiB of immutable exports. Label preparation requires
+V2 manifests set a hard 2 GiB **per-artifact** transfer bound. The builder also
+applies a conservative projected **chunk-total** sizing allowance. Label preparation requires
 `--measured-export-bytes-per-world` from a **full-H5000 A5** measurement. The
 builder refuses a chunk when
 `ceil(worlds * measured_bytes_per_world * 1.25) + 16 MiB > 2 GiB`.
-The factor is a planning allowance; the supervisor still enforces the real hard
-limit. Choose the smaller count from measured throughput/time and export capacity.
+The factor and chunk-total allowance are planning checks. The supervisor enforces
+the hard per-artifact bound, not an aggregate chunk-total limit. Choose the smaller
+count from measured throughput/time and projected export capacity.
 Do not use a 500-frame smoke or multiply its rate into an admitted round.
 
 For a measured bound stored in an operator receipt, the command shape is:
@@ -191,3 +198,66 @@ Stage timers report build, shadow, root policy/step, branch, reconstruction and
 export wall time. They include inference within their respective stages, rather
 than pretending to be isolated host CPU time. GPU utilisation samples are
 reported as samples, not a sustained GPU-busy benchmark.
+
+## Mac verification evidence
+
+Executable source was frozen at `c44475f663b75fea4dd1be21088169cfc6e9861a`
+after integrating the sibling fit-cache changes from main. No serving, learning,
+or live cloud workload ran. All real preflights used CPU/one thread, two worlds,
+H300/D300, and 500 collection frames; source-bundle smoke used two frames.
+
+| Final attempt 02 | Complete worlds | Wall seconds (collector) | Executed row-steps | Export bytes | Shadow divergences |
+|---|---:|---:|---:|---:|---:|
+| Benchmark shell | 2 | 17.172 | 2,598 | 1,772,938 | 0 |
+| Label shell | 2 | 11.154 | 2,598 | 1,774,870 | 0 |
+| Mac full-mode benchmark, tiny fixture | 2 | 17.748 | 2,598 | 1,774,178 | 0 |
+| Mac full-mode labels, tiny fixture | 2 | 10.840 | 2,598 | 1,775,053 | 0 |
+| CPU-probe Python entrypoint on Mac | 2 | 17.982 | 2,598 | 1,774,356 | 0 |
+
+Each 500-frame world retained 500 canonical anchor rows and hashes at 0/250/500.
+These fixtures encountered no shadow doom; they do not measure LAD-search cost
+or intervention efficacy. The independent real doom test forces two frozen/mixed
+worlds into a shared branch bucket, verifies source state/carry preservation and
+forbidden-action semantics, and exercises the existing compaction engine.
+
+All five final preflight export directories plus the sparse-source fixture
+replayed through the unchanged CLI: **12/12 worlds accepted, zero mismatches**.
+The independent A1 test additionally compares payload/checksum/completion bytes
+across two repetitions in each of two fresh processes, with all three mixes.
+Its 12 exports each regenerated their expected two label rows.
+
+Final L4 manifests for shards 0/1 were locally validated against the published
+commit. Sparse fallback archives are **1,884,333 bytes** each; the extracted
+archive ran the real benchmark entrypoint successfully. No allocator was called.
+The optional CPU-probe Mac report records 18 logical CPUs and 64 GiB RAM; those
+numbers describe this Mac, not a Colab runtime.
+
+Artifacts are create-only under
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/`:
+`*-launch-02.json` contains exact argv/environment/source hashes;
+`preflight-summary-02.json` reconciles reports and replay counts;
+`a5-v2-l4-final-{0,1}.json` and `source-final-{0,1}/source-plan.json`
+bind manifests and source archives. Attempt 01 remains separate evidence.
+The final attempt adds fit-cache label metadata and export-sizing diagnostics;
+it is not pooled with attempt 01 for timing.
+
+Focused validation: **14 passed** for identity/real doom/lifecycle/export/policy;
+**44 passed** for integrated teacher/export/job/fit-cache checks. The transport
+supervisor/qualification selection passed **81 tests** after restoring missing
+venv dependencies: requests 2.34.2, charset_normalizer 3.5.2, urllib3 2.8.0.
+The first transport attempt (45 failed/36 passed) is preserved; its fake CLI
+failed before behavior checks because `requests` was absent. Product lint and
+study/test Black, isort, Flake8, Bash syntax and whitespace checks passed.
+
+The frozen non-slow CPU suite completed with **8,412 passed, 20 failed, 29 skipped,
+103 deselected**. Eighteen failures were missing `rg` in the restricted PATH;
+the exact 20-node rerun with `rg` available returned **18 passed, 2 failed**.
+The remaining T22 frozen-pool oracle failures report `v8_decide()` rejecting
+`membership`; their source is unchanged from the starting baseline. The full
+suite is not green. `VERIFICATION_V2.json` binds both runs separately. The
+selection excludes the slow marker and two explicitly three-worker tests that
+cannot honor this task's two-thread budget.
+
+This evidence describes the Amendment-1 implementation at the frozen commit.
+Amendment 2 arrived on main during verification and requires separate amended
+source checks; these measurements do not qualify that subsequent implementation.
