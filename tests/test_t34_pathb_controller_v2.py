@@ -28,6 +28,17 @@ class FakeExecutor:
         self.shutdown_calls.append((wait, cancel_futures))
 
 
+class ImmediateTimeoutFuture:
+    def done(self) -> bool:
+        return False
+
+    def result(self, timeout: float | None = None) -> Any:
+        del timeout
+        from concurrent.futures import TimeoutError
+
+        raise TimeoutError()
+
+
 @dataclass(frozen=True)
 class Request:
     frame: int
@@ -265,6 +276,103 @@ def test_matching_predicted_digest_advances_confirmation_while_search_is_busy() 
     action, report = controller_.decide(ident(4), 0, [True] * 6)
     assert action == 2
     assert report["intervention_kind"] == "rescue"
+
+
+def test_worker_request_keeps_root_binding_after_busy_digest_reconciliation() -> None:
+    controller_, engine, executor = controller()
+    controller_.after_step(object(), ident(0), digest="d0")
+    controller_.after_step(None, ident(1), digest="d1")
+    controller_.after_step(None, ident(2), digest="d2")
+    executor.futures[0].set_result(
+        maintenance(
+            ident(0),
+            request=SimpleNamespace(shadow_id=7, source_digest="d0"),
+            digest="d0",
+            expected=((1, "d1"), (2, "d2")),
+        )
+    )
+    controller_.after_step(object(), ident(3), digest="d3")
+    assert executor.calls[1][1][0].__self__ is engine
+    assert executor.calls[1][1][0].__name__ == "run_search"
+    # The queued d1/d2 confirmations advanced the watermark, but the search
+    # request stays bound to its f0 source digest.
+    assert controller_._pending is not None
+    assert controller_._pending.identity.frame == 0
+    assert controller_._pending.digest == "d0"
+
+
+def test_delayed_search_request_reads_live_scalar_progress_without_tick_engine_work() -> None:
+    controller_, _engine, executor = controller()
+    ready_search(controller_, executor)
+    request = executor.calls[1][1][1]
+    for frame in range(3, 9):
+        controller_.after_step(None, ident(frame), digest="d%s" % frame)
+    assert request.latest_progress() == (8, 0)
+    assert request.source_epoch == 0
+
+
+def test_unpaced_settle_drains_completed_maintenance_without_world_work() -> None:
+    controller_, _engine, executor = controller()
+    controller_.after_step(object(), ident(0), digest="d0")
+    executor.futures[0].set_result(maintenance(ident(0), digest="d0"))
+    assert controller_.settle_between_ticks(ident(0))
+    assert not controller_.busy
+
+
+def test_unpaced_settle_closes_and_propagates_a_cap_failure() -> None:
+    controller_, _engine, executor = controller()
+    controller_._future = ImmediateTimeoutFuture()
+    controller_._pending = controller_._binding(ident(0), "d0")
+    controller_._job_kind = "maintenance"
+
+    def fail_cap() -> None:
+        raise RuntimeError("cap")
+
+    with pytest.raises(RuntimeError, match="cap"):
+        controller_.settle_between_ticks(ident(0), check_cap=fail_cap)
+    assert executor.shutdown_calls == [(False, True)]
+
+
+def test_p7_nonfinite_q_fault_is_preserved_separately_from_invalid_search() -> None:
+    controller_, _engine, executor = controller()
+    ready_search(controller_, executor)
+    executor.futures[1].set_result(
+        SimpleNamespace(
+            status="FAULT", unconditional_fault="nonfinite_q", target_frame=None, action=None
+        )
+    )
+    action, fault = controller_.decide(ident(2), 0, [True] * 6)
+    assert action == 0
+    assert fault["unconditional_fault"] == "nonfinite_q"
+    assert fault["fallback_reason"] == "unconditional_fault_nonfinite_q"
+    assert controller_.state()["unconditional_faults"][0]["fault"] == "nonfinite_q"
+
+    controller_, _engine, executor = controller()
+    ready_search(controller_, executor)
+    executor.futures[1].set_result(
+        SimpleNamespace(status="INVALID", target_frame=None, action=None)
+    )
+    action, invalid = controller_.decide(ident(2), 0, [True] * 6)
+    assert action == 0
+    assert invalid["fallback_reason"] == "invalid_search_result"
+    assert controller_.state()["unconditional_faults"] == []
+
+
+def test_unpaced_settle_routes_typed_nonfinite_worker_failure_to_p7_fault_state() -> None:
+    from research.t34_pathb.engine_v2 import NonFiniteQ
+
+    controller_, _engine, executor = controller()
+    controller_.after_step(object(), ident(0), digest="d0")
+    executor.futures[0].set_exception(NonFiniteQ("nan"))
+    assert not controller_.settle_between_ticks(ident(0))
+    assert controller_.state()["unconditional_faults"][0]["fault"] == "nonfinite_q"
+
+
+def test_close_wait_true_joins_an_earlier_nonblocking_close() -> None:
+    controller_, _engine, executor = controller()
+    controller_.close(wait=False)
+    controller_.close(wait=True)
+    assert executor.shutdown_calls == [(False, True), (True, False)]
 
 
 def test_real_engine_constructs_without_running_shadow_work() -> None:

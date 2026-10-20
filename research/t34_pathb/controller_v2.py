@@ -10,7 +10,8 @@ from __future__ import annotations
 import concurrent.futures
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from threading import Lock
 from typing import Any, Callable, Deque, Dict, Optional, Sequence, Tuple
 
 MAX_RECENT_DECISIONS = 256
@@ -41,6 +42,7 @@ class _Binding:
     identity: SessionIdentity
     digest: Optional[str]
     shadow_id: Optional[int] = None
+    epoch: int = 0
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,9 @@ class PathBControllerV2:
         self._latest_binding: Optional[_Binding] = None
         self._confirmation_overflow = False
         self._expected_digests: Dict[int, str] = {}
+        self._epoch = 0
+        self._progress_lock = Lock()
+        self._latest_post_frame = -1
         self._force_refork = False
         self._last_identity: Optional[SessionIdentity] = None
         self._submitted_wall: Optional[float] = None
@@ -98,6 +103,7 @@ class PathBControllerV2:
         self._first_result_latency_records: Deque[Dict[str, float | int]] = deque(
             maxlen=MAX_RECENT_DECISIONS
         )
+        self._unconditional_faults: Deque[Dict[str, Any]] = deque(maxlen=32)
         self._closed = False
         self._recent: Deque[Dict[str, Any]] = deque(maxlen=max_recent_decisions)
         self._last: Optional[Dict[str, Any]] = None
@@ -110,9 +116,11 @@ class PathBControllerV2:
             "accepted": 0,
             "stale_discarded": 0,
             "late_discarded": 0,
+            "deadline_miss": 0,
             "fallback": 0,
             "worker_errors": 0,
             "invalid_results": 0,
+            "unconditional_faults": 0,
         }
         self._fallback_reasons: Dict[str, int] = {}
 
@@ -142,6 +150,7 @@ class PathBControllerV2:
             self._scheduled = None
             report["proposed_action"] = scheduled.action
             report["late_discarded"] = True
+            report["deadline_miss"] = True
             return self._finish(bare_action, report, "late_scheduled_action")
         if scheduled.target_frame > identity.frame:
             report["proposed_action"] = scheduled.action
@@ -169,12 +178,13 @@ class PathBControllerV2:
         does not call the engine, clone, hash, or wait, so catch-up can never
         delay the next game tick.
         """
+        with self._progress_lock:
+            self._latest_post_frame = max(self._latest_post_frame, identity.frame)
         if self._closed:
             return
         if not isinstance(digest, str) or not digest:
             self._record_event(identity, "missing_confirmation_digest")
             return
-        binding = _Binding(identity, digest)
         if (
             self._last_identity is not None
             and identity.continuity_key() != self._last_identity.continuity_key()
@@ -185,12 +195,17 @@ class PathBControllerV2:
         if expected is not None and expected != digest:
             self._fence("predicted_digest_mismatch")
         elif expected is not None and self._last_confirmed is not None:
-            self._last_confirmed = _Binding(identity, digest, self._last_confirmed.shadow_id)
+            self._last_confirmed = _Binding(
+                identity, digest, self._last_confirmed.shadow_id, self._last_confirmed.epoch
+            )
             self._expected_digests.pop(identity.frame, None)
+        binding = self._binding(identity, digest)
         if live_snapshot is not None:
             self._latest_snapshot, self._latest_binding = live_snapshot, binding
         if len(self._confirmations) == self._confirmations.maxlen:
             self._confirmation_overflow = True
+            self._fence("confirmation_overflow")
+            binding = self._binding(identity, digest)
         self._confirmations.append((identity.frame, identity.life, digest))
         self._collect_finished(identity, None)
         if self._future is not None:
@@ -223,18 +238,64 @@ class PathBControllerV2:
             "shadow_cpu_seconds": self._shadow_cpu_seconds,
             "search_cpu_seconds": self._search_cpu_seconds,
             "first_result_latency_records": list(self._first_result_latency_records),
+            "unconditional_faults": list(self._unconditional_faults),
             "last": self._last,
             "recent": list(self._recent),
         }
 
+    def settle_between_ticks(
+        self, identity: SessionIdentity, check_cap: Optional[Callable[[], None]] = None
+    ) -> bool:
+        """Drain one worker only between unpaced descriptive-harness ticks.
+
+        This method is deliberately public for the unpaced descriptive arm.
+        Paced code must use ``decide`` and ``after_step`` only.  It advances no
+        world state and never rewinds: it only waits for an already submitted
+        maintenance/search job, allowing a completed maintenance job to submit
+        and drain its one chained search request.
+        """
+        if self._closed:
+            return True
+        while self._future is not None:
+            self._run_cap_check(check_cap)
+            fault_count = self._counts["unconditional_faults"]
+            try:
+                self._future.result(timeout=0.25)
+            except concurrent.futures.TimeoutError:
+                self._run_cap_check(check_cap)
+                continue
+            except Exception:
+                # The future is done even when it raised.  Reuse the normal
+                # collector so typed P7 faults reach state()/the harness.
+                self._collect_finished(identity, None)
+                self._run_cap_check(check_cap)
+                if self._closed or self._counts["unconditional_faults"] > fault_count:
+                    return False
+                continue
+            self._collect_finished(identity, None)
+            self._run_cap_check(check_cap)
+        return True
+
     def close(self, wait: bool = False) -> None:
-        if not self._closed:
-            self._closed = True
-            self._scheduled = None
-            cancel = getattr(self._engine, "cancel", None)
-            if callable(cancel):
-                cancel()
-            self._executor.shutdown(wait=wait, cancel_futures=not wait)
+        if self._closed:
+            if wait:
+                self._executor.shutdown(wait=True, cancel_futures=False)
+            return
+        self._closed = True
+        self._scheduled = None
+        cancel = getattr(self._engine, "cancel", None)
+        if callable(cancel):
+            cancel()
+        self._executor.shutdown(wait=wait, cancel_futures=not wait)
+
+    def _run_cap_check(self, check_cap: Optional[Callable[[], None]]) -> None:
+        if check_cap is None:
+            return
+        try:
+            check_cap()
+        except Exception:
+            self.close(wait=False)
+            raise
 
     def _submit_maintenance(self, live_snapshot: Any, binding: _Binding) -> None:
         try:
@@ -264,6 +325,15 @@ class PathBControllerV2:
 
     def _submit_search(self, request: Any, binding: _Binding) -> None:
         try:
+            try:
+                request = replace(
+                    request, latest_progress=self._live_progress, source_epoch=binding.epoch
+                )
+            except TypeError:
+                # Tiny fake requests in focused controller tests are mutable;
+                # the real frozen engine request takes the ``replace`` path.
+                request.latest_progress = self._live_progress
+                request.source_epoch = binding.epoch
             self._future = self._executor.submit(self._run_stage, self._engine.run_search, request)
             self._job_kind, self._pending = "search", binding
             self._submitted_wall = self._clock()
@@ -287,6 +357,9 @@ class PathBControllerV2:
         try:
             raw_result = future.result()
         except Exception as exc:
+            if self._is_nonfinite_q(exc):
+                self._record_unconditional_fault("nonfinite_q", binding.identity, report)
+                return
             self._counts["worker_errors"] += 1
             self._mark(report, "worker_error", "worker_%s" % type(exc).__name__, binding.identity)
             return
@@ -326,7 +399,8 @@ class PathBControllerV2:
         report: Optional[Dict[str, Any]],
     ) -> None:
         matches = (
-            getattr(result, "source_frame", None) == binding.identity.frame
+            binding.epoch == self._epoch
+            and getattr(result, "source_frame", None) == binding.identity.frame
             and getattr(result, "source_life", None) == binding.identity.life
             and getattr(result, "source_checkpoint", None) == binding.identity.checkpoint
             and (binding.digest is None or getattr(result, "source_digest", None) == binding.digest)
@@ -337,9 +411,13 @@ class PathBControllerV2:
         if not matches:
             self._mark(report, "stale_discarded", "stale_maintenance_result", binding.identity)
             return
-        self._last_confirmed = _Binding(
-            binding.identity, getattr(result, "source_digest", None), getattr(result, "shadow_id")
+        source_binding = _Binding(
+            binding.identity,
+            getattr(result, "source_digest", None),
+            getattr(result, "shadow_id"),
+            binding.epoch,
         )
+        self._last_confirmed = source_binding
         expected = getattr(result, "expected_digests", ())
         if isinstance(expected, tuple):
             self._expected_digests = {int(frame): str(digest) for frame, digest in expected}
@@ -348,10 +426,10 @@ class PathBControllerV2:
         request = getattr(result, "search_request", None)
         if request is not None and self._scheduled is None:
             if (
-                getattr(request, "shadow_id", None) == self._last_confirmed.shadow_id
-                and getattr(request, "source_digest", None) == self._last_confirmed.digest
+                getattr(request, "shadow_id", None) == source_binding.shadow_id
+                and getattr(request, "source_digest", None) == source_binding.digest
             ):
-                self._submit_search(request, self._last_confirmed)
+                self._submit_search(request, source_binding)
 
     def _consume_search(
         self,
@@ -363,14 +441,39 @@ class PathBControllerV2:
         status = getattr(result, "status", None)
         target, action = getattr(result, "target_frame", None), getattr(result, "action", None)
         if status == "LATE" or (isinstance(target, int) and target <= current.frame):
+            if report is not None:
+                report["deadline_miss"] = True
             self._mark(report, "late_discarded", "late_search_result", binding.identity)
             return
         if status == "INVALID":
             self._counts["invalid_results"] += 1
             self._mark(report, "worker_error", "invalid_search_result", binding.identity)
             return
+        if status == "FAULT":
+            marker = getattr(result, "unconditional_fault", None)
+            if marker == "nonfinite_q":
+                self._record_unconditional_fault(marker, binding.identity, report)
+                return
+            self._counts["invalid_results"] += 1
+            self._mark(report, "worker_error", "unknown_search_fault", binding.identity)
+            return
+        if status == "NO_IMPROVEMENT":
+            valid_no_improvement = (
+                binding.epoch == self._epoch
+                and getattr(result, "shadow_id", None) == binding.shadow_id
+                and getattr(result, "source_digest", None) == binding.digest
+                and current.continuity_key() == binding.identity.continuity_key()
+                and self._last_confirmed is not None
+                and self._last_confirmed.shadow_id == binding.shadow_id
+                and self._last_confirmed.epoch == self._epoch
+            )
+            if valid_no_improvement:
+                if report is not None:
+                    report["fallback_reason"] = "no_improving_action"
+                return
         fresh = (
-            status == "IMPROVING"
+            binding.epoch == self._epoch
+            and status == "IMPROVING"
             and bool(getattr(result, "completed", False))
             and isinstance(target, int)
             and isinstance(action, int)
@@ -379,6 +482,7 @@ class PathBControllerV2:
             and current.continuity_key() == binding.identity.continuity_key()
             and self._last_confirmed is not None
             and self._last_confirmed.shadow_id == binding.shadow_id
+            and self._last_confirmed.epoch == self._epoch
         )
         if not fresh:
             self._mark(
@@ -406,6 +510,7 @@ class PathBControllerV2:
         return bool(
             confirmed is not None
             and confirmed.shadow_id == scheduled.binding.shadow_id
+            and confirmed.epoch == self._epoch
             and confirmed.identity.frame >= identity.frame
         )
 
@@ -424,6 +529,7 @@ class PathBControllerV2:
                 SessionIdentity(current.session_id, frame, life, current.checkpoint),
                 digest,
                 self._last_confirmed.shadow_id,
+                self._last_confirmed.epoch,
             )
             self._expected_digests.pop(frame, None)
         return True
@@ -450,6 +556,7 @@ class PathBControllerV2:
             "applied": False,
             "stale_discarded": False,
             "late_discarded": False,
+            "deadline_miss": False,
             "fallback_reason": None,
         }
 
@@ -461,10 +568,50 @@ class PathBControllerV2:
     def _fence(self, reason: str) -> None:
         """Fence outputs immediately; a running worker is never cancelled unsafely."""
         self._scheduled = None
+        with self._progress_lock:
+            self._epoch += 1
         self._last_confirmed = None
         self._expected_digests.clear()
         self._force_refork = True
         self._record_event(self._last_identity or SessionIdentity("fenced", 0, 0, "fenced"), reason)
+
+    @staticmethod
+    def _is_nonfinite_q(exc: Exception) -> bool:
+        """Recognize the engine's typed P7 unconditional-fault boundary."""
+        try:
+            from research.t34_pathb.engine_v2 import NonFiniteQ
+
+            return isinstance(exc, NonFiniteQ)
+        except ImportError:
+            return type(exc).__name__ == "NonFiniteQ"
+
+    def _record_unconditional_fault(
+        self, marker: str, identity: SessionIdentity, report: Optional[Dict[str, Any]]
+    ) -> None:
+        record = {
+            "fault": marker,
+            "marker": marker,
+            "session_id": identity.session_id,
+            "frame": identity.frame,
+            "life": identity.life,
+            "checkpoint": identity.checkpoint,
+        }
+        self._unconditional_faults.append(record)
+        self._counts["unconditional_faults"] += 1
+        if report is not None:
+            report["unconditional_fault"] = marker
+            report["fallback_reason"] = "unconditional_fault_%s" % marker
+        else:
+            self._last = {**self._new_report(identity, -1), **record}
+
+    def _binding(self, identity: SessionIdentity, digest: Optional[str]) -> _Binding:
+        with self._progress_lock:
+            return _Binding(identity, digest, None, self._epoch)
+
+    def _live_progress(self) -> Tuple[int, int]:
+        """Return scalar progress only; safe for the worker to read repeatedly."""
+        with self._progress_lock:
+            return self._latest_post_frame, self._epoch
 
     def _mark(
         self, report: Optional[Dict[str, Any]], flag: str, reason: str, identity: SessionIdentity
@@ -482,7 +629,7 @@ class PathBControllerV2:
         if report["fallback_reason"] is None:
             report["fallback_reason"] = fallback
         self._counts["decisions"] += 1
-        for flag in ("accepted", "applied", "stale_discarded", "late_discarded"):
+        for flag in ("accepted", "applied", "stale_discarded", "late_discarded", "deadline_miss"):
             if report[flag]:
                 self._counts[flag] += 1
         if report["fallback_reason"] is not None:

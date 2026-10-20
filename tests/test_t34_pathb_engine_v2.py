@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from research.t34_pathb.engine_v2 import (
     PathBSearchEngine,
     PreparedDecision,
     SearchOutcome,
     SearchRequest,
     SearchResult,
+    _capture_and_step,
+    evaluate_prepared,
 )
 
 
@@ -78,3 +84,42 @@ def test_result_is_stale_after_invalidation_and_late_after_target() -> None:
         current_frame=98,
     )
     assert response.status == "STALE"
+
+
+@pytest.mark.parametrize("mix,seed", [("scripted", 991831), ("frozen", 991832), ("mixed", 991833)])
+@pytest.mark.skipif(
+    not Path(
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s3/final.pth"
+    ).is_file(),
+    reason="released B8 gameplay artifacts are not installed",
+)
+def test_native_e6_matches_independent_t3_branches(mix: str, seed: int) -> None:
+    """Native merged v8 outcomes match independent exact T3 continuations."""
+    from research.t3_rollout_labels_20261015.bank_engine import choose_and_step, step_prepared
+    from research.t34_shadow.identity import _new_pair
+    from research.t34_shadow.shadow import clone_world_exact
+
+    _session, world, _specs, _identity = _new_pair(seed, mix)
+    decision = _capture_and_step(world)
+    actions = tuple(
+        sorted({decision.bare_action, *(i for i, legal in enumerate(decision.legal) if legal)})
+    )
+    actual = evaluate_prepared(decision, actions, 20)
+    expected = {}
+    for action in actions:
+        branch = clone_world_exact(decision.world)
+        step_prepared(branch, action)
+        alive_steps = int(bool(branch.sim.alive[0, 0]))
+        mass = float(branch.sim.length[0, 0]) if branch.sim.alive[0, 0] else 0.0
+        for _ in range(1, 20):
+            if not branch.sim.alive[0, 0]:
+                break
+            choose_and_step(branch, capture_obs=False)
+            alive_steps += int(bool(branch.sim.alive[0, 0]))
+            if branch.sim.alive[0, 0]:
+                mass += float(branch.sim.length[0, 0])
+        expected[action] = (bool(branch.sim.alive[0, 0]) and alive_steps == 20, alive_steps, mass)
+    assert {
+        action: (result.survives, result.alive_steps, result.mass)
+        for action, result in actual.items()
+    } == expected

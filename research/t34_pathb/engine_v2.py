@@ -13,15 +13,19 @@ continues to be confirmed or invalidated by later ticks.
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
-from typing import Any, Literal, Mapping, Sequence
+from dataclasses import dataclass, replace
+from typing import Any, Callable, Literal, Mapping, Sequence
 
 import numpy as np
 
 from research.t34_shadow.shadow import clone_world_exact, full_digest
 
-SearchStatus = Literal["IMPROVING", "NO_IMPROVEMENT", "STALE", "LATE", "INVALID"]
+SearchStatus = Literal["IMPROVING", "NO_IMPROVEMENT", "STALE", "LATE", "INVALID", "FAULT"]
 _SCRATCH = threading.local()
+
+
+class NonFiniteQ(ValueError):
+    """An unconditional P7 fault: B8 output contains NaN or infinity."""
 
 
 def _workspace(envs: int, slots: int) -> tuple[np.ndarray, np.ndarray]:
@@ -81,6 +85,9 @@ class SearchRequest:
     doom_frame: int | None = None
     terminal_horizon: int | None = None
     cancel_event: Any | None = None
+    latest_progress: Callable[[], tuple[int, int]] | None = None
+    source_epoch: int = 0
+    branch_window: int = 8
 
 
 @dataclass(frozen=True)
@@ -96,6 +103,7 @@ class SearchResult:
     source_digest: str
     completed: bool = True
     intervention_kind: Literal["rescue", "delay", "none"] = "none"
+    unconditional_fault: str | None = None
 
 
 @dataclass(frozen=True)
@@ -155,27 +163,29 @@ def _mass(world: Any) -> float:
 
 
 def _prepared_metadata(world: Any) -> tuple[int, tuple[float, ...], tuple[bool, ...]]:
-    """Read exact B8 Q and resolved action legality from a prepared selector state."""
+    """Read exact B8 Q and advisory/fallback action set at a prepared decision."""
     from research.t3_rollout_labels_20261015.bank_engine import prepared_q
     from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
 
     if not getattr(world.sim, "_policy_phase_prepared", False):
         raise RuntimeError("Path B v2 decision snapshot must be selector-prepared")
-    legal = tuple(bool(value) for value in world.sim.get_resolved_action_mask()[0, 0])
-    if len(legal) != 6 or not any(legal):
-        raise ValueError("prepared action mask is empty or malformed")
     obs = build_ego_raster(
         world.sim, EgoRasterConfig(version="bv8"), backend="numba", rows=np.array([[0, 0]])
     )
     q = tuple(float(value) for value in prepared_q(world, obs))
-    if len(q) != 6 or not np.isfinite(q).all():
-        raise ValueError("prepared B8 Q is malformed or nonfinite")
+    if len(q) != 6:
+        raise ValueError("prepared B8 Q is malformed")
+    if not np.isfinite(q).all():
+        raise NonFiniteQ("prepared B8 Q is nonfinite")
     # Ego2s B8 selects on advisory legality and, if it is empty, enables the
     # normal modes irrespective of resolved-mask fatality.  This is distinct
     # from Vector61 opponent dispatch and must remain batch-1 identical.
     advisory = world.sim.get_advisory_action_mask()[0, 0].astype(bool)
+    if advisory.shape != (6,):
+        raise ValueError("prepared action mask is malformed")
     if not advisory.any():
         advisory[:3] = True
+    legal = tuple(bool(value) for value in advisory)
     bare = min((action for action in range(6) if advisory[action]), key=lambda a: (-q[a], a))
     return int(bare), q, legal
 
@@ -377,6 +387,8 @@ def _evaluate_merged_v8(
         active &= sim.alive[:, 0]
     result: dict[int, SearchOutcome] = {}
     for env, action in enumerate(merged.layout.action):
+        if int(action) not in actions:
+            continue
         survived = bool(active[env])
         result[int(action)] = SearchOutcome(
             int(action),
@@ -441,7 +453,6 @@ class PathBSearchEngine:
         """Synchronously bind an exact live clone; future work starts in ``advance``."""
         del frame, life  # Controller owns fences; digest binds the actual state.
         self._shadow = clone_world_exact(source)
-        self._cancel.clear()
         self._shadow_id += 1
         self._confirmed = True
         self._doom_frame = None
@@ -558,6 +569,13 @@ class PathBSearchEngine:
             return ShadowAdvance(
                 0, self.shadow_id, self._confirmed, self._doom_frame, self._first_detection_frame
             )
+        if (
+            self.terminal_horizon is not None
+            and int(self._shadow.sim.frame[0]) >= self.terminal_horizon
+        ):
+            return ShadowAdvance(
+                0, self.shadow_id, self._confirmed, self._doom_frame, self._first_detection_frame
+            )
         _thread_cap()
         if self._cancel.is_set():
             return ShadowAdvance(
@@ -649,16 +667,251 @@ class PathBSearchEngine:
             # points, then search every remaining point in ascending order.
             if root is not None:
                 while True:
+                    if request.cancel_event is not None and request.cancel_event.is_set():
+                        raise TimeoutError("Path B v2 search cancelled")
+                    if not bool(root.sim.alive[0, 0]):
+                        return SearchResult(
+                            "NO_IMPROVEMENT",
+                            request.shadow_id,
+                            None,
+                            None,
+                            candidate.bare_action,
+                            {},
+                            request.source_digest,
+                        )
                     candidate = _capture_and_step(root)
                     cutoff = -1 if request.cutoff_frame is None else int(request.cutoff_frame)
                     if candidate.frame > cutoff:
                         break
-                limit = int(request.doom_frame or candidate.frame)
+                limit = (
+                    int(request.doom_frame) - 1
+                    if request.doom_frame is not None
+                    else candidate.frame
+                )
             else:
                 limit = candidate.frame
+            outcomes: dict[int, SearchOutcome] = {}
             while candidate.frame <= limit:
                 if request.cancel_event is not None and request.cancel_event.is_set():
                     raise TimeoutError("Path B v2 search cancelled")
+                if request.latest_progress is not None:
+                    live_frame, live_epoch = request.latest_progress()
+                    if int(live_epoch) != request.source_epoch:
+                        return SearchResult(
+                            "STALE",
+                            request.shadow_id,
+                            None,
+                            None,
+                            candidate.bare_action,
+                            {},
+                            request.source_digest,
+                        )
+                    if candidate.frame <= int(live_frame):
+                        if root is None:
+                            return SearchResult(
+                                "LATE",
+                                request.shadow_id,
+                                None,
+                                None,
+                                candidate.bare_action,
+                                {},
+                                request.source_digest,
+                            )
+                        if not bool(root.sim.alive[0, 0]):
+                            break
+                        candidate = _capture_and_step(root)
+                        continue
+                # Materialize a bounded chronological window from the compact
+                # replay root.  batch_v2 owns the native E=(W*6) execution.
+                window = [candidate]
+                while (
+                    root is not None
+                    and len(window) < request.branch_window
+                    and bool(root.sim.alive[0, 0])
+                    and window[-1].frame < limit
+                ):
+                    following = _capture_and_step(root)
+                    if following.frame > limit:
+                        break
+                    window.append(following)
+                window_outcomes = []
+                if root is not None:
+                    try:
+                        from research.t34_pathb.batch_v2 import evaluate_decisions
+                    except ImportError as exc:
+                        raise RuntimeError("native chronological batch is unavailable") from exc
+                    horizons = [
+                        min(
+                            request.horizon,
+                            (
+                                int(request.terminal_horizon) - item.frame
+                                if request.terminal_horizon is not None
+                                else request.horizon
+                            ),
+                        )
+                        for item in window
+                    ]
+                    valid = [
+                        (item, horizon) for item, horizon in zip(window, horizons) if horizon >= 1
+                    ]
+                    if not valid:
+                        break
+                    window, horizons = map(list, zip(*valid))
+                    early: dict[str, SearchResult] = {}
+
+                    def on_complete(index: int, outcomes: Mapping[int, SearchOutcome]) -> bool:
+                        candidate = window[int(index)]
+                        if request.terminal_horizon is not None and horizons[int(index)] < 500:
+                            outcomes = {
+                                action: replace(outcome, censored=outcome.survives)
+                                for action, outcome in outcomes.items()
+                            }
+                        if request.latest_progress is not None:
+                            live_frame, live_epoch = request.latest_progress()
+                            if int(live_epoch) != request.source_epoch:
+                                early["result"] = SearchResult(
+                                    "STALE",
+                                    request.shadow_id,
+                                    None,
+                                    None,
+                                    candidate.bare_action,
+                                    outcomes,
+                                    request.source_digest,
+                                )
+                                return True
+                            if candidate.frame <= int(live_frame):
+                                return False
+                        bare = candidate.bare_action
+                        baseline = outcomes[bare]
+                        alternatives = sorted(
+                            (a for a in outcomes if a != bare and candidate.legal[a]),
+                            key=lambda a: (-candidate.q[a], a),
+                        )
+                        survivors = (
+                            []
+                            if baseline.survives
+                            else [a for a in alternatives if outcomes[a].survives]
+                        )
+                        chosen = survivors[0] if survivors else None
+                        if not baseline.survives and chosen is None:
+                            longest = max(
+                                (outcomes[a].alive_steps for a in alternatives),
+                                default=baseline.alive_steps,
+                            )
+                            choices = [
+                                a
+                                for a in alternatives
+                                if outcomes[a].alive_steps == longest
+                                and longest > baseline.alive_steps
+                            ]
+                            chosen = choices[0] if choices else None
+                        if chosen is None:
+                            return False
+                        if request.latest_progress is not None:
+                            live_frame, live_epoch = request.latest_progress()
+                            if int(live_epoch) != request.source_epoch or candidate.frame <= int(
+                                live_frame
+                            ):
+                                return False
+                        early["result"] = SearchResult(
+                            "IMPROVING",
+                            request.shadow_id,
+                            candidate.frame,
+                            chosen,
+                            bare,
+                            outcomes,
+                            request.source_digest,
+                            intervention_kind=("rescue" if outcomes[chosen].survives else "delay"),
+                        )
+                        return True
+
+                    window_outcomes = evaluate_decisions(
+                        window, horizons, cancel_event=request.cancel_event, on_complete=on_complete
+                    )
+                    if "result" in early:
+                        return early["result"]
+                if window_outcomes:
+                    for candidate, outcomes, candidate_horizon in zip(
+                        window, window_outcomes, horizons
+                    ):
+                        if request.terminal_horizon is not None and candidate_horizon < 500:
+                            outcomes = {
+                                action: replace(outcome, censored=outcome.survives)
+                                for action, outcome in outcomes.items()
+                            }
+                        if request.latest_progress is not None:
+                            live_frame, live_epoch = request.latest_progress()
+                            if int(live_epoch) != request.source_epoch:
+                                return SearchResult(
+                                    "STALE",
+                                    request.shadow_id,
+                                    None,
+                                    None,
+                                    candidate.bare_action,
+                                    {},
+                                    request.source_digest,
+                                )
+                            if candidate.frame <= int(live_frame):
+                                continue
+                        bare = candidate.bare_action
+                        baseline = outcomes[bare]
+                        alternatives = sorted(
+                            (
+                                action
+                                for action in outcomes
+                                if action != bare and candidate.legal[action]
+                            ),
+                            key=lambda action: (-candidate.q[action], action),
+                        )
+                        survivors = (
+                            []
+                            if baseline.survives
+                            else [a for a in alternatives if outcomes[a].survives]
+                        )
+                        chosen = survivors[0] if survivors else None
+                        if not baseline.survives and chosen is None:
+                            longest = max(
+                                (outcomes[a].alive_steps for a in alternatives),
+                                default=baseline.alive_steps,
+                            )
+                            choices = [
+                                a
+                                for a in alternatives
+                                if outcomes[a].alive_steps == longest
+                                and longest > baseline.alive_steps
+                            ]
+                            chosen = choices[0] if choices else None
+                        if chosen is not None:
+                            if request.latest_progress is not None:
+                                live_frame, live_epoch = request.latest_progress()
+                                if int(
+                                    live_epoch
+                                ) != request.source_epoch or candidate.frame <= int(live_frame):
+                                    return SearchResult(
+                                        "STALE",
+                                        request.shadow_id,
+                                        None,
+                                        None,
+                                        bare,
+                                        outcomes,
+                                        request.source_digest,
+                                    )
+                            return SearchResult(
+                                "IMPROVING",
+                                request.shadow_id,
+                                candidate.frame,
+                                chosen,
+                                bare,
+                                outcomes,
+                                request.source_digest,
+                                intervention_kind=(
+                                    "rescue" if outcomes[chosen].survives else "delay"
+                                ),
+                            )
+                    if root is None or not bool(root.sim.alive[0, 0]):
+                        break
+                    candidate = _capture_and_step(root)
+                    continue
                 actions = tuple(
                     sorted(
                         {
@@ -680,6 +933,11 @@ class PathBSearchEngine:
                 outcomes = evaluate_prepared(
                     candidate, actions, candidate_horizon, cancel_event=request.cancel_event
                 )
+                if request.terminal_horizon is not None and candidate_horizon < 500:
+                    outcomes = {
+                        action: replace(outcome, censored=outcome.survives)
+                        for action, outcome in outcomes.items()
+                    }
                 bare = candidate.bare_action
                 baseline = outcomes[bare]
                 alternatives = sorted(
@@ -707,6 +965,20 @@ class PathBSearchEngine:
                         ]
                         chosen = longer[0] if longer else None
                 if chosen is not None:
+                    if request.latest_progress is not None:
+                        live_frame, live_epoch = request.latest_progress()
+                        if int(live_epoch) != request.source_epoch or candidate.frame <= int(
+                            live_frame
+                        ):
+                            return SearchResult(
+                                "STALE",
+                                request.shadow_id,
+                                None,
+                                None,
+                                bare,
+                                outcomes,
+                                request.source_digest,
+                            )
                     return SearchResult(
                         "IMPROVING",
                         request.shadow_id,
@@ -717,7 +989,7 @@ class PathBSearchEngine:
                         request.source_digest,
                         intervention_kind=("rescue" if outcomes[chosen].survives else "delay"),
                     )
-                if root is None:
+                if root is None or not bool(root.sim.alive[0, 0]):
                     break
                 candidate = _capture_and_step(root)
             return SearchResult(
@@ -728,6 +1000,17 @@ class PathBSearchEngine:
                 candidate.bare_action,
                 outcomes,
                 request.source_digest,
+            )
+        except NonFiniteQ:
+            return SearchResult(
+                status="FAULT",
+                shadow_id=request.shadow_id,
+                target_frame=None,
+                action=None,
+                bare_action=request.decision.bare_action,
+                outcomes={},
+                source_digest=request.source_digest,
+                unconditional_fault="nonfinite_q",
             )
         except (RuntimeError, TypeError, ValueError, IndexError, KeyError, TimeoutError):
             return SearchResult(
