@@ -11,6 +11,12 @@ import pytest
 from research.t34_round0.analyze import COUNTS, InvalidEvidence, _stratified, summarize
 
 
+class ArtifactArgs(dict):
+    """Analyzer arguments with fixture-only guard-call evidence."""
+
+    guard_calls: dict[str, list]
+
+
 def records() -> list[dict]:
     rows = []
     for mix, n in COUNTS.items():
@@ -125,7 +131,8 @@ def artifacts(tmp_path, monkeypatch):
     """Synthetic provenance fixture; real registration validation is tested separately."""
     import json
 
-    from research.t34_round0 import registration
+    from research.t34_pathb import source_binding_v2
+    from research.t34_round0 import history, registration
     from research.t34_round0.common import B8_SHA, sha256, write_once
 
     bank_path, audit_path, ratification_path = (
@@ -137,6 +144,25 @@ def artifacts(tmp_path, monkeypatch):
     write_once(audit_path, {"test_fixture": True})
     write_once(ratification_path, {"commit": "a" * 40})
     monkeypatch.setattr(registration, "require_registration", lambda *a, **kw: bank)
+    # This artifact fixture is deliberately not a frozen detached checkout or
+    # a published Round 0 history.  Keep those independent guards enabled in
+    # production and prove the fixture bypasses each one explicitly here.
+    active_calls, history_calls, source_calls = [], [], []
+    monkeypatch.setattr(
+        history,
+        "require_active_phase",
+        lambda ratification, phase: active_calls.append((dict(ratification), phase)),
+    )
+    monkeypatch.setattr(
+        history,
+        "require_chunks",
+        lambda chunks, ratification: history_calls.append((list(chunks), dict(ratification))),
+    )
+    monkeypatch.setattr(
+        source_binding_v2,
+        "verify_frozen_worktree",
+        lambda repo, commit: source_calls.append((repo, commit)),
+    )
     identity = dict(
         bank_sha256=sha256(bank_path),
         audit_sha256=sha256(audit_path),
@@ -206,13 +232,14 @@ def artifacts(tmp_path, monkeypatch):
             preflight=False,
             run_identity=identity,
             pairs=pair_index,
+            slice=dict(
+                start=0,
+                count=len(rows),
+                world_ids=[row["world"]["world_id"] for row in rows],
+            ),
         ),
     )
-    selected = [
-        row["world_id"]
-        for mix, n in zip(COUNTS, (10, 7, 7))
-        for row in [r["world"] for r in rows if r["world"]["mix"] == mix][:n]
-    ]
+    selected = [row["world"]["world_id"] for row in rows[:24]]
     from research.t34_round0.common import ROOT
 
     inventory = []
@@ -273,19 +300,24 @@ def artifacts(tmp_path, monkeypatch):
         platform=dict(system="Darwin", machine="arm64"),
     )
     write_once(replay_path, replay)
-    return dict(
+    result = ArtifactArgs(
         chunks=[chunk],
         bank_path=bank_path,
         audit_path=audit_path,
         ratification_path=ratification_path,
         replay_path=replay_path,
     )
+    result.guard_calls = dict(active=active_calls, history=history_calls, source=source_calls)
+    return result
 
 
 def test_complete_artifact_chain_is_required(artifacts) -> None:
     from research.t34_round0.analyze import analyze_paths
 
     assert analyze_paths(**artifacts)["decision"] == "GO"
+    assert artifacts.guard_calls["active"]
+    assert artifacts.guard_calls["history"]
+    assert artifacts.guard_calls["source"]
     artifacts["replay_path"].unlink()
     assert analyze_paths(**artifacts)["decision"] == "INCONCLUSIVE"
 
@@ -331,6 +363,31 @@ def test_supervisor_failure_prevents_go(artifacts) -> None:
     receipt["stop_verified"] = False
     (job / "receipt.json").write_text(json.dumps(receipt))
     assert analyze_paths(**artifacts)["decision"] == "INCONCLUSIVE"
+
+
+def test_chunk_dropping_more_than_two_percent_prevents_a_decision(artifacts) -> None:
+    import json
+
+    from research.t34_round0.analyze import analyze_paths
+
+    chunk = artifacts["chunks"][0]
+    receipt = json.loads((chunk / "chunk.json").read_text())
+    receipt["slice"]["count"] = 245
+    (chunk / "chunk.json").write_text(json.dumps(receipt))
+    assert analyze_paths(**artifacts)["decision"] == "INCONCLUSIVE"
+
+
+def test_history_look_refusal_is_a_kill_not_inconclusive(artifacts, monkeypatch) -> None:
+    from research.t34_round0 import history
+    from research.t34_round0.analyze import analyze_paths
+
+    def kill(_ratification, _phase) -> None:
+        raise history.HistoryError("existing recorded look is KILL")
+
+    monkeypatch.setattr(history, "require_active_phase", kill)
+    result = analyze_paths(**artifacts)
+    assert result["decision"] == "KILL"
+    assert result["evidence_authority"] == "INTEGRITY_FAILURE"
 
 
 def test_admitted_unconditional_fault_stops_before_missing_chunk_or_replay(artifacts) -> None:

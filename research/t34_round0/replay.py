@@ -30,17 +30,6 @@ def _write_new(path: Path, value: Mapping[str, Any]) -> None:
     path.with_name(f"{path.name}.complete").touch(exist_ok=False)
 
 
-def _selected(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    quotas = {"scripted": 10, "frozen": 7, "mixed": 7}
-    selected: list[dict[str, Any]] = []
-    for mix, quota in quotas.items():
-        group = [row for row in rows if row["mix"] == mix]
-        if len(group) < quota:
-            raise Round0Error(f"bank has too few {mix} worlds for A2 replay")
-        selected.extend(group[:quota])
-    return selected
-
-
 def _registration_identity(registration: Path, bank: Path, audit: Path) -> Mapping[str, Any]:
     from research.t34_round0.registration import require_registration
 
@@ -62,6 +51,10 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
     roots = [Path(path) for path in args.chunk_dirs]
     if not roots or len({root.resolve() for root in roots}) != len(roots):
         raise Round0Error("replay requires unique chunk directories")
+    from research.t34_round0.history import require_active_phase, require_chunks, selected_rows
+
+    require_active_phase(_load(ratification), "replay")
+    require_chunks(roots, _load(ratification))
     expected = {
         "bank_sha256": sha256(bank),
         "audit_sha256": sha256(audit_path),
@@ -70,6 +63,7 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
     }
     records: dict[str, tuple[Path, Path, Mapping[str, Any]]] = {}
     identities: list[Mapping[str, Any]] = []
+    chunks, drop_reports = [], []
     for root in roots:
         receipt = _load(root / "chunk.json")
         if receipt.get("schema") != "t34-round0-chunk/v1" or receipt.get("status") != "complete":
@@ -78,6 +72,28 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
         if any(identity.get(key) != value for key, value in expected.items()):
             raise Round0Error("chunk identity differs from replay inputs")
         identities.append(identity)
+        chunks.append(receipt)
+        allocated = receipt.get("slice", {}).get("count", 0)
+        completed = len(receipt.get("pairs", []))
+        if type(allocated) is not int or allocated <= 0 or completed > allocated:
+            raise Round0Error("invalid chunk completion counts")
+        dropped_fraction = (allocated - completed) / allocated
+        drop_reports.append(
+            {
+                "chunk": str(root),
+                "allocated": allocated,
+                "completed": completed,
+                "dropped_fraction": dropped_fraction,
+            }
+        )
+        if dropped_fraction > 0.02:
+            report = {
+                "schema": "t34-round0-replay/v1",
+                "status": "STOP_DROPPED_WORLDS",
+                "chunks": drop_reports,
+                "reason": ">2% dropped worlds in a chunk",
+            }
+            return report
         pair_index = {Path(item["path"]).name: item for item in receipt.get("pairs", [])}
         for path in (root / "pairs").glob("*.json"):
             pair = _load(path)
@@ -88,8 +104,9 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
             if not isinstance(world_id, str) or world_id in records:
                 raise Round0Error("missing or duplicate pair world identity")
             records[world_id] = (root, path, pair)
+    selected = selected_rows(rows, chunks)
     divergences, checked = [], []
-    for row in _selected(rows):
+    for row in selected:
         record = records.get(row["world_id"])
         root, pair_path, pair = record if record else (None, None, None)
         if pair_path is None:
@@ -136,14 +153,15 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
             )
     report = {
         "schema": "t34-round0-replay/v1",
-        "status": "PASS" if not divergences and len(checked) == 24 else "FAIL",
+        "status": "PASS" if not divergences and len(checked) == len(selected) else "FAIL",
         "platform": {"system": platform.system(), "machine": platform.machine()},
         "run_identity": dict(expected, commit=identities[0].get("commit")),
-        "selected_ids": [row["world_id"] for row in _selected(rows)],
+        "selected_ids": [row["world_id"] for row in selected],
+        "sampling": "first ceil(10% of allocated pairs) within each bank-order chunk",
+        "chunks": drop_reports,
         "checked_pairs": checked,
         "divergences": divergences,
     }
-    _write_new(Path(args.out), report)
     return report
 
 
@@ -157,7 +175,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
     try:
-        report = audit(args)
+        from research.t34_round0.history import policy, run_phase
+
+        registration = _load(Path(args.ratification))
+        root, _, _ = policy(registration)
+        if Path(args.out) != root / "replay/replay.json":
+            raise Round0Error("replay must use the fixed study replay/replay.json")
+        report = run_phase(registration, "replay", lambda _out: audit(args))
     except Round0Error as exc:
         parser.error(str(exc))
     print(json.dumps(report, sort_keys=True))

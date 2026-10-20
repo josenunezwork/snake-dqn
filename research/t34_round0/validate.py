@@ -21,7 +21,7 @@ from research.t34_round0.common import (
 from research.t34_round0.registration import check_audit
 
 
-def validate(preflight_dir: Path | None = None) -> dict[str, Any]:
+def validate(preflight_dir: Path | None = None, a5_receipt: Path | None = None) -> dict[str, Any]:
     """Check preparation without producing worlds, changing approval, or allocating."""
     bank_path, audit_path = PACKAGE / "BANK_ROUND0.json", PACKAGE / "SEED_AUDIT_ROUND0.json"
     bank = check_audit(bank_path, audit_path)
@@ -79,6 +79,26 @@ def validate(preflight_dir: Path | None = None) -> dict[str, Any]:
             "pairs": 2,
             "horizon": 500,
         }
+    sizing = None
+    if a5_receipt is not None:
+        from research.t34_round0.make_manifest import size_round, validate_a5
+
+        adapter = validate_a5(read_json(a5_receipt))
+        if receipt is None or adapter["a6_measurement_sha256"] != receipt["sha256"]:
+            raise ValueError("sizing adapter differs from this A6 receipt")
+        sizing = size_round(
+            240,
+            **{
+                k: adapter[k]
+                for k in (
+                    "teacher_worlds_per_hour",
+                    "bare_seconds_per_world",
+                    "metric_seconds_per_pair",
+                    "cpu_slowdown_factor",
+                    "setup_minutes",
+                )
+            },
+        )
     return {
         "schema": "t34-round0-preparation-validation/v1",
         "status": "PASS",
@@ -89,6 +109,7 @@ def validate(preflight_dir: Path | None = None) -> dict[str, Any]:
         "preregistration_sha256": hashlib.sha256(prereg.encode()).hexdigest(),
         "qualified_transport": qualified,
         "preflight": receipt,
+        "draft_sizing": sizing,
         "source_hashes": source_hashes(),
         "ratified": False,
         "dispatch_authorized": False,
@@ -100,8 +121,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preflight-dir", type=Path)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--a5", type=Path)
     args = parser.parse_args()
-    write_once(args.out, validate(args.preflight_dir))
+    write_once(args.out, validate(args.preflight_dir, args.a5))
 
 
 if __name__ == "__main__":

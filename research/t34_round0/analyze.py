@@ -321,11 +321,18 @@ def analyze_paths(
     records cannot self-assert a fresh bank, successful replay or ratification.
     """
     from research.t34_round0.common import B8_SHA, ROOT, read_json, sha256
+    from research.t34_round0.history import HistoryError
     from research.t34_round0.registration import require_registration
 
     try:
         ratification = read_json(ratification_path)
         bank = require_registration(ratification, bank_path, audit_path, repo=repo or ROOT)
+        from research.t34_pathb.source_binding_v2 import verify_frozen_worktree
+        from research.t34_round0.history import require_active_phase, require_chunks, selected_rows
+
+        require_active_phase(ratification, "analysis")
+        verify_frozen_worktree(repo or ROOT, ratification["commit"])
+        require_chunks(chunks, ratification)
         expected_identity = dict(
             bank_sha256=sha256(bank_path),
             audit_sha256=sha256(audit_path),
@@ -408,6 +415,11 @@ def analyze_paths(
             pair_entries = receipt.get("pairs")
             if not isinstance(pair_entries, list) or not pair_entries:
                 raise InvalidEvidence("chunk has no immutable pair inventory")
+            allocated = receipt.get("slice", {}).get("count", 0)
+            if type(allocated) is not int or allocated < 1 or len(pair_entries) > allocated:
+                raise InvalidEvidence("invalid allocated/completed chunk counts")
+            if (allocated - len(pair_entries)) / allocated > 0.02:
+                raise InvalidEvidence("STOP: >2% dropped worlds in a chunk; preserve and report")
             chunk_hashes[str(receipt_path)] = sha256(receipt_path)
             for entry in pair_entries:
                 pair_path = _bound_path(chunk_root, entry)
@@ -494,8 +506,9 @@ def analyze_paths(
         replay = read_json(replay_path)
         selected = [
             row["world_id"]
-            for mix, n in zip(MIXES, (10, 7, 7))
-            for row in [r for r in bank["rows"] if r["mix"] == mix][:n]
+            for row in selected_rows(
+                bank["rows"], [read_json(root / "chunk.json") for root in chunks]
+            )
         ]
         if (
             replay.get("schema") != "t34-round0-replay/v1"
@@ -510,8 +523,8 @@ def analyze_paths(
         if any(replay_identity.get(k) != v for k, v in expected_identity.items()):
             raise InvalidEvidence("Mac replay input identity mismatch")
         checks = replay.get("checked_pairs")
-        if not isinstance(checks, list) or len(checks) != 24:
-            raise InvalidEvidence("Mac replay requires exactly 24 verified pairs")
+        if not isinstance(checks, list) or len(checks) != len(selected):
+            raise InvalidEvidence("Mac replay requires the ceil(10%) sample from every chunk")
         if checks != [evidence[world_id] for world_id in selected]:
             raise InvalidEvidence("Mac replay does not bind exact exported pairs and traces")
         # Canonical bank order is independent of chunking and completion order.
@@ -551,6 +564,14 @@ def analyze_paths(
             ratification_sha256=expected_identity["ratification_sha256"],
         )
         return result
+    except HistoryError as exc:
+        return dict(
+            schema="t34-round0-decision/v1",
+            decision="KILL",
+            reason=str(exc),
+            evidence_authority="INTEGRITY_FAILURE",
+            release_authorized=False,
+        )
     except (
         ValueError,
         KeyError,
@@ -564,7 +585,8 @@ def analyze_paths(
 
 
 def main() -> None:
-    from research.t34_round0.common import write_once
+    from research.t34_round0.common import read_json
+    from research.t34_round0.history import policy, run_phase
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chunks", nargs="+", type=Path, required=True)
@@ -574,8 +596,16 @@ def main() -> None:
     parser.add_argument("--replay", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    write_once(
-        args.out, analyze_paths(args.chunks, args.bank, args.audit, args.ratification, args.replay)
+    registration = read_json(args.ratification)
+    root, _, _ = policy(registration)
+    if args.out != root / "analysis/decision.json" or args.replay != root / "replay/replay.json":
+        parser.error("analysis must use the fixed replay and analysis/decision.json paths")
+    run_phase(
+        registration,
+        "analysis",
+        lambda _out: analyze_paths(
+            args.chunks, args.bank, args.audit, args.ratification, args.replay
+        ),
     )
 
 

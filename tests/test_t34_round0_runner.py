@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import pickle
 import platform
 from types import SimpleNamespace
 
@@ -113,8 +115,135 @@ def test_execution_recipe_rejects_wrong_mode_or_thread_count(monkeypatch) -> Non
     runner._validate_execution(preflight=True, device="cpu", threads=1, seconds=1)
     with pytest.raises(runner.Round0Error, match="preflight requires"):
         runner._validate_execution(preflight=True, device="cuda", threads=1, seconds=1)
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    runner._validate_execution(preflight=False, device="cpu", threads=1, seconds=1)
     with pytest.raises(runner.Round0Error, match="production requires"):
-        runner._validate_execution(preflight=False, device="cuda", threads=5, seconds=1)
+        runner._validate_execution(preflight=False, device="cuda", threads=1, seconds=1)
+    with pytest.raises(runner.Round0Error, match="production requires"):
+        runner._validate_execution(preflight=False, device="cpu", threads=2, seconds=1)
+
+
+def test_production_source_fence_requires_clean_ratified_bytes(monkeypatch, tmp_path) -> None:
+    ratification = tmp_path / "ratification.json"
+    ratification.write_text("{}")
+    hashes = {"research/t34_round0/runner.py": "fixture"}
+    monkeypatch.setattr(runner, "_git_commit", lambda: "a" * 40)
+    monkeypatch.setattr(runner, "_tracked_source_is_clean", lambda: True)
+    monkeypatch.setattr(runner, "_source_is_detached", lambda: True)
+    monkeypatch.setattr("research.t34_round0.common.source_hashes", lambda _root: hashes)
+    monkeypatch.setattr(
+        runner,
+        "_load",
+        lambda _path: {"commit": "a" * 40, "source_hashes": hashes},
+    )
+    snapshot = runner._source_fence(preflight=False, ratification=ratification)
+    assert snapshot == {"commit": "a" * 40, "source_hashes": hashes}
+    runner._check_source_fence(snapshot, preflight=False)
+    monkeypatch.setattr(runner, "_tracked_source_is_clean", lambda: False)
+    with pytest.raises(runner.Round0Error, match="tracked source changed"):
+        runner._check_source_fence(snapshot, preflight=False)
+
+
+def test_pair_worker_failure_preserves_arm_and_fault_marker() -> None:
+    failure = runner.Round0PairError(
+        "teacher", "world/7", ValueError("policy returned non-finite Q values")
+    )
+    assert failure.arm == "teacher"
+    assert failure.world_id == "world/7"
+    assert failure.marker == "nonfinite_q"
+
+
+def test_pair_worker_failure_is_pickle_safe_for_spawn_pool_transport() -> None:
+    failure = runner.Round0PairError("bare", "world/8", ValueError("illegal hero action"))
+    copied = pickle.loads(pickle.dumps(failure))
+    assert isinstance(copied, runner.Round0PairError)
+    assert (copied.arm, copied.world_id, copied.marker, str(copied)) == (
+        "bare",
+        "world/8",
+        "illegal_action",
+        "illegal hero action",
+    )
+
+
+def test_worker_metric_receipt_requires_counted_legal_actions() -> None:
+    metrics = {
+        "mass_integral": 1.0,
+        "survival_fraction": 1.0,
+        "boost_share": 0.0,
+        "one_action_share": 1.0,
+        "decisions": 2,
+        "deaths": 0,
+        "boost_decisions": 0,
+        "no_death": 1,
+        "action_counts": [2, 0, 0, 0, 0, 0],
+    }
+    assert runner._validated_metrics(metrics)["decisions"] == 2
+    metrics["action_counts"] = [1, 0, 0, 0, 0, 0]
+    with pytest.raises(runner.Round0Error, match="invalid action counts"):
+        runner._validated_metrics(metrics)
+
+
+def test_out_of_order_ready_results_do_not_reduce_worker_submission_capacity() -> None:
+    class FakePool:
+        def __init__(self) -> None:
+            self.submitted: list[tuple[object, dict]] = []
+
+        def submit(self, function, request):
+            future = object()
+            self.submitted.append((function, request))
+            return future
+
+    pool = FakePool()
+    early_world_is_still_running = object()
+    pending = {early_world_is_still_running: 0}
+    # Pair 1 completed before pair 0 and is deliberately retained for canonical
+    # publication.  It must not make the scheduler leave two workers idle.
+    ready = {1: {"index": 1}}
+    next_index = runner._submit_available(
+        pool,
+        pending,
+        next_index=2,
+        stop_index=6,
+        workers=3,
+        request_for_index=lambda index: {"index": index},
+    )
+    assert ready[1]["index"] == 1
+    assert [request["index"] for _function, request in pool.submitted] == [2, 3]
+    assert len(pending) == 3
+    assert next_index == 4
+
+
+def test_dispatch_admission_requires_canonical_registration_and_fixed_attempt(tmp_path) -> None:
+    registration = tmp_path / "ratification.json"
+    registration.write_text(json.dumps({"commit": "a" * 40, "status": "RATIFIED"}))
+    admission = tmp_path / "admission.json"
+    admission.write_text(
+        json.dumps(
+            {
+                "schema": "t34-round0-admission/v1",
+                "phase_path": "/evidence/t34/chunks/chunk-007/attempt-01",
+                "registration_sha256": runner._canonical_sha(runner._load(registration)),
+                "claim_commit": "b" * 40,
+            }
+        )
+    )
+    assert runner._validate_dispatch_admission(admission, registration)["claim_commit"] == "b" * 40
+    admission.write_text(
+        json.dumps(
+            {
+                "schema": "t34-round0-admission/v1",
+                "phase_path": "/evidence/t34/chunks/chunk-007/attempt-03",
+                "registration_sha256": runner._canonical_sha(runner._load(registration)),
+                "claim_commit": "b" * 40,
+            }
+        )
+    )
+    with pytest.raises(runner.Round0Error, match="fixed registered chunk attempt"):
+        runner._validate_dispatch_admission(admission, registration)
+
+
+def test_production_recipe_declares_a5_k12_single_thread_layout() -> None:
+    assert runner.PRODUCTION_WORKERS == 12
 
 
 def test_action_window_checks_exact_rolling_100k_without_counter_rebuild() -> None:

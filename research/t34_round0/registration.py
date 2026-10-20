@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -106,6 +107,11 @@ def require_registration(
     a5 = registration.get("a5", {})
     if not isinstance(a5.get("sha256"), str) or len(a5["sha256"]) != 64:
         raise ValueError("ratification lacks the A5 evidence binding")
+    from research.t34_round0.history import policy
+
+    policy(registration)
+    if not isinstance(registration.get("sizing"), dict) or not registration["sizing"].get("chunks"):
+        raise ValueError("ratification lacks the frozen chunk sizing and study unit cap")
     return bank
 
 
@@ -115,6 +121,7 @@ def ratify(
     a5_path: Path,
     preflight_record: Path,
     out: Path,
+    study_root: Path,
     bank_path: Path = PACKAGE / "BANK_ROUND0.json",
     audit_path: Path = PACKAGE / "SEED_AUDIT_ROUND0.json",
     repo: Path = ROOT,
@@ -146,6 +153,30 @@ def ratify(
         or verification.get("preflight", {}).get("horizon") != 500
     ):
         raise ValueError("ratification requires a source-bound successful real A6 preflight")
+    if (
+        a5["a6_measurement_sha256"] != verification["preflight"].get("sha256")
+        or a5["a6_source_sha256"]
+        != hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+    ):
+        raise ValueError("A5 sizing adapter must bind this exact A6 measurement and source")
+    from research.t34_round0.make_manifest import size_round
+
+    sizing = size_round(
+        240,
+        **{
+            k: a5[k]
+            for k in (
+                "teacher_worlds_per_hour",
+                "bare_seconds_per_world",
+                "metric_seconds_per_pair",
+                "cpu_slowdown_factor",
+                "setup_minutes",
+            )
+        },
+    )
+    sizing["total_liability_with_mechanical_reruns_units"] = 2 * (
+        sizing["unit_cap"] + sizing["reserve_units"]
+    )
     commit = head(repo)
     # Bind every executable file to the same committed tree, not just a clean status.
     for name, digest in hashes.items():
@@ -160,6 +191,12 @@ def ratify(
         "operator": operator,
         "approved_at": datetime.now(timezone.utc).isoformat(),
         "commit": commit,
+        "study_root": str(study_root),
+        "history_ledger": {
+            "repo": str(repo.resolve()),
+            "path": f"research/t34_round0/ledger/{study_root.name}.jsonl",
+        },
+        "sizing": sizing,
         "registration_sha256": sha256(PREREG),
         "bank_sha256": sha256(bank_path),
         "audit_sha256": sha256(audit_path),
@@ -186,12 +223,14 @@ def main() -> None:
     parser.add_argument("--a5", type=Path, required=True)
     parser.add_argument("--preflight-record", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--study-root", type=Path, required=True)
     args = parser.parse_args()
     ratify(
         operator=args.operator,
         a5_path=args.a5,
         preflight_record=args.preflight_record,
         out=args.out,
+        study_root=args.study_root,
     )
 
 

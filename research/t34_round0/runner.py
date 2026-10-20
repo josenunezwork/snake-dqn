@@ -9,11 +9,14 @@ removed before the public Round 0 export is written.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import math
+import multiprocessing
 import os
 import platform
+import re
 import subprocess
 import tempfile
 import time
@@ -34,10 +37,28 @@ PAIR_SCHEMA = "t34-round0-pair/v1"
 CHUNK_SCHEMA = "t34-round0-chunk/v1"
 WORLD_SCHEMA = "t34-exit-world/v1"
 HORIZON = 5000
+PRODUCTION_WORKERS = 12
 
 
 class Round0Error(RuntimeError):
     """A fail-closed Round 0 producer error."""
+
+
+class Round0PairError(Round0Error):
+    """A worker failure with enough context to preserve a KILL record."""
+
+    def __init__(
+        self, arm: str, world_id: str, cause: BaseException | str, marker: str | None = None
+    ) -> None:
+        """Retain only primitive fields so spawn-pool exception transport is safe."""
+        super().__init__(str(cause))
+        self.arm = arm
+        self.world_id = world_id
+        self.marker = marker if marker is not None else _fault_marker(cause)
+
+    def __reduce__(self) -> tuple[Any, tuple[str, str, str, str | None]]:
+        """Reconstruct contextual fault data when ProcessPoolExecutor unpickles us."""
+        return (type(self), (self.arm, self.world_id, str(self), self.marker))
 
 
 def _fault_marker(exc: BaseException) -> str | None:
@@ -168,6 +189,32 @@ def _registered_bank(registration: Path, bank: Path, audit: Path) -> list[dict[s
     return _validate_bank(value, preflight=False)
 
 
+def _canonical_sha(value: Mapping[str, Any]) -> str:
+    """Hash an admission object with the history ledger's canonical JSON encoding."""
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    ).hexdigest()
+
+
+def _validate_dispatch_admission(admission: Path | None, ratification: Path) -> dict[str, Any]:
+    """Require the remote create-only claim copied into this frozen runtime."""
+    if admission is None:
+        raise Round0Error("production requires a dispatch admission receipt")
+    value = _load(admission)
+    registration = _load(ratification)
+    phase_path = value.get("phase_path")
+    if (
+        value.get("schema") != "t34-round0-admission/v1"
+        or value.get("registration_sha256") != _canonical_sha(registration)
+        or not isinstance(phase_path, str)
+        or not re.search(r"(?:^|/)chunks/chunk-\d{3}/attempt-0[12]$", phase_path)
+        or not isinstance(value.get("claim_commit"), str)
+        or not re.fullmatch(r"[0-9a-f]{40}", value["claim_commit"])
+    ):
+        raise Round0Error("dispatch admission receipt is not a fixed registered chunk attempt")
+    return value
+
+
 def _validate_execution(*, preflight: bool, device: str, threads: int, seconds: float) -> None:
     if not math.isfinite(seconds) or not 0 < seconds <= 21000:
         raise Round0Error("operational wall bound must be in (0, 21000]")
@@ -175,8 +222,8 @@ def _validate_execution(*, preflight: bool, device: str, threads: int, seconds: 
         if platform.system() != "Darwin" or device != "cpu" or threads != 1:
             raise Round0Error("preflight requires Darwin, cpu, and exactly one thread")
         return
-    if platform.system() == "Darwin" or device != "cuda" or threads != 5:
-        raise Round0Error("production requires non-Darwin CUDA with exactly five threads")
+    if platform.system() == "Darwin" or device != "cpu" or threads != 1:
+        raise Round0Error("production requires non-Darwin CPU inference and exactly one thread")
 
 
 def _metrics_from_trace(exported: Mapping[str, Any], checkpoint: Path) -> dict[str, Any]:
@@ -315,14 +362,62 @@ def _strip_labels(exported: Mapping[str, Any]) -> dict[str, Any]:
 def _trace_meta(
     root: Path, path: Path, metrics: Mapping[str, Any], exported: Mapping[str, Any]
 ) -> dict[str, Any]:
+    return _trace_meta_from_final_hash(
+        root,
+        path,
+        metrics,
+        str(exported["hashes"][str(len(exported["actions"]))]),
+    )
+
+
+def _trace_meta_from_final_hash(
+    root: Path, path: Path, metrics: Mapping[str, Any], final_state_hash: str
+) -> dict[str, Any]:
+    """Build receipt metadata without retaining a full trace in the parent process."""
     return {
         **dict(metrics),
         "trace": {
             "path": str(path.relative_to(root)),
             "sha256": sha256(path),
-            "final_state_hash": str(exported["hashes"][str(len(exported["actions"]))]),
+            "final_state_hash": final_state_hash,
         },
     }
+
+
+def _validated_metrics(value: Any) -> dict[str, Any]:
+    """Reject malformed worker metrics before they can enter scientific receipts."""
+    if not isinstance(value, Mapping):
+        raise Round0Error("worker metrics must be an object")
+    result = dict(value)
+    counts = result.get("action_counts")
+    if (
+        not isinstance(counts, list)
+        or len(counts) != 6
+        or any(type(count) is not int or count < 0 for count in counts)
+        or type(result.get("decisions")) is not int
+        or result["decisions"] < 1
+        or sum(counts) != result["decisions"]
+    ):
+        raise Round0Error("worker metrics have invalid action counts")
+    for key in ("deaths", "boost_decisions"):
+        if type(result.get(key)) is not int or result[key] < 0:
+            raise Round0Error(f"worker metrics have invalid {key}")
+    if result["boost_decisions"] > result["decisions"]:
+        raise Round0Error("worker metrics have invalid boost_decisions")
+    if type(result.get("no_death")) is not int or result["no_death"] not in (0, 1):
+        raise Round0Error("worker metrics have invalid no_death")
+    for key in ("mass_integral", "survival_fraction", "boost_share", "one_action_share"):
+        if type(result.get(key)) not in (int, float) or not math.isfinite(float(result[key])):
+            raise Round0Error(f"worker metrics have invalid {key}")
+    if (
+        any(
+            not 0.0 <= float(result[key]) <= 1.0
+            for key in ("survival_fraction", "boost_share", "one_action_share")
+        )
+        or float(result["mass_integral"]) < 0.0
+    ):
+        raise Round0Error("worker metrics are out of range")
+    return result
 
 
 def _run_identity(
@@ -342,42 +437,214 @@ def _run_identity(
         "checkpoint_sha256": sha256(checkpoint),
         "commit": _git_commit(),
     }
-    if preflight:
-        from research.t34_round0.common import source_hashes
-
-        result["source_hashes"] = source_hashes(ROOT)
     return result
+
+
+def _tracked_source_is_clean() -> bool:
+    """Return whether tracked source has no uncommitted changes.
+
+    Untracked runtime output is intentionally allowed: the qualified supervisor
+    materializes inputs and exports beside the frozen checkout.
+    """
+    return not subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=no"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _source_is_detached() -> bool:
+    """Return detached-HEAD status, refusing ambiguous Git failures."""
+    result = subprocess.run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 1:
+        return True
+    if result.returncode == 0:
+        return False
+    raise Round0Error("could not verify detached frozen source checkout")
+
+
+def _source_fence(*, preflight: bool, ratification: Path | None) -> dict[str, Any]:
+    """Bind the running producer to bytes checked before, during, and after work."""
+    from research.t34_round0.common import source_hashes
+
+    snapshot = {"commit": _git_commit(), "source_hashes": source_hashes(ROOT)}
+    if preflight:
+        return snapshot
+    if ratification is None:
+        raise Round0Error("production requires a ratification source fence")
+    registered = _load(ratification)
+    if registered.get("commit") != snapshot["commit"]:
+        raise Round0Error("checked-out source differs from the ratified commit")
+    if registered.get("source_hashes") != snapshot["source_hashes"]:
+        raise Round0Error("checked-out source differs from the ratified source closure")
+    if not _source_is_detached():
+        raise Round0Error("production requires a detached frozen source checkout")
+    if not _tracked_source_is_clean():
+        raise Round0Error("production requires a clean tracked source commit")
+    return snapshot
+
+
+def _check_source_fence(snapshot: Mapping[str, Any], *, preflight: bool) -> None:
+    """Fail closed if source bytes or production tracked state drift mid-chunk."""
+    from research.t34_round0.common import source_hashes
+
+    if _git_commit() != snapshot.get("commit") or source_hashes(ROOT) != snapshot.get(
+        "source_hashes"
+    ):
+        raise Round0Error("source bytes changed during Round 0 collection")
+    if not preflight and not _tracked_source_is_clean():
+        raise Round0Error("tracked source changed during Round 0 collection")
+    if not preflight and not _source_is_detached():
+        raise Round0Error("source checkout is no longer detached during Round 0 collection")
+
+
+def _worker_deadline(deadline: float) -> None:
+    if time.monotonic() >= deadline:
+        raise Round0Error("operational chunk wall bound reached")
+
+
+def _submit_available(
+    pool: Any,
+    pending: dict[Any, int],
+    *,
+    next_index: int,
+    stop_index: int,
+    workers: int,
+    request_for_index: Any,
+) -> int:
+    """Keep every worker occupied; canonical receipt ordering is independent."""
+    while next_index < stop_index and len(pending) < workers:
+        pending[pool.submit(_produce_pair, request_for_index(next_index))] = next_index
+        next_index += 1
+    return next_index
+
+
+def _produce_pair(request: Mapping[str, Any]) -> dict[str, Any]:
+    """Run both canonical arms in one single-threaded spawned worker process."""
+    from research.t34_exit_b8.label import _cpu_ceiling
+
+    _cpu_ceiling(1)
+    os.environ["SNAKE_DQN_DEVICE"] = "cpu"
+    import numba
+    import torch
+
+    if numba.get_num_threads() != 1:
+        raise Round0Error("worker Numba thread ceiling did not take effect")
+    torch.set_num_threads(1)
+    row = dict(request["row"])
+    checkpoint = Path(str(request["checkpoint"]))
+    trace_dir = Path(str(request["trace_dir"]))
+    deadline = float(request["deadline"])
+    world_id = str(row["world_id"])
+    trace_dir.mkdir(parents=True, exist_ok=False)
+    try:
+        bare_started = time.monotonic()
+        bare = _bare_trace(
+            row,
+            checkpoint,
+            frames=int(row["horizon"]),
+            device="cpu",
+            on_progress=lambda: _worker_deadline(deadline),
+        )
+        bare_elapsed = time.monotonic() - bare_started
+        bare_path = trace_dir / "bare.json"
+        write_world(bare_path, bare)
+        metric_started = time.monotonic()
+        _worker_deadline(deadline)
+        bare_metrics = _metrics_from_trace(bare, checkpoint)
+        _worker_deadline(deadline)
+        bare_metric_elapsed = time.monotonic() - metric_started
+    except BaseException as exc:
+        raise Round0PairError("bare", world_id, exc) from exc
+    try:
+        teacher_started = time.monotonic()
+        with tempfile.TemporaryDirectory(prefix="t34-round0-teacher-") as temporary:
+            teacher_out = Path(temporary) / "teacher"
+            result = run_worlds(
+                {
+                    "checkpoint": checkpoint,
+                    "output_dir": teacher_out,
+                    "rows": [row],
+                    "frames": int(row["horizon"]),
+                    "seconds": max(1.0, deadline - time.monotonic()),
+                    "beta": 1.0,
+                    "device": "cpu",
+                    "batch_device_vectors": False,
+                    "worlds_per_process": 1,
+                    "branch_bucket_size": 6,
+                }
+            )
+            if not result.get("complete") or result.get("worlds") != 1:
+                raise Round0Error("teacher did not complete a world")
+            teacher = _strip_labels(load_world(teacher_out / "world-000000.json"))
+        teacher_elapsed = time.monotonic() - teacher_started
+        teacher_path = trace_dir / "teacher.json"
+        write_world(teacher_path, teacher)
+        metric_started = time.monotonic()
+        _worker_deadline(deadline)
+        teacher_metrics = _metrics_from_trace(teacher, checkpoint)
+        _worker_deadline(deadline)
+        teacher_metric_elapsed = time.monotonic() - metric_started
+    except BaseException as exc:
+        raise Round0PairError("teacher", world_id, exc) from exc
+    return {
+        "index": int(request["index"]),
+        "row": row,
+        "arms": {
+            "bare": {
+                "path": str(bare_path),
+                "metrics": bare_metrics,
+                "final_state_hash": str(bare["hashes"][str(len(bare["actions"]))]),
+                "action_stream": [int(actions[0]) for actions in bare["actions"]],
+                "rollout_elapsed_seconds": bare_elapsed,
+                "metric_elapsed_seconds": bare_metric_elapsed,
+            },
+            "teacher": {
+                "path": str(teacher_path),
+                "metrics": teacher_metrics,
+                "final_state_hash": str(teacher["hashes"][str(len(teacher["actions"]))]),
+                "action_stream": [int(actions[0]) for actions in teacher["actions"]],
+                "rollout_elapsed_seconds": teacher_elapsed,
+                "metric_elapsed_seconds": teacher_metric_elapsed,
+            },
+        },
+        "worker": {"threads": 1, "device": "cpu", "worlds_per_process": 1},
+    }
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     bank_path, audit_path = Path(args.bank), Path(args.audit)
     ratification = Path(args.ratification) if args.ratification else None
+    dispatch_value = getattr(args, "dispatch_admission", None)
+    dispatch_admission = Path(dispatch_value) if dispatch_value else None
     checkpoint, out = Path(args.checkpoint), Path(args.output_dir)
     preflight = bool(args.preflight)
     _validate_execution(
         preflight=preflight, device=args.device, threads=args.threads, seconds=args.seconds
     )
-    from research.t34_exit_b8.label import _cpu_ceiling
     from research.t34_round0.common import B8_SHA
 
-    _cpu_ceiling(args.threads)
-    os.environ["SNAKE_DQN_DEVICE"] = args.device
-    import numba
-    import torch
-
-    if numba.get_num_threads() != args.threads:
-        raise Round0Error("configured Numba thread ceiling did not take effect")
-    torch.set_num_threads(1)
     bank_data = _load(bank_path)
     rows = _validate_bank(bank_data, preflight=preflight)
     _validate_audit(audit_path, bank_path)
     if preflight:
-        if ratification is not None:
-            raise Round0Error("preflight must not carry a campaign ratification")
+        if ratification is not None or dispatch_admission is not None:
+            raise Round0Error(
+                "preflight must not carry a campaign ratification or dispatch admission"
+            )
     else:
         if ratification is None:
             raise Round0Error("production requires a ratification")
         rows = _registered_bank(ratification, bank_path, audit_path)
+        admission = _validate_dispatch_admission(dispatch_admission, ratification)
     if not checkpoint.is_file():
         raise Round0Error("B8 checkpoint is missing")
     if sha256(checkpoint) != B8_SHA:
@@ -387,6 +654,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     selected = rows[args.start : args.start + args.count]
     if out.exists():
         raise Round0Error("output directory must be fresh")
+    fence = _source_fence(preflight=preflight, ratification=ratification)
     out.mkdir(parents=True)
     identity = _run_identity(
         runtime_id=args.runtime_id,
@@ -396,10 +664,30 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         checkpoint=checkpoint,
         preflight=preflight,
     )
+    identity["source_hashes"] = fence["source_hashes"]
+    if not preflight:
+        identity["dispatch_admission_sha256"] = sha256(dispatch_admission)
+        identity["phase_path"] = admission["phase_path"]
+        identity["claim_commit"] = admission["claim_commit"]
     started = time.monotonic()
     heartbeat = started
     pairs: list[dict[str, str]] = []
     windows = {"bare": _ActionWindow(), "teacher": _ActionWindow()}
+    arm_summary = {
+        name: {
+            "rollout_elapsed_seconds": 0.0,
+            "metric_elapsed_seconds": 0.0,
+            "total_elapsed_seconds": 0.0,
+            "decisions": 0,
+            "action_counts": [0] * 6,
+        }
+        for name in ("bare", "teacher")
+    }
+    selected_by_index = {args.start + offset: row for offset, row in enumerate(selected)}
+    completed: set[int] = set()
+    ready: dict[int, dict[str, Any]] = {}
+    deadline = started + args.seconds
+    workers = 1 if preflight else min(PRODUCTION_WORKERS, len(selected))
 
     def fault(arm: str, marker: str, world_id: str, reason: str) -> None:
         _write_new(
@@ -416,11 +704,36 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             },
         )
 
+    def kill(reason: str, *, error: BaseException | None = None) -> None:
+        """Leave create-only operational evidence for every abort or interruption."""
+        dropped = len(selected) - len(completed)
+        payload: dict[str, Any] = {
+            "schema": "t34-round0-kill/v1",
+            "status": "KILL",
+            "preflight": preflight,
+            "run_identity": identity,
+            "operational_reason": reason,
+            "completed_pairs": len(completed),
+            "dropped_pairs": dropped,
+            "requested_pairs": len(selected),
+            "dropped_fraction": dropped / len(selected),
+            "drop_limit_fraction": 0.02,
+            "one_look": "no outcome analysis was performed by the producer",
+        }
+        if error is not None:
+            payload["error_type"] = type(error).__name__
+            payload["error"] = str(error)
+        try:
+            _write_new(out / "kill.json", payload)
+        except FileExistsError:
+            pass
+
     def operational() -> None:
         nonlocal heartbeat
         now = time.monotonic()
-        if now - started >= args.seconds:
-            raise Round0Error("operational chunk wall bound reached; no complete receipt written")
+        if now >= deadline:
+            raise Round0Error("operational chunk wall bound reached")
+        _check_source_fence(fence, preflight=preflight)
         if now - heartbeat >= 110:
             print(
                 json.dumps(
@@ -428,89 +741,139 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         "event": "t34_round0_operational_progress",
                         "elapsed_seconds": now - started,
                         "completed_pairs": len(pairs),
+                        "requested_pairs": len(selected),
+                        "workers": workers,
                     }
                 ),
                 flush=True,
             )
             heartbeat = now
 
-    def action_callback(arm: str, world_id: str) -> Any:
-        def record(action: int) -> None:
-            operational()
-            if windows[arm].add(int(action)):
-                fault(arm, "action_collapse_100k", world_id, "one action exceeded 90 percent")
-                raise Round0Error(f"{arm} exceeded the one-action-collapse tripwire")
-
-        return record
-
-    for offset, row in enumerate(selected):
-        operational()
-        tag = _safe_world_id(str(row["world_id"]))
-        trace_dir = out / "traces" / tag
-        trace_dir.mkdir(parents=True)
-        try:
-            bare = _bare_trace(
-                row,
-                checkpoint,
-                frames=int(row["horizon"]),
-                device=args.device,
-                on_action=action_callback("bare", str(row["world_id"])),
-                on_progress=operational,
+    def publish(result: Mapping[str, Any]) -> None:
+        index = int(result["index"])
+        row = selected_by_index[index]
+        arms: dict[str, Any] = {}
+        worker_arms = result.get("arms")
+        if not isinstance(worker_arms, Mapping):
+            raise Round0Error("worker result lacks arm inventory")
+        for name in ("bare", "teacher"):
+            worker_arm = worker_arms.get(name)
+            if not isinstance(worker_arm, Mapping):
+                raise Round0Error(f"worker result lacks {name} arm")
+            metrics = _validated_metrics(worker_arm.get("metrics"))
+            actions = worker_arm.get("action_stream")
+            if (
+                not isinstance(actions, list)
+                or len(actions) != metrics["decisions"]
+                or any(type(action) is not int or not 0 <= action < 6 for action in actions)
+            ):
+                raise Round0Error(f"worker {name} action stream is invalid")
+            for action in actions:
+                if windows[name].add(action):
+                    fault(
+                        name,
+                        "action_collapse_100k",
+                        str(row["world_id"]),
+                        "one action exceeded 90 percent",
+                    )
+                    raise Round0Error(f"{name} exceeded the one-action-collapse tripwire")
+            path, final_state_hash = Path(str(worker_arm.get("path", ""))), worker_arm.get(
+                "final_state_hash"
             )
-        except (Round0Error, ValueError) as exc:
-            marker = _fault_marker(exc)
-            if marker:
-                fault("bare", marker, str(row["world_id"]), str(exc))
-            raise
-        bare_path = trace_dir / "bare.json"
-        write_world(bare_path, bare)
-        with tempfile.TemporaryDirectory(prefix="t34-round0-teacher-") as temp:
-            teacher_out = Path(temp) / "teacher"
-            teacher_callback = action_callback("teacher", str(row["world_id"]))
-            try:
-                result = run_worlds(
-                    {
-                        "checkpoint": checkpoint,
-                        "output_dir": teacher_out,
-                        "rows": [row],
-                        "frames": int(row["horizon"]),
-                        "seconds": max(1.0, args.seconds - (time.monotonic() - started)),
-                        "beta": 1.0,
-                        "device": args.device,
-                        # Keep the paired arms on the same native opponent
-                        # dispatch recipe, including on CUDA runtimes.
-                        "batch_device_vectors": False,
-                        "worlds_per_process": 1,
-                        "branch_bucket_size": 6,
-                        "on_action": lambda _row, action: teacher_callback(action),
-                    }
-                )
-            except (Round0Error, ValueError) as exc:
-                marker = _fault_marker(exc)
-                if marker:
-                    fault("teacher", marker, str(row["world_id"]), str(exc))
-                raise
-            if not result.get("complete") or result.get("worlds") != 1:
-                raise Round0Error("teacher did not complete a world")
-            teacher_raw = load_world(teacher_out / "world-000000.json")
-        teacher = _strip_labels(teacher_raw)
-        teacher_path = trace_dir / "teacher.json"
-        write_world(teacher_path, teacher)
-        arms = {}
-        for name, trace, path in (("bare", bare, bare_path), ("teacher", teacher, teacher_path)):
-            metrics = _metrics_from_trace(trace, checkpoint)
-            arms[name] = _trace_meta(out, path, metrics, trace)
-        pair = {
-            "schema": PAIR_SCHEMA,
-            "status": "complete",
-            "preflight": preflight,
-            "run_identity": identity,
-            "world": dict(row),
-            "arms": arms,
-        }
-        pair_path = out / "pairs" / f"{args.start + offset:03d}-{tag}.json"
-        _write_new(pair_path, pair)
+            if not path.is_file() or not isinstance(final_state_hash, str) or not final_state_hash:
+                raise Round0Error(f"worker {name} trace metadata is invalid")
+            arms[name] = _trace_meta_from_final_hash(out, path, metrics, final_state_hash)
+            for key in ("rollout_elapsed_seconds", "metric_elapsed_seconds"):
+                elapsed = worker_arm.get(key)
+                if (
+                    type(elapsed) not in (int, float)
+                    or not math.isfinite(float(elapsed))
+                    or elapsed < 0
+                ):
+                    raise Round0Error(f"worker {name} {key} is invalid")
+                arms[name][key] = float(elapsed)
+                arm_summary[name][key] += float(elapsed)
+            arms[name]["total_elapsed_seconds"] = (
+                arms[name]["rollout_elapsed_seconds"] + arms[name]["metric_elapsed_seconds"]
+            )
+            arm_summary[name]["total_elapsed_seconds"] += arms[name]["total_elapsed_seconds"]
+            arm_summary[name]["decisions"] += int(metrics["decisions"])
+            for action, count in enumerate(metrics["action_counts"]):
+                arm_summary[name]["action_counts"][action] += int(count)
+        tag = _safe_world_id(str(row["world_id"]))
+        pair_path = out / "pairs" / f"{index:03d}-{tag}.json"
+        _write_new(
+            pair_path,
+            {
+                "schema": PAIR_SCHEMA,
+                "status": "complete",
+                "preflight": preflight,
+                "run_identity": identity,
+                "world": dict(row),
+                "worker": dict(result["worker"]),
+                "arms": arms,
+            },
+        )
+        completed.add(index)
         pairs.append({"path": str(pair_path.relative_to(out)), "sha256": sha256(pair_path)})
+
+    pool = concurrent.futures.ProcessPoolExecutor(
+        max_workers=workers, mp_context=multiprocessing.get_context("spawn")
+    )
+    pending: dict[concurrent.futures.Future[dict[str, Any]], int] = {}
+    next_index = args.start
+    next_publish = args.start
+    try:
+        while next_index < args.start + len(selected) or pending:
+            operational()
+
+            def request_for_index(index: int) -> dict[str, Any]:
+                row = selected_by_index[index]
+                tag = _safe_world_id(str(row["world_id"]))
+                return {
+                    "index": index,
+                    "row": row,
+                    "checkpoint": str(checkpoint),
+                    "trace_dir": str(out / "traces" / tag),
+                    "deadline": deadline,
+                }
+
+            next_index = _submit_available(
+                pool,
+                pending,
+                next_index=next_index,
+                stop_index=args.start + len(selected),
+                workers=workers,
+                request_for_index=request_for_index,
+            )
+            done, _ = concurrent.futures.wait(
+                pending,
+                timeout=min(5.0, max(0.0, deadline - time.monotonic())),
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            if not done:
+                continue
+            for future in sorted(done, key=lambda item: pending[item]):
+                pending.pop(future)
+                result = future.result()
+                _check_source_fence(fence, preflight=preflight)
+                ready[int(result["index"])] = result
+            while next_publish in ready:
+                publish(ready.pop(next_publish))
+                next_publish += 1
+        _check_source_fence(fence, preflight=preflight)
+    except BaseException as exc:
+        for future in pending:
+            future.cancel()
+        pool.shutdown(wait=True, cancel_futures=True)
+        if isinstance(exc, Round0PairError) and exc.marker:
+            fault(exc.arm, exc.marker, exc.world_id, str(exc))
+        kill("operator abort or unexplained interruption", error=exc)
+        if isinstance(exc, Round0Error):
+            raise
+        raise Round0Error("Round 0 worker aborted; KILL evidence was preserved") from exc
+    else:
+        pool.shutdown(wait=True)
     receipt = {
         "schema": CHUNK_SCHEMA,
         "status": "complete",
@@ -523,11 +886,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "world_ids": [row["world_id"] for row in selected],
         },
         "pairs": pairs,
+        "arms": arm_summary,
         "elapsed_seconds": time.monotonic() - started,
         "operational": {
             "seconds_cap": args.seconds,
             "threads": args.threads,
-            "device": args.device,
+            "device": "cpu",
+            "workers": workers,
+            "worlds_per_process": 1,
+            "inference": "cpu",
+            "dropped_pairs": 0,
+            "drop_limit_fraction": 0.02,
         },
     }
     _write_new(out / "chunk.json", receipt)
@@ -539,6 +908,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--bank", required=True)
     parser.add_argument("--audit", required=True)
     parser.add_argument("--ratification")
+    parser.add_argument("--dispatch-admission")
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--runtime-id", required=True)

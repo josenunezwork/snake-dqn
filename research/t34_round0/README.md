@@ -1,201 +1,178 @@
 # T34 Round 0 preparation and operator runbook
 
-Status: **DRAFT_PENDING_OPERATOR_RATIFICATION**. This package prepares the
-240-pair teacher premise test; implementing it does not authorize scientific
-execution. [Preregistration](PREREGISTRATION_ROUND0.md) fixes the bank, statistics,
-ordered GO/STOP/INCONCLUSIVE rules, and isolation. [OC note](OPERATING_CHARACTERISTICS.md)
-discloses power and cost limitations. The source-bound [A5 erratum](ERRATUM_A5_ADDENDUM_B.md)
-applies binding Amendment 2 addendum B without altering the original draft bytes.
-No labels from this study go to fitting. [VERIFICATION.md](VERIFICATION.md) records
-the final preflight, focused checks, full-suite failures and source qualification.
+Status: **DRAFT_PENDING_OPERATOR_RATIFICATION**. This is a 240-pair development
+premise test against bare B8 s3, not a release. The original
+[preregistration](PREREGISTRATION_ROUND0.md), [A5 amendment](ERRATUM_A5_ADDENDUM_B.md),
+and [integrity/sizing amendment](ERRATUM_INTEGRITY_SIZING.md) jointly govern it.
+The latest amendment supersedes older CUDA/five-thread, paired-rate, fixed
+24-world replay, and interruption instructions. Original hash-bound documents,
+banks and receipts stay unchanged. No Round 0 labels go to fitting.
 
-The operator supplies the actual A5 receipt; no rate or successful rehearsal is
-fabricated. Existing public release `s1-inputs-20261019` supplies pinned B8 and
-frozen checkpoints through `research/t34_exit_b8/PUBLIC_INPUTS.json`. All Colab
-operations use the already-qualified supervisor, never direct job CLI commands.
+Production layout is the A5 PASS recipe: **L4, K=12 processes, one CPU inference
+thread each, W1**; both arms of each pair run in one process/runtime. Preparation
+and excluded A6 run on the Mac with one worker and one numerical thread. This
+implementation does not ratify, dispatch, touch live Colab/tmux or change serving.
 
-## Local preparation (Mac only, no campaign arm)
+## Reproduce local preparation
 
-Use the project interpreter and one numerical thread. These commands are also the
-reproduction instructions for the excluded two-world H500 preflight. The saved
-bank/audit must already exist; do not rerun allocation against its own committed
-seed inventory. All outputs must be fresh. `source_hashes` uses the tracked
-inventory, so all implementation files must be committed or staged before A6.
+Use fresh artifact paths for every excluded A6 reproduction. The saved bank/audit
+already exist: never reallocate selection worlds. Commit all source files before
+A6 so its inventory includes the full implementation. The optional setup argument
+below is a planning allowance and must cover the measured A5 setup/export/cleanup
+elapsed time. The adapter refuses a smaller value.
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-round0
+cd /Users/josenunez/Projects/ml/snake-dqn-round0-integrity
+export AUTHOR_ROOT="$PWD"
+export PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu
-export T34_PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
-export T34_ART=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-20261020
-export T34_A6="$T34_ART/a6-reproduction-01"
-"$T34_PY" -m research.t34_round0.bank --preflight-inputs "$T34_A6/inputs"
+export PREP=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020
+export A6="$PREP/a6-reproduction-01"
+export A5ROOT=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-engine-fanout-20261020/manifests-final-3ebf3991
+"$PY" -m research.t34_round0.bank --preflight-inputs "$A6/inputs"
 SNAKE_CKPT_DIR=/Users/josenunez/Projects/ml/snake-dqn/saved_snakes \
-  "$T34_PY" -m research.t34_round0.runner --preflight \
-  --bank "$T34_A6/inputs/bank.json" --audit "$T34_A6/inputs/audit.json" \
+  "$PY" -m research.t34_round0.runner --preflight \
+  --bank "$A6/inputs/bank.json" --audit "$A6/inputs/audit.json" \
   --checkpoint /Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/B8_s3_final.pth \
-  --output-dir "$T34_A6/output" --runtime-id t34-round0-a6-reproduction-01 \
+  --output-dir "$A6/output" --runtime-id t34-round0-a6-reproduction-01 \
   --start 0 --count 2 --device cpu --threads 1 --seconds 600
-"$T34_PY" -m research.t34_round0.validate --preflight-dir "$T34_A6/output" \
-  --out "$T34_A6/VERIFICATION.json"
+"$PY" -m research.t34_round0.sizing \
+  --a5-benchmarks "$A5ROOT/a5-l4-s0-output/exports/benchmark.json" \
+                  "$A5ROOT/a5-l4-s1-output/exports/benchmark.json" \
+  --preflight-dir "$A6/output" --setup-minutes 15 --out "$A6/A5_RECEIPT.json"
+"$PY" -m research.t34_round0.validate --preflight-dir "$A6/output" \
+  --a5 "$A6/A5_RECEIPT.json" --out "$A6/VERIFICATION.json"
 ```
 
-The validator is read-only except for its create-only report. A6 worlds are stored
-under the separate excluded preflight namespaces. It verifies trace/pair hashes,
-two H500 worlds, CPU/one-thread identity and the executable source inventory.
-No scientific performance claim follows from A6. Any executable/rule change
-requires a new A6 receipt before ratification; existing evidence stays intact.
+Sizing reads the two actual A5 v2 reports and their supervisor PASS/release
+receipts, uses the slower teacher throughput, and binds separately timed bare and
+metric replay costs from A6. H500 measurements are conservatively scaled by 10
+for H5000 and by 3 for the L4 CPU planning projection; only those CPU costs divide
+by K=12. These are explicit assumptions, not measured paired L4 throughput.
+Chunk estimate <=180 min; timeout >=estimate+25 min and >=2*ceil(estimate).
+Exports use 9 MiB/world *1.25 and stay strictly below 2 GiB. Forecast prices every
+timeout at 2.0 u/h, holds an additional 20%, and shows both initial and maximum
+one-rerun-per-chunk liabilities. No unknown debit is represented as zero.
 
-[TABULAR_SEED_AUDIT.json](TABULAR_SEED_AUDIT.json) supplements the original text/
-JSON collision audit with all 52 visible CSV/TSV files across research/, docs/,
-scripts/ and artifact history. All 242 selection/fixture seeds are clear. The
-supplement is bound into the executable registration inventory; the original
-audit's bytes remain unchanged.
-Admission also rechecks the current committed retention-bank seed union; its
-bytes join the source inventory. This covers retention additions merged after
-the original audit without changing or replacing any Round 0 world.
+## Future ratification and frozen execution checkout
 
-## Ratification after A5, before data
-
-The operator places a real, immutable receipt at `$T34_ART/A5_RECEIPT.json`:
-
-```json
-{
-  "schema": "t34-round0-a5/v1",
-  "paired_worlds_per_hour": "REPLACE_WITH_MEASURED_NUMBER",
-  "completed_worlds_per_hour_per_lane": "REPLACE_WITH_MEASURED_NUMBER_AT_LEAST_50",
-  "steady_window_seconds": 1200,
-  "cold_fill_excluded": true,
-  "active_row_steps_per_second": "REPLACE_WITH_MEASURED_NUMBER",
-  "two_lane_rehearsal_complete": true,
-  "measured_export_bytes_per_pair": "REPLACE_WITH_MEASURED_NUMBER",
-  "evidence_sha256": "REPLACE_WITH_64_HEX_DIGEST_OF_REAL_A5_EVIDENCE"
-}
-```
-
-The strings above deliberately fail validation; use actual JSON numbers and the
-real evidence digest. A5 v2 requires at least 50 completed worlds/hour per L4 lane
-over its registered 1,200-second steady window excluding cold fill; row-steps/s
-is reported without the superseded 3,000 floor. Measure the actual paired entrypoint's throughput and
-setup/export/cleanup time. The receipt must describe the frozen recipe and a clean
-two-lane rehearsal; lane 3 requires that rehearsal first. Keep its raw evidence
-with the receipt. Unknown/missing evidence holds dispatch.
-
-A5 is a separately authorized operator measurement, supplied as an input to this
-package. This package does not authorize or expose an unratified L4 benchmark
-mode. A teacher-only A5 worlds/hour number must not be passed off as paired
-throughput: the operator must account for bare evaluation and metric regeneration
-using excluded development measurements, with the recipe and derivation in the
-hash-bound evidence. Both Round 0 arms retain native vector-opponent dispatch
-on CUDA; the teacher explicitly opts out of the newer optional vector batching.
-The paired estimate must describe this exact recipe. If those measurements are unavailable, preparation stays on
-hold; running selection worlds to manufacture A5 would violate the registration.
-
-With clean committed source and reviewed evidence, the delegated operator runs:
+**Not executed by this implementation.** An independent Fable judge must approve
+ratification under campaign authority and the operator must record it in
+CAMPAIGN_LOG.md. Review the concrete draft sizing first. A6 must match the final
+source closure; after executable/rule changes repeat the excluded A6 with a fresh
+path. Commit/push implementation before approval. Ratification creates a separate
+receipt; it never edits the original preregistration.
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-round0
-export T34_PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
-export T34_ART=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-20261020
-export T34_A6_RECORD="$T34_ART/a6-04/VERIFICATION.json"
-: "${T34_OPERATOR:?Set the approving operator name}"
-"$T34_PY" -m research.t34_round0.registration --operator "$T34_OPERATOR" \
-  --a5 "$T34_ART/A5_RECEIPT.json" --preflight-record "$T34_A6_RECORD" \
-  --out "$T34_ART/RATIFICATION.json"
+cd "$AUTHOR_ROOT"
+export SOURCE="$(git rev-parse HEAD)"
+export E=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-study-01
+export FROZEN=/Users/josenunez/Projects/ml/snake-dqn-round0-frozen-01
+: "${T34_OPERATOR:?Set the independent approving judge identity}"
+"$PY" -m research.t34_round0.registration --operator "$T34_OPERATOR" \
+  --study-root "$E" --a5 "$A6/A5_RECEIPT.json" \
+  --preflight-record "$A6/VERIFICATION.json" --out "$E/RATIFICATION.json"
+git worktree add --detach "$FROZEN" "$SOURCE"
+cd "$FROZEN"
+"$PY" -m research.t34_round0.make_manifest --a5 "$A6/A5_RECEIPT.json" \
+  --ratification "$E/RATIFICATION.json" --commit "$SOURCE" \
+  --output-root "$E" --out-dir "$E/manifests" \
+  --lanes 1 --other-assignments '{}' --setup-minutes 15
 ```
 
-Ratification creates a sibling receipt; it does not edit the draft or claim a
-scientific result. It binds the full source commit/inventory, exact preregistration,
-bank/audit, A6 and A5. Prepare immutable manifests with measured setup minutes and
-the reviewed account endpoint-to-positive-rate map. `{}` is valid only when the
-operator has verified there are no other account assignments. Start with one lane;
-the generator supports up to three minus existing assignments.
+`{}` is valid only when no other account assignment exists. Otherwise replace it
+with every existing endpoint's reviewed positive units/h rate; lanes plus these
+assignments cannot exceed three. The broker rechecks account-wide admission.
+Use one lane for the serial publication-barrier runbook below. Manifests can
+assign up to three lane IDs, but every completed phase must publish before the
+next admission. This conservative serial dispatch does not claim concurrent
+Round 0 speedup. The ratification freezes exact chunk slices and all sizing;
+changing roots, costs, setup or partition after ratification is refused.
+
+## Future explicit dispatch and publication barrier
+
+Use only the Round 0 wrapper around the qualified supervisor. Never call the
+Colab job CLI or the broker run command directly. The wrapper makes a unique
+create-only remote admission tag, reserves the exact attempt directory, uploads
+the claim, monitors the frozen worktree, preserves every result/failure, seals
+all files, and appends its terminal hash to the authoring repo ledger. It never
+automatically retries. Missing/unavailable remote publication refuses work.
 
 ```bash
-: "${T34_A5_SETUP_MINUTES:?Set measured setup/export/cleanup minutes per chunk}"
-: "${T34_OTHER_ASSIGNMENTS:?Set reviewed JSON endpoint-to-rate map}"
-"$T34_PY" -m research.t34_round0.make_manifest \
-  --a5 "$T34_ART/A5_RECEIPT.json" --ratification "$T34_ART/RATIFICATION.json" \
-  --commit "$(git rev-parse HEAD)" --lanes 1 \
-  --other-assignments "$T34_OTHER_ASSIGNMENTS" --setup-minutes "$T34_A5_SETUP_MINUTES" \
-  --output-root "$T34_ART/dispatch-01" --out-dir "$T34_ART/dispatch-01/manifests"
-cat "$T34_ART/dispatch-01/manifests/FORECAST.json"
+cd "$FROZEN"
+export M0="$E/manifests/t34-round0-chunk-000-attempt-01-l1.json"
+"$PY" -m research.t34_round0.dispatch run --manifest "$M0" \
+  --ratification "$E/RATIFICATION.json" \
+  --state-dir "$E/supervisor-chunk-000-attempt-01"
 ```
 
-Every manifest is locally validated by the supervisor. No A5 measurement means
-no manifest package. Each chunk has estimate ≤180 min, timeout 360 min, L4-only,
-2.0 units/hour, 12.0 operational units plus 2.4 reserve = 14.4 units. For K chunks,
-worst reserved envelope = 14.4K units. Expected units price all pairs and setup;
-the last chunk uses its actual count. Review this forecast and available account
-credits **before** dispatch. The original ~16-unit planning estimate is not an
-approved substitute for the computed worst case. No retry is automatic.
-
-The generator also exercises the supervisor's local bounded source-archive
-preparation with the exact ratified file inventory. Production requires a Git
-checkout of the pinned commit. If GitHub delivery fails and the supervisor installs
-its sparse fallback without Git metadata, this package refuses before gameplay;
-fallback execution would need a separately verified source-identity adapter.
-
-## Validate and dispatch (operator only)
-
-The following commands are the later ratified run, never part of implementation.
-Publish the pinned source before allocation. Keep the Mac on AC with the lid open;
-the foreground launcher applies the guards and caffeinate. The loop is serial,
-so it uses one lane; to add lanes prepare a new prospective plan with reviewed
-account assignments and at most three in total. Use unique state directories.
+After **every** dispatch, replay, or analysis, publish its ledger append before
+continuing. Keep the authoring checkout separate from the frozen checkout:
 
 ```bash
-export T34_LAUNCH=/Users/josenunez/Projects/ml/snake-dqn-round0/research/colab_cli/launch.sh
-export T34_COLAB=/Users/josenunez/.local/bin/colab
-for T34_JOB in "$T34_ART"/dispatch-01/manifests/t34-round0-c*.json; do
-  T34_JOB_ID="$(basename "$T34_JOB" .json)"
-  "$T34_LAUNCH" --check --state-dir "$T34_ART/state-01/$T34_JOB_ID" \
-    --colab "$T34_COLAB" validate "$T34_JOB"
-done
+cd "$AUTHOR_ROOT"
+export LEDGER="research/t34_round0/ledger/$(basename "$E").jsonl"
+git add -- "$LEDGER"
+git commit -m 'Preserve T34 Round 0 terminal receipt history'
+git fetch origin
+git merge origin/main
+git push origin HEAD:main
+git push origin t34-round0-integrity-20261020
+cd "$FROZEN"
 ```
 
-After ratification, review of the forecast, and explicit dispatch authorization:
+For the next generated manifest, use chunk-001 and a fresh corresponding state
+path, then publish again. Repeat for every forecast chunk. Inspect only progress,
+errors, hashes and operational terminal status; outcome values stay unopened.
+A supervisor CLI exit alone proves nothing: admission requires its immutable
+receipt, successful terminal, all exports and verified runtime disappearance.
+
+One manual rerun per chunk is permitted only when its terminal seal says
+MECHANICAL_FAILURE: successful remote workload, failed bound artifact download,
+and verified release. Preserve the first attempt and publish its ledger first;
+then use the same original manifest with `--mechanical-rerun --outcomes-unseen`
+and a fresh state path ending attempt-02. The wrapper selects the fixed attempt-02
+path. No third attempt or rerun after replay/analysis. Setup, failure and rerun
+are all priced inside the frozen total liability.
+
+Operator abort, cap expiry, source drift and unexplained interruption are KILL.
+A hard kill leaves an unfinished remote claim that still blocks admission even
+if local files are deleted. Do not repair/delete/relabel such history. No world
+replacement, scientific resume, selection-bank extension or outcome-based retry.
+
+## Future Mac replay and sole fixed-N decision
+
+Use the latest COMPLETE attempt for each chunk. The example below assumes the
+first attempts of two chunks succeeded; adjust only attempt-01 to the admitted
+attempt-02 if mechanical recovery was used. Exact chunk count comes from the
+frozen forecast. Keep every failed attempt at its fixed location.
 
 ```bash
-for T34_JOB in "$T34_ART"/dispatch-01/manifests/t34-round0-c*.json; do
-  T34_JOB_ID="$(basename "$T34_JOB" .json)"
-  "$T34_LAUNCH" --state-dir "$T34_ART/state-01/$T34_JOB_ID" \
-    --colab "$T34_COLAB" run "$T34_JOB" || break
-done
-```
-
-Do not read outcomes mid-run. Monitor operational progress, caps, errors and
-immutable hashes only. Success requires each terminal supervisor receipt with
-`status=PASS`, `stop_verified=true`, hash-verified exports and no matching account
-assignment. A client exit code or a scheduled task is not execution evidence.
-
-## Mac replay and the only analysis look
-
-After every scientific chunk completes, freeze the imported outputs. The chunk
-directories are `$T34_ART/dispatch-01/<job-id>/exports/round0`, with each supervisor
-receipt and original manifest two levels above. The analyzer checks this complete
-provenance chain. After Phase 0 frees capacity, run the 10% replay on the Mac with
-the same one-thread caps as A6. Supply every chunk, including no-data failed chunks
-when preserving fault evidence; never omit an unfavorable pair.
-
-```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-round0
-export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1
-export VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu
-T34_CHUNKS=("$T34_ART"/dispatch-01/t34-round0-c*/exports/round0)
+cd "$FROZEN"
+export C0="$E/chunks/chunk-000/attempt-01/job/exports/round0"
+export C1="$E/chunks/chunk-001/attempt-01/job/exports/round0"
 SNAKE_CKPT_DIR=/Users/josenunez/Projects/ml/snake-dqn/saved_snakes \
-  "$T34_PY" -m research.t34_round0.replay \
-  --bank research/t34_round0/BANK_ROUND0.json --audit research/t34_round0/SEED_AUDIT_ROUND0.json \
-  --ratification "$T34_ART/RATIFICATION.json" \
+  "$PY" -m research.t34_round0.replay --bank research/t34_round0/BANK_ROUND0.json \
+  --audit research/t34_round0/SEED_AUDIT_ROUND0.json --ratification "$E/RATIFICATION.json" \
   --checkpoint /Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/B8_s3_final.pth \
-  --chunk-dirs "${T34_CHUNKS[@]}" --out "$T34_ART/MAC_REPLAY.json"
-"$T34_PY" -m research.t34_round0.analyze --chunks "${T34_CHUNKS[@]}" \
-  --bank research/t34_round0/BANK_ROUND0.json --audit research/t34_round0/SEED_AUDIT_ROUND0.json \
-  --ratification "$T34_ART/RATIFICATION.json" --replay "$T34_ART/MAC_REPLAY.json" \
-  --out "$T34_ART/DECISION.json"
+  --chunk-dirs "$C0" "$C1" --out "$E/replay/replay.json"
+# Publish the ledger using the block above before analysis.
+"$PY" -m research.t34_round0.analyze --bank research/t34_round0/BANK_ROUND0.json \
+  --audit research/t34_round0/SEED_AUDIT_ROUND0.json --ratification "$E/RATIFICATION.json" \
+  --chunks "$C0" "$C1" --replay "$E/replay/replay.json" --out "$E/analysis/decision.json"
+# Publish the terminal ledger again before reporting the decision.
 ```
 
-Replay selects first 10 scripted / 7 frozen / 7 mixed worlds, both arms, solely by
-the frozen bank order. Any divergence is reported; no drops/replacements. A GO is
-development premise evidence only. Strict gating, product-contract tests, serving
-qualification and release remain separate authorized steps.
+Replay selects the first ceil(10% of allocation) canonical worlds **within each
+chunk**, both arms, before inspecting outcomes. Reports include allocated,
+completed and dropped counts plus all divergences. >2% drops in any chunk stop
+and report; any missing pair still blocks the whole 240-pair look. Trace replay
+is distinct from a Mac strict gate or cross-platform greedy-policy equivalence.
+
+Only `analysis/decision.json` is the verdict. Imported consumer APIs also require
+a reserved phase; a second analysis or copied output path cannot create another
+look. Published immutable history and remote claims are checked even if source
+or local artifacts were restored. Numerical summaries grant no evidence authority.
+Development GO only admits the next planning decision; strict gate, serving
+qualification and release remain separate.

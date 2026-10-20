@@ -19,6 +19,7 @@ BINDING_DOCS = (
     "docs/research/final_run_20261019/FINAL_PLAN.md",
     "docs/research/governance_amendment_survival_band_v2_2026-10-06.md",
     "docs/research/specs/2026-10-20_t34_round0_prereg.md",
+    "docs/research/specs/2026-10-20_t34_round0_integrity_sizing.md",
 )
 
 
@@ -73,6 +74,7 @@ def source_hashes(repo: Path = ROOT) -> dict[str, str]:
     selected.update(BINDING_DOCS)
     selected.add("research/t34_round0/PREREGISTRATION_ROUND0.md")
     selected.add("research/t34_round0/ERRATUM_A5_ADDENDUM_B.md")
+    selected.add("research/t34_round0/ERRATUM_INTEGRITY_SIZING.md")
     selected.add("research/t34_round0/BANK_ROUND0.json")
     selected.add("research/t34_round0/SEED_AUDIT_ROUND0.json")
     selected.add("research/t34_round0/TABULAR_SEED_AUDIT.json")

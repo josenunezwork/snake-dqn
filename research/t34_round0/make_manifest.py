@@ -23,21 +23,166 @@ from research.t34_round0.registration import require_registration
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "research/t34_round0"
 RATE_UNITS_PER_HOUR = 2.0
-MAX_CHUNK_PAIRS = 240
-MAX_ACTUAL_MINUTES = 180
-TIMEOUT_MINUTES = 360
-HARD_OPERATIONAL_UNITS = 12.0
+MAX_ESTIMATE_MINUTES = 180
+TIMEOUT_GRACE_MINUTES = 25
 RESERVE_FRACTION = 0.20
-# Keep the published decimal caps stable in serialized manifest evidence.
-RESERVE_UNITS = 2.4
-UNIT_CAP = HARD_OPERATIONAL_UNITS + RESERVE_UNITS
 MAX_EXPORT_BYTES = 2 * 1024**3
+EXPORT_BYTES_PER_WORLD = 9 * 1024**2
 EXPORT_SIZING_FACTOR = 1.25
-EXPORT_SIZING_RESERVE_BYTES = 16 * 1024**2
+LAYOUT = {"cpu_inference_processes": 12, "threads_per_process": 1, "worlds_per_process": 1}
 
 
 class ManifestRefused(ValueError):
     """Round 0 has not supplied a complete, admissible registration package."""
+
+
+def _positive_number(value: Any, name: str) -> float:
+    """Return a finite positive numeric value, refusing booleans and zero."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ManifestRefused(f"{name} must be finite and positive")
+    numeric = float(value)
+    if not math.isfinite(numeric) or numeric <= 0:
+        raise ManifestRefused(f"{name} must be finite and positive")
+    return numeric
+
+
+def size_chunk(
+    pairs: int,
+    *,
+    teacher_worlds_per_hour: float,
+    bare_seconds_per_world: float,
+    metric_seconds_per_pair: float,
+    cpu_slowdown_factor: float,
+    cpu_inference_processes: int = 12,
+    setup_minutes: float = 0.0,
+) -> dict[str, float | int]:
+    """Size one same-runtime paired chunk from its bound measured component costs.
+
+    The teacher rate is an aggregate K12 rate.  A6 measures bare and metric
+    CPU costs on one process, so their planning costs use the registered
+    conservative platform factor divided across the same K12 process pool.
+    Keeping them separate prevents a whole-pair preflight elapsed value from
+    being misrepresented as a bare-controller measurement.
+    """
+    if not isinstance(pairs, int) or isinstance(pairs, bool) or pairs < 1:
+        raise ManifestRefused("pairs must be a positive integer")
+    teacher_rate = _positive_number(teacher_worlds_per_hour, "teacher_worlds_per_hour")
+    bare_seconds = _positive_number(bare_seconds_per_world, "bare_seconds_per_world")
+    metric_seconds = _positive_number(metric_seconds_per_pair, "metric_seconds_per_pair")
+    slowdown = _positive_number(cpu_slowdown_factor, "cpu_slowdown_factor")
+    if isinstance(setup_minutes, bool) or not isinstance(setup_minutes, (int, float)):
+        raise ManifestRefused("setup_minutes must be finite and nonnegative")
+    setup = float(setup_minutes)
+    if not math.isfinite(setup) or setup < 0:
+        raise ManifestRefused("setup_minutes must be finite and nonnegative")
+    if (
+        not isinstance(cpu_inference_processes, int)
+        or isinstance(cpu_inference_processes, bool)
+        or cpu_inference_processes != LAYOUT["cpu_inference_processes"]
+    ):
+        raise ManifestRefused("Round 0 requires exactly 12 CPU inference processes")
+    if slowdown < 1:
+        raise ManifestRefused("cpu_slowdown_factor must be at least one")
+    teacher_seconds = pairs * 3600.0 / teacher_rate
+    bare_total_seconds = pairs * bare_seconds * slowdown / cpu_inference_processes
+    metric_total_seconds = pairs * metric_seconds * slowdown / cpu_inference_processes
+    workload_minutes = setup + (teacher_seconds + bare_total_seconds + metric_total_seconds) / 60.0
+    estimate_minutes = math.ceil(workload_minutes)
+    timeout_minutes = max(
+        math.ceil(workload_minutes + TIMEOUT_GRACE_MINUTES),
+        2 * estimate_minutes,
+    )
+    unit_cap = timeout_minutes * RATE_UNITS_PER_HOUR / 60.0
+    export_bytes = math.ceil(pairs * EXPORT_BYTES_PER_WORLD * EXPORT_SIZING_FACTOR)
+    return {
+        "pairs": pairs,
+        "setup_minutes": setup,
+        "teacher_seconds": teacher_seconds,
+        "measured_bare_seconds": pairs * bare_seconds,
+        "measured_metric_seconds": pairs * metric_seconds,
+        "bare_seconds": bare_total_seconds,
+        "metric_seconds": metric_total_seconds,
+        "cpu_slowdown_factor": slowdown,
+        "cpu_inference_processes": cpu_inference_processes,
+        "workload_minutes": workload_minutes,
+        "estimate_minutes": estimate_minutes,
+        "timeout_minutes": timeout_minutes,
+        "unit_cap": unit_cap,
+        "reserve_units": unit_cap * RESERVE_FRACTION,
+        "export_bytes": export_bytes,
+    }
+
+
+def maximum_chunk_pairs(
+    *,
+    teacher_worlds_per_hour: float,
+    bare_seconds_per_world: float,
+    metric_seconds_per_pair: float,
+    cpu_slowdown_factor: float,
+    setup_minutes: float = 0.0,
+) -> int:
+    """Return the largest chunk whose estimate and sized export are both bounded."""
+    one_pair = size_chunk(
+        1,
+        teacher_worlds_per_hour=teacher_worlds_per_hour,
+        bare_seconds_per_world=bare_seconds_per_world,
+        metric_seconds_per_pair=metric_seconds_per_pair,
+        cpu_slowdown_factor=cpu_slowdown_factor,
+        setup_minutes=setup_minutes,
+    )
+    by_time = math.floor(
+        (MAX_ESTIMATE_MINUTES - setup_minutes)
+        / (float(one_pair["workload_minutes"]) - setup_minutes)
+    )
+    by_export = math.floor((MAX_EXPORT_BYTES - 1) / float(one_pair["export_bytes"]))
+    maximum = min(by_time, by_export)
+    if maximum < 1:
+        raise ManifestRefused("measured component costs leave no pair within Round 0 limits")
+    return maximum
+
+
+def size_round(
+    pairs: int,
+    *,
+    teacher_worlds_per_hour: float,
+    bare_seconds_per_world: float,
+    metric_seconds_per_pair: float,
+    cpu_slowdown_factor: float,
+    setup_minutes: float = 0.0,
+) -> dict[str, Any]:
+    """Partition Round 0 before dispatch using only pinned sizing measurements."""
+    if not isinstance(pairs, int) or isinstance(pairs, bool) or pairs < 1:
+        raise ManifestRefused("pairs must be a positive integer")
+    chunk_pairs = maximum_chunk_pairs(
+        teacher_worlds_per_hour=teacher_worlds_per_hour,
+        bare_seconds_per_world=bare_seconds_per_world,
+        metric_seconds_per_pair=metric_seconds_per_pair,
+        cpu_slowdown_factor=cpu_slowdown_factor,
+        setup_minutes=setup_minutes,
+    )
+    chunks: list[dict[str, float | int]] = []
+    for start in range(0, pairs, chunk_pairs):
+        count = min(chunk_pairs, pairs - start)
+        sizing = size_chunk(
+            count,
+            teacher_worlds_per_hour=teacher_worlds_per_hour,
+            bare_seconds_per_world=bare_seconds_per_world,
+            metric_seconds_per_pair=metric_seconds_per_pair,
+            cpu_slowdown_factor=cpu_slowdown_factor,
+            setup_minutes=setup_minutes,
+        )
+        if (
+            sizing["estimate_minutes"] > MAX_ESTIMATE_MINUTES
+            or sizing["export_bytes"] >= MAX_EXPORT_BYTES
+        ):
+            raise ManifestRefused("chunk exceeds a Round 0 estimate or export limit")
+        chunks.append({"start": start, "count": count, **sizing})
+    return {
+        "chunk_pairs": chunk_pairs,
+        "chunks": chunks,
+        "unit_cap": sum(float(chunk["unit_cap"]) for chunk in chunks),
+        "reserve_units": sum(float(chunk["reserve_units"]) for chunk in chunks),
+    }
 
 
 def sha256_file(path: Path) -> str:
@@ -73,8 +218,12 @@ def validate_a5(receipt: dict[str, Any]) -> dict[str, Any]:
     """Validate the immutable A5 acceptance fields required by Round 0."""
     required = {
         "schema": "t34-round0-a5/v1",
-        "paired_worlds_per_hour": None,
-        "completed_worlds_per_hour_per_lane": None,
+        "teacher_worlds_per_hour": None,
+        "bare_seconds_per_world": None,
+        "metric_seconds_per_pair": None,
+        "cpu_slowdown_factor": None,
+        "a6_measurement_sha256": None,
+        "a6_source_sha256": None,
         "steady_window_seconds": 1200,
         "cold_fill_excluded": True,
         "active_row_steps_per_second": None,
@@ -90,23 +239,28 @@ def validate_a5(receipt: dict[str, Any]) -> dict[str, Any]:
         ):
             raise ManifestRefused(f"A5 receipt lacks required {key}")
     for key in (
-        "paired_worlds_per_hour",
-        "completed_worlds_per_hour_per_lane",
+        "teacher_worlds_per_hour",
+        "bare_seconds_per_world",
+        "metric_seconds_per_pair",
+        "cpu_slowdown_factor",
         "active_row_steps_per_second",
         "measured_export_bytes_per_pair",
     ):
-        value = receipt[key]
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(value)
-            or value <= 0
-        ):
-            raise ManifestRefused(f"A5 receipt {key} must be finite and positive")
-    if receipt["completed_worlds_per_hour_per_lane"] < 50:
+        _positive_number(receipt[key], f"A5 receipt {key}")
+    if receipt["teacher_worlds_per_hour"] < 50:
         raise ManifestRefused("A5 receipt misses the 50 completed worlds/hour per lane floor")
+    if not _hex(receipt["a6_measurement_sha256"]):
+        raise ManifestRefused("A5 receipt must bind the per-arm A6 measurement")
+    if not _hex(receipt["a6_source_sha256"]):
+        raise ManifestRefused("A5 receipt must bind the A6 measurement source")
     if not _hex(receipt["evidence_sha256"]):
         raise ManifestRefused("A5 receipt must hash-bound its evidence")
+    if receipt["cpu_slowdown_factor"] < 1:
+        raise ManifestRefused("cpu_slowdown_factor must be at least one")
+    if receipt["measured_export_bytes_per_pair"] > EXPORT_BYTES_PER_WORLD:
+        raise ManifestRefused(
+            "measured exports exceed registered 9 MiB/world sizing; re-size before ratification"
+        )
     return receipt
 
 
@@ -272,23 +426,41 @@ def make_manifests(
     except QualificationRefused as exc:
         raise ManifestRefused(str(exc)) from exc
 
-    paired_per_hour = float(receipt["paired_worlds_per_hour"])
-    by_rate = math.floor(2.5 * paired_per_hour)
-    by_time = math.floor((MAX_ACTUAL_MINUTES - float(setup_minutes)) * paired_per_hour / 60.0)
-    chunk_pairs = min(MAX_CHUNK_PAIRS, by_rate, by_time)
-    if chunk_pairs < 1:
-        raise ManifestRefused("A5 rate and measured setup leave no pair within the 180-minute cap")
-    actual_minutes = float(setup_minutes) + 60.0 * chunk_pairs / paired_per_hour
-    if actual_minutes > MAX_ACTUAL_MINUTES + 1e-9:
-        raise ManifestRefused("chunk estimate exceeds the 180-minute actual-work cap")
-    projected_export_bytes = (
-        math.ceil(
-            chunk_pairs * float(receipt["measured_export_bytes_per_pair"]) * EXPORT_SIZING_FACTOR
-        )
-        + EXPORT_SIZING_RESERVE_BYTES
+    teacher_rate = float(receipt["teacher_worlds_per_hour"])
+    bare_seconds = float(receipt["bare_seconds_per_world"])
+    metric_seconds = float(receipt["metric_seconds_per_pair"])
+    cpu_slowdown_factor = float(receipt["cpu_slowdown_factor"])
+    round_sizing = size_round(
+        len(rows),
+        teacher_worlds_per_hour=teacher_rate,
+        bare_seconds_per_world=bare_seconds,
+        metric_seconds_per_pair=metric_seconds,
+        cpu_slowdown_factor=cpu_slowdown_factor,
+        setup_minutes=float(setup_minutes),
     )
-    if projected_export_bytes > MAX_EXPORT_BYTES:
-        raise ManifestRefused("A5 measured export size exceeds the 2 GiB chunk export limit")
+    frozen = ratification_payload.get("sizing", {})
+    if any(frozen.get(key) != value for key, value in round_sizing.items()):
+        raise ManifestRefused("manifest sizing differs from the ratified chunks and unit cap")
+    chunk_pairs = int(round_sizing["chunk_pairs"])
+    full_chunk = size_chunk(
+        chunk_pairs,
+        teacher_worlds_per_hour=teacher_rate,
+        bare_seconds_per_world=bare_seconds,
+        metric_seconds_per_pair=metric_seconds,
+        cpu_slowdown_factor=cpu_slowdown_factor,
+        setup_minutes=float(setup_minutes),
+    )
+    if full_chunk["estimate_minutes"] > MAX_ESTIMATE_MINUTES:
+        raise ManifestRefused("chunk estimate exceeds the 180-minute cap")
+
+    study_root_value = ratification_payload.get("study_root")
+    if not isinstance(study_root_value, str) or not Path(study_root_value).is_absolute():
+        raise ManifestRefused("ratification must bind an absolute study_root")
+    study_root = Path(study_root_value).resolve()
+    if output_root != study_root or out_dir != study_root / "manifests":
+        raise ManifestRefused(
+            "Round 0 paths must be the ratified study_root and study_root/manifests"
+        )
 
     out_dir.mkdir(parents=True)
     inputs = [
@@ -300,17 +472,12 @@ def make_manifests(
         _input(a5_receipt, "A5_RECEIPT.json"),
     ]
     manifests: list[dict[str, Any]] = []
-    for number, start in enumerate(range(0, len(rows), chunk_pairs)):
-        count = min(chunk_pairs, len(rows) - start)
-        chunk_actual_minutes = float(setup_minutes) + 60.0 * count / paired_per_hour
-        chunk_export_bytes = (
-            math.ceil(
-                count * float(receipt["measured_export_bytes_per_pair"]) * EXPORT_SIZING_FACTOR
-            )
-            + EXPORT_SIZING_RESERVE_BYTES
-        )
+    for number, chunk in enumerate(round_sizing["chunks"]):
+        start, count = int(chunk["start"]), int(chunk["count"])
         lane = number % lanes + 1
-        job_id = f"t34-round0-c{number:03d}-l{lane}"
+        chunk_id = f"chunk-{number:03d}"
+        attempt_id = "attempt-01"
+        job_id = f"t34-round0-{chunk_id}-{attempt_id}-l{lane}"
         manifest = {
             "job_id": job_id,
             "commit": commit,
@@ -319,7 +486,7 @@ def make_manifests(
             "env": {
                 "PYTHONUNBUFFERED": "1",
                 "T34_INPUT_MODE": "public",
-                "T34_DEVICE": "cuda",
+                "T34_DEVICE": "cpu",
                 "T34_ROUND0_START": str(start),
                 "T34_ROUND0_COUNT": str(count),
                 "T34_ROUND0_BANK": "BANK_ROUND0.json",
@@ -333,41 +500,48 @@ def make_manifests(
                 "T34_B8_CHECKPOINT": "B8_s3_final.pth",
                 "T34_ROUND0_RUNTIME_ID": job_id,
                 "T34_ROUND0_COMMIT": commit,
-                "T34_ROUND0_SECONDS": "21000",
-                "T34_ROUND0_THREADS": "5",
+                "T34_ROUND0_SECONDS": str((int(chunk["timeout_minutes"]) - 25) * 60),
+                "T34_ROUND0_THREADS": "1",
+                "T34_ROUND0_PROCESSES": "12",
+                "T34_ROUND0_WORLDS_PER_PROCESS": "1",
             },
             "requirements": {
                 "gpu": "L4",
                 "allowed_gpus": ["L4"],
                 "min_vcpu": 12,
-                "est_minutes": math.ceil(chunk_actual_minutes),
+                "est_minutes": chunk["estimate_minutes"],
             },
-            "timeout_minutes": TIMEOUT_MINUTES,
-            "output_dir": str(output_root / job_id),
+            "timeout_minutes": chunk["timeout_minutes"],
+            "output_dir": str(study_root / "chunks" / chunk_id / attempt_id / "job"),
             "inputs": inputs,
             "budget": {
-                "unit_cap": UNIT_CAP,
-                "reserve_units": RESERVE_UNITS,
+                "unit_cap": chunk["unit_cap"],
+                "reserve_units": chunk["reserve_units"],
                 "rate_units_per_hour": RATE_UNITS_PER_HOUR,
                 "other_assignments": other_assignments,
             },
             "lease_seconds": 600,
-            "max_export_bytes": MAX_EXPORT_BYTES,
+            "max_export_bytes": chunk["export_bytes"],
             # Exact files avoid the transport's prohibited broad research path.
             "source_paths": sorted({*ratification_payload["source_hashes"], *BINDING_DOCS}),
             "round0": {
                 "start": start,
                 "count": count,
                 "lane": lane,
+                "chunk_id": chunk_id,
+                "attempt": 1,
+                "study_root": str(study_root),
                 "a5_sha256": sha256_file(a5_receipt),
-                "expected_actual_minutes": chunk_actual_minutes,
+                "a6_measurement_sha256": receipt["a6_measurement_sha256"],
+                "layout": LAYOUT,
+                "expected_actual_minutes": chunk["workload_minutes"],
                 "export_sizing": {
-                    "measured_export_bytes_per_pair": receipt["measured_export_bytes_per_pair"],
+                    "bytes_per_world": EXPORT_BYTES_PER_WORLD,
                     "factor": EXPORT_SIZING_FACTOR,
-                    "reserve_bytes": EXPORT_SIZING_RESERVE_BYTES,
-                    "projected_bytes": chunk_export_bytes,
+                    "projected_bytes": chunk["export_bytes"],
                     "limit_bytes": MAX_EXPORT_BYTES,
                 },
+                "sizing": chunk,
             },
         }
         validate_supervisor(manifest, repo=ROOT)
@@ -382,14 +556,23 @@ def make_manifests(
         "chunks": len(manifests),
         "lanes": lanes,
         "chunk_pairs": chunk_pairs,
-        "setup_minutes": float(setup_minutes),
-        "expected_actual_minutes_per_full_chunk": actual_minutes,
+        "study_root": str(study_root),
+        "layout": LAYOUT,
+        "expected_actual_minutes_per_full_chunk": full_chunk["workload_minutes"],
         "expected_units": sum(
             item["round0"]["expected_actual_minutes"] / 60.0 * RATE_UNITS_PER_HOUR
             for item in manifests
         ),
-        "worst_case_units": len(manifests) * UNIT_CAP,
-        "reserve_units": len(manifests) * RESERVE_UNITS,
+        "unit_cap": round_sizing["unit_cap"],
+        "reserve_units": round_sizing["reserve_units"],
+        "worst_case_units": sum(
+            item["budget"]["unit_cap"] + item["budget"]["reserve_units"] for item in manifests
+        ),
+        "mechanical_rerun_liability_units": sum(
+            item["budget"]["unit_cap"] + item["budget"]["reserve_units"] for item in manifests
+        ),
+        "registered_total_liability_units": 2
+        * sum(item["budget"]["unit_cap"] + item["budget"]["reserve_units"] for item in manifests),
         "other_assignments": other_assignments,
     }
     with (out_dir / "FORECAST.json").open("x", encoding="utf-8") as stream:
