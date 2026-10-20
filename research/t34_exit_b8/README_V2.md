@@ -76,6 +76,18 @@ included in executed work and contributes zero alive frames and mass. Cached
 controls and evaluated alternatives use the same convention. The existing
 operator commands below continue to select the amended teacher explicitly.
 
+Fresh follow-up verification: **300 passed, 2 skipped, zero failures** in
+**215.43 seconds**, using the complete `tests/test_t33*.py tests/test_t34*.py`
+selection with `-m 'not slow' -n0`, Mac CPU, numerical libraries at one thread,
+and the existing external two-worker cap. The skips require a different thread
+recipe. Independent read-only review found no actionable Amendment 2 gaps.
+All **41** prior executable-source hashes and **45** saved evidence hashes still
+match `VERIFICATION_V2_AMEND2.json`, including the prior 12/12-world Mac preflight
+replay evidence. The entrypoints were not rerun for this documentation-only
+follow-up. Exact argv, environment, hashes and review scope are recorded in
+[VERIFICATION_V2_AMEND2_FOLLOWUP.json](VERIFICATION_V2_AMEND2_FOLLOWUP.json).
+The historical full-suite failures and campaign holds below remain unchanged.
+
 ## Export roles and work accounting
 
 The world schema remains `t34-exit-world/v1` so the existing replay harness can
