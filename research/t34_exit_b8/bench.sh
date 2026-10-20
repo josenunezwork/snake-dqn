@@ -8,19 +8,23 @@ if [[ -n "${COLAB_CLI_ROOT:-}" ]]; then
   input_root="${COLAB_CLI_ROOT}/t34-inputs"
   python -m research.t34_exit_b8.public_inputs --catalog "${COLAB_INPUT_DIR:?}/public-inputs.json" --out-dir "${input_root}"
   output_root="${COLAB_CLI_ROOT}/output"
-  device="${T34_DEVICE:-cuda}"
-  threads="${T34_THREADS:-5}"
-  worlds="${T34_WORLDS:-256}"
+  device="${T34_DEVICE:-cpu}"
+  if [[ "${device}" == cuda ]]; then
+    threads="${T34_THREADS:-5}"; worlds="${T34_WORLDS:-256}"
+  else
+    threads="${T34_THREADS:-1}"; worlds="${T34_WORLDS:-1}"
+  fi
   runtime=colab
 else
   [[ "${T34_INPUT_MODE:-local-preflight}" == "local-preflight" ]] || { echo "Mac preflight requires local-preflight mode" >&2; exit 2; }
   input_root="${T34_INPUT_DIR:?T34_INPUT_DIR is required}"
   output_root="${T34_OUTPUT_DIR:?T34_OUTPUT_DIR is required}"
-  device="cpu"; threads="1"; worlds="${T34_WORLDS:-2}"; runtime=mac
+  device="cpu"; threads="1"; worlds="${T34_WORLDS:-1}"; runtime=mac
 fi
 export SNAKE_CKPT_DIR="${input_root}/checkpoints"
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 mkdir -p "${output_root}"
+if [[ "${runtime}" == mac ]]; then nproc="${T34_NPROC:-${T34_WORKERS:-$((2 / threads))}}"; elif [[ "${device}" != cpu ]]; then nproc="${T34_NPROC:-${T34_WORKERS:-1}}"; else nproc="${T34_NPROC:-${T34_WORKERS:-$(getconf _NPROCESSORS_ONLN)}}"; fi
 
 # Optional adapters consume explicitly materialized runtime-relative inputs.
 checkpoint="${T34_CHECKPOINT:-B8_s3_final.pth}"
@@ -28,7 +32,8 @@ student="${T34_STUDENT_CHECKPOINT:-}"
 for relative in "${checkpoint}" "${student}"; do
   [[ "${relative}" != /* && "/${relative}/" != *"/../"* ]] || { echo "checkpoint must be input-relative" >&2; exit 2; }
 done
-extra=(--confirm-interval "${T34_CONFIRM_INTERVAL:-8}" --confirm-min-length "${T34_CONFIRM_MIN_LENGTH:-600}" --low-length-probability "${T34_LOW_LENGTH_PROBABILITY:-0.03}" --death-window "${T34_DEATH_WINDOW:-150}" --max-rewinds "${T34_MAX_REWINDS:-2}")
+extra=(--nproc "${nproc}" --confirm-interval "${T34_CONFIRM_INTERVAL:-8}" --confirm-min-length "${T34_CONFIRM_MIN_LENGTH:-600}" --low-length-probability "${T34_LOW_LENGTH_PROBABILITY:-0.03}" --death-window "${T34_DEATH_WINDOW:-150}" --max-rewinds "${T34_MAX_REWINDS:-2}")
+if [[ "${T34_CPU_PROFILE:-0}" == 1 ]]; then extra+=(--cpu-profile); fi
 kernel="${T34_KERNEL:-v1}"
 [[ "${kernel}" == v1 || "${kernel}" == v2 ]] || { echo "T34_KERNEL must be v1 or v2" >&2; exit 2; }
 if [[ -n "${T34_POLICY_FACTORY:-}" ]]; then extra+=(--policy-factory "${T34_POLICY_FACTORY}"); fi
@@ -42,11 +47,14 @@ if [[ "${runtime}" == mac ]]; then
     [[ "${kernel}" == v2 ]] || { echo "Mac full rounds require T34_KERNEL=v2" >&2; exit 2; }
     exec python -m research.t34_exit_b8.benchmark --kernel v2 --mac-full-round --checkpoint "${input_root}/${checkpoint}" --output-dir "${output_root}/worlds" --out "${output_root}/benchmark.json" --worlds "${worlds}" --max-worlds "${T34_MAX_WORLDS:-${worlds}}" --frames "${T34_FRAMES:-5000}" --seconds "${T34_SECONDS:-1500}" --steady-state-seconds "${steady_seconds}" --horizon 300 --threads "${T34_THREADS:-1}" --device cpu "${extra[@]}" --namespace "${T34_NAMESPACE:-t34-exit-v2-mac/a1}"
   fi
-  exec python -m research.t34_exit_b8.benchmark --kernel "${kernel}" --preflight --checkpoint "${input_root}/${checkpoint}" --output-dir "${output_root}/worlds" --out "${output_root}/benchmark.json" --worlds "${worlds}" --max-worlds "${worlds}" --frames "${T34_FRAMES:-500}" --seconds "${T34_SECONDS:-600}" --steady-state-seconds "${steady_seconds}" --horizon 300 --threads 1 --device cpu "${extra[@]}" --namespace "${T34_NAMESPACE:-t34-exit-a6/v1}"
+  exec python -m research.t34_exit_b8.benchmark --kernel "${kernel}" --preflight --checkpoint "${input_root}/${checkpoint}" --output-dir "${output_root}/worlds" --out "${output_root}/benchmark.json" --worlds "${worlds}" --max-worlds "${T34_MAX_WORLDS:-2}" --frames "${T34_FRAMES:-500}" --seconds "${T34_SECONDS:-600}" --steady-state-seconds "${steady_seconds}" --horizon 300 --threads 1 --device cpu "${extra[@]}" --namespace "${T34_NAMESPACE:-t34-exit-a6/v1}"
 fi
 if [[ "${T34_RUNTIME_VARIANT:-l4}" == cpu ]]; then
   [[ "${kernel}" == v2 && "${device}" == cpu ]] || { echo "v2 CPU probe requires T34_KERNEL=v2 and T34_DEVICE=cpu" >&2; exit 2; }
   exec python -m research.t34_exit_b8.benchmark --kernel v2 --cpu-runtime-probe --checkpoint "${input_root}/${checkpoint}" --output-dir "${output_root}/worlds" --out "${output_root}/benchmark.json" --worlds "${worlds}" --max-worlds "${T34_MAX_WORLDS:-${worlds}}" --frames "${T34_FRAMES:-5000}" --seconds "${T34_SECONDS:-600}" --steady-state-seconds "${T34_STEADY_STATE_SECONDS:-${T34_SECONDS:-600}}" --horizon "${T34_HORIZON:-300}" --threads "${threads}" --device cpu "${extra[@]}" --namespace "${T34_NAMESPACE:-t34-exit-v2-cpu/a1}"
+fi
+if [[ "${device}" == cpu ]]; then
+  exec python -m research.t34_exit_b8.benchmark --kernel "${kernel}" --checkpoint "${input_root}/${checkpoint}" --output-dir "${output_root}/worlds" --out "${output_root}/benchmark.json" --worlds "${worlds}" --max-worlds "${T34_MAX_WORLDS:-${worlds}}" --frames "${T34_FRAMES:-5000}" --seconds "${T34_SECONDS:-3600}" --steady-state-seconds "${T34_STEADY_STATE_SECONDS:-${T34_SECONDS:-3600}}" --horizon "${T34_HORIZON:-300}" --threads "${threads}" --device cpu "${extra[@]}" --namespace "${T34_NAMESPACE:-t34-exit-a5/cpu}"
 fi
 declare -a pids=()
 terminate_children() {

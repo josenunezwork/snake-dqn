@@ -136,7 +136,7 @@ def test_v2_manifest_allows_operator_window_inside_existing_cap(
         benchmark_seconds=1500,
         steady_state_seconds=1200,
     )
-    assert manifest["timeout_minutes"] == 30
+    assert manifest["timeout_minutes"] == 120
     assert manifest["env"]["T34_SECONDS"] == "1500"
     assert manifest["env"]["T34_STEADY_STATE_SECONDS"] == "1200"
 

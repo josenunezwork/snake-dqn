@@ -226,6 +226,7 @@ def test_batched_doom_search_emits_edges_and_forbidden_greedy(monkeypatch) -> No
         item["world"].sim.cfg = object()
         for cached in item["doom_cache"]:
             cached.sim.cfg = object()
+    teacher.device = "cuda"  # Exercise the retained CUDA batch seam with a fake teacher.
     teacher_v2._search_dooms([state, second], teacher, branch_bucket_size=12)
     assert any(size == 2 for size in teacher.merged_calls)
     for searched in (state, second):

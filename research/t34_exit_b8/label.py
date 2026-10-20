@@ -82,6 +82,7 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
     preflight = bool(config.get("preflight", False))
     threads = int(config.get("threads", 5))
     device = str(config.get("device", "cuda"))
+    nproc = int(config.get("nproc", 1))
     max_worlds = int(config.get("max_worlds", config.get("worlds", 1)))
     if not 1 <= max_worlds <= 10000:
         raise ValueError("max_worlds must be positive")
@@ -98,8 +99,16 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
     elif mac_full_round:
         if kernel != "v2" or device != "cpu" or not 1 <= threads <= 2:
             raise ValueError("Mac full rounds require v2, CPU, and one or two CPU threads")
-    elif device != "cuda" or threads != 5:
+    elif device == "cuda" and nproc == 1 and threads != 5:
         raise ValueError("production labels require CUDA and five Numba threads per worker")
+    if nproc < 1:
+        raise ValueError("nproc must be positive")
+    if os.uname().sysname == "Darwin" and device == "cpu" and nproc * threads > 2:
+        raise ValueError("Mac fanout is capped at two total CPU threads")
+    if nproc > 1 and (device != "cpu" or threads != 1):
+        raise ValueError("label process fanout requires CPU and one thread per process")
+    if nproc > 1 and (config.get("policy_factory") or config.get("student_checkpoint")):
+        raise ValueError("process fanout does not support a rollout-policy adapter")
     if int(config.get("horizon", 300)) != 300:
         raise ValueError("T34 labels require deterministic H=300")
     for key in ("round", "shard", "attempt"):
@@ -121,23 +130,51 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
     ):
         if config.get(name) is not None:
             triggers[name] = config[name]
-    _cpu_ceiling(threads)
-    import numba
+    if nproc > 1 and not bool(config.get("_fanout_worker", False)):
+        from research.t34_exit_b8.process_fanout import run_fanout
+        from research.t34_exit_b8.trajectory import make_world_rows
 
-    # Phase-0 compatibility imports can rewrite these defaults; the configured
-    # limit remains the actual Numba ceiling and labels use the recipe device.
-    os.environ["SNAKE_DQN_DEVICE"] = device
-    numba.set_num_threads(threads)
-    result = _kernel_runner(kernel)(
-        {
-            **config,
-            "policy": _load_policy(config),
-            "max_worlds": max_worlds,
-            "beta": beta,
-            "triggers": triggers,
-            "worlds_per_process": min(2, max_worlds) if preflight else 256,
-        }
-    )
+        effective_nproc = min(nproc, max_worlds)
+        result = run_fanout(
+            {
+                **config,
+                "threads": 1,
+                "device": "cpu",
+                "beta": beta,
+                "triggers": triggers,
+                "worlds_per_process": int(config.get("worlds_per_process", 1)),
+            },
+            runner=(
+                "research.t34_exit_b8.teacher_v2:run_worlds"
+                if kernel == "v2"
+                else "research.t34_exit_b8.trajectory:run_worlds"
+            ),
+            rows=make_world_rows(config, max_worlds),
+            nproc=effective_nproc,
+        )
+        nproc = effective_nproc
+    else:
+        _cpu_ceiling(threads)
+        import numba
+
+        # Phase-0 compatibility imports can rewrite these defaults; the configured
+        # limit remains the actual Numba ceiling and labels use the recipe device.
+        os.environ["SNAKE_DQN_DEVICE"] = device
+        numba.set_num_threads(threads)
+        result = _kernel_runner(kernel)(
+            {
+                **config,
+                "policy": _load_policy(config),
+                "max_worlds": max_worlds,
+                "beta": beta,
+                "triggers": triggers,
+                "worlds_per_process": (
+                    min(int(config.get("worlds_per_process", 1)), max_worlds)
+                    if device == "cpu"
+                    else 256
+                ),
+            }
+        )
     result.update(
         {
             "schema": f"t34-exit-label-chunk/{kernel}",
@@ -149,10 +186,12 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
             "attempt": int(config["attempt"]),
             "recipe": {
                 "workers": 1,
+                "nproc": nproc,
                 "threads_per_worker": threads,
                 "device": device,
                 "horizon": int(config.get("horizon", 300)),
             },
+            **({"fanout": result["fanout"]} if "fanout" in result else {}),
         }
     )
     return result
@@ -184,8 +223,17 @@ def main() -> None:
     parser.add_argument("--frames", type=int, default=5000)
     parser.add_argument("--seconds", type=float, default=10200)
     parser.add_argument("--horizon", type=int, default=300)
-    parser.add_argument("--threads", type=int, default=5)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument(
+        "--nproc",
+        type=int,
+        default=(
+            min(2, max(1, int(os.cpu_count() or 1)))
+            if os.uname().sysname == "Darwin"
+            else max(1, int(os.cpu_count() or 1))
+        ),
+    )
+    parser.add_argument("--device", default="cpu")
     parser.add_argument("--kernel", choices=("v1", "v2"), default="v1")
     parser.add_argument("--mac-full-round", action="store_true")
     parser.add_argument("--namespace", required=True)

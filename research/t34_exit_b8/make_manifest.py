@@ -55,6 +55,17 @@ V2_SOURCE_PATHS = [
 MAX_V2_EXPORT_BYTES = 2 * 1024**3
 EXPORT_SIZING_FACTOR = 1.25
 EXPORT_SIZING_RESERVE_BYTES = 16 * 1024**2
+A5_NPROC = 12
+A5_THREADS_PER_PROCESS = 1
+A5_ROOT_WORLDS_PER_PROCESS = 1
+A5_WORKLOAD_MINUTES = 60
+# The supervisor requires a timeout no smaller than twice the measured
+# estimate.  This also retains the required 25-minute setup/export allowance
+# after the maximum workload window.
+A5_SESSION_TIMEOUT_MINUTES = 120
+CPU_RATE_CEILING_UNITS_PER_HOUR = 0.5
+CPU_PROFILE_SESSION_MINUTES = 12
+CPU_PROFILE_ESTIMATE_MINUTES = 6
 
 
 class ManifestRefused(ValueError):
@@ -137,9 +148,10 @@ def make_manifest(
     triggers: dict[str, Any] | None = None,
     kernel: str = "v1",
     cpu_runtime_probe: bool = False,
+    cpu_runtime_profile: bool = False,
     cpu_rate_units_per_hour: float | None = None,
     measured_export_bytes_per_world: int | None = None,
-    benchmark_seconds: int = 600,
+    benchmark_seconds: int | None = None,
     steady_state_seconds: int | None = None,
 ) -> dict[str, Any]:
     """Build an A5 or label draft, refusing unsafe identities and namespaces."""
@@ -147,17 +159,25 @@ def make_manifest(
         raise ManifestRefused("kind must be benchmark or label")
     if kernel not in {"v1", "v2"}:
         raise ManifestRefused("kernel must be v1 or v2")
-    if cpu_runtime_probe and (kind != "benchmark" or kernel != "v2"):
-        raise ManifestRefused("CPU runtime probe requires the v2 benchmark kernel")
-    if cpu_runtime_probe and (
-        cpu_rate_units_per_hour is None
-        or not math.isfinite(float(cpu_rate_units_per_hour))
-        or float(cpu_rate_units_per_hour) <= 0
+    cpu_profile = cpu_runtime_probe or cpu_runtime_profile
+    if cpu_profile and (kind != "benchmark" or kernel != "v2"):
+        raise ManifestRefused("CPU runtime profile requires the v2 benchmark kernel")
+    if (
+        cpu_profile
+        and cpu_rate_units_per_hour is not None
+        and (
+            not math.isfinite(float(cpu_rate_units_per_hour))
+            or not 0 < float(cpu_rate_units_per_hour) <= CPU_RATE_CEILING_UNITS_PER_HOUR
+        )
     ):
-        raise ManifestRefused("CPU runtime probe requires an observed positive provider rate")
+        raise ManifestRefused(
+            "CPU runtime profile rate must be positive and no more than 0.5 units/hour"
+        )
     if kind == "benchmark":
-        if type(benchmark_seconds) is not int or not 1 <= benchmark_seconds <= 1500:
-            raise ManifestRefused("benchmark_seconds must be an integer from 1 through 1500")
+        if benchmark_seconds is None:
+            benchmark_seconds = A5_WORKLOAD_MINUTES * 60
+        if type(benchmark_seconds) is not int or not 1 <= benchmark_seconds <= 3600:
+            raise ManifestRefused("benchmark_seconds must be an integer from 1 through 3600")
         if steady_state_seconds is None:
             steady_state_seconds = benchmark_seconds
         if (
@@ -167,7 +187,7 @@ def make_manifest(
             raise ManifestRefused(
                 "steady_state_seconds must be an integer no longer than benchmark_seconds"
             )
-    elif steady_state_seconds is not None or benchmark_seconds != 600:
+    elif steady_state_seconds is not None or benchmark_seconds is not None:
         raise ManifestRefused("benchmark timing options apply only to benchmark manifests")
     if (
         kind == "label"
@@ -188,8 +208,10 @@ def make_manifest(
         raise ManifestRefused(
             "student input publication and SHA binding are pending; only pinned B8 is supported"
         )
-    if policy_factory and (":" not in policy_factory or any(c.isspace() for c in policy_factory)):
-        raise ManifestRefused("policy_factory must be module:callable")
+    if policy_factory:
+        if ":" not in policy_factory or any(c.isspace() for c in policy_factory):
+            raise ManifestRefused("policy_factory must be module:callable")
+        raise ManifestRefused("policy_factory is unsupported for CPU process fan-out manifests")
     trigger_values = {
         "confirm_interval": 4 if round_id.lower() == "r0" else 8,
         "confirm_min_length": 600,
@@ -257,11 +279,14 @@ def make_manifest(
         script, job_id, estimate, cap = (
             f"{PACKAGE}/bench.sh",
             f"{benchmark_prefix}-s{shard}-a{attempt}",
-            15,
-            1.0,
+            A5_WORKLOAD_MINUTES,
+            A5_SESSION_TIMEOUT_MINUTES * 2.0 / 60.0,
         )
         env = {
-            "T34_WORLDS": "256",
+            # T34_WORLDS is the resident world count per independent process.
+            # T34_MAX_WORLDS is the complete 256-world refill bank per lane;
+            # the entrypoint partitions it deterministically across processes.
+            "T34_WORLDS": str(A5_ROOT_WORLDS_PER_PROCESS),
             "T34_MAX_WORLDS": "256",
             "T34_FRAMES": "5000",
             "T34_SECONDS": str(benchmark_seconds),
@@ -309,41 +334,62 @@ def make_manifest(
     runtime_env = {
         "PYTHONUNBUFFERED": "1",
         "T34_INPUT_MODE": input_mode,
-        "T34_DEVICE": "cuda",
-        "T34_WORKERS": "2",
-        "T34_THREADS": "5",
-        "NUMBA_NUM_THREADS": "5",
+        "T34_DEVICE": "cpu",
+        "T34_THREADS": str(A5_THREADS_PER_PROCESS),
+        "NUMBA_NUM_THREADS": str(A5_THREADS_PER_PROCESS),
         "T34_HORIZON": "300",
         "T34_TELEMETRY_SECONDS": "120",
         "T34_KERNEL": kernel,
     }
+    runtime_env["T34_NPROC"] = str(A5_NPROC)
     requirements = {"gpu": "L4", "allowed_gpus": ["L4"], "min_vcpu": 12, "est_minutes": estimate}
-    if cpu_runtime_probe:
-        job_id += "-cpu-probe"
+    if cpu_profile:
+        job_id += "-cpu-profile"
+        script = f"{PACKAGE}/profile_cpu.sh"
+        # Let the runtime observe its available CPU count before choosing K.
+        runtime_env.pop("T34_NPROC")
         env.update(
             {
-                "T34_WORLDS": "10",
-                "T34_MAX_WORLDS": "10",
-                "T34_SECONDS": str(benchmark_seconds),
-                "T34_STEADY_STATE_SECONDS": str(steady_state_seconds),
+                "T34_MAX_WORLDS": "1",
+                "T34_WORLDS": "1",
+                "T34_SECONDS": "60",
+                "T34_STEADY_STATE_SECONDS": "60",
+                "T34_PROFILE_SECONDS": "60",
                 "T34_NAMESPACE": f"t34-exit-v2-cpu/s{shard}/a{attempt}",
             }
         )
         runtime_env.update(
             {
                 "T34_DEVICE": "cpu",
-                "T34_WORKERS": "1",
-                "T34_THREADS": "2",
-                "NUMBA_NUM_THREADS": "2",
+                "T34_THREADS": str(A5_THREADS_PER_PROCESS),
+                "NUMBA_NUM_THREADS": str(A5_THREADS_PER_PROCESS),
                 "T34_RUNTIME_VARIANT": "cpu",
+                "T34_CPU_PROFILE": "1",
             }
         )
-        requirements = {"gpu": "cpu", "allowed_gpus": ["cpu"], "min_vcpu": 2, "est_minutes": 15}
+        requirements = {
+            "gpu": "cpu",
+            "allowed_gpus": ["cpu"],
+            # This is a descriptive CPU-shape probe: record what is assigned
+            # before choosing K rather than requesting the L4's 12 vCPUs.
+            "min_vcpu": 2,
+            "est_minutes": CPU_PROFILE_ESTIMATE_MINUTES,
+        }
     budget = {"unit_cap": cap, "rate_units_per_hour": 2.0, "reserve_units": 0.0}
-    if cpu_runtime_probe:
-        rate = float(cpu_rate_units_per_hour)
-        # The same 30-minute benchmark window governs this descriptive probe.
-        budget = {"unit_cap": rate * 0.5, "rate_units_per_hour": rate, "reserve_units": 0.0}
+    if cpu_profile:
+        # A measured provider rate is preferred.  Before it is known, use the
+        # registered non-zero ceiling rather than treating CPU time as free.
+        rate = (
+            CPU_RATE_CEILING_UNITS_PER_HOUR
+            if cpu_rate_units_per_hour is None
+            else float(cpu_rate_units_per_hour)
+        )
+        session_charge = rate * CPU_PROFILE_SESSION_MINUTES / 60.0
+        budget = {
+            "unit_cap": session_charge * 1.2,
+            "rate_units_per_hour": rate,
+            "reserve_units": session_charge * 0.2,
+        }
     export_sizing: dict[str, Any] | None = None
     max_export_bytes = 64 * 1024**2
     if kernel == "v2":
@@ -366,6 +412,10 @@ def make_manifest(
                 "limit_bytes": MAX_V2_EXPORT_BYTES,
                 "provisional_until_full_a5": True,
             }
+    if cpu_profile:
+        # The profile exports only its compact receipt; do not give a
+        # descriptive diagnostic the label lane's 2 GiB transfer allowance.
+        max_export_bytes = 64 * 1024**2
     return {
         "job_id": job_id,
         "commit": commit,
@@ -376,10 +426,13 @@ def make_manifest(
             **runtime_env,
             **env,
             **{f"T34_{key.upper()}": str(value) for key, value in trigger_values.items()},
-            **({"T34_POLICY_FACTORY": policy_factory} if policy_factory else {}),
         },
         "requirements": requirements,
-        "timeout_minutes": 360 if kind == "label" else 30,
+        "timeout_minutes": (
+            360
+            if kind == "label"
+            else CPU_PROFILE_SESSION_MINUTES if cpu_profile else A5_SESSION_TIMEOUT_MINUTES
+        ),
         "output_dir": str(output_dir),
         "inputs": inputs,
         "budget": budget,
@@ -422,9 +475,10 @@ def main() -> None:
     parser.add_argument("--triggers", type=json.loads, help="JSON object of trigger overrides")
     parser.add_argument("--kernel", choices=("v1", "v2"), default="v1")
     parser.add_argument("--cpu-runtime-probe", action="store_true")
+    parser.add_argument("--cpu-runtime-profile", action="store_true")
     parser.add_argument("--cpu-rate-units-per-hour", type=float)
     parser.add_argument("--measured-export-bytes-per-world", type=int)
-    parser.add_argument("--benchmark-seconds", type=int, default=600)
+    parser.add_argument("--benchmark-seconds", type=int)
     parser.add_argument("--steady-state-seconds", type=int)
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
@@ -445,6 +499,7 @@ def main() -> None:
         triggers=args.triggers,
         kernel=args.kernel,
         cpu_runtime_probe=args.cpu_runtime_probe,
+        cpu_runtime_profile=args.cpu_runtime_profile,
         cpu_rate_units_per_hour=args.cpu_rate_units_per_hour,
         measured_export_bytes_per_world=args.measured_export_bytes_per_world,
         benchmark_seconds=args.benchmark_seconds,

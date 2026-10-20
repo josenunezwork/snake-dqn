@@ -118,12 +118,17 @@ def test_a5_public_draft_is_l4_only_and_publication_blocked(tmp_path: Path) -> N
         "gpu": "L4",
         "allowed_gpus": ["L4"],
         "min_vcpu": 12,
-        "est_minutes": 15,
+        "est_minutes": 60,
     }
-    assert manifest["env"]["T34_WORKERS"] == "2"
-    assert manifest["env"]["T34_THREADS"] == "5"
-    assert manifest["env"]["T34_WORLDS"] == "256"
+    assert manifest["env"]["T34_DEVICE"] == "cpu"
+    assert manifest["env"]["T34_NPROC"] == "12"
+    assert manifest["env"]["T34_THREADS"] == "1"
+    assert manifest["env"]["T34_WORLDS"] == "1"
+    assert manifest["env"]["T34_MAX_WORLDS"] == "256"
     assert manifest["env"]["T34_HORIZON"] == "300"
+    assert manifest["requirements"]["est_minutes"] == 60
+    assert manifest["timeout_minutes"] == 120
+    assert manifest["budget"]["unit_cap"] == 4.0
     with pytest.raises(manifests.ManifestRefused, match="publication is pending"):
         manifests.validate_manifest(manifest)
 
@@ -145,6 +150,9 @@ def test_label_manifest_uses_unique_round_shard_attempt_and_bounded_caps(tmp_pat
     assert manifest["timeout_minutes"] == 360
     assert manifest["requirements"]["est_minutes"] == 180
     assert manifest["max_export_bytes"] == 64 * 1024**2
+    assert manifest["env"]["T34_DEVICE"] == "cpu"
+    assert manifest["env"]["T34_NPROC"] == "12"
+    assert manifest["env"]["T34_THREADS"] == "1"
     assert manifest["env"]["T34_TELEMETRY_SECONDS"] == "120"
 
 
@@ -300,12 +308,21 @@ def test_manifest_carries_round_schedule_and_trigger_overrides(
         round_id=round_id,
         worlds=2,
         triggers={"death_window": 75},
-        policy_factory="future.module:factory",
     )
     assert manifest["env"]["T34_BETA"] == beta
     assert manifest["env"]["T34_CONFIRM_INTERVAL"] == interval
     assert manifest["env"]["T34_DEATH_WINDOW"] == "75"
-    assert manifest["env"]["T34_POLICY_FACTORY"] == "future.module:factory"
+
+
+def test_manifest_refuses_unsupported_cpu_fanout_policy_factory(tmp_path: Path) -> None:
+    with pytest.raises(manifests.ManifestRefused, match="unsupported for CPU process fan-out"):
+        manifests.make_manifest(
+            kind="label",
+            commit="a" * 40,
+            output_dir=tmp_path / "fresh",
+            worlds=2,
+            policy_factory="future.module:factory",
+        )
 
 
 @pytest.mark.parametrize(

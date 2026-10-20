@@ -375,7 +375,10 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
     heartbeat = started
     root_steps = boost_steps = teacher_flips = roots_started = 0
     gpu_samples: list[float] = []
-    iterator = iter(enumerate(rows))
+    indices = list(config.get("row_indices", range(len(rows))))
+    if len(indices) != len(rows) or len(set(indices)) != len(indices):
+        raise ValueError("export row indices must be unique and match the world bank")
+    iterator = iter(zip(indices, rows))
     states: list[dict[str, Any]] = []
     exhausted = False
 

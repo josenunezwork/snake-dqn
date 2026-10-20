@@ -204,8 +204,15 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
     preflight = bool(config.get("preflight", False))
     mac_full_round = bool(config.get("mac_full_round", False))
     seconds = float(config.get("seconds", 1500))
-    if not math.isfinite(seconds) or not 0 < seconds <= (600 if preflight else 1500):
-        raise ValueError("benchmark wall bound must be positive and at most 1500s (600s preflight)")
+    cpu_profile = bool(config.get("cpu_profile", False))
+    nproc = int(config.get("nproc", 1))
+    device = str(config.get("device", "cuda"))
+    if not math.isfinite(seconds) or not 0 < seconds <= (600 if preflight else 3600):
+        raise ValueError("benchmark wall bound must be positive and at most 3600s (600s preflight)")
+    if nproc < 1:
+        raise ValueError("nproc must be positive")
+    if os.uname().sysname == "Darwin" and device == "cpu" and nproc * threads > 2:
+        raise ValueError("Mac fanout is capped at two total CPU threads")
     configured_steady_state = config.get("steady_state_seconds")
     steady_state_seconds = float(
         min(1200, seconds) if configured_steady_state is None else configured_steady_state
@@ -221,11 +228,25 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("CPU runtime probe is a Colab-only descriptive variant")
     if mac_full_round and (kernel != "v2" or preflight or cpu_runtime_probe):
         raise ValueError("Mac full rounds require the non-preflight v2 kernel")
-    if not preflight and not cpu_runtime_probe and not mac_full_round and threads != 5:
+    if (
+        not preflight
+        and not cpu_runtime_probe
+        and not mac_full_round
+        and device == "cuda"
+        and nproc == 1
+        and threads != 5
+    ):
         raise ValueError("A5 requires exactly five Numba threads per worker")
     if preflight and int(config.get("frames", 5000)) > 500:
         raise ValueError("A6 benchmark preflight is capped at 500 frames")
-    if not preflight and not cpu_runtime_probe and not mac_full_round and worlds_per_process != 256:
+    if (
+        not preflight
+        and not cpu_runtime_probe
+        and not mac_full_round
+        and device == "cuda"
+        and nproc == 1
+        and worlds_per_process != 256
+    ):
         raise ValueError("A5 production benchmark requires exactly W=256 root worlds")
     if preflight and not 1 <= worlds_per_process <= 2:
         raise ValueError("Mac A6 preflight is limited to one or two root worlds")
@@ -233,8 +254,13 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("max_worlds cannot be smaller than the requested root batch")
     if int(config.get("horizon", 300)) != 300:
         raise ValueError("A5 benchmark requires deterministic H=300")
-    device = str(config.get("device", "cuda"))
-    if not preflight and not cpu_runtime_probe and not mac_full_round and device != "cuda":
+    if (
+        not preflight
+        and not cpu_runtime_probe
+        and not mac_full_round
+        and nproc == 1
+        and device not in {"cuda", "cpu"}
+    ):
         raise ValueError("A5 recipe requires CUDA on an L4")
     if cpu_runtime_probe and device != "cpu":
         raise ValueError("CPU runtime probe requires CPU")
@@ -246,6 +272,14 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("A6 preflight must stay on Mac CPU")
     if preflight and threads > 1:
         raise ValueError("A6 preflight permits one CPU thread per process")
+    if nproc > 1 and (device != "cpu" or threads != 1):
+        raise ValueError("process fanout requires CPU and one thread per process")
+    if nproc > 1 and (config.get("policy_factory") or config.get("student_checkpoint")):
+        raise ValueError("process fanout does not support a rollout-policy adapter")
+    if nproc > 1 and preflight and nproc * worlds_per_process > 2:
+        raise ValueError("A6 preflight keeps its total two-root cap under fanout")
+    if cpu_profile and (device != "cpu" or threads != 1 or seconds > 60):
+        raise ValueError("CPU profile requires CPU, one thread per process, and at most 60 seconds")
     mixes = config.get("mixes", ("scripted", "frozen", "mixed"))
     if isinstance(mixes, str):
         mixes = tuple(piece for piece in mixes.split(",") if piece)
@@ -261,27 +295,62 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
     ):
         if config.get(name) is not None:
             triggers[name] = config[name]
-    _cpu_ceiling(threads)
-    import numba
+    if nproc > 1 and not bool(config.get("_fanout_worker", False)):
+        from research.t34_exit_b8.process_fanout import run_fanout
+        from research.t34_exit_b8.trajectory import make_world_rows
 
-    os.environ["SNAKE_DQN_DEVICE"] = device
-    numba.set_num_threads(threads)
-    started = time.monotonic()
-    policy = _load_policy(config)
-    result = _kernel_runner(kernel)(
-        {
-            **config,
-            "policy": policy,
-            "triggers": triggers,
-            "gpu_utilization_sampler": _gpu_utilization if device == "cuda" else None,
-            "worlds_per_process": worlds_per_process,
-            "max_worlds": max_worlds,
-            "mixes": mixes,
-            "steady_state_seconds": steady_state_seconds,
-            "output_dir": config["output_dir"],
-        }
-    )
-    elapsed = time.monotonic() - started
+        rows = make_world_rows(config, max_worlds)
+        effective_nproc = min(nproc, max_worlds)
+        result = run_fanout(
+            {
+                **config,
+                "threads": 1,
+                "device": "cpu",
+                "triggers": triggers,
+                "mixes": mixes,
+                "steady_state_seconds": steady_state_seconds,
+                "worlds_per_process": worlds_per_process,
+            },
+            runner=(
+                "research.t34_exit_b8.teacher_v2:run_worlds"
+                if kernel == "v2"
+                else "research.t34_exit_b8.trajectory:run_worlds"
+            ),
+            rows=rows,
+            nproc=effective_nproc,
+        )
+        nproc = effective_nproc
+        result["runtime_hardware"] = _runtime_hardware()
+        result["runtime_hardware"]["configured_nproc"] = nproc
+        result["runtime_hardware"]["ram_per_process_bytes"] = [
+            int(row.get("rss_bytes", 0)) for row in result["fanout"]["worker_reports"]
+        ]
+    else:
+        result = None
+    if result is None:
+        _cpu_ceiling(threads)
+        import numba
+
+        os.environ["SNAKE_DQN_DEVICE"] = device
+        numba.set_num_threads(threads)
+        started = time.monotonic()
+        policy = _load_policy(config)
+        result = _kernel_runner(kernel)(
+            {
+                **config,
+                "policy": policy,
+                "triggers": triggers,
+                "gpu_utilization_sampler": _gpu_utilization if device == "cuda" else None,
+                "worlds_per_process": worlds_per_process,
+                "max_worlds": max_worlds,
+                "mixes": mixes,
+                "steady_state_seconds": steady_state_seconds,
+                "output_dir": config["output_dir"],
+            }
+        )
+        elapsed = time.monotonic() - started
+    else:
+        elapsed = float(result["elapsed_seconds"])
     profile = dict(result.get("teacher_profile", {}))
     active = _profile_value(profile, "active_row_steps")
     resident = _profile_value(profile, "resident_row_steps")
@@ -300,6 +369,7 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
         "preflight_total_root_cap": 2 if preflight else None,
         "recipe": {
             "workers": 1,
+            "nproc": nproc,
             "threads_per_worker": threads,
             "root_worlds_per_worker": worlds_per_process,
             "horizon": 300,
@@ -340,6 +410,10 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
             else {}
         ),
         **({"runtime_hardware": _runtime_hardware()} if cpu_runtime_probe else {}),
+        **(
+            {"runtime_hardware": result["runtime_hardware"]} if "runtime_hardware" in result else {}
+        ),
+        **({"fanout": result["fanout"]} if "fanout" in result else {}),
         **{
             key: result[key]
             for key in (
@@ -389,9 +463,17 @@ def aggregate_lane_reports(paths: list[Path]) -> dict[str, Any]:
             "horizon": 300,
             "device": "cuda",
         }
+
+        def is_cuda_recipe(recipe: Any) -> bool:
+            if not isinstance(recipe, Mapping):
+                return False
+            normalized = dict(recipe)
+            nproc = normalized.pop("nproc", 1)
+            return nproc == 1 and normalized == expected_recipe
+
         if any(
             row.get("mac_full_round")
-            or row.get("recipe") != expected_recipe
+            or not is_cuda_recipe(row.get("recipe"))
             or not isinstance(row.get("namespace"), str)
             or not row["namespace"]
             for row in rows
@@ -454,16 +536,26 @@ def main() -> None:
     parser.add_argument("--policy-factory")
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--worlds", type=int, default=256)
+    parser.add_argument("--worlds", type=int, default=1)
     parser.add_argument("--max-worlds", type=int, default=256)
     parser.add_argument("--frames", type=int, default=5000)
     parser.add_argument("--seconds", type=float, default=1500)
     parser.add_argument("--steady-state-seconds", type=float)
     parser.add_argument("--horizon", type=int, default=300)
-    parser.add_argument("--threads", type=int, default=5)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument(
+        "--nproc",
+        type=int,
+        default=(
+            min(2, max(1, int(os.cpu_count() or 1)))
+            if os.uname().sysname == "Darwin"
+            else max(1, int(os.cpu_count() or 1))
+        ),
+    )
+    parser.add_argument("--device", default="cpu")
     parser.add_argument("--kernel", choices=("v1", "v2"), default="v1")
     parser.add_argument("--cpu-runtime-probe", action="store_true")
+    parser.add_argument("--cpu-profile", action="store_true")
     parser.add_argument("--mac-full-round", action="store_true")
     parser.add_argument("--mixes", default="scripted,frozen,mixed")
     parser.add_argument("--namespace", default="t34-exit-a5/v1")
