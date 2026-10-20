@@ -12,6 +12,19 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
+def _kernel_runner(kernel: str) -> Any:
+    """Select the additive v2 teacher without changing historical v1 labels."""
+    if kernel == "v1":
+        from research.t34_exit_b8.trajectory import run_worlds
+
+        return run_worlds
+    if kernel == "v2":
+        from research.t34_exit_b8.teacher_v2 import run_worlds
+
+        return run_worlds
+    raise ValueError("kernel must be v1 or v2")
+
+
 def _cpu_ceiling(threads: int) -> None:
     """Install the cap only after legacy import-time env mutations finish."""
     if threads < 1:
@@ -64,6 +77,8 @@ def _load_policy(config: Mapping[str, Any]) -> Any | None:
 
 def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
     """Collect an explicitly bounded label chunk through the shared trajectory API."""
+    kernel = str(config.get("kernel", "v1"))
+    mac_full_round = bool(config.get("mac_full_round", False))
     preflight = bool(config.get("preflight", False))
     threads = int(config.get("threads", 5))
     device = str(config.get("device", "cuda"))
@@ -80,6 +95,9 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError("A6 label preflight is capped at two worlds and 500 frames")
         if threads > 1 or device != "cpu":
             raise ValueError("A6 label preflight uses CPU and one thread per process")
+    elif mac_full_round:
+        if kernel != "v2" or device != "cpu" or not 1 <= threads <= 2:
+            raise ValueError("Mac full rounds require v2, CPU, and one or two CPU threads")
     elif device != "cuda" or threads != 5:
         raise ValueError("production labels require CUDA and five Numba threads per worker")
     if int(config.get("horizon", 300)) != 300:
@@ -106,13 +124,11 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
     _cpu_ceiling(threads)
     import numba
 
-    from research.t34_exit_b8.trajectory import run_worlds
-
     # Phase-0 compatibility imports can rewrite these defaults; the configured
     # limit remains the actual Numba ceiling and labels use the recipe device.
     os.environ["SNAKE_DQN_DEVICE"] = device
     numba.set_num_threads(threads)
-    result = run_worlds(
+    result = _kernel_runner(kernel)(
         {
             **config,
             "policy": _load_policy(config),
@@ -124,8 +140,10 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
     )
     result.update(
         {
-            "schema": "t34-exit-label-chunk/v1",
+            "schema": f"t34-exit-label-chunk/{kernel}",
+            "kernel": kernel,
             "preflight": preflight,
+            "mac_full_round": mac_full_round,
             "round": str(config["round"]),
             "shard": int(config["shard"]),
             "attempt": int(config["attempt"]),
@@ -168,6 +186,8 @@ def main() -> None:
     parser.add_argument("--horizon", type=int, default=300)
     parser.add_argument("--threads", type=int, default=5)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--kernel", choices=("v1", "v2"), default="v1")
+    parser.add_argument("--mac-full-round", action="store_true")
     parser.add_argument("--namespace", required=True)
     parser.add_argument("--beta", type=float, choices=(0.0, 0.5, 1.0))
     parser.add_argument("--confirm-interval", type=int)

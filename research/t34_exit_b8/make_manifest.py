@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import subprocess
 from pathlib import Path
 from typing import Any, Iterable
@@ -31,6 +32,26 @@ EXPECTED_DESTINATIONS = {
     "checkpoints/best_apex_pre_fs.pth",
     "checkpoints/frp3_m3_s12_u60000_20261005.pth",
 }
+# The fallback source archive is sparse.  v2 explicitly names every current
+# transitive package used to build worlds, shadows, labels, and observations so
+# a GitHub outage cannot silently run an incomplete checkout.
+V2_SOURCE_PATHS = [
+    "src",
+    "configs",
+    "web/backend",
+    "research/colab_cli",
+    "research/t34_exit_b8",
+    "research/t34_shadow",
+    "research/t33_batched_teacher",
+    "research/phase0_search_20261019",
+    "research/t3_rollout_labels_20261015",
+    "research/apex_safety_20260926",
+    "research/b8_death_census_20261014",
+    "research/fixed_search.py",
+    "research/t1_commitment_20261015",
+    "research/redesign_m2_20261008",
+    "research/redesign_scope_20261007",
+]
 
 
 class ManifestRefused(ValueError):
@@ -111,10 +132,23 @@ def make_manifest(
     checkpoint: str = "B8_s3_final.pth",
     student_checkpoint: str | None = None,
     triggers: dict[str, Any] | None = None,
+    kernel: str = "v1",
+    cpu_runtime_probe: bool = False,
+    cpu_rate_units_per_hour: float | None = None,
 ) -> dict[str, Any]:
     """Build an A5 or label draft, refusing unsafe identities and namespaces."""
     if kind not in {"benchmark", "label"}:
         raise ManifestRefused("kind must be benchmark or label")
+    if kernel not in {"v1", "v2"}:
+        raise ManifestRefused("kernel must be v1 or v2")
+    if cpu_runtime_probe and (kind != "benchmark" or kernel != "v2"):
+        raise ManifestRefused("CPU runtime probe requires the v2 benchmark kernel")
+    if cpu_runtime_probe and (
+        cpu_rate_units_per_hour is None
+        or not math.isfinite(float(cpu_rate_units_per_hour))
+        or float(cpu_rate_units_per_hour) <= 0
+    ):
+        raise ManifestRefused("CPU runtime probe requires an observed positive provider rate")
     if len(commit) != 40 or any(char not in "0123456789abcdef" for char in commit):
         raise ManifestRefused("commit must be a full lowercase 40-character SHA")
     output_dir = output_dir.expanduser()
@@ -228,6 +262,43 @@ def make_manifest(
         require_qualified_transport(ROOT, commit)
     except QualificationRefused as exc:
         raise ManifestRefused(str(exc)) from exc
+    runtime_env = {
+        "PYTHONUNBUFFERED": "1",
+        "T34_INPUT_MODE": input_mode,
+        "T34_DEVICE": "cuda",
+        "T34_WORKERS": "2",
+        "T34_THREADS": "5",
+        "NUMBA_NUM_THREADS": "5",
+        "T34_HORIZON": "300",
+        "T34_TELEMETRY_SECONDS": "120",
+        "T34_KERNEL": kernel,
+    }
+    requirements = {"gpu": "L4", "allowed_gpus": ["L4"], "min_vcpu": 12, "est_minutes": estimate}
+    if cpu_runtime_probe:
+        job_id += "-cpu-probe"
+        env.update(
+            {
+                "T34_WORLDS": "10",
+                "T34_MAX_WORLDS": "10",
+                "T34_SECONDS": "600",
+                "T34_NAMESPACE": f"t34-exit-v2-cpu/s{shard}/a{attempt}",
+            }
+        )
+        runtime_env.update(
+            {
+                "T34_DEVICE": "cpu",
+                "T34_WORKERS": "1",
+                "T34_THREADS": "2",
+                "NUMBA_NUM_THREADS": "2",
+                "T34_RUNTIME_VARIANT": "cpu",
+            }
+        )
+        requirements = {"gpu": "cpu", "allowed_gpus": ["cpu"], "min_vcpu": 2, "est_minutes": 15}
+    budget = {"unit_cap": cap, "rate_units_per_hour": 2.0, "reserve_units": 0.0}
+    if cpu_runtime_probe:
+        rate = float(cpu_rate_units_per_hour)
+        # The same 30-minute benchmark window governs this descriptive probe.
+        budget = {"unit_cap": rate * 0.5, "rate_units_per_hour": rate, "reserve_units": 0.0}
     return {
         "job_id": job_id,
         "commit": commit,
@@ -235,30 +306,19 @@ def make_manifest(
         "claim": claim,
         "transport": transport,
         "env": {
-            "PYTHONUNBUFFERED": "1",
-            "T34_INPUT_MODE": input_mode,
-            "T34_DEVICE": "cuda",
-            "T34_WORKERS": "2",
-            "T34_THREADS": "5",
-            "NUMBA_NUM_THREADS": "5",
-            "T34_HORIZON": "300",
-            "T34_TELEMETRY_SECONDS": "120",
+            **runtime_env,
             **env,
             **{f"T34_{key.upper()}": str(value) for key, value in trigger_values.items()},
             **({"T34_POLICY_FACTORY": policy_factory} if policy_factory else {}),
         },
-        "requirements": {
-            "gpu": "L4",
-            "allowed_gpus": ["L4"],
-            "min_vcpu": 12,
-            "est_minutes": estimate,
-        },
+        "requirements": requirements,
         "timeout_minutes": 360 if kind == "label" else 30,
         "output_dir": str(output_dir),
         "inputs": inputs,
-        "budget": {"unit_cap": cap, "rate_units_per_hour": 2.0, "reserve_units": 0.0},
+        "budget": budget,
         "lease_seconds": 600,
         "max_export_bytes": 64 * 1024**2,
+        **({"source_paths": V2_SOURCE_PATHS} if kernel == "v2" else {}),
     }
 
 
@@ -292,6 +352,9 @@ def main() -> None:
     parser.add_argument("--checkpoint", default="B8_s3_final.pth")
     parser.add_argument("--student-checkpoint")
     parser.add_argument("--triggers", type=json.loads, help="JSON object of trigger overrides")
+    parser.add_argument("--kernel", choices=("v1", "v2"), default="v1")
+    parser.add_argument("--cpu-runtime-probe", action="store_true")
+    parser.add_argument("--cpu-rate-units-per-hour", type=float)
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
     manifest = make_manifest(
@@ -309,6 +372,9 @@ def main() -> None:
         checkpoint=args.checkpoint,
         student_checkpoint=args.student_checkpoint,
         triggers=args.triggers,
+        kernel=args.kernel,
+        cpu_runtime_probe=args.cpu_runtime_probe,
+        cpu_rate_units_per_hour=args.cpu_rate_units_per_hour,
     )
     if args.validate:
         validate_manifest(manifest)
