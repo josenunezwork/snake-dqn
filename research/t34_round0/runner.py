@@ -477,6 +477,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         "seconds": max(1.0, args.seconds - (time.monotonic() - started)),
                         "beta": 1.0,
                         "device": args.device,
+                        # Keep the paired arms on the same native opponent
+                        # dispatch recipe, including on CUDA runtimes.
+                        "batch_device_vectors": False,
                         "worlds_per_process": 1,
                         "branch_bucket_size": 6,
                         "on_action": lambda _row, action: teacher_callback(action),

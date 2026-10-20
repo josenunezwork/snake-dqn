@@ -36,6 +36,9 @@ def _package(tmp_path: Path, commit: str) -> dict[str, Path]:
         {
             "schema": "t34-round0-a5/v1",
             "paired_worlds_per_hour": 96,
+            "completed_worlds_per_hour_per_lane": 60,
+            "steady_window_seconds": 1200,
+            "cold_fill_excluded": True,
             "active_row_steps_per_second": 3000,
             "two_lane_rehearsal_complete": True,
             "measured_export_bytes_per_pair": 1000,
@@ -132,10 +135,28 @@ def test_round0_manifests_chunk_audited_bank_and_price_reserve(tmp_path: Path) -
 def test_round0_refuses_missing_a5_floor_or_incomplete_rehearsal(tmp_path: Path) -> None:
     files = _package(tmp_path, "a" * 40)
     bad = json.loads(files["a5"].read_text())
-    bad["active_row_steps_per_second"] = 2999
+    bad["completed_worlds_per_hour_per_lane"] = 49
     _write(files["a5"], bad)
-    with pytest.raises(manifests.ManifestRefused, match="3000"):
+    with pytest.raises(manifests.ManifestRefused, match="50 completed"):
         _build(tmp_path, _files=files, a5_receipt=files["a5"])
+
+
+def test_current_a5_gate_reports_row_steps_without_old_floor() -> None:
+    receipt = {
+        "schema": "t34-round0-a5/v1",
+        "paired_worlds_per_hour": 30,
+        "completed_worlds_per_hour_per_lane": 60,
+        "steady_window_seconds": 1200,
+        "cold_fill_excluded": True,
+        "active_row_steps_per_second": 500,
+        "two_lane_rehearsal_complete": True,
+        "measured_export_bytes_per_pair": 1000,
+        "evidence_sha256": "a" * 64,
+    }
+    assert manifests.validate_a5(receipt) == receipt
+    for key, value in (("steady_window_seconds", 1199), ("cold_fill_excluded", False)):
+        with pytest.raises(manifests.ManifestRefused, match=key):
+            manifests.validate_a5({**receipt, key: value})
 
 
 def test_round0_requires_absolute_fresh_child_output_and_reviewed_assignments(

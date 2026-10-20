@@ -74,16 +74,24 @@ def validate_a5(receipt: dict[str, Any]) -> dict[str, Any]:
     required = {
         "schema": "t34-round0-a5/v1",
         "paired_worlds_per_hour": None,
+        "completed_worlds_per_hour_per_lane": None,
+        "steady_window_seconds": 1200,
+        "cold_fill_excluded": True,
         "active_row_steps_per_second": None,
         "two_lane_rehearsal_complete": True,
         "measured_export_bytes_per_pair": None,
         "evidence_sha256": None,
     }
     for key, expected in required.items():
-        if key not in receipt or (expected is not None and receipt[key] != expected):
+        if (
+            key not in receipt
+            or (expected is not None and receipt[key] != expected)
+            or (isinstance(expected, bool) and receipt[key] is not expected)
+        ):
             raise ManifestRefused(f"A5 receipt lacks required {key}")
     for key in (
         "paired_worlds_per_hour",
+        "completed_worlds_per_hour_per_lane",
         "active_row_steps_per_second",
         "measured_export_bytes_per_pair",
     ):
@@ -95,8 +103,8 @@ def validate_a5(receipt: dict[str, Any]) -> dict[str, Any]:
             or value <= 0
         ):
             raise ManifestRefused(f"A5 receipt {key} must be finite and positive")
-    if receipt["active_row_steps_per_second"] < 3000:
-        raise ManifestRefused("A5 receipt misses the 3000 active row-steps/s floor")
+    if receipt["completed_worlds_per_hour_per_lane"] < 50:
+        raise ManifestRefused("A5 receipt misses the 50 completed worlds/hour per lane floor")
     if not _hex(receipt["evidence_sha256"]):
         raise ManifestRefused("A5 receipt must hash-bound its evidence")
     return receipt

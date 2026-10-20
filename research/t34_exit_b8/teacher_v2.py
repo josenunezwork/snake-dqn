@@ -599,9 +599,12 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
     )
     # This is a v2-only throughput recipe.  The shared ExIt engine keeps its
     # historical native Vector61 dispatch unless a v2 CUDA collection opts in.
+    batch_device_vectors = config.get("batch_device_vectors", True)
+    if type(batch_device_vectors) is not bool:
+        raise ValueError("batch_device_vectors must be a boolean")
     opponents = getattr(teacher, "_opponents", None)
     if str(teacher.device).startswith("cuda") and hasattr(opponents, "batch_device_vectors"):
-        opponents.batch_device_vectors = True
+        opponents.batch_device_vectors = batch_device_vectors
     deadline = started + seconds
     teacher.deadline = deadline
     output = Path(str(config["output_dir"]))
