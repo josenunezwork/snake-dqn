@@ -287,9 +287,19 @@ def _skill(rows: list[dict[str, Any]], arm: str) -> dict[str, Any]:
                 "mixes": effects,
                 "equal_mix_mass_gain": _mean(e["mass_gain"] for e in effects.values()),
                 "equal_mix_no_death_gain": _mean(e["no_death_gain"] for e in effects.values()),
+                "equal_mix_alive_fraction_gain": _mean(
+                    e["alive_fraction_gain"] for e in effects.values()
+                ),
             }
         )
     mass = _ci(block["equal_mix_mass_gain"] for block in by_block)
+    survival_bands = {
+        "pooled": _ci((block["equal_mix_alive_fraction_gain"] for block in by_block), 0.05),
+        "per_mix": {
+            mix: _ci((block["mixes"][mix]["alive_fraction_gain"] for block in by_block), 0.05)
+            for mix in MIXES
+        },
+    }
     for mix in MIXES:
         by_mix[mix] = {
             metric: _mean(block["mixes"][mix][metric] for block in by_block)
@@ -317,6 +327,10 @@ def _skill(rows: list[dict[str, Any]], arm: str) -> dict[str, Any]:
             m["absolute_no_death"] >= 0.50 for m in by_mix.values()
         ),
         "boost_share_in_range": 0.005 <= boost_share <= 0.10,
+        "survival_band_v2_pooled_lb95": survival_bands["pooled"].get("lower", -math.inf) > -0.05,
+        "survival_band_v2_per_mix_lb95": all(
+            value.get("lower", -math.inf) > -0.075 for value in survival_bands["per_mix"].values()
+        ),
     }
     return {
         "mass_gain_lb90": mass,
@@ -324,6 +338,7 @@ def _skill(rows: list[dict[str, Any]], arm: str) -> dict[str, Any]:
         "blocks": by_block,
         "mixes": by_mix,
         "boost_share": boost_share,
+        "survival_band_v2": survival_bands,
         "clauses": clauses,
         "pass": all(clauses.values()),
     }
@@ -502,10 +517,22 @@ def analyze(root: Path) -> dict[str, Any]:
         if intent["schema"] != "t34-pathb-manifest/v1":
             raise InvalidBank("manifest schema mismatch")
         _verify_identity(intent)
+        if (root / "incomplete.json").exists():
+            raise InvalidBank("producer recorded INCOMPLETE")
+        if intent.get("decision_logs_required"):
+            receipt = _load(root / "complete.json")
+            if (
+                receipt.get("status") != "complete"
+                or receipt.get("manifest_sha256")
+                != hashlib.sha256((root / "manifest.json").read_bytes()).hexdigest()
+            ):
+                raise InvalidBank("missing or mismatched producer completion receipt")
         expected = _coordinates(intent)
         rows = _read_records(root, intent, expected)
         report.update(expected_records=len(expected), records=len(rows), complete=True)
         if intent["settings"]["smoke"]:
+            if intent.get("decision_logs_required"):
+                _timing(root, intent)
             report.update(
                 decision="SMOKE_ONLY",
                 clauses="NOT_ESTIMABLE",

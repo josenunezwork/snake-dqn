@@ -105,7 +105,15 @@ def _audit_candidates(repo: Path, candidates: list[int]) -> dict[str, Any]:
 
 
 def allocation(
-    *, blocks: int, scripted: int, frozen: int, mixed: int, product: int, smoke: bool, repo: Path
+    *,
+    blocks: int,
+    scripted: int,
+    frozen: int,
+    mixed: int,
+    product: int,
+    smoke: bool,
+    repo: Path,
+    smoke_key: str = "owner-smoke-01",
 ) -> dict[str, Any]:
     """Allocate once, rejecting any concrete seed already visible in history."""
     if blocks < 1 or min(scripted, frozen, mixed, product) < 0:
@@ -113,7 +121,7 @@ def allocation(
     per_block = scripted + frozen + mixed + product
     if per_block < 1:
         raise ValueError("at least one world is required")
-    namespace = SMOKE_NAMESPACE if smoke else NAMESPACE
+    namespace = f"{SMOKE_NAMESPACE}/{smoke_key}" if smoke else NAMESPACE
     seeds = _candidate_seeds(namespace, blocks * per_block)
     audit = _audit_candidates(Path(repo).resolve(), seeds)
     terminal_mixes = ("scripted",) * scripted + ("frozen",) * frozen + ("mixed",) * mixed

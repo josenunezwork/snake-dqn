@@ -2,7 +2,8 @@
 
 The implementation is **development tooling, default OFF**. It neither qualifies
 nor releases an assisted hero. Read [PROTOCOL.md](PROTOCOL.md) and its prospective
-[timing clarification](PROTOCOL_TIMING_ERRATUM.md). Both preceded efficacy data.
+[timing clarification](PROTOCOL_TIMING_ERRATUM.md) and
+[analysis clarification](PROTOCOL_ANALYSIS_ERRATUM.md). All preceded real efficacy data.
 The owner sizes and runs the real bank. All commands below run from this worktree;
 no command starts a service, uses tmux, or changes another running job.
 
@@ -14,7 +15,7 @@ cd /Users/josenunez/Projects/ml/snake-dqn-pathb
 
 env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 \
   /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.t34_pathb.run smoke \
-  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-pathb-20261019/smoke-01
+  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-pathb-20261019/owner-smoke-01 --smoke-key owner-smoke-01
 ```
 
 The smoke reads [smoke.json](smoke.json): one world per terminal mix plus one
@@ -23,6 +24,7 @@ ticks. It forces the trigger at every living decision with a two-transition sear
 so short-body plumbing actually exercises the worker. This is a different smoke
 controller, never an efficacy candidate. Startup misses count; no accepted result
 is required for an asynchronous smoke. Unit tests separately prove timely acceptance.
+Use a new explicit smoke key for a later plumbing check; keys never alter the real bank.
 Outputs must be fresh absolute paths; manifests, logs, starts and results are
 create-only. A failure preserves its evidence and does not automatically retry.
 

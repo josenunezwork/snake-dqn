@@ -129,6 +129,11 @@ class DeadlineController:
         """Whether the one permitted request is still outstanding."""
         return self._future is not None
 
+    @property
+    def computing(self) -> bool:
+        """Whether outstanding work is unfinished, excluding an uncollected reply."""
+        return self._future is not None and not self._future.done()
+
     def poll(
         self,
         identity: Identity,

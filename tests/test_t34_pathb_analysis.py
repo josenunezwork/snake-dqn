@@ -18,6 +18,36 @@ def write(path, value):
     path.write_text(json.dumps(value))
 
 
+def test_explicit_incomplete_marker_defeats_complete_rows(bank):
+    write(bank / "incomplete.json", {"status": "INCOMPLETE"})
+    report = analysis.analyze(bank)
+    assert report["decision"] == "INCOMPLETE"
+
+
+def test_production_logs_require_completion_receipt(bank):
+    manifest_path = bank / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["decision_logs_required"] = True
+    write(manifest_path, manifest)
+    report = analysis.analyze(bank)
+    assert report["decision"] == "INCOMPLETE"
+
+
+def test_survival_band_uses_confidence_bounds_not_only_point_estimate():
+    rows = []
+    for block, delta in enumerate((-0.02, 0.02, -0.02)):
+        for mix in analysis.MIXES:
+            base = metrics()
+            assisted = metrics(candidate=True)
+            base["survival_fraction"] = 0.9
+            assisted["survival_fraction"] = 0.9 + delta
+            rows.append({"block": block, "mix": mix, "arms": {"bare": base, "async": assisted}})
+    report = analysis._skill(rows, "async")
+    assert (
+        report["survival_band_v2"]["pooled"]["lower"] < report["survival_band_v2"]["pooled"]["mean"]
+    )
+
+
 def metrics(*, candidate=False, kind="terminal", mass=1000, no_death=1):
     result = {
         "mass_integral": mass + (50 if candidate else 0),

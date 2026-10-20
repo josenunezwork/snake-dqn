@@ -114,6 +114,7 @@ def _source_files() -> dict[str, str]:
         [
             "research/t34_pathb/PROTOCOL.md",
             "research/t34_pathb/PROTOCOL_TIMING_ERRATUM.md",
+            "research/t34_pathb/PROTOCOL_ANALYSIS_ERRATUM.md",
             "research/t34_pathb/smoke.json",
         ]
     )
@@ -140,6 +141,7 @@ def _manifest(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "protocol_sha256": sha(HERE / "PROTOCOL.md"),
         "timing_erratum_sha256": sha(HERE / "PROTOCOL_TIMING_ERRATUM.md"),
+        "analysis_erratum_sha256": sha(HERE / "PROTOCOL_ANALYSIS_ERRATUM.md"),
         "source_commit": _git("rev-parse", "HEAD"),
         "source_files": _source_files(),
         "namespace": plan["namespace"],
@@ -180,6 +182,7 @@ def create_bank(args: argparse.Namespace) -> Path:
         product=args.product_worlds,
         smoke=args.smoke,
         repo=REPO,
+        smoke_key=args.smoke_key,
     )
     manifest = _manifest(args, plan)
     _write_new(args.out / "manifest.json", manifest)
@@ -324,7 +327,6 @@ def _metrics(
     try:
         for index in range(horizon):
             _check_cap(deadline)
-            before_length = int(hero.length)
             session.step()
             session.snapshot()
             alive = bool(hero.is_alive)
@@ -332,9 +334,10 @@ def _metrics(
             lengths.append(int(hero.length) if alive else 0)
             died = int(hero.id) in session.game.frame_death_causes
             deaths += int(died)
-            large += int(died and before_length >= 800)
+            fatal_length = int(hero.length)
+            large += int(died and fatal_length >= 800)
             late += int(died and index + 1 >= 2500)
-            overlap += int(died and before_length >= 800 and index + 1 >= 2500)
+            overlap += int(died and fatal_length >= 800 and index + 1 >= 2500)
             _check_cap(deadline)
             time.sleep(min(1.0 / fps, max(0, deadline - time.monotonic())))
     finally:
@@ -486,7 +489,7 @@ def timing(args: argparse.Namespace) -> None:
                 for _ in range(args.ticks):
                     _check_cap(deadline)
                     length = int(session.game.snakes[0].length)
-                    busy = bool(obj and obj.controller.busy)
+                    busy = bool(obj and obj.controller.computing)
                     update_ms, tick_ms = _timed_tick(session)
                     samples.append(
                         {
@@ -545,6 +548,7 @@ def main() -> int:
     for key, value in DEFAULTS.items():
         parser.add_argument("--" + key.replace("_", "-"), type=type(value), default=None)
     parser.add_argument("--smoke", action="store_true", default=None)
+    parser.add_argument("--smoke-key", default="owner-smoke-01")
     args = parser.parse_args()
     if not args.out.is_absolute():
         parser.error("--out must be absolute")
