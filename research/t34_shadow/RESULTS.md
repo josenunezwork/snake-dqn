@@ -109,7 +109,9 @@ performs fresh current-engine expansions; teacher/truth durations share cached
 outcomes and are not cold deployable latency measurements.
 
 Reachability uses all 49 T1 late deaths, retaining three missing LADs as failures.
-The time from D=300 doom detection to LAD is `(300 - H_LAD) / fps`. Warm timing
+The retained interval starts at zero-based decision `doom-299`; available
+lead to LAD is therefore `(299 - H_LAD) / fps`. This conservatively requires
+completion before that action deadline. Warm timing
 requires that slack to exceed search latency; the conservative cold projection
 also subtracts catch-up latency. These are empirical timing projections, not
 observed online reachability or efficacy. Host contention from Phase 0 and

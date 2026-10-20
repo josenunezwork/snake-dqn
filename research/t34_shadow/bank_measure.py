@@ -422,12 +422,12 @@ def t1_lad_reachability(search_seconds: list[float], rows_root: Path = T1_ROWS) 
                 str(fps): (
                     None
                     if latency is None
-                    else sum((300 - h) / fps >= latency for h in horizons) / 49
+                    else sum((299 - h) / fps > latency for h in horizons) / 49
                 )
                 for fps in (12, 24)
             },
             "definition": (
-                "(300-H_LAD)/fps >= measured LAD search; 3 censored late deaths fail. "
+                "(299-H_LAD)/fps > measured LAD search; 3 censored late deaths fail. "
                 "Root adds catch-up separately."
             ),
         }
