@@ -158,7 +158,7 @@ No Drive mount, new release, direct Colab CLI call, allocation or tmux command
 is part of these preparation commands.
 
 ```bash
-export T34_COMMIT="$(git rev-parse HEAD)"
+export T34_COMMIT=517df50086f7c829f1769a8b354bda04de954ef4  # verified published teacher source
 "$T34_PY" -m research.t34_exit_b8.make_manifest --kind benchmark --kernel v2 \
   --commit "$T34_COMMIT" --shard 0 --attempt 1 \
   --output-dir "$T34_PREP/l4-0-output" --out "$T34_PREP/l4-0.json" --validate
@@ -166,6 +166,35 @@ export T34_COMMIT="$(git rev-parse HEAD)"
   --commit "$T34_COMMIT" --shard 1 --attempt 1 \
   --output-dir "$T34_PREP/l4-1-output" --out "$T34_PREP/l4-1.json" --validate
 ```
+
+After separate transport/campaign admission, the operator can validate and run
+those two manifests through the existing supervisor. These commands allocate
+live runtimes; they were not run in this implementation. The supervisor counts
+all existing assignments against the account cap of three. Use a fresh state
+directory and increment manifest attempts for a subsequent attempt; never retry
+a failed allocation automatically.
+
+```bash
+export T34_LAUNCH=/Users/josenunez/Projects/ml/snake-dqn-v2-teacher/research/colab_cli/launch.sh
+export T34_COLAB=/Users/josenunez/.local/bin/colab
+"$T34_LAUNCH" --check --state-dir "$T34_PREP/state-0" --colab "$T34_COLAB" \
+  validate "$T34_PREP/l4-0.json"
+"$T34_LAUNCH" --check --state-dir "$T34_PREP/state-1" --colab "$T34_COLAB" \
+  validate "$T34_PREP/l4-1.json"
+
+"$T34_LAUNCH" --state-dir "$T34_PREP/state-0" --colab "$T34_COLAB" \
+  run "$T34_PREP/l4-0.json" > "$T34_PREP/l4-0-supervisor.log" 2>&1 &
+t34_v2_lane_0=$!
+"$T34_LAUNCH" --state-dir "$T34_PREP/state-1" --colab "$T34_COLAB" \
+  run "$T34_PREP/l4-1.json" > "$T34_PREP/l4-1-supervisor.log" 2>&1 &
+t34_v2_lane_1=$!
+wait "$t34_v2_lane_0"
+wait "$t34_v2_lane_1"
+```
+
+Inspect terminal receipts, both worker reports and the lane aggregate, immutable
+exports and confirmed session disappearance. A CLI exit alone does not qualify
+A5. Keep the A2 cross-runtime replay gate separate.
 
 The CPU manifest variant adds `--cpu-runtime-probe` and requires
 `--cpu-rate-units-per-hour` with an observed positive provider rate. There is no
@@ -214,7 +243,62 @@ export wall time. They include inference within their respective stages, rather
 than pretending to be isolated host CPU time. GPU utilisation samples are
 reported as samples, not a sustained GPU-busy benchmark.
 
-## Mac verification evidence
+## Amendment 2 Mac verification
+
+The teacher executable files are frozen at
+`517df50086f7c829f1769a8b354bda04de954ef4`. The amended T34/T33 domain selection
+passed **285 tests**, with two skips requiring a different thread recipe, in
+100.29 seconds. It includes independent-process A1, three-mix replay, a real
+multi-world doom with carried v8 state, cache capture, ranking/delay-fit checks,
+and legacy T33/ExIt regressions. The initial domain attempt (284 passed, one
+failed, two skipped) is preserved; its real-doom fixture omitted the prepared
+cache required by the amended search API. The corrected test now builds and
+verifies an actual shadow/cache before searching.
+
+All attempt-03 entrypoints completed two worlds, H300/D300 and 500 frames,
+CPU/one numerical thread, with zero unexplained shadow divergences:
+
+| Entry point | Collector seconds | Executed row-steps | Export bytes | Doom searches |
+|---|---:|---:|---:|---:|
+| Benchmark shell | 24.436 | 11,184 | 1,776,901 | 1 |
+| Label shell | 10.566 | 2,598 | 1,774,726 | 0 |
+| Mac full-mode benchmark, tiny fixture | 18.174 | 2,598 | 1,774,288 | 0 |
+| Mac full-mode labels, tiny fixture | 10.888 | 2,598 | 1,774,957 | 0 |
+| CPU-probe entrypoint on Mac | 18.624 | 2,598 | 1,774,151 | 0 |
+
+The benchmark exercised one actual H300 doom search, 300 one-time snapshot
+capture steps and 8,377 alternative branch steps; it emitted one reached rescue
+label and executed no intervention before the 500-frame cutoff. This is a
+reused development fixture, not efficacy or a throughput estimate. Other tiny
+fixtures encountered no doom. The independent forced-doom test additionally
+checks two worlds in the same merged branch bucket and source-state preservation.
+
+The two prepared L4 manifests are pinned to that published executable commit.
+Their locally verified sparse fallback archives are **1,893,878 bytes** each.
+The extracted archive ran the benchmark entrypoint. All five entrypoint export
+directories plus that sparse fixture replayed unchanged: **12/12 worlds
+accepted, zero mismatches**. Exact argv/environment, source and report hashes
+are under
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-teacher-20261020/`
+in `*-launch-03.json`,
+`preflight-summary-amend2.json`, `source-amend2-{0,1}/source-plan.json`, and
+`replay-amend2-preflights-launch.json`.
+
+The additional searched-export identity and post-merge integration selection
+passed **25/25** in 139.93 seconds at
+`773ae8cbfb9b0faca153f26c341d324ea4091e42`. It repeats and replays eight
+exports from the H300 search fixture (four include doom searches) across two
+processes and two repetitions, in addition to
+the twelve anchor exports from the three-mix A1 test. These are repeated
+development banks, not independent efficacy worlds. Shared-shadow tests and
+14 upstream Path B v2 engine/controller tests also passed. The teacher source
+hashes match the preflight freeze exactly after that upstream merge.
+`VERIFICATION_V2_AMEND2.json` binds the commands, source hashes and results. The older full-repository gate below
+is retained separately; its two baseline T22 oracle failures are not relabelled
+green by the amended domain checks. No live GPU, allocation, efficacy, label
+round, fit or serving release ran.
+
+## Amendment 1 Mac verification (preserved)
 
 Executable source was frozen at `c44475f663b75fea4dd1be21088169cfc6e9861a`
 after integrating the sibling fit-cache changes from main. No serving, learning,
