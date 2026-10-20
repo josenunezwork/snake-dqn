@@ -1,0 +1,9 @@
+{
+  "allocation": false,
+  "archive_sha256": "58924c5355c42fca7e767e3e60ee4cb2aa5497e5f1f9f09984e491437aa3755f",
+  "commit": "85972a59c5275df489a522f23124d4a2d891bbd2",
+  "fallback_bytes": 3304986,
+  "files": 818,
+  "schema": "t34-round0-source-qualification/v1",
+  "unpacked_bytes": 12985888
+}
