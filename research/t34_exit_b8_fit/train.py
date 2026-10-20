@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import os
+import resource
+import sys
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -13,9 +16,15 @@ from typing import Any
 import numpy as np
 import torch
 
-from .data import ReplayDivergenceError, StreamingReplayLoader, to_device, verify_world_proof
+from .data import (
+    ReplayDivergenceError,
+    StreamingReplayLoader,
+    device_batches,
+    to_device,
+    verify_world_proof,
+)
 from .diagnostics import FitTripwire, ProbeHook, enforce_tripwires, selection_key, validate_probe
-from .interface import FakeReplaySource, ReplaySource, forward_batch
+from .interface import FakeReplaySource, ReplaySource, forward_batch, normalize_row
 from .loss import LossConfig, exit_fit_loss
 
 
@@ -76,7 +85,8 @@ def _heldout_metrics(
             if not verify_world_proof(world, allow_fake=bool(getattr(source, "is_fake", False))):
                 chunks[chunk][1] += 1
                 continue
-            rows = [r for r in world.rows if bool(r["decisive"])]
+            rows = [normalize_row(r) for r in world.rows]
+            rows = [r for r in rows if bool(r["decisive"])]
             from .interface import validate_row
 
             for row in rows:
@@ -120,6 +130,10 @@ def fit(
     allow_fake: bool = False,
     seed: int = 0,
     max_updates: int | None = None,
+    cache_dir: Path | None = None,
+    cache_identity: dict[str, Any] | None = None,
+    include_tower: bool = False,
+    pinned_prefetch: bool = True,
 ) -> dict[str, Any]:
     """Fit for four to six epochs; returns only development metrics, never gate evidence."""
     if not 4 <= epochs <= 6 and max_updates is None:
@@ -131,7 +145,41 @@ def fit(
     _cpu_guard()
     torch.manual_seed(seed)
     dev = torch.device(device)
+    cache_report = None
+    if cache_dir is not None:
+        if not cache_identity:
+            raise ValueError("cache requires explicit input/source/checkpoint identity")
+        from .cache import CachedReplaySource, build_cache
+
+        source = (
+            CachedReplaySource(cache_dir, identity=cache_identity)
+            if cache_dir.exists()
+            else build_cache(
+                source, cache_dir, identity=cache_identity, include_tower=include_tower
+            )
+        )
+        if source.manifest["include_tower"] != include_tower:
+            raise ValueError("cache tower configuration does not match requested arm")
+        if source.is_fake and not allow_fake:
+            raise ValueError("cached fake source is smoke-only; pass allow_fake=True explicitly")
+        if probe_hook is None and not source.is_fake:
+            raise ValueError("cached production source requires the held-out probe hook")
+        stats = source.manifest["stats"]
+        cache_report = {
+            "path": str(cache_dir),
+            "disk_file_bytes": sum(
+                path.stat().st_size for path in cache_dir.rglob("*") if path.is_file()
+            ),
+            "manifest_sha256": hashlib.sha256(
+                (cache_dir / "manifest.json").read_bytes()
+            ).hexdigest(),
+            "include_tower": source.manifest["include_tower"],
+            **stats,
+            "regen_seconds_per_row": stats["regen_seconds"] / max(1, stats["rows"]),
+        }
     model, previous_model = model.to(dev).train(), previous_model.to(dev).eval()
+    if dev.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(dev)
     opt = optimizer_for(model, pretrained)
     loader = StreamingReplayLoader(source, batch_size=batch_size, seed=seed)
     history: list[dict[str, Any]] = []
@@ -144,25 +192,29 @@ def fit(
     last_progress = perf_counter()
     epoch_limit = 10000 if max_updates is not None else epochs
     for epoch in range(1, epoch_limit + 1):
+        epoch_started = perf_counter()
         losses = []
         stop_training = False
-        for raw in loader.epoch(epoch):
+        for batch in device_batches(loader.epoch(epoch), dev, prefetch=pinned_prefetch):
             if stop_training:
                 # Consume EOF so full-world hash/drop accounting still decides
                 # the preflight after its requested update count.
                 continue
-            batch = to_device(raw, dev)
             q = forward_batch(model, batch)
             loss, pieces = exit_fit_loss(q, batch, loss_config)
             # S1a-only hindsight supervision: only rows with a generated
             # target participate, with Huber beta=0.1 and the registered 0.1
             # coefficient. S1b has neither fields nor this head.
             if "hindsight_log_free_region" in batch:
-                head = getattr(model, "aux_free_region", None)
-                if not callable(head):
-                    raise ValueError("hindsight target supplied to a model without aux_free_region")
                 mask = batch["hindsight_log_free_region_mask"].bool()
+                if "kl_anchor_only" in batch:
+                    mask = mask & ~batch["kl_anchor_only"].bool()
                 if mask.any():
+                    head = getattr(model, "aux_free_region", None)
+                    if not callable(head):
+                        raise ValueError(
+                            "hindsight target supplied to a model without aux_free_region"
+                        )
                     prediction = head(
                         batch["local"], batch["global"], batch["scalars"], batch["full_sight"]
                     )
@@ -223,6 +275,7 @@ def fit(
             **heldout,
             "probe_survival": probe["survival"],
             "probe": probe,
+            "epoch_minutes": (perf_counter() - epoch_started) / 60,
         }
         history.append(row)
         if best is None or selection_key(row) > selection_key(best):
@@ -249,6 +302,22 @@ def fit(
         "selected_torch_rng_state": best_rng_state,
         "selected_updates": best_updates,
         "updates": updates,
+        "fit_timing": {
+            "schema": "t34-fit-timing/v1",
+            "cache": cache_report,
+            "epoch_minutes": [item["epoch_minutes"] for item in history],
+            "peak_rss_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+            * (1 if sys.platform == "darwin" else 1024),
+            "peak_vram_bytes": torch.cuda.max_memory_allocated(dev) if dev.type == "cuda" else 0,
+            "gpu_busy_percent": None,
+            "gpu_busy_unavailable_reason": (
+                "Mac CPU smoke has no GPU utilization measurement"
+                if dev.type == "cpu"
+                else "Hardware utilization not sampled; no GPU busy claim"
+            ),
+            "pinned_prefetch_batches": int(pinned_prefetch and dev.type == "cuda"),
+            "torch_cpu_threads": torch.get_num_threads(),
+        },
     }
 
 
@@ -265,6 +334,9 @@ def run_fit_preflight(
     epochs: int | None = None,
     probe_hook: ProbeHook | None = None,
     seed: int = 0,
+    cache_dir: Path | None = None,
+    cache_identity: dict[str, Any] | None = None,
+    include_tower: bool = False,
 ) -> dict[str, object]:
     """P6's exact reusable 2-world/200-update preflight callable."""
     actual_worlds = getattr(source, "worlds", worlds)
@@ -284,6 +356,9 @@ def run_fit_preflight(
             max_updates=updates,
             probe_hook=probe_hook,
             seed=seed,
+            cache_dir=cache_dir,
+            cache_identity=cache_identity,
+            include_tower=include_tower,
         )
     except (FitTripwire, ReplayDivergenceError) as error:
         return {
