@@ -276,6 +276,34 @@ class PathBControllerV2:
             self._run_cap_check(check_cap)
         return True
 
+    def discard_pending_assistance(self) -> bool:
+        """Fence outstanding assistance when the host pauses between rows.
+
+        A submitted worker is deliberately left running: cancelling it could
+        interrupt engine-owned state at an unsafe point.  Advancing the epoch
+        makes both an already-completed result and a later completion
+        unpublishable.  A ready scheduled action is also invalidated before
+        the next row can make a decision.
+
+        Returns:
+            Whether a pending worker request or scheduled action was discarded.
+        """
+        pending_current_epoch = bool(
+            self._future is not None
+            and self._pending is not None
+            and self._pending.epoch == self._epoch
+        )
+        scheduled_current_epoch = bool(
+            self._scheduled is not None and self._scheduled.binding.epoch == self._epoch
+        )
+        if self._closed or not (pending_current_epoch or scheduled_current_epoch):
+            return False
+        self._fence("host_pause")
+        # This is a row-level fallback rather than a decision-time fallback,
+        # but it must remain visible in the same aggregate fallback budget.
+        self._counts["fallback"] += 1
+        return True
+
     def close(self, wait: bool = False) -> None:
         if self._closed:
             if wait:
