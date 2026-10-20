@@ -38,6 +38,11 @@ it cannot authorize efficacy, training, a strict gate, or a serving change.
 - Fresh LAD expansions use the T3 continuation engine. A saved outcome is reused
   only on its exact original pre-action trajectory; cached future rows after a
   historical intervention cannot be queried on the abandoned greedy trajectory.
+- The preserved T3 producer hashes differ in the rollout helper and optimized
+  simulator/anchor modules. Historical query outcomes therefore require a fresh
+  replay validation before reuse. Those validation row-steps are charged to the
+  actual run. Fresh outcomes (including terminal mass) are memoized across the
+  two rules and exact truth; there is no unqualified historical cache shortcut.
 - M2 reconstructs T3 histories to measure search and label coverage. It does not
   execute or score a new assisted policy, or produce paired efficacy estimates.
   New per-action mass fields describe continuation labels only.

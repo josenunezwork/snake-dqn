@@ -158,24 +158,51 @@ def greedy_shadow(
     return None, snapshots, step_seconds
 
 
-def expand_snapshot(snapshot: Replay, decision: int, budget: Budget) -> dict[str, Any]:
-    """Freshly evaluate advisory alternatives from one prepared greedy-shadow state."""
+def expand_snapshot(snapshot: Replay, decision: int, doom: int, budget: Budget) -> dict[str, Any]:
+    """Expand only alternatives; the confirmed greedy death is a free control."""
     budget.check()
-    greedy, q, legal = _greedy(snapshot)
-    outcomes = batched_rollout(
-        snapshot.clone(prepared=True), legal, decision, depth=300, record_outcomes=True
+    greedy, q, _legal = _greedy(snapshot)
+    advisory = [int(a) for a in np.flatnonzero(snapshot.sim.get_advisory_action_mask()[0, 0])]
+    alternatives = sorted(
+        (action for action in advisory if action != greedy),
+        key=lambda action: (-float(q[action]), action),
     )
+    horizon = min(300, HORIZON - decision)
+    if alternatives:
+        outcomes = batched_rollout(
+            snapshot.clone(prepared=True), alternatives, decision, depth=300, record_outcomes=True
+        )
+        receipt = outcomes.pop("_batch_receipt")
+    else:
+        outcomes, receipt = {}, {"env_frames": 0, "candidate_count": 0, "wall_seconds": 0.0}
     budget.check()
-    receipt = outcomes.pop("_batch_receipt")
     normalized = {
         str(action): {**outcomes[action], "final_mass": outcomes[action].get("final_length")}
-        for action in legal
+        for action in alternatives
+    }
+    executed = min(horizon, doom - decision + 1)
+    normalized[str(greedy)] = {
+        "action": greedy,
+        "survives": False,
+        "horizon": horizon,
+        "frames_survived": max(0, executed - 1),
+        "frames_executed": executed,
+        "death_decision": doom,
+        "control_reproduced": True,
+        "env_frames": 0,
+        "final_mass": 0,
+        "final_mass_status": "known_greedy_doom",
     }
     return {
         "greedy": greedy,
         "q": [float(value) for value in q],
         "outcomes": normalized,
-        "batch": receipt,
+        "batch": {
+            **receipt,
+            "actual_env_frames": int(receipt["env_frames"]),
+            "original_env_frames": int(receipt["env_frames"]),
+            "cache_hit": False,
+        },
     }
 
 
@@ -184,9 +211,13 @@ def measure_world(world: str, budget: Budget, context: Any | None = None) -> dic
     from research.b8_death_census_20261014 import census
 
     source = source_receipt(world)
+    checkpoint_actual_sha = sha(Path(source["checkpoint"]["path"]))
+    if checkpoint_actual_sha != source["checkpoint"]["sha256"]:
+        raise RuntimeError("T3 source checkpoint bytes no longer match its immutable receipt")
     context = census.load_context() if context is None else context
     started = time.perf_counter()
     historical = changed_rows(source)
+    saved_triggers = {int(trigger["decision"]): trigger for trigger in source["trigger_rows"]}
     detection = []
     previous_change = -1
     for change in historical:
@@ -204,6 +235,7 @@ def measure_world(world: str, budget: Budget, context: Any | None = None) -> dic
     search_times: list[float] = []
     search_steps = shadow_steps = 0
     recovered = 0
+    historical_cache_checks = 0
     for item in detection:
         budget.check()
         decision, expected_doom = int(item["start"]), int(item["doom"])
@@ -212,15 +244,7 @@ def measure_world(world: str, budget: Budget, context: Any | None = None) -> dic
         shadow_times.extend(one_step_times)
         shadow_steps += len(one_step_times)
         if doom != expected_doom:
-            cases.append(
-                {
-                    "source_decision": decision,
-                    "status": "greedy_doom_mismatch",
-                    "expected": expected_doom,
-                    "actual": doom,
-                }
-            )
-            continue
+            raise AssertionError(("greedy doom mismatch", world, decision, expected_doom, doom))
         cache: dict[int, dict[str, Any]] = {}
 
         def expand(probe: int) -> dict[str, Any]:
@@ -229,7 +253,34 @@ def measure_world(world: str, budget: Budget, context: Any | None = None) -> dic
                     ("missing retained greedy shadow state", decision, probe, doom)
                 )
             if probe not in cache:
-                cache[probe] = expand_snapshot(shadow_states[probe], probe, budget)
+                trigger = saved_triggers.get(probe)
+                if trigger is not None and probe <= int(item["change"]["decision"]):
+                    # T3's historical source closure differs from this engine, so its
+                    # outcomes are evidence to validate, never a free current answer.
+                    measured = expand_snapshot(shadow_states[probe], probe, doom, budget)
+                    for action, saved in trigger["outcomes"].items():
+                        current = measured["outcomes"].get(action)
+                        if current is None or any(
+                            current[key] != saved[key]
+                            for key in (
+                                "survives",
+                                "frames_survived",
+                                "frames_executed",
+                                "death_decision",
+                                "horizon",
+                            )
+                        ):
+                            raise AssertionError(
+                                ("historical cache validation failed", probe, action)
+                            )
+                    measured["historical_cache"] = {
+                        "status": "validated_fresh_not_reused",
+                        "t3_receipt_sha256": sha(T3_CEILING / f"{world}.json"),
+                        "reason": "historical_source_closure_drift",
+                    }
+                    cache[probe] = measured
+                else:
+                    cache[probe] = expand_snapshot(shadow_states[probe], probe, doom, budget)
             return cache[probe]
 
         bisection_started = time.perf_counter()
@@ -242,7 +293,11 @@ def measure_world(world: str, budget: Budget, context: Any | None = None) -> dic
         truth = search_lad_truth(decision, doom, expand)
         truth_seconds = time.perf_counter() - truth_started
         search_times.append(bisection_seconds)
-        actual_union_steps = sum(int(value["batch"]["env_frames"]) for value in cache.values())
+        enrichment = None
+        actual_union_steps = sum(
+            int(value["batch"]["actual_env_frames"]) for value in cache.values()
+        )
+        historical_cache_checks += sum("historical_cache" in value for value in cache.values())
         search_steps += actual_union_steps
         recovered_here = teacher["t_star"] is not None
         recovered += int(recovered_here)
@@ -266,9 +321,18 @@ def measure_world(world: str, budget: Budget, context: Any | None = None) -> dic
                     else int(item["change"]["decision"]) - int(truth["t_star"])
                 ),
                 "actual_union_search_env_frames": actual_union_steps,
+                "final_label_enrichment": (
+                    None
+                    if enrichment is None
+                    else {
+                        "decision": int(truth["t_star"]),
+                        "actual_env_frames": int(enrichment["batch"]["actual_env_frames"]),
+                        "cached_survival_validated": True,
+                    }
+                ),
                 "hypothetical_charge_env_frames": {
                     name: sum(
-                        int(cache[int(probe["decision"])]["batch"]["env_frames"])
+                        int(cache[int(probe["decision"])]["batch"]["original_env_frames"])
                         for probe in result["probes"]
                     )
                     for name, result in (
@@ -283,8 +347,8 @@ def measure_world(world: str, budget: Budget, context: Any | None = None) -> dic
                     "truth_diagnostic_only": truth_seconds,
                 },
                 "timing_note": (
-                    "Rules ran bisection, then teacher, then truth over one shared cache; "
-                    "later-rule times include cache hits and are not independent cold latencies."
+                    "Bisection runs fresh current-engine expansions and historical validation. "
+                    "Teacher then truth reuse that cache; their times are not cold."
                 ),
             }
         )
@@ -296,6 +360,14 @@ def measure_world(world: str, budget: Budget, context: Any | None = None) -> dic
         "env": source["env"],
         "world_seed": source["world_seed"],
         "t3_receipt_sha256": sha(T3_CEILING / f"{world}.json"),
+        "historical_cache": {
+            "status": "unqualified_due_source_drift; fresh validation required",
+            "fresh_validated_queries": historical_cache_checks,
+        },
+        "source_checkpoint": {
+            **source["checkpoint"],
+            "actual_sha256": checkpoint_actual_sha,
+        },
         "saved_trigger_checks": trigger_checks,
         "historical_action_changes": len(historical),
         "recovered_action_changes": recovered,
@@ -308,7 +380,7 @@ def measure_world(world: str, budget: Budget, context: Any | None = None) -> dic
             **timing_summary([]),
             "status": "not_measured_here; see ShadowTrajectory M3 benchmark",
         },
-        "lad_search_latency": timing_summary(search_times),
+        "lad_search_latency_cached_diagnostic": timing_summary(search_times),
         "cases": cases,
         "nonmonotonic_limitation": "Bisection plus radius-3 refinement is not a global LAD proof.",
         "wall_seconds": time.perf_counter() - started,
@@ -430,7 +502,9 @@ def summarize(receipts: list[dict[str, Any]]) -> dict[str, Any]:
             "bisection": timing_summary(bisection_times),
             "teacher": timing_summary(teacher_times),
         },
-        "t1_h_lad_reachability_bisection_only": t1_lad_reachability(bisection_times),
+        "t1_h_lad_reachability_cached_diagnostic_not_deployable": t1_lad_reachability(
+            bisection_times
+        ),
         "nonmonotonic_limitation": (
             "No global LAD proof follows from this registered bisection heuristic."
         ),
@@ -471,10 +545,18 @@ def main() -> int:
         expected_sha = sha(T3_CEILING / f"{args.world}.json")
         if (
             prior.get("schema") != "t34-shadow-bank-world/v1"
+            or prior.get("status") != "COMPLETE"
             or prior.get("world") != args.world
             or prior.get("t3_receipt_sha256") != expected_sha
         ):
-            raise RuntimeError("resume receipt does not match the current immutable T3 source")
+            raise RuntimeError(
+                "resume requires a complete receipt matching the immutable T3 source"
+            )
+        expected_checkpoint = source_receipt(args.world)["checkpoint"]
+        if prior.get("source_checkpoint", {}).get("actual_sha256") != sha(
+            Path(expected_checkpoint["path"])
+        ):
+            raise RuntimeError("resume receipt checkpoint bytes differ from the T3 source")
         current = provenance()
         if prior.get("provenance", {}).get("source_sha256") != current["source_sha256"]:
             raise RuntimeError(
@@ -482,14 +564,34 @@ def main() -> int:
             )
         print(json.dumps(prior, indent=2, sort_keys=True))
         return 0
-    configure_cpu()
-    result = {
-        "provenance": provenance(),
-        **measure_world(args.world, Budget(args.time_limit_seconds)),
-    }
-    write_once(receipt_path, result)
-    print(json.dumps({"world": args.world, "status": "PASS", "receipt": str(receipt_path)}))
-    return 0
+    started = time.monotonic()
+    meta: dict[str, Any] | None = None
+    try:
+        configure_cpu()
+        meta = provenance()
+        result = {
+            "status": "COMPLETE",
+            "provenance": meta,
+            **measure_world(args.world, Budget(args.time_limit_seconds)),
+        }
+        write_once(receipt_path, result)
+        print(json.dumps({"world": args.world, "status": "COMPLETE", "receipt": str(receipt_path)}))
+        return 0
+    except BaseException as error:
+        failure = {
+            "schema": "t34-shadow-bank-world/v1",
+            "status": "INCOMPLETE",
+            "world": args.world,
+            "provenance": meta,
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "wall_seconds": time.monotonic() - started,
+        }
+        write_once(receipt_path, failure)
+        print(
+            json.dumps({"world": args.world, "status": "INCOMPLETE", "receipt": str(receipt_path)})
+        )
+        return 1
 
 
 if __name__ == "__main__":
