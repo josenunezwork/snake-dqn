@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from research.t34_exit_b8 import benchmark
 from research.t34_exit_b8 import make_manifest as manifests
 
 DESTINATIONS = (
@@ -107,3 +108,105 @@ def test_v2_shells_select_kernel_and_mac_full_round_guard() -> None:
     assert "--mac-full-round" in bench
     assert 'kernel="${T34_KERNEL:-v1}"' in labels
     assert "--mac-full-round" in labels
+
+
+def _v2_report(namespace: str, **overrides: object) -> dict[str, object]:
+    return {
+        "schema": "t34-a5-benchmark/v2",
+        "kernel": "v2",
+        "complete": True,
+        "preflight": False,
+        "mac_full_round": False,
+        "cpu_runtime_probe": False,
+        "namespace": namespace,
+        "recipe": {
+            "workers": 1,
+            "threads_per_worker": 5,
+            "root_worlds_per_worker": 256,
+            "horizon": 300,
+            "device": "cuda",
+        },
+        "elapsed_seconds": 2.0,
+        "active_row_steps": 7000,
+        "resident_row_steps": 7000,
+    } | overrides
+
+
+def test_v2_a5_aggregate_requires_distinct_l4_worker_identities(tmp_path: Path) -> None:
+    first, second = tmp_path / "lane0.json", tmp_path / "lane1.json"
+    first.write_text(json.dumps(_v2_report("t34-exit-a5/v2/s0/a1/lane0")))
+    second.write_text(json.dumps(_v2_report("t34-exit-a5/v2/s0/a1/lane1")))
+    aggregate = benchmark.aggregate_lane_reports([first, second])
+    assert aggregate["schema"] == "t34-a5-lane-aggregate/v2"
+    assert aggregate["go_rule"]["met"] is True
+
+    second.write_text(json.dumps(_v2_report("t34-exit-a5/v2/s0/a1/lane0")))
+    with pytest.raises(ValueError, match="distinct worker"):
+        benchmark.aggregate_lane_reports([first, second])
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    (
+        {"mac_full_round": True},
+        {
+            "recipe": {
+                "workers": 1,
+                "threads_per_worker": 2,
+                "root_worlds_per_worker": 2,
+                "horizon": 300,
+                "device": "cpu",
+            }
+        },
+    ),
+)
+def test_v2_a5_aggregate_rejects_non_l4_worker_shape(
+    tmp_path: Path, overrides: dict[str, object]
+) -> None:
+    first, second = tmp_path / "lane0.json", tmp_path / "lane1.json"
+    first.write_text(json.dumps(_v2_report("one", **overrides)))
+    second.write_text(json.dumps(_v2_report("two")))
+    with pytest.raises(ValueError, match="CUDA L4 A5"):
+        benchmark.aggregate_lane_reports([first, second])
+
+
+def test_v2_zero_completion_keeps_per_world_work_null(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint = tmp_path / "checkpoint.pth"
+    checkpoint.write_bytes(b"checkpoint")
+
+    def fake_runner(_kernel: str):
+        return lambda _config: {
+            "complete": False,
+            "mixes": {"scripted": {"searched": 0, "expanded": 0}},
+            "teacher_profile": {"active_row_steps": 0, "resident_row_steps": 0},
+            "worlds": 0,
+            "worlds_per_hour": 0.0,
+            "decisions": 0,
+            "decisions_per_second": 0.0,
+            "export_bytes": 0,
+            "export_bytes_per_world": 0.0,
+            "configured_root_capacity": 2,
+            "peak_root_worlds": 0,
+            "search_batch_peak": 0,
+        }
+
+    monkeypatch.setattr(benchmark, "_cpu_ceiling", lambda _threads: None)
+    monkeypatch.setattr(benchmark, "_kernel_runner", fake_runner)
+    monkeypatch.setattr(benchmark, "_load_policy", lambda _config: None)
+    report = benchmark.run_benchmark(
+        {
+            "kernel": "v2",
+            "preflight": True,
+            "checkpoint": checkpoint,
+            "output_dir": tmp_path / "worlds",
+            "worlds": 2,
+            "max_worlds": 2,
+            "frames": 1,
+            "seconds": 1,
+            "threads": 1,
+            "device": "cpu",
+        }
+    )
+    assert report["executed_row_steps_per_world"] is None

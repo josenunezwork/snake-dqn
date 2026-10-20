@@ -225,11 +225,15 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
             "horizon": 300,
             "device": device,
         },
+        "namespace": str(config.get("namespace", "")),
         "elapsed_seconds": elapsed,
         "mixes": by_mix,
         "active_row_steps": active,
         "resident_row_steps": resident,
-        "executed_row_steps_per_world": active / max(int(result["worlds"]), 1),
+        "executed_row_steps_per_world": result.get(
+            "executed_row_steps_per_world",
+            active / int(result["worlds"]) if int(result["worlds"]) else None,
+        ),
         "active_row_steps_per_second": active / max(elapsed, 1e-9),
         "active_resident_fraction": active / max(resident, 1),
         "completed_worlds": result["worlds"],
@@ -281,6 +285,24 @@ def aggregate_lane_reports(paths: list[Path]) -> dict[str, Any]:
     kernels = {row.get("kernel", "v1") for row in rows}
     if len(kernels) != 1:
         raise ValueError("aggregate inputs must use one teacher kernel")
+    if kernels == {"v2"}:
+        expected_recipe = {
+            "workers": 1,
+            "threads_per_worker": 5,
+            "root_worlds_per_worker": 256,
+            "horizon": 300,
+            "device": "cuda",
+        }
+        if any(
+            row.get("mac_full_round")
+            or row.get("recipe") != expected_recipe
+            or not isinstance(row.get("namespace"), str)
+            or not row["namespace"]
+            for row in rows
+        ):
+            raise ValueError("v2 aggregate requires two CUDA L4 A5 worker recipes")
+        if paths[0].resolve() == paths[1].resolve() or rows[0]["namespace"] == rows[1]["namespace"]:
+            raise ValueError("v2 aggregate requires distinct worker report paths and namespaces")
     wall = max(float(row["elapsed_seconds"]) for row in rows)
     active = sum(int(row["active_row_steps"]) for row in rows)
     resident = sum(int(row["resident_row_steps"]) for row in rows)

@@ -1,8 +1,8 @@
 """Prepare T34 ExIt-B8 manifests without allocating a Colab runtime.
 
-Public-release transport is intentionally blocked until the owner supplies all
-six immutable URLs.  The optional local-upload form is only useful for Mac
-supervisor validation; it is never dispatch-ready.
+The pinned public release is the production input path. A draft stays
+non-dispatchable when its catalog is incomplete or qualification fails. The
+optional local-upload form is only useful for Mac supervisor validation.
 """
 
 from __future__ import annotations
@@ -223,9 +223,10 @@ def make_manifest(
     if shard < 0 or attempt < 0:
         raise ManifestRefused("shard and attempt must be nonnegative")
     if kind == "benchmark":
+        benchmark_prefix = "t34-exit-b8-v2-a5" if kernel == "v2" else "t34-exit-b8-a5"
         script, job_id, estimate, cap = (
             f"{PACKAGE}/bench.sh",
-            f"t34-exit-b8-a5-s{shard}-a{attempt}",
+            f"{benchmark_prefix}-s{shard}-a{attempt}",
             15,
             1.0,
         )
@@ -234,7 +235,11 @@ def make_manifest(
             "T34_MAX_WORLDS": "256",
             "T34_FRAMES": "5000",
             "T34_SECONDS": "600",
-            "T34_NAMESPACE": f"t34-exit-a5/s{shard}/a{attempt}",
+            "T34_NAMESPACE": (
+                f"t34-exit-a5/v2/s{shard}/a{attempt}"
+                if kernel == "v2"
+                else f"t34-exit-a5/s{shard}/a{attempt}"
+            ),
         }
     else:
         if shard < 0 or attempt < 0 or not round_id.replace("-", "").replace("_", "").isalnum():
@@ -243,7 +248,11 @@ def make_manifest(
             raise ManifestRefused("label worlds must be a bounded positive chunk count")
         script, job_id, estimate, cap = (
             f"{PACKAGE}/label.sh",
-            f"t34-exit-b8-{round_id}-s{shard}-a{attempt}",
+            (
+                f"t34-exit-b8-v2-{round_id}-s{shard}-a{attempt}"
+                if kernel == "v2"
+                else f"t34-exit-b8-{round_id}-s{shard}-a{attempt}"
+            ),
             180,
             12.0,
         )
@@ -255,7 +264,11 @@ def make_manifest(
             "T34_ROUND": round_id,
             "T34_SHARD": str(shard),
             "T34_ATTEMPT": str(attempt),
-            "T34_NAMESPACE": f"t34-exit/{round_id}/s{shard}/a{attempt}",
+            "T34_NAMESPACE": (
+                f"t34-exit/v2/{round_id}/s{shard}/a{attempt}"
+                if kernel == "v2"
+                else f"t34-exit/{round_id}/s{shard}/a{attempt}"
+            ),
             "T34_BETA": {"r2": "0.5", "r3": "0"}.get(round_id.lower(), "1"),
         }
     try:
