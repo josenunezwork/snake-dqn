@@ -12,6 +12,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import os
 import random
 import time
 from pathlib import Path
@@ -237,8 +238,10 @@ def _new_pair(seed: int, mix: str) -> tuple[Any, Any, list, dict]:
         "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
     )
     specs = build_mix_specs(mix, 5, [frp, champion])
-    with v2run.parity_config():
+    with v2run.parity_config(), patch.dict(os.environ, {"SNAKE_SERVE_PATHB": "off"}):
         session = new_session(seed, num_snakes=6)
+    if getattr(session, "pathb", None) is not None:
+        raise RuntimeError("M1 requires a bare Watch session with no optional controller")
     session.policy.forward = "rowwise"
     session.game.snakes[0].auto_respawn = True
     before = random.getstate()
@@ -275,7 +278,12 @@ def _new_pair(seed: int, mix: str) -> tuple[Any, Any, list, dict]:
         session,
         world,
         specs,
-        {"hero": hero, "checkpoint_sha256": identities, "live_rng": live_rng},
+        {
+            "hero": hero,
+            "checkpoint_sha256": identities,
+            "bare_watch_no_pathb": True,
+            "live_rng": live_rng,
+        },
     )
 
 
