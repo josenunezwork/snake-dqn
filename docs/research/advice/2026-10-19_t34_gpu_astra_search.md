@@ -1,6 +1,6 @@
 # Better hardware for T34: L4 teachers first; larger GPUs conditional
 
-2026-10-19 · game-AI search advice · source snapshot `3ea25070cd63`
+2026-10-19 · game-AI search advice · source snapshot `aa4f1124ba04`, including approved shadow v2
 
 **Yes, especially for batched student fits; the shadow teacher primarily needs efficient host cores and enough independent worlds to feed its GPU. Keep Path B on Mac CPU. Select hardware by units per completed, validated result.** Advice only: no launch, registration, budget amendment or hardware substitution is authorized here.
 
@@ -18,7 +18,7 @@ Rates below are **owner-supplied planning inputs**, superseding older advice:
 
 Equal overhead assumed; include setup/export in actual comparisons. Using 1.7 for L4 raises these thresholds. `~/.claude/skills/colab/{SKILL.md,*.md}` records L4's 12 vCPUs; [T16](../t16_colab_smoke02_results_2026-10-17.md) records both A100 sizes at 12, with six physical cores on A100-40. H100/G4 vCPU counts and host-RAM capacities remain unverified; CPU High-RAM specifications also remain unknown. VRAM sizes above are not host RAM. Colab [resources vary](https://research.google.com/colaboratory/faq.html#resource-limits).
 
-**Teacher economics.** Illustratively, 800 accepted worlds × 40k active steps/world at 4k steps/s takes 2.22 runtime-hours: **4.44 L4 units, 0.0056/world**. These are conditional assumptions, not measured shadow throughput. An A100-40 delivering 2× costs 6.0 units; G4 delivering 3× costs 6.44. Count rejected worlds, re-forks and all required branch outcomes. Bisection is a search heuristic: rescue availability need not be monotone, so certifying the last avoidable decision needs additional coverage. Sparse labels change the registered bank and require prospective validation. “Free” overlapping confirmations do not create independent decisive examples.
+**Teacher economics.** Illustratively, 800 accepted worlds × 40k active steps/world at 4k steps/s takes 2.22 runtime-hours: **4.44 L4 units, 0.0056/world**. These are conditional assumptions, not measured shadow throughput. An A100-40 delivering 2× costs 6.0 units; G4 delivering 3× costs 6.44. Count rejected worlds, re-forks and all required branch outcomes. Bisection is a search heuristic: rescue availability need not be monotone, so certifying the last avoidable decision needs additional coverage. Approved sparse labels still need [shadow v2's M2 coverage check](../final_run_20261019/DESIGN_V2_SHADOW.md). “Free” overlapping confirmations do not create independent decisive examples.
 
 CPU-only deserves comparison: [CLI acceptance](../../colab-cli.md) observed 0.08 u/h, but retains a **0.5-u/h ceiling**, not a High-RAM quote. At that ceiling it beats 2-u/h L4 if complete-world throughput exceeds one-quarter of L4's, including CPU CNN inference. Use measured core performance and available RAM, not vCPU count alone.
 
