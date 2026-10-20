@@ -74,19 +74,14 @@ def reachability(catchup: dict[str, Any], search: dict[str, Any]) -> dict[str, A
 
 def benchmark(mix: str, warm_frames: int, samples: int, catchups: int, budget: Budget) -> dict:
     """Time full shadow operations beside an independently advanced T3 world."""
-    from research.b8_death_census_20261014 import census
-    from research.redesign_scope_20261007 import grid_h5000_identity as gid
-    from research.t3_rollout_labels_20261015.bank_engine import (
-        build_world,
-        choose_and_step,
-        planned_rosters,
-    )
+    from research.t3_rollout_labels_20261015.bank_engine import choose_and_step
+    from research.t34_shadow.identity import _new_pair
     from research.t34_shadow.shadow import ShadowTrajectory, clone_world_exact
 
-    context = gid._context(1)
     # A fixed diagnostic seed, not a new efficacy bank. Record the exact roster.
-    plan = planned_rosters(context, [2026101934], [mix])[0]
-    source = build_world("b8_s3", plan)
+    _session, source, specs, checkpoint = _new_pair(2026101934, mix)
+    checkpoint.pop("live_rng")
+    plan = {"seed": 2026101934, "mix": mix, "specs": specs}
     checkpoints = [clone_world_exact(source)]
     for index in range(warm_frames):
         budget.check()
@@ -99,11 +94,6 @@ def benchmark(mix: str, warm_frames: int, samples: int, catchups: int, budget: B
     eligible = [s for s in checkpoints if int(s.sim.frame[0]) + 300 <= observed_until]
     source = eligible[-1] if eligible else checkpoints[0]
     source_frame = int(source.sim.frame[0])
-    checkpoint = {
-        "path": str(census.b8_path("b8_s3")),
-        "sha256": sha(census.b8_path("b8_s3")),
-        "opponents": plan["member_sha256s"],
-    }
     deadline = budget.started + budget.seconds
     # Exclude one warm-up operation. Include clone, catch-up and every digest
     # in re-fork timing; do not call the bare simulator a shadow catch-up.
@@ -118,20 +108,23 @@ def benchmark(mix: str, warm_frames: int, samples: int, catchups: int, budget: B
         count = shadow.catch_up(deadline=deadline)
         catchup_times.append(time.perf_counter() - start)
         catchup_counts.append(count)
-    step_times, confirmations = [], 0
+    step_times, confirm_times, tick_times, confirmations = [], [], [], 0
     for _ in range(samples):
         budget.check()
         if not bool(source.sim.alive[0, 0]) or not shadow.frames:
             break
         choose_and_step(source, capture_obs=False)
+        tick_started = time.perf_counter()
         if not shadow.confirm(source):
             raise RuntimeError("independent source/shadow full-state confirmation failed")
+        confirm_times.append(time.perf_counter() - tick_started)
         confirmations += 1
         start = time.perf_counter()
         made = shadow.catch_up(deadline=deadline)
         elapsed = time.perf_counter() - start
         if made == 1:
             step_times.append(elapsed)
+            tick_times.append(time.perf_counter() - tick_started)
     complete_times = [t for t, n in zip(catchup_times, catchup_counts) if n == 300]
     return {
         "mix": mix,
@@ -144,6 +137,8 @@ def benchmark(mix: str, warm_frames: int, samples: int, catchups: int, budget: B
         "selection": "latest fixed 500-frame checkpoint known to survive 300 frames, else initial",
         "confirmations": confirmations,
         "step": quantiles(step_times),
+        "confirm": quantiles(confirm_times),
+        "confirm_plus_step": quantiles(tick_times),
         "catchup_300": quantiles(complete_times),
         "all_catchup_seconds": catchup_times,
         "all_catchup_frames": catchup_counts,
