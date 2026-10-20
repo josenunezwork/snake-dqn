@@ -1,6 +1,7 @@
 # T34 v2 teacher
 
-Implementation of `docs/research/specs/2026-10-19_t34_v2_teacher.md`, bound to
+Implementation of `docs/research/specs/2026-10-19_t34_v2_teacher.md` and its
+[Amendment 2 addendum](../../docs/research/specs/2026-10-20_t34_v2_teacher_addendum_amendment2.md), bound to
 `DESIGN_V2_SHADOW.md` (including superseding Amendment 2) and `SUCCESS_CONTRACT.md`.
 The original v1 engine remains available for historical replay and tests.
 
@@ -53,6 +54,27 @@ are recorded below.
 The earlier [shadow measurement results](../t34_shadow/RESULTS.md) also report
 serial Watch search latency NO-GO. Nothing here clears Path B timing or efficacy.
 No serving configuration changes are part of this teacher implementation.
+
+## Amendment 2 addendum coverage
+
+The follow-up began at `0e73364b` with `origin/main` already merged, including
+Amendment 2 (`ca3fc731`). The requested runtime changes were already published
+in `d22bbeff` and `517df500`; this follow-up checks that implementation against
+the supplied addendum without changing the historical verification receipts.
+
+| Addendum requirement | Implementation | Regression evidence |
+|---|---|---|
+| Bisection from first detection, radius 3; drop stride 10 | `teacher_v2._search_dooms` calls `shadow.lad.search_lad` with `refinement_radius=3` | `test_bisection_teacher_uses_radius_three_neighborhood`; batched search tests |
+| Full per-action ranking, horizon/censoring, alive frames, mass | `teacher_v2._rank_outcomes`, `_outcome_dict`, cached control; `exports._labels` | Ranking/tie rules and ranked export roundtrip tests |
+| Horizon rescues alone decisive; all-die delay labels weight 0, execute bare | `_search_dooms` schedules rescues only; fit normalizer and loss retain zero delay weight | `test_second_doom_without_rescue_clears_previous_prospective_state`; `test_ranked_delay_roundtrips_with_zero_fit_loss` |
+| Confirmed shadow labels are KL anchors only | `run_worlds` emits `shadow_confirm` with `kl_anchor_only=true`; fit normalizer removes action targets | Teacher/export/fit-cache role tests |
+| Reuse prepared snapshots and free greedy control | `_build_doom_cache` captures each prefix once; `_search_dooms` clones prepared roots and reads greedy outcomes from shadow frames | `test_doom_search_reuses_confirmed_greedy_control_without_rerun`; real two-world doom test |
+| Exact `veto_slots` opponent dispatch | `B8Policy.dispatch` calls native policy actions; merged policies retain isolated source carry | `test_vetoed_opponents_use_native_actions_with_all_grouped_slots`; branch carry tests; real frozen/mixed doom test |
+
+`alive_steps` counts surviving post-transition frames; the fatal transition is
+included in executed work and contributes zero alive frames and mass. Cached
+controls and evaluated alternatives use the same convention. The existing
+operator commands below continue to select the amended teacher explicitly.
 
 ## Export roles and work accounting
 
