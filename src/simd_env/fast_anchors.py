@@ -141,13 +141,47 @@ class FastProfileAnchorSimdPolicy:
         if not len(slots):
             return out
         if self.kind == "random_safe":
-            for row, (env, slot) in enumerate(slots):
-                out[row] = _random_safe(
-                    self._world_seeds[int(env)],
-                    int(slot),
-                    watch_anchor_frame(int(sim.frame[int(env)])),
-                    masks[row],
-                )
+            # Rows sharing a source seed, slot and Watch frame use the same
+            # random integer. Hash each triple once; legal-set ranking remains
+            # row-specific and uses uint64 modulo to avoid float promotion.
+            seeds = np.asarray(self._world_seeds)
+            if seeds.dtype.kind not in "iu" or (
+                seeds.dtype.kind == "u" and np.any(seeds > np.iinfo(np.int64).max)
+            ):
+                for row, (env, slot) in enumerate(slots):
+                    out[row] = _random_safe(
+                        self._world_seeds[int(env)],
+                        int(slot),
+                        watch_anchor_frame(int(sim.frame[int(env)])),
+                        masks[row],
+                    )
+                return out
+            seeds = seeds.astype(np.int64, copy=False)
+            frames, frame_index = np.unique(sim.frame[slots[:, 0]], return_inverse=True)
+            watch_frames = np.array([watch_anchor_frame(int(f)) for f in frames], dtype=np.int64)
+            triples = np.column_stack((seeds[slots[:, 0]], slots[:, 1], watch_frames[frame_index]))
+            unique, inverse = np.unique(triples, axis=0, return_inverse=True)
+            hashes = np.fromiter(
+                (
+                    int.from_bytes(
+                        hashlib.sha256(
+                            (
+                                f"{SCRIPTED_ANCHOR_VERSION}|random_safe|{int(seed)}|"
+                                f"{int(slot)}|{int(frame)}"
+                            ).encode("utf-8")
+                        ).digest()[:8],
+                        "big",
+                    )
+                    for seed, slot, frame in unique
+                ),
+                dtype=np.uint64,
+                count=len(unique),
+            )
+            normal = masks[:, :3]
+            count = normal.sum(axis=1)
+            rank = hashes[inverse] % np.maximum(count, 1).astype(np.uint64)
+            picked = ((np.cumsum(normal, axis=1) - 1 == rank[:, None]) & normal).argmax(axis=1)
+            out[count > 0] = picked[count > 0]
             return out
         from src.simd_env.grid_sim import GRID_PAD
 

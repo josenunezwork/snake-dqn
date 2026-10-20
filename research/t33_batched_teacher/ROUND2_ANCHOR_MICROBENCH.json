@@ -1,0 +1,22 @@
+{
+  "baseline_commit": "f76820776e39a6a53c13197f6f0948aa7c6a95f4",
+  "baseline_sha256": "7146a76dc978c6b7c29dac0dff771f05b44de39603945b580f8eb9555eecaafc",
+  "candidate_sha256": "f2634c84705668e9a974034eca7f2347a54f6909c54c4be33672f9c3368abaca",
+  "rows": 12288,
+  "unique_seed_slot_frame_triples": 256,
+  "rows_per_s": {
+    "before": [
+      767534.0828917223,
+      761996.1089454436,
+      783815.3110424407
+    ],
+    "after": [
+      3386223.97591958,
+      3290855.6382733365,
+      3210132.6503521106
+    ]
+  },
+  "rounds": 3,
+  "native_threads": 1,
+  "note": "observed under concurrent local CPU profile; same-host interleaved arms"
+}

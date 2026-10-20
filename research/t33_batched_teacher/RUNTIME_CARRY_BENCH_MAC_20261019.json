@@ -1,0 +1,205 @@
+{
+  "command": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "/Users/josenunez/Projects/ml/snake-dqn-batched-teacher/research/t33_batched_teacher/runtime_bench.py",
+    "--worlds",
+    "48",
+    "--frames",
+    "4",
+    "--rounds",
+    "3",
+    "--out",
+    "research/t33_batched_teacher/RUNTIME_CARRY_BENCH_MAC_20261019.json"
+  ],
+  "host": {
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.12.3",
+    "thread_counts": [
+      1,
+      2
+    ],
+    "warmup_excluded": true
+  },
+  "inputs": {
+    "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/B8_s3_final.pth",
+    "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "fixture": "phase0 timing/frozen, synthetic valid L800 serpentines",
+    "frames": 4,
+    "rounds": 3,
+    "worlds": 48
+  },
+  "limitations": [
+    "This measures only runtime carry construction and BatchSim stepping, not policy forwards.",
+    "The result is a local Mac fixture measurement, not a Colab throughput result."
+  ],
+  "measurements": {
+    "canonical_numba_1_thread": [
+      {
+        "elapsed_s": 0.08103458400000818,
+        "profile": null,
+        "round": 1,
+        "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+        "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+      },
+      {
+        "elapsed_s": 0.08099691700772382,
+        "profile": null,
+        "round": 2,
+        "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+        "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+      },
+      {
+        "elapsed_s": 0.08251924999058247,
+        "profile": null,
+        "round": 3,
+        "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+        "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+      }
+    ],
+    "t33_parallel_1_thread": [
+      {
+        "elapsed_s": 0.09335358301177621,
+        "profile": {
+          "calls": 5,
+          "food_s": 0.0037193749740254134,
+          "kernel_s": 0.014245749945985153,
+          "observe_calls": 4,
+          "observe_s": 0.014936874998966232,
+          "prepare_calls": 4,
+          "prepare_s": 0.003763000975595787
+        },
+        "round": 1,
+        "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+        "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+      },
+      {
+        "elapsed_s": 0.08821337498375215,
+        "profile": {
+          "calls": 5,
+          "food_s": 0.003479418024653569,
+          "kernel_s": 0.012442791019566357,
+          "observe_calls": 4,
+          "observe_s": 0.012487292027799413,
+          "prepare_calls": 4,
+          "prepare_s": 0.004122001031646505
+        },
+        "round": 2,
+        "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+        "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+      },
+      {
+        "elapsed_s": 0.0847190830099862,
+        "profile": {
+          "calls": 5,
+          "food_s": 0.003402749978704378,
+          "kernel_s": 0.010818584967637435,
+          "observe_calls": 4,
+          "observe_s": 0.012316084030317143,
+          "prepare_calls": 4,
+          "prepare_s": 0.0027109569928143173
+        },
+        "round": 3,
+        "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+        "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+      }
+    ],
+    "t33_parallel_2_threads": [
+      {
+        "elapsed_s": 0.08520366600714624,
+        "profile": {
+          "calls": 5,
+          "food_s": 0.0037587920378427953,
+          "kernel_s": 0.008208542014472187,
+          "observe_calls": 4,
+          "observe_s": 0.010313834005501121,
+          "prepare_calls": 4,
+          "prepare_s": 0.0023167509643826634
+        },
+        "round": 1,
+        "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+        "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+      },
+      {
+        "elapsed_s": 0.08407145799719729,
+        "profile": {
+          "calls": 5,
+          "food_s": 0.0033333750325255096,
+          "kernel_s": 0.007869001012295485,
+          "observe_calls": 4,
+          "observe_s": 0.009457166976062581,
+          "prepare_calls": 4,
+          "prepare_s": 0.0023448740248568356
+        },
+        "round": 2,
+        "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+        "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+      },
+      {
+        "elapsed_s": 0.08979050000198185,
+        "profile": {
+          "calls": 5,
+          "food_s": 0.0034230419842060655,
+          "kernel_s": 0.007707543030846864,
+          "observe_calls": 4,
+          "observe_s": 0.00956241600215435,
+          "prepare_calls": 4,
+          "prepare_s": 0.0022525830136146396
+        },
+        "round": 3,
+        "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+        "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+      }
+    ]
+  },
+  "median_speedup_vs_canonical": {
+    "t33_parallel_1_thread": 0.9186201527255224,
+    "t33_parallel_2_threads": 0.9510692179983384
+  },
+  "parity": {
+    "canonical": {
+      "elapsed_s": 0.0802125410118606,
+      "profile": null,
+      "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+      "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+    },
+    "parallel_1": {
+      "elapsed_s": 0.08601566700963303,
+      "profile": {
+        "calls": 5,
+        "food_s": 0.0033415840298403054,
+        "kernel_s": 0.0101478319556918,
+        "observe_calls": 4,
+        "observe_s": 0.010262876021442935,
+        "prepare_calls": 4,
+        "prepare_s": 0.003951751015847549
+      },
+      "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+      "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+    },
+    "parallel_2": {
+      "elapsed_s": 0.08308833299088292,
+      "profile": {
+        "calls": 5,
+        "food_s": 0.0033967499912250787,
+        "kernel_s": 0.005874833004781976,
+        "observe_calls": 4,
+        "observe_s": 0.007495665951864794,
+        "prepare_calls": 4,
+        "prepare_s": 0.0023874159960541874
+      },
+      "runtime_digest": "5891cb47933e7854b52d7d89f56cf810cf524c85978d38ac461016cea4fd1df3",
+      "sim_digest": "44670390b86525e7c251351ba7d79e8a7d130e8867c67ab658afe499f7544f3e"
+    }
+  },
+  "schema": "t33-batched-teacher-runtime-bench/v1",
+  "source_sha256": {
+    "research/t33_batched_teacher/runtime.py": "0949d05ccc60caa50d6dd5eba523d91bb2d63cf3b0a1d12ed28b671e8ebae911",
+    "research/t33_batched_teacher/runtime_bench.py": "9b7448a639123df749538238aa6ffa8294c6849008ddd5af4e0be9f38212841f",
+    "src/simd_env/vector61_nb.py": "ffc1aa4c3c929922c0556f6d76a7774f84efb7c90b8020271014bcafa8877013",
+    "src/simd_env/vector61_policy.py": "d7c3087db2a76e6cb62bcc5cda541e9810969a59014aee3ba7040f14da27ca23"
+  },
+  "timing_interpretation": {
+    "food_s_and_kernel_s": "nested featurizer phases; do not add to parent timers",
+    "prepare_s_and_observe_s": "parent wall timers; each includes food_s and kernel_s"
+  }
+}

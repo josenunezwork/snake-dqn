@@ -1,0 +1,435 @@
+{
+  "argv": [
+    "/Users/josenunez/Projects/ml/snake-dqn-batched-teacher/research/t33_batched_teacher/ablation.py",
+    "--smoke",
+    "--decisions",
+    "3",
+    "--workers",
+    "1",
+    "--horizons",
+    "2",
+    "4",
+    "--rollouts",
+    "1",
+    "--reference-horizon",
+    "8",
+    "--reference-rollouts",
+    "2",
+    "--out",
+    "research/t33_batched_teacher/ABLATION_SMOKE.json"
+  ],
+  "audit_sha256": "c7a461fbb78adba56cded523b0b0a767a4328b687394d4c5cd99baaa15ba3fe2",
+  "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "margin_gate": null,
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "reference": {
+    "epsilon": 0.02,
+    "horizon": 8,
+    "leaf_scale": 1.0,
+    "length_gate": 0,
+    "margin_threshold": 0.0,
+    "rollouts": 2
+  },
+  "rows": [
+    {
+      "decision": 0,
+      "legacy_action": 3,
+      "legacy_scores": {
+        "0": 6410.898982048035,
+        "1": 6408.079158782959,
+        "2": 0.0,
+        "3": 6411.5136160850525,
+        "4": 6407.642019271851,
+        "5": 0.0
+      },
+      "length": 800,
+      "margin": 0.08641767501831055,
+      "mix": "scripted",
+      "reference_action": 3,
+      "reference_scores": {
+        "0": 6410.898982048035,
+        "1": 6408.079158782959,
+        "2": 0.0,
+        "3": 6411.5136160850525,
+        "4": 6407.642019271851,
+        "5": 0.0
+      },
+      "seconds": 1.23736108301091,
+      "variants": [
+        {
+          "action": 1,
+          "agreement": false,
+          "horizon": 2,
+          "id": "h2-n1-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 3.434457302093506,
+          "regret": 3.434457302093506,
+          "rollouts": 1,
+          "scores": {
+            "0": 1607.847887992859,
+            "1": 1607.9967694282532,
+            "2": 0.0,
+            "3": 1607.6644978523254,
+            "4": 1607.7997875213623,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.02320516700274311
+        },
+        {
+          "action": 1,
+          "agreement": false,
+          "horizon": 2,
+          "id": "h2-n1-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 3.434457302093506,
+          "regret": 3.434457302093506,
+          "rollouts": 1,
+          "scores": {
+            "0": 1607.847887992859,
+            "1": 1607.9967694282532,
+            "2": 0.0,
+            "3": 1607.6644978523254,
+            "4": 1607.7997875213623,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.020299416995840147
+        },
+        {
+          "action": 3,
+          "agreement": true,
+          "horizon": 4,
+          "id": "h4-n1-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 0.0,
+          "rollouts": 1,
+          "scores": {
+            "0": 3207.6486778259277,
+            "1": 3207.6056938171387,
+            "2": 0.0,
+            "3": 3207.8208136558533,
+            "4": 3207.7358388900757,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.03361195800243877
+        },
+        {
+          "action": 3,
+          "agreement": true,
+          "horizon": 4,
+          "id": "h4-n1-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": true,
+          "legacy_regret": 0.0,
+          "regret": 0.0,
+          "rollouts": 1,
+          "scores": {
+            "0": 3207.6486778259277,
+            "1": 3207.6056938171387,
+            "2": 0.0,
+            "3": 3207.8208136558533,
+            "4": 3207.7358388900757,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.036035082972375676
+        }
+      ],
+      "world_id": "timing-scripted-0000-2354291486"
+    },
+    {
+      "decision": 0,
+      "legacy_action": 3,
+      "legacy_scores": {
+        "0": 4804.1710414886475,
+        "1": 6407.8539118766785,
+        "2": 0.0,
+        "3": 6408.144599914551,
+        "4": 6407.872835636139,
+        "5": 0.0
+      },
+      "length": 800,
+      "margin": 0.10472345352172852,
+      "mix": "frozen",
+      "reference_action": 3,
+      "reference_scores": {
+        "0": 4804.1710414886475,
+        "1": 6407.922466516495,
+        "2": 0.0,
+        "3": 6408.063151597977,
+        "4": 6407.921627283096,
+        "5": 0.0
+      },
+      "seconds": 0.3961802499834448,
+      "variants": [
+        {
+          "action": 0,
+          "agreement": false,
+          "horizon": 2,
+          "id": "h2-n1-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 1603.9735584259033,
+          "regret": 1603.8921101093292,
+          "rollouts": 1,
+          "scores": {
+            "0": 1607.98068857193,
+            "1": 1607.9414129257202,
+            "2": 0.0,
+            "3": 1607.6943287849426,
+            "4": 1607.8923969268799,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.02265279198763892
+        },
+        {
+          "action": 0,
+          "agreement": false,
+          "horizon": 2,
+          "id": "h2-n1-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 1603.9735584259033,
+          "regret": 1603.8921101093292,
+          "rollouts": 1,
+          "scores": {
+            "0": 1607.98068857193,
+            "1": 1607.9414129257202,
+            "2": 0.0,
+            "3": 1607.6943287849426,
+            "4": 1607.8923969268799,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.026285542000550777
+        },
+        {
+          "action": 0,
+          "agreement": false,
+          "horizon": 4,
+          "id": "h4-n1-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 1603.9735584259033,
+          "regret": 1603.8921101093292,
+          "rollouts": 1,
+          "scores": {
+            "0": 3207.930325984955,
+            "1": 3207.884017944336,
+            "2": 0.0,
+            "3": 3207.8094425201416,
+            "4": 3207.822706222534,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.038237207976635545
+        },
+        {
+          "action": 0,
+          "agreement": false,
+          "horizon": 4,
+          "id": "h4-n1-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 1603.9735584259033,
+          "regret": 1603.8921101093292,
+          "rollouts": 1,
+          "scores": {
+            "0": 3207.930325984955,
+            "1": 3207.884017944336,
+            "2": 0.0,
+            "3": 3207.8094425201416,
+            "4": 3207.822706222534,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.04266383301001042
+        }
+      ],
+      "world_id": "timing-frozen-0000-3515193536"
+    },
+    {
+      "decision": 0,
+      "legacy_action": 3,
+      "legacy_scores": {
+        "0": 6410.020252227783,
+        "1": 6409.8715443611145,
+        "2": 0.0,
+        "3": 6410.974762916565,
+        "4": 3605.4107666015625,
+        "5": 0.0
+      },
+      "length": 800,
+      "margin": 0.1319446563720703,
+      "mix": "mixed",
+      "reference_action": 3,
+      "reference_scores": {
+        "0": 6410.020252227783,
+        "1": 6409.8715443611145,
+        "2": 0.0,
+        "3": 6410.974762916565,
+        "4": 6410.821533203125,
+        "5": 0.0
+      },
+      "seconds": 0.3735422089812346,
+      "variants": [
+        {
+          "action": 4,
+          "agreement": false,
+          "horizon": 2,
+          "id": "h2-n1-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 2805.5639963150024,
+          "regret": 0.1532297134399414,
+          "rollouts": 1,
+          "scores": {
+            "0": 1607.9192643165588,
+            "1": 1607.9226651191711,
+            "2": 0.0,
+            "3": 1607.7796545028687,
+            "4": 1607.9459433555603,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.022416082996642217
+        },
+        {
+          "action": 4,
+          "agreement": false,
+          "horizon": 2,
+          "id": "h2-n1-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 2805.5639963150024,
+          "regret": 0.1532297134399414,
+          "rollouts": 1,
+          "scores": {
+            "0": 1607.9192643165588,
+            "1": 1607.9226651191711,
+            "2": 0.0,
+            "3": 1607.7796545028687,
+            "4": 1607.9459433555603,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.02201366698136553
+        },
+        {
+          "action": 4,
+          "agreement": false,
+          "horizon": 4,
+          "id": "h4-n1-max",
+          "leaf": "max",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 2805.5639963150024,
+          "regret": 0.1532297134399414,
+          "rollouts": 1,
+          "scores": {
+            "0": 3207.6946964263916,
+            "1": 3207.9322805404663,
+            "2": 0.0,
+            "3": 3207.9218406677246,
+            "4": 3207.9382371902466,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.039591083012055606
+        },
+        {
+          "action": 4,
+          "agreement": false,
+          "horizon": 4,
+          "id": "h4-n1-value",
+          "leaf": "value",
+          "leaf_scale": 1.0,
+          "legacy_agreement": false,
+          "legacy_regret": 2805.5639963150024,
+          "regret": 0.1532297134399414,
+          "rollouts": 1,
+          "scores": {
+            "0": 3207.6946964263916,
+            "1": 3207.9322805404663,
+            "2": 0.0,
+            "3": 3207.9218406677246,
+            "4": 3207.9382371902466,
+            "5": 0.0
+          },
+          "searched": true,
+          "seconds": 0.03651104200980626
+        }
+      ],
+      "world_id": "timing-mixed-0000-2506198438"
+    }
+  ],
+  "schema": "t33-ablation/v1",
+  "scope": "synthetic-smoke",
+  "seconds": 9.65504416602198,
+  "sources": {
+    "research/phase0_search_20261019/teacher.py": "10270e520ce096d967832fe2b8acc19eca1e6f66a746daae566d7a46bb7130e5",
+    "research/t33_batched_teacher/ablation.py": "f8eeb471e9c338824d66a4211771f86f1193753a9ac502580a5c6024fc57afaa",
+    "research/t33_batched_teacher/reference.py": "4f38321b1af69a1d4e27251947da8f1e75b1f0e7901466e5eca9bf60698839ea"
+  },
+  "summary": {
+    "h2-n1-max": {
+      "agreement": 0.0,
+      "decisions": 3,
+      "legacy_agreement": 0.0,
+      "legacy_regret": 1470.9906706809998,
+      "max_regret": 1603.8921101093292,
+      "regret": 535.8265990416209,
+      "searched": 3,
+      "seconds": 0.022758013995674748
+    },
+    "h2-n1-value": {
+      "agreement": 0.0,
+      "decisions": 3,
+      "legacy_agreement": 0.0,
+      "legacy_regret": 1470.9906706809998,
+      "max_regret": 1603.8921101093292,
+      "regret": 535.8265990416209,
+      "searched": 3,
+      "seconds": 0.022866208659252152
+    },
+    "h4-n1-max": {
+      "agreement": 0.3333333333333333,
+      "decisions": 3,
+      "legacy_agreement": 0.3333333333333333,
+      "legacy_regret": 1469.845851580302,
+      "max_regret": 1603.8921101093292,
+      "regret": 534.6817799409231,
+      "searched": 3,
+      "seconds": 0.037146749663709976
+    },
+    "h4-n1-value": {
+      "agreement": 0.3333333333333333,
+      "decisions": 3,
+      "legacy_agreement": 0.3333333333333333,
+      "legacy_regret": 1469.845851580302,
+      "max_regret": 1603.8921101093292,
+      "regret": 534.6817799409231,
+      "searched": 3,
+      "seconds": 0.03840331933073079
+    }
+  },
+  "workers": 1
+}

@@ -1,0 +1,454 @@
+{
+  "category_definition": {
+    "b8_forward": "ego2s_policy.forward_q elapsed time, including device synchronization",
+    "clone_snapshot": "teacher._replicate elapsed time",
+    "frozen_opponent_forward": "Vector61SimdPolicy.q_values elapsed time",
+    "frozen_runtime": "Vector61Runtime.prepare and observe_step, including carry features",
+    "observation_building": "ego_raster.build_ego_raster excluding nested v8 feature time",
+    "python_residual": "total wall time minus wrapped category intervals",
+    "scripted_opponent_logic": "FastProfileAnchorSimdPolicy.actions elapsed time",
+    "sim_stepping": "BatchSim.step elapsed time",
+    "v8_features": "v8_nb.v8_decide for hero bv8 observation features"
+  },
+  "command": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/profile_teacher.py",
+    "--implementation",
+    "batched",
+    "--device",
+    "cpu",
+    "--rounds",
+    "3",
+    "--out",
+    "research/phase0_search_20261019/PROFILE_CPU_FINAL.json"
+  ],
+  "git_head": "3fe804230f78e2dee423f86c52d4abe2b3dd9f97",
+  "host": {
+    "native_threads": 1,
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.12.3",
+    "warmup_excluded": true
+  },
+  "inputs": {
+    "bank": "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/WORLD_BANK.json",
+    "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+    "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/B8_s3_final.pth",
+    "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "config": {
+      "epsilon": 0.02,
+      "horizon": 128,
+      "leaf_scale": 1.0,
+      "length_gate": 600,
+      "margin_threshold": 0.0,
+      "rollouts": 8
+    },
+    "length": 800,
+    "mixes": [
+      "scripted",
+      "frozen",
+      "mixed"
+    ],
+    "rounds": 3,
+    "teacher_sha256": "10270e520ce096d967832fe2b8acc19eca1e6f66a746daae566d7a46bb7130e5"
+  },
+  "limitations": [
+    "The L=800 serpentine is a timing fixture, not a gameplay outcome.",
+    "Categories use exclusive elapsed time: nested v8 time is removed from observation time.",
+    "Reference implementation is CPU-only; requested non-CPU device is used only for batched implementation."
+  ],
+  "measurements": [
+    {
+      "action": 3,
+      "b8_action": 0,
+      "calls": {
+        "b8_forward": 134,
+        "clone_snapshot": 1,
+        "frozen_opponent_forward": 0,
+        "frozen_runtime": 258,
+        "observation_building": 131,
+        "scripted_opponent_logic": 129,
+        "sim_stepping": 129,
+        "v8_features": 131
+      },
+      "categories_seconds": {
+        "b8_forward": 0.6722758758987766,
+        "clone_snapshot": 0.04226883299998008,
+        "frozen_opponent_forward": 0.0,
+        "frozen_runtime": 0.0026645812031347305,
+        "observation_building": 0.07442354431259446,
+        "scripted_opponent_logic": 0.00616317373351194,
+        "sim_stepping": 0.1311964149645064,
+        "v8_features": 0.09408545686164871
+      },
+      "device": "cpu",
+      "implementation": "batched",
+      "length": 800,
+      "mix": "scripted",
+      "python_residual_seconds": 0.03384912002366036,
+      "round": 1,
+      "scores": {
+        "0": 75423.96610832214,
+        "1": 82688.79356396198,
+        "2": 0.0,
+        "3": 88609.29247915745,
+        "4": 69386.64874076843,
+        "5": 0.0
+      },
+      "searched": true,
+      "total_seconds": 1.0569269999978133
+    },
+    {
+      "action": 3,
+      "b8_action": 0,
+      "calls": {
+        "b8_forward": 134,
+        "clone_snapshot": 1,
+        "frozen_opponent_forward": 0,
+        "frozen_runtime": 258,
+        "observation_building": 131,
+        "scripted_opponent_logic": 129,
+        "sim_stepping": 129,
+        "v8_features": 131
+      },
+      "categories_seconds": {
+        "b8_forward": 0.6772532499744557,
+        "clone_snapshot": 0.018651416001375765,
+        "frozen_opponent_forward": 0.0,
+        "frozen_runtime": 0.0025773300149012357,
+        "observation_building": 0.07566546299494803,
+        "scripted_opponent_logic": 0.006235876906430349,
+        "sim_stepping": 0.1320139610907063,
+        "v8_features": 0.09396616602316499
+      },
+      "device": "cpu",
+      "implementation": "batched",
+      "length": 800,
+      "mix": "scripted",
+      "python_residual_seconds": 0.03564032798749395,
+      "round": 2,
+      "scores": {
+        "0": 75423.96610832214,
+        "1": 82688.79356396198,
+        "2": 0.0,
+        "3": 88609.29247915745,
+        "4": 69386.64874076843,
+        "5": 0.0
+      },
+      "searched": true,
+      "total_seconds": 1.0420037909934763
+    },
+    {
+      "action": 3,
+      "b8_action": 0,
+      "calls": {
+        "b8_forward": 134,
+        "clone_snapshot": 1,
+        "frozen_opponent_forward": 0,
+        "frozen_runtime": 258,
+        "observation_building": 131,
+        "scripted_opponent_logic": 129,
+        "sim_stepping": 129,
+        "v8_features": 131
+      },
+      "categories_seconds": {
+        "b8_forward": 0.6774446638883092,
+        "clone_snapshot": 0.018509042012738064,
+        "frozen_opponent_forward": 0.0,
+        "frozen_runtime": 0.0026166299649048597,
+        "observation_building": 0.07507944712415338,
+        "scripted_opponent_logic": 0.006252541032154113,
+        "sim_stepping": 0.13112992598325945,
+        "v8_features": 0.09417459001997486
+      },
+      "device": "cpu",
+      "implementation": "batched",
+      "length": 800,
+      "mix": "scripted",
+      "python_residual_seconds": 0.0354204929608386,
+      "round": 3,
+      "scores": {
+        "0": 75423.96610832214,
+        "1": 82688.79356396198,
+        "2": 0.0,
+        "3": 88609.29247915745,
+        "4": 69386.64874076843,
+        "5": 0.0
+      },
+      "searched": true,
+      "total_seconds": 1.0406273329863325
+    },
+    {
+      "action": 3,
+      "b8_action": 1,
+      "calls": {
+        "b8_forward": 136,
+        "clone_snapshot": 1,
+        "frozen_opponent_forward": 516,
+        "frozen_runtime": 258,
+        "observation_building": 131,
+        "scripted_opponent_logic": 0,
+        "sim_stepping": 129,
+        "v8_features": 131
+      },
+      "categories_seconds": {
+        "b8_forward": 0.6625724248879123,
+        "clone_snapshot": 0.018152792006731033,
+        "frozen_opponent_forward": 0.10344125548726879,
+        "frozen_runtime": 0.23571341027854942,
+        "observation_building": 0.08192925600451417,
+        "scripted_opponent_logic": 0.0,
+        "sim_stepping": 0.15828279007109813,
+        "v8_features": 0.09956474488717504
+      },
+      "device": "cpu",
+      "implementation": "batched",
+      "length": 800,
+      "mix": "frozen",
+      "python_residual_seconds": 0.047865743399597704,
+      "round": 1,
+      "scores": {
+        "0": 48081.6708868742,
+        "1": 93324.09876024723,
+        "2": 0.0,
+        "3": 94107.06194472313,
+        "4": 81600.21339082718,
+        "5": 0.0
+      },
+      "searched": true,
+      "total_seconds": 1.4075224170228466
+    },
+    {
+      "action": 3,
+      "b8_action": 1,
+      "calls": {
+        "b8_forward": 136,
+        "clone_snapshot": 1,
+        "frozen_opponent_forward": 516,
+        "frozen_runtime": 258,
+        "observation_building": 131,
+        "scripted_opponent_logic": 0,
+        "sim_stepping": 129,
+        "v8_features": 131
+      },
+      "categories_seconds": {
+        "b8_forward": 0.6621498341846745,
+        "clone_snapshot": 0.01872204101528041,
+        "frozen_opponent_forward": 0.08334379104780965,
+        "frozen_runtime": 0.23168158385669813,
+        "observation_building": 0.08079391997307539,
+        "scripted_opponent_logic": 0.0,
+        "sim_stepping": 0.15793820389080793,
+        "v8_features": 0.09857874806039035
+      },
+      "device": "cpu",
+      "implementation": "batched",
+      "length": 800,
+      "mix": "frozen",
+      "python_residual_seconds": 0.04485850298078731,
+      "round": 2,
+      "scores": {
+        "0": 48081.6708868742,
+        "1": 93324.09876024723,
+        "2": 0.0,
+        "3": 94107.06194472313,
+        "4": 81600.21339082718,
+        "5": 0.0
+      },
+      "searched": true,
+      "total_seconds": 1.3780666250095237
+    },
+    {
+      "action": 3,
+      "b8_action": 1,
+      "calls": {
+        "b8_forward": 136,
+        "clone_snapshot": 1,
+        "frozen_opponent_forward": 516,
+        "frozen_runtime": 258,
+        "observation_building": 131,
+        "scripted_opponent_logic": 0,
+        "sim_stepping": 129,
+        "v8_features": 131
+      },
+      "categories_seconds": {
+        "b8_forward": 0.6642019572027493,
+        "clone_snapshot": 0.018183167005190626,
+        "frozen_opponent_forward": 0.10230000060983002,
+        "frozen_runtime": 0.23263466768548824,
+        "observation_building": 0.08120441899518482,
+        "scripted_opponent_logic": 0.0,
+        "sim_stepping": 0.1582453791052103,
+        "v8_features": 0.09889295598259196
+      },
+      "device": "cpu",
+      "implementation": "batched",
+      "length": 800,
+      "mix": "frozen",
+      "python_residual_seconds": 0.046033370424993336,
+      "round": 3,
+      "scores": {
+        "0": 48081.6708868742,
+        "1": 93324.09876024723,
+        "2": 0.0,
+        "3": 94107.06194472313,
+        "4": 81600.21339082718,
+        "5": 0.0
+      },
+      "searched": true,
+      "total_seconds": 1.4016959170112386
+    },
+    {
+      "action": 1,
+      "b8_action": 1,
+      "calls": {
+        "b8_forward": 131,
+        "clone_snapshot": 1,
+        "frozen_opponent_forward": 387,
+        "frozen_runtime": 258,
+        "observation_building": 131,
+        "scripted_opponent_logic": 129,
+        "sim_stepping": 129,
+        "v8_features": 131
+      },
+      "categories_seconds": {
+        "b8_forward": 0.9543575477146078,
+        "clone_snapshot": 0.018459958024322987,
+        "frozen_opponent_forward": 0.07473453084821813,
+        "frozen_runtime": 0.18520588614046574,
+        "observation_building": 0.08821871507097967,
+        "scripted_opponent_logic": 0.013721630937652662,
+        "sim_stepping": 0.16056996316183358,
+        "v8_features": 0.11915766194579192
+      },
+      "device": "cpu",
+      "implementation": "batched",
+      "length": 800,
+      "mix": "mixed",
+      "python_residual_seconds": 0.04707931514712982,
+      "round": 1,
+      "scores": {
+        "0": 97202.24258089066,
+        "1": 103365.25340890884,
+        "2": 0.0,
+        "3": 88436.93831276894,
+        "4": 89223.74127721786,
+        "5": 0.0
+      },
+      "searched": true,
+      "total_seconds": 1.6615052089910023
+    },
+    {
+      "action": 1,
+      "b8_action": 1,
+      "calls": {
+        "b8_forward": 131,
+        "clone_snapshot": 1,
+        "frozen_opponent_forward": 387,
+        "frozen_runtime": 258,
+        "observation_building": 131,
+        "scripted_opponent_logic": 129,
+        "sim_stepping": 129,
+        "v8_features": 131
+      },
+      "categories_seconds": {
+        "b8_forward": 0.9559267070144415,
+        "clone_snapshot": 0.018499916011933237,
+        "frozen_opponent_forward": 0.06525952892843634,
+        "frozen_runtime": 0.18478829797822982,
+        "observation_building": 0.0875607451889664,
+        "scripted_opponent_logic": 0.013750583020737395,
+        "sim_stepping": 0.16125683087739162,
+        "v8_features": 0.11937183569534682
+      },
+      "device": "cpu",
+      "implementation": "batched",
+      "length": 800,
+      "mix": "mixed",
+      "python_residual_seconds": 0.04670093028107658,
+      "round": 2,
+      "scores": {
+        "0": 97202.24258089066,
+        "1": 103365.25340890884,
+        "2": 0.0,
+        "3": 88436.93831276894,
+        "4": 89223.74127721786,
+        "5": 0.0
+      },
+      "searched": true,
+      "total_seconds": 1.6531153749965597
+    },
+    {
+      "action": 1,
+      "b8_action": 1,
+      "calls": {
+        "b8_forward": 131,
+        "clone_snapshot": 1,
+        "frozen_opponent_forward": 387,
+        "frozen_runtime": 258,
+        "observation_building": 131,
+        "scripted_opponent_logic": 129,
+        "sim_stepping": 129,
+        "v8_features": 131
+      },
+      "categories_seconds": {
+        "b8_forward": 0.9582059120293707,
+        "clone_snapshot": 0.01875474999542348,
+        "frozen_opponent_forward": 0.06438911895384081,
+        "frozen_runtime": 0.18588399593136273,
+        "observation_building": 0.0874085359100718,
+        "scripted_opponent_logic": 0.013607462198706344,
+        "sim_stepping": 0.16135437681805342,
+        "v8_features": 0.11912112808204256
+      },
+      "device": "cpu",
+      "implementation": "batched",
+      "length": 800,
+      "mix": "mixed",
+      "python_residual_seconds": 0.048480595083674416,
+      "round": 3,
+      "scores": {
+        "0": 97202.24258089066,
+        "1": 103365.25340890884,
+        "2": 0.0,
+        "3": 88436.93831276894,
+        "4": 89223.74127721786,
+        "5": 0.0
+      },
+      "searched": true,
+      "total_seconds": 1.6572058750025462
+    }
+  ],
+  "schema": "phase0-search-teacher-profile/v1",
+  "source_sha256": {
+    "research/phase0_search_20261019/preflight.py": "887d597228092c0bd35a8ba2d9db32da0e331242211060060ca68ead142b9eac",
+    "research/phase0_search_20261019/profile_teacher.py": "562967f33e5672c7a4c552b4bcee66bf93a70e8c9aa82ae7ed64f1b62f606d34",
+    "research/phase0_search_20261019/teacher.py": "10270e520ce096d967832fe2b8acc19eca1e6f66a746daae566d7a46bb7130e5",
+    "src/model/ego2s_network.py": "06b262b7ad4bc89ff4d46caff37090635fe32b81008fa91d5956b34d940345a9",
+    "src/simd_env/__init__.py": "79d97e065e845b05310c8b2578274d457c9886defc584c40bc1ac8ca37e79ac3",
+    "src/simd_env/batch_sim.py": "beb0421be2e526b512b5fc44464042cb03786f5636518dd0e60cb90a2bb7caad",
+    "src/simd_env/ego2s_policy.py": "8e5b048f353b69ebdf4a6f9718eb59eda926cf422afdb1e8d694c4289f1bb154",
+    "src/simd_env/ego_live_adapter.py": "7173dbc69a91370ce77b5b590c17121178df78737da6553c2a034c76a61b76c9",
+    "src/simd_env/ego_live_bv8.py": "7d0950e39170a1f583425ec3df00b545cfc313163012f52ea9fcd4ce2a693f74",
+    "src/simd_env/ego_raster.py": "0a9dea5a3128435656dec4beeab5c8b4a6f6b600a5f4b63c82beb635dfaf10ad",
+    "src/simd_env/ego_raster_b.py": "7de8197b98649486fa95e83eb8e7fa668a84b636d9e5915c811d0fd5f4e0d7c7",
+    "src/simd_env/ego_raster_bv8.py": "7dc4068101563b7a6a84614d82a4b18310e88aa7a2afaca70cc689dafc48c017",
+    "src/simd_env/ego_raster_nb.py": "b9e30919c018119d56209b67c6aa54cfbd33622332a50573b3514e4d2c26d5a0",
+    "src/simd_env/eval_engine.py": "d6bae5b525e26a91259a7330e0b90d807c6124766fa47614d372bc98deaa582c",
+    "src/simd_env/fast_anchors.py": "7146a76dc978c6b7c29dac0dff771f05b44de39603945b580f8eb9555eecaafc",
+    "src/simd_env/featurizer.py": "9fe4af66917c1adeb350de3c27ef1c72cbc712c07a5cf61b2da23cb7562b6c1f",
+    "src/simd_env/gpu_featurizer.py": "a1716892012ffe48db6ddcccc414a9e710d09902933637bf2cecc6524e4940ef",
+    "src/simd_env/grid_scenarios.py": "24256f4fdcfdf5930f16cd9a0934074a673dc0b5368f5536251067a817a54750",
+    "src/simd_env/grid_sim.py": "6f186bb66933ad5609ee43206054f127afd4c6071a609dd9e51d02d9cd567cd7",
+    "src/simd_env/grid_sim_nb.py": "aa35951cb61ec08156991f248655bc478be0bff8fdd18422153b3ac147b62666",
+    "src/simd_env/live_adapter.py": "ec9ed8b7bfd6a8397ee36305b566c28cefed90ea64198050d8edbd2833a3dbd1",
+    "src/simd_env/parity.py": "06896bb07b3ff07cd9d89c65dbfc6e39b78c484400c301adec0613d0c4945400",
+    "src/simd_env/rng.py": "d5df755cfedd2bd27cf9c2e0cee61a696426c7892b4b30069c0afda9ebf09a08",
+    "src/simd_env/t5_features.py": "97b12443c4e233e144abddf28d49f40fbddcee627d883801fac4b40d5c8da6d4",
+    "src/simd_env/t8_features.py": "f2c052e7944711d929114e44e6f30e283bddb7addbe53bcd3afb085b39af035f",
+    "src/simd_env/v8_nb.py": "fcdc587aa07fe5b799e11384027751fc736d3f860b6ea4d6ed633e70954075b0",
+    "src/simd_env/vector61_featurizer.py": "c1cbdd6373b52ad72dc707ab0f68208402e592638206a0ace56a77e2d035efbe",
+    "src/simd_env/vector61_merged.py": "a40d64da7e84acf7a7679bddf7a78317ed147b867b147652b434bf59597df845",
+    "src/simd_env/vector61_nb.py": "ffc1aa4c3c929922c0556f6d76a7774f84efb7c90b8020271014bcafa8877013",
+    "src/simd_env/vector61_policy.py": "d7c3087db2a76e6cb62bcc5cda541e9810969a59014aee3ba7040f14da27ca23"
+  }
+}

@@ -180,6 +180,13 @@ class GridBatchSim(BatchSim):
         self._food = self._food_pad[:, P : P + H, P : P + W]
         self._food[...] = FOOD_NONE
         self._amb_count = np.zeros(E, dtype=np.int64)
+        # Ordered food is load-bearing for nearest-food ties and corpse
+        # eviction.  Keep a contiguous mirror for vector61 consumers so they
+        # do not repeatedly compare/copy Python lists.  It is strictly a view
+        # cache: ``food_cells`` remains the dynamics authority.
+        self._food_array = np.zeros((E, 8, 2), dtype=np.int64)
+        self._food_n = np.zeros(E, dtype=np.int64)
+        self._food_version = np.zeros(E, dtype=np.int64)
         # Coarse COARSE_CELL x COARSE_CELL block counts, maintained at every owner /
         # food write (featurizer-only side state: dynamics never read them).
         hc, wc = -(-H // COARSE_CELL), -(-W // COARSE_CELL)
@@ -189,6 +196,24 @@ class GridBatchSim(BatchSim):
         self._snake_index = np.arange(self.S)[None, :]
         self._det = None
         self._grids_ready = True
+
+    def _ensure_food_array_capacity(self, count: int) -> None:
+        """Grow the ordered-food mirror without changing any game state."""
+        if count <= self._food_array.shape[1]:
+            return
+        grown = np.zeros((self.E, max(count, 2 * self._food_array.shape[1]), 2), dtype=np.int64)
+        grown[:, : self._food_array.shape[1]] = self._food_array
+        self._food_array = grown
+
+    def _sync_food_array(self, e: int) -> None:
+        """Refresh one env's ordered-food mirror and advance its version."""
+        cells = self.food_cells[e]
+        count = len(cells)
+        self._ensure_food_array_capacity(count)
+        if count:
+            self._food_array[e, :count] = cells
+        self._food_n[e] = count
+        self._food_version[e] += 1
 
     def _rebuild_env_grids(self, e: int, *, food: bool = True) -> None:
         """Recompute env ``e``'s snake grid (and optionally food grid) from scratch."""
@@ -222,6 +247,7 @@ class GridBatchSim(BatchSim):
                     self._food[e, r, c] = FOOD_AMBIENT
                     amb += 1
             self._amb_count[e] = amb
+            self._sync_food_array(e)
         self._recount_env(e, food=food)
 
     def _recount_env(self, e: int, *, food: bool = True) -> None:
@@ -279,6 +305,9 @@ class GridBatchSim(BatchSim):
         assert np.array_equal(saved[5], rebuilt_coarse[1]), "coarse food counts drifted"
         for e in range(self.E):
             assert rebuilt_amb[e] == self._ambient_count(e)
+            n = int(self._food_n[e])
+            assert n == len(self.food_cells[e]), "ordered food mirror length drifted"
+            assert np.array_equal(self._food_array[e, :n], np.asarray(self.food_cells[e]))
 
     def _in_bounds(self, cells: np.ndarray) -> np.ndarray:
         """Boolean mask of ``(..., 2)`` cells inside the arena grid."""
@@ -332,6 +361,7 @@ class GridBatchSim(BatchSim):
         fset = self.food_set[e]
         s = self.s
         spawned = 0
+        self._ensure_food_array_capacity(len(self.food_cells[e]) + count)
         for _ in range(count):
             pos = None
             for _outer in range(100):
@@ -346,6 +376,7 @@ class GridBatchSim(BatchSim):
             cell = cell_index(pos, s)
             if cell in fset:
                 break
+            self._food_array[e, len(self.food_cells[e])] = cell
             self.food_cells[e].append(cell)
             fset.add(cell)
             if corpse:
@@ -356,6 +387,9 @@ class GridBatchSim(BatchSim):
                 self._amb_count[e] += 1
             self._cfood_add(e, cell, 1)
             spawned += 1
+        if spawned:
+            self._food_n[e] = len(self.food_cells[e])
+            self._food_version[e] += 1
         return spawned
 
     def _maintain_food(self) -> None:
@@ -395,6 +429,7 @@ class GridBatchSim(BatchSim):
         else:
             self._food[e, cell[1], cell[0]] = FOOD_AMBIENT
             self._amb_count[e] += 1
+        self._sync_food_array(e)
         return True
 
     def _drop_corpse_v2(self, e: int, cells: List[Tuple[int, int]]) -> None:
@@ -408,6 +443,35 @@ class GridBatchSim(BatchSim):
         their old order followed by surviving new cells in append order (a cell
         evicted and re-added in the same drop moves to the end, as it would).
         """
+        if self._kernels is not None and cells:
+            old_n = int(self._food_n[e])
+            incoming = np.asarray(cells, dtype=np.int64).reshape(-1, 2)
+            old_cells = self._food_array[e, :old_n]
+            old_corpse = self._food[e, old_cells[:, 1], old_cells[:, 0]] == FOOD_CORPSE
+            out = np.empty((old_n + len(cells), 2), dtype=np.int64)
+            out_corpse = np.empty(old_n + len(cells), dtype=np.bool_)
+            count = self._kernels.corpse_queue_compact(
+                self._food_array[e],
+                old_n,
+                old_corpse,
+                incoming,
+                len(incoming),
+                corpse_food_cap(self.cfg.max_food),
+                out,
+                out_corpse,
+                self._food[e],
+                self._cfood[e],
+            )
+            ordered = [tuple(cell) for cell in out[:count]]
+            self.food_cells[e][:] = ordered
+            self.food_set[e] = set(ordered)
+            self.corpse_cells[e] = {tuple(out[i]) for i in range(count) if out_corpse[i]}
+            self._ensure_food_array_capacity(count)
+            self._food_array[e, :count] = out[:count]
+            self._food_n[e] = count
+            self._food_version[e] += 1
+            return
+
         from collections import deque
 
         fset = self.food_set[e]
@@ -439,6 +503,8 @@ class GridBatchSim(BatchSim):
         if removed:
             old[:] = [c for c in old if c not in removed]
         old.extend(appended)
+        if appended or removed:
+            self._sync_food_array(e)
 
     def _drop_trail_pellets(self, trail: np.ndarray) -> None:
         """v2 trail pellets, iterating only the rows that burned this frame."""
@@ -475,6 +541,20 @@ class GridBatchSim(BatchSim):
         n_trav = np.where(active[:, None], self._trav_valid.sum(axis=2), 0)
         popped = old_n + n_trav - self.seg_count
         popped = np.where(n_trav > 0, popped, 0)
+        if self._kernels is not None:
+            self._kernels.pop_tails(self, old_tail, popped)
+        else:
+            self._pop_tails_numpy(old_tail, popped)
+
+        if self._kernels is not None:
+            self._det = self._kernels.detect_collisions(self, n_trav)
+        else:
+            self._det = self._detect_collisions(n_trav)
+        self._write_new_heads(n_trav)
+        return trail
+
+    def _pop_tails_numpy(self, old_tail: np.ndarray, popped: np.ndarray) -> None:
+        """Reference grid-tail removal, retained as the compiled-kernel oracle."""
         for p in range(3):
             m = popped > p
             if not m.any():
@@ -490,13 +570,6 @@ class GridBatchSim(BatchSim):
                 (e_i[own], s_i[own], c[own, 1] // COARSE_CELL, c[own, 0] // COARSE_CELL),
                 1,
             )
-
-        if self._kernels is not None:
-            self._det = self._kernels.detect_collisions(self, n_trav)
-        else:
-            self._det = self._detect_collisions(n_trav)
-        self._write_new_heads(n_trav)
-        return trail
 
     def _detect_collisions(self, n_trav: np.ndarray) -> dict:
         """Vectorized wall/self/head-on/body detection on the post-move world.
@@ -575,6 +648,9 @@ class GridBatchSim(BatchSim):
 
     def _write_new_heads(self, n_trav: np.ndarray) -> None:
         """Stamp each mover's traversed cells into the grid (segments 0 and 1)."""
+        if self._kernels is not None:
+            self._kernels.write_new_heads(self, n_trav)
+            return
         cap = self.cap
         for t in range(2):
             # Boosted: t1 is segment 1, t2 is segment 0. Normal: t1 is segment 0.
@@ -626,7 +702,21 @@ class GridBatchSim(BatchSim):
 
         first = np.where(has[:, :, 0], 0, 1)
         any_ate = np.zeros(E, dtype=bool)
-        for e in np.flatnonzero(ate.any(axis=1)):
+        fast = ate.any(axis=1) & ~contested & bool(self.train_mode) & (self._kernels is not None)
+        if fast.any():
+            self._kernels.consume_uncontested(self, first, ate, fast, ambient_ate, corpse_ate)
+            # Ordered list removal and Python collection maintenance stay at
+            # the boundary; the hot numeric grid/count/length pass is compiled.
+            for e in np.flatnonzero(fast):
+                e = int(e)
+                for sidx in np.flatnonzero(ate[e]):
+                    t = int(first[e, sidx])
+                    cell = tuple(map(int, trav[e, sidx, t]))
+                    self.food_cells[e].remove(cell)
+                    self.food_set[e].discard(cell)
+                    self.corpse_cells[e].discard(cell)
+                any_ate[e] = True
+        for e in np.flatnonzero(ate.any(axis=1) & ~fast):
             e = int(e)
             fset = self.food_set[e]
             for sidx in range(S):
@@ -664,6 +754,8 @@ class GridBatchSim(BatchSim):
                 any_ate[e] = True
                 if not self.train_mode:
                     self._maintain_food_env(e)
+            if any_ate[e]:
+                self._sync_food_array(e)
         if self.train_mode:
             for e in np.flatnonzero(any_ate):
                 e = int(e)
@@ -876,6 +968,10 @@ class GridBatchSim(BatchSim):
             self._ensure_grids()
             return self._kernels.action_masks(self)
         return self._compute_action_masks_numpy()
+
+    def action_mask_views(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Internal read-only-by-convention views of legal, advisory and resolved masks."""
+        return self._last_legal_mask, self._last_mask, self._last_resolved_mask
 
     def _compute_action_masks_numpy(self) -> np.ndarray:
         """Exact ``BatchSim._compute_action_masks`` via 6 grid gathers per snake.

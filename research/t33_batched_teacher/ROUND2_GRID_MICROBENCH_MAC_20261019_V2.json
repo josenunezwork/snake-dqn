@@ -1,0 +1,12 @@
+{
+  "schema": "t33-round2-grid-microbench/v2",
+  "baseline_commit": "f76820776e39a6a53c13197f6f0948aa7c6a95f4",
+  "baseline_grid_sha256": "6f186bb66933ad5609ee43206054f127afd4c6071a609dd9e51d02d9cd567cd7",
+  "baseline_grid_sim_nb_sha256": "aa35951cb61ec08156991f248655bc478be0bff8fdd18422153b3ac147b62666",
+  "candidate_grid_sha256": "bf9e50aa1a03f4e7324f5091e4b0631c97edbbd4f0267e662b642f26abb2c38f",
+  "candidate_grid_sim_nb_sha256": "c0101017f6ab42e43cccccf9a414ed11ae37c802b6bfe56c7464baa09d2d2490",
+  "shape": {"envs": 48, "snakes": 3, "steps_per_round": 80},
+  "baseline_jit_rows_per_s": [6877.450260659462, 6678.309255343903, 6673.646374154974],
+  "candidate_jit_rows_per_s": [6830.82284271498, 7101.609420992827, 6969.768402901441],
+  "notes": "Both arms use jit=True with all OpenMP, MKL, Numba and VECLIB thread caps set to one at nice 10. The frozen grid and frozen grid_sim_nb were loaded from git show into private in-memory modules; cache was disabled only for the frozen dynamically-loaded Numba functions. This replaces the V1 jitFalse-vs-jitTrue comparison."
+}

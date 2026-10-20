@@ -1,0 +1,63 @@
+{
+  "after": {
+    "assembly_rows_per_second": [
+      6103.92542767811,
+      5872.188162793643,
+      5745.492635673161
+    ],
+    "assembly_seconds": [
+      0.007863792008720338,
+      0.008174124988727272,
+      0.00835437499335967
+    ],
+    "search_seconds": [
+      0.29291229200316593,
+      0.2894271670083981,
+      0.2935281669779215
+    ],
+    "search_source_decisions_per_second": [
+      6.827982486915855,
+      6.910201349350068,
+      6.813656149566168
+    ]
+  },
+  "argv": [
+    "/Users/josenunez/Projects/ml/snake-dqn-batched-teacher/research/t33_batched_teacher/teacher_microbench.py",
+    "--out",
+    "research/t33_batched_teacher/T33_ROUND2_TEACHER_MICROBENCH_20261019_V2.json",
+    "--rounds",
+    "3"
+  ],
+  "baseline_git_object": "f76820776e39a6a53c13197f6f0948aa7c6a95f4",
+  "baseline_teacher_sha256": "53a807cf0deea634ab5dc4bc756b1bfe596643a2ae220b3d2c53098e41c9795e",
+  "before": {
+    "assembly_rows_per_second": [
+      1444.8728184566478,
+      1730.4390532800437,
+      1609.5522626866912
+    ],
+    "assembly_seconds": [
+      0.033220917015569285,
+      0.027738625009078532,
+      0.02982195801450871
+    ],
+    "search_seconds": [
+      0.3939800839871168,
+      0.35065425001084805,
+      0.3515401250042487
+    ],
+    "search_source_decisions_per_second": [
+      5.076398735082762,
+      5.703624011225093,
+      5.6892509780379354
+    ]
+  },
+  "candidate_teacher_sha256": "dd1d75d3f4cd9ddf35ca262375bf85c4375a663d7c31350ee6f4eedaef355230",
+  "fixture": {
+    "mix": "scripted",
+    "rollouts": 4,
+    "source_worlds": 2
+  },
+  "kind": "T33 round-2 teacher source-bound microbenchmark",
+  "rounds": 3
+}

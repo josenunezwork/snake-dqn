@@ -586,7 +586,7 @@ class Vector61Runtime:
         self.sel_ready = np.zeros((E, S), dtype=bool)
         self.sel_fresh = np.zeros((E, S), dtype=bool)
 
-    def prepare(self, sim: BatchSim) -> None:
+    def prepare(self, sim: BatchSim, rows_mask: Optional[np.ndarray] = None) -> None:
         """Build this frame's selection states (Watch phase, after respawns).
 
         Carried rows reuse last frame's post-step capture. A row is rebuilt
@@ -595,13 +595,19 @@ class Vector61Runtime:
         """
         if self.featurizer is None:
             raise RuntimeError("Vector61Runtime.prepare called before bind")
+        env_mask = self._rows_mask(sim, rows_mask)
+        affected = self.controlled & env_mask[:, None]
         alive = sim.get_alive()
         respawned_env = np.any(alive & ~self._alive_post, axis=1)
-        ready = self.controlled & alive
+        ready = affected & alive
         carried = ready & self._carry_valid & ~respawned_env[:, None]
         fresh = ready & ~carried
-        self.sel_state[:] = 0.0
-        self.sel_mask[:] = False
+        # A teacher may keep inactive rollout rows resident while a leader is
+        # stepped.  Leave every bit of their carry/selection state untouched:
+        # a follower can later fork from it without having to reconstruct its
+        # vector61 trend history.
+        self.sel_state[affected] = 0.0
+        self.sel_mask[affected] = False
         self.sel_state[carried] = self._carry_state[carried]
         self.sel_mask[carried] = self._carry_mask[carried]
         rows = np.argwhere(fresh)
@@ -609,9 +615,9 @@ class Vector61Runtime:
             states = self.featurizer.featurize(sim, rows, self.memory, update_memory=True)
             self.sel_state[rows[:, 0], rows[:, 1]] = states
             self.sel_mask[fresh] = sim.get_advisory_action_mask()[fresh]
-        self._carry_valid[:] = False
-        self.sel_ready = ready
-        self.sel_fresh = fresh
+        self._carry_valid[affected] = False
+        self.sel_ready[affected] = ready[affected]
+        self.sel_fresh[affected] = fresh[affected]
         self.fresh_rows += int(fresh.sum())
         self.carried_rows += int(carried.sum())
         if self.trace is not None:
@@ -625,22 +631,33 @@ class Vector61Runtime:
                 }
             )
 
-    def observe_step(self, sim: BatchSim) -> None:
+    def observe_step(self, sim: BatchSim, rows_mask: Optional[np.ndarray] = None) -> None:
         """Capture the post-step carry (live ``compute_reward_and_train``)."""
         if self.featurizer is None:
             raise RuntimeError("Vector61Runtime.observe_step called before bind")
         # A dead snake is never featurized before it respawns, and the live
         # snake resets its trend baseline on respawn: reset at death instead.
-        self.memory.reset_where(sim.get_done())
+        env_mask = self._rows_mask(sim, rows_mask)
+        affected = self.controlled & env_mask[:, None]
+        self.memory.reset_where(sim.get_done() & affected)
         alive = sim.get_alive()
-        capture = self.controlled & alive
+        capture = affected & alive
         rows = np.argwhere(capture)
         if len(rows):
             states = self.featurizer.featurize(sim, rows, self.memory, update_memory=True)
             self._carry_state[rows[:, 0], rows[:, 1]] = states
             self._carry_mask[capture] = sim.get_advisory_action_mask()[capture]
-        self._carry_valid = capture
-        self._alive_post = alive
+        self._carry_valid[affected] = capture[affected]
+        self._alive_post[env_mask] = alive[env_mask]
+
+    def _rows_mask(self, sim: BatchSim, rows_mask: Optional[np.ndarray]) -> np.ndarray:
+        """Validate the optional active-environment mask used by batched teachers."""
+        if rows_mask is None:
+            return np.ones(int(sim.E), dtype=bool)
+        mask = np.asarray(rows_mask, dtype=bool)
+        if mask.shape != (int(sim.E),):
+            raise ValueError(f"rows_mask must have shape {(int(sim.E),)}, got {mask.shape}")
+        return mask
 
     def selection(self, slots: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Return ``(states, exact_masks)`` prepared for ``(N, 2)`` rows."""

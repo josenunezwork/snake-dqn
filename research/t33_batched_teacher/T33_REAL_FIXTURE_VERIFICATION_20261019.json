@@ -1,0 +1,68 @@
+{
+  "artifact": "T33_REAL_FIXTURE_VERIFICATION_20261019",
+  "status": "PASS",
+  "scope": "real prepared-Watch fixture integration only",
+  "branch": "t33-batched-teacher-20261019",
+  "source_worktree": "/Users/josenunez/Projects/ml/snake-dqn-batched-teacher",
+  "inputs": {
+    "world_bank": {
+      "path": "research/phase0_search_20261019/WORLD_BANK.json",
+      "sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291"
+    },
+    "b8_checkpoint": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/B8_s3_final.pth",
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+    },
+    "phase0_oracle": {
+      "path": "tests/fixtures/phase0_teacher_speed/teacher_pre_45069720.py",
+      "sha256": "d15960f0dab45b3e08d49549990620e341a0e6b2c665654ebf669b43d9d14f17"
+    },
+    "verifier": {
+      "path": "tests/test_t33_teacher_integration.py",
+      "sha256": "e9674cb14bce4509159026ac9fc86e2902be10f2a9f48373a8c9e0ddf6e3c6df"
+    }
+  },
+  "protocol": {
+    "mixes": ["scripted", "frozen", "mixed"],
+    "length": 800,
+    "watch_seam": "step_with_policy preparation callback, then source frozen with _policy_phase_prepared",
+    "common_random": false,
+    "epsilon": 0.02,
+    "searches": [
+      {"rollouts": 1, "horizon": 4, "purpose": "two distinct sources and source digest"},
+      {"rollouts": 2, "horizon": 16, "purpose": "group concatenation and repeat determinism"},
+      {"rollouts": 8, "horizon": 128, "purpose": "full registered search on one real fixture"}
+    ],
+    "score_tolerance": {"rtol": 0.0, "atol": 0.001}
+  },
+  "checks": {
+    "two_source_vs_individual_frozen_oracle": "PASS",
+    "source_sim_runtime_rng_digest_unchanged": "PASS",
+    "full_n8_h128_frozen_oracle": "PASS",
+    "real_death_rows_zero_mass": "PASS",
+    "prepared_watch_seam_required": "PASS",
+    "illegal_rows_marked_inactive": "PASS",
+    "source_group_concat_isolation": "PASS",
+    "repeat_determinism": "PASS",
+    "observed_group_float_reassociation": "approximately 2e-6, below 1e-3 tolerance; choices unchanged"
+  },
+  "commands": [
+    {
+      "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q tests/test_t33_teacher_integration.py",
+      "result": "4 passed in 11.94s"
+    },
+    {
+      "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q tests/test_t33_teacher_integration.py tests/test_t33_teacher.py tests/test_t33_runtime.py tests/test_t33_observations.py",
+      "result": "19 passed, 1 skipped in 13.71s; skip requires explicit two-thread authorization"
+    },
+    {
+      "command": "./venv/bin/python -m black --check tests/test_t33_teacher_integration.py && ./venv/bin/python -m isort --check-only tests/test_t33_teacher_integration.py && ./venv/bin/python -m flake8 tests/test_t33_teacher_integration.py && git diff --check -- tests/test_t33_teacher_integration.py",
+      "result": "PASS"
+    }
+  ],
+  "coverage_gaps": [
+    "CUDA/fp16 inference was not exercised",
+    "No remote runtime, Colab, RunPod, tmux, serving, or publishing operation was performed",
+    "This is fixture qualification, not a full-bank scientific result"
+  ]
+}

@@ -1,0 +1,209 @@
+{
+  "branch": "t33-batched-teacher-20261019",
+  "brief": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t33-reviews/fable-hotpath-review-1.md",
+  "code_commit": "7a5d208dea257d983e015c3081b6f659e2651436",
+  "focused_gate": {
+    "command": [
+      "nice",
+      "-n",
+      "10",
+      "./venv/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "-m",
+      "not slow",
+      "tests/test_canonical_watch_scripted_anchor.py",
+      "tests/test_ego_raster.py",
+      "tests/test_ego_raster_bv8.py",
+      "tests/test_eval_anchors.py",
+      "tests/test_grid_sim_nb.py",
+      "tests/test_grid_sim_parity.py",
+      "tests/test_simd_vector61.py",
+      "tests/test_simd_vector61_policy.py",
+      "tests/test_simd_vector61_v5_veto.py",
+      "tests/test_simd_vector61_v7v8_veto.py",
+      "tests/test_t24_v8_bodymap.py",
+      "tests/test_t33_ablation.py",
+      "tests/test_t33_ablation_execution.py",
+      "tests/test_t33_benchmark.py",
+      "tests/test_t33_inference.py",
+      "tests/test_t33_manifest.py",
+      "tests/test_t33_observations.py",
+      "tests/test_t33_round2_anchors.py",
+      "tests/test_t33_round2_features.py",
+      "tests/test_t33_round2_parallel.py",
+      "tests/test_t33_round2_pipeline.py",
+      "tests/test_t33_round2_prefix.py",
+      "tests/test_t33_round2_sim_obs.py",
+      "tests/test_t33_round2_teacher.py",
+      "tests/test_t33_runtime.py",
+      "tests/test_t33_teacher.py",
+      "tests/test_t33_teacher_integration.py",
+      "tests/test_vector61_nb.py"
+    ],
+    "deselected": 3,
+    "env": {
+      "MKL_NUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "SNAKE_DQN_DEVICE": "cpu",
+      "VECLIB_MAXIMUM_THREADS": "1"
+    },
+    "log": "ROUND2_TEST_LOGS/focused.txt",
+    "passed": 527,
+    "seconds": 166.12,
+    "skip_boundary": "three optional SIMD gameplay parity cases and two parallel tests; the two parallel tests pass separately below",
+    "skipped": 5,
+    "status": "PASS"
+  },
+  "independent_review": {
+    "coverage": [
+      "ordered numeric corpse/food mirrors",
+      "uint64 deterministic anchor hashing",
+      "thread-private scratch partitioning",
+      "conditional L4 projection arithmetic"
+    ],
+    "earlier_findings_fixed": [
+      "static opponent shape",
+      "unequal ordered-food capacities",
+      "source overlap rejection",
+      "epsilon horizon-prefix identity",
+      "direct v8 owner membership"
+    ],
+    "status": "no concrete defect found in final read-only audit"
+  },
+  "limitations": [
+    "scalar NumPy observation helpers still allocate temporary arrays",
+    "pre-drawn epsilon schedule intentionally differs from Phase 0; exact Phase 0 fixtures use epsilon zero",
+    "timing fixtures repeat three prepared worlds and are not independent quality labels",
+    "microbenchmark runs overlap in coverage; their pass counts are not additive"
+  ],
+  "log_sha256": {
+    "ROUND2_TEST_LOGS/broad-diagnostic-interrupted.txt": "eeba95d96c25d9cc15507288db96fa0f9f0ac82111bd0dddcdf69fcf225839c8",
+    "ROUND2_TEST_LOGS/broad-interrupted.txt": "4bb5cad82c045c131de41a366ccec2a369ef24978d393cdf4f5c9f92d62f0884",
+    "ROUND2_TEST_LOGS/focused.txt": "4d085463547cb4ff2cf57226c3b0402ff860e7cff54c33d9f24d6e7f0aeab25d",
+    "ROUND2_TEST_LOGS/local-broad-compiler-blocker.txt": "6b8c57738fc4c81cb4e4f64467cf45da6f20f6677bb957464eb674f1aa5c379b",
+    "ROUND2_TEST_LOGS/parallel.txt": "ce20ecfe4945df352aa81e46f7751fd5d0f8a8cf82342eb58ae97f5486eab432",
+    "ROUND2_TEST_LOGS/v7-isolated.txt": "d596f2ee3a8d868a16b20e150a289aea5e280b87471a0bb97d2eedc4d953355d"
+  },
+  "manifest": {
+    "code_commit": "7a5d208dea257d983e015c3081b6f659e2651436",
+    "dispatch_ready": false,
+    "file": "L4_MANIFEST_PUBLICATION_BLOCKED_ROUND2.json",
+    "public_urls_null": 6,
+    "validation": "local JSON/hash checks only; no dispatch validator or cloud CLI invoked"
+  },
+  "parallel_gate": {
+    "command": [
+      "nice",
+      "-n",
+      "10",
+      "./venv/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/test_t33_observations.py::test_local_and_global_prange_are_byte_equal_at_one_and_two_threads",
+      "tests/test_t33_round2_parallel.py::test_v8_serial_parallel_painted_owner_bytes_after_reuse"
+    ],
+    "env": {
+      "MKL_NUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "4",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "SNAKE_DQN_DEVICE": "cpu",
+      "T33_OBS_THREAD_PARITY": "1",
+      "VECLIB_MAXIMUM_THREADS": "1"
+    },
+    "log": "ROUND2_TEST_LOGS/parallel.txt",
+    "passed": 2,
+    "seconds": 1.15,
+    "status": "PASS"
+  },
+  "receipts": {
+    "ROUND2_ENTRYPOINT_CPU/benchmark.json": {
+      "payload_sha256": "9dfa78e0683455544839a639047b8210e1046d60b3e0bee46d86d3c83547f5f6",
+      "python_files": 191,
+      "sidecars_verified": true,
+      "verified_source_commit": "7a5d208dea257d983e015c3081b6f659e2651436"
+    },
+    "ROUND2_MAC_LOCKSTEP.json": {
+      "payload_sha256": "57a70c49fe5f493836f3387e8208fa151d9e0237ebb59d84631054756303cb93",
+      "python_files": 190,
+      "sidecars_verified": true,
+      "verified_source_commit": "5e8bb7a1"
+    },
+    "ROUND2_MAC_MPS_LOCKSTEP.json": {
+      "payload_sha256": "25c91bb6ec2212a804ba786b5b8b03df7cbaa88e1f278073794b53f1ca038b98",
+      "python_files": 191,
+      "sidecars_verified": true,
+      "verified_source_commit": "7a5d208dea257d983e015c3081b6f659e2651436"
+    }
+  },
+  "repository_non_slow_gate": {
+    "attempts": [
+      {
+        "cause": "not established; no traceback before interruption",
+        "failure_module": "tests/test_apex_veto_v7_strict_run.py",
+        "failure_node_inferred_from_progress": "TestSupervision::test_available_memory_floor_watchdog_is_explicit",
+        "log": "ROUND2_TEST_LOGS/broad-interrupted.txt",
+        "progress_percent": 23,
+        "selected": 8178,
+        "status": "INTERRUPTED",
+        "termination": "owned process tree only; SIGKILL after SIGINT/SIGTERM did not stop execution",
+        "visible_failures": 1
+      },
+      {
+        "excluded": "tests/test_colab_cli_fault_properties.py",
+        "log": "ROUND2_TEST_LOGS/broad-diagnostic-interrupted.txt",
+        "reason": "offline CLI supervisor integration tests outside changed path were expensive",
+        "selected": 8115,
+        "status": "INTERRUPTED",
+        "termination": "owned process tree only",
+        "v7_module_result": "passed all 110 nodes in broad prefix"
+      },
+      {
+        "deselected": 35,
+        "error": "BackendCompilerFailed / ImportError: cached Inductor .so cannot load @rpath/libc++.1.dylib from torch/lib",
+        "failure_node": "tests/test_perf_compile.py::test_compiled_loss_terms_close_on_fixed_batch[bv8-1.0]",
+        "log": "ROUND2_TEST_LOGS/local-broad-compiler-blocker.txt",
+        "numerical_comparison_reached": false,
+        "passed": 1879,
+        "seconds": 282.65,
+        "selection": "391 local test files alphabetically after test_colab_cli_supervisor.py; names containing colab/runpod/pod_ excluded; -m not slow -x",
+        "shared_environment_repaired": false,
+        "skipped": 5,
+        "status": "FAILED_ENVIRONMENT_LOADING_COMPILED_CODE"
+      }
+    ],
+    "status": "NOT_CERTIFIED_GREEN"
+  },
+  "schema": "t33-round2-verification/v1",
+  "scope": "development implementation and local evidence only",
+  "style": {
+    "checks": [
+      "make PY=./venv/bin/python lint",
+      "Black/isort/flake8 on T33 research and test Python files",
+      "bash -n research/t33_batched_teacher/bench.sh",
+      "git diff --check"
+    ],
+    "status": "PASS"
+  },
+  "unverified": [
+    "100-200 decisions/s per-L4 target",
+    "CUDA fp16 masked agreement and margin report on actual resident shape",
+    "CUDA compile and memory shape admission",
+    "actual GPU A/B overlap",
+    "full 300-decision budget calibration",
+    "label quality and any serving/promotion claim",
+    "complete repository non-slow gate"
+  ],
+  "v7_isolated_diagnosis": {
+    "earlier_failure_root_cause": "unresolved, did not reproduce",
+    "log": "ROUND2_TEST_LOGS/v7-isolated.txt",
+    "passed": 110,
+    "seconds": 15.15,
+    "status": "PASS"
+  }
+}

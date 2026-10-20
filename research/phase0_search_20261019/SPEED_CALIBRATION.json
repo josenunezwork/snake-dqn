@@ -1,0 +1,64 @@
+{
+  "bank_sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291",
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "command": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "/Users/josenunez/Projects/ml/snake-dqn-search-teacher/research/phase0_search_20261019/preflight.py",
+    "--bank",
+    "research/phase0_search_20261019/WORLD_BANK.json",
+    "--config",
+    "research/phase0_search_20261019/config.json",
+    "--mode",
+    "calibrate",
+    "--out",
+    "research/phase0_search_20261019/SPEED_CALIBRATION.json"
+  ],
+  "config": {
+    "epsilon": 0.02,
+    "horizon": 128,
+    "leaf_scale": 1.0,
+    "length_gate": 600,
+    "margin_threshold": 0.0,
+    "rollouts": 8
+  },
+  "decisions": 11446,
+  "device": "cpu",
+  "horizon": 5000,
+  "implementation": "batched",
+  "mandatory_length_fraction": 0.43395072514415517,
+  "margin_threshold": 0.0,
+  "method": "all alive bare-B8 decisions pooled; mandatory L>=600 first; strict margin threshold fills remaining target, ties admitted together",
+  "mode": "calibrate",
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "proposal_length800_fraction": 0.2201642495194828,
+  "searched_fraction": 0.43395072514415517,
+  "source_sha256": {
+    "preflight.py": "887d597228092c0bd35a8ba2d9db32da0e331242211060060ca68ead142b9eac",
+    "teacher.py": "10270e520ce096d967832fe2b8acc19eca1e6f66a746daae566d7a46bb7130e5"
+  },
+  "target_fraction": 0.1,
+  "total_seconds": 19.832500166987302,
+  "worlds": [
+    {
+      "decisions": 3837,
+      "mandatory_length_decisions": 1833,
+      "proposal_length800_decisions": 1083,
+      "seconds": 5.62562445900403,
+      "world_id": "calibration-scripted-0000-1043291414"
+    },
+    {
+      "decisions": 3052,
+      "mandatory_length_decisions": 1113,
+      "proposal_length800_decisions": 411,
+      "seconds": 5.7119845830020495,
+      "world_id": "calibration-frozen-0000-3956431332"
+    },
+    {
+      "decisions": 4557,
+      "mandatory_length_decisions": 2021,
+      "proposal_length800_decisions": 1026,
+      "seconds": 7.974925749993417,
+      "world_id": "calibration-mixed-0000-3794991016"
+    }
+  ]
+}

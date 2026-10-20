@@ -538,6 +538,21 @@ class Vector61FeaturizerNB(Vector61Featurizer):
 
     def _food_arrays(self, sim: BatchSim, envs: np.ndarray):
         """Per-env food cells in live list order, refreshed only for changed lists."""
+        # GridBatchSim maintains this ordered mirror and version at every food
+        # mutation.  It has the same tie-sensitive order as ``food_cells`` and
+        # lets the hot carry path avoid an E-by-F Python list comparison and
+        # rebuild.  Plain BatchSim intentionally keeps the legacy fallback.
+        direct = getattr(sim, "_food_array", None)
+        direct_n = getattr(sim, "_food_n", None)
+        if (
+            isinstance(direct, np.ndarray)
+            and isinstance(direct_n, np.ndarray)
+            and direct.ndim == 3
+            and direct.shape[0] == int(sim.E)
+            and direct.shape[2] == 2
+            and direct_n.shape == (int(sim.E),)
+        ):
+            return direct, direct_n
         E = int(sim.E)
         if self._food_sim_id != id(sim) or self._food_buf.shape[0] != E:
             self._food_sim_id = id(sim)
