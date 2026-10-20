@@ -56,6 +56,13 @@ class ReplaySource(Protocol):
     Row arrays stay immutable for their lifetime, including after the iterator advances;
     the bounded loader may retain a final partial batch while requesting the
     following world.  Engines that reuse backing buffers must yield owned rows.
+
+    An optional ``training_row_counts(epoch) -> tuple[int, int]`` supplies the
+    searched/unsearched counts of the verified retained stream, enabling exact
+    bank-wide 1:1 sampling without another observation bank in memory.  Counts
+    must exclude hash-rejected worlds.  Count drift invalidates the entire fit
+    even when the ordinary world-drop rate is <=2%.  Without this metadata the
+    loader requires each retained world to independently support a 1:1 sample.
     """
 
     is_fake: bool

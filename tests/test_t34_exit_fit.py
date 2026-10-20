@@ -122,6 +122,59 @@ def test_loader_refuses_bad_complete_chunk_only_after_full_count() -> None:
         list(loader.epoch(1))
 
 
+def test_bank_sampler_preserves_searched_and_balances_across_worlds() -> None:
+    class Source:
+        is_fake = True
+
+        def training_row_counts(self, epoch):
+            return (5, 11)
+
+        def replay_epoch(self, epoch):
+            template = next(iter(FakeReplaySource(rows_per_world=4).replay_epoch(epoch))).rows[0]
+            for world_index, (searched, unsearched) in enumerate(((4, 1), (1, 4), (0, 6))):
+                rows = []
+                for index in range(searched + unsearched):
+                    rows.append(
+                        dict(
+                            template,
+                            world_id=str(world_index),
+                            searched=index < searched,
+                            decisive=False,
+                            death_window=False,
+                            # Unique IDs survive batching, allowing exact membership checks.
+                            length=100 * world_index + index,
+                        )
+                    )
+                yield ReplayWorld(str(world_index), rows, True)
+
+    loader = StreamingReplayLoader(Source(), batch_size=3, seed=7)
+    batches = list(loader.epoch(1))
+    ids = np.concatenate([batch["length"] for batch in batches])
+    expected_searched = {0, 1, 2, 3, 100}
+    assert len(ids) == 10
+    assert len(set(ids)) == 10
+    assert expected_searched.issubset(ids)
+    assert len(set(ids) - expected_searched) == 5
+    repeated = list(loader.epoch(1))
+    assert np.array_equal(ids, np.concatenate([batch["length"] for batch in repeated]))
+
+
+def test_bank_sampler_count_drift_invalidates_fit_despite_tolerated_hash_drop() -> None:
+    class Source(FakeReplaySource):
+        def training_row_counts(self, epoch):
+            # One rejected world is erroneously included in this inventory.
+            return (102, 102)
+
+        def replay_epoch(self, epoch):
+            yield from super().replay_epoch(epoch)
+            yield ReplayWorld("bad", (), False)
+
+    loader = StreamingReplayLoader(Source(worlds=50, rows_per_world=4), batch_size=32)
+    with pytest.raises(ValueError, match="verified retained stream.*entire fit invalid"):
+        list(loader.epoch(1))
+    assert loader.last_stats.drop_rate < 0.02
+
+
 @pytest.mark.parametrize(
     "field,value,reason",
     [

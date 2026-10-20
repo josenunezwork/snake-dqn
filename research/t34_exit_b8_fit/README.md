@@ -36,8 +36,13 @@ world's replay before yielding any observation if a recorded hash diverges.
 The fit loader drops/reports failed worlds and kills a chunk above 2% drops.
 It retains only a world and bounded minibatches, never the full observation bank.
 
-Keep all searched rows plus an equal number of unsearched on-policy rows. A
-world with insufficient unsearched rows is refused. Current-round weights are
+Keep all searched rows plus an equal number of unsearched on-policy rows. Sources
+with `training_row_counts(epoch) -> (searched, unsearched)` use exact, uniform
+bank-wide sampling without storing the observation bank. The counts must describe
+the verified retained stream, excluding hash-rejected worlds. Count drift
+invalidates the entire fit (including when world drops are at most 2%); no candidate
+is exported. Without this optional metadata each world must independently have
+enough unsearched rows for its searched rows. Current-round weights are
 1.0 and older weights 0.5. Every death window has total weight 10 (5 for older
 rounds), including its internal decisive/nondecisive ratio of 20:1. Compute
 weights before minibatching. The weighted loss divides by row count so batches
@@ -265,7 +270,7 @@ spent fitting while the data generator is suspended.
 | A4 actual no-tower self-distillation | PASS: 1,024 actual states, 20 Adam updates, max Q drift 0, no argmax changes |
 | T3 grid smoke | PASS: nine actual fits on 32 saved rows, one update each; full sweep reserved for owner |
 | P5 independent live/sim byte tests | PASS in focused suite; paired simulator/live producers, plus trained reload and live dispatch checks |
-| P4 core and fit artifact integration | PASS: 42 focused tests; full non-slow run in progress |
+| P4 core and fit artifact integration | PASS: 44 focused tests; full non-slow run in progress |
 | A6 two-world / 200-update shared entrypoint | PASS: actual Bash entrypoint, B8 loaded, 200 updates, 2.723 seconds; fake engine is wiring evidence only |
 | Export delivery | PASS: supervisor local export reader verifies all three artifacts; candidate reload and selected training-state tensors agree |
 | Checkpoint input delivery | Existing public B8/league release; no new publication |

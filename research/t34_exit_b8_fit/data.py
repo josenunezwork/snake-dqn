@@ -84,6 +84,46 @@ def select_training_rows(
     return [dict(row, _sample_weight=float(weight)) for row, weight in zip(selected, weights)]
 
 
+class _BankSampler:
+    """Exact uniform unsearched subset using only retained-stream row counts."""
+
+    def __init__(self, counts: tuple[int, int], rng: np.random.Generator) -> None:
+        if len(counts) != 2 or any(type(count) is not int or count < 0 for count in counts):
+            raise ValueError("training_row_counts must contain two nonnegative Python integers")
+        searched, unsearched = counts
+        if searched == 0 or unsearched < searched:
+            raise ValueError("bank cannot satisfy the required 1:1 searched/unsearched row ratio")
+        self.searched, self.unsearched, self.needed = searched, unsearched, searched
+        self.rng = rng
+
+    def select(self, rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+        selected = []
+        for row in rows:
+            if bool(row["searched"]):
+                self.searched -= 1
+                keep = True
+            else:
+                if self.unsearched <= 0:
+                    raise ValueError("training_row_counts drift: excess unsearched rows")
+                keep = bool(self.rng.integers(self.unsearched) < self.needed)
+                self.unsearched -= 1
+                self.needed -= int(keep)
+            if self.searched < 0:
+                raise ValueError("training_row_counts drift: excess searched rows")
+            if keep:
+                selected.append(row)
+        weights = sample_weights(selected)
+        return [dict(row, _sample_weight=float(w)) for row, w in zip(selected, weights)]
+
+    def finish(self) -> None:
+        if self.searched or self.unsearched or self.needed:
+            raise ValueError(
+                "training_row_counts drift: counts must describe the verified retained stream; "
+                f"remaining searched={self.searched}, unsearched={self.unsearched}, "
+                f"quota={self.needed}; entire fit invalid"
+            )
+
+
 def _stack(rows: Sequence[Mapping[str, Any]]) -> dict[str, np.ndarray]:
     fields = ("local", "global", "scalars", "q_prev", "forbidden_mask")
     result = {key: np.stack([np.asarray(row[key]) for row in rows]) for key in fields}
@@ -119,6 +159,8 @@ class StreamingReplayLoader:
         regen_seconds = 0.0
         segment_started = started
         rng = np.random.default_rng(self.seed + epoch)
+        inventory = getattr(self.source, "training_row_counts", None)
+        sampler = _BankSampler(inventory(epoch), rng) if callable(inventory) else None
         worlds_seen = worlds_dropped = rows_seen = rows_yielded = 0
         chunks: dict[str, list[int]] = {}
         buffered: list[Mapping[str, Any]] = []
@@ -135,7 +177,10 @@ class StreamingReplayLoader:
             for row in world.rows:
                 validate_row(row)
             rows_seen += len(world.rows)
-            buffered.extend(select_training_rows(world.rows, rng))
+            selected = (
+                sampler.select(world.rows) if sampler else select_training_rows(world.rows, rng)
+            )
+            buffered.extend(selected)
             while len(buffered) >= self.batch_size:
                 selection = buffered[: self.batch_size]
                 del buffered[: self.batch_size]
@@ -172,6 +217,8 @@ class StreamingReplayLoader:
                 f"replay hash mismatch rate exceeds 2% in complete chunk(s): {bad_chunks}; "
                 f"epoch total {stats.worlds_dropped}/{stats.worlds_seen}"
             )
+        if sampler:
+            sampler.finish()
 
 
 def to_device(batch: Mapping[str, np.ndarray], device: torch.device) -> dict[str, torch.Tensor]:
