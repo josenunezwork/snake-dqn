@@ -485,6 +485,7 @@ class GameSession:
         safety_veto_flags: Optional[ServingVetoFlags] = None,
     ) -> None:
         self._lock = threading.RLock()
+        self.pathb = None
         # Opt-in serving safety veto (web/backend/safety_veto_serving.py). None
         # reads SNAKE_SERVE_VETO_* from the environment on every build; both
         # default to off, in which case no snake is wrapped.
@@ -704,6 +705,9 @@ class GameSession:
         previous_config = get_config()
         try:
             self._build_impl(checkpoint, mode, override_reward_contract)
+            from web.backend.pathb import configure
+
+            configure(self)
         except Exception as exc:
             # An ego2s checkpoint can fail before _build_impl installs its
             # obs-spec/policy fields. The B8 resolution is already known, so
@@ -981,6 +985,8 @@ class GameSession:
                         latency_eligible=latency_eligible,
                     )
             self._enforce_food_target()
+            if self.pathb is not None:
+                self.pathb.after_step()
 
     def _is_b8_release_monitoring(self) -> bool:
         """Whether this is the released B8 path, not an unrelated checkpoint."""
@@ -1065,10 +1071,14 @@ class GameSession:
 
     # -- controls -----------------------------------------------------------
     def set_playing(self, value: bool) -> None:
+        if self.pathb is not None:
+            self.pathb.invalidate()
         self.playing = bool(value)
 
     def set_speed(self, fps: float) -> None:
         with self._lock:
+            if self.pathb is not None:
+                self.pathb.invalidate()
             self.speed = max(1.0, min(self.speed_ceiling, float(fps)))
 
     def _refresh_speed_ceiling(self) -> None:
@@ -1081,6 +1091,8 @@ class GameSession:
 
     def set_epsilon(self, eps: float) -> None:
         with self._lock:
+            if self.pathb is not None:
+                self.pathb.invalidate()
             self.policy.epsilon = max(0.0, min(1.0, float(eps)))
 
     def set_hero(self, snake_id: int) -> None:
@@ -1098,6 +1110,8 @@ class GameSession:
         trims the excess here. Persisted on the GameState so resets keep it.
         """
         with self._lock:
+            if self.pathb is not None:
+                self.pathb.invalidate()
             target = max(0, min(1000, int(target)))
             if self.obs_spec == RASTER31V3:
                 expected = int(getattr(self.game.food_manager, "max_food", target))
@@ -1118,6 +1132,8 @@ class GameSession:
 
     def reset_game(self) -> None:
         with self._lock:
+            if self.pathb is not None:
+                self.pathb.invalidate()
             self.game.reset()
             if self._is_b8_release_monitoring():
                 self._release_latency_warmup_remaining = 200
@@ -1459,6 +1475,11 @@ class GameSession:
                 # not silently reset a user's Watch/Play session.
 
     # -- state report -------------------------------------------------------
+    def close(self, wait: bool = False) -> None:
+        """Release only this session's optional worker, outside the serving tick."""
+        if self.pathb is not None:
+            self.pathb.close(wait=wait)
+
     def safety_veto_state(self) -> Optional[Dict[str, object]]:
         """The opt-in serving veto report for the current build (None before any)."""
         with self._lock:
@@ -1506,6 +1527,8 @@ class GameSession:
                         ),
                     }
                 )
+            if self.pathb is not None and self.pathb.active:
+                state["pathb"] = self.pathb.state()
             return state
 
     def play_state(self) -> Optional[Dict[str, object]]:
