@@ -170,3 +170,19 @@ def test_opt_in_serving_policy_builds_and_dispatches_a_live_style_frame(
     assert first is not None and second is not None
     assert policy.dqn(torch.zeros(61)).cpu().numpy()[0].tobytes() == first.tobytes()
     assert policy.dqn(torch.zeros(61)).cpu().numpy()[0].tobytes() == second.tobytes()
+
+
+def test_zero_fuse_eval_executes_tower_and_validates_full_sight():
+    import pytest
+
+    torch.set_num_threads(1)
+    net = _tower().eval()
+    local, glob, scalars, sight = _batch()
+    calls = []
+    hook = net.tower.register_forward_hook(lambda *args: calls.append(True))
+    with torch.inference_mode():
+        net(local, glob, scalars, sight)
+        with pytest.raises(ValueError, match="shape"):
+            net(local, glob, scalars, sight[:, :, :, :-1])
+    hook.remove()
+    assert calls == [True]

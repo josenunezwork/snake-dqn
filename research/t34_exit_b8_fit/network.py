@@ -56,6 +56,10 @@ class FullArenaTower(nn.Module):
         )
 
     def forward(self, planes: torch.Tensor) -> torch.Tensor:
+        if planes.ndim != 4 or tuple(planes.shape[1:]) != FULL_SIGHT_SHAPE:
+            raise ValueError(f"full-sight planes must have shape (N, {FULL_SIGHT_SHAPE})")
+        if planes.dtype != torch.uint8:
+            raise ValueError("full-sight planes must be uint8")
         return self.conv(planes.float() * (1.0 / 255.0))
 
 
@@ -113,10 +117,8 @@ class ExitFitTowerNet(nn.Module):
         scalars: torch.Tensor,
         full_sight: torch.Tensor,
     ) -> torch.Tensor:
-        # Eval's exact branch is A3's B8 equivalence.  Training retains an actual
-        # +0 residual so the zero initialized fusion columns receive gradients.
-        if not self.training and not torch.count_nonzero(self.tower_fuse.weight):
-            return self.base(local, glob, scalars)
+        # Retain B8's original GEMM. Eval also executes the real tower so A3
+        # tests its inputs and A5 measures the full zero-initialized architecture.
         pre_fuse = self.base.fuse[0](self._base_features(local, glob, scalars))
         residual = self.tower_fuse(self.tower(full_sight))
         return self._q_from_pre_fuse(pre_fuse + residual)

@@ -66,7 +66,9 @@ probe fields carry no scientific or promotion claim.
 `network.py` owns arch `exit-fit-tower/1`. Its 4-plane, 152-wide × 88-high tower
 has stride-2 3×3 convs 16→32→64→64 and a 256-dimensional embedding. Zero fusion
 weights preserve B8's original GEMM and Q bytes while still allowing training
-of the new fusion weights. Candidate exports strip the hindsight head.
+of the new fusion weights. Eval executes the full tower even when fusion is
+zero, so the later A5 benchmark measures its actual compute cost and validates
+its input shape. Candidate exports strip the hindsight head.
 
 `LiveFullSight` feeds the same plane painter through the independent live
 `EgoGridView` producer. `serving.py` provides an explicitly constructed candidate
@@ -198,7 +200,8 @@ def probe_factory(*, binding, previous_model):
 
 The binding contains `approved: true` only after the relevant owner decisions,
 `arm` (`S1b` primary or `S1a`), `source_factory` and `probe_factory` as
-`module:function`, and the full `preregistration_sha256`. `inputs[0]` binds the
+`module:function`, and the full `preregistration_sha256`. Binding `seed` defaults
+to 0 and fixes new-parameter initialization and fit sampling. `inputs[0]` binds the
 engine payload with `name`, `url` (HTTPS), `dest: engine-export/payload.json`,
 exact `size_bytes`, `sha256`, and `complete_marker: true`. The runtime verifies
 payload bytes against both the catalog and local completion sidecar before
@@ -257,11 +260,11 @@ spent fitting while the data generator is suspended.
 
 | Check | Status / evidence |
 | --- | --- |
-| A3 zero-init identity | PASS: 10,000 existing T3 states, max Q delta 0 |
+| A3 zero-init identity | PASS: full tower executed on 10,000 existing T3 states, max Q delta 0 |
 | A4 actual no-tower self-distillation | PASS: 1,024 actual states, 20 Adam updates, max Q drift 0, no argmax changes |
 | T3 grid smoke | PASS: nine actual fits on 32 saved rows, one update each; full sweep reserved for owner |
 | P5 independent live/sim byte tests | PASS in focused suite; paired simulator/live producers, plus trained reload and live dispatch checks |
-| P4 core and fit artifact integration | Focused suite passes; full non-slow run in progress |
+| P4 core and fit artifact integration | PASS: 42 focused tests; full non-slow run in progress |
 | A6 two-world / 200-update shared entrypoint | PASS: actual Bash entrypoint, B8 loaded, 200 updates, 2.361 seconds; fake engine is wiring evidence only |
 | Export delivery | PASS: supervisor local export reader verifies all three artifacts; candidate reload and selected training-state tensors agree |
 | Checkpoint input delivery | Existing public B8/league release; no new publication |

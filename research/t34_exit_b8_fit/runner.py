@@ -104,6 +104,8 @@ def run(
     binding: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Run either the real P6 preflight or a bounded production fit artifact."""
+    seed = int((binding or {}).get("seed", 0))
+    torch.manual_seed(seed)
     if fake_engine:
         from src.model.ego2s_network import Ego2sNet
 
@@ -146,6 +148,7 @@ def run(
                 batch_size=4 if fake_engine else 1024,
                 allow_fake=fake_engine,
                 probe_hook=probe,
+                seed=seed,
             )
         else:
             result = train.fit(
@@ -156,6 +159,7 @@ def run(
                 epochs=epochs,
                 probe_hook=probe,
                 allow_fake=False,
+                seed=seed,
             )
     except (FitTripwire, ReplayDivergenceError, ValueError) as exc:
         return {
@@ -165,6 +169,7 @@ def run(
             "smoke_only_fake_engine": fake_engine,
         }
     result = dict(result)
+    result["seed"] = seed
     result["completed"] = bool(result.get("completed", True))
     result["tripwire"] = result.get("tripwire")
     result["probes_ok"] = bool(result.get("probes_ok", not fake_engine))

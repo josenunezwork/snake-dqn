@@ -264,6 +264,7 @@ def run_fit_preflight(
     allow_fake: bool = False,
     epochs: int | None = None,
     probe_hook: ProbeHook | None = None,
+    seed: int = 0,
 ) -> dict[str, object]:
     """P6's exact reusable 2-world/200-update preflight callable."""
     actual_worlds = getattr(source, "worlds", worlds)
@@ -282,6 +283,7 @@ def run_fit_preflight(
             allow_fake=allow_fake,
             max_updates=updates,
             probe_hook=probe_hook,
+            seed=seed,
         )
     except (FitTripwire, ReplayDivergenceError) as error:
         return {

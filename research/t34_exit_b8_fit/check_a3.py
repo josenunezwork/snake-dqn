@@ -67,8 +67,8 @@ def main() -> int:
             loc = torch.from_numpy(np.array(local[start:stop], copy=True))
             glo = torch.from_numpy(np.array(glob[start:stop], copy=True))
             sca = torch.from_numpy(np.array(scalars[start:stop], copy=True))
-            # Eval's zero-fuse branch cannot consume the tower input. Allocate only
-            # this batch nevertheless so the exact callable contract is exercised.
+            # Initialization identity is independent of finite full-sight values.
+            # Execute the actual tower, with a bounded batch of blank planes.
             sight = torch.zeros((stop - start, *FULL_SIGHT_SHAPE), dtype=torch.uint8)
             delta = _checked_delta(base(loc, glo, sca), tower(loc, glo, sca, sight))
             maximum = max(maximum, delta)

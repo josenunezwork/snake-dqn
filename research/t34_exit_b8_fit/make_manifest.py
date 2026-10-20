@@ -83,6 +83,8 @@ def validate_binding(value: Any) -> dict[str, Any]:
         raise ManifestRefused("preregistration_sha256 must be a complete SHA-256")
     if value.get("arm", "S1b") not in {"S1a", "S1b"}:
         raise ManifestRefused("arm must be S1a or S1b")
+    if type(value.get("seed", 0)) is not int or not 0 <= value.get("seed", 0) < 2**63:
+        raise ManifestRefused("seed must be an integer in 0..2**63-1")
     for key in ("source_factory", "probe_factory"):
         if not re.fullmatch(r"[a-zA-Z_][\w.]*:[a-zA-Z_]\w*", value[key]):
             raise ManifestRefused(f"{key} must name a pinned module:function")
