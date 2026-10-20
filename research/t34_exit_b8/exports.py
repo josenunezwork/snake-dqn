@@ -157,20 +157,41 @@ def _labels(raw: Any, horizon: int) -> list[dict[str, Any]]:
             forbidden = [action in set(int(value) for value in forbidden) for action in range(6)]
         if len(forbidden) != 6:
             raise ValueError("forbidden action set must have six entries")
-        out.append(
-            {
-                "decision": int(item["decision"]),
-                "action": int(item.get("action", item.get("recommended_action", 0))),
-                "student_action": int(item["student_action"]),
-                "executed_action": int(item.get("executed_action", item.get("action", 0))),
-                "forbidden": [bool(value) for value in forbidden],
-                "outcomes": packed,
-                "tested": tested,
-                "length": int(item.get("length", 0)),
-                "reason": str(item.get("reason", "unknown")),
-                "expanded": bool(item.get("expanded", False)),
-            }
-        )
+        label = {
+            "decision": int(item["decision"]),
+            "action": int(item.get("action", item.get("recommended_action", 0))),
+            "student_action": int(item["student_action"]),
+            "executed_action": int(item.get("executed_action", item.get("action", 0))),
+            "forbidden": [bool(value) for value in forbidden],
+            "outcomes": packed,
+            "tested": tested,
+            "length": int(item.get("length", 0)),
+            "reason": str(item.get("reason", "unknown")),
+            "expanded": bool(item.get("expanded", False)),
+        }
+        # V2 adds provenance and label roles without changing the replay schema.
+        # In particular KL anchors must not silently become decisive examples.
+        for key in (
+            "label_role",
+            "shadow",
+            "shadow_id",
+            "shadow_frame",
+            "shadow_confirmed",
+            "lad",
+            "t_star",
+            "a_star",
+            "F",
+            "q",
+            "search",
+            "searched",
+            "decisive",
+            "kl_anchor_only",
+            "legal",
+            "per_action",
+        ):
+            if key in item:
+                label[key] = _plain(item[key])
+        out.append(label)
     return out
 
 
@@ -191,7 +212,7 @@ def normalize_world(result: Mapping[str, Any]) -> dict[str, Any]:
         if str(frame) not in hashes:
             raise ValueError("exports require a state hash every 250 frames")
     horizon = int(raw.get("horizon", 300))
-    return {
+    normalized = {
         "schema": SCHEMA,
         "world_id": str(raw["world_id"]),
         "seed": seed,
@@ -221,6 +242,9 @@ def normalize_world(result: Mapping[str, Any]) -> dict[str, Any]:
             )
         },
     }
+    if "teacher_v2" in raw:
+        normalized["teacher_v2"] = _plain(raw["teacher_v2"])
+    return normalized
 
 
 def write_world(path: str | Path, result: Mapping[str, Any]) -> Path:
