@@ -64,6 +64,14 @@ setup/export/cleanup time. The receipt must describe the frozen recipe and a cle
 two-lane rehearsal; lane 3 requires that rehearsal first. Keep its raw evidence
 with the receipt. Unknown/missing evidence holds dispatch.
 
+A5 is a separately authorized operator measurement, supplied as an input to this
+package. This package does not authorize or expose an unratified L4 benchmark
+mode. A teacher-only A5 worlds/hour number must not be passed off as paired
+throughput: the operator must account for bare evaluation and metric regeneration
+using excluded development measurements, with the recipe and derivation in the
+hash-bound evidence. If those measurements are unavailable, preparation stays on
+hold; running selection worlds to manufacture A5 would violate the registration.
+
 With clean committed source and reviewed evidence, the delegated operator runs:
 
 ```bash
@@ -102,6 +110,12 @@ worst reserved envelope = 14.4K units. Expected units price all pairs and setup;
 the last chunk uses its actual count. Review this forecast and available account
 credits **before** dispatch. The original ~16-unit planning estimate is not an
 approved substitute for the computed worst case. No retry is automatic.
+
+The generator also exercises the supervisor's local bounded source-archive
+preparation with the exact ratified file inventory. Production requires a Git
+checkout of the pinned commit. If GitHub delivery fails and the supervisor installs
+its sparse fallback without Git metadata, this package refuses before gameplay;
+fallback execution would need a separately verified source-identity adapter.
 
 ## Validate and dispatch (operator only)
 
