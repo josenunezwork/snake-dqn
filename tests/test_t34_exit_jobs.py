@@ -11,6 +11,12 @@ import pytest
 from research.t34_exit_b8_fit import entrypoint, make_manifest, public_inputs, runner
 
 
+@pytest.fixture(autouse=True)
+def qualified_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate job shape tests from separately tested transport admission."""
+    monkeypatch.setattr(make_manifest, "require_qualified_transport", lambda *_args: {})
+
+
 def test_public_catalog_uses_release_archive_and_has_no_mac_paths() -> None:
     catalog = json.loads(Path(public_inputs.CATALOG_PATH).read_text())
     encoded = json.dumps(catalog)

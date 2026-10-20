@@ -178,7 +178,7 @@ def _contents_call(
 
 
 def _rpc(cli: _CLI, operation: str, spec: dict[str, Any], timeout: float) -> Any:
-    """Use one small, auditable RPC. Mutating RPCs are never retried here."""
+    """Recover reads or durable acknowledgements, never blindly replay mutations."""
     payload = json.dumps(spec, sort_keys=True)
     if operation == "UPLOAD_ASSEMBLE":
         code = """# SNAKE_TRANSFER_UPLOAD_ASSEMBLE
@@ -267,6 +267,8 @@ result = {'sha256': hash_.hexdigest(), 'size': path.stat().st_size}
     # File assembly/splitting remains single-dispatch and fenced on ambiguity.
     if operation in {"VERIFY_FILE", "CREATE_DIR", "REMOVE_TREE"} and hasattr(cli, "poll_rpc"):
         return cli.poll_rpc(code, timeout=timeout)
+    if operation in {"UPLOAD_ASSEMBLE", "DOWNLOAD_SPLIT"} and hasattr(cli, "recoverable_rpc"):
+        return cli.recoverable_rpc(code, timeout=timeout)
     return cli.rpc(code, timeout=timeout)
 
 
@@ -278,9 +280,7 @@ def _verify_remote_file(
         cli,
         "VERIFY_FILE",
         {"path": remote},
-        _bounded_timeout(
-            _timeout(min(size, UPLOAD_CHUNK_BYTES)), deadline, f"VERIFY_FILE {remote}"
-        ),
+        _bounded_timeout(policy.TELEMETRY_SECONDS, deadline, f"VERIFY_FILE {remote}"),
     )
     if not isinstance(reply, dict) or reply.get("sha256") != digest or reply.get("size") != size:
         raise TransferError("remote upload digest or size mismatch")
@@ -298,7 +298,9 @@ def _cleanup(
             return
         if renew:
             renew()
-        _rpc(cli, "REMOVE_TREE", {"path": path}, _bounded_timeout(policy.RPC_SECONDS, deadline))
+        _rpc(
+            cli, "REMOVE_TREE", {"path": path}, _bounded_timeout(policy.TELEMETRY_SECONDS, deadline)
+        )
         if renew:
             renew()
     except Exception:
@@ -349,14 +351,14 @@ def upload_file(
     parts, temporary = _staging(remote, ident)
     chunks = math.ceil(size / UPLOAD_CHUNK_BYTES)
     try:
-        # ContentsClient PUT does not create missing parents.  This is a
-        # single non-retried mutation; an uncertain RPC fences later assembly.
+        # ContentsClient PUT does not create missing parents. Directory creation
+        # is idempotent; recovery still requires independent kernel-idle proof.
         renew()
         _rpc(
             cli,
             "CREATE_DIR",
             {"path": parts},
-            _bounded_timeout(_timeout(UPLOAD_CHUNK_BYTES), transfer_deadline, "CREATE_DIR"),
+            _bounded_timeout(policy.TELEMETRY_SECONDS, transfer_deadline, "CREATE_DIR"),
         )
         renew()
         with tempfile.TemporaryDirectory(prefix="snake-colab-upload-") as directory:
@@ -388,7 +390,7 @@ def upload_file(
                 "sha256": digest,
                 "size": size,
             },
-            _bounded_timeout(_timeout(UPLOAD_CHUNK_BYTES), transfer_deadline, "UPLOAD_ASSEMBLE"),
+            _bounded_timeout(policy.TELEMETRY_SECONDS, transfer_deadline, "UPLOAD_ASSEMBLE"),
         )
         renew()
         if (
@@ -454,7 +456,7 @@ def prepare_download(
             "size": size,
             "sha256": expected_sha256,
         },
-        _bounded_timeout(_timeout(DOWNLOAD_CHUNK_BYTES), deadline, f"DOWNLOAD_SPLIT {remote}"),
+        _bounded_timeout(policy.TELEMETRY_SECONDS, deadline, f"DOWNLOAD_SPLIT {remote}"),
     )
     if renew:
         renew()

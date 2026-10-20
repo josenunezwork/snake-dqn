@@ -29,6 +29,9 @@ L4_RATE_UNITS_PER_HOUR = 2.0
 CPU_RATE_UNITS_PER_HOUR = 0.5
 L4_MAX_MINUTES = 30
 CPU_MAX_MINUTES = 20
+PROFILES = ("final-only", "full-state")
+FINAL_ARTIFACT_BYTES = 64 * 1024 * 1024
+FULL_STATE_GATES = {"busy-full-snapshot", "exact-resume", "checkpoint-overhead"}
 REVIEW_TOKEN = "COLAB_CLI_ACCEPTANCE_REVIEWED"
 BASELINE = {
     "supplied_at": "2026-10-18 18:38 PT",
@@ -82,12 +85,18 @@ def manifest(
     minutes: int,
     priced_rate: float,
     other_assignments: dict[str, float],
+    profile: str = "final-only",
 ) -> dict[str, Any]:
     return {
         "job_id": job_id,
         "commit": commit,
         "script": "research/colab_cli/acceptance_probe.sh",
-        "env": {"PYTHONUNBUFFERED": "1", "COLAB_ACCEPTANCE": "1"},
+        "env": {
+            "PYTHONUNBUFFERED": "1",
+            "COLAB_ACCEPTANCE": "1",
+            "COLAB_ACCEPTANCE_PROFILE": profile,
+            "COLAB_ACCEPTANCE_ARM": gpu,
+        },
         "requirements": {"gpu": gpu, "min_vcpu": 2, "est_minutes": minutes / 2},
         "timeout_minutes": minutes,
         "output_dir": str(output),
@@ -115,9 +124,11 @@ def manifest(
     }
 
 
-def review_gates() -> list[dict[str, str]]:
+def review_gates(profile: str = "final-only") -> list[dict[str, Any]]:
     """Every advice gate has a named required artifact; absence is INCOMPLETE."""
-    return [
+    if profile not in PROFILES:
+        raise ValueError(f"unknown acceptance profile: {profile}")
+    gates = [
         {
             "id": "account-assignment-spend",
             "evidence": "all pre-existing endpoints and their rates are recorded at admission",
@@ -175,6 +186,57 @@ def review_gates() -> list[dict[str, str]]:
         },
     ]
 
+    gates.extend(
+        [
+            {
+                "id": "rate-calibration",
+                "evidence": "bounded positive provider calibration for CPU and L4",
+                "owner": "Mac supervisor",
+            },
+            {
+                "id": "final-artifact-download",
+                "evidence": (
+                    "exactly 64 MiB L4-to-Mac export, SHA256 verified, "
+                    "end-to-end bytes/s lower bound"
+                ),
+                "owner": "probe + supervisor",
+            },
+        ]
+    )
+    for gate in gates:
+        gate["required"] = (
+            gate["id"] not in FULL_STATE_GATES
+            if profile == "final-only"
+            else gate["id"] != "final-artifact-download"
+        )
+    return gates
+
+
+def source_manifest(root: Path) -> dict[str, str]:
+    """Bind acceptance to every transport implementation and maintained launch file."""
+    return {
+        str(path.relative_to(root)): sha256_file(path)
+        for path in sorted((root / "research/colab_cli").iterdir())
+        if path.is_file() and path.suffix in {".py", ".sh"}
+    }
+
+
+def verify_plan_sources(plan: dict[str, Any], repo: Path) -> None:
+    """Refuse dirty or stale implementation bytes before a paid allocation."""
+    current = source_manifest(repo)
+    if plan["source_manifest"] != current:
+        raise supervisor.Refused("acceptance plan source changed before execution")
+    for relative, digest in current.items():
+        pinned = subprocess.run(
+            ["git", "show", f"{plan['commit']}:{relative}"],
+            cwd=repo,
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+        if pinned.returncode or hashlib.sha256(pinned.stdout).hexdigest() != digest:
+            raise supervisor.Refused(f"acceptance source differs from pinned commit: {relative}")
+
 
 def build_plan(
     root: Path,
@@ -182,7 +244,9 @@ def build_plan(
     cpu_rate: float | None = CPU_RATE_UNITS_PER_HOUR,
     other_assignments: dict[str, float] | None = None,
     l4_rate: float = L4_RATE_UNITS_PER_HOUR,
+    profile: str = "final-only",
 ) -> dict[str, Any]:
+    gates = review_gates(profile)
     if cpu_rate is None:
         cpu_rate = CPU_RATE_UNITS_PER_HOUR
     if not math.isfinite(cpu_rate) or cpu_rate <= 0:
@@ -236,6 +300,7 @@ def build_plan(
             minutes=minutes,
             priced_rate=rate,
             other_assignments={key: float(value) for key, value in other_assignments.items()},
+            profile=profile,
         )
         target = manifests / f"{name}.json"
         atomic_json(target, payload)
@@ -250,6 +315,9 @@ def build_plan(
     plan = {
         "schema": "snake-dqn-colab-cli-acceptance/v1",
         "status": "NOT_RUN",
+        "profile": profile,
+        "commit": commit,
+        "source_manifest": source_manifest(root),
         "baseline_context": BASELINE,
         "limits": {
             "max_units_including_reserve": MAX_UNITS,
@@ -263,7 +331,10 @@ def build_plan(
             "total": cpu_expected + l4_expected,
         },
         "jobs": jobs,
-        "gates": [{**gate, "status": "INCOMPLETE"} for gate in review_gates()],
+        "gates": [
+            {**gate, "status": "INCOMPLETE" if gate["required"] else "NOT_REQUIRED"}
+            for gate in gates
+        ],
         "qualification": "INCOMPLETE until every gate has independently verified evidence",
     }
     atomic_json(run_dir / "acceptance-plan.json", plan)
@@ -296,7 +367,9 @@ def execute(
 ) -> int:
     if review_token != REVIEW_TOKEN:
         raise ValueError("execution requires the exact reviewed acceptance token")
-    observer = AcceptanceObserver(oauth_python)
+    profile = plan["profile"]
+    verify_plan_sources(plan, supervisor.REPO)
+    observer = AcceptanceObserver(oauth_python, profile=profile)
     results: list[dict[str, Any]] = []
     run_dir = Path(plan["jobs"][0]["manifest"]).parent.parent
     for job in plan["jobs"]:
@@ -313,6 +386,7 @@ def execute(
                     "job": job["name"],
                     "status": "PASS" if measurement["status"] == "PASS" else "INCOMPLETE",
                     "receipt": str(output / "receipt.json"),
+                    "receipt_sha256": sha256_file(output / "receipt.json"),
                     "priced_rate_units_per_hour": measurement["priced_rate_units_per_hour"],
                     "measured_rate_units_per_hour": measurement["observed_rate_units_per_hour"],
                     "rate_calibration": measurement,
@@ -350,6 +424,12 @@ def execute(
                         else "INCOMPLETE"
                     ),
                     "error": str(exc),
+                    "receipt": str(output / "receipt.json"),
+                    "receipt_sha256": (
+                        sha256_file(output / "receipt.json")
+                        if (output / "receipt.json").is_file()
+                        else None
+                    ),
                     "priced_rate_units_per_hour": measurement["priced_rate_units_per_hour"],
                     "measured_rate_units_per_hour": measurement["observed_rate_units_per_hour"],
                     "rate_calibration": measurement,
@@ -362,9 +442,19 @@ def execute(
         # allocation. The watchdog fault is expected only after CPU passed.
         if job["name"] == "cpu" and results[-1]["status"] != "PASS":
             break
+    observer._record(
+        "rate-calibration",
+        status=(
+            "PASS"
+            if len(results) == 2
+            and all(row["rate_calibration"]["status"] == "PASS" for row in results)
+            else "INCOMPLETE"
+        ),
+        arms=[{"arm": row["job"], **row["rate_calibration"]} for row in results],
+    )
     gate_status = {gate["id"]: gate for gate in plan["gates"]}
     for gate, evidence in observer.records.items():
-        if gate in gate_status:
+        if gate in gate_status and gate_status[gate]["required"]:
             incomplete = str(evidence.get("status", "")).startswith("INCOMPLETE")
             gate_status[gate]["status"] = "INCOMPLETE" if incomplete else "OBSERVED"
             gate_status[gate]["evidence_record"] = evidence
@@ -374,10 +464,17 @@ def execute(
         "INCOMPLETE pending independent review of every observer/receipt artifact"
     )
     qualified = (
-        len(observer.records) == len(gate_status)
-        and all(gate["status"] == "OBSERVED" for gate in plan["gates"])
+        all(gate["status"] == "OBSERVED" for gate in plan["gates"] if gate["required"])
+        and len(results) == 2
         and all(result["status"] == "PASS" for result in results)
     )
+    if plan["source_manifest"] != source_manifest(supervisor.REPO):
+        qualified = False
+    if qualified:
+        plan["status"] = "PASS"
+        plan["qualification"] = (
+            "PASS for this profile and source; independent review required for S1"
+        )
     return_code = 0 if qualified else 1
     create_json(
         run_dir / "acceptance-result.json",
@@ -385,6 +482,10 @@ def execute(
             "schema": "snake-dqn-colab-cli-acceptance-result/v1",
             "return_code": return_code,
             "qualified": qualified,
+            "status": "PASS" if qualified else "INCOMPLETE",
+            "profile": profile,
+            "source_manifest": plan["source_manifest"],
+            "final_artifact_transfer": observer.records.get("final-artifact-download"),
             "final_plan": plan,
         },
     )
@@ -458,6 +559,7 @@ def _calibration_evidence(receipt: dict[str, Any]) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--profile", choices=PROFILES, default="final-only")
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument(
         "--state-dir", type=Path, required=True, help="absolute supervisor state parent"
@@ -503,6 +605,7 @@ def main(argv: list[str] | None = None) -> int:
             args.cpu_rate,
             load_other_assignments(args.other_assignments),
             args.l4_rate,
+            profile=args.profile,
         )
         print(json.dumps(record, indent=2, sort_keys=True))
         if args.execute_after_review:

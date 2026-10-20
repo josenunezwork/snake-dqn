@@ -20,6 +20,8 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 STATE_INTERVAL_SECONDS = 15
 # Three release attempts each perform GET and POST requests with 20-second
@@ -28,6 +30,10 @@ STATE_INTERVAL_SECONDS = 15
 # carries the matching timeout arithmetic; keep this Popen guard explicit.
 RELEASE_RETRY_WINDOW_SECONDS = 130
 STOP_CHILD_TAIL_SECONDS = 10
+PUBLIC_INPUT_FETCH_ATTEMPTS = 3
+PUBLIC_INPUT_FETCH_TIMEOUT_SECONDS = 30
+PUBLIC_INPUT_FETCH_TOTAL_TIMEOUT_SECONDS = 300
+PUBLIC_INPUT_READ_BYTES = 1024 * 1024
 
 
 class SpecError(ValueError):
@@ -92,7 +98,9 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _validate_spec(raw: Mapping[str, Any]) -> dict[str, Any]:
+def _validate_spec(
+    raw: Mapping[str, Any], *, allow_existing_output: bool = False
+) -> dict[str, Any]:
     required = {
         "job_id": str,
         "generation": (str, int),
@@ -142,12 +150,130 @@ def _validate_spec(raw: Mapping[str, Any]) -> dict[str, Any]:
     if not root.is_dir():
         raise SpecError(f"root was not pre-created: {root}")
     output = root / "output"
-    if output.exists():
+    if output.exists() and not allow_existing_output:
         raise SpecError(f"fresh output directory required; already exists: {output}")
     for key, value in raw["env"].items():
         if not isinstance(key, str) or not isinstance(value, str):
             raise SpecError("env must map strings to strings")
+    public_inputs = raw.get("public_inputs", [])
+    if not isinstance(public_inputs, list):
+        raise SpecError("spec.public_inputs must be a list")
+    destinations: set[str] = set()
+    for item in public_inputs:
+        if not isinstance(item, dict):
+            raise SpecError("public input must be an object")
+        url, digest, size, dest = (
+            item.get("url"),
+            item.get("sha256"),
+            item.get("size_bytes"),
+            item.get("dest"),
+        )
+        if (
+            not isinstance(url, str)
+            or not url.startswith("https://")
+            or any(c.isspace() for c in url)
+        ):
+            raise SpecError("public input URL must be HTTPS")
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(c not in "0123456789abcdef" for c in digest)
+        ):
+            raise SpecError("public input sha256 must be lowercase SHA-256")
+        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+            raise SpecError("public input size_bytes must be nonnegative")
+        if (
+            not isinstance(dest, str)
+            or not dest
+            or dest.startswith("/")
+            or any(part in {"", ".", ".."} for part in dest.split("/"))
+            or dest in destinations
+        ):
+            raise SpecError("public input destination is unsafe or duplicated")
+        destinations.add(dest)
     return {**raw, "root": str(root)}
+
+
+def _fetch_public_inputs(root: Path, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fetch pinned release objects into a temporary path then atomically publish."""
+    deadline = time.monotonic() + PUBLIC_INPUT_FETCH_TOTAL_TIMEOUT_SECONDS
+    verified: list[dict[str, Any]] = []
+    inputs = root / "inputs"
+    for row in rows:
+        target = inputs / row["dest"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        last_error: BaseException | None = None
+        for attempt in range(1, PUBLIC_INPUT_FETCH_ATTEMPTS + 1):
+            temporary = target.with_name(f".{target.name}.download-{os.getpid()}-{attempt}.part")
+            try:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("public input fetch total timeout")
+                digest = hashlib.sha256()
+                count = 0
+                request = Request(row["url"], headers={"Accept-Encoding": "identity"})
+                timeout = min(
+                    PUBLIC_INPUT_FETCH_TIMEOUT_SECONDS, max(0.1, deadline - time.monotonic())
+                )
+                with urlopen(request, timeout=timeout) as reply, temporary.open("xb") as handle:
+                    while True:
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError("public input fetch total timeout")
+                        chunk = reply.read(PUBLIC_INPUT_READ_BYTES)
+                        if not chunk:
+                            break
+                        count += len(chunk)
+                        if count > row["size_bytes"]:
+                            raise RuntimeError("public input exceeded pinned size")
+                        digest.update(chunk)
+                        handle.write(chunk)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                if count != row["size_bytes"] or digest.hexdigest() != row["sha256"]:
+                    raise RuntimeError("public input size or SHA-256 mismatch")
+                os.replace(temporary, target)
+                verified.append({"dest": row["dest"], "sha256": row["sha256"], "size_bytes": count})
+                break
+            except (OSError, URLError, RuntimeError) as exc:
+                last_error = exc
+                temporary.unlink(missing_ok=True)
+                # A byte-identity mismatch is deterministic; retrying cannot
+                # make that URL safe and only delays cleanup.
+                if "mismatch" in str(exc) or "exceeded pinned size" in str(exc):
+                    break
+        else:
+            raise RuntimeError(f"public input fetch failed: {last_error}") from last_error
+        if len(verified) == 0 or verified[-1]["dest"] != row["dest"]:
+            raise RuntimeError(f"public input fetch failed: {last_error}") from last_error
+    return verified
+
+
+def _fetch_inputs_then_exec(spec_path: Path) -> int:
+    """Run in the owned child group; never start the trainer before fetching."""
+    # The parent supervisor created output before spawning this owned fetch
+    # child. All other specification checks are deliberately repeated here.
+    spec = _validate_spec(_load_json(spec_path), allow_existing_output=True)
+    root = Path(spec["root"])
+    try:
+        verified = _fetch_public_inputs(root, spec.get("public_inputs", []))
+        _atomic_json(root / "public-inputs-verified.json", {"inputs": verified})
+    except BaseException as exc:
+        _atomic_json(root / "public-input-fetch-failed.json", {"error": repr(exc)})
+        return 74
+    environment = os.environ.copy()
+    environment.update(spec["env"])
+    environment["COLAB_CLI_ROOT"] = str(root)
+    environment.setdefault("COLAB_INPUT_DIR", str(root / "inputs"))
+    environment["COLAB_OUTPUT_DIR"] = str(root / "output")
+    environment["QUEUE_OUTPUT_DIR"] = str(root / "output")
+    os.execvpe(spec["command"][0], spec["command"], environment)
+    raise AssertionError("os.execvpe unexpectedly returned")
+
+
+def _runtime_child_command(spec: Mapping[str, Any], spec_path: Path) -> list[str]:
+    """Make URL retrieval a killable member of the supervisor's process group."""
+    if spec.get("public_inputs"):
+        return [sys.executable, str(Path(__file__).resolve()), "--fetch-inputs", str(spec_path)]
+    return list(spec["command"])
 
 
 def _signature(path: Path) -> tuple[int, int, int, int, int]:
@@ -429,7 +555,7 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
     log = (root / "job.log").open("ab", buffering=0)
     try:
         process = subprocess.Popen(
-            spec["command"],
+            _runtime_child_command(spec, root / "spec.json"),
             cwd=root,
             env=environment,
             stdout=log,
@@ -467,6 +593,13 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
         while process.poll() is None:
             now = _now()
             reason = _lease_expired(root, spec["generation"], float(spec["lease_seconds"]))
+            if (
+                reason is None
+                and spec.get("public_inputs")
+                and not (root / "public-inputs-verified.json").is_file()
+                and now - started > PUBLIC_INPUT_FETCH_TOTAL_TIMEOUT_SECONDS
+            ):
+                reason = "public_input_fetch_timeout"
             if reason is None and _release_credential_expiring(spec):
                 reason = "release_credential_expiring"
             if reason is None and now - started > float(spec["timeout_seconds"]):
@@ -493,6 +626,9 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
     finally:
         returncode = process.wait()
         log.close()
+    fetch_failure = root / "public-input-fetch-failed.json"
+    if fetch_failure.is_file():
+        reason = "public_input_fetch_failed"
     try:
         completed_exports = _exports(root, spec["max_export_bytes"], export_cache)
     except BaseException as exc:
@@ -556,9 +692,13 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--spec", required=True, type=Path)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--spec", type=Path)
+    group.add_argument("--fetch-inputs", type=Path)
     args = parser.parse_args(argv)
     try:
+        if args.fetch_inputs is not None:
+            return _fetch_inputs_then_exec(args.fetch_inputs)
         with args.spec.open(encoding="utf-8") as handle:
             return supervise(json.load(handle))
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:

@@ -3,13 +3,98 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from research.colab_cli import supervisor
+from research.colab_cli import cli_guard, supervisor
 from research.colab_cli.acceptance_faults import AcceptanceObserver
+
+
+@pytest.mark.parametrize("cap", ["deadline", "priced_deadline", "explicit"])
+def test_telemetry_recovery_cannot_extend_real_or_explicit_caps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str
+) -> None:
+    now = [0.0]
+    cli = supervisor.CLI("fake", tmp_path / "config", "owned")
+    if cap != "explicit":
+        setattr(cli, cap, 150.0)
+    calls = []
+    probes = []
+
+    def invoke(argv: list[str], **kwargs: object) -> None:
+        timeout = float(kwargs["timeout"])
+        calls.append(timeout)
+        now[0] += timeout
+        raise subprocess.TimeoutExpired(argv, timeout)
+
+    def idle(*args: object, **kwargs: object) -> bool:
+        probes.append(kwargs["timeout"])
+        assert cli.exec_uncertain
+        return True
+
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        supervisor.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds)
+    )
+    monkeypatch.setattr(supervisor.subprocess, "run", invoke)
+    monkeypatch.setattr(cli_guard, "kernel_idle", idle)
+    with pytest.raises(supervisor.Refused, match="deadline reached during telemetry recovery"):
+        cli.poll_rpc("result=True", **({"timeout": 150} if cap == "explicit" else {}))
+    assert calls == [120, 28]
+    assert probes == [30]
+    assert now[0] == 150
+    assert cli.exec_uncertain  # Exhaustion never clears uncertain kernel state.
+
+
+def test_telemetry_attempt_does_not_shorten_independent_heartbeat_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """At t=110 an in-flight 120s poll must still allow a 60s lease PUT."""
+    cli = supervisor.CLI("fake", tmp_path / "config", "owned")
+    cli.deadline = 1000
+    cli.priced_deadline = 900
+    now = [0.0]
+    allowances = []
+
+    def invoke(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert kwargs["timeout"] == 120
+        now[0] = 110
+        worker = threading.Thread(target=lambda: allowances.append(cli.remaining_seconds(60)))
+        worker.start()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        wrapped = Path(argv[argv.index("-f") + 1]).read_text()
+        nonce = "SNAKE_RPC_" + wrapped.split("SNAKE_RPC_")[1][:32]
+        return subprocess.CompletedProcess(argv, 0, nonce + '{"ok":true,"value":true}', "")
+
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(supervisor.subprocess, "run", invoke)
+    assert cli.poll_rpc("result=True") is True
+    assert allowances == [60]
+    assert cli.deadline == 1000 and cli.priced_deadline == 900
+
+
+def test_telemetry_timeout_does_not_resubmit_without_kernel_idle_proof(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cli = supervisor.CLI("fake", tmp_path / "config", "owned")
+    calls = []
+
+    def invoke(argv: list[str], **kwargs: object) -> None:
+        calls.append(argv)
+        raise subprocess.TimeoutExpired(argv, float(kwargs["timeout"]))
+
+    monkeypatch.setattr(supervisor.subprocess, "run", invoke)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(cli_guard, "kernel_idle", lambda *args, **kwargs: False)
+    with pytest.raises(supervisor.Refused, match="kernel remains busy/unknown"):
+        cli.poll_rpc("result=True")
+    assert len(calls) == 1
+    assert cli.exec_uncertain
 
 
 def test_watchdog_collects_during_expiry_interval_and_recovers_status_reset(

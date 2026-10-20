@@ -10,6 +10,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from research.t34_exit_b8.qualification import (
+    QualificationRefused,
+    require_qualified_transport,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 INVENTORY_PATH = Path(__file__).with_name("INPUTS_REQUIRED.json")
 CATALOG_PATH = Path(__file__).with_name("PUBLIC_INPUTS.json")
@@ -170,6 +175,10 @@ def make_manifest(
                 "dest": "engine-binding.json",
             }
         )
+    try:
+        require_qualified_transport(ROOT, commit)
+    except QualificationRefused as exc:
+        raise ManifestRefused(str(exc)) from exc
     return {
         "job_id": (binding or {}).get("job_id", "t34-exit-b8-fit-" + mode),
         "commit": commit,
@@ -232,6 +241,10 @@ def validate_manifest(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[st
         raise ManifestRefused(
             "engine export and preregistration binding are pending; manifest refused"
         )
+    try:
+        require_qualified_transport(repo, manifest.get("commit", ""))
+    except QualificationRefused as exc:
+        raise ManifestRefused(str(exc)) from exc
     from research.colab_cli.supervisor import validate
 
     return validate(manifest, repo=repo)

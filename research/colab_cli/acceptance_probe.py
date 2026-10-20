@@ -57,13 +57,14 @@ def publish_json(path: Path, value: dict[str, Any]) -> dict[str, Any]:
     return publish(path, (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode())
 
 
-def full_snapshot(path: Path, size_bytes: int) -> dict[str, Any]:
+def full_snapshot(path: Path, size_bytes: int, *, incompressible: bool = False) -> dict[str, Any]:
     block = hashlib.sha256(b"snake-dqn-colab-cli-acceptance-v1").digest() * (1024 * 1024 // 32)
     temporary = path.with_name(f".{path.name}.tmp")
     with temporary.open("wb") as destination:
         remaining = size_bytes
         while remaining:
-            chunk = block[: min(remaining, len(block))]
+            count = min(remaining, len(block))
+            chunk = os.urandom(count) if incompressible else block[:count]
             destination.write(chunk)
             remaining -= len(chunk)
     os.replace(temporary, path)
@@ -177,7 +178,9 @@ def await_control(root: Path, name: str) -> None:
         time.sleep(0.2)
 
 
-def suite(output: Path, *, silence_seconds: int, snapshot_bytes: int) -> list[dict[str, Any]]:
+def suite(
+    output: Path, *, silence_seconds: int, snapshot_bytes: int, profile: str = "final-only"
+) -> list[dict[str, Any]]:
     # runtime.supervise creates COLAB_OUTPUT_DIR before it invokes its child.
     # A pre-existing artifact remains a foreign/reused attempt and is refused.
     if output.exists() and any(output.iterdir()):
@@ -187,48 +190,64 @@ def suite(output: Path, *, silence_seconds: int, snapshot_bytes: int) -> list[di
     root = Path(os.environ.get("COLAB_CLI_ROOT", str(output.parent)))
     identity = {"pid": os.getpid(), "execution_id": os.urandom(16).hex()}
     publish_json(output / "execution.json", identity)
-    # Calibrate without an accelerator claim; identical fixed work is repeated.
-    calibration = [benchmark(1000) for _ in range(3)]
-    target = float(os.environ.get("COLAB_ACCEPTANCE_BENCH_SECONDS", "90"))
-    iterations = max(1000, int(1000 * target / (sum(calibration) / len(calibration))))
-    control(root, {"phase": "baseline", **identity})
-    baseline = benchmark(iterations)
-    snapshot_started = time.monotonic()
-    evidence = [full_snapshot(output / "busy-snapshot.bin", snapshot_bytes)]
-    snapshot_elapsed = time.monotonic() - snapshot_started
-    snapshot_record = evidence[0]
-    control(
-        root,
-        {
-            "phase": "transfer_ready",
+    snapshot_elapsed = 0.0
+    overhead = None
+    if profile == "final-only":
+        arm = os.environ.get("COLAB_ACCEPTANCE_ARM", "cpu")
+        name, size = (
+            ("final-artifact.bin", 64 * 1024 * 1024) if arm == "L4" else ("client-job.bin", 4096)
+        )
+        evidence = [full_snapshot(output / name, size, incompressible=arm == "L4")]
+        control(root, {"phase": "transfer_ready", "snapshot": evidence[0], **identity})
+        await_control(root, "acceptance-transfer-start")
+        await_control(root, "acceptance-transfer-done")
+        control(root, {"phase": "transfer_finished", **identity})
+        await_control(root, "acceptance-finish")
+    elif profile == "full-state":
+        # Calibrate without an accelerator claim; identical fixed work is repeated.
+        calibration = [benchmark(1000) for _ in range(3)]
+        target = float(os.environ.get("COLAB_ACCEPTANCE_BENCH_SECONDS", "90"))
+        iterations = max(1000, int(1000 * target / (sum(calibration) / len(calibration))))
+        control(root, {"phase": "baseline", **identity})
+        baseline = benchmark(iterations)
+        snapshot_started = time.monotonic()
+        evidence = [full_snapshot(output / "busy-snapshot.bin", snapshot_bytes)]
+        snapshot_elapsed = time.monotonic() - snapshot_started
+        snapshot_record = evidence[0]
+        control(
+            root,
+            {
+                "phase": "transfer_ready",
+                "baseline_seconds": baseline,
+                "snapshot_write_seconds": snapshot_elapsed,
+                "iterations": iterations,
+                "snapshot": snapshot_record,
+                **identity,
+            },
+        )
+        await_control(root, "acceptance-transfer-start")
+        measured_started = time.monotonic()
+        benchmark(iterations)
+        # The export is asynchronous to useful work. Any transfer tail that delays
+        # the next checkpoint is still charged, rather than hidden after the timer.
+        await_control(root, "acceptance-transfer-done")
+        measured = time.monotonic() - measured_started
+        overhead = (measured + snapshot_elapsed - baseline) / baseline * 100
+        measurement = {
+            "scope": "synthetic useful-work transport benchmark; not trainer throughput",
             "baseline_seconds": baseline,
-            "snapshot_write_seconds": snapshot_elapsed,
+            "with_checkpoint_seconds": measured,
+            "checkpoint_write_seconds": snapshot_elapsed,
             "iterations": iterations,
-            "snapshot": snapshot_record,
-            **identity,
-        },
-    )
-    await_control(root, "acceptance-transfer-start")
-    measured_started = time.monotonic()
-    benchmark(iterations)
-    # The export is asynchronous to useful work. Any transfer tail that delays
-    # the next checkpoint is still charged, rather than hidden after the timer.
-    await_control(root, "acceptance-transfer-done")
-    measured = time.monotonic() - measured_started
-    overhead = (measured + snapshot_elapsed - baseline) / baseline * 100
-    measurement = {
-        "scope": "synthetic useful-work transport benchmark; not trainer throughput",
-        "baseline_seconds": baseline,
-        "with_checkpoint_seconds": measured,
-        "checkpoint_write_seconds": snapshot_elapsed,
-        "iterations": iterations,
-        "calibration_seconds": calibration,
-        "overhead_percent": overhead,
-        "threshold_percent": 2.0,
-    }
-    publish_json(output / "checkpoint-overhead.json", measurement)
-    control(root, {"phase": "transfer_finished", "measurement": measurement, **identity})
-    await_control(root, "acceptance-finish")
+            "calibration_seconds": calibration,
+            "overhead_percent": overhead,
+            "threshold_percent": 2.0,
+        }
+        publish_json(output / "checkpoint-overhead.json", measurement)
+        control(root, {"phase": "transfer_finished", "measurement": measurement, **identity})
+        await_control(root, "acceptance-finish")
+    else:
+        raise ValueError(f"unknown acceptance profile: {profile}")
     started = time.monotonic()
     print(json.dumps({"event": "silence_start", "seconds": silence_seconds}), flush=True)
     time.sleep(silence_seconds)
@@ -245,7 +264,8 @@ def suite(output: Path, *, silence_seconds: int, snapshot_bytes: int) -> list[di
             {"exit_code": child.returncode, "expected": 23},
         )
     )
-    evidence.append(toy_resume(output))
+    if profile == "full-state":
+        evidence.append(toy_resume(output))
     evidence.append(
         publish_json(
             output / "completion.json",
@@ -265,6 +285,11 @@ def suite(output: Path, *, silence_seconds: int, snapshot_bytes: int) -> list[di
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--profile",
+        choices=("final-only", "full-state"),
+        default=os.environ.get("COLAB_ACCEPTANCE_PROFILE", "final-only"),
+    )
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--resume-input", type=Path)
     parser.add_argument("--resume-output", type=Path)
@@ -307,6 +332,7 @@ def main(argv: list[str] | None = None) -> int:
             output.resolve(),
             silence_seconds=args.silence_seconds,
             snapshot_bytes=args.snapshot_bytes,
+            profile=args.profile,
         )
     except FileExistsError:
         print("refusing prior/foreign acceptance output directory", file=sys.stderr)
