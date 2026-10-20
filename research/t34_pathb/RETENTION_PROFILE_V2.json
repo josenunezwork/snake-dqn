@@ -1,0 +1,130 @@
+{
+  "controller": {
+    "backend": "pytorch-rowwise-fp32",
+    "branch_order": "earliest-first",
+    "continuation_horizon": 500,
+    "depth": 500,
+    "hindsight_rewinds": false,
+    "information": "deployment-state-only",
+    "miss": "bare",
+    "outstanding_requests": 1,
+    "workers": 1
+  },
+  "deployment_config": {
+    "path": "research/apex_safety_20260926/deployment.yaml",
+    "sha256": "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb71715aa5"
+  },
+  "device": "cpu",
+  "load_policy": {
+    "overlapping_project_compute": false,
+    "phase0_must_be_finished": true,
+    "quiet_ratified": false,
+    "record": [
+      "utc_timestamp",
+      "phase0_completion_evidence",
+      "load_average_1_5_15",
+      "thermal_telemetry",
+      "ac_power",
+      "open_lid",
+      "quiet_host_attestation"
+    ],
+    "runtime_condition": "operator verifies no competing project compute; AC, open lid and acceptable thermal telemetry"
+  },
+  "max_cpu_hours": 48,
+  "max_cpu_threads": 2,
+  "max_dollars": 0,
+  "max_elapsed_hours": 32,
+  "numerical_pool_threads": 1,
+  "platform": "darwin",
+  "product": {
+    "adapter": "research.t34_pathb.adapter_v2.open_watch",
+    "continuous_respawn": true,
+    "hero_checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "horizon": 5000,
+    "leaderboard_writes": false,
+    "opponents": [
+      {
+        "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+        "independent_carry": true,
+        "slot": 1,
+        "veto": "free-space-veto/v8-space-and-head(lambda=8.0)"
+      },
+      {
+        "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+        "independent_carry": true,
+        "slot": 2,
+        "veto": "free-space-veto/v8-space-and-head(lambda=8.0)"
+      },
+      {
+        "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+        "independent_carry": true,
+        "slot": 3,
+        "veto": "free-space-veto/v8-space-and-head(lambda=8.0)"
+      },
+      {
+        "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+        "independent_carry": true,
+        "slot": 4,
+        "veto": "free-space-veto/v8-space-and-head(lambda=8.0)"
+      },
+      {
+        "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+        "independent_carry": true,
+        "slot": 5,
+        "veto": "free-space-veto/v8-space-and-head(lambda=8.0)"
+      }
+    ],
+    "release_monitoring": false,
+    "session": "web.backend.session.GameSession",
+    "snakes": 6
+  },
+  "release_checks_unmeasured": [
+    "client p95 latency deterioration <=10%",
+    "Watch8/12",
+    "Play",
+    "visible assisted label",
+    "production serving qualification"
+  ],
+  "schema": "t34-pathb-v2-retention-profile/v1",
+  "survival_band": {
+    "alpha": 0.05,
+    "amendment_option": 1,
+    "bound": "rci_obf",
+    "floor": 0.3,
+    "looks": [
+      32
+    ],
+    "mix_margin": 0.075,
+    "nominal_levels": [
+      0.05
+    ],
+    "policy": "pooled_ni_continue",
+    "pooled_margin": 0.05,
+    "pooling": "independent-stratum-welch"
+  },
+  "terminal": {
+    "dead_frames_zero": true,
+    "horizon": 5000,
+    "mix_weight": 0.3333333333333333,
+    "profile": "promotion-v2-watch-rect",
+    "profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "roster_authority": "research.t3_rollout_labels_20261015.bank_engine.planned_rosters",
+    "terminal_hero": true
+  },
+  "timing": {
+    "fps": [
+      12,
+      24
+    ],
+    "includes_grid_bridge": true,
+    "min_on_off_cadence_ratio": 0.95,
+    "modes": [
+      "bare",
+      "paced"
+    ],
+    "paced_overruns": 0,
+    "ticks": 5000,
+    "update_p95_max_ms": 11.688,
+    "warmup": 200
+  }
+}
