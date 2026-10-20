@@ -303,6 +303,23 @@ def test_complete_sidecars_are_create_only_and_match_payload(tmp_path):
         unpaced_colab._write_complete(output, {"schema": "test", "value": 1})
 
 
+def test_saved_manifest_rechecks_transport_at_shared_broker_admission(monkeypatch):
+    from research.colab_cli import admission, supervisor
+    from research.t34_exit_b8 import qualification
+
+    assert manifests.SCRIPT == "research/t34_exit_b8/unpaced_retention.sh"
+    checked = []
+
+    def refuse_drift(repo, commit):
+        checked.append((repo, commit))
+        raise qualification.QualificationRefused("local transport drift")
+
+    monkeypatch.setattr(qualification, "require_qualified_transport", refuse_drift)
+    with pytest.raises(supervisor.Refused, match="local transport drift"):
+        admission.check_study_manifest({"script": manifests.SCRIPT, "commit": COMMIT}, REPO)
+    assert checked == [(REPO, COMMIT)]
+
+
 def _deterministic_worker_fixture(args: tuple) -> dict:
     """Spawn-safe, single-thread fixture: no simulator, model or controller."""
     row, kind, _registration, _paths, horizon = args
