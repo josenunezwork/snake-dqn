@@ -48,3 +48,21 @@ def test_tabular_audit_is_mandatory_and_bank_bound(tmp_path, monkeypatch) -> Non
     (tmp_path / "TABULAR_SEED_AUDIT.json").write_text(json.dumps(bad))
     with pytest.raises(ValueError, match="CSV/TSV"):
         registration.check_audit(PACKAGE / "BANK_ROUND0.json", PACKAGE / "SEED_AUDIT_ROUND0.json")
+
+
+def test_retention_growth_cannot_introduce_a_late_collision(tmp_path, monkeypatch) -> None:
+    bank = read_json(PACKAGE / "BANK_ROUND0.json")
+    path = tmp_path / "research/t34_pathb/RETENTION_BANK_V2.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "terminal_rows": [{"seed": bank["rows"][0]["world_seed"]}],
+                "product_rows": [],
+                "timing_row": {"seed": 1},
+            }
+        )
+    )
+    monkeypatch.setattr(registration, "ROOT", tmp_path)
+    with pytest.raises(ValueError, match="current retention bank"):
+        registration.check_audit(PACKAGE / "BANK_ROUND0.json", PACKAGE / "SEED_AUDIT_ROUND0.json")

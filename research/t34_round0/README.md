@@ -48,6 +48,9 @@ JSON collision audit with all 52 visible CSV/TSV files across research/, docs/,
 scripts/ and artifact history. All 242 selection/fixture seeds are clear. The
 supplement is bound into the executable registration inventory; the original
 audit's bytes remain unchanged.
+Admission also rechecks the current committed retention-bank seed union; its
+bytes join the source inventory. This covers retention additions merged after
+the original audit without changing or replacing any Round 0 world.
 
 ## Ratification after A5, before data
 
