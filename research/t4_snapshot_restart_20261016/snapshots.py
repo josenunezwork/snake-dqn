@@ -15,6 +15,18 @@ import numpy as np
 SCHEMA = "t4-snapshot-store/v2"
 # Views are reconstructed from the exact padded storage; helpers are lazy caches.
 SIM_SKIP = {"cfg", "_owner", "_slot", "_food", "_det", "_kernels"}
+FOOD_MIRROR_FIELDS = {"_food_array", "_food_n", "_food_version"}
+
+
+def _ensure_food_mirror(sim: Any) -> None:
+    """Rebuild derived food storage absent from older schema-v2 snapshots."""
+    if all(hasattr(sim, name) for name in FOOD_MIRROR_FIELDS):
+        return
+    sim._food_array = np.zeros((sim.E, 8, 2), dtype=np.int64)
+    sim._food_n = np.zeros(sim.E, dtype=np.int64)
+    sim._food_version = np.zeros(sim.E, dtype=np.int64)
+    for env in range(sim.E):
+        sim._sync_food_array(env)
 
 
 def sha256(path: Path) -> str:
@@ -144,6 +156,7 @@ def restore(snapshot: dict) -> tuple:
 
     sim._kernels = grid_sim_nb if snapshot["jit"] else None
     _restore_grid_views(sim)
+    _ensure_food_mirror(sim)
     runtime = Vector61Runtime(
         params=Vector61Params(**snapshot["runtime_params"]), backend=snapshot["backend"]
     )
@@ -191,8 +204,26 @@ def _graft(sim: Any, runtime: Any, e: int, snapshot: dict) -> None:
             raise ValueError(f"snapshot arena/config mismatch: {key}")
     if asdict(runtime.featurizer.p) != snapshot["runtime_params"]:
         raise ValueError("snapshot opponent featurizer parameters mismatch")
+    _ensure_food_mirror(sim)
+    saved_mirror = FOOD_MIRROR_FIELDS.issubset(snapshot["sim"])
     for key, value in snapshot["sim"].items():
         if key in {"E", "_env_index", "_snake_index"}:
+            continue
+        if key in FOOD_MIRROR_FIELDS and not saved_mirror:
+            continue
+        if key == "_food_array":
+            if (
+                not isinstance(value, np.ndarray)
+                or value.ndim != 3
+                or value.shape[0] != 1
+                or value.shape[2] != 2
+            ):
+                raise ValueError("snapshot simulator shape mismatch: _food_array")
+            # Capacity is global scratch storage, not an arena invariant. Grow
+            # without disturbing any neighboring row, then copy this row only.
+            sim._ensure_food_array_capacity(value.shape[1])
+            sim._food_array[e] = 0
+            sim._food_array[e, : value.shape[1]] = value[0]
             continue
         target = getattr(sim, key, None)
         if isinstance(value, np.ndarray) and value.ndim and value.shape[0] == 1:
@@ -203,6 +234,8 @@ def _graft(sim: Any, runtime: Any, e: int, snapshot: dict) -> None:
             target[e] = copy.deepcopy(value[0])
         elif key not in {"_policy_step_in_progress"} and target != value:
             raise ValueError(f"snapshot simulator invariant mismatch: {key}")
+    if not saved_mirror:
+        sim._sync_food_array(e)
     hero_controlled = bool(runtime.controlled[e, 0])
     for key, value in snapshot["runtime"].items():
         getattr(runtime, key)[e] = value[0].copy()
