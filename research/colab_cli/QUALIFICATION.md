@@ -137,6 +137,14 @@ No test runs overlapped.
   hash mismatch and wrote no manifest. This is the intended pre-acceptance
   state, not a dispatch qualification.
 
+After merging the independently published Path B changes from `origin/main`,
+the combined selection of accounting transitions, T34 qualification/manifests,
+slot guards, and all four Path B Python test modules produced **92 passed** in
+4.90 seconds with `-n 2`. Log:
+`/tmp/snake-rules-verification-20261019-merged.log`. The full-suite numbers above
+were measured before this final integration; the full suite was not repeated
+after that unrelated main-line merge.
+
 The non-slow suite is **not green**. The three reproduced baseline failures
 and the 13 unresolved compile-environment failures are reported rather than
 changing unrelated research code or weakening the tests.
