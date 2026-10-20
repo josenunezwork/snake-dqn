@@ -304,11 +304,12 @@ def test_analyze_cli_is_descriptive_and_preserves_create_only_decision(
         "release_authorized": False,
     }
     (tmp_path / "decision.json").write_text(json.dumps(official))
-    monkeypatch.setattr(
-        retention_v2,
-        "analyze_path",
-        lambda _root: {**official, "verdict": "GO", "reason": "descriptive result", "mass": 12.0},
-    )
+
+    def descriptive(_root, *, unpaced_shards):
+        assert unpaced_shards == []
+        return {**official, "verdict": "GO", "reason": "descriptive result", "mass": 12.0}
+
+    monkeypatch.setattr(retention_v2, "analyze_path", descriptive)
     monkeypatch.setattr(
         sys,
         "argv",
