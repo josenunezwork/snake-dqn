@@ -1,5 +1,6 @@
 # T34 Round 0 preparation and operator runbook
 
+Latest implementation evidence: [VERIFICATION_FIXES1.md](VERIFICATION_FIXES1.md).
 Latest rules: [FIX-FIRST #1 erratum](ERRATUM_FIXES1.md) and
 [preregistration supplement](PREREGISTRATION_ROUND0_FIXES1.md).
 Historical implementation evidence: [VERIFICATION_INTEGRITY_SIZING.md](VERIFICATION_INTEGRITY_SIZING.md).

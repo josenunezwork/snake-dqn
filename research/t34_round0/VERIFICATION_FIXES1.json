@@ -1,0 +1,57 @@
+{
+  "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes1-20261020",
+  "checks": {
+    "draft-02/CHUNKS.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes1-20261020/draft-02/CHUNKS.json",
+      "sha256": "94de6a22550773cb454d9687c3ad82c4403f04f8b5bb730ce35efcd82f67fc7e"
+    },
+    "draft-02/REGISTRATION_DRAFT.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes1-20261020/draft-02/REGISTRATION_DRAFT.json",
+      "sha256": "2ec00c886f61a1e559b2be6cc4cad93d49f324adf93a81544b86ee16694c5378"
+    },
+    "draft-02/VALIDATION.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes1-20261020/draft-02/VALIDATION.json",
+      "sha256": "8ed425bf84d4148048222dd1293952f817f2290f4e3bcc74451d5b0f7319cfed"
+    },
+    "draft-02/manifests/t34-round0-chunk-000-attempt-01-l1.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes1-20261020/draft-02/manifests/t34-round0-chunk-000-attempt-01-l1.json",
+      "sha256": "aeef00fb57f915fd6ccb599fcaf41315d40fe08f41869d39db18b43275a1273c"
+    },
+    "draft-02/manifests/t34-round0-chunk-001-attempt-01-l1.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes1-20261020/draft-02/manifests/t34-round0-chunk-001-attempt-01-l1.json",
+      "sha256": "8406689167100ed4bf2316954c248411e954fe9dbabce06f182d25bcdf66d880"
+    },
+    "source-02/qualification.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes1-20261020/source-02/qualification.json",
+      "sha256": "f593d7244ec1d967e8c5daffe09f37eb8d9b2f0ee1f66c32d2c9d4bc5c403d82"
+    },
+    "source-02/source-plan.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes1-20261020/source-02/source-plan.json",
+      "sha256": "c9dc9d371af0444994b4bccaf97405a89771b909a01ef1fbc928a2e4df85b2dc"
+    },
+    "source-02/source.tar.gz": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes1-20261020/source-02/source.tar.gz",
+      "sha256": "6b459a76ccefe585b5f5097aae4357958b0733121b3ea3f7819e1d4f7ca38264"
+    }
+  },
+  "dispatched": false,
+  "gameplay_run": false,
+  "initial_cap_plus_reserve_units": 24.88,
+  "maximum_with_mechanical_reruns_units": 49.76,
+  "ratified": false,
+  "schema": "t34-round0-fixes1-preparation/v1",
+  "source_commit": "838ae93e025cca4c695e4c50a603beb8b7654bf3",
+  "source_current_preflight": false,
+  "status": "DRAFT_VALIDATED_NOT_RATIFIED",
+  "tests": {
+    "adjacent_passed": 10,
+    "fixes1_passed": 34,
+    "package_seconds": 35.57,
+    "package_total_passed": 112,
+    "round0_original_passed": 68,
+    "total_passed": 204,
+    "transport_passed": 92,
+    "transport_seconds": 528.6,
+    "transport_status": "PASS"
+  }
+}
