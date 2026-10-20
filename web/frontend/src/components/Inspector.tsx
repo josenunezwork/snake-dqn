@@ -88,6 +88,12 @@ function Inspector({
   const greedyDiffers = acted !== chosen;
   const pathbLast = pathb?.last ?? null;
   const pathbCounts = pathb?.counts ?? {};
+  const pathbHeroId = pathb?.hero_id ?? 0;
+  const inspectingPathbHero = pathb?.active === true && heroId === pathbHeroId;
+  const pathbLastMatchesInspectedHero =
+    inspectingPathbHero && pathbLast?.hero_id === pathbHeroId;
+  const pathbAppliedThisTick =
+    pathbLastMatchesInspectedHero && pathbLast?.frame === tick && pathbLast.applied === true;
 
   const foodGroup = groups.find((g) => isSectorGroup(g) && g.name.toLowerCase().includes("food"));
   const dangerGroup = groups.find((g) => isSectorGroup(g) && g.name.toLowerCase().includes("danger"));
@@ -100,21 +106,28 @@ function Inspector({
 
       {pathb?.active === true && (
         <div className="card" aria-label="Assisted hero status">
-          <div className="section-title">assisted hero</div>
+          <div className="section-title">assisted hero #{pathbHeroId}</div>
           <div className="muted" style={{ fontSize: 11, lineHeight: 1.6 }}>
             Interventions {pathbCounts.applied ?? 0} · fallbacks {pathbCounts.fallback ?? 0}
             {" · "}deadline misses {pathbCounts.deadline_miss ?? 0}
             {" · "}stale discarded {pathbCounts.stale_discarded ?? 0}
           </div>
-          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-            Proposed action: <span className="mono">{actionName(pathbLast?.proposed_action, action_labels)}</span>
-            {" · "}executed action: <span className="mono">{actionName(pathbLast?.executed_action, action_labels)}</span>
-            {pathbLast?.fallback_reason ? (
-              <>
-                {" · "}fallback: <span className="mono">{pathbLast.fallback_reason}</span>
-              </>
-            ) : null}
-          </div>
+          {pathbLastMatchesInspectedHero ? (
+            <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+              Proposed action: <span className="mono">{actionName(pathbLast?.proposed_action, action_labels)}</span>
+              {" · "}executed action: <span className="mono">{actionName(pathbLast?.executed_action, action_labels)}</span>
+              {pathbLast?.fallback_reason ? (
+                <>
+                  {" · "}fallback: <span className="mono">{pathbLast.fallback_reason}</span>
+                </>
+              ) : null}
+            </div>
+          ) : (
+            <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+              Path B decision details belong to assisted hero #{pathbHeroId}; selected snake #{heroId}
+              {" "}uses its own bare policy.
+            </div>
+          )}
         </div>
       )}
 
@@ -151,8 +164,10 @@ function Inspector({
         {greedyDiffers && (
           <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
             Action taken: <span className="mono">{action_labels[acted]}</span> · greedy pick:{" "}
-            <span className="mono">{action_labels[chosen]}</span> (exploration or masking
-            overrode the argmax).
+            <span className="mono">{action_labels[chosen]}</span>{" "}
+            {pathbAppliedThisTick
+              ? "(assisted lookahead override selected the executed action)."
+              : "(exploration or masking overrode the argmax)."}
           </div>
         )}
         {inspector.resolved_mask && (

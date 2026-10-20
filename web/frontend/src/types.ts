@@ -125,6 +125,10 @@ export interface ServingContract {
 // observational: the frontend renders the server's decision accounting and
 // never derives whether a move was assisted locally.
 export interface PathBDecisionLog {
+  hero_id?: number;
+  frame?: number;
+  life?: number;
+  bare_action?: number | null;
   proposed_action?: number | null;
   executed_action?: number | null;
   fallback_reason?: string | null;
@@ -137,6 +141,7 @@ export interface PathBDecisionLog {
 export interface PathBState {
   active: boolean;
   label: string;
+  hero_id?: number;
   counts: Record<string, number>;
   last?: PathBDecisionLog | null;
   recent?: PathBDecisionLog[];
