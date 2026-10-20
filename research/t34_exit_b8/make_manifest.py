@@ -375,7 +375,7 @@ def make_manifest(
             "min_vcpu": 2,
             "est_minutes": CPU_PROFILE_ESTIMATE_MINUTES,
         }
-    budget = {"unit_cap": cap, "rate_units_per_hour": 2.0, "reserve_units": 0.0}
+    budget = {"unit_cap": cap, "rate_units_per_hour": 2.0, "reserve_units": cap * 0.2}
     if cpu_profile:
         # A measured provider rate is preferred.  Before it is known, use the
         # registered non-zero ceiling rather than treating CPU time as free.

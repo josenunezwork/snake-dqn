@@ -129,6 +129,7 @@ def test_a5_public_draft_is_l4_only_and_publication_blocked(tmp_path: Path) -> N
     assert manifest["requirements"]["est_minutes"] == 60
     assert manifest["timeout_minutes"] == 120
     assert manifest["budget"]["unit_cap"] == 4.0
+    assert manifest["budget"]["reserve_units"] == pytest.approx(0.8)
     with pytest.raises(manifests.ManifestRefused, match="publication is pending"):
         manifests.validate_manifest(manifest)
 
