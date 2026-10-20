@@ -92,10 +92,22 @@ optionally initialized from read-only B8. `timing.json` records cache regenerati
 seconds/row, bytes/row, epoch minutes, peak process RSS and VRAM. GPU busy is
 null with an explicit reason on the CPU Mac; no GPU utilization is inferred.
 These timings establish plumbing only, not full-bank throughput or efficacy.
+Cache `regen_seconds` includes replay, cache writes and payload hashing; it is
+not an isolated featurizer benchmark. `bytes` counts array/metadata payloads;
+`disk_file_bytes` also includes the manifest and checksum sidecar. Epoch minutes
+include held-out scoring and probes; RSS is the process lifetime high-water mark.
 `tests/fixtures/t34_fitcache/data_pre_cache.py` is the byte-frozen loader from
 `65df507a` (SHA-256 `144098b9688fb52c1e9c57558612b467ea26d4883694a9a41b72ba9faed68596`).
 Parity tests compare every batch byte and every Adam loss/parameter update for
 three epochs, both with and without bank-wide inventory sampling.
+
+Final implementation verification: **172 T34 tests passed**, Black/isort/flake8
+and Bash syntax checks passed, and the actual Bash entrypoint completed its
+fixed **200 updates** using the cache. The two eight-update Mac smokes measured
+12,692.625 payload bytes/row for S1b and 66,212.625 for S1a on 16 synthetic rows
+each. Exact commands, artifact hashes, source hashes and timing fields are in
+[FITCACHE_VERIFICATION.json](FITCACHE_VERIFICATION.json). GPU busy is unavailable
+on CPU, and the full repository suite and CUDA prefetch were not run.
 
 Implements P4, P5 and the fit-only P6 entrypoint from
 [`2026-10-19_exit_fit_prep.md`](../../docs/research/specs/2026-10-19_exit_fit_prep.md),

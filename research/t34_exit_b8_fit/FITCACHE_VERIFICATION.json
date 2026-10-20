@@ -1,0 +1,326 @@
+{
+  "baseline_commit": "65df507a23128ea7d2b94f64fc170ee6201e3b0e",
+  "checks": [
+    {
+      "command": "env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -m 'not slow' tests/test_t34*.py",
+      "result": "172 passed",
+      "seconds": 37.54
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m black --workers 1 --check --line-length 100 research/t34_exit_b8_fit tests/test_t34_fitcache.py tests/test_t34_fitcache_recipe.py",
+      "result": "21 files unchanged"
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m isort --profile black --check-only research/t34_exit_b8_fit tests/test_t34_fitcache.py tests/test_t34_fitcache_recipe.py",
+      "result": "passed"
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m flake8 --jobs 1 research/t34_exit_b8_fit tests/test_t34_fitcache.py tests/test_t34_fitcache_recipe.py",
+      "result": "passed"
+    },
+    {
+      "command": "bash -n research/t34_exit_b8_fit/fit.sh",
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "cpu_threads": 1,
+  "implementation_commit": "d17d8a2e6ddd063b48a8dd3937c45f997fed3383",
+  "independent_review": "All reported findings addressed; no remaining blocking findings",
+  "limitations": [
+    "Synthetic smoke labels are not efficacy or promotion evidence",
+    "GPU busy is unavailable on CPU; CUDA pinned prefetch not executed",
+    "Full repository test suite not run; all T34 modules passed",
+    "Production v2 export/ReplaySource/probe producer is absent on baseline main and remains an external boundary",
+    "regen_seconds measures replay plus cache writing and payload hashing, not isolated featurizer latency",
+    "Peak RSS is the process lifetime high-water mark"
+  ],
+  "nothing_touched": [
+    "live services",
+    "Colab",
+    "pods",
+    "tmux",
+    "released checkpoint bytes",
+    "serving pins",
+    "existing hash-bound governance files and receipts"
+  ],
+  "parity": {
+    "batches_and_optimizer_updates_per_arm": 21,
+    "comparison": "exact batch dtype/bytes, loss bytes and Adam parameter tensors",
+    "epochs": 3,
+    "inventory_modes": [
+      "per-world",
+      "bank-wide"
+    ],
+    "reference_commit": "65df507a",
+    "reference_data_sha256": "144098b9688fb52c1e9c57558612b467ea26d4883694a9a41b72ba9faed68596"
+  },
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "receipts": {
+    "S1a": {
+      "fit_timing": {
+        "cache": {
+          "array_bytes": 1057168,
+          "bytes": 1059402,
+          "bytes_per_row": 66212.625,
+          "disk_file_bytes": 1066345,
+          "heldout": null,
+          "heldout_chunks": null,
+          "heldout_rows": 0,
+          "include_tower": true,
+          "manifest_sha256": "dd311e71f1113ff0a57c8e0b0124844ac6b168b68a22c3fcf4dc17cc553177f6",
+          "metadata_bytes": 2234,
+          "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-fitcache-20261020/verification.jwOsbR/final-s1a/cache",
+          "regen_seconds": 0.05345487498561852,
+          "regen_seconds_per_row": 0.0033409296866011573,
+          "rows": 16,
+          "training": {
+            "rows": 16,
+            "searched": 8,
+            "unsearched": 8,
+            "worlds_dropped": 0,
+            "worlds_seen": 2
+          },
+          "training_chunks": {
+            "unpartitioned": [
+              2,
+              0
+            ]
+          },
+          "training_rows": 16
+        },
+        "epoch_minutes": [
+          0.0020391166666134572,
+          0.0010162597168042946
+        ],
+        "gpu_busy_percent": null,
+        "gpu_busy_unavailable_reason": "Mac CPU smoke has no GPU utilization measurement",
+        "peak_rss_bytes": 499040256,
+        "peak_vram_bytes": 0,
+        "pinned_prefetch_batches": 0,
+        "schema": "t34-fit-timing/v1",
+        "torch_cpu_threads": 1
+      },
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-fitcache-20261020/verification.jwOsbR/final-s1a/timing.json",
+      "sha256": "6ad1959e8024f6d1cf683b5f5358e9f742d1a7d1bbd1d623a81ea0c2ee2dd38d",
+      "updates": 8
+    },
+    "S1b": {
+      "fit_timing": {
+        "cache": {
+          "array_bytes": 200848,
+          "bytes": 203082,
+          "bytes_per_row": 12692.625,
+          "disk_file_bytes": 209312,
+          "heldout": null,
+          "heldout_chunks": null,
+          "heldout_rows": 0,
+          "include_tower": false,
+          "manifest_sha256": "0d4abd74866e867957e45835119b39c157c4a0353fcdbda9f33950388e36ca1e",
+          "metadata_bytes": 2234,
+          "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-fitcache-20261020/verification.jwOsbR/final-s1b/cache",
+          "regen_seconds": 0.04320233399630524,
+          "regen_seconds_per_row": 0.0027001458747690776,
+          "rows": 16,
+          "training": {
+            "rows": 16,
+            "searched": 8,
+            "unsearched": 8,
+            "worlds_dropped": 0,
+            "worlds_seen": 2
+          },
+          "training_chunks": {
+            "unpartitioned": [
+              2,
+              0
+            ]
+          },
+          "training_rows": 16
+        },
+        "epoch_minutes": [
+          0.0012707187503110617,
+          0.0006657291664547908
+        ],
+        "gpu_busy_percent": null,
+        "gpu_busy_unavailable_reason": "Mac CPU smoke has no GPU utilization measurement",
+        "peak_rss_bytes": 418988032,
+        "peak_vram_bytes": 0,
+        "pinned_prefetch_batches": 0,
+        "schema": "t34-fit-timing/v1",
+        "torch_cpu_threads": 1
+      },
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-fitcache-20261020/verification.jwOsbR/final-s1b/timing.json",
+      "sha256": "56b2390d1352b8ed20473c0e04cd7c7aa3b5f917c5c243dcf89bcec8059ceda5",
+      "updates": 8
+    },
+    "bash_preflight": {
+      "fit_timing": {
+        "cache": {
+          "array_bytes": 101064,
+          "bytes": 102178,
+          "bytes_per_row": 12772.25,
+          "disk_file_bytes": 108727,
+          "heldout": null,
+          "heldout_chunks": null,
+          "heldout_rows": 0,
+          "include_tower": false,
+          "manifest_sha256": "c1b7e03dd38b5bd994307b641c47766572a3637b86d9582b396187215781c0bf",
+          "metadata_bytes": 1114,
+          "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-fitcache-20261020/verification.jwOsbR/bash-output/fit-preflight/observation-cache",
+          "regen_seconds": 0.04469804099062458,
+          "regen_seconds_per_row": 0.005587255123828072,
+          "rows": 8,
+          "training": {
+            "rows": 8,
+            "searched": 4,
+            "unsearched": 4,
+            "worlds_dropped": 0,
+            "worlds_seen": 2
+          },
+          "training_chunks": {
+            "unpartitioned": [
+              2,
+              0
+            ]
+          },
+          "training_rows": 8
+        },
+        "epoch_minutes": [
+          0.0010635340334071467,
+          0.0008403715333164048,
+          0.0007816944504156709,
+          0.0007732194499112666,
+          0.0004196958330188257,
+          0.0003601479169446975,
+          0.0002185430503838385,
+          0.00028185069968458267,
+          0.00034407153337573013,
+          0.0003120673500234261,
+          0.00023460624991760898,
+          0.0003277166664095906,
+          0.0002803979165037163,
+          0.0003015743001014926,
+          0.0003264229167446805,
+          0.0003217131830751896,
+          0.0003156749997287989,
+          0.00029044445012308036,
+          0.00032428403307373325,
+          0.00023222778351434197,
+          0.0003137958333051453,
+          0.0002788222166903627,
+          0.00033168263325933367,
+          0.0003541326334622378,
+          0.00034368750008676824,
+          0.00025711598330720636,
+          0.000311486116455247,
+          0.0003349625001040598,
+          0.0002441576497706895,
+          0.0003231048666445228,
+          0.00030788958344298104,
+          0.0004109284665901214,
+          0.00033159443313100686,
+          0.0003000291665860762,
+          0.0002307819498431248,
+          0.00034969653303657347,
+          0.00029621944995597007,
+          0.0002943756834914287,
+          0.00029777151697392884,
+          0.0003132201498374343,
+          0.00024370278309409816,
+          0.00033979028376052156,
+          0.00029730276631501816,
+          0.000262024300172925,
+          0.00024378403371277574,
+          0.0003639291666331701,
+          0.00038703056634403765,
+          0.00035241526638856157,
+          0.00031226181648283575,
+          0.00031570556699686374,
+          0.0002847437499440275,
+          0.00023483265006992346,
+          0.0004257423667392383,
+          0.0003302541663288139,
+          0.0002533784664895696,
+          0.00021066389987633253,
+          0.0002903361169349713,
+          0.0002818652666367901,
+          0.0002255624999331,
+          0.0003255798665729041,
+          0.00041293401688259715,
+          0.00032008749985834584,
+          0.000305443749918292,
+          0.00029300348299633093,
+          0.00030480138326917464,
+          0.0003058034664718434,
+          0.0003392444501514547,
+          0.0002711777667476175,
+          0.0002842423501230466,
+          0.0003068833330568547,
+          0.00028112013339220233,
+          0.00022302500001387672,
+          0.0003640354164720823,
+          0.00030214653331010294,
+          0.0002206222163901354,
+          0.00026364443328930065,
+          0.0003140506999140295,
+          0.00031439721691034115,
+          0.00030487846670439466,
+          0.00022655693319393322,
+          0.00031842221651459115,
+          0.00030712848335194093,
+          0.00030699445002634697,
+          0.00028248818319601317,
+          0.00030044721643207595,
+          0.0003289097163360566,
+          0.00033894513374737776,
+          0.0003130117998807691,
+          0.00028767916664946825,
+          0.00023256458322672794,
+          0.00043194028306364394,
+          0.0003289625000131006,
+          0.00022276319990245004,
+          0.0002966986168758012,
+          0.0003080750000663102,
+          0.00032317569954708837,
+          0.0002855951335125913,
+          0.00028604583300572507,
+          0.00032592361676506696,
+          0.0003270750001926596
+        ],
+        "gpu_busy_percent": null,
+        "gpu_busy_unavailable_reason": "Mac CPU smoke has no GPU utilization measurement",
+        "peak_rss_bytes": 674611200,
+        "peak_vram_bytes": 0,
+        "pinned_prefetch_batches": 0,
+        "schema": "t34-fit-timing/v1",
+        "torch_cpu_threads": 1
+      },
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-fitcache-20261020/verification.jwOsbR/bash-output/fit-preflight/fit-preflight.json",
+      "sha256": "e150b3bff023e61e60325c0a8227520442205424d5c2de0a8f12d175b91b09b0",
+      "updates": 200
+    }
+  },
+  "schema": "t34-fitcache-verification/v1",
+  "smoke_commands": [
+    "env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.t34_exit_b8_fit.cache_smoke --checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-fitcache-20261020/verification.jwOsbR/final-s1b",
+    "env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.t34_exit_b8_fit.cache_smoke --checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth --tower --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-fitcache-20261020/verification.jwOsbR/final-s1a",
+    "env PATH=\"/Users/josenunez/Projects/ml/snake-dqn/venv/bin:$PATH\" OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu T34_FIT_INPUT_MODE=local-preflight T34_FIT_INPUT_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-fitcache-20261020/verification.jwOsbR/script-inputs T34_FIT_OUTPUT_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-v2-fitcache-20261020/verification.jwOsbR/bash-output T34_FIT_DEVICE=cpu T34_FIT_FAKE_ENGINE=1 bash research/t34_exit_b8_fit/fit.sh"
+  ],
+  "source_sha256": {
+    "research/t34_exit_b8_fit/cache.py": "7cf95893bd69c5b4ca08728a8d2fb64cb07b922fa54817d99bb8692aa11d331f",
+    "research/t34_exit_b8_fit/cache_smoke.py": "b8d4970ce9b9900977b77eb5d3e83b85bf92b53173a217d92aaeb5718f4065b0",
+    "research/t34_exit_b8_fit/data.py": "d06a8279d4972c275c9dea9997e78ca30b590156fd899e9d754260457c5d3f08",
+    "research/t34_exit_b8_fit/entrypoint.py": "964a31a683d8011622cc45c3846c9fdee80907344bfe0fdbe46d02291dbeea78",
+    "research/t34_exit_b8_fit/interface.py": "d576afb560df47a8096f2311a051728369e549a8640adf45c0cd35029c1087f9",
+    "research/t34_exit_b8_fit/loss.py": "b7e2f4ca6bf5f5e7a38b7645d6f96fae1a2e656556fdf6f4933c6353da09845d",
+    "research/t34_exit_b8_fit/runner.py": "81b7859e7e4e23a01763a75492ceb706a753baf167c6349ac7387800fa74dc65",
+    "research/t34_exit_b8_fit/train.py": "b389bc01113eb6b9b21e5238dae6d8445296f8268c5caa5c3dfc1a4696849791",
+    "tests/fixtures/t34_fitcache/data_pre_cache.py": "144098b9688fb52c1e9c57558612b467ea26d4883694a9a41b72ba9faed68596",
+    "tests/test_t34_fitcache.py": "85eb2578cbdf595e4996163149b44a38b8b2f374dbc98adb32b6f8817b2ba057",
+    "tests/test_t34_fitcache_recipe.py": "b66393cc2d460652b0d0de702a6e8f64f10073d7995840435a27e74636ec6295"
+  },
+  "status": "MAC_IMPLEMENTATION_VERIFIED_SMOKE_ONLY"
+}
