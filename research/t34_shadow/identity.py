@@ -294,6 +294,9 @@ def run_m1_mix(seed: int, mix: str, *, frames: int = 5000, deadline: float | Non
     shadow.catch_up(deadline=deadline)
     lives_live, lives_grid = [0] * 6, [0] * 6
     prev_live, prev_grid = [True] * 6, [True] * 6
+    initial_live = _physical(session.game, world, specs, lives_live, live=True, rng=live_rng)
+    initial_grid = _physical(None, world, specs, lives_grid, live=False)
+    initial_identical = _value_digest(initial_live) == _value_digest(initial_grid)
     evidence, divergences = [], []
     comparisons = {k: 0 for k in ("physical", "carry", "v8", "actions", "shadow")}
     shadow_confirmed = 0
@@ -396,7 +399,8 @@ def run_m1_mix(seed: int, mix: str, *, frames: int = 5000, deadline: float | Non
         "identity": identity,
         "divergence_frames": comparisons,
         "divergences": divergences,
-        "zero_unexplained": not any(comparisons.values()),
+        "initial_physical_identical": initial_identical,
+        "zero_unexplained": initial_identical and not any(comparisons.values()),
         "shadow_confirmed_frames": shadow_confirmed,
         "evidence": evidence,
         "evidence_chain": _value_digest(evidence),

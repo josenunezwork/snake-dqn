@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from research.t34_shadow.identity import game_state_digest
+from research.t34_shadow.identity import _value_digest, game_state_digest
 from research.t34_shadow.shadow import (
     ShadowDeadlineExceeded,
     ShadowTrajectory,
@@ -41,6 +41,16 @@ class _World:
 
     def clone(self):
         return copy.deepcopy(self)
+
+
+def test_digest_ignores_immutable_alias_topology_and_nested_elapsed_timers():
+    shared = SimpleNamespace(lam=8.0, reference_seconds_total=1.0)
+    independent = [copy.deepcopy(shared), copy.deepcopy(shared)]
+    independent[0].reference_seconds_total = 2.0
+    independent[1].reference_seconds_total = 3.0
+    assert _value_digest([shared, shared]) == _value_digest(independent)
+    independent[1].lam = 9.0
+    assert _value_digest([shared, shared]) != _value_digest(independent)
 
 
 def _step(world):
