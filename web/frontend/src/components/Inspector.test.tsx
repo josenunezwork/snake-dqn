@@ -67,7 +67,7 @@ describe("Path B inspector identity", () => {
 
     const status = screen.getByLabelText("Assisted hero status");
     expect(status).toHaveTextContent("assisted hero #0");
-    expect(status).toHaveTextContent("selected snake #2 uses its own bare policy");
+    expect(status).toHaveTextContent("selected snake #2 uses its own served controller");
     expect(status).not.toHaveTextContent("Proposed action:");
     expect(status).not.toHaveTextContent("executed action:");
   });

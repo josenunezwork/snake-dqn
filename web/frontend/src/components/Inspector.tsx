@@ -125,7 +125,7 @@ function Inspector({
           ) : (
             <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
               Path B decision details belong to assisted hero #{pathbHeroId}; selected snake #{heroId}
-              {" "}uses its own bare policy.
+              {" "}uses its own served controller.
             </div>
           )}
         </div>

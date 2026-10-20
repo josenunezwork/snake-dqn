@@ -1,11 +1,19 @@
 # T34 Path B deadline-feasibility check
 
+**V1 infrastructure only; v1 efficacy is retired.** The owner-approved
+[design v2](../../docs/research/final_run_20261019/DESIGN_V2_SHADOW.md) supersedes
+this H40 controller with shadow trajectories and LAD search. Do not prepare or
+run a v1 efficacy bank. M1–M4 measurements and the v2 rework are separate work.
+Only implementation smoke checks have been run here; they yield no efficacy
+estimate. Controller bounds, paced banks, timing tools and assisted identity
+remain available for that later rework.
+
 The implementation is **development tooling, default OFF**. It neither qualifies
 nor releases an assisted hero. Read [PROTOCOL.md](PROTOCOL.md) and its prospective
 [timing clarification](PROTOCOL_TIMING_ERRATUM.md) and
 [analysis clarification](PROTOCOL_ANALYSIS_ERRATUM.md). All preceded real efficacy data.
-The owner sizes and runs the real bank. All commands below run from this worktree;
-no command starts a service, uses tmux, or changes another running job.
+All commands below run from this worktree. No command starts a service, uses tmux,
+or changes another running job.
 
 ## Setup and tiny smoke
 
@@ -28,11 +36,13 @@ Use a new explicit smoke key for a later plumbing check; keys never alter the re
 Outputs must be fresh absolute paths; manifests, logs, starts and results are
 create-only. A failure preserves its evidence and does not automatically retry.
 
-## Size, freeze and run an owner-sized development bank
+## Retired v1 bank command reference — do not execute
 
-This example uses five independent blocks with one world in each group. It is a
-small, noisy development example, with no power or acceptance claim. Increase the
-three terminal mix counts and product count **before** preparing a new bank.
+The frozen v1 entrypoints are retained as implementation documentation, not an
+execution recommendation. This example uses five independent blocks with one
+world in each group. It is a small, noisy development example, with no power or
+acceptance claim. The three terminal mix counts and product count would have
+been fixed **before** preparing a new bank.
 The production action rule stays fixed at length >=600, every fifth target frame,
 horizon 40. `--workers 1` is enforced: one parent and one single-thread CPU worker.
 
@@ -79,8 +89,8 @@ Defaults of 5 blocks × (96+48+48+25) worlds cost at least **565.104 wall-hours 
 753.472 reserved core-hours**. These are capacity estimates, not measured active
 CPU use: setup, serialization, ticks and synchronous unlimited searches add time.
 Per-arm parent CPU and elapsed time are recorded; the smoke is too short and its
-body/search regime too different to price real long-body search. The owner should
-use a disjoint timing probe to set a practical cap before starting the bank. Cap
+body/search regime too different to price real long-body search. Any future v2 bank
+needs its own prospective protocol and sizing. Cap
 expiry means `INCOMPLETE`, with no resume or automatic extension.
 
 ## Evidence and acceptance against SUCCESS_CONTRACT
