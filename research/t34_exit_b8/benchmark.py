@@ -97,6 +97,77 @@ def _profile_value(profile: Mapping[str, Any], name: str) -> int:
     return int(value)
 
 
+def _batch_timing(result: Mapping[str, Any], *, steady_state_seconds: float) -> dict[str, Any]:
+    """Copy the v2 collector's cold-fill and post-fill timing receipt.
+
+    The collector owns the boundaries: cold fill ends only after all resident
+    roots have their initial shadow, and the steady-state interval begins at
+    that boundary.  Keeping these values separate from whole-run throughput
+    prevents a cold bootstrap from being represented as the production rate.
+    """
+    numeric = (
+        "cold_fill_elapsed_seconds",
+        "cold_fill_active_row_steps",
+        "cold_fill_resident_row_steps",
+        "first_decision_elapsed_seconds",
+        "steady_state_elapsed_seconds",
+        "steady_state_active_row_steps",
+        "steady_state_resident_row_steps",
+        "steady_state_root_row_steps",
+        "steady_state_shadow_row_steps",
+        "steady_state_decisions",
+    )
+    timing: dict[str, Any] = {"steady_state_window_seconds": steady_state_seconds}
+    for name in numeric:
+        value = result.get(name)
+        if value is None:
+            timing[name] = None
+        elif (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            and value >= 0
+        ):
+            timing[name] = value
+        else:
+            raise TypeError(f"teacher timing {name} must be a finite nonnegative number or null")
+    stage_seconds = result.get("steady_state_host_stage_seconds")
+    if stage_seconds is None:
+        timing["host_stage_seconds"] = None
+    elif isinstance(stage_seconds, Mapping) and all(
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value >= 0
+        for value in stage_seconds.values()
+    ):
+        timing["host_stage_seconds"] = dict(stage_seconds)
+    else:
+        raise TypeError(
+            "teacher timing steady_state_host_stage_seconds must be a numeric mapping or null"
+        )
+    complete = result.get("steady_state_window_complete")
+    if complete is not None and not isinstance(complete, bool):
+        raise TypeError("teacher timing steady_state_window_complete must be boolean or null")
+    timing["window_complete"] = complete
+    elapsed = timing["steady_state_elapsed_seconds"]
+    if elapsed is None or elapsed <= 0:
+        timing["active_row_steps_per_second"] = None
+        timing["decisions_per_second"] = None
+    else:
+        timing["active_row_steps_per_second"] = (
+            timing["steady_state_active_row_steps"] / elapsed
+            if timing["steady_state_active_row_steps"] is not None
+            else None
+        )
+        timing["decisions_per_second"] = (
+            timing["steady_state_decisions"] / elapsed
+            if timing["steady_state_decisions"] is not None
+            else None
+        )
+    return timing
+
+
 def _load_policy(config: Mapping[str, Any]) -> Any | None:
     """Load an opt-in future student adapter; default remains the B8 policy."""
     reference = config.get("policy_factory")
@@ -135,6 +206,14 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
     seconds = float(config.get("seconds", 1500))
     if not math.isfinite(seconds) or not 0 < seconds <= (600 if preflight else 1500):
         raise ValueError("benchmark wall bound must be positive and at most 1500s (600s preflight)")
+    configured_steady_state = config.get("steady_state_seconds")
+    steady_state_seconds = float(
+        min(1200, seconds) if configured_steady_state is None else configured_steady_state
+    )
+    if not math.isfinite(steady_state_seconds) or not 0 < steady_state_seconds <= seconds:
+        raise ValueError(
+            "steady-state window must be positive and no longer than the benchmark wall bound"
+        )
     cpu_runtime_probe = bool(config.get("cpu_runtime_probe", False))
     if cpu_runtime_probe and kernel != "v2":
         raise ValueError("CPU runtime probe is available only for the v2 kernel")
@@ -198,6 +277,7 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
             "worlds_per_process": worlds_per_process,
             "max_worlds": max_worlds,
             "mixes": mixes,
+            "steady_state_seconds": steady_state_seconds,
             "output_dir": config["output_dir"],
         }
     )
@@ -254,6 +334,11 @@ def run_benchmark(config: Mapping[str, Any]) -> dict[str, Any]:
             result.get("host_stage_seconds", profile.get("host_stage_seconds", {}))
         ),
         "worker_rate_descriptive_only": True,
+        **(
+            {"batch_timing": _batch_timing(result, steady_state_seconds=steady_state_seconds)}
+            if kernel == "v2"
+            else {}
+        ),
         **({"runtime_hardware": _runtime_hardware()} if cpu_runtime_probe else {}),
         **{
             key: result[key]
@@ -318,6 +403,14 @@ def aggregate_lane_reports(paths: list[Path]) -> dict[str, Any]:
     active = sum(int(row["active_row_steps"]) for row in rows)
     resident = sum(int(row["resident_row_steps"]) for row in rows)
     rate = active / max(wall, 1e-9)
+    timings = [row.get("batch_timing") for row in rows]
+    if any(timing is not None and not isinstance(timing, dict) for timing in timings):
+        raise ValueError("worker batch timing must be an object when present")
+    first_decisions = [
+        float(timing["first_decision_elapsed_seconds"])
+        for timing in timings
+        if isinstance(timing, dict) and timing.get("first_decision_elapsed_seconds") is not None
+    ]
     return {
         "schema": (
             "t34-a5-lane-aggregate/v2"
@@ -337,6 +430,20 @@ def aggregate_lane_reports(paths: list[Path]) -> dict[str, Any]:
             "met": all(bool(row["complete"]) for row in rows) and rate >= 3000,
             "enforced": False,
         },
+        **(
+            {
+                "batch_timing": {
+                    "first_decision_elapsed_seconds": min(first_decisions, default=None),
+                    "workers": timings,
+                    "aggregation": (
+                        "per-worker cold-fill and steady-state windows are retained separately; "
+                        "only the earliest first decision is summarized"
+                    ),
+                }
+            }
+            if kernels == {"v2"}
+            else {}
+        ),
     }
 
 
@@ -351,6 +458,7 @@ def main() -> None:
     parser.add_argument("--max-worlds", type=int, default=256)
     parser.add_argument("--frames", type=int, default=5000)
     parser.add_argument("--seconds", type=float, default=1500)
+    parser.add_argument("--steady-state-seconds", type=float)
     parser.add_argument("--horizon", type=int, default=300)
     parser.add_argument("--threads", type=int, default=5)
     parser.add_argument("--device", default="cuda")
