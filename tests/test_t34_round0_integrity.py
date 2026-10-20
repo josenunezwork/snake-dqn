@@ -226,6 +226,12 @@ def test_only_a_measured_mechanical_failure_can_precede_attempt_two(
     }
     assert dispatch._mechanical(failed_download, job)
 
+    refused_download = dict(
+        failed_download,
+        error="Refused('download hash mismatch or transfer failure: immutable export')",
+    )
+    assert dispatch._mechanical(refused_download, job)
+
     for error in ("TransferError(final usage query)", "TransferError(backup check)"):
         no_failed_download = dict(failed_download, error=error, transfers=[])
         assert not dispatch._mechanical(no_failed_download, job)

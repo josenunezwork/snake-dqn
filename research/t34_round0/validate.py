@@ -84,6 +84,9 @@ def validate(preflight_dir: Path | None = None, a5_receipt: Path | None = None) 
         from research.t34_round0.make_manifest import size_round, validate_a5
 
         adapter = validate_a5(read_json(a5_receipt))
+        from research.t34_round0.sizing import verify_adapter
+
+        verify_adapter(adapter)
         if receipt is None or adapter["a6_measurement_sha256"] != receipt["sha256"]:
             raise ValueError("sizing adapter differs from this A6 receipt")
         sizing = size_round(

@@ -104,6 +104,12 @@ def test_manifest_uses_fixed_attempt_path_and_recomputed_chunk_caps(
 ) -> None:
     commit = "a" * 40
     files = _manifest_inputs(tmp_path, commit)
+    ratification_value = json.loads(files["ratification"].read_text())
+    ratification_value["source_hashes"]["research/t34_exit_b8/PUBLIC_INPUTS.json"] = _sha(
+        files["public"]
+    )
+    _write(files["ratification"], ratification_value)
+    monkeypatch.setattr("research.t34_round0.sizing.verify_adapter", lambda *_args: None)
     monkeypatch.setattr(manifests, "require_qualified_transport", lambda *_args: {})
     monkeypatch.setattr(manifests, "require_registration", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(manifests, "validate_supervisor", lambda *_args, **_kwargs: {})
@@ -141,6 +147,23 @@ def test_manifest_uses_fixed_attempt_path_and_recomputed_chunk_caps(
     assert first["budget"]["reserve_units"] == pytest.approx(first["budget"]["unit_cap"] * 0.20)
     assert first["max_export_bytes"] < MAX_EXPORT_BYTES
     assert (files["study_root"] / "manifests" / f"{first['job_id']}.json").is_file()
+    import copy
+
+    from research.t34_round0.dispatch import validate_manifest_closure
+    from research.t34_round0.history import HistoryError
+
+    validate_manifest_closure(first, ratification_value, files["ratification"])
+    for field in ("script", "requirements", "env", "inputs", "source_paths"):
+        altered = copy.deepcopy(first)
+        altered[field] = {
+            "script": "research/other.sh",
+            "requirements": {},
+            "env": {},
+            "inputs": [],
+            "source_paths": [],
+        }[field]
+        with pytest.raises(HistoryError, match="closure"):
+            validate_manifest_closure(altered, ratification_value, files["ratification"])
 
 
 def test_size_chunk_adds_all_same_runtime_component_costs() -> None:
@@ -234,3 +257,85 @@ def test_size_chunk_refuses_invalid_measured_inputs(
             metric_seconds_per_pair=metric,
             cpu_slowdown_factor=slowdown,
         )
+
+
+def test_nonzero_setup_is_charged_once_per_chunk() -> None:
+    sizing = size_round(
+        240,
+        teacher_worlds_per_hour=54.4,
+        bare_seconds_per_world=9.0,
+        metric_seconds_per_pair=4.0,
+        cpu_slowdown_factor=3.0,
+        setup_minutes=15,
+    )
+    assert len(sizing["chunks"]) == 2
+    assert sizing["chunk_pairs"] > 100
+    assert all(c["workload_minutes"] <= 180 for c in sizing["chunks"])
+    assert all(c["setup_minutes"] == 15 for c in sizing["chunks"])
+
+
+def test_sizing_adapter_refuses_changed_derived_measurements(tmp_path: Path) -> None:
+    from research.t34_round0.sizing import verify_adapter
+
+    lanes = []
+    for number in range(2):
+        job = tmp_path / f"a5-{number}"
+        (job / "exports").mkdir(parents=True)
+        raw = {
+            "worlds_per_hour": 54.4 + number,
+            "active_row_steps_per_second": 377 + number,
+            "export_bytes_per_world": 8882584.1,
+        }
+        benchmark = _write(job / "exports/benchmark.json", raw)
+        receipt = _write(job / "receipt.json", {"status": "PASS"})
+        lanes.append(
+            {
+                "path": str(benchmark),
+                "sha256": _sha(benchmark),
+                "receipt_sha256": _sha(receipt),
+                **raw,
+            }
+        )
+    costs = {
+        "bare": {"rollout_elapsed_seconds": 1.0, "metric_elapsed_seconds": 0.2},
+        "teacher": {"rollout_elapsed_seconds": 5.0, "metric_elapsed_seconds": 0.3},
+    }
+    pair_entries = []
+    for number in range(2):
+        pair = _write(tmp_path / f"pair-{number}.json", {"arms": costs})
+        pair_entries.append({"path": pair.name, "sha256": _sha(pair)})
+    chunk = _write(
+        tmp_path / "chunk.json", {"pairs": pair_entries, "run_identity": {"source_hashes": {}}}
+    )
+    evidence = {
+        "a5_lanes": lanes,
+        "a6_verification": {"preflight": {"path": str(chunk)}},
+        "a6_pair_costs": [costs, costs],
+        "setup_minutes": 15,
+    }
+    adapter = {
+        "evidence": evidence,
+        "evidence_sha256": hashlib.sha256(
+            json.dumps(evidence, sort_keys=True).encode()
+        ).hexdigest(),
+        "a6_measurement_sha256": _sha(chunk),
+        "a6_source_sha256": hashlib.sha256(b"{}").hexdigest(),
+        "teacher_worlds_per_hour": 54.4,
+        "bare_seconds_per_world": 10.0,
+        "metric_seconds_per_pair": 5.0,
+        "cpu_slowdown_factor": 3.0,
+        "setup_minutes": 15,
+        "active_row_steps_per_second": 377,
+        "measured_export_bytes_per_pair": 8882584.1,
+    }
+    verify_adapter(adapter)
+    for field in (
+        "teacher_worlds_per_hour",
+        "bare_seconds_per_world",
+        "metric_seconds_per_pair",
+        "setup_minutes",
+    ):
+        with pytest.raises(ValueError, match="derived fields"):
+            verify_adapter(dict(adapter, **{field: adapter[field] + 1}))
+    with pytest.raises(ValueError, match="digest"):
+        verify_adapter(dict(adapter, evidence_sha256="0" * 64))

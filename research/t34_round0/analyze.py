@@ -252,12 +252,20 @@ def _admission(chunk: Path, identity: Mapping[str, Any], repo: Path) -> dict[str
     manifest_path = job / "manifest.json"
     manifest = read_json(manifest_path)
     terminal = read_json(job / "terminal.json")
+    fault_terminal = receipt.get("terminal") is None and (chunk / "fault.json").is_file()
+    if fault_terminal:
+        # execute() writes the terminal before rejecting a nonzero workload;
+        # its caller then has no returned terminal/exports. Bind the independently
+        # preserved poll rather than inventing a successful transport receipt.
+        polls = [read_json(path).get("terminal") for path in sorted(job.glob("poll-*.json"))]
+        if terminal not in polls or receipt.get("stop_verified") is not True:
+            raise InvalidEvidence("fault terminal lacks preserved telemetry and verified release")
     if (
         receipt.get("manifest_sha256") != sha256(manifest_path)
         or receipt.get("commit") != identity["commit"]
         or manifest.get("commit") != identity["commit"]
         or receipt.get("job_id") != manifest.get("job_id")
-        or terminal != receipt.get("terminal")
+        or (not fault_terminal and terminal != receipt.get("terminal"))
         or terminal.get("generation") != receipt.get("generation")
         or terminal.get("job_id") != manifest.get("job_id")
     ):
@@ -272,7 +280,7 @@ def _admission(chunk: Path, identity: Mapping[str, Any], repo: Path) -> dict[str
     ):
         if inputs.get(dest) != identity[key]:
             raise InvalidEvidence("manifest input differs from registered analysis input")
-    inventory = receipt.get("exports")
+    inventory = terminal.get("exports") if fault_terminal else receipt.get("exports")
     terminal_exports = terminal.get("exports")
     if (
         not isinstance(inventory, list)

@@ -136,6 +136,9 @@ and a fresh state path ending attempt-02. The wrapper selects the fixed attempt-
 path. No third attempt or rerun after replay/analysis. Setup, failure and rerun
 are all priced inside the frozen total liability.
 
+An explained unconditional controller fault blocks further dispatch and replay
+returns STOP_CONTROLLER_FAULT without requiring a complete chunk. The sole
+analysis still verifies immutable fault identity and emits the original STOP.
 Operator abort, cap expiry, source drift and unexplained interruption are KILL.
 A hard kill leaves an unfinished remote claim that still blocks admission even
 if local files are deleted. Do not repair/delete/relabel such history. No world

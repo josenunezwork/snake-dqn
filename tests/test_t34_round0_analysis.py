@@ -420,16 +420,18 @@ def test_admitted_unconditional_fault_stops_before_missing_chunk_or_replay(artif
     terminal["exports"].append(
         dict(path="round0/fault.json", sha256=digest, size=fault_path.stat().st_size)
     )
-    terminal.update(status="failed", returncode=2)
+    terminal.update(status="failed", returncode=2, reason="unconditional fault")
     (job / "terminal.json").write_text(json.dumps(terminal))
     receipt = json.loads((job / "receipt.json").read_text())
-    receipt.update(terminal=terminal, exports=terminal["exports"], status="INCOMPLETE")
-    (job / "receipt.json").write_text(json.dumps(receipt))
+    # A supervisor download/refusal leaves the outer receipt without its
+    # terminal or export inventory. The independently persisted terminal and
+    # poll record still bind this pre-outcome unconditional fault.
+    receipt.update(terminal=None, exports=[], status="FAIL", error="Refused(fault export)")
     # The incomplete output never had a scientific chunk receipt.
     (chunk / "chunk.json").unlink()
     terminal["exports"][:] = [x for x in terminal["exports"] if x["path"] != "round0/chunk.json"]
     (job / "terminal.json").write_text(json.dumps(terminal))
-    receipt.update(terminal=terminal, exports=terminal["exports"])
     (job / "receipt.json").write_text(json.dumps(receipt))
+    (job / "poll-000001.json").write_text(json.dumps({"terminal": terminal}))
     artifacts["replay_path"].unlink()
     assert analyze_paths(**artifacts)["decision"] == "STOP"

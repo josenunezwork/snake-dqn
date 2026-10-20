@@ -65,6 +65,13 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
     identities: list[Mapping[str, Any]] = []
     chunks, drop_reports = [], []
     for root in roots:
+        if (root / "fault.json").is_file():
+            return {
+                "schema": "t34-round0-replay/v1",
+                "status": "STOP_CONTROLLER_FAULT",
+                "reason": "explained unconditional fault; proceed only to sole STOP decision",
+                "fault_sha256": sha256(root / "fault.json"),
+            }
         receipt = _load(root / "chunk.json")
         if receipt.get("schema") != "t34-round0-chunk/v1" or receipt.get("status") != "complete":
             raise Round0Error("chunk receipt is not complete")

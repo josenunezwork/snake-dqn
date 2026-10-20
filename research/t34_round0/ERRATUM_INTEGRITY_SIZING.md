@@ -47,8 +47,10 @@ One explicit outcome-independent mechanical rerun per chunk is allowed, under
 attempt-02, only after the successful workload's transfer failed while runtime
 release was verified. It requires an outcomes-unseen attestation and publication
 of the first attempt; no automatic retry and no recovery after replay/analysis.
-This narrow mechanical class cannot admit a timeout, controller fault, operator
-abort, source drift or unexplained interruption. These are **KILL**. Hard kills
+This narrow mechanical class cannot admit a timeout, operator
+abort, source drift or unexplained interruption. These are **KILL**. An explained
+unconditional controller fault retains the original scientific **STOP** rule,
+blocks further dispatch, and admits only the sole fault-verifying STOP decision. Hard kills
 leave unfinished remote reservations that block all further admission as KILL.
 
 The Mac replays both arms of the first ceil(0.10*n) canonical bank rows **in

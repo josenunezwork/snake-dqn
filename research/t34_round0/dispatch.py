@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from research.t34_pathb.source_binding_v2 import FrozenWorktreeGuard
-from research.t34_round0.common import PACKAGE, ROOT, read_json, sha256, write_once
+from research.t34_round0.common import BINDING_DOCS, PACKAGE, ROOT, read_json, sha256, write_once
 from research.t34_round0.history import (
     HistoryError,
     finalize,
@@ -82,8 +82,15 @@ def _controller_fault(job: Path, receipt: dict[str, Any], registration: dict[str
     path = job / "exports/round0/fault.json"
     if not path.is_file() or receipt.get("stop_verified") is not True:
         return False
+    terminal = receipt.get("terminal") or (
+        read_json(job / "terminal.json") if (job / "terminal.json").is_file() else {}
+    )
+    if terminal.get("job_id") != receipt.get("job_id") or terminal.get("generation") != receipt.get(
+        "generation"
+    ):
+        return False
     entry = next(
-        (e for e in receipt.get("exports", []) if e.get("path") == "round0/fault.json"), None
+        (e for e in terminal.get("exports", []) if e.get("path") == "round0/fault.json"), None
     )
     if not entry or entry.get("sha256") != sha256(path):
         return False
@@ -99,6 +106,64 @@ def _controller_fault(job: Path, receipt: dict[str, Any], registration: dict[str
         and identity.get("checkpoint_sha256") == B8_SHA
         and identity.get("runtime_id") == receipt.get("job_id")
     )
+
+
+def validate_manifest_closure(
+    manifest: dict[str, Any], registration: dict[str, Any], registration_path: Path
+) -> None:
+    """Refuse a changed entrypoint, hardware, env, input or source before allocation."""
+    size = manifest["round0"]["sizing"]
+    expected_env = {
+        "PYTHONUNBUFFERED": "1",
+        "T34_INPUT_MODE": "public",
+        "T34_DEVICE": "cpu",
+        "T34_ROUND0_START": str(size["start"]),
+        "T34_ROUND0_COUNT": str(size["count"]),
+        "T34_ROUND0_BANK": "BANK_ROUND0.json",
+        "T34_ROUND0_AUDIT": "SEED_AUDIT_ROUND0.json",
+        "T34_ROUND0_REGISTRATION": "PREREGISTRATION_ROUND0.md",
+        "T34_ROUND0_RATIFICATION": "RATIFICATION.json",
+        "T34_ROUND0_A5_RECEIPT": "A5_RECEIPT.json",
+        "T34_INPUT_CATALOG": "PUBLIC_INPUTS.json",
+        "T34_TELEMETRY_SECONDS": "120",
+        "T34_ROUND0_OUTPUT_DIR": "round0",
+        "T34_B8_CHECKPOINT": "B8_s3_final.pth",
+        "T34_ROUND0_RUNTIME_ID": manifest["job_id"],
+        "T34_ROUND0_COMMIT": registration["commit"],
+        "T34_ROUND0_SECONDS": str((int(size["timeout_minutes"]) - 25) * 60),
+        "T34_ROUND0_THREADS": "1",
+        "T34_ROUND0_PROCESSES": "12",
+        "T34_ROUND0_WORLDS_PER_PROCESS": "1",
+    }
+    expected_inputs = {
+        "PUBLIC_INPUTS.json": registration["source_hashes"][
+            "research/t34_exit_b8/PUBLIC_INPUTS.json"
+        ],
+        "BANK_ROUND0.json": registration["bank_sha256"],
+        "SEED_AUDIT_ROUND0.json": registration["audit_sha256"],
+        "PREREGISTRATION_ROUND0.md": registration["registration_sha256"],
+        "RATIFICATION.json": sha256(registration_path),
+        "A5_RECEIPT.json": registration["a5"]["sha256"],
+    }
+    items = manifest.get("inputs", [])
+    if (
+        manifest.get("script") != "research/t34_round0/run.sh"
+        or manifest.get("requirements")
+        != {
+            "gpu": "L4",
+            "allowed_gpus": ["L4"],
+            "min_vcpu": 12,
+            "est_minutes": size["estimate_minutes"],
+        }
+        or manifest.get("env") != expected_env
+        or manifest.get("source_paths") != sorted({*registration["source_hashes"], *BINDING_DOCS})
+        or manifest.get("lease_seconds") != 600
+        or len(items) != len(expected_inputs)
+        or {item.get("dest"): item.get("sha256") for item in items} != expected_inputs
+        or manifest.get("round0", {}).get("layout")
+        != {"cpu_inference_processes": 12, "threads_per_process": 1, "worlds_per_process": 1}
+    ):
+        raise HistoryError("Round 0 manifest executable closure differs from ratified recipe")
 
 
 def dispatch(
@@ -144,12 +209,17 @@ def dispatch(
         or original.get("env", {}).get("T34_ROUND0_COUNT") != str(size["count"])
     ):
         raise HistoryError("manifest fields differ from registered slice/caps")
+    validate_manifest_closure(original, registration, registration_path)
     if not state_dir.is_absolute() or state_dir.exists():
         raise HistoryError("supervisor state directory must be fresh and absolute")
     with FrozenWorktreeGuard(ROOT, registration["commit"]):
         terminals = require_published_history(registration)
         if any(t["status"] == "KILL" for t in terminals):
             raise HistoryError("KILL closes this study")
+        if any(
+            t["reason"].startswith("explained unconditional controller fault") for t in terminals
+        ):
+            raise HistoryError("unconditional controller fault closes this study with STOP")
         if (root / "replay").exists() or (root / "analysis").exists():
             raise HistoryError("no dispatch or mechanical rerun after a replay/outcome look")
         if mechanical_rerun:

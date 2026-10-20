@@ -134,6 +134,9 @@ def ratify(
 
     a5 = read_json(a5_path)
     validate_a5(a5)
+    from research.t34_round0.sizing import verify_adapter
+
+    verify_adapter(a5)
     dirty = subprocess.run(
         ["git", "status", "--porcelain", "--untracked-files=no"],
         cwd=repo,

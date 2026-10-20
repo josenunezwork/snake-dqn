@@ -83,6 +83,16 @@ def build(benchmarks: list[Path], preflight: Path, setup_minutes: float) -> dict
         "aggregation": "maximum single-fixture cost, then 10x horizon scaling",
         "cpu_slowdown_factor": 3.0,
         "setup_minutes": setup_minutes,
+        "a6_pair_costs": [
+            {
+                arm: {
+                    key: pair["arms"][arm][key]
+                    for key in ("rollout_elapsed_seconds", "metric_elapsed_seconds")
+                }
+                for arm in ("bare", "teacher")
+            }
+            for pair in pairs
+        ],
     }
     payload = {
         "schema": "t34-round0-a5/v1",
@@ -120,6 +130,66 @@ def build(benchmarks: list[Path], preflight: Path, setup_minutes: float) -> dict
         total_with_one_rerun_per_chunk_units=2 * (sizing["unit_cap"] + sizing["reserve_units"]),
     )
     return payload
+
+
+def verify_adapter(payload: dict[str, Any]) -> None:
+    """Recheck the measurement boundary against retained A5 and A6 bytes."""
+    evidence = payload.get("evidence", {})
+    digest = hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()
+    if digest != payload.get("evidence_sha256"):
+        raise ValueError("sizing evidence digest differs")
+    lanes = evidence.get("a5_lanes", [])
+    if len(lanes) != 2:
+        raise ValueError("sizing lacks two measured A5 lanes")
+    for lane in lanes:
+        path = Path(lane["path"])
+        if (
+            sha256(path) != lane["sha256"]
+            or sha256(path.parent.parent / "receipt.json") != lane["receipt_sha256"]
+        ):
+            raise ValueError("sizing A5 evidence bytes differ")
+        raw = read_json(path)
+        for key in ("worlds_per_hour", "active_row_steps_per_second", "export_bytes_per_world"):
+            if raw[key] != lane[key]:
+                raise ValueError("sizing A5 measurement differs")
+    chunk_path = Path(evidence["a6_verification"]["preflight"]["path"])
+    if sha256(chunk_path) != payload["a6_measurement_sha256"]:
+        raise ValueError("sizing A6 evidence bytes differ")
+    chunk = read_json(chunk_path)
+    costs = []
+    for item in chunk["pairs"]:
+        pair_path = chunk_path.parent / item["path"]
+        if sha256(pair_path) != item["sha256"]:
+            raise ValueError("sizing A6 pair changed")
+        pair = read_json(pair_path)
+        costs.append(
+            {
+                arm: {
+                    key: pair["arms"][arm][key]
+                    for key in ("rollout_elapsed_seconds", "metric_elapsed_seconds")
+                }
+                for arm in ("bare", "teacher")
+            }
+        )
+    if costs != evidence.get("a6_pair_costs") or len(costs) != 2:
+        raise ValueError("sizing A6 measured components differ")
+    expected = {
+        "teacher_worlds_per_hour": min(lane["worlds_per_hour"] for lane in lanes),
+        "active_row_steps_per_second": min(lane["active_row_steps_per_second"] for lane in lanes),
+        "measured_export_bytes_per_pair": max(lane["export_bytes_per_world"] for lane in lanes),
+        "bare_seconds_per_world": max(c["bare"]["rollout_elapsed_seconds"] for c in costs) * 10,
+        "metric_seconds_per_pair": max(
+            sum(c[a]["metric_elapsed_seconds"] for a in ("bare", "teacher")) for c in costs
+        )
+        * 10,
+        "setup_minutes": evidence["setup_minutes"],
+        "cpu_slowdown_factor": 3.0,
+        "a6_source_sha256": hashlib.sha256(
+            json.dumps(chunk["run_identity"]["source_hashes"], sort_keys=True).encode()
+        ).hexdigest(),
+    }
+    if any(payload.get(k) != v for k, v in expected.items()):
+        raise ValueError("sizing derived fields differ from raw A5/A6 measurements")
 
 
 def main() -> None:

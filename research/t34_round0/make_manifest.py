@@ -265,7 +265,11 @@ def validate_a5(receipt: dict[str, Any]) -> dict[str, Any]:
 
 
 def _verify_a5(path: Path) -> dict[str, Any]:
-    return validate_a5(_load_json(path, "A5 receipt"))
+    from research.t34_round0.sizing import verify_adapter
+
+    payload = validate_a5(_load_json(path, "A5 receipt"))
+    verify_adapter(payload)
+    return payload
 
 
 def _verify_bank(path: Path) -> list[dict[str, Any]]:
