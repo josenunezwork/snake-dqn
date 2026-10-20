@@ -122,6 +122,10 @@ def _update_value(digest: "hashlib._Hash", value: Any, seen: set[int]) -> None:
             _update_value(digest, item, seen)
     else:
         digest.update(f"opaque:{type(value).__module__}.{type(value).__qualname__}".encode())
+    # Alias topology of immutable policies/params is not world state. Retain
+    # cycle protection only on the active recursion path, so an equal copied
+    # value hashes like an equal shared value.
+    seen.remove(identity)
 
 
 def _ordered_bodies(sim: Any) -> list[list[list[int]]]:
