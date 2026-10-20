@@ -47,6 +47,7 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 10-20 ~13:45 | A5 #2: STOP by telemetry (~28 row-steps/s/worker, ~56/lane, 0/256 worlds in 23 min; ~35 ms/world-step even batched; session hit the 30-min wall cap before export, ~1 u lost). 2-advisor speed review launched | `snake-dqn-artifacts/t34-a5-speed-review/` |
 | 10-20 ~13:50 | 30-day compute portfolio: 8 Astra personas + 1 Fable judge (= approval). Adopted the judge's merged portfolio (below) | `docs/research/advice/2026-10-20_compute_portfolio_FABLE_JUDGMENT.md` |
 | 10-20 ~14:20 | A5 speed review (Fable + Astra, Fable judged dissent): cost = single-threaded Python (full_digest 64%, v8 13%, raster 7%), GPU idle. Frozen order: Sol fixes (K=nproc single-thread procs, W1, O(bytes) digest, no CPU lockstep) + Mac identity -> 0.12 u CPU-only profile -> A5 on L4 K=12 W1 60-min -> Round 0. Unpaced Path B arm on Colab merged (42.5 u cap) | `docs/research/advice/2026-10-20_t34_a5_speed_*` |
+| 10-20 ~14:35 | Retention final re-review: all prior fixes confirmed in code; unpaced Colab arm cannot affect the verdict. FIX-FIRST #3: contention budget = 2% of each phase's registered cap, checked at phase end; 5 s sampling; load counts only if sustained > 60 s; not-quiet at start -> refuse (no decision); unpaced-arm faults reported, not KILL | `docs/research/specs/2026-10-20_t34_retention_fixes3.md` |
 
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
