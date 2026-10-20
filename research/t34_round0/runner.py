@@ -28,16 +28,16 @@ import numpy as np
 
 from research.t34_exit_b8.engine import ExitTeacher, ExitTeacherConfig
 from research.t34_exit_b8.exports import load_world, state_hash, write_world
-from research.t34_exit_b8.policy import B8Policy
-from research.t34_exit_b8.teacher_v2 import _step, run_worlds
-from research.t34_exit_b8.trajectory import build_world, prepare_world
-from research.t34_round0.faults import (
+from research.t34_exit_b8.faults import (
     CapExpiry,
     ExportSerializationError,
     IllegalActionFault,
     NonFiniteQLossFault,
     OneActionShareFault,
 )
+from research.t34_exit_b8.policy import B8Policy
+from research.t34_exit_b8.teacher_v2 import _step, run_worlds
+from research.t34_exit_b8.trajectory import build_world, prepare_world
 
 ROOT = Path(__file__).resolve().parents[2]
 PAIR_SCHEMA = "t34-round0-pair/v1"

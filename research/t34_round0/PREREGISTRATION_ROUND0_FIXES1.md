@@ -1,6 +1,8 @@
 # T34 Round 0 preregistration supplement — FIX-FIRST #1
 
 **DRAFT_PENDING_OPERATOR_RATIFICATION — 2026-10-20, before selection data.**
+Timeout wording and pending-rerun handling incorporate the operator's
+[FIX-FIRST #2 rulings](../../docs/research/specs/2026-10-20_t34_round0_fixes2.md).
 This supplement and ERRATUM_FIXES1.md govern the specific rules below in place of
 conflicting historical language. All original efficacy and survival thresholds,
 240 paired H5000 identities, B8 comparator, arm definitions, accounting rates,
@@ -19,10 +21,11 @@ Mac strict/serving boundaries and one-look statistics stay fixed.
    eligible only with verified runtime release, retained failure evidence and an
    outcomes-unseen attestation, inside the originally frozen rerun liability.
    No recovery follows a controller STOP, cap expiry, abort or unexplained kill.
-3. **Ordered settlement.** A first wall/unit cap is INCONCLUSIVE, without
-   extension. Abort, source drift, unexplained interruption, unfinished durable
-   claim and missed schedule deadline are KILL. Explained typed controller faults
-   retain STOP. Otherwise the original complete-data GO/STOP/INCONCLUSIVE rules
+3. **Ordered settlement.** A supervisor wall-cap timeout or first unit cap is
+   INCONCLUSIVE without extension; a PASS receipt whose recorded run exceeded
+   its registered timeout is KILL. Abort, source drift, unexplained interruption,
+   unfinished durable claim and missed schedule deadline are KILL. Explained
+   typed controller faults retain STOP. Otherwise the original complete-data GO/STOP/INCONCLUSIVE rules
    apply. Integrity failures take precedence over outcome inference.
 4. **Stratified chunks.** The original BANK_ROUND0.json and seed audits remain
    byte-identical. A deterministic execution view takes four scripted, three
@@ -32,10 +35,14 @@ Mac strict/serving boundaries and one-look statistics stay fixed.
 5. **Completion deadline and look.** Every first chunk dispatch occurs within
    48 hours of the UTC ratification time. Each admitted attempt finishes within
    its frozen timeout; mechanical recovery adds no deadline extension. A chunk
-   absent at the dispatch deadline or unfinished beyond its timeout is KILL.
+   missing or failed after the dispatch deadline is KILL; a supervisor wall-cap
+   timeout is INCONCLUSIVE without extension, whereas a PASS receipt whose
+   recorded run exceeded its registered timeout is KILL.
    Outcome consumers check the complete frozen schedule and all operational
    terminal seals before reading any chunk exports. Analysis refuses an
-   incomplete, still-in-time schedule. The sole analysis directory is reserved
+   incomplete, still-in-time schedule, including a latest mechanical failure
+   awaiting its permitted rerun; replay uses the same pre-reservation guard.
+   The sole analysis directory is reserved
    before terminal history inspection; an unfinished claim yields its KILL
    decision.json even when no phase terminal file survived.
 

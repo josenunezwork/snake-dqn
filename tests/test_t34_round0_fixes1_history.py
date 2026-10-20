@@ -137,8 +137,9 @@ def test_scientific_stop_accepts_all_retained_completed_chunks(
     history.require_chunks(outputs, value)
 
 
-def test_pending_schedule_refuses_analysis_without_consuming_sole_reservation(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("phase", ["analysis", "replay"])
+def test_pending_schedule_refuses_consumer_without_consuming_reservation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, phase: str
 ) -> None:
     author = _authoring_repo(tmp_path)
     value = _registration(tmp_path, author)
@@ -161,12 +162,13 @@ def test_pending_schedule_refuses_analysis_without_consuming_sole_reservation(
     monkeypatch.setattr(history.time, "time", lambda: 1.0)
 
     with pytest.raises(history.HistoryError, match="schedule is still pending"):
-        history.run_phase(value, "analysis", lambda _out: {"decision": "GO"})
-    assert not (Path(str(value["study_root"])) / "analysis").exists()
+        history.run_phase(value, phase, lambda _out: {"decision": "GO"})
+    assert not (Path(str(value["study_root"])) / phase).exists()
 
 
-def test_partial_completed_schedule_refuses_analysis_before_deadline(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("phase", ["analysis", "replay"])
+def test_partial_completed_schedule_refuses_consumer_before_deadline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, phase: str
 ) -> None:
     author = _authoring_repo(tmp_path)
     value = _registration(tmp_path, author)
@@ -192,8 +194,8 @@ def test_partial_completed_schedule_refuses_analysis_before_deadline(
     monkeypatch.setattr(history.time, "time", lambda: 1.0)
 
     with pytest.raises(history.HistoryError, match="schedule is still pending"):
-        history.run_phase(value, "analysis", lambda _out: {"decision": "GO"})
-    assert not (Path(str(value["study_root"])) / "analysis").exists()
+        history.run_phase(value, phase, lambda _out: {"decision": "GO"})
+    assert not (Path(str(value["study_root"])) / phase).exists()
 
 
 def test_erased_local_chunk_claim_still_reserves_analysis_kill(
@@ -343,3 +345,109 @@ def test_cap_closed_study_refuses_replay_without_poisoning_sole_decision(
     assert not (Path(str(value["study_root"])) / "replay").exists()
     with pytest.raises(history.CapExpiredHistory):
         history.require_chunks([], value)
+
+
+@pytest.mark.parametrize("phase", ["analysis", "replay"])
+@pytest.mark.parametrize("now", [1.0, 172800.0])
+@pytest.mark.parametrize("attempt_count", [1, 2])
+def test_failed_latest_attempt_keeps_all_present_chunks_pending(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    phase: str,
+    now: float,
+    attempt_count: int,
+) -> None:
+    author = _authoring_repo(tmp_path)
+    value = _registration(tmp_path, author)
+    value.update(
+        approved_at="1970-01-01T00:00:00+00:00",
+        sizing={"chunks": [{"start": 0, "count": 10}, {"start": 10, "count": 10}]},
+    )
+    root = Path(str(value["study_root"]))
+    for chunk, count in ((0, 1), (1, attempt_count)):
+        for number in range(1, count + 1):
+            attempt = root / f"chunks/chunk-{chunk:03d}/attempt-{number:02d}"
+            history.reserve(attempt, value)
+            status = "COMPLETE" if chunk == 0 else "MECHANICAL_FAILURE"
+            history.finalize(attempt, value, status, "fixture operational terminal")
+    monkeypatch.setattr(history.time, "time", lambda: now)
+
+    class Guard:
+        def __init__(self, *_args: object) -> None:
+            pass
+
+        def __enter__(self) -> "Guard":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr("research.t34_pathb.source_binding_v2.FrozenWorktreeGuard", Guard)
+
+    def forbidden(*_args: object) -> dict:
+        raise AssertionError("pending consumers must not read terminal history or outcomes")
+
+    monkeypatch.setattr(history, "read_json", forbidden)
+    monkeypatch.setattr(history, "require_published_history", forbidden)
+    claims_before = history._claims(value)
+    with pytest.raises(history.HistoryError, match="schedule is still pending"):
+        history.run_phase(value, phase, forbidden)
+    assert not (root / "analysis").exists()
+    assert not (root / "replay").exists()
+    assert history._claims(value) == claims_before
+
+
+def test_completed_rerun_unlocks_guard_without_terminal_reads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    author = _authoring_repo(tmp_path)
+    value = _registration(tmp_path, author)
+    value.update(
+        approved_at="1970-01-01T00:00:00+00:00", sizing={"chunks": [{"start": 0, "count": 10}]}
+    )
+    for number, status in ((1, "MECHANICAL_FAILURE"), (2, "COMPLETE")):
+        attempt = Path(str(value["study_root"])) / f"chunks/chunk-000/attempt-{number:02d}"
+        history.reserve(attempt, value)
+        history.finalize(attempt, value, status, "fixture operational terminal")
+        seal = json.loads((attempt / "phase_terminal.json").read_text())
+        assert ("schedule_complete.json" in seal["files"]) == (status == "COMPLETE")
+    monkeypatch.setattr(history.time, "time", lambda: 1.0)
+
+    def forbidden(_path: Path) -> dict:
+        raise AssertionError("precheck cannot read terminal entries")
+
+    monkeypatch.setattr(history, "read_json", forbidden)
+    history._analysis_reservation_allowed(value)
+
+
+def test_failed_chunk_after_deadline_reserves_sole_kill(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    author = _authoring_repo(tmp_path)
+    value = _registration(tmp_path, author)
+    value.update(
+        approved_at="1970-01-01T00:00:00+00:00", sizing={"chunks": [{"start": 0, "count": 10}]}
+    )
+    root = Path(str(value["study_root"]))
+    attempt = root / "chunks/chunk-000/attempt-01"
+    history.reserve(attempt, value)
+    history.finalize(attempt, value, "MECHANICAL_FAILURE", "fixture operational terminal")
+    _git(author, "add", value["history_ledger"]["path"])
+    _git(author, "commit", "-m", "publish failed terminal")
+    _git(author, "push", "origin", "main")
+
+    class Guard:
+        def __init__(self, *_args: object) -> None:
+            pass
+
+        def __enter__(self) -> "Guard":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr("research.t34_pathb.source_binding_v2.FrozenWorktreeGuard", Guard)
+    monkeypatch.setattr(history.time, "time", lambda: 172801.0)
+    with pytest.raises(history.HistoryError, match="latest chunk attempt is incomplete"):
+        history.run_phase(value, "analysis", lambda _out: history.require_chunks([], value))
+    assert json.loads((root / "analysis/decision.json").read_text())["decision"] == "KILL"

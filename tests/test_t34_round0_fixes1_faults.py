@@ -5,15 +5,28 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from research.t34_exit_b8 import faults as exit_faults
 from research.t34_exit_b8.policy import PolicyEvaluation, action_grid
 from research.t34_round0 import runner
 from research.t34_round0.faults import (
+    CapExpired,
     CapExpiry,
     ExportSerializationError,
     IllegalActionFault,
     NonFiniteQLossFault,
     OneActionShareFault,
+    OperationalFailure,
 )
+
+
+def test_round0_fault_imports_reexport_canonical_exit_classes() -> None:
+    assert CapExpired is exit_faults.CapExpired
+    assert CapExpiry is exit_faults.CapExpiry
+    assert ExportSerializationError is exit_faults.ExportSerializationError
+    assert IllegalActionFault is exit_faults.IllegalActionFault
+    assert NonFiniteQLossFault is exit_faults.NonFiniteQLossFault
+    assert OneActionShareFault is exit_faults.OneActionShareFault
+    assert OperationalFailure is exit_faults.OperationalFailure
 
 
 def test_fault_markers_require_dedicated_exception_types() -> None:

@@ -176,3 +176,33 @@ def test_proven_first_cap_prevents_export_failure_rerun(tmp_path: Path) -> None:
     registration = {"commit": "a" * 40}
     assert _mechanical_incomplete(tmp_path, receipt, registration)
     assert _settlement(tmp_path, receipt, registration, 360)[0] == "INCONCLUSIVE"
+
+
+@pytest.mark.parametrize(
+    "status,reason,elapsed,expected",
+    [
+        ("INCOMPLETE", "timeout", 61, "INCONCLUSIVE"),
+        ("INCOMPLETE", "timeout_after_terminal", 61, "INCONCLUSIVE"),
+        ("PASS", None, 60, "COMPLETE"),
+        ("PASS", None, 61, "KILL"),
+    ],
+)
+def test_supervisor_timeout_and_late_pass_have_distinct_settlements(
+    tmp_path: Path, status: str, reason: str | None, elapsed: int, expected: str
+) -> None:
+    from research.t34_round0.dispatch import _settlement
+
+    receipt = {
+        "status": status,
+        "job_id": "job-1",
+        "generation": "g-1",
+        "stop_verified": True,
+        "terminal": {
+            "job_id": "job-1",
+            "generation": "g-1",
+            "reason": reason,
+            "started_at": 100,
+            "finished_at": 100 + elapsed,
+        },
+    }
+    assert _settlement(tmp_path, receipt, {"commit": "a" * 40}, 1)[0] == expected

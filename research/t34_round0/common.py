@@ -21,6 +21,7 @@ BINDING_DOCS = (
     "docs/research/specs/2026-10-20_t34_round0_prereg.md",
     "docs/research/specs/2026-10-20_t34_round0_integrity_sizing.md",
     "docs/research/specs/2026-10-20_t34_round0_fixes1.md",
+    "docs/research/specs/2026-10-20_t34_round0_fixes2.md",
 )
 
 

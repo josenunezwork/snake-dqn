@@ -1,16 +1,18 @@
 # T34 Round 0 preparation and operator runbook
 
-Latest implementation evidence: [VERIFICATION_FIXES1.md](VERIFICATION_FIXES1.md).
+Latest implementation evidence: [VERIFICATION_FIXES2.md](VERIFICATION_FIXES2.md).
 Latest rules: [FIX-FIRST #1 erratum](ERRATUM_FIXES1.md) and
-[preregistration supplement](PREREGISTRATION_ROUND0_FIXES1.md).
+[preregistration supplement](PREREGISTRATION_ROUND0_FIXES1.md), corrected by
+[FIX-FIRST #2](../../docs/research/specs/2026-10-20_t34_round0_fixes2.md).
 Historical implementation evidence: [VERIFICATION_INTEGRITY_SIZING.md](VERIFICATION_INTEGRITY_SIZING.md).
 
 Status: **DRAFT_PENDING_OPERATOR_RATIFICATION**. This is a 240-pair development
 premise test against bare B8 s3, not a release. The original
 [preregistration](PREREGISTRATION_ROUND0.md), [A5 amendment](ERRATUM_A5_ADDENDUM_B.md),
 and [integrity/sizing amendment](ERRATUM_INTEGRITY_SIZING.md) apply except where
-the FIX-FIRST #1 supplement supersedes them. First wall/unit cap is
-**INCONCLUSIVE**, without extension. Abort or unexplained interruption is KILL.
+the FIX-FIRST #1 supplement supersedes them. Supervisor wall-cap timeout or first
+unit cap is **INCONCLUSIVE** without extension; a PASS receipt whose recorded run
+exceeded its registered timeout is **KILL**. Abort or unexplained interruption is KILL.
 Original hash-bound documents,
 banks and receipts stay unchanged. No Round 0 labels go to fitting.
 
@@ -28,20 +30,20 @@ below is a planning allowance and must cover the measured A5 setup/export/cleanu
 elapsed time. The adapter refuses a smaller value.
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-round0-fixes1
+cd /Users/josenunez/Projects/ml/snake-dqn-round0-fixes2
 export AUTHOR_ROOT="$PWD"
 export PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu
 export PREP=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020
-export A6="$PREP/a6-reproduction-01"
+export A6="$PREP/a6-fixes2-01"
 export A5ROOT=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-engine-fanout-20261020/manifests-final-3ebf3991
 "$PY" -m research.t34_round0.bank --preflight-inputs "$A6/inputs"
 SNAKE_CKPT_DIR=/Users/josenunez/Projects/ml/snake-dqn/saved_snakes \
   "$PY" -m research.t34_round0.runner --preflight \
   --bank "$A6/inputs/bank.json" --audit "$A6/inputs/audit.json" \
   --checkpoint /Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/B8_s3_final.pth \
-  --output-dir "$A6/output" --runtime-id t34-round0-a6-reproduction-01 \
+  --output-dir "$A6/output" --runtime-id t34-round0-a6-fixes2-01 \
   --start 0 --count 2 --device cpu --threads 1 --seconds 600
 "$PY" -m research.t34_round0.sizing \
   --a5-benchmarks "$A5ROOT/a5-l4-s0-output/exports/benchmark.json" \
@@ -69,12 +71,12 @@ and builds the chunk plan, supervisor-schema manifests and a registration whose
 DRAFT status prevents production admission. Choose a fresh output path:
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-round0-fixes1
+cd /Users/josenunez/Projects/ml/snake-dqn-round0-fixes2
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 \
 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu \
   /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.t34_round0.draft \
-  --a5 /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-03/A5_RECEIPT.json \
-  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes1-20261020/draft-01 \
+  --a5 /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-integrity-20261020/a6-fixes2-01/A5_RECEIPT.json \
+  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-fixes2-20261020/draft-01 \
   --study-root /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-study-01
 ```
 
@@ -106,7 +108,7 @@ git commit -m 'Ratify T34 Round 0 fixed study root and deadline'
 git fetch origin
 git merge origin/main
 git push origin HEAD:main
-git push origin t34-round0-fixes1-20261020
+git push origin t34-round0-fixes2-20261020
 export RATIFICATION="$AUTHOR_ROOT/research/t34_round0/REGISTRATION_ROUND0.json"
 git worktree add --detach "$FROZEN" "$SOURCE"
 cd "$FROZEN"
@@ -128,10 +130,11 @@ requires this exact canonical registration JSON on origin/main and rejects any
 origin `t34-round0/*` claim tag with a different root. The frozen execution checkout
 stays at SOURCE while the authoring checkout commits the separate registration.
 
-Every chunk must dispatch within 48 hours of ratification and finish within its
-registered timeout. A missing chunk at the deadline is KILL. Mechanical recovery
-does not extend the deadline. Do not open chunk exports before all chunks are
-terminal; analysis refuses an incomplete schedule while its deadline is pending.
+Every chunk must dispatch within 48 hours of ratification. A missing or failed
+chunk after that deadline is KILL. Mechanical recovery does not extend the
+deadline. Do not open chunk exports before all chunks are complete; analysis and
+replay refuse a pending schedule, including a latest mechanical failure awaiting
+its permitted rerun, before reserving a phase or reading terminal entries.
 
 ## Future explicit dispatch and publication barrier
 
@@ -161,7 +164,7 @@ git commit -m 'Preserve T34 Round 0 terminal receipt history'
 git fetch origin
 git merge origin/main
 git push origin HEAD:main
-git push origin t34-round0-fixes1-20261020
+git push origin t34-round0-fixes2-20261020
 cd "$FROZEN"
 ```
 
@@ -182,7 +185,9 @@ are all priced inside the frozen total liability.
 An explained unconditional controller fault blocks further dispatch and replay
 returns STOP_CONTROLLER_FAULT without requiring a complete chunk. The sole
 analysis still verifies immutable fault identity and emits the original STOP.
-First wall/unit cap is INCONCLUSIVE, with no extension or cap retry. Operator
+Supervisor wall-cap timeout or first unit cap is INCONCLUSIVE without extension
+or cap retry; a PASS receipt whose recorded run exceeded its registered timeout
+is KILL. Operator
 abort, source drift, missed scheduling deadline and unexplained interruption are KILL.
 After a cap, skip replay and invoke the sole analysis directly; it settles from
 the published operational history without opening outcomes or requiring replay.

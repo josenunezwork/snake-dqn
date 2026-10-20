@@ -15,7 +15,7 @@ from typing import Any, Protocol, Sequence
 import numpy as np
 import torch
 
-from research.t34_round0.faults import IllegalActionFault, NonFiniteQLossFault
+from research.t34_exit_b8.faults import IllegalActionFault, NonFiniteQLossFault
 
 
 @dataclass(frozen=True)

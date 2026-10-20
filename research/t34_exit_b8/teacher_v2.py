@@ -22,9 +22,9 @@ import numpy as np
 
 from research.t34_exit_b8.engine import ExitTeacher, ExitTeacherConfig, mix_action
 from research.t34_exit_b8.exports import state_hash, write_world
+from research.t34_exit_b8.faults import ExportSerializationError
 from research.t34_exit_b8.lockstep import step_prepared_worlds
 from research.t34_exit_b8.trajectory import build_world, make_world_rows, prepare_world
-from research.t34_round0.faults import ExportSerializationError
 from research.t34_shadow.lad import search_lad
 from research.t34_shadow.shadow import ShadowFrame, ShadowTrajectory, clone_world_exact, full_digest
 

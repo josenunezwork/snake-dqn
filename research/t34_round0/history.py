@@ -235,6 +235,8 @@ def finalize(out: Path, registration: Mapping[str, Any], status: str, reason: st
             "explained unconditional controller fault"
         ):
             write_once(out / "study_closed.json", {"status": status})
+        if status == "COMPLETE" and phase_name(out, registration).startswith("chunks/"):
+            write_once(out / "schedule_complete.json", {"status": status})
         paths = list(out.rglob("*"))
         if any(p.is_symlink() for p in paths):
             raise HistoryError("cannot seal linked evidence")
@@ -381,7 +383,7 @@ def require_chunks(chunks: list[Path], registration: Mapping[str, Any]) -> None:
 
 
 def _analysis_reservation_allowed(registration: Mapping[str, Any]) -> None:
-    """Refuse a still-pending schedule without consuming the sole outcome look."""
+    """Guard both consumers without reading terminal entries or reserving a look."""
     root, _, _ = policy(registration)
     chunks = registration.get("sizing", {}).get("chunks")
     approved_at = registration.get("approved_at")
@@ -423,14 +425,18 @@ def _analysis_reservation_allowed(registration: Mapping[str, Any]) -> None:
         for attempt in group.iterdir()
         if attempt.is_dir()
     )
-    if (
-        time.time() <= deadline
-        and expected - set(groups)
-        and not unfinished_claim
-        and not settled_early
-    ):
+    # A terminal mechanical failure is not completed work: its manual rerun
+    # must remain possible until the original deadline. Only the latest attempt
+    # can complete a chunk. These structural markers are sealed by finalize;
+    # full terminal/inventory validation still follows phase reservation.
+    pending = bool(expected - set(groups))
+    for name in expected & set(groups):
+        attempts = sorted(path for path in groups[name].iterdir() if path.is_dir())
+        if not attempts or not (attempts[-1] / "schedule_complete.json").is_file():
+            pending = True
+    if time.time() <= deadline and pending and not unfinished_claim and not settled_early:
         raise HistoryError(
-            "registered chunk schedule is still pending; analysis has no claim to reserve"
+            "registered chunk schedule is still pending; consumer has no claim to reserve"
         )
 
 
@@ -441,9 +447,8 @@ def run_phase(registration: Mapping[str, Any], phase: str, action: Any) -> Any:
     root, _, _ = policy(registration)
     out = root / phase
     with FrozenWorktreeGuard(ROOT, registration["commit"]):
-        if phase == "analysis":
-            _analysis_reservation_allowed(registration)
-        else:
+        _analysis_reservation_allowed(registration)
+        if phase != "analysis":
             terminals = require_published_history(registration)
             if any(terminal["status"] == "INCONCLUSIVE" for terminal in terminals):
                 raise CapExpiredHistory(
