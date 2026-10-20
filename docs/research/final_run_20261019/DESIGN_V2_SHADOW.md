@@ -102,3 +102,10 @@ Owner delegated the call ("u make calls on how to proceed", 2026-10-20 00:15 PT)
        pre-registration (source SHA, banks, seeds, load profile) is committed before (b) runs.
 4. Teacher label rounds (R1+) wait for (b) or Round 0; the teacher v2 build continues as infrastructure with the
    §1 label rule.
+
+### Amendment 2 addendum (2026-10-20 ~13:50 PT, pre-data, operator under owner delegation)
+§3(b) sizes and caps are superseded by the power-review resize: **48 paired H5000 worlds per mix (144) + 32 continuous
+mixed-Watch6 sessions; caps 40 h elapsed / 60 CPU-h, $0**. The §3(a) pre-check has its own cap (8 h elapsed) and is not
+debited against the 40 h. Reason: development-only OC gave joint GO 0.27–0.32 at T3-like effects with 32/16; 48/32
+gives 0.80–0.83 (`research/t34_pathb/RETENTION_OC_V2.json`, `VERIFICATION_RETENTION_RESIZE.md`). No retention or
+pre-check data existed.
