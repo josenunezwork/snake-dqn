@@ -1,0 +1,14 @@
+{
+  "schema": "t34-exit-b8-input-inventory/v1",
+  "status": "LOCAL_INPUT_INVENTORY_EXISTING_PUBLIC_RELEASE",
+  "dispatch_authorized": false,
+  "publication_action": "The owner supplied existing S1 release URLs; PUBLIC_INPUTS.json binds the two assets and all six checkpoint members. No new publication is needed.",
+  "inputs": [
+    {"name": "B8_s3_final.pth", "local_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/s1-mature-20261018/inputs/B8_s3_final.pth", "dest": "B8_s3_final.pth", "size_bytes": 6562005, "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8", "public_url": null, "publication_required": true},
+    {"name": "champion_a5_freespace_20260621.pth", "local_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth", "dest": "checkpoints/champion_a5_freespace_20260621.pth", "size_bytes": 6898955, "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93", "public_url": null, "publication_required": true},
+    {"name": "best_apex_fs.pth", "local_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_fs.pth", "dest": "checkpoints/best_apex_fs.pth", "size_bytes": 3451633, "sha256": "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195", "public_url": null, "publication_required": true},
+    {"name": "best_apex_stage1_fs.pth", "local_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_stage1_fs.pth", "dest": "checkpoints/best_apex_stage1_fs.pth", "size_bytes": 3451651, "sha256": "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d", "public_url": null, "publication_required": true},
+    {"name": "best_apex_pre_fs.pth", "local_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/best_apex_pre_fs.pth", "dest": "checkpoints/best_apex_pre_fs.pth", "size_bytes": 3449513, "sha256": "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e", "public_url": null, "publication_required": true},
+    {"name": "frp3_m3_s12_u60000_20261005.pth", "local_path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth", "dest": "checkpoints/frp3_m3_s12_u60000_20261005.pth", "size_bytes": 6906247, "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723", "public_url": null, "publication_required": true}
+  ]
+}
