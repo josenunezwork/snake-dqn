@@ -126,3 +126,8 @@ next session construction, unsetting `SNAKE_SERVE_PATHB` and selecting
 by these tools. Per-decision `pathb-decision` records contain requested/applied,
 stale/miss/fallback, bare/proposed/executed actions, frame and hero life; harness
 JSONL logs are hash-bound to the paired records.
+
+Implementation results, exact verification commands, source identities and
+artifact hashes are in [VERIFICATION.md](VERIFICATION.md). The required full
+non-slow run was non-green; its failures and focused follow-ups are recorded
+separately from the passing post-merge integration and plumbing checks.
