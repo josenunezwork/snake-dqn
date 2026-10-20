@@ -84,7 +84,7 @@ def _label(
     per_action: Mapping[str, Any] | None = None,
     lad: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    label = {
         "decision": int(decision),
         "label_role": role,
         "searched": bool(searched),
@@ -108,6 +108,12 @@ def _label(
         "reason": role,
         "expanded": bool(searched),
     }
+    kind = {"shadow_confirm": "shadow_confirm", "lad": "lad", "lad_transition": "transition"}.get(
+        role
+    )
+    if kind is not None:
+        label["label_kind"] = kind
+    return label
 
 
 def _put_label(labels: dict[int, dict[str, Any]], item: dict[str, Any]) -> None:
@@ -293,7 +299,7 @@ def _search_dooms(
                 shadow_confirmed=True,
                 searched=True,
                 decisive=decisive,
-                t_star=latest,
+                t_star=decision,
                 a_star=action,
                 forbidden=forbidden,
                 per_action=value["outcomes"],

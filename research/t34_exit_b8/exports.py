@@ -173,6 +173,7 @@ def _labels(raw: Any, horizon: int) -> list[dict[str, Any]]:
         # In particular KL anchors must not silently become decisive examples.
         for key in (
             "label_role",
+            "label_kind",
             "shadow",
             "shadow_id",
             "shadow_frame",
