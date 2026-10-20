@@ -329,7 +329,7 @@ def analyze_paths(
     records cannot self-assert a fresh bank, successful replay or ratification.
     """
     from research.t34_round0.common import B8_SHA, ROOT, read_json, sha256
-    from research.t34_round0.history import HistoryError
+    from research.t34_round0.history import CapExpiredHistory, HistoryError
     from research.t34_round0.registration import require_registration
 
     try:
@@ -340,7 +340,10 @@ def analyze_paths(
 
         require_active_phase(ratification, "analysis")
         verify_frozen_worktree(repo or ROOT, ratification["commit"])
-        require_chunks(chunks, ratification)
+        try:
+            require_chunks(chunks, ratification)
+        except FileNotFoundError as exc:
+            raise HistoryError("unfinished claim is missing its terminal history") from exc
         expected_identity = dict(
             bank_sha256=sha256(bank_path),
             audit_sha256=sha256(audit_path),
@@ -368,7 +371,12 @@ def analyze_paths(
                         or fault.get("preflight") is not False
                         or fault.get("unconditional") is not True
                         or fault.get("fault")
-                        not in {"illegal_action", "nonfinite_q", "action_collapse_100k"}
+                        not in {
+                            "illegal_action",
+                            "nonfinite_q",
+                            "nonfinite_loss",
+                            "action_collapse_100k",
+                        }
                         or fault.get("arm") not in {"bare", "teacher"}
                         or fault.get("world_id") not in expected
                         or any(fault_identity.get(k) != v for k, v in expected_identity.items())
@@ -572,6 +580,8 @@ def analyze_paths(
             ratification_sha256=expected_identity["ratification_sha256"],
         )
         return result
+    except CapExpiredHistory as exc:
+        return inconclusive(str(exc))
     except HistoryError as exc:
         return dict(
             schema="t34-round0-decision/v1",

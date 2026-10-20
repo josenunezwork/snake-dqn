@@ -9,11 +9,14 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import math
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
 from research.t34_pathb.source_binding_v2 import FrozenWorktreeGuard
+from research.t34_round0.bank import ordered_rows
 from research.t34_round0.common import BINDING_DOCS, PACKAGE, ROOT, read_json, sha256, write_once
 from research.t34_round0.history import (
     HistoryError,
@@ -24,6 +27,150 @@ from research.t34_round0.history import (
     reserve,
 )
 from research.t34_round0.registration import require_registration
+
+
+def _completion_within_timeout(receipt: dict[str, Any], timeout_minutes: int) -> bool:
+    """Require an immutable runtime terminal interval within the registered cap."""
+    terminal = receipt.get("terminal")
+    if not isinstance(terminal, dict):
+        return False
+    started, finished = terminal.get("started_at"), terminal.get("finished_at")
+    if (
+        isinstance(started, bool)
+        or isinstance(finished, bool)
+        or not isinstance(started, (int, float))
+        or not isinstance(finished, (int, float))
+        or not math.isfinite(float(started))
+        or not math.isfinite(float(finished))
+        or float(finished) < float(started)
+    ):
+        return False
+    return float(finished) - float(started) <= timeout_minutes * 60
+
+
+def require_dispatch_deadline(deadline: float, *, now: float | None = None) -> None:
+    """Refuse a chunk admission after the ratified 48-hour dispatch deadline."""
+    if (
+        not isinstance(deadline, (int, float))
+        or isinstance(deadline, bool)
+        or not math.isfinite(deadline)
+    ):
+        raise HistoryError("manifest has an invalid registered dispatch deadline")
+    current = time.time() if now is None else now
+    if current > deadline:
+        raise HistoryError("registered 48-hour Round 0 dispatch deadline has expired: KILL")
+
+
+def _runtime_terminal(receipt: dict[str, Any], job: Path) -> dict[str, Any] | None:
+    """Read the immutable runtime terminal embedded or retained by the broker."""
+    terminal = receipt.get("terminal")
+    if not isinstance(terminal, dict):
+        terminal_path = job / "terminal.json"
+        if terminal_path.is_file():
+            try:
+                terminal = read_json(terminal_path)
+            except (OSError, ValueError):
+                return None
+        else:
+            for poll in reversed(sorted(job.glob("poll-*.json"))):
+                try:
+                    candidate = read_json(poll).get("terminal")
+                except (OSError, ValueError):
+                    continue
+                if isinstance(candidate, dict):
+                    terminal = candidate
+                    break
+    return terminal if isinstance(terminal, dict) else None
+
+
+def _exported_round0_record(receipt: dict[str, Any], job: Path, name: str) -> dict[str, Any] | None:
+    """Return one hash-bound Round 0 terminal export, never a local orphan."""
+    path = job / "exports" / "round0" / name
+    terminal = _runtime_terminal(receipt, job)
+    if (
+        not path.is_file()
+        or not isinstance(terminal, dict)
+        or receipt.get("stop_verified") is not True
+    ):
+        return None
+    if terminal.get("job_id") != receipt.get("job_id") or terminal.get("generation") != receipt.get(
+        "generation"
+    ):
+        return None
+    entry = next(
+        (item for item in terminal.get("exports", []) if item.get("path") == f"round0/{name}"), None
+    )
+    if not isinstance(entry, dict) or entry.get("sha256") != sha256(path):
+        return None
+    try:
+        return read_json(path)
+    except (OSError, ValueError):
+        return None
+
+
+def _runtime_cap_expired(receipt: dict[str, Any], job: Path) -> bool:
+    """Treat the supervisor's first registered runtime timeout as INCONCLUSIVE."""
+    terminal = _runtime_terminal(receipt, job)
+    return bool(
+        terminal
+        and terminal.get("job_id") == receipt.get("job_id")
+        and terminal.get("generation") == receipt.get("generation")
+        and terminal.get("reason") in {"timeout", "timeout_after_terminal"}
+    )
+
+
+def _broker_cap_expired(receipt: dict[str, Any]) -> bool:
+    """Classify only exact registered broker-cap refusals as INCONCLUSIVE."""
+    return (
+        receipt.get("status") != "PASS"
+        and receipt.get("stop_verified") is True
+        and receipt.get("cleanup_error") is None
+        and receipt.get("error")
+        in {
+            "Refused('whole-session wall cap reached (including setup/export)')",
+            "Refused('priced session unit cap reached')",
+            "Refused('priced session unit cap reached during calibration')",
+            "Refused('priced session unit cap reached while awaiting account broker')",
+            "Refused('deadline reached while awaiting account broker')",
+            "Refused('whole-session deadline reached before helper')",
+            "Refused('whole-session deadline reached before CLI call')",
+            "AccountingError('priced session unit cap reached')",
+        }
+    )
+
+
+def _cap_expired(job: Path, receipt: dict[str, Any], registration: dict[str, Any]) -> bool:
+    """Recognize the registered first-cap terminal without inspecting outcomes."""
+    record = _exported_round0_record(receipt, job, "cap_expiry.json")
+    identity = record.get("run_identity", {}) if isinstance(record, dict) else {}
+    return bool(
+        record
+        and record.get("schema") == "t34-round0-cap-expiry/v1"
+        and record.get("status") == "INCONCLUSIVE"
+        and record.get("no_extension") is True
+        and record.get("operational_reason") == "registered chunk wall cap expired"
+        and record.get("preflight") is False
+        and identity.get("commit") == registration["commit"]
+        and identity.get("runtime_id") == receipt.get("job_id")
+    )
+
+
+def _mechanical_incomplete(
+    job: Path, receipt: dict[str, Any], registration: dict[str, Any]
+) -> bool:
+    """Recognize only the registered export/serialization recovery terminal."""
+    record = _exported_round0_record(receipt, job, "incomplete.json")
+    identity = record.get("run_identity", {}) if isinstance(record, dict) else {}
+    return bool(
+        record
+        and record.get("schema") == "t34-round0-incomplete/v1"
+        and record.get("status") == "INCOMPLETE"
+        and record.get("mechanical_rerun_eligible") is True
+        and record.get("operational_reason") == "export or serialization failure"
+        and record.get("preflight") is False
+        and identity.get("commit") == registration["commit"]
+        and identity.get("runtime_id") == receipt.get("job_id")
+    )
 
 
 def _mechanical(receipt: dict[str, Any], job: Path | None = None) -> bool:
@@ -100,7 +247,8 @@ def _controller_fault(job: Path, receipt: dict[str, Any], registration: dict[str
         fault.get("schema") == "t34-round0-fault/v1"
         and fault.get("preflight") is False
         and fault.get("unconditional") is True
-        and fault.get("fault") in {"illegal_action", "nonfinite_q", "action_collapse_100k"}
+        and fault.get("fault")
+        in {"illegal_action", "nonfinite_q", "nonfinite_loss", "action_collapse_100k"}
         and fault.get("arm") in {"bare", "teacher"}
         and identity.get("commit") == registration["commit"]
         and identity.get("checkpoint_sha256") == B8_SHA
@@ -146,6 +294,19 @@ def validate_manifest_closure(
         "A5_RECEIPT.json": registration["a5"]["sha256"],
     }
     items = manifest.get("inputs", [])
+    rows = read_json(PACKAGE / "BANK_ROUND0.json").get("rows")
+    if not isinstance(rows, list):
+        raise HistoryError("Round 0 bank has no rows for interleaved chunk validation")
+    expected_world_ids = [
+        row.get("world_id")
+        for row in ordered_rows(rows)[size["start"] : size["start"] + size["count"]]
+    ]
+    from research.t34_round0.make_manifest import dispatch_deadline
+
+    expected_deadline = {
+        "dispatch_by_unix_seconds": dispatch_deadline(registration["approved_at"]),
+        "completion_within_seconds": int(size["timeout_minutes"]) * 60,
+    }
     if (
         manifest.get("script") != "research/t34_round0/run.sh"
         or manifest.get("requirements")
@@ -162,8 +323,35 @@ def validate_manifest_closure(
         or {item.get("dest"): item.get("sha256") for item in items} != expected_inputs
         or manifest.get("round0", {}).get("layout")
         != {"cpu_inference_processes": 12, "threads_per_process": 1, "worlds_per_process": 1}
+        or manifest.get("round0", {}).get("world_ids") != expected_world_ids
+        or manifest.get("round0", {}).get("deadline") != expected_deadline
     ):
         raise HistoryError("Round 0 manifest executable closure differs from ratified recipe")
+
+
+def _settlement(
+    job: Path, receipt: dict[str, Any], registration: dict[str, Any], timeout_minutes: int
+) -> tuple[str, str]:
+    """Settle an operational receipt; a proven first cap forbids mechanical recovery."""
+    if (
+        receipt.get("status") == "PASS"
+        and receipt.get("stop_verified") is True
+        and _completion_within_timeout(receipt, timeout_minutes)
+    ):
+        return "COMPLETE", "supervisor PASS and verified release"
+    if _controller_fault(job, receipt, registration):
+        return "COMPLETE", "explained unconditional controller fault; scientific STOP only"
+    if (
+        _cap_expired(job, receipt, registration)
+        or _runtime_cap_expired(receipt, job)
+        or _broker_cap_expired(receipt)
+    ):
+        return "INCONCLUSIVE", "registered first cap expired; INCONCLUSIVE, no extension"
+    if _mechanical(receipt, job) or _mechanical_incomplete(job, receipt, registration):
+        return "MECHANICAL_FAILURE", "verified release; registered export or serialization failure"
+    if _runtime_terminal(receipt, job) and not _completion_within_timeout(receipt, timeout_minutes):
+        return "KILL", "chunk exceeded its registered completion timeout"
+    return "KILL", "supervisor failed without a registered mechanical terminal cause"
 
 
 def dispatch(
@@ -182,6 +370,9 @@ def dispatch(
     require_registration(
         registration, PACKAGE / "BANK_ROUND0.json", PACKAGE / "SEED_AUDIT_ROUND0.json"
     )
+    from research.t34_round0.registration import require_published_registration
+
+    require_published_registration(registration, registration_path)
     root, _, _ = policy(registration)
     original = read_json(manifest_path)
     chunk = original.get("round0", {}).get("chunk_id")
@@ -210,12 +401,16 @@ def dispatch(
     ):
         raise HistoryError("manifest fields differ from registered slice/caps")
     validate_manifest_closure(original, registration, registration_path)
+    deadline = original["round0"]["deadline"]
+    require_dispatch_deadline(deadline["dispatch_by_unix_seconds"])
     if not state_dir.is_absolute() or state_dir.exists():
         raise HistoryError("supervisor state directory must be fresh and absolute")
     with FrozenWorktreeGuard(ROOT, registration["commit"]):
         terminals = require_published_history(registration)
         if any(t["status"] == "KILL" for t in terminals):
             raise HistoryError("KILL closes this study")
+        if any(t["status"] == "INCONCLUSIVE" for t in terminals):
+            raise HistoryError("registered first cap expiry closes this study with INCONCLUSIVE")
         if any(
             t["reason"].startswith("explained unconditional controller fault") for t in terminals
         ):
@@ -235,8 +430,23 @@ def dispatch(
             manifest["env"]["T34_ROUND0_RUNTIME_ID"] = manifest["job_id"]
         # Check all manifest policy/input/source fields before claiming a phase.
         validate(manifest, repo=ROOT)
-        reserve(attempt, registration)
+        world_ids = original.get("round0", {}).get("world_ids")
+        if not isinstance(world_ids, list) or not all(
+            isinstance(world_id, str) for world_id in world_ids
+        ):
+            raise HistoryError("manifest lacks a fixed interleaved world-id slice")
+        reserve(attempt, registration, world_ids=world_ids)
         admission = attempt / "admission.json"
+        admission_value = read_json(admission)
+        dispatched_at = admission_value.get("dispatched_at_unix_seconds")
+        if (
+            isinstance(dispatched_at, bool)
+            or not isinstance(dispatched_at, (int, float))
+            or not math.isfinite(float(dispatched_at))
+        ):
+            raise HistoryError("admission lacks an immutable dispatch timestamp")
+        if dispatched_at > deadline["dispatch_by_unix_seconds"]:
+            raise HistoryError("admission missed the registered 48-hour dispatch deadline: KILL")
         manifest["inputs"].append(
             {"path": str(admission), "sha256": sha256(admission), "dest": "DISPATCH_ADMISSION.json"}
         )
@@ -267,31 +477,14 @@ def dispatch(
                 check=True,
             )
             receipt = read_json(attempt / "job/receipt.json")
-            if receipt.get("status") == "PASS" and receipt.get("stop_verified") is True:
-                status, reason = "COMPLETE", "supervisor PASS and verified release"
-            elif _controller_fault(attempt / "job", receipt, registration):
-                status, reason = (
-                    "COMPLETE",
-                    "explained unconditional controller fault; scientific STOP only",
-                )
-            elif _mechanical(receipt, attempt / "job"):
-                status, reason = (
-                    "MECHANICAL_FAILURE",
-                    "successful workload; verified release; failed artifact transport",
-                )
+            status, reason = _settlement(
+                attempt / "job", receipt, registration, int(size["timeout_minutes"])
+            )
     except subprocess.CalledProcessError:
         receipt_path = attempt / "job/receipt.json"
-        if receipt_path.is_file() and _controller_fault(
-            attempt / "job", read_json(receipt_path), registration
-        ):
-            status, reason = (
-                "COMPLETE",
-                "explained unconditional controller fault; scientific STOP only",
-            )
-        elif receipt_path.is_file() and _mechanical(read_json(receipt_path), attempt / "job"):
-            status, reason = (
-                "MECHANICAL_FAILURE",
-                "successful workload; verified release; failed artifact transport",
+        if receipt_path.is_file():
+            status, reason = _settlement(
+                attempt / "job", read_json(receipt_path), registration, int(size["timeout_minutes"])
             )
         else:
             reason = "supervisor failed without a registered mechanical terminal cause"

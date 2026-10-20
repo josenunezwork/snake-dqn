@@ -11,6 +11,33 @@ from research.t34_round0.common import COUNTS, PACKAGE, ROOT, read_json, sha256,
 
 NAMESPACE = "t34-round0-premise-20261020/v1"
 PREFLIGHT_NAMESPACE = "t34-round0-preflight-20261020/v1"
+_CHUNK_MIX_ORDER = (("scripted", 4), ("frozen", 3), ("mixed", 3))
+
+
+def ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return the frozen identities in 4:3:3 chunk-dispatch order.
+
+    The bank itself stays in its canonical mix-major order because its bytes are
+    hash-bound.  This derived order is the sole execution order: every ten
+    worlds contain four scripted, three frozen, and three mixed worlds, while
+    preserving each mix's original bank order.
+    """
+    if all("mix" not in row for row in rows):
+        return list(rows)
+    groups = {mix: [row for row in rows if row.get("mix") == mix] for mix, _ in _CHUNK_MIX_ORDER}
+    if sum(len(group) for group in groups.values()) != len(rows):
+        raise ValueError("bank contains an unknown chunk mix")
+    cycles = {len(groups[mix]) // quota for mix, quota in _CHUNK_MIX_ORDER}
+    if any(len(groups[mix]) % quota for mix, quota in _CHUNK_MIX_ORDER) or len(cycles) != 1:
+        raise ValueError("bank mix counts cannot form 4:3:3 chunks")
+    ordered: list[dict[str, Any]] = []
+    for cycle in range(next(iter(cycles), 0)):
+        for mix, quota in _CHUNK_MIX_ORDER:
+            start = cycle * quota
+            ordered.extend(groups[mix][start : start + quota])
+    if len(ordered) != len(rows) or len({row.get("world_id") for row in ordered}) != len(rows):
+        raise ValueError("bank chunk order lost or duplicated a world")
+    return ordered
 
 
 def _rows(namespace: str, counts: dict[str, int], horizon: int) -> list[dict[str, Any]]:

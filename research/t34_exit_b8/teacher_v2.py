@@ -24,6 +24,7 @@ from research.t34_exit_b8.engine import ExitTeacher, ExitTeacherConfig, mix_acti
 from research.t34_exit_b8.exports import state_hash, write_world
 from research.t34_exit_b8.lockstep import step_prepared_worlds
 from research.t34_exit_b8.trajectory import build_world, make_world_rows, prepare_world
+from research.t34_round0.faults import ExportSerializationError
 from research.t34_shadow.lad import search_lad
 from research.t34_shadow.shadow import ShadowFrame, ShadowTrajectory, clone_world_exact, full_digest
 
@@ -39,6 +40,14 @@ class ShadowControlMismatch(RuntimeError):
 class _MissingProbe(Exception):
     def __init__(self, decision: int) -> None:
         self.decision = decision
+
+
+def _write_export(path: Path, value: Mapping[str, Any]) -> None:
+    """Write a teacher trace while preserving export failure as operational."""
+    try:
+        write_world(path, value)
+    except (OSError, TypeError, ValueError) as exc:
+        raise ExportSerializationError("T34 teacher trace export failed") from exc
 
 
 def _outcome_dict(outcomes: Mapping[int, Any], *, horizon: int) -> dict[str, dict[str, Any]]:
@@ -915,7 +924,7 @@ def run_worlds(config: Mapping[str, Any]) -> dict[str, Any]:
                 }
                 stage = time.perf_counter()
                 path = output / f"world-{state['index']:06d}.json"
-                write_world(path, result)
+                _write_export(path, result)
                 stages["export_s"] += time.perf_counter() - stage
                 export_bytes += path.stat().st_size
                 done += 1

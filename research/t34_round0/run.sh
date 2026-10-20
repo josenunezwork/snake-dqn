@@ -13,7 +13,7 @@ set -euo pipefail
 : "${T34_ROUND0_COUNT:?}"
 : "${T34_ROUND0_COMMIT:?}"
 [[ "${T34_INPUT_MODE:-public}" == "public" ]] || { echo 'public inputs required' >&2; exit 2; }
-if [[ "${T34_DEVICE:-cpu}" != "cpu" || "${T34_ROUND0_THREADS:-1}" != "1" || "${T34_ROUND0_WORKERS:-12}" != "12" ]]; then
+if [[ "${T34_DEVICE:-cpu}" != "cpu" || "${T34_ROUND0_THREADS:-1}" != "1" || "${T34_ROUND0_PROCESSES:-12}" != "12" ]]; then
   echo 'Round 0 requires K=12 single-thread CPU-inference workers on the L4 runtime' >&2
   exit 2
 fi

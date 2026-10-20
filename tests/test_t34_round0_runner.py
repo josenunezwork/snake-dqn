@@ -39,20 +39,18 @@ def test_teacher_cuda_vector_recipe_can_preserve_paired_native_dispatch(tmp_path
     assert opponents.batch_device_vectors is (True if opt_in is None else opt_in)
 
 
-@pytest.mark.parametrize(
-    "message",
-    [
-        "illegal action",
-        "illegal hero action",
-        "hero action must be in [0, 5]",
-    ],
-)
-def test_real_illegal_action_faults_are_classified(message: str) -> None:
-    assert runner._fault_marker(ValueError(message)) == "illegal_action"
+@pytest.mark.parametrize("message", ["illegal action", "illegal hero action", "unrelated detail"])
+def test_real_illegal_action_faults_are_classified_by_type(message: str) -> None:
+    from research.t34_round0.faults import IllegalActionFault
+
+    assert runner._fault_marker(IllegalActionFault(message)) == "illegal_action"
+    assert runner._fault_marker(ValueError(message)) is None
 
 
 def test_nonfinite_q_is_fault_but_io_error_is_incomplete() -> None:
-    assert runner._fault_marker(ValueError("policy returned non-finite Q values")) == "nonfinite_q"
+    from research.t34_round0.faults import NonFiniteQLossFault
+
+    assert runner._fault_marker(NonFiniteQLossFault("unrelated detail")) == "nonfinite_q"
     assert runner._fault_marker(OSError("missing input file")) is None
 
 
@@ -145,8 +143,10 @@ def test_production_source_fence_requires_clean_ratified_bytes(monkeypatch, tmp_
 
 
 def test_pair_worker_failure_preserves_arm_and_fault_marker() -> None:
+    from research.t34_round0.faults import NonFiniteQLossFault
+
     failure = runner.Round0PairError(
-        "teacher", "world/7", ValueError("policy returned non-finite Q values")
+        "teacher", "world/7", NonFiniteQLossFault("policy returned non-finite Q values")
     )
     assert failure.arm == "teacher"
     assert failure.world_id == "world/7"
@@ -154,7 +154,9 @@ def test_pair_worker_failure_preserves_arm_and_fault_marker() -> None:
 
 
 def test_pair_worker_failure_is_pickle_safe_for_spawn_pool_transport() -> None:
-    failure = runner.Round0PairError("bare", "world/8", ValueError("illegal hero action"))
+    from research.t34_round0.faults import IllegalActionFault
+
+    failure = runner.Round0PairError("bare", "world/8", IllegalActionFault("illegal hero action"))
     copied = pickle.loads(pickle.dumps(failure))
     assert isinstance(copied, runner.Round0PairError)
     assert (copied.arm, copied.world_id, copied.marker, str(copied)) == (
@@ -224,10 +226,16 @@ def test_dispatch_admission_requires_canonical_registration_and_fixed_attempt(tm
                 "phase_path": "/evidence/t34/chunks/chunk-007/attempt-01",
                 "registration_sha256": runner._canonical_sha(runner._load(registration)),
                 "claim_commit": "b" * 40,
+                "world_ids": ["round/70", "round/71"],
             }
         )
     )
-    assert runner._validate_dispatch_admission(admission, registration)["claim_commit"] == "b" * 40
+    assert (
+        runner._validate_dispatch_admission(admission, registration, ["round/70", "round/71"])[
+            "claim_commit"
+        ]
+        == "b" * 40
+    )
     admission.write_text(
         json.dumps(
             {
@@ -235,11 +243,12 @@ def test_dispatch_admission_requires_canonical_registration_and_fixed_attempt(tm
                 "phase_path": "/evidence/t34/chunks/chunk-007/attempt-03",
                 "registration_sha256": runner._canonical_sha(runner._load(registration)),
                 "claim_commit": "b" * 40,
+                "world_ids": ["round/70", "round/71"],
             }
         )
     )
     with pytest.raises(runner.Round0Error, match="fixed registered chunk attempt"):
-        runner._validate_dispatch_admission(admission, registration)
+        runner._validate_dispatch_admission(admission, registration, ["round/70", "round/71"])
 
 
 def test_production_recipe_declares_a5_k12_single_thread_layout() -> None:

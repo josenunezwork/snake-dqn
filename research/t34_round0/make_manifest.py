@@ -8,6 +8,7 @@ A5 receipt before handing the result to the Colab CLI's local validator.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import hashlib
 import json
 import math
@@ -17,6 +18,7 @@ from typing import Any
 
 from research.colab_cli.supervisor import validate as validate_supervisor
 from research.t34_exit_b8.qualification import QualificationRefused, require_qualified_transport
+from research.t34_round0.bank import ordered_rows
 from research.t34_round0.common import BINDING_DOCS
 from research.t34_round0.registration import require_registration
 
@@ -25,6 +27,7 @@ PACKAGE = "research/t34_round0"
 RATE_UNITS_PER_HOUR = 2.0
 MAX_ESTIMATE_MINUTES = 180
 TIMEOUT_GRACE_MINUTES = 25
+DISPATCH_WINDOW_HOURS = 48
 RESERVE_FRACTION = 0.20
 MAX_EXPORT_BYTES = 2 * 1024**3
 EXPORT_BYTES_PER_WORLD = 9 * 1024**2
@@ -136,6 +139,9 @@ def maximum_chunk_pairs(
     )
     by_export = math.floor((MAX_EXPORT_BYTES - 1) / float(one_pair["export_bytes"]))
     maximum = min(by_time, by_export)
+    # Every production chunk must end on a complete 4:3:3 stratum.  This
+    # prevents a completed early chunk from revealing only one mix.
+    maximum -= maximum % 10
     if maximum < 1:
         raise ManifestRefused("measured component costs leave no pair within Round 0 limits")
     return maximum
@@ -340,6 +346,21 @@ def _input(path: Path, dest: str) -> dict[str, str]:
     return {"path": str(path), "sha256": sha256_file(path), "dest": dest}
 
 
+def dispatch_deadline(approved_at: str) -> float:
+    """Return the registered UTC dispatch deadline from ratification time."""
+    if not isinstance(approved_at, str):
+        raise ManifestRefused("ratification approved_at must be an ISO-8601 timestamp")
+    try:
+        parsed = dt.datetime.fromisoformat(approved_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ManifestRefused("ratification approved_at must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None:
+        raise ManifestRefused("ratification approved_at must include a UTC offset")
+    return (
+        parsed.astimezone(dt.timezone.utc) + dt.timedelta(hours=DISPATCH_WINDOW_HOURS)
+    ).timestamp()
+
+
 def qualify_source(manifest: dict[str, Any]) -> None:
     """Exercise the exact bounded source transport locally before allocation."""
     from research.colab_cli.source import prepare
@@ -416,6 +437,7 @@ def make_manifests(
         )
     receipt = _verify_a5(a5_receipt)
     rows = _verify_bank(bank)
+    dispatch_rows = ordered_rows(rows)
     ratification_payload = _verify_ratification(
         ratification,
         commit=commit,
@@ -425,6 +447,7 @@ def make_manifests(
         a5=a5_receipt,
     )
     require_registration(ratification_payload, bank, audit, repo=ROOT)
+    dispatch_by = dispatch_deadline(ratification_payload["approved_at"])
     try:
         require_qualified_transport(ROOT, commit)
     except QualificationRefused as exc:
@@ -478,6 +501,9 @@ def make_manifests(
     manifests: list[dict[str, Any]] = []
     for number, chunk in enumerate(round_sizing["chunks"]):
         start, count = int(chunk["start"]), int(chunk["count"])
+        world_ids = [row["world_id"] for row in dispatch_rows[start : start + count]]
+        if len(world_ids) != count:
+            raise ManifestRefused("interleaved bank slice does not match chunk count")
         lane = number % lanes + 1
         chunk_id = f"chunk-{number:03d}"
         attempt_id = "attempt-01"
@@ -546,6 +572,11 @@ def make_manifests(
                     "limit_bytes": MAX_EXPORT_BYTES,
                 },
                 "sizing": chunk,
+                "world_ids": world_ids,
+                "deadline": {
+                    "dispatch_by_unix_seconds": dispatch_by,
+                    "completion_within_seconds": int(chunk["timeout_minutes"]) * 60,
+                },
             },
         }
         validate_supervisor(manifest, repo=ROOT)

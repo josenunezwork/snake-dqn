@@ -132,8 +132,8 @@ def test_manifest_uses_fixed_attempt_path_and_recomputed_chunk_caps(
 
     first, second = result["manifests"]
     assert [(item["round0"]["start"], item["round0"]["count"]) for item in (first, second)] == [
-        (0, 155),
-        (155, 85),
+        (0, 150),
+        (150, 90),
     ]
     assert first["output_dir"] == str(files["study_root"] / "chunks/chunk-000/attempt-01/job")
     assert first["round0"]["layout"] == {
@@ -149,9 +149,20 @@ def test_manifest_uses_fixed_attempt_path_and_recomputed_chunk_caps(
     assert (files["study_root"] / "manifests" / f"{first['job_id']}.json").is_file()
     import copy
 
+    from research.t34_round0 import dispatch
     from research.t34_round0.dispatch import validate_manifest_closure
     from research.t34_round0.history import HistoryError
 
+    original_read_json = dispatch.read_json
+    monkeypatch.setattr(
+        dispatch,
+        "read_json",
+        lambda path: (
+            json.loads(files["bank"].read_text())
+            if Path(path) == dispatch.PACKAGE / "BANK_ROUND0.json"
+            else original_read_json(path)
+        ),
+    )
     validate_manifest_closure(first, ratification_value, files["ratification"])
     for field in ("script", "requirements", "env", "inputs", "source_paths"):
         altered = copy.deepcopy(first)
@@ -202,7 +213,7 @@ def test_maximum_chunk_pairs_enforces_time_and_strict_export_limit() -> None:
         cpu_slowdown_factor=3.0,
     )
     next_chunk = size_chunk(
-        maximum + 1,
+        maximum + 10,
         teacher_worlds_per_hour=54.4,
         bare_seconds_per_world=9.0,
         metric_seconds_per_pair=4.0,
@@ -211,6 +222,7 @@ def test_maximum_chunk_pairs_enforces_time_and_strict_export_limit() -> None:
 
     assert allowed["estimate_minutes"] <= MAX_ESTIMATE_MINUTES
     assert allowed["export_bytes"] < MAX_EXPORT_BYTES
+    assert maximum % 10 == 0
     assert (
         next_chunk["estimate_minutes"] > MAX_ESTIMATE_MINUTES
         or next_chunk["export_bytes"] >= MAX_EXPORT_BYTES
@@ -230,7 +242,7 @@ def test_size_round_partitions_the_240_world_bank_and_recomputes_each_cap() -> N
     )
 
     chunks = sizing["chunks"]
-    assert [(chunk["start"], chunk["count"]) for chunk in chunks] == [(0, 155), (155, 85)]
+    assert [(chunk["start"], chunk["count"]) for chunk in chunks] == [(0, 150), (150, 90)]
     assert all(chunk["estimate_minutes"] <= MAX_ESTIMATE_MINUTES for chunk in chunks)
     assert all(chunk["timeout_minutes"] >= 2 * chunk["estimate_minutes"] for chunk in chunks)
     assert sizing["unit_cap"] == pytest.approx(sum(chunk["unit_cap"] for chunk in chunks))

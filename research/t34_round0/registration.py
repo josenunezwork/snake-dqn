@@ -22,6 +22,7 @@ from research.t34_round0.common import (
 )
 
 PREREG = PACKAGE / "PREREGISTRATION_ROUND0.md"
+RATIFICATION = PACKAGE / "REGISTRATION_ROUND0.json"
 
 
 def check_audit(bank_path: Path, audit_path: Path, *, preflight: bool = False) -> dict[str, Any]:
@@ -113,6 +114,71 @@ def require_registration(
     if not isinstance(registration.get("sizing"), dict) or not registration["sizing"].get("chunks"):
         raise ValueError("ratification lacks the frozen chunk sizing and study unit cap")
     return bank
+
+
+def require_published_registration(
+    registration: Mapping[str, Any], ratification_path: Path
+) -> None:
+    """Require the fixed ratification JSON on an origin/main commit after its source.
+
+    The registration's ``commit`` freezes executable bytes.  The operator's
+    ratification JSON is intentionally committed *after* that source commit,
+    so dispatch must prove both the exact published JSON and that ordering.
+    """
+    from research.t34_round0.history import policy
+
+    _, repo, _ = policy(registration)
+    expected = (repo / RATIFICATION.relative_to(ROOT)).resolve()
+    if ratification_path.resolve() != expected:
+        raise ValueError("ratification must use the canonical REGISTRATION_ROUND0.json")
+    try:
+        subprocess.run(
+            ["git", "fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        local = expected.read_bytes()
+        published = subprocess.run(
+            ["git", "show", f"origin/main:{RATIFICATION.relative_to(ROOT).as_posix()}"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError("ratification must be committed and pushed to origin/main") from exc
+    if local != published:
+        raise ValueError("ratification bytes differ from origin/main")
+    if read_json(expected) != dict(registration):
+        raise ValueError("ratification file differs from admitted registration")
+    source = registration.get("commit")
+    if not isinstance(source, str) or len(source) != 40:
+        raise ValueError("ratification needs a full source SHA")
+    try:
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", source, "origin/main"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        publication_commits = subprocess.run(
+            [
+                "git",
+                "log",
+                "--format=%H",
+                f"{source}..origin/main",
+                "--",
+                RATIFICATION.relative_to(ROOT),
+            ],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    except subprocess.SubprocessError as exc:
+        raise ValueError("ratification source must precede its origin/main publication") from exc
+    if not publication_commits:
+        raise ValueError("ratification must be committed to main after its frozen source")
 
 
 def ratify(

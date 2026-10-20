@@ -237,17 +237,28 @@ def test_only_a_measured_mechanical_failure_can_precede_attempt_two(
         assert not dispatch._mechanical(no_failed_download, job)
 
 
-def test_chunk_sample_is_ceil_ten_percent_per_chunk_in_canonical_order() -> None:
-    rows = [{"world_id": f"world-{index:02d}"} for index in range(24)]
+def test_chunk_sample_is_ceil_ten_percent_per_interleaved_chunk() -> None:
+    from research.t34_round0.bank import ordered_rows
+
+    rows = [
+        {"world_id": f"{mix}-{index:02d}", "mix": mix}
+        for mix, count in (("scripted", 8), ("frozen", 6), ("mixed", 6))
+        for index in range(count)
+    ]
+    ordered = ordered_rows(rows)
     chunks = [
-        {"slice": {"start": 0, "count": 11, "world_ids": [row["world_id"] for row in rows[:11]]}},
-        {"slice": {"start": 11, "count": 13, "world_ids": [row["world_id"] for row in rows[11:]]}},
+        {
+            "slice": {
+                "start": start,
+                "count": 10,
+                "world_ids": [row["world_id"] for row in ordered[start : start + 10]],
+            }
+        }
+        for start in (0, 10)
     ]
     assert [row["world_id"] for row in history.selected_rows(rows, chunks)] == [
-        "world-00",
-        "world-01",
-        "world-11",
-        "world-12",
+        "scripted-00",
+        "scripted-04",
     ]
 
 
@@ -270,21 +281,24 @@ def test_frozen_worktree_rejects_untracked_bytes(tmp_path: Path) -> None:
 def test_real_chunk_sample_retains_all_three_mixes() -> None:
     from collections import Counter
 
+    from research.t34_round0.bank import ordered_rows
+
     rows = [
         {"world_id": f"{mix}-{i}", "mix": mix}
         for mix, count in (("scripted", 96), ("frozen", 72), ("mixed", 72))
         for i in range(count)
     ]
+    ordered = ordered_rows(rows)
     chunks = [
         {
             "slice": {
                 "start": start,
                 "count": count,
-                "world_ids": [r["world_id"] for r in rows[start : start + count]],
+                "world_ids": [r["world_id"] for r in ordered[start : start + count]],
             }
         }
-        for start, count in ((0, 141), (141, 99))
+        for start, count in ((0, 140), (140, 100))
     ]
     sample = history.selected_rows(rows, chunks)
-    assert len(sample) == 25
-    assert Counter(r["mix"] for r in sample) == {"scripted": 10, "frozen": 8, "mixed": 7}
+    assert len(sample) == 24
+    assert Counter(r["mix"] for r in sample) == {"scripted": 10, "frozen": 7, "mixed": 7}

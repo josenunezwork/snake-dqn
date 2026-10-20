@@ -10,6 +10,7 @@ import fcntl
 import json
 import os
 import re
+import time
 import uuid
 from contextvars import ContextVar
 from pathlib import Path
@@ -29,6 +30,10 @@ _ACTIVE_PHASE: ContextVar[Path | None] = ContextVar("round0_active_phase", defau
 
 class HistoryError(ValueError):
     """An immutable reservation or its published evidence is unsafe."""
+
+
+class CapExpiredHistory(HistoryError):
+    """A registered first cap ended the study without an outcome look."""
 
 
 def require_active_phase(registration: Mapping[str, Any], phase: str) -> None:
@@ -86,16 +91,32 @@ def _claims(registration: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
+def _reject_other_study_roots(registration: Mapping[str, Any]) -> None:
+    """A Round 0 remote claim binds the one root frozen in the ratification."""
+    root, repo, _ = policy(registration)
+    prefix = "refs/tags/t34-round0/"
+    output = _git(repo, "ls-remote", "--refs", "origin", f"{prefix}*")
+    for line in output.splitlines():
+        _commit, ref = line.split()
+        relative = ref.removeprefix(prefix)
+        tag_root, separator, _phase = relative.partition("/")
+        if not separator or tag_root != root.name:
+            raise HistoryError("remote Round 0 admission belongs to a different study_root")
+
+
 def terminal_entry(out: Path, registration: Mapping[str, Any]) -> dict[str, str]:
     """Check the complete immutable inventory, including supervisor receipts."""
     relative = phase_name(out, registration)
     seal = out / "phase_terminal.json"
-    value = read_json(seal)
+    try:
+        value = read_json(seal)
+    except FileNotFoundError as exc:
+        raise HistoryError("unfinished claim is missing its terminal history") from exc
     if (
         value.get("schema") != "t34-round0-terminal/v1"
         or value.get("phase_path") != str(out)
         or value.get("registration_sha256") != _registration_sha(registration)
-        or value.get("status") not in {"COMPLETE", "MECHANICAL_FAILURE", "KILL"}
+        or value.get("status") not in {"COMPLETE", "MECHANICAL_FAILURE", "INCONCLUSIVE", "KILL"}
     ):
         raise HistoryError("foreign or unfinished terminal history")
     paths = list(out.rglob("*"))
@@ -134,12 +155,21 @@ def require_published_history(registration: Mapping[str, Any]) -> list[dict[str,
     return [read_json(out / "phase_terminal.json") for out in roots if out != _ACTIVE_PHASE.get()]
 
 
-def reserve(out: Path, registration: Mapping[str, Any]) -> None:
+def reserve(
+    out: Path, registration: Mapping[str, Any], *, world_ids: list[str] | None = None
+) -> None:
     """Publish a unique create-only tag before reserving local phase evidence."""
     relative = phase_name(out, registration)
     root, repo, _ = policy(registration)
+    _reject_other_study_roots(registration)
     if out.exists():
         raise HistoryError("phase directory is create-only")
+    if world_ids is not None and (
+        not world_ids
+        or any(not isinstance(world_id, str) or not world_id for world_id in world_ids)
+        or len(set(world_ids)) != len(world_ids)
+    ):
+        raise HistoryError("chunk admission world_ids must be non-empty unique strings")
     source = registration.get("commit")
     if not isinstance(source, str) or not re.fullmatch(r"[0-9a-f]{40}", source):
         raise HistoryError("admission requires a full ratified source commit")
@@ -148,8 +178,11 @@ def reserve(out: Path, registration: Mapping[str, Any]) -> None:
         "phase_path": str(out),
         "registration_sha256": _registration_sha(registration),
         "unexplained_interruption": "KILL",
+        "dispatched_at_unix_seconds": time.time(),
         "nonce": uuid.uuid4().hex,
     }
+    if world_ids is not None:
+        payload["world_ids"] = world_ids
     commit = _git(
         repo,
         "-c",
@@ -177,7 +210,7 @@ def reserve(out: Path, registration: Mapping[str, Any]) -> None:
 def finalize(out: Path, registration: Mapping[str, Any], status: str, reason: str) -> None:
     """Seal after closing the source fence and durably append the receipt hash."""
     _, repo, name = policy(registration)
-    if status not in {"COMPLETE", "MECHANICAL_FAILURE", "KILL"}:
+    if status not in {"COMPLETE", "MECHANICAL_FAILURE", "INCONCLUSIVE", "KILL"}:
         raise HistoryError("unknown phase terminal status")
     common = Path(_git(repo, "rev-parse", "--git-common-dir").strip())
     if not common.is_absolute():
@@ -195,6 +228,13 @@ def finalize(out: Path, registration: Mapping[str, Any], status: str, reason: st
                 != entry
             ):
                 raise HistoryError("prior terminal history differs")
+        # A structural marker lets the pre-reservation schedule check identify
+        # early settlement without reading any terminal entry or outcome file.
+        # Its bytes are included in the immutable terminal inventory below.
+        if status in {"KILL", "INCONCLUSIVE"} or reason.startswith(
+            "explained unconditional controller fault"
+        ):
+            write_once(out / "study_closed.json", {"status": status})
         paths = list(out.rglob("*"))
         if any(p.is_symlink() for p in paths):
             raise HistoryError("cannot seal linked evidence")
@@ -226,12 +266,15 @@ def selected_rows(
     """Freeze a ceil(10%) bank-order sample independently within every chunk."""
     import math
 
+    from research.t34_round0.bank import ordered_rows
+
+    ordered = ordered_rows(rows)
     selected, covered = [], []
     for chunk in sorted(chunks, key=lambda c: c["slice"]["start"]):
         start, count = chunk["slice"]["start"], chunk["slice"]["count"]
         if type(start) is not int or type(count) is not int or start < 0 or count < 1:
             raise HistoryError("chunk slice must contain positive integer counts")
-        group = rows[start : start + count]
+        group = ordered[start : start + count]
         if len(group) != count or chunk["slice"].get("world_ids") != [r["world_id"] for r in group]:
             raise HistoryError("chunk slice differs from frozen bank")
         covered.extend(r["world_id"] for r in group)
@@ -252,7 +295,7 @@ def selected_rows(
             quotas[mix] += 1
         wanted = {row["world_id"] for mix in mixes for row in groups[mix][: quotas[mix]]}
         selected.extend(row for row in group if row["world_id"] in wanted)
-    if covered != [r["world_id"] for r in rows]:
+    if covered != [r["world_id"] for r in ordered]:
         raise HistoryError("chunks must partition the whole bank in canonical order")
     return selected
 
@@ -263,17 +306,71 @@ def require_chunks(chunks: list[Path], registration: Mapping[str, Any]) -> None:
     terminals = require_published_history(registration)
     if any(t["status"] == "KILL" for t in terminals):
         raise HistoryError("operator abort or unexplained interruption is KILL")
+    if any(t["status"] == "INCONCLUSIVE" for t in terminals):
+        raise CapExpiredHistory("registered first cap expired; INCONCLUSIVE with no extension")
+    retained_outputs, scientific_stop = [], False
+    chunks_root = root / "chunks"
+    if chunks_root.exists():
+        for group in sorted(chunks_root.iterdir()):
+            if not group.is_dir():
+                continue
+            attempts = sorted(path for path in group.iterdir() if path.is_dir())
+            if not attempts:
+                continue
+            terminal = read_json(attempts[-1] / "phase_terminal.json")
+            if terminal.get("status") == "COMPLETE":
+                retained_outputs.append(attempts[-1] / "job/exports/round0")
+            scientific_stop = scientific_stop or terminal.get("reason", "").startswith(
+                "explained unconditional controller fault"
+            )
+    if scientific_stop:
+        if len(set(chunks)) != len(chunks) or set(chunks) != set(retained_outputs):
+            raise HistoryError("scientific STOP must consume exactly all retained completed chunks")
+        return
     if (root / "analysis").exists() and _ACTIVE_PHASE.get() != root / "analysis":
         raise HistoryError("the sole outcome look has already been reserved")
+    frozen_chunks = registration.get("sizing", {}).get("chunks")
+    if frozen_chunks is not None and (
+        not isinstance(frozen_chunks, list)
+        or not frozen_chunks
+        or any(
+            not isinstance(item, Mapping)
+            or type(item.get("start")) is not int
+            or type(item.get("count")) is not int
+            or item["start"] < 0
+            or item["count"] < 1
+            for item in frozen_chunks
+        )
+    ):
+        raise HistoryError("ratification lacks a fixed chunk schedule")
+    expected_names = (
+        [f"chunk-{index:03d}" for index in range(len(frozen_chunks))]
+        if frozen_chunks is not None
+        else None
+    )
+    chunks_root = root / "chunks"
+    try:
+        groups = sorted(chunks_root.iterdir())
+    except FileNotFoundError as exc:
+        raise HistoryError("unfinished claim is missing its terminal history") from exc
+    if (
+        any(not group.is_dir() for group in groups)
+        or expected_names is not None
+        and [group.name for group in groups] != expected_names
+    ):
+        raise HistoryError("fixed chunk schedule is missing a terminal claim")
     expected = []
-    for group in sorted((root / "chunks").iterdir()):
+    for group in groups:
         attempts = sorted(group.iterdir())
         if not attempts or [p.name for p in attempts] not in (
             ["attempt-01"],
             ["attempt-01", "attempt-02"],
         ):
             raise HistoryError("fixed chunks permit at most one fresh mechanical attempt")
-        seals = [read_json(p / "phase_terminal.json") for p in attempts]
+        try:
+            seals = [read_json(p / "phase_terminal.json") for p in attempts]
+        except FileNotFoundError as exc:
+            raise HistoryError("unfinished claim is missing its terminal history") from exc
         if len(seals) == 2 and seals[0]["status"] != "MECHANICAL_FAILURE":
             raise HistoryError("second attempt was not an outcome-independent mechanical rerun")
         if seals[-1]["status"] != "COMPLETE":
@@ -283,6 +380,60 @@ def require_chunks(chunks: list[Path], registration: Mapping[str, Any]) -> None:
         raise HistoryError("supplied chunks differ from the fixed retained attempt history")
 
 
+def _analysis_reservation_allowed(registration: Mapping[str, Any]) -> None:
+    """Refuse a still-pending schedule without consuming the sole outcome look."""
+    root, _, _ = policy(registration)
+    chunks = registration.get("sizing", {}).get("chunks")
+    approved_at = registration.get("approved_at")
+    if not isinstance(chunks, list) or not chunks or not isinstance(approved_at, str):
+        return
+    from research.t34_round0.make_manifest import dispatch_deadline
+
+    try:
+        deadline = dispatch_deadline(approved_at)
+    except ValueError as exc:
+        raise HistoryError("ratification lacks a valid dispatch deadline") from exc
+    chunks_root = root / "chunks"
+    groups = (
+        {path.name: path for path in chunks_root.iterdir() if path.is_dir()}
+        if chunks_root.exists()
+        else {}
+    )
+    expected = {f"chunk-{index:03d}" for index in range(len(chunks))}
+    remote_chunk_claims = {
+        phase
+        for phase in _claims(registration)
+        if re.fullmatch(r"chunks/chunk-\d{3}/attempt-0[12]", phase)
+    }
+    local_attempts = {
+        attempt.relative_to(root).as_posix()
+        for group in groups.values()
+        for attempt in group.iterdir()
+        if attempt.is_dir()
+    }
+    unfinished_claim = any(
+        not (attempt / "phase_terminal.json").exists()
+        for group in groups.values()
+        for attempt in group.iterdir()
+        if attempt.is_dir()
+    ) or bool(remote_chunk_claims - local_attempts)
+    settled_early = any(
+        (attempt / "study_closed.json").is_file()
+        for group in groups.values()
+        for attempt in group.iterdir()
+        if attempt.is_dir()
+    )
+    if (
+        time.time() <= deadline
+        and expected - set(groups)
+        and not unfinished_claim
+        and not settled_early
+    ):
+        raise HistoryError(
+            "registered chunk schedule is still pending; analysis has no claim to reserve"
+        )
+
+
 def run_phase(registration: Mapping[str, Any], phase: str, action: Any) -> Any:
     """Fence and seal a single create-only replay or decision phase."""
     from research.t34_pathb.source_binding_v2 import FrozenWorktreeGuard
@@ -290,7 +441,10 @@ def run_phase(registration: Mapping[str, Any], phase: str, action: Any) -> Any:
     root, _, _ = policy(registration)
     out = root / phase
     with FrozenWorktreeGuard(ROOT, registration["commit"]):
-        require_published_history(registration)
+        if phase == "analysis":
+            _analysis_reservation_allowed(registration)
+        else:
+            require_published_history(registration)
         reserve(out, registration)
     status, reason = "KILL", "operator abort or unexplained interruption"
     token = _ACTIVE_PHASE.set(out)

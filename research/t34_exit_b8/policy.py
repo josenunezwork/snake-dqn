@@ -15,6 +15,8 @@ from typing import Any, Protocol, Sequence
 import numpy as np
 import torch
 
+from research.t34_round0.faults import IllegalActionFault, NonFiniteQLossFault
+
 
 @dataclass(frozen=True)
 class PolicyEvaluation:
@@ -28,7 +30,7 @@ class PolicyEvaluation:
         if np.asarray(self.q).shape != (6,) or np.asarray(self.legal).shape != (6,):
             raise ValueError("policy evaluation requires six Q values and six legal flags")
         if not np.isfinite(self.q).all():
-            raise ValueError("policy returned non-finite Q values")
+            raise NonFiniteQLossFault("policy returned non-finite Q values")
 
     def greedy_action(self) -> int:
         """Return the stable float32 greedy legal action (first index wins ties)."""
@@ -339,7 +341,7 @@ def action_grid(
     """
     sim = world.sim
     if not 0 <= int(hero_action) < 6:
-        raise ValueError("hero action must be in [0, 5]")
+        raise IllegalActionFault("hero action must be in [0, 5]")
     actions = np.ones((1, sim.S), dtype=np.int64)
     runner = cache or B8Policy(device=device)
     runner.dispatch(sim, world.runtime, [world.opponents], actions)

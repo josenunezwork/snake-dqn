@@ -31,6 +31,13 @@ from research.t34_exit_b8.exports import load_world, state_hash, write_world
 from research.t34_exit_b8.policy import B8Policy
 from research.t34_exit_b8.teacher_v2 import _step, run_worlds
 from research.t34_exit_b8.trajectory import build_world, prepare_world
+from research.t34_round0.faults import (
+    CapExpiry,
+    ExportSerializationError,
+    IllegalActionFault,
+    NonFiniteQLossFault,
+    OneActionShareFault,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 PAIR_SCHEMA = "t34-round0-pair/v1"
@@ -48,33 +55,46 @@ class Round0PairError(Round0Error):
     """A worker failure with enough context to preserve a KILL record."""
 
     def __init__(
-        self, arm: str, world_id: str, cause: BaseException | str, marker: str | None = None
+        self,
+        arm: str,
+        world_id: str,
+        cause: BaseException | str,
+        marker: str | None = None,
+        operational_kind: str | None = None,
     ) -> None:
         """Retain only primitive fields so spawn-pool exception transport is safe."""
         super().__init__(str(cause))
         self.arm = arm
         self.world_id = world_id
         self.marker = marker if marker is not None else _fault_marker(cause)
+        self.operational_kind = (
+            operational_kind if operational_kind is not None else _operational_kind(cause)
+        )
 
-    def __reduce__(self) -> tuple[Any, tuple[str, str, str, str | None]]:
+    def __reduce__(self) -> tuple[Any, tuple[str, str, str, str | None, str | None]]:
         """Reconstruct contextual fault data when ProcessPoolExecutor unpickles us."""
-        return (type(self), (self.arm, self.world_id, str(self), self.marker))
+        return (
+            type(self),
+            (self.arm, self.world_id, str(self), self.marker, self.operational_kind),
+        )
 
 
 def _fault_marker(exc: BaseException) -> str | None:
-    """Classify only known unconditional controller faults, preserving other errors."""
-    text = str(exc).lower()
-    if "non-finite" in text or "nonfiniteq" in type(exc).__name__.lower():
-        return "nonfinite_q"
-    if any(
-        message in text
-        for message in (
-            "illegal action",
-            "illegal hero action",
-            "hero action must be in [0, 5]",
-        )
-    ):
-        return "illegal_action"
+    """Return the registered marker for an explicit controller-fault type only."""
+    markers: dict[type[BaseException], str] = {
+        NonFiniteQLossFault: "nonfinite_q",
+        IllegalActionFault: "illegal_action",
+        OneActionShareFault: "action_collapse_100k",
+    }
+    return markers.get(type(exc))
+
+
+def _operational_kind(exc: BaseException) -> str | None:
+    """Identify explicitly wrapped operational failures without text inspection."""
+    if type(exc) is ExportSerializationError:
+        return "export_or_serialization"
+    if type(exc) is CapExpiry:
+        return "cap_expired"
     return None
 
 
@@ -87,7 +107,7 @@ class _ActionWindow:
 
     def add(self, action: int) -> bool:
         if not 0 <= action < 6:
-            raise Round0Error("illegal hero action")
+            raise IllegalActionFault("illegal hero action")
         if len(self.actions) == 100000:
             self.counts[self.actions.popleft()] -= 1
         self.actions.append(action)
@@ -196,7 +216,9 @@ def _canonical_sha(value: Mapping[str, Any]) -> str:
     ).hexdigest()
 
 
-def _validate_dispatch_admission(admission: Path | None, ratification: Path) -> dict[str, Any]:
+def _validate_dispatch_admission(
+    admission: Path | None, ratification: Path, expected_world_ids: list[str]
+) -> dict[str, Any]:
     """Require the remote create-only claim copied into this frozen runtime."""
     if admission is None:
         raise Round0Error("production requires a dispatch admission receipt")
@@ -210,6 +232,7 @@ def _validate_dispatch_admission(admission: Path | None, ratification: Path) -> 
         or not re.search(r"(?:^|/)chunks/chunk-\d{3}/attempt-0[12]$", phase_path)
         or not isinstance(value.get("claim_commit"), str)
         or not re.fullmatch(r"[0-9a-f]{40}", value["claim_commit"])
+        or value.get("world_ids") != expected_world_ids
     ):
         raise Round0Error("dispatch admission receipt is not a fixed registered chunk attempt")
     return value
@@ -312,18 +335,13 @@ def _bare_trace(
             on_progress()
         if not bool(world.sim.alive[0, 0]):
             break
-        try:
-            prepare_world(world)
-            evaluation = teacher.evaluate(world)
-        except ValueError as exc:
-            if type(exc).__name__ == "NonFiniteQ" or "non-finite" in str(exc).lower():
-                raise Round0Error("bare policy produced non-finite Q") from exc
-            raise
+        prepare_world(world)
+        evaluation = teacher.evaluate(world)
         if not np.isfinite(np.asarray(evaluation.q, dtype=np.float64)).all():
-            raise Round0Error("bare policy produced non-finite Q")
+            raise NonFiniteQLossFault("bare policy produced non-finite Q")
         action = int(evaluation.greedy_action())
         if not 0 <= action < 6:
-            raise Round0Error("bare policy returned illegal action")
+            raise IllegalActionFault("bare policy returned illegal action")
         actions.append(_step(world, teacher, action))
         if on_action:
             on_action(action)
@@ -508,7 +526,31 @@ def _check_source_fence(snapshot: Mapping[str, Any], *, preflight: bool) -> None
 
 def _worker_deadline(deadline: float) -> None:
     if time.monotonic() >= deadline:
-        raise Round0Error("operational chunk wall bound reached")
+        raise CapExpiry("operational chunk wall bound reached")
+
+
+def _write_export(path: Path, exported: Mapping[str, Any]) -> None:
+    """Write a trace while marking any serialization failure as operational."""
+    try:
+        write_world(path, exported)
+    except (OSError, TypeError, ValueError) as exc:
+        raise ExportSerializationError("Round 0 trace export failed") from exc
+
+
+def _load_export(path: Path) -> dict[str, Any]:
+    """Load a trace while marking incomplete or malformed export bytes as operational."""
+    try:
+        return load_world(path)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ExportSerializationError("Round 0 trace export could not be loaded") from exc
+
+
+def _write_json_export(path: Path, value: Mapping[str, Any]) -> None:
+    """Write a non-terminal Round 0 JSON export as an operational operation."""
+    try:
+        _write_new(path, value)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ExportSerializationError("Round 0 JSON export failed") from exc
 
 
 def _submit_available(
@@ -556,7 +598,7 @@ def _produce_pair(request: Mapping[str, Any]) -> dict[str, Any]:
         )
         bare_elapsed = time.monotonic() - bare_started
         bare_path = trace_dir / "bare.json"
-        write_world(bare_path, bare)
+        _write_export(bare_path, bare)
         metric_started = time.monotonic()
         _worker_deadline(deadline)
         bare_metrics = _metrics_from_trace(bare, checkpoint)
@@ -582,12 +624,13 @@ def _produce_pair(request: Mapping[str, Any]) -> dict[str, Any]:
                     "branch_bucket_size": 6,
                 }
             )
+            _worker_deadline(deadline)
             if not result.get("complete") or result.get("worlds") != 1:
                 raise Round0Error("teacher did not complete a world")
-            teacher = _strip_labels(load_world(teacher_out / "world-000000.json"))
+            teacher = _strip_labels(_load_export(teacher_out / "world-000000.json"))
         teacher_elapsed = time.monotonic() - teacher_started
         teacher_path = trace_dir / "teacher.json"
-        write_world(teacher_path, teacher)
+        _write_export(teacher_path, teacher)
         metric_started = time.monotonic()
         _worker_deadline(deadline)
         teacher_metrics = _metrics_from_trace(teacher, checkpoint)
@@ -635,6 +678,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     bank_data = _load(bank_path)
     rows = _validate_bank(bank_data, preflight=preflight)
     _validate_audit(audit_path, bank_path)
+    admission: dict[str, Any] | None = None
     if preflight:
         if ratification is not None or dispatch_admission is not None:
             raise Round0Error(
@@ -644,7 +688,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if ratification is None:
             raise Round0Error("production requires a ratification")
         rows = _registered_bank(ratification, bank_path, audit_path)
-        admission = _validate_dispatch_admission(dispatch_admission, ratification)
+        from research.t34_round0.bank import ordered_rows
+
+        rows = ordered_rows(rows)
     if not checkpoint.is_file():
         raise Round0Error("B8 checkpoint is missing")
     if sha256(checkpoint) != B8_SHA:
@@ -652,6 +698,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.start < 0 or args.count < 1 or args.start + args.count > len(rows):
         raise Round0Error("requested contiguous bank slice is outside the immutable bank")
     selected = rows[args.start : args.start + args.count]
+    if not preflight:
+        assert ratification is not None
+        admission = _validate_dispatch_admission(
+            dispatch_admission, ratification, [str(row["world_id"]) for row in selected]
+        )
     if out.exists():
         raise Round0Error("output directory must be fresh")
     fence = _source_fence(preflight=preflight, ratification=ratification)
@@ -667,6 +718,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     identity["source_hashes"] = fence["source_hashes"]
     if not preflight:
         identity["dispatch_admission_sha256"] = sha256(dispatch_admission)
+        assert admission is not None
         identity["phase_path"] = admission["phase_path"]
         identity["claim_commit"] = admission["claim_commit"]
     started = time.monotonic()
@@ -728,11 +780,51 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         except FileExistsError:
             pass
 
+    def incomplete(reason: str, *, error: BaseException) -> None:
+        """Seal a recoverable export/serialization interruption without a STOP."""
+        payload = {
+            "schema": "t34-round0-incomplete/v1",
+            "status": "INCOMPLETE",
+            "preflight": preflight,
+            "run_identity": identity,
+            "operational_reason": reason,
+            "mechanical_rerun_eligible": True,
+            "completed_pairs": len(completed),
+            "requested_pairs": len(selected),
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "one_look": "no outcome analysis was performed by the producer",
+        }
+        try:
+            _write_new(out / "incomplete.json", payload)
+        except FileExistsError:
+            pass
+
+    def cap_expired(*, error: BaseException) -> None:
+        """Seal the first registered wall-cap expiry as non-extendable INCONCLUSIVE."""
+        payload = {
+            "schema": "t34-round0-cap-expiry/v1",
+            "status": "INCONCLUSIVE",
+            "preflight": preflight,
+            "run_identity": identity,
+            "operational_reason": "registered chunk wall cap expired",
+            "no_extension": True,
+            "completed_pairs": len(completed),
+            "requested_pairs": len(selected),
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "one_look": "no outcome analysis was performed by the producer",
+        }
+        try:
+            _write_new(out / "cap_expiry.json", payload)
+        except FileExistsError:
+            pass
+
     def operational() -> None:
         nonlocal heartbeat
         now = time.monotonic()
         if now >= deadline:
-            raise Round0Error("operational chunk wall bound reached")
+            raise CapExpiry("operational chunk wall bound reached")
         _check_source_fence(fence, preflight=preflight)
         if now - heartbeat >= 110:
             print(
@@ -770,13 +862,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 raise Round0Error(f"worker {name} action stream is invalid")
             for action in actions:
                 if windows[name].add(action):
+                    fault_exception = OneActionShareFault(
+                        f"{name} exceeded the one-action-collapse tripwire"
+                    )
                     fault(
                         name,
-                        "action_collapse_100k",
+                        _fault_marker(fault_exception),
                         str(row["world_id"]),
                         "one action exceeded 90 percent",
                     )
-                    raise Round0Error(f"{name} exceeded the one-action-collapse tripwire")
+                    raise fault_exception
             path, final_state_hash = Path(str(worker_arm.get("path", ""))), worker_arm.get(
                 "final_state_hash"
             )
@@ -802,7 +897,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 arm_summary[name]["action_counts"][action] += int(count)
         tag = _safe_world_id(str(row["world_id"]))
         pair_path = out / "pairs" / f"{index:03d}-{tag}.json"
-        _write_new(
+        _write_json_export(
             pair_path,
             {
                 "schema": PAIR_SCHEMA,
@@ -866,11 +961,26 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         for future in pending:
             future.cancel()
         pool.shutdown(wait=True, cancel_futures=True)
-        if isinstance(exc, Round0PairError) and exc.marker:
-            fault(exc.arm, exc.marker, exc.world_id, str(exc))
-        kill("operator abort or unexplained interruption", error=exc)
+        marker = exc.marker if isinstance(exc, Round0PairError) else _fault_marker(exc)
+        operational_kind = (
+            exc.operational_kind if isinstance(exc, Round0PairError) else _operational_kind(exc)
+        )
+        if isinstance(exc, Round0PairError) and marker:
+            fault(exc.arm, marker, exc.world_id, str(exc))
+        if operational_kind == "export_or_serialization":
+            incomplete("export or serialization failure", error=exc)
+        elif operational_kind == "cap_expired":
+            cap_expired(error=exc)
+        else:
+            kill("operator abort or unexplained interruption", error=exc)
         if isinstance(exc, Round0Error):
             raise
+        if operational_kind == "export_or_serialization":
+            raise Round0Error(
+                "Round 0 export/serialization failure; INCOMPLETE evidence was preserved"
+            ) from exc
+        if operational_kind == "cap_expired":
+            raise Round0Error("Round 0 cap expired; INCONCLUSIVE evidence was preserved") from exc
         raise Round0Error("Round 0 worker aborted; KILL evidence was preserved") from exc
     else:
         pool.shutdown(wait=True)
@@ -899,7 +1009,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "drop_limit_fraction": 0.02,
         },
     }
-    _write_new(out / "chunk.json", receipt)
+    try:
+        _write_json_export(out / "chunk.json", receipt)
+    except ExportSerializationError as exc:
+        incomplete("export or serialization failure", error=exc)
+        raise Round0Error(
+            "Round 0 export/serialization failure; INCOMPLETE evidence was preserved"
+        ) from exc
     return receipt
 
 

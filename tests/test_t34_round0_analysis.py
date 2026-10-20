@@ -140,6 +140,10 @@ def artifacts(tmp_path, monkeypatch):
     )
     rows = records()
     bank = {"rows": [row["world"] for row in rows]}
+    from research.t34_round0.bank import ordered_rows
+
+    records_by_world_id = {row["world"]["world_id"]: row for row in rows}
+    chunk_rows = [records_by_world_id[world["world_id"]] for world in ordered_rows(bank["rows"])]
     write_once(bank_path, bank)
     write_once(audit_path, {"test_fixture": True})
     write_once(ratification_path, {"commit": "a" * 40})
@@ -173,7 +177,7 @@ def artifacts(tmp_path, monkeypatch):
     )
     chunk = tmp_path / "job" / "exports" / "round0"
     pair_index, evidence = [], {}
-    for row in rows:
+    for row in chunk_rows:
         world_id = row["world"]["world_id"]
         for arm in ("bare", "teacher"):
             path = chunk / f"traces/{world_id}/{arm}.json"
@@ -234,15 +238,18 @@ def artifacts(tmp_path, monkeypatch):
             pairs=pair_index,
             slice=dict(
                 start=0,
-                count=len(rows),
-                world_ids=[row["world"]["world_id"] for row in rows],
+                count=len(chunk_rows),
+                world_ids=[row["world"]["world_id"] for row in chunk_rows],
             ),
         ),
     )
-    selected = [
+    wanted = {
         row["world"]["world_id"]
         for mix, count in (("scripted", 10), ("frozen", 7), ("mixed", 7))
-        for row in [r for r in rows if r["world"]["mix"] == mix][:count]
+        for row in [r for r in chunk_rows if r["world"]["mix"] == mix][:count]
+    }
+    selected = [
+        row["world"]["world_id"] for row in chunk_rows if row["world"]["world_id"] in wanted
     ]
     from research.t34_round0.common import ROOT
 
