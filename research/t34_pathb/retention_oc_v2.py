@@ -9,6 +9,7 @@ as 64 independent worlds. No retention/precheck output is an input.
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import math
@@ -37,11 +38,16 @@ REPO = Path(__file__).resolve().parents[2]
 ARTIFACTS = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts")
 DENSE = ARTIFACTS / "t3-rollout-labels-20261015/dense/ceiling"
 WATCH = ARTIFACTS / "t15-mixed-roster-20261017/run-v1/records"
+T13B_EPISODES = REPO / "research/t13b_six_snake_20261017/results/episodes.json.gz"
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 MIXES = ("frozen", "scripted", "mixed")
 THETAS = (20.0, 26.8, 40.0, 60.0, 80.0)
 N = 32
 BATCH = 250
+WATCH_PRODUCT_SESSIONS = 16
+WATCH_REDUCTIONS = (0.20, 0.40)
+PATHB_SURVIVAL_GAINS = (0.10, 0.25)
+PATHB_MASS_GAINS = (40.0, 60.0, 92.0)
 
 
 def _sha(path: Path) -> str:
@@ -93,7 +99,15 @@ def development_pool() -> dict[str, Any]:
             mass = _number(row["mass_integral"], 0)
             base_alive = _number(baseline["survival_fraction"], 0, 1)
             base_mass = _number(baseline["mass_integral"], 0)
-            delta = [mass - base_mass, survival - base_alive, base_alive]
+            no_death = int(row["episode_survival"])
+            base_no_death = int(bool(baseline["episode_survival"]))
+            delta = [
+                mass - base_mass,
+                survival - base_alive,
+                base_alive,
+                no_death - base_no_death,
+                base_no_death,
+            ]
             if not math.isclose(delta[0], row["paired_delta"]["mass_integral"], abs_tol=1e-9):
                 raise ValueError("T3 mass delta does not reconcile")
             if not math.isclose(
@@ -135,12 +149,58 @@ def development_pool() -> dict[str, Any]:
             {
                 "seed": row["seed"],
                 "deaths": _number(hero["deaths"], 0),
+                "decisions": 5000.0,
                 "alive_fraction_continuous_respawn": _number(hero["alive_frames"], 0, 5000) / 5000,
                 "decision_mean_length": sum(int(k) * v for k, v in hist.items()) / 5000,
             }
         )
         sources[str(path)] = _sha(path)
-    return {"t3_pools": pools, "watch_baselines": watch, "source_files": sources}
+    # T13b contains the original mixed Watch6 baseline as a gzip-compressed list
+    # of 25 independent H5000 session records. It is retained separately from T15:
+    # their roster evidence is not pooled and each remains a distinct development
+    # power sensitivity.
+    with gzip.open(T13B_EPISODES, "rt", encoding="utf-8") as stream:
+        t13b_rows = json.load(stream)
+    if not isinstance(t13b_rows, list):
+        raise ValueError("T13b development episode archive must be a list")
+    t13b_watch = []
+    t13b_seeds = set()
+    for row in t13b_rows:
+        if (
+            not isinstance(row, dict)
+            or row.get("schema_version") != "t13b-six-snake-episode/v1"
+            or row.get("roster") != "mixed"
+            or row.get("horizon") != 5000
+            or row.get("frames_stepped") != 5000
+            or row.get("requested_snake_count") != 6
+            or row.get("initial_world", {}).get("effective_num_snakes") != 6
+        ):
+            continue
+        seed = row.get("seed")
+        hero = row.get("hero")
+        if (
+            type(seed) is not int
+            or seed in t13b_seeds
+            or not isinstance(hero, dict)
+            or row.get("served", {}).get("checkpoint_sha256") != B8_SHA
+        ):
+            raise ValueError("T13b mixed Watch baseline seed or hero record is invalid")
+        decisions = _number(hero.get("decisions"), 1)
+        if decisions != 5000:
+            raise ValueError("T13b mixed Watch baseline must contain 5000 hero decisions")
+        t13b_seeds.add(seed)
+        t13b_watch.append(
+            {"seed": seed, "deaths": _number(hero.get("deaths"), 0), "decisions": decisions}
+        )
+    if len(t13b_watch) != 25:
+        raise ValueError("T13b mixed Watch baseline must contain exactly 25 sessions")
+    sources[str(T13B_EPISODES)] = _sha(T13B_EPISODES)
+    return {
+        "t3_pools": pools,
+        "watch_baselines": watch,
+        "watch6_product_baselines": {"t15_mixed_watch6": watch, "t13b_mixed_watch6": t13b_watch},
+        "source_files": sources,
+    }
 
 
 def intervals(samples: np.ndarray, alpha: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -195,9 +255,65 @@ def _models(pool: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return models
 
 
+def pathb_power_scenarios() -> dict[str, dict[str, float]]:
+    """Prospective development-only Path B effect grid with no retention inputs."""
+    return {
+        f"scripted_survival_plus_{survival:g}|mass_plus_{mass:g}": {
+            "scripted_no_death_gain": survival,
+            "mass_gain": mass,
+        }
+        for survival in PATHB_SURVIVAL_GAINS
+        for mass in PATHB_MASS_GAINS
+    }
+
+
+def _paired_upper95(samples: np.ndarray) -> np.ndarray:
+    """Two-sided paired 95% Student-t upper endpoint; zero variance is exact."""
+    n = samples.shape[-1]
+    mean = samples.mean(axis=1)
+    standard_error = samples.std(axis=1, ddof=1) / math.sqrt(n)
+    return mean + t.isf(0.025, n - 1) * standard_error
+
+
+def product_power_outcomes(
+    pool: dict[str, Any], rng: np.random.Generator, count: int
+) -> dict[str, np.ndarray]:
+    """Simulate paired Watch6 CI exclusion under declared death-thinning effects.
+
+    A sampled historical baseline session is paired with a candidate session whose
+    death count is Binomial(baseline deaths, 1-reduction). This is an explicit
+    development effect model, not a claim that the historical controller had an
+    available counterfactual or that product deaths are terminal survival.
+    """
+    outcomes: dict[str, np.ndarray] = {}
+    for name, rows in pool["watch6_product_baselines"].items():
+        deaths = np.asarray([row["deaths"] for row in rows], dtype=np.int64)
+        decisions = np.asarray([row["decisions"] for row in rows], dtype=float)
+        selected = rng.integers(0, len(rows), size=(count, WATCH_PRODUCT_SESSIONS))
+        base_deaths = deaths[selected]
+        base_decisions = decisions[selected]
+        for reduction in WATCH_REDUCTIONS:
+            candidate_deaths = rng.binomial(base_deaths, 1.0 - reduction)
+            paired_rate_delta = 1000.0 * (candidate_deaths - base_deaths) / base_decisions
+            success = _paired_upper95(paired_rate_delta) < 0
+            outcomes[f"{name}|reduction={reduction:g}|paired_ci95_excludes_zero"] = success
+    return outcomes
+
+
+def product_power_batch(
+    pool: dict[str, Any], rng: np.random.Generator, count: int
+) -> dict[str, int]:
+    """Summarize the per-replicate Watch6 product power outcomes."""
+    return {
+        key: int(value.sum()) for key, value in product_power_outcomes(pool, rng, count).items()
+    }
+
+
 def simulate_batch(pool: dict[str, Any], seed: int, offset: int, count: int) -> dict[str, int]:
     """Use batch-indexed streams so interruption never changes completed draws."""
     rng = np.random.default_rng(np.random.SeedSequence([seed, offset]))
+    product_rng = np.random.default_rng(np.random.SeedSequence([seed, offset, 1]))
+    product_outcomes = product_power_outcomes(pool, product_rng, count)
     counts: dict[str, int] = {}
     for name, model in _models(pool).items():
         if model["kind"] == "empirical":
@@ -206,10 +322,14 @@ def simulate_batch(pool: dict[str, Any], seed: int, offset: int, count: int) -> 
             mass = selected[..., 0] - values[:, 0].mean()
             alive = selected[..., 1] - values[:, 1].mean()
             base = selected[..., 2]
+            no_death_shape = selected[..., 3]
+            base_no_death = selected[..., 4]
         else:
             mass = rng.normal(0, model["mass_sd"], (count, 3, N))
             alive = rng.normal(0, model["survival_sd"], (count, 3, N))
             base = np.full((count, 3, N), 0.8)
+            no_death_shape = rng.normal(0, model["survival_sd"], (count, 3, N))
+            base_no_death = rng.binomial(1, 0.8, (count, 3, N))
         _amean, alower, mixlower = intervals(alive, 0.05)
         mass_intervals = {alpha: intervals(mass, alpha) for alpha in (0.05, 0.10)}
         for scenario, shifts_list in scenarios().items():
@@ -232,11 +352,72 @@ def simulate_batch(pool: dict[str, Any], seed: int, offset: int, count: int) -> 
                     )
                     if scenario == "no_change":
                         counts[key + "|mass_near_zero_exception"] = int(near_zero.sum())
-                        counts[key + "|joint_after_near_zero_exception"] = int(
-                            (skill & band & ~near_zero).sum()
-                        )
+                        counts[key + "|joint_after_near_zero_exception"] = int((skill & band).sum())
                         counts[key + "|mass_lb_positive"] = int(sign.sum())
                         counts[key + "|mass_point_and_lb"] = int(skill.sum())
+        # Full registered N=32 Path B development power grid. The positive
+        # scripted no-death and all-mix mass shifts reuse the centered T3 dense
+        # within-world shape; they do not consume or resemble retention rows.
+        for scenario_name, effect in pathb_power_scenarios().items():
+            scripted_shift = np.array([0.0, effect["scripted_no_death_gain"], 0.0])
+            pathb_candidate_alive = np.clip(base + alive, 0.0, 1.0)
+            alive_headroom = 1.0 - pathb_candidate_alive
+            alive_rescue_probability = np.divide(
+                scripted_shift[None, :, None],
+                alive_headroom.mean(axis=2, keepdims=True),
+                out=np.ones_like(alive_headroom.mean(axis=2, keepdims=True)),
+                where=alive_headroom.mean(axis=2, keepdims=True) > 0,
+            )
+            pathb_candidate_alive += np.clip(alive_rescue_probability, 0.0, 1.0) * alive_headroom
+            pathb_mass_mean, pathb_mass_holm_lower, _ = intervals(mass, 0.05)
+            # Treat the stated +.10/.25 as the target paired no-death mean vs
+            # bare, rather than adding it to T3's historical mean. T3's binary
+            # paired deltas only rank which bare failures are rescued.
+            no_death_candidate = base_no_death.astype(np.int64).copy()
+            bare_failures = 1 - no_death_candidate[:, 1, :]
+            rescue_weights = 1.0 + 0.5 * (no_death_shape[:, 1, :] > 0)
+            failure_count = bare_failures.sum(axis=1)
+            weighted_failure_mean = np.divide(
+                (rescue_weights * bare_failures).sum(axis=1),
+                failure_count,
+                out=np.ones(count),
+                where=failure_count > 0,
+            )
+            rescue_probability = np.divide(
+                effect["scripted_no_death_gain"],
+                failure_count / N,
+                out=np.ones(count),
+                where=failure_count > 0,
+            )
+            rescue_probability = (
+                rescue_probability[:, None] * rescue_weights / weighted_failure_mean[:, None]
+            )
+            rescues = rng.binomial(bare_failures, np.clip(rescue_probability, 0.0, 1.0))
+            no_death_candidate[:, 1, :] += rescues
+            # A no-death episode necessarily has alive fraction one. This couples
+            # the binary endpoint to the bounded alive-fraction simulation.
+            pathb_candidate_alive[:, 1, :] = np.maximum(
+                pathb_candidate_alive[:, 1, :], no_death_candidate[:, 1, :]
+            )
+            pathb_alive = pathb_candidate_alive - base
+            _, pathb_alive_lower, pathb_mix_lower = intervals(pathb_alive, 0.05)
+            pathb_band = (
+                (pathb_alive_lower > -0.05)
+                & np.all(pathb_mix_lower > -0.075, axis=1)
+                & np.all((base + pathb_alive).mean(axis=2) >= 0.30, axis=1)
+            )
+            pathb_no_death = no_death_candidate - base_no_death
+            pathb_no_death_mean = pathb_no_death[:, 1, :].mean(axis=1)
+            pathb_skill = (
+                (pathb_mass_mean + effect["mass_gain"] >= 40)
+                & (pathb_mass_holm_lower + effect["mass_gain"] > 0)
+                & (pathb_no_death_mean >= 0.03)
+            )
+            terminal_go = pathb_band & pathb_skill
+            for product_key, product_pass in product_outcomes.items():
+                counts[f"{name}|pathb_joint_go|{scenario_name}|{product_key}"] = int(
+                    (terminal_go & product_pass).sum()
+                )
         # Illustrative sequential alternative: same max N, two looks, Bonferroni
         # across looks (alpha .025 each), no futility. Early success needs +40
         # point, mass lower >0, and all bands at alpha .025. This is not registered.
@@ -251,6 +432,8 @@ def simulate_batch(pool: dict[str, Any], seed: int, offset: int, count: int) -> 
             & np.all((base + alive)[..., :16].mean(axis=2) >= 0.30, axis=1)
         )
         counts[f"{name}|sequential_illustration|early_success"] = int(early.sum())
+    for key, value in product_outcomes.items():
+        counts[f"product_power|{key}"] = int(value.sum())
     return counts
 
 
@@ -357,7 +540,30 @@ def run(
         for k, v in rates.items()
         if "|no_change|" not in k and k.endswith("joint_mass_and_band")
     }
-    failures = {k: v for k, v in protected.items() if v["rate"] > 0.06}
+    max_joint_regression_pass_rate = max(value["rate"] for value in protected.values())
+    joint_regression_pass_rate_limit = 0.06
+    failures = {
+        key: value
+        for key, value in protected.items()
+        if value["rate"] > joint_regression_pass_rate_limit
+    }
+    pathb_power = {key: value for key, value in rates.items() if "|pathb_joint_go|" in key}
+    product_power = {key: value for key, value in rates.items() if key.startswith("product_power|")}
+    t3_like_scenario = "scripted_survival_plus_0.25|mass_plus_92"
+    t3_like_rates = {
+        key: value
+        for key, value in pathb_power.items()
+        if key.startswith("t3_dense_b8_s3_scripted_shape_all_mixes|pathb_joint_go|")
+        and f"|{t3_like_scenario}|" in key
+    }
+    t3_like_power_review_required = {
+        "model": "t3_dense_b8_s3_scripted_shape_all_mixes",
+        "scenario": t3_like_scenario,
+        "threshold": 0.5,
+        "rates": t3_like_rates,
+        "required": any(value["rate"] < 0.5 for value in t3_like_rates.values()),
+        "rule": "Report below-.5 joint power; fixed N=32/mix does not change.",
+    }
     costs = {}
     for name in _models(pool):
         early = rates[f"{name}|sequential_illustration|early_success"]["rate"]
@@ -388,7 +594,8 @@ def run(
         "scenarios": scenarios(),
         "completed": reps,
         "acceptance": {
-            "max_joint_regression_pass_rate": 0.06,
+            "max_joint_regression_pass_rate": max_joint_regression_pass_rate,
+            "joint_regression_pass_rate_limit": joint_regression_pass_rate_limit,
             "failed_cells": failures,
             "criterion": "every simulated joint rate <=1.2*band_alpha=.06",
         },
@@ -417,9 +624,17 @@ def run(
                 "mass plus band only, all other bars assumed pass; upper bound for "
                 "complete GO probability"
             ),
+            "pathb_power": (
+                "T3 centered dense within-world mass/alive shape, scripted-only survival gains "
+                "+.10/+.25, all-mix mass gains +40/+60/+92, fixed N=32 per mix"
+            ),
+            "product_power": (
+                "16 paired Watch6 sessions; independently resample each historical baseline and "
+                "apply binomial death thinning at 20%/40%, two-sided paired Student-t 95% CI"
+            ),
             "near_zero": (
-                "additional no-change diagnostic excludes point>=40 and abs(raw alpha .10 "
-                "mass LB)<=10, matching analyzer precedence"
+                "raw near-zero frequency is a diagnostic; complete passing mass/band "
+                "cells are retained under the corrected mass-only exception"
             ),
             "rng": "NumPy PCG64 SeedSequence([seed, completed_batch_offset]); batch size 250",
         },
@@ -429,6 +644,28 @@ def run(
             for name, model in _models(pool).items()
         },
         "rates": rates,
+        "pathb_joint_go_power": {
+            "n_per_mix": N,
+            "effects": pathb_power_scenarios(),
+            "rates": pathb_power,
+            "interpretation": (
+                "Joint paced-arm skill plus product GO probability: fixed-N terminal bars include "
+                "the two-arm Holm first-rank mass threshold, survival floors, and scripted "
+                "no-death >=.03; each product baseline uses the 16-session paired death CI. "
+                "Timing, boost, and product growth are assumed to pass."
+            ),
+        },
+        "watch6_product_power": {
+            "sessions": WATCH_PRODUCT_SESSIONS,
+            "relative_death_reductions": list(WATCH_REDUCTIONS),
+            "criterion": "paired two-sided 95% Student-t CI upper endpoint for deaths/1k is <0",
+            "rates": product_power,
+            "interpretation": (
+                "Separate T15 and T13b mixed-Watch6 baseline sensitivities; simulated candidate "
+                "death thinning is a development model, not product efficacy evidence."
+            ),
+        },
+        "t3_like_power_review_required": t3_like_power_review_required,
         "fixed_vs_sequential": costs,
         "cost_note": (
             "Fixed N is retained as mandated by the spec: 96 paired terminal worlds, plus "
@@ -454,13 +691,13 @@ def run(
                 "are separate sensitivity pools."
             ),
             (
-                "Watch baselines are 25 continuous-respawn sessions; their decision "
-                "mean-length variance is only a mass-scale sensitivity, not terminal "
-                "survival or a paired candidate variance."
+                "T15 and T13b Watch baselines are separate 25-session continuous-respawn "
+                "development sources; neither is a paired candidate outcome or terminal survival."
             ),
             (
-                "Additive centered shifts can leave survival [0,1]; no clipping or "
-                "post-result tuning is applied."
+                "Original regression/stress diagnostics use additive centered survival shifts "
+                "which can leave [0,1]. The new Path B power grid uses bounded alive fractions "
+                "and binary no-death rescue coupled to full-horizon survival."
             ),
             "Normal stress is a declared distribution model; it is not additional observed worlds.",
             (
@@ -468,8 +705,15 @@ def run(
                 "amendment's point-rate <=.06 criterion."
             ),
             (
-                "Holm-family dependence and all non-mass product/boost/no-death clauses "
-                "are not modeled; full GO power can be lower."
+                "The original regression diagnostics omit other contract clauses. Path B joint "
+                "power uses conservative Holm first-rank alpha .05 and models no-death and "
+                "product death CIs; true arm dependence, timing and boost are not measured, "
+                "and product growth is assumed unchanged."
+            ),
+            (
+                "Product power uses a declared binomial thinning counterfactual. It does not "
+                "estimate a controller effect, account for product overdispersion, or authorize "
+                "a product result or change to N=16."
             ),
         ],
     }
