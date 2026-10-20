@@ -122,7 +122,9 @@ def _draft_inputs(tmp_path: Path, monkeypatch) -> tuple[dict, Path]:
         "- Decision: ratified\n- Option: 1\n- Date: 2026-10-06\n- Changes, if any: none\n"
     )
     profile = {
-        "load_policy": {"quiet_ratified": False, "phase0_finished_required": True},
+        "load_policy": json.loads(Path("research/t34_pathb/RETENTION_PROFILE_V2.json").read_text())[
+            "load_policy"
+        ],
         "survival_band": {"amendment": {"path": str(amendment), "sha256": _sha(amendment)}},
     }
     pool = {"source_files": {"source.py": source_hashes["source.py"]}, "rows": [1, 2]}
@@ -185,7 +187,36 @@ def _draft_inputs(tmp_path: Path, monkeypatch) -> tuple[dict, Path]:
             for theta in (20.0, 26.8, 40.0, 60.0, 80.0)
             for alpha in (0.05, 0.10)
         },
-        "acceptance": {"max_joint_regression_pass_rate": 0.0, "failed_cells": {}},
+        "acceptance": {
+            "max_joint_regression_pass_rate": 0.0,
+            "joint_regression_pass_rate_limit": 0.06,
+            "failed_cells": {},
+        },
+    }
+    from research.t34_pathb.retention_oc_v2 import pathb_power_scenarios
+
+    effects = pathb_power_scenarios()
+    product_keys = [
+        f"{baseline}|reduction={reduction:g}|paired_ci95_excludes_zero"
+        for baseline in ("t15_mixed_watch6", "t13b_mixed_watch6")
+        for reduction in (0.2, 0.4)
+    ]
+    joint = {
+        f"{model}|pathb_joint_go|{effect}|{key}": {"k": 0, "n": 20_000, "rate": 0.0}
+        for model in oc["models"]
+        for effect in effects
+        for key in product_keys
+    }
+    product_rates = {
+        f"product_power|{key}": {"k": 0, "n": 20_000, "rate": 0.0} for key in product_keys
+    }
+    oc["rates"].update(joint)
+    oc["rates"].update(product_rates)
+    oc["pathb_joint_go_power"] = {"n_per_mix": 32, "effects": effects, "rates": joint}
+    oc["watch6_product_power"] = {
+        "sessions": 16,
+        "relative_death_reductions": [0.2, 0.4],
+        "rates": product_rates,
     }
     for name, value in (
         ("bank.json", bank),
@@ -242,18 +273,69 @@ def test_draft_refuses_mutated_survival_band_amendment(monkeypatch, tmp_path):
         registration.validate_registration(draft, root=tmp_path)
 
 
-def test_ratification_never_mints_evidence_and_requires_real_precheck(monkeypatch, tmp_path):
+def test_ratification_refuses_precheck_outcomes_before_timing(monkeypatch, tmp_path):
     draft, _source = _draft_inputs(tmp_path, monkeypatch)
     trace = tmp_path / "trace.json"
     _json(trace, {"status": "PASS", "source_hashes": draft["source_hashes"]})
-    with pytest.raises(RegistrationError, match="observed passing"):
+    with pytest.raises(RegistrationError, match="pre-data"):
         registration.ratify_registration(
             draft,
             source_commit="a" * 40,
             precheck={},
             trace_receipt=trace,
-            load_record=tmp_path / "load.json",
             operator="Claude",
             acknowledge_near_boundary_precedence=True,
             root=tmp_path,
         )
+
+
+def test_load_policy_keys_match_profile_and_enforce_registered_thresholds(monkeypatch, tmp_path):
+    draft, _source = _draft_inputs(tmp_path, monkeypatch)
+    draft["load_profile"] = {**draft["load_profile"], "max_load_1m_excess": 4.0}
+    with pytest.raises(RegistrationError, match="load_profile differs"):
+        registration.validate_registration(draft, root=tmp_path)
+
+
+def test_oc_acceptance_reports_observed_max_separately_from_limit(monkeypatch, tmp_path):
+    draft, _source = _draft_inputs(tmp_path, monkeypatch)
+    oc_path = tmp_path / "oc.json"
+    oc = json.loads(oc_path.read_text())
+    oc["acceptance"]["max_joint_regression_pass_rate"] = 0.06
+    _json(oc_path, oc)
+    draft["operating_characteristic"]["sha256"] = _sha(oc_path)
+    with pytest.raises(RegistrationError, match="acceptance record"):
+        registration.validate_registration(draft, root=tmp_path)
+
+
+def test_ratify_freezes_inputs_before_timing_or_precheck(monkeypatch, tmp_path):
+    draft, _source = _draft_inputs(tmp_path, monkeypatch)
+    trace = tmp_path / "trace.json"
+    _json(trace, {"status": "PASS", "source_hashes": draft["source_hashes"]})
+    checked = []
+    monkeypatch.setattr(
+        registration, "require_registration", lambda value, precheck: checked.append(precheck)
+    )
+    result = registration.ratify_registration(
+        draft,
+        source_commit="a" * 40,
+        trace_receipt=trace,
+        operator="Claude",
+        acknowledge_near_boundary_precedence=True,
+        root=tmp_path,
+    )
+    assert result["ratified"] is True
+    assert result["load_profile"] == draft["load_profile"]
+    assert "load_record" not in result
+    assert checked == [None]
+
+
+@pytest.mark.parametrize("field", ["pathb_joint_go_power", "watch6_product_power"])
+def test_oc_requires_joint_and_product_power_evidence(monkeypatch, tmp_path, field):
+    draft, _source = _draft_inputs(tmp_path, monkeypatch)
+    path = tmp_path / "oc.json"
+    oc = json.loads(path.read_text())
+    oc.pop(field)
+    _json(path, oc)
+    draft["operating_characteristic"]["sha256"] = _sha(path)
+    with pytest.raises(RegistrationError, match="power rates"):
+        registration.validate_registration(draft, root=tmp_path)

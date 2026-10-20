@@ -2,6 +2,10 @@
 
 DRAFT_PENDING_OPERATOR_RATIFICATION
 
+Pre-data FIX-FIRST rulings (2026-10-20) are incorporated from
+[the operator specification](../../docs/research/specs/2026-10-20_t34_retention_prereg_fixes.md).
+They supersede the earlier draft precedence and execution ordering below.
+
 Written 2026-10-20 before any retention efficacy row. The owner delegated the
 ratification decision to Claude; only the operator ratifies after review. This
 draft, its committed banks and its OC simulation authorize no pre-check,
@@ -117,7 +121,7 @@ use Student t with n−1 df. Do not pair arbitrary indices across disjoint mixes
 | Delivered boost | Total executed hero boost decisions / total executed hero decisions across all 96 terminal worlds | inclusive [.005, .10]; dead frames excluded; fallbacks included |
 | Watch6 persistence | Each session's hero deaths * 1000 / executed hero decisions; candidate-minus-bare rate per paired session | mean rate lower, two-sided paired 95% interval upper < 0; 20% fewer is a target, not an extra bar |
 | Watch6 growth | Per-session (candidate full-H5000 mass − bare full-H5000 mass) / bare full-H5000 mass | two-sided paired 95% interval lower >= −.05; zero bare denominator is invalid evidence |
-| Processing | Real Watch6 ON/OFF at both 12/24 fps, fixed 5000 scored ticks after 200 warmup ticks per mode/rate | zero paced overruns (full tick >= period is overrun); paced update p95 <=11.688 ms at both rates |
+| Processing | Real Watch6 ON/OFF at both 12/24 fps, fixed 5000 scored ticks after 200 warmup ticks per mode/rate | zero paced overruns (full tick >= period is overrun); paced update p95 <=11.688 ms at 24 fps; report p95 at 12 fps |
 | Delivered cadence | Scored ticks / measured paced elapsed seconds, ON compared with OFF at matching rate | ON >= .95 * OFF at each rate |
 
 Holm orders the two one-sided pooled mass p-values (paced wins stable equal-p
@@ -156,20 +160,25 @@ Rollback at a separately authorized release disables assistance and pins
   ≥ +40, or product bars pass but one skill bar misses by less than its interval — report, no extension, owner
   decides whether to fund a second fixed block.
 
-Executable precedence is frozen to existing `analyze_v2.decide`: trustworthy
-unconditional faults or paced overruns kill even in partial evidence; otherwise
-incomplete/invalid evidence is INCONCLUSIVE. At the sole complete valid look:
-contended timing -> INCONCLUSIVE; failed processing/cadence -> KILL; the quoted
-near-boundary uncertainty exception -> INCONCLUSIVE; failed paced skill -> KILL
-(deadline loss if unpaced passes, otherwise both fail); all paced skill/product
-bars pass -> GO; product bars not established -> INCONCLUSIVE.
+Executable precedence: unconditional faults KILL. The quiet-host timing gate
+runs first, before the reused T3 pre-check or any efficacy world. At both rates
+require zero overruns and the cadence bar; require update p95 <=11.688 ms only
+at 24 fps. A failed registered timing probe stops with KILL-timing and no
+pre-check/efficacy work. Sustained contention or AC/lid/thermal interruption
+beyond the registered pause limit is INCONCLUSIVE. Missing or invalid evidence
+is INCONCLUSIVE. At the sole complete valid look, failed timing is KILL;
+failed paced skill decides KILL (deadline loss if unpaced passes, otherwise
+both fail), subject only to the uncertainty exceptions below; all paced
+skill/product bars pass -> GO; product bars not established -> INCONCLUSIVE.
 
-Explicit overlap disclosure for operator review: existing code applies the
-inclusive `abs(raw_mass_LB90) <= 10` uncertainty exception with point >=40
-**before GO**, even for a positive LB90. It also treats raw/Holm significance as
-one skill category when exactly one category misses and its corresponding
-interval overlaps the bar. This draft preserves that conservative precedence;
-ratification must acknowledge it. No threshold is changed after data.
+The near-zero exception (`abs(raw_mass_LB90) <= 10`, point >=40) applies only
+when mass is the sole failing category and product passes. Raw/Holm
+significance and the +40 point threshold are one mass category. It cannot
+mask survival, boost, absolute floor, product or timing failures, and cannot
+turn a complete pass into INCONCLUSIVE. The separate one-skill-bar interval
+overlap exception applies only with product passing. Every efficacy tick >=
+41.7 ms is diagnostic: its bare fallback remains counted in assigned-arm
+efficacy. The zero-overrun bar applies only to registered timing probes.
 
 P7 unconditional faults: non-finite neural Q (and loss/gradient if applicable),
 illegal action, or >90% of one delivered action in any rolling 100,000 delivered
@@ -195,7 +204,13 @@ protected-regression joint rate must be <=1.2*.05=.06, or registration stays
 blocked; no margin/alpha/floor retuning. Report +40 mass superiority power at
 32/mix, separately from probability of meeting the point >=40 bar and the
 conservative near-zero decision exception. Full joint skill/product power is
-not inferred from mass power alone.
+not inferred from mass power alone. Extend development-only simulations with
+T3-shaped Path B scenarios: scripted no-death gains +.10/+.25 crossed with
+mass gains +40/+60/+92; report joint GO probability, conditional on timing and
+boost compliance and the explicit unchanged-product-growth planning assumption, and disclose proxy assumptions. Report 16-session Watch6
+paired deaths/1k power at 20% and 40% reduction from T15/T13b B8 Watch baselines.
+Keep N=32/mix even if joint GO power at T3-like effects is <.5: flag it for the
+operator; implementation may not change N.
 
 P7 §5's cost comparison is prospective: fixed N consumes 96 paired terminal
 worlds and 16 paired product sessions, every arm observed. Report illustrative
@@ -217,14 +232,18 @@ Charge setup, source checks, waiting, failed work and exports; OC has its own
 bounded resumable simulation budget and is not retention gameplay. Use AC,
 open lid, available and acceptable thermal telemetry. No service or tmux action.
 
-Quiet-host admission requires Phase 0 completed, no overlapping project
-training/evaluation/compilation/OC workload, operator observation of host load
-and thermal status recorded with timestamp and source identity. Do not infer
-completion from a quiet-looking screen. The draft records this **condition**,
-not a claim that it holds now. Ratification records actual load averages,
-Phase 0 completion evidence and quiet-host attestation; runtime repeats AC/lid/
-thermal checks. Freeze the load policy before data. Any material load-policy
-change requires a prospective sibling registration, never a post-outcome edit.
+The runner measures quiet-host admission and continuously rechecks AC, lid and
+thermal telemetry during timing, pre-check and efficacy at most every 30 seconds.
+It measures one-minute load excess above its own two-worker allowance; excess
+>3.0 indicates contention. Any other process above 50% CPU for more than 60
+seconds (PID and command listed) or a known heavy Phase 0/research runner also
+indicates contention. The exact process patterns and policy keys are frozen in
+RETENTION_PROFILE_V2.json and copied unchanged to registration.load_profile.
+On contention or a power/lid/thermal change pause; continuous nonquiet conditions
+for 120 seconds stop INCONCLUSIVE. Paused time counts against resource caps.
+Unavailable telemetry cannot pass. No hard-coded quiet/Phase-0-completed/zero-job
+attestation establishes admission. Policy changes require a prospective sibling
+registration before affected data.
 
 Dependency: the separately authorized reused T3 pre-check must cover original
 b8_s0/b8_s3 x env0..31 at 24 fps, 64 trajectories / 32 physical seeds, original
@@ -232,15 +251,23 @@ checkpoint/roster/ceiling-receipt identities, and reach >=50/64 paced survivors.
 Its source_commit and full source hashes must match the frozen retention source.
 It decides no Claim B result. This implementation task does not run it.
 
-Sequence: commit and publish code; freeze source_commit and inventory; allocate
-and commit audited banks; run bounded development-only OC; build/validate and
-commit draft with every evidence binding except final trace receipt. Operator
-produces/reviews the final-source trace receipt and authorized pre-check, verifies
-quiet host, then writes a create-only ratified registration, commits/pushes it
-**before** retention data. Run into a fresh absolute artifact root. Follow
-[README ratify-and-run commands](README_V2.md#retention-registration-package).
-The Markdown header remains an immutable draft; the committed operator JSON
-carries ratification, acknowledgements and evidence instead of rewriting it.
+Sequence: commit and publish code; freeze source_commit and inventory; retain
+the committed audited banks; run bounded development-only OC; build/validate
+and commit the draft with every evidence binding except the final trace receipt.
+Operator produces/reviews the final-source trace receipt, then writes the
+create-only ratified JSON and commits/pushes it BEFORE timing or the T3 pre-check.
+The Markdown remains a draft; only the operator JSON ratifies it. The runner
+requires exact ratified JSON bytes in HEAD and current HEAD published to origin.
+Run the quiet-host ON/OFF timing gate at 24 and 12 fps first (~.36 h). Only its
+PASS receipt admits the separately authorized T3 pre-check; only matching PASS
+timing and >=50/64 pre-check evidence admits efficacy in a fresh artifact root.
+Follow [README operator commands](README_V2.md#retention-registration-package).
+
+The create-only decision.json written by the runner at the end of the single
+look is the only verdict. Timing failure writes the terminal decision before
+efficacy. Interrupted work retains an INCONCLUSIVE decision and fault evidence.
+Re-analysis is explicitly descriptive, preserving the saved decision and never
+publishing a replacement verdict. No automatic retry or resumption.
 
 Trace receipt and OC receipt must say PASS, bind exact source hashes, and carry
 real supporting evidence. No opaque success flag, synthetic pre-check or hash

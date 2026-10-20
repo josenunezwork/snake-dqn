@@ -2,7 +2,7 @@
 
 This module only freezes study inputs.  It cannot execute a pre-check, construct
 an adapter, or start an efficacy world.  ``ratify`` is deliberately create-only:
-the operator supplies the observed Phase 0/pre-check record and the independently
+the operator supplies the independently
 produced trace receipt after the executable source closure is committed.
 """
 
@@ -38,7 +38,6 @@ from research.t34_pathb.retention_v2 import (  # noqa: E402
     RegistrationError,
     _registered_seed_union,
     _validate_checkpoint_coverage,
-    precheck_receipt,
     require_registration,
     source_inventory,
 )
@@ -259,7 +258,6 @@ def _check_common(registration: Mapping[str, Any], *, root: Path) -> None:
         "fresh_disjoint_banks": True,
         "timing_ticks": 5000,
         "timing_warmup": 200,
-        "contended": False,
     }
     for key, value in expected.items():
         if registration.get(key) != value:
@@ -277,6 +275,7 @@ def _check_common(registration: Mapping[str, Any], *, root: Path) -> None:
     )
     if required_ratification not in amendment_path.read_text():
         raise RegistrationError("survival-band amendment lacks the exact final ratification text")
+    _check_load_policy(registration, root=root)
     _check_bank_and_audit(registration, root=root)
     checkpoints = registration.get("checkpoints")
     if not isinstance(checkpoints, list) or not checkpoints:
@@ -286,32 +285,17 @@ def _check_common(registration: Mapping[str, Any], *, root: Path) -> None:
     _validate_checkpoint_coverage(registration)
 
 
-def _check_ready_load(registration: Mapping[str, Any], *, root: Path) -> None:
-    """Require observed quiet-host evidence only when authorizing execution."""
-    profile = registration.get("load_profile")
-    if not isinstance(profile, Mapping) or profile.get("quiet_ratified") is not True:
-        raise RegistrationError("ready registration requires quiet-host ratification")
-    record = _read_object(
-        _bound_path(registration.get("load_record"), root=root, label="load_record")
-    )
-    if any(
-        record.get(key) is not True
-        for key in ("phase0_finished", "ac_power", "lid_open", "thermal_ok")
-    ):
-        raise RegistrationError("quiet-host record lacks Phase 0, AC, lid, or thermal evidence")
-    if (
-        record.get("other_project_cpu_jobs") != 0
-        or not isinstance(record.get("phase0_completion_evidence"), str)
-        or not record["phase0_completion_evidence"]
-        or not isinstance(record.get("timestamp"), str)
-        or not isinstance(record.get("load_average"), list)
-        or len(record["load_average"]) != 3
-        or not all(
-            type(value) in (int, float) and value >= 0 and value < float("inf")
-            for value in record["load_average"]
-        )
-    ):
-        raise RegistrationError("quiet-host record is incomplete")
+def _check_load_policy(registration: Mapping[str, Any], *, root: Path) -> None:
+    """Require the same prospective measured-host policy in both bindings."""
+    profile = _read_object(_bound_path(registration.get("profile"), root=root, label="profile"))
+    if registration.get("load_profile") != profile.get("load_policy"):
+        raise RegistrationError("load_profile differs from profile load_policy")
+    from research.t34_pathb.host_guard_v2 import validate_policy
+
+    try:
+        validate_policy(registration["load_profile"])
+    except (ValueError, TypeError, KeyError) as exc:
+        raise RegistrationError(f"invalid measured-host load policy: {exc}") from exc
 
 
 def _check_operating_characteristic(registration: Mapping[str, Any], *, root: Path) -> None:
@@ -429,12 +413,46 @@ def _check_operating_characteristic(registration: Mapping[str, Any], *, root: Pa
     if (
         not isinstance(acceptance, Mapping)
         or type(acceptance.get("max_joint_regression_pass_rate")) not in (int, float)
-        or not 0 <= acceptance["max_joint_regression_pass_rate"] <= 0.06
+        or acceptance["max_joint_regression_pass_rate"] != max(protected)
+        or acceptance.get("joint_regression_pass_rate_limit") != 0.06
         or acceptance.get("failed_cells") not in ({}, [])
     ):
         raise RegistrationError(
             "operating characteristic acceptance record is not a passing fixed-N result"
         )
+
+    from research.t34_pathb.retention_oc_v2 import pathb_power_scenarios
+
+    power = payload.get("pathb_joint_go_power", {})
+    product = payload.get("watch6_product_power", {})
+    if not isinstance(power, Mapping) or not isinstance(product, Mapping):
+        raise RegistrationError("operating characteristic lacks Path B / Watch6 power objects")
+    if not isinstance(power.get("rates"), Mapping) or not isinstance(product.get("rates"), Mapping):
+        raise RegistrationError("operating characteristic lacks Path B / Watch6 power rates")
+    effects = pathb_power_scenarios()
+    product_keys = {
+        f"{baseline}|reduction={reduction:g}|paired_ci95_excludes_zero"
+        for baseline in ("t15_mixed_watch6", "t13b_mixed_watch6")
+        for reduction in (0.2, 0.4)
+    }
+    joint_keys = {
+        f"{model}|pathb_joint_go|{effect}|{product_key}"
+        for model in models
+        for effect in effects
+        for product_key in product_keys
+    }
+    if (
+        power.get("n_per_mix") != TERMINAL_PER_MIX
+        or power.get("effects") != effects
+        or set(power.get("rates", {})) != joint_keys
+        or product.get("sessions") != PRODUCT_SESSIONS
+        or product.get("relative_death_reductions") != [0.2, 0.4]
+        or set(product.get("rates", {})) != {f"product_power|{key}" for key in product_keys}
+    ):
+        raise RegistrationError("operating characteristic lacks full Path B / Watch6 power grid")
+    for table in (power["rates"], product["rates"]):
+        if any(row != rates.get(key) for key, row in table.items()):
+            raise RegistrationError("operating-characteristic power rates differ from trials")
 
 
 def build_draft(
@@ -474,7 +492,6 @@ def build_draft(
         "timing_row": bank_payload["timing_row"],
         "timing_ticks": 5000,
         "timing_warmup": 200,
-        "contended": False,
         "load_profile": dict(load_policy),
         "profile": _binding(profile, root=root),
         "bank": _binding(bank_path, root=root),
@@ -503,13 +520,10 @@ def validate_registration(
     if not isinstance(sources, Mapping) or not sources:
         raise RegistrationError("full source inventory is required")
     if ready:
-        _check_ready_load(registration, root=root)
         trace = _bound_path(registration.get("trace_receipt"), root=root, label="trace_receipt")
         trace_payload = _read_object(trace)
         if trace_payload.get("status") != "PASS" or trace_payload.get("source_hashes") != sources:
             raise RegistrationError("trace receipt does not bind passing registered source bytes")
-        if precheck is None:
-            raise RegistrationError("ready validation requires the real pre-check receipt")
         require_registration(registration, precheck)
         return {"valid": True, "authorized": True, "mode": "ready"}
     if registration.get("ratified") is not False or not isinstance(
@@ -546,9 +560,8 @@ def ratify_registration(
     draft: Mapping[str, Any],
     *,
     source_commit: str,
-    precheck: Mapping[str, Any],
+    precheck: Mapping[str, Any] | None = None,
     trace_receipt: Path,
-    load_record: Path,
     operator: str,
     acknowledge_near_boundary_precedence: bool,
     root: Path = ROOT,
@@ -564,28 +577,14 @@ def ratify_registration(
     current_sources = source_inventory(root)
     if draft.get("source_hashes") != current_sources:
         raise RegistrationError("source closure changed since draft; rebuild before ratification")
-    raw = precheck.get("raw_records")
-    if not isinstance(raw, list) or precheck_receipt(raw).get("proceed") is not True:
-        raise RegistrationError("ratification requires the observed passing 50/64 pre-check")
-    if (
-        precheck.get("source_commit") != source_commit
-        or precheck.get("source_hashes") != current_sources
-    ):
-        raise RegistrationError(
-            "pre-check source identity does not match the frozen source closure"
-        )
+    if precheck is not None:
+        raise RegistrationError("ratification is pre-data; run timing before the T3 pre-check")
     result = dict(draft)
     result.update(
         {
             "ratified": True,
             "source_commit": source_commit,
             "trace_receipt": _binding(trace_receipt, root=root),
-            "load_record": _binding(load_record, root=root),
-            "load_profile": {
-                **dict(draft["load_profile"]),
-                "quiet_ratified": True,
-                **_read_object(load_record),
-            },
             "ratified_by": operator,
             "near_boundary_precedence_acknowledged": True,
         }
@@ -608,7 +607,6 @@ def ratify_registration(
             raise RegistrationError(f"source is absent from ratified commit: {name}") from exc
         if hashlib.sha256(committed).hexdigest() != digest:
             raise RegistrationError(f"ratified commit differs for {name}")
-    _check_ready_load(result, root=root)
     require_registration(result, precheck)
     return result
 
@@ -645,9 +643,7 @@ def main() -> None:
     ratify.add_argument("--draft", type=Path, default=DEFAULT_REGISTRATION)
     ratify.add_argument("--out", type=Path, required=True)
     ratify.add_argument("--source-commit", required=True)
-    ratify.add_argument("--precheck", type=Path, required=True)
     ratify.add_argument("--trace-receipt", type=Path, required=True)
-    ratify.add_argument("--load-record", type=Path, required=True)
     ratify.add_argument("--operator", required=True)
     ratify.add_argument("--acknowledge-near-boundary-precedence", action="store_true")
     args = parser.parse_args()
@@ -682,9 +678,7 @@ def main() -> None:
         result = ratify_registration(
             _read_object(args.draft),
             source_commit=args.source_commit,
-            precheck=_read_object(args.precheck),
             trace_receipt=args.trace_receipt,
-            load_record=args.load_record,
             operator=args.operator,
             acknowledge_near_boundary_precedence=args.acknowledge_near_boundary_precedence,
         )

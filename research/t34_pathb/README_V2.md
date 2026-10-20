@@ -83,24 +83,10 @@ independent-world inference is made. The >=50/64 rule is unchanged. The fresh
 registered study uses released B8 s3 exclusively. Every row binds its original
 ceiling receipt, checkpoint, arm/env coordinate and materialized source hash.
 
-```bash
-"$PY" -m research.t34_pathb.precheck_v2 \
-  --out /absolute/path/t3-dense-64-materialized.json
-
-"$PY" -m research.t34_pathb.retention_v2 precheck \
-  --input /absolute/path/t3-dense-64-materialized.json \
-  --out /absolute/path/fresh-v2-precheck
-
-# Only after >=50/64, Phase 0 has finished, and full pre-registration is committed:
-"$PY" -m research.t34_pathb.retention_v2 run \
-  --registration /absolute/path/registered-v2-retention.json \
-  --precheck /absolute/path/fresh-v2-precheck/precheck.json \
-  --out /absolute/path/fresh-v2-retention
-
-# Exactly one registered look; preserve every immutable input/output.
-"$PY" -m research.t34_pathb.retention_v2 analyze \
-  --out /absolute/path/fresh-v2-retention
-```
+Use the complete timing-first operator sequence in
+[Retention registration package](#retention-registration-package). Timing must
+pass before constructing the pre-check gameplay; the input materializer alone
+only reads historical records.
 
 Real execution requires Mac CPU, AC, open lid and admitted thermal telemetry.
 The harness refuses existing output roots. No automatic retry, resume, extension
@@ -122,8 +108,8 @@ maintenance and search, then uses the ordinary action boundary. This reference
 has no rewind. The paced arm never waits. Settle time stays outside ON timing
 and counts against the study's elapsed/CPU caps.
 
-Set `load_profile:{"quiet_ratified":true}` and `contended:false` only after the
-registered quiet-host condition actually holds. Product and timing rows declare
+Copy the exact measured `load_policy` keys from the profile to `load_profile`;
+the runtime computes contention from fresh samples. Product and timing rows declare
 `mix:"mixed"`; the timing seed is also disjoint from every study seed. A nested
 terminal `roster` must repeat its outer row's seed and mix exactly.
 
@@ -139,7 +125,7 @@ The pre-check receipt binds raw paired outcomes and the same source inventory.
 Trace and operating-characteristic receipts must bind that exact source. The
 operator must produce the study-specific fixed-N survival-band operating-
 characteristic check before running; implementation tests do not provide it.
-The registered load profile must explicitly ratify quiet-host execution. Record
+The registered load profile freezes measured quiet-host thresholds. Record
 large deaths at pre-action length >=800 and late deaths at frame >=2000, with
 their overlap; these are diagnostics.
 
@@ -159,7 +145,7 @@ prospective registration; an opaque success flag or CLI exit status is not proof
 | Fresh 32/mix H5000 +16 paired Watch6 sessions | Registered runner implemented; full run reserved for operator |
 | P7 paired-world/session inference and Holm family | Analyzer rule and boundary tests |
 | First-result p95 <=2 s | Engineering target; no final timing claim from implementation smoke |
-| Update p95 <=11.688 ms, zero 12/24 fps overruns | Quiet-host registered probes after Phase 0; contended smoke cannot qualify |
+| 24 fps update p95 <=11.688 ms, zero 12/24 fps overruns | Quiet-host registered probes after Phase 0; contended smoke cannot qualify |
 | All contract skill/product bars | Full registered decision; no efficacy claim from smoke |
 | Default serving OFF / no release | No serving-selector or pin change |
 
@@ -187,7 +173,7 @@ rows and one separate timing seed, with exact historical terminal rosters.
 Package validation (safe during implementation; no pre-check or efficacy):
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-retention-prereg
+cd /Users/josenunez/Projects/ml/snake-dqn-retention-fixes
 export SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
@@ -199,8 +185,12 @@ protected-regression scenarios, +40 mass power and a fixed-N/sequential cost
 comparison. T3's 32 physical seeds are resampled separately for s0/s3; they are
 not 64 independent worlds. Frozen/mixed terminal variance is a disclosed proxy.
 Power for a positive mass bound is distinct from power to meet point gain +40;
-product, boost and no-death bars can reduce joint success further. Fixed N stays
-fixed. The simulator is one-thread, checkpointed every 250 replicates, with a
+product, boost and no-death bars can reduce joint success further. The extended
+OC reports T3-shaped +.10/+.25 scripted survival crossed with +40/+60/+92 mass,
+joint GO probabilities conditional on timing/boost compliance and unchanged product growth, and 16-session
+Watch6 paired deaths/1k power at 20%/40% reduction from T15/T13b baselines. If
+T3-like joint GO power is below .5, report it for operator decision; keep N32.
+Fixed N stays fixed. The simulator is one-thread, checkpointed every 250 replicates, with a
 60-second command budget. To reproduce it prospectively into **new** paths:
 
 ```bash
@@ -211,95 +201,70 @@ fixed. The simulator is one-thread, checkpointed every 250 replicates, with a
 # If INCOMPLETE, repeat that exact command with --resume; do not change its inputs.
 ```
 
-The following is an **operator-only sequence**, not run by the implementation
-job. Phase 0 must have finished and the Mac must be quiet, on AC, lid open and
-thermally admitted. No live service, tmux or cloud command is needed. Do not
-continue if validation fails. Numerical sources must be committed and unchanged
-through trace verification, pre-check, ratification and efficacy. The trace
-receipt must come from actual final-source identity/trace verification and bind
-`retention_v2.source_inventory()`; the old implementation receipt is stale for
-this expanded inventory. This package deliberately does not manufacture it.
+The following is an **operator-only sequence**, not run by this implementation
+job. The registration remains a draft. Obtain an actual final-source PASS trace
+receipt; the old source receipt is stale after these fixes. Phase 0 must finish
+before timing. Runtime admission measures host conditions and competing processes;
+there are no hard-coded Phase-0-finished or zero-job attestations.
 
-First obtain the actual Phase 0 completion receipt and final-source PASS trace
-receipt, then set their existing absolute paths below. The completion receipt
-is evidence the operator reviews; mere file existence does not prove Phase 0
-finished. The operator authorizes the pre-check separately, then runs:
+Publish the ratified JSON before timing or pre-check. The exact ratified bytes
+must exist in HEAD and execution HEAD must be pushed. The source_commit comes
+from the draft's frozen executable revision, which may precede JSON-only commits.
+Do not run these gameplay commands during implementation:
 
 ```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-retention-prereg
+cd /Users/josenunez/Projects/ml/snake-dqn-retention-fixes
 export SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 E=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-01
-export PHASE0_RECEIPT=/absolute/path/actual-phase0-completion-receipt.json
 TRACE=/absolute/path/actual-final-source-trace-receipt.json
-mkdir "$E"
-
-"$PY" -m research.t34_pathb.registration_retention_v2 validate
-"$PY" -m research.t34_pathb.precheck_v2 --out "$E/t3-dense-64.json"
-"$PY" -m research.t34_pathb.retention_v2 precheck \
-  --input "$E/t3-dense-64.json" --out "$E/precheck"
-```
-
-Stop unless that actual pre-check reached **>=50/64**. It is reused development
-data, not Claim B evidence. Capture observed load only after verifying Phase 0
-completion and absence of other project compute. The command below records real
-load/power/lid/thermal readings and the reviewed completion receipt hash; the
-`phase0_finished` and zero competing-job fields are operator attestations to
-those checks. Run it only when they are true:
-
-```bash
-export RETENTION_OPERATOR_EVIDENCE="$E"
-"$PY" - <<'PY'
-import hashlib, json, os
-from datetime import datetime, timezone
-from pathlib import Path
-from research.compute.thermal_guard import read_pmset_therm, parse_pmset_therm, thermal_reasons
-from research.perf_sim_20261007 import with_slots
-phase0 = Path(os.environ['PHASE0_RECEIPT']).resolve(strict=True)
-thermal = read_pmset_therm()
-ac, lid = with_slots.on_ac(), with_slots.lid_open()
-ok = bool(thermal.get('available')) and not thermal_reasons(parse_pmset_therm(thermal.get('text') or ''))
-assert ac and lid and ok, 'AC/lid/thermal admission failed'
-record = {
-    'timestamp': datetime.now(timezone.utc).isoformat(),
-    'phase0_finished': True,
-    'phase0_completion_evidence': str(phase0),
-    'phase0_completion_sha256': hashlib.sha256(phase0.read_bytes()).hexdigest(),
-    'other_project_cpu_jobs': 0,
-    'load_average': list(os.getloadavg()),
-    'ac_power': ac, 'lid_open': lid, 'thermal_ok': ok,
-    'thermal_telemetry': thermal,
-}
-with (Path(os.environ['RETENTION_OPERATOR_EVIDENCE']) / 'quiet-host.json').open('x') as stream:
-    json.dump(record, stream, indent=2, allow_nan=False)
-    stream.write('\n')
-PY
-
-# Bind the exact HEAD recorded by the actual pre-check; later JSON-only commits are allowed.
-SOURCE_COMMIT=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["source_commit"])' "$E/precheck/precheck.json")
 READY=research/t34_pathb/REGISTRATION_RETENTION_V2_RATIFIED.json
+mkdir "$E"
+"$PY" -m research.t34_pathb.registration_retention_v2 validate
+SOURCE_COMMIT=$("$PY" -c 'import json; print(json.load(open("research/t34_pathb/REGISTRATION_RETENTION_V2.json"))["source_commit"])')
 "$PY" -m research.t34_pathb.registration_retention_v2 ratify \
-  --source-commit "$SOURCE_COMMIT" --precheck "$E/precheck/precheck.json" \
-  --trace-receipt "$TRACE" --load-record "$E/quiet-host.json" \
+  --source-commit "$SOURCE_COMMIT" --trace-receipt "$TRACE" \
   --operator Claude --acknowledge-near-boundary-precedence --out "$READY"
-
-# Publish ratification before efficacy; preserve the draft's bytes.
 git add "$READY"
-git commit -m 'Ratify T34 paced retention before efficacy'
+git commit -m 'Ratify T34 retention before timing and pre-check'
 git fetch origin
 git merge origin/main
 git push origin HEAD:main
-git push origin t34-retention-prereg-20261020
-
-# Any intervening execution-source change blocks this validation; do not bypass it.
+git push origin t34-retention-fixes-20261020
 "$PY" -m research.t34_pathb.registration_retention_v2 validate \
-  --registration "$READY" --ready --precheck "$E/precheck/precheck.json"
+  --registration "$READY" --ready
+
+# FIRST: quiet-host ON/OFF Watch6 timing at 24 and 12 fps (~.36 h).
+"$PY" -m research.t34_pathb.retention_v2 timing-gate \
+  --registration "$READY" --out "$E/timing"
+# Stop unless the create-only timing gate receipt says PASS.
+# A timing failure writes decision.json (KILL-timing); no pre-check or efficacy.
+"$PY" -m research.t34_pathb.precheck_v2 --out "$E/t3-dense-64.json"
+"$PY" -m research.t34_pathb.retention_v2 precheck \
+  --registration "$READY" --timing-gate "$E/timing/timing_gate.json" \
+  --input "$E/t3-dense-64.json" --out "$E/precheck"
+# Stop unless the actual pre-check reaches >=50/64.
 "$PY" -m research.t34_pathb.retention_v2 run \
-  --registration "$READY" --precheck "$E/precheck/precheck.json" \
-  --out "$E/retention"
+  --registration "$READY" --timing-gate "$E/timing/timing_gate.json" \
+  --precheck "$E/precheck/precheck.json" --out "$E/retention"
 "$PY" -m research.t34_pathb.retention_v2 analyze --out "$E/retention"
 ```
+
+Host monitoring samples at most every 30 seconds. It pauses if one-minute load
+exceeds the run's two-worker allowance by >3.0, another process uses >50% CPU
+for >60 seconds, a known Phase 0/research runner is present, or AC/lid/thermal
+conditions change. It records PID/command evidence and stops INCONCLUSIVE after
+120 continuous seconds. Unavailable telemetry cannot pass; pause time is charged.
+The profile and validator use the same policy keys; no load attestation is
+accepted as a measurement.
+
+Only the runner's create-only `decision.json` is the verdict. Re-analysis labels
+its calculations descriptive and preserves that file. Efficacy ticks >=41.7 ms
+are reported diagnostics with bare fallback included; only registered timing
+probes enforce zero overruns. Update p95 <=11.688 ms gates 24 fps; 12 fps reports
+p95 and gates overruns/cadence. Near-zero mass uncertainty applies only when mass
+is the sole failing category and product passes.
 
 Exactly one complete fixed-N look. Preserve incomplete/fault evidence; no
 automatic retry, efficacy resume, bank replacement or extension. The first of

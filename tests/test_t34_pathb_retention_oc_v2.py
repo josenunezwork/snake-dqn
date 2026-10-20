@@ -13,10 +13,23 @@ from research.t34_pathb.analyze_v2 import _stratified
 
 
 def _pool() -> dict:
-    rows = [[float(i * 5), (i - 16) / 200, 0.9] for i in range(32)]
+    rows = [[float(i * 5), (i - 16) / 200, 0.9, (i - 16) / 32, 0.8] for i in range(32)]
+    watch = [
+        {
+            "seed": i,
+            "deaths": float(1 + i % 3),
+            "decisions": 5000.0,
+            "decision_mean_length": float(i + 5),
+        }
+        for i in range(25)
+    ]
     return {
         "t3_pools": {"b8_s3": rows},
-        "watch_baselines": [{"decision_mean_length": float(i + 5)} for i in range(25)],
+        "watch_baselines": watch,
+        "watch6_product_baselines": {
+            "t15_mixed_watch6": watch,
+            "t13b_mixed_watch6": watch,
+        },
         "source_files": {"original-development.json": "1" * 64},
     }
 
@@ -115,6 +128,12 @@ def test_resumed_work_matches_uninterrupted_and_receipt_is_create_only(
     assert receipt["efficacy_rows_produced"] is False
     assert receipt["active_arms"] == ["paced", "unpaced"]
     assert receipt["world_pool_sha256"] == oc._digest(receipt["development_pool"])
+    assert receipt["acceptance"]["max_joint_regression_pass_rate"] == max(
+        value["rate"]
+        for key, value in receipt["rates"].items()
+        if "|no_change|" not in key and key.endswith("joint_mass_and_band")
+    )
+    assert receipt["acceptance"]["joint_regression_pass_rate_limit"] == 0.06
     with pytest.raises(FileExistsError):
         oc.run(out, tmp_path / "other-state.json")
 

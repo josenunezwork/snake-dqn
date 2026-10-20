@@ -1,6 +1,7 @@
 import hashlib
 import json
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -76,7 +77,9 @@ def test_non_smoke_registration_rechecks_raw_evidence_and_source_closure(monkeyp
         "product_sessions": 16,
         "horizon": 5000,
         "workers": 1,
-        "load_profile": {"quiet_ratified": True},
+        "load_profile": json.loads(
+            Path("research/t34_pathb/RETENTION_PROFILE_V2.json").read_text()
+        )["load_policy"],
         "max_elapsed_hours": 32.0,
         "max_cpu_hours": 48.0,
         "fresh_disjoint_banks": True,
@@ -270,7 +273,21 @@ def test_registered_timing_fault_retains_unconditional_marker(monkeypatch, tmp_p
         "timing_ticks": 1,
         "timing_warmup": 0,
     }
+    registration["load_profile"] = json.loads(
+        Path("research/t34_pathb/RETENTION_PROFILE_V2.json").read_text()
+    )["load_policy"]
+    monkeypatch.setattr(retention_v2, "_require_committed_pushed_registration", lambda *_args: None)
+    monkeypatch.setattr(
+        retention_v2,
+        "HostGuard",
+        lambda _policy: SimpleNamespace(records=[], check=lambda **_kwargs: {"contended": False}),
+    )
     out = tmp_path / "fresh"
     with pytest.raises(type(fault)):
-        retention_v2.run_registered(out, registration, {}, adapter=adapter)
-    assert json.loads((out / "fault.json").read_text())["unconditional_faults"] == ["nonfinite_q"]
+        retention_v2.run_timing_gate(
+            out, registration, adapter=adapter, registration_path=Path(__file__)
+        )
+    assert json.loads((out / "incomplete.json").read_text())["unconditional_faults"] == [
+        "nonfinite_q"
+    ]
+    assert json.loads((out / "decision.json").read_text())["verdict"] == "KILL"
