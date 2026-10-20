@@ -90,7 +90,10 @@ def run_label_chunk(config: Mapping[str, Any]) -> dict[str, Any]:
     beta = config.get("beta")
     if beta is None:
         beta = {"r2": 0.5, "r3": 0.0}.get(str(config["round"]).lower(), 1.0)
-    triggers = dict(config.get("triggers", {}))
+    triggers = {
+        "confirm_interval": 4 if str(config["round"]).lower() == "r0" else 8,
+        **dict(config.get("triggers", {})),
+    }
     for name in (
         "confirm_interval",
         "confirm_min_length",

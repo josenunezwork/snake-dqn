@@ -23,7 +23,11 @@ student="${T34_STUDENT_CHECKPOINT:-}"
 for relative in "${checkpoint}" "${student}"; do
   [[ "${relative}" != /* && "/${relative}/" != *"/../"* ]] || { echo "checkpoint must be input-relative" >&2; exit 2; }
 done
-extra=(--confirm-interval "${T34_CONFIRM_INTERVAL:-8}" --confirm-min-length "${T34_CONFIRM_MIN_LENGTH:-600}" --low-length-probability "${T34_LOW_LENGTH_PROBABILITY:-0.03}" --death-window "${T34_DEATH_WINDOW:-150}" --max-rewinds "${T34_MAX_REWINDS:-2}")
+case "${T34_ROUND:-a6}" in
+  r0|R0) interval_default=4 ;;
+  *) interval_default=8 ;;
+esac
+extra=(--confirm-interval "${T34_CONFIRM_INTERVAL:-${interval_default}}" --confirm-min-length "${T34_CONFIRM_MIN_LENGTH:-600}" --low-length-probability "${T34_LOW_LENGTH_PROBABILITY:-0.03}" --death-window "${T34_DEATH_WINDOW:-150}" --max-rewinds "${T34_MAX_REWINDS:-2}")
 if [[ -n "${T34_POLICY_FACTORY:-}" ]]; then extra+=(--policy-factory "${T34_POLICY_FACTORY}"); fi
 if [[ -n "${student}" ]]; then
   [[ -n "${T34_POLICY_FACTORY:-}" ]] || { echo "student checkpoint requires policy factory" >&2; exit 2; }

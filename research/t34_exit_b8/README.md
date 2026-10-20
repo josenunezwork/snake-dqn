@@ -71,7 +71,7 @@ uses `--policy-factory module:callable --student-checkpoint PATH`; the factory r
 its A3/serving qualification are outside this worktree's implementation scope.
 
 The command-line and shell entrypoints forward all five trigger settings. Defaults remain interval 8,
-minimum length 600, low-length probability 0.03, death window 150, and at most two rewinds. Label
+minimum length 600, low-length probability 0.03, death window 150, and at most two rewinds. Round 0 uses interval 4 per FINAL_PLAN section 8. Label
 rounds R1/R2/R3 default to beta 1/0.5/0; `--beta` or `T34_BETA` can select an explicit governed value.
 The builder accepts `--triggers '{"confirm_interval":8,"max_rewinds":2}'` and
 `--policy-factory module:callable`. Shell adapters use `T34_POLICY_FACTORY`, `T34_STUDENT_CHECKPOINT`
@@ -203,7 +203,7 @@ wait "$t34_supervisor_1"
 ```
 
 Inspect each terminal supervisor receipt, immutable exports, confirmed session disappearance, both
-worker reports, and `benchmark-lane.json`. The ≥3,000 rule applies to the sum of the two worker active
+worker reports, and `benchmark-lane-aggregate.json`. The ≥3,000 rule applies to the sum of the two worker active
 row-step counts divided by their concurrent lane wall time. A printed threshold result alone does not
 prove release, complete-world rate, two-lane acceptance, or permission for Round 0.
 

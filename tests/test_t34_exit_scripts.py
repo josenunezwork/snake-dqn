@@ -173,3 +173,36 @@ def test_policy_and_trigger_arguments_reach_both_launch_paths(
     assert args[args.index("--checkpoint") + 1].endswith("/other.pth")
     if script == "label.sh":
         assert args[args.index("--beta") + 1] == "0.5"
+
+
+@pytest.mark.parametrize(
+    "round_id,interval,beta", (("r0", "4", "1"), ("r2", "8", "0.5"), ("r3", "8", "0"))
+)
+def test_label_shell_round_defaults_reach_python(
+    tmp_path: Path, round_id: str, interval: str, beta: str
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    argv_log = tmp_path / "argv"
+    fake_python = fake_bin / "python"
+    fake_python.write_text(f'#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "{argv_log}"\n')
+    fake_python.chmod(0o755)
+    env = dict(
+        os.environ,
+        PATH=f"{fake_bin}:{os.environ['PATH']}",
+        T34_INPUT_DIR=str(tmp_path / "inputs"),
+        T34_OUTPUT_DIR=str(tmp_path / "outputs"),
+        T34_ROUND=round_id,
+    )
+    for key in ("COLAB_CLI_ROOT", "T34_CONFIRM_INTERVAL", "T34_BETA"):
+        env.pop(key, None)
+    subprocess.run(
+        ["bash", "research/t34_exit_b8/label.sh"],
+        env=env,
+        check=True,
+        timeout=8,
+        capture_output=True,
+    )
+    args = argv_log.read_text().splitlines()
+    assert args[args.index("--confirm-interval") + 1] == interval
+    assert args[args.index("--beta") + 1] == beta

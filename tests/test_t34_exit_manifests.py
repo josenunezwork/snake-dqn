@@ -279,7 +279,7 @@ def test_public_input_materializer_verifies_archive_members(
 
 @pytest.mark.parametrize(
     "round_id,beta,interval",
-    (("r0", "1", "8"), ("r1", "1", "8"), ("r2", "0.5", "8"), ("r3", "0", "8")),
+    (("r0", "1", "4"), ("r1", "1", "8"), ("r2", "0.5", "8"), ("r3", "0", "8")),
 )
 def test_manifest_carries_round_schedule_and_trigger_overrides(
     tmp_path: Path, round_id: str, beta: str, interval: str

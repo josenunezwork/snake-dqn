@@ -122,7 +122,7 @@ def make_manifest(
     if policy_factory and (":" not in policy_factory or any(c.isspace() for c in policy_factory)):
         raise ManifestRefused("policy_factory must be module:callable")
     trigger_values = {
-        "confirm_interval": 8,
+        "confirm_interval": 4 if round_id.lower() == "r0" else 8,
         "confirm_min_length": 600,
         "low_length_probability": 0.03,
         "death_window": 150,
@@ -218,7 +218,6 @@ def make_manifest(
             "T34_ATTEMPT": str(attempt),
             "T34_NAMESPACE": f"t34-exit/{round_id}/s{shard}/a{attempt}",
             "T34_BETA": {"r2": "0.5", "r3": "0"}.get(round_id.lower(), "1"),
-            "T34_CONFIRM_INTERVAL": "8",
         }
     return {
         "job_id": job_id,
