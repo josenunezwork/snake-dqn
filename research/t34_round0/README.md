@@ -43,6 +43,12 @@ two H500 worlds, CPU/one-thread identity and the executable source inventory.
 No scientific performance claim follows from A6. Any executable/rule change
 requires a new A6 receipt before ratification; existing evidence stays intact.
 
+[TABULAR_SEED_AUDIT.json](TABULAR_SEED_AUDIT.json) supplements the original text/
+JSON collision audit with all 52 visible CSV/TSV files across research/, docs/,
+scripts/ and artifact history. All 242 selection/fixture seeds are clear. The
+supplement is bound into the executable registration inventory; the original
+audit's bytes remain unchanged.
+
 ## Ratification after A5, before data
 
 The operator places a real, immutable receipt at `$T34_ART/A5_RECEIPT.json`:
