@@ -87,6 +87,30 @@ def test_overdue_computation_stays_active_until_it_is_collected() -> None:
     assert not subject.state()["active"]
 
 
+def test_unfinished_matching_request_misses_at_the_action_boundary() -> None:
+    clock, executor = Clock(100.1), Executor()
+    executor.future.ready = False
+    subject = controller(clock, executor)
+    subject.submit(b"x", (1,), 101)
+    action, report = subject.poll((1,), 1, [True, True])
+    assert action == 1
+    assert report["requested"] and report["deadline_miss"]
+    assert report["fallback_reason"] == "action_boundary_miss"
+    assert subject.busy
+
+
+def test_unfinished_previous_identity_is_stale_but_remains_outstanding() -> None:
+    clock, executor = Clock(), Executor()
+    executor.future.ready = False
+    subject = controller(clock, executor)
+    subject.submit(b"x", (1,), 101)
+    action, report = subject.poll((2,), 1, [True, True])
+    assert action == 1
+    assert not report["requested"] and report["stale_discarded"]
+    assert report["fallback_reason"] == "busy_previous_request"
+    assert subject.busy
+
+
 def test_identity_or_action_context_mismatch_discards_completed_result() -> None:
     clock, executor = Clock(), Executor()
     executor.future.value = result()

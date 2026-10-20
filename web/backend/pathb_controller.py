@@ -138,15 +138,24 @@ class DeadlineController:
         validate: Optional[Callable[[Dict[str, Any]], bool]] = None,
     ) -> Tuple[int, Dict[str, Any]]:
         """Return the bare or advisory action immediately, with an audit record."""
-        requested = self._future is not None
+        requested = self._future is not None and tuple(identity) == self._identity
         report = self._new_report(requested, bare)
         if self._future is None:
             return self._finish(bare, report, "no_request")
         if not self._future.done():
+            if tuple(identity) != self._identity:
+                # This tick cannot consume a previous target's unfinished work.
+                # Retain it so its eventual result is collected and accounted for.
+                report["stale_discarded"] = True
+                return self._finish(bare, report, "busy_previous_request")
             if self._clock() >= self._deadline:  # type: ignore[operator]
                 report["deadline_miss"] = True
                 return self._finish(bare, report, "deadline_computing")
-            return self._finish(bare, report, "pending")
+            # ``poll`` is called at the action boundary.  It may never wait for
+            # the remainder of a nominal tick interval, so an unfinished reply
+            # is already a serving deadline miss for this action.
+            report["deadline_miss"] = True
+            return self._finish(bare, report, "action_boundary_miss")
 
         future, expected, deadline = self._future, self._identity, self._deadline
         self._clear_pending()
