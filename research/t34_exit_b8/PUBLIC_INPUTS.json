@@ -1,0 +1,16 @@
+{
+  "schema": "t34-exit-b8-public-inputs/v1",
+  "status": "PUBLIC_RELEASE_VERIFIED_BY_OWNER_ADDENDUM",
+  "assets": [
+    {"name": "B8_s3_final.pth", "url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/B8_s3_final.pth", "size_bytes": 6562005, "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"},
+    {"name": "league.tar.gz", "url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/league.tar.gz", "size_bytes": 21362869, "sha256": "e2c691063bd2d6f4c3ec396b4d4520b1eb367c4f0814517b7b74d6e4db0f4186"}
+  ],
+  "inputs": [
+    {"name": "B8_s3_final.pth", "dest": "B8_s3_final.pth", "size_bytes": 6562005, "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8", "public_url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/B8_s3_final.pth"},
+    {"name": "champion_a5_freespace_20260621.pth", "dest": "checkpoints/champion_a5_freespace_20260621.pth", "size_bytes": 6898955, "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93", "public_url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/league.tar.gz"},
+    {"name": "best_apex_fs.pth", "dest": "checkpoints/best_apex_fs.pth", "size_bytes": 3451633, "sha256": "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195", "public_url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/league.tar.gz"},
+    {"name": "best_apex_stage1_fs.pth", "dest": "checkpoints/best_apex_stage1_fs.pth", "size_bytes": 3451651, "sha256": "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d", "public_url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/league.tar.gz"},
+    {"name": "best_apex_pre_fs.pth", "dest": "checkpoints/best_apex_pre_fs.pth", "size_bytes": 3449513, "sha256": "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e", "public_url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/league.tar.gz"},
+    {"name": "frp3_m3_s12_u60000_20261005.pth", "dest": "checkpoints/frp3_m3_s12_u60000_20261005.pth", "size_bytes": 6906247, "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723", "public_url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/league.tar.gz"}
+  ]
+}
