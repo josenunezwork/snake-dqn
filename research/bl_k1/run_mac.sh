@@ -14,8 +14,20 @@ MANIFEST="$1"
 MODE="$2"
 OUT="$3"
 "$PY" -m research.bl_k1.prepare --check "$MANIFEST"
-pmset -g batt | /usr/bin/grep -q 'AC Power'
-ioreg -r -k AppleClamshellState | /usr/bin/grep -q '"AppleClamshellState" = No'
+"$PY" - "$OUT" "$MODE" <<'PYGUARD'
+import sys
+from pathlib import Path
+from research.bl_mac_latency.host import check_guard
+from research.bl_served_search.exports import export_json
+path = Path(sys.argv[1]) / f"launcher-guard-{sys.argv[2]}.json"
+try:
+    value = {"status": "HOST_GUARD_PASS", "observation": check_guard()}
+except Exception as exc:
+    export_json(path, {"status": "STOPPED", "error": str(exc),
+                       "observation": getattr(exc, "observation", None)})
+    raise
+export_json(path, value)
+PYGUARD
 if [[ "$MODE" == identity ]]; then
     exec caffeinate -dims "$PY" research/perf_sim_20261007/with_slots.py --slots 1 --timeout 30 -- nice -n 10 "$PY" -m research.bl_k1.audit --manifest "$MANIFEST" --out "$OUT"
 elif [[ "$MODE" == timing ]]; then

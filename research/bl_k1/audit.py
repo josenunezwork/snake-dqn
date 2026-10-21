@@ -37,11 +37,28 @@ def stable(value: Any) -> bytes:
             )
             + b"}"
         )
+    if isinstance(value, (set, frozenset)):
+        return stable(sorted(value))
     if isinstance(value, (tuple, list)):
         return b"[" + b"".join(stable(item) + b"," for item in value) + b"]"
     if hasattr(value, "__dict__"):
         return stable(vars(value))
     return repr(value).encode()
+
+
+def world_state(sim: Any) -> dict[str, Any]:
+    """Physical arrays plus authoritative ordered food and selector flags."""
+    return {
+        **{key: value for key, value in vars(sim).items() if isinstance(value, np.ndarray)},
+        "food_cells": sim.food_cells,
+        "corpse_cells": sim.corpse_cells,
+        "food_set": sim.food_set,
+        "phase": (
+            getattr(sim, "_policy_phase_prepared", False),
+            getattr(sim, "_policy_step_in_progress", False),
+        ),
+        "constructor_food_pending": getattr(sim, "_constructor_food_draws_pending", None),
+    }
 
 
 class Tape:
@@ -64,7 +81,7 @@ class Tape:
         sim = world.sim
         self.add(
             "world",
-            {key: value for key, value in vars(sim).items() if isinstance(value, np.ndarray)},
+            world_state(sim),
         )
         self.add("rng", [getattr(rng, "_rng", rng).getstate() for rng in sim._rngs])
         self.add(
@@ -123,7 +140,7 @@ class Tape:
             result = step(sim, actions, *args, **kwargs)
             self.add(
                 "world",
-                {key: value for key, value in vars(sim).items() if isinstance(value, np.ndarray)},
+                world_state(sim),
             )
             self.add("rng", [getattr(rng, "_rng", rng).getstate() for rng in sim._rngs])
             return result

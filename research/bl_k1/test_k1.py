@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from research.bl_k1 import native
-from research.bl_k1.audit import compare, stable
+from research.bl_k1.audit import compare, stable, world_state
 from research.bl_k1.timing import decision
 from research.bl_served_search.exports import export_json, verify_export
 from research.t34_speed_s2 import native_v8 as s2
@@ -180,3 +180,12 @@ def test_timing_admission_rejects_partial_and_foreign_identity(tmp_path) -> None
     export_json(other, value)
     with pytest.raises(ValueError, match="same Mac"):
         verify_identity(other, {"fixtures": [], "fresh_roots": []}, "a" * 64)
+
+
+def test_world_trace_binds_authoritative_food_order() -> None:
+    sim = SimpleNamespace(
+        food_cells=[[(1, 2), (3, 4)]], corpse_cells=[{(1, 2)}], food_set=[{(1, 2), (3, 4)}]
+    )
+    first = stable(world_state(sim))
+    sim.food_cells[0].reverse()
+    assert first != stable(world_state(sim))
