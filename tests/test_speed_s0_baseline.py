@@ -55,9 +55,7 @@ def test_compare_hashes_reports_missing_and_changed() -> None:
 def test_fixture_is_deterministic_and_covers_three_mixes_and_long_bodies() -> None:
     first, second = h.fixture_cases(), h.fixture_cases()
     assert [c["row"] for c in first] == [c["row"] for c in second]
-    assert {(c["mix"], c["body"]) for c in first} == {
-        (m, b) for m in h.MIXES for b in h.BODIES
-    }
+    assert {(c["mix"], c["body"]) for c in first} == {(m, b) for m in h.MIXES for b in h.BODIES}
     assert len({c["row"]["world_id"] for c in first}) == 6
     assert max(h.LONG_LENGTHS) >= 800
     assert all(c["row"]["namespace"] == h.NAMESPACE for c in first)
@@ -116,7 +114,11 @@ def _round(kind: str, digest: float, v8: float) -> dict:
 
 @pytest.mark.parametrize(
     ("digest", "v8", "verdict"),
-    [(3.0, 1.5, "S1_AND_S2_CONTINUE"), (3.0, 0.0, "S2_CUT_S1_CONTINUES"), (1.0, 1.0, "S2_CUT_S1_CUT")],
+    [
+        (3.0, 1.5, "S1_AND_S2_CONTINUE"),
+        (3.0, 0.0, "S2_CUT_S1_CONTINUES"),
+        (1.0, 1.0, "S2_CUT_S1_CUT"),
+    ],
 )
 def test_summarize_whole_workload_and_d1(digest: float, v8: float, verdict: str) -> None:
     report = {

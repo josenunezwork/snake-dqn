@@ -57,6 +57,7 @@ LONG_LENGTHS = (900, 600, 400, 300, 150, 150)
 STAGES = (
     "digest",
     "v8",
+    "v8_hero_features",
     "raster",
     "sim",
     "inference",
@@ -225,15 +226,18 @@ def instrument(stages: ExclusiveStages) -> Iterator[None]:
     from research.t34_exit_b8 import teacher_v2
     from research.t34_exit_b8.engine import ExitTeacher
     from research.t34_shadow import shadow
-    from src.simd_env import ego_raster
+    from src.simd_env import ego_raster, v8_nb
     from src.simd_env.batch_sim import BatchSim
     from src.simd_env.vector61_policy import Vector61SimdPolicy
 
+    # ``v8`` is the opponents' veto hook (S2's target, D1); ``v8_hero_features`` is the
+    # hero's bv8 observation kernel, called inside the raster build (not D1's v8).
     targets = [
         (shadow, "full_digest", "digest"),
         (teacher_v2, "full_digest", "digest"),
         (Vector61SimdPolicy, "_apply_veto", "v8"),
         (ego_raster, "build_ego_raster", "raster"),
+        (v8_nb, "v8_decide", "v8_hero_features"),
         (BatchSim, "step", "sim"),
         (torch.nn.Module, "_call_impl", "inference"),
         (CapturedWorld, "clone", "clone"),
