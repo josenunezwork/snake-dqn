@@ -3,9 +3,9 @@
 This is deliberately a direct decision-time port, rather than a cheaper danger
 screen.  It retains v2 capped counts, v5's post-boost landing flood, v7's
 tail-release landing area and re-rank, and v8's opponent-head layer.  The
-flood is expressed as a fixed-shape torch wavefront; its result is the same
-component cardinality as the CPU FIFO (the only value consumed by the rule).
-No tensor is copied to the host by this module.
+CUDA uses one sparse-frontier block per world/slot/action, with queue storage
+covering discovered cells and asynchronous watchdog checks. CPU/shape checks
+retain the Torch wavefront oracle. Only capped cardinality is consumed here.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from typing import Any
 
 import torch
 
+from research.gpu_sim_spike import flood_cuda
 from src.core.mechanics_constants import HEADON_SIZE_RATIO
 
 _DX = (0, 1, 0, -1)
@@ -126,6 +127,17 @@ def _flood(
     """
     n, a = start.shape[:2]
     h, w = blocked.shape[-2:]
+    if start.device.type == "cuda" and type(start).__name__ != "FakeTensor":
+        # Native path owns one atomic-deduplicated FIFO per lane and terminates
+        # on empty queue or cap. Storage covers min(V, 1 + 4*cap) QUEUED cells,
+        # including the frontier beyond the CPU's popped-cell cap.
+        return flood_cuda.flood(
+            start.contiguous(),
+            blocked.contiguous(),
+            cap.contiguous(),
+            None if release is None else release.contiguous(),
+            min(h * w, max_steps if max_steps is not None else _AREA_MAX),
+        )
     sx, sy = start[..., 0], start[..., 1]
     inside = (sx >= 0) & (sx < w) & (sy >= 0) & (sy < h)
     index = sy.clamp(0, h - 1) * w + sx.clamp(0, w - 1)

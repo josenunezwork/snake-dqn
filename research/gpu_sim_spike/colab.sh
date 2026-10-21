@@ -22,6 +22,12 @@ export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 export NUMBA_NUM_THREADS="${GPU_SIM_SPIKE_THREADS}"
+export MAX_JOBS=2
+
+if [[ "${GPU_SIM_SPIKE_DEVICE}" == cuda ]]; then
+  command -v nvcc >/dev/null || { echo "native E1b CUDA kernels require nvcc" >&2; exit 2; }
+  python -c 'import ninja, torch; assert torch.cuda.is_available(), "CUDA unavailable"'
+fi
 
 [[ -f "${checkpoint}" ]] || { echo "missing B8 checkpoint: ${checkpoint}" >&2; exit 2; }
 for name in champion_a5_freespace_20260621.pth best_apex_fs.pth \
@@ -31,7 +37,12 @@ done
 
 mkdir -p "${output_root}"
 output="${output_root}/benchmark.json"
+if [[ "${GPU_SIM_SPIKE_DEVICE}" == cuda ]]; then
+  python -m research.gpu_sim_spike.flood_cuda --selfcheck \
+    --output "${output_root}/cuda-kernel-selfcheck.json"
+fi
 python -m research.gpu_sim_spike.benchmark \
+  --mode "${GPU_SIM_SPIKE_MODE:-all}" \
   --device "${GPU_SIM_SPIKE_DEVICE}" \
   --checkpoint "${checkpoint}" \
   --output "${output}" \
@@ -41,6 +52,11 @@ python -m research.gpu_sim_spike.benchmark \
   --fixtures "${GPU_SIM_SPIKE_FIXTURES:-all}" \
   --decisions-per-case "${GPU_SIM_SPIKE_DECISIONS_PER_CASE:-3}" \
   --cpu-workers "${GPU_SIM_SPIKE_CPU_WORKERS}" \
+  --realistic-worlds "${GPU_SIM_SPIKE_REALISTIC_WORLDS:-256,1024,4096}" \
+  --realistic-lengths "${GPU_SIM_SPIKE_REALISTIC_LENGTHS:-800,900,1000,1100,1300,1500}" \
+  --realistic-ticks "${GPU_SIM_SPIKE_REALISTIC_TICKS:-12}" \
+  --realistic-warmup-ticks "${GPU_SIM_SPIKE_REALISTIC_WARMUP_TICKS:-3}" \
+  --realistic-repeats "${GPU_SIM_SPIKE_REALISTIC_REPEATS:-3}" \
   --rate-units-per-hour "${GPU_SIM_SPIKE_RATE_UNITS_PER_HOUR}"
 
 # The benchmark owns its receipt bytes.  The runtime refuses an unhashable or

@@ -175,6 +175,8 @@ class PPOPolicy(nn.Module):
         learner must use the same mask semantics when one is supplied.
         """
         logits, value, next_hidden = self(local, global_, scalars, hidden, reset)
+        if not torch.isfinite(logits).all() or not torch.isfinite(value).all():
+            raise FloatingPointError("non-finite policy logits or value")
         if action_mask is not None:
             if action_mask.shape != logits.shape:
                 raise ValueError("action_mask must have shape [N, 6]")

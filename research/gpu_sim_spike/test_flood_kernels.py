@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import torch
 
+from research.gpu_sim_spike import flood_cuda
 from research.gpu_sim_spike.ego_device import _component_sizes
 from research.gpu_sim_spike.v8_device import _flood
 
@@ -163,3 +164,95 @@ def test_v8_wavefront_matches_fifo_caps_and_delayed_release_without_waiting() ->
         max_steps=4096,
     )
     assert got.item() == _bfs_count((0, 1), blocked_np, 4096, release_np) == 1
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA toolkit/runtime")
+def test_native_cuda_frontier_matches_fifo_across_tiles_and_delayed_release() -> None:
+    """CUDA proof exercises queue dedupe, tile boundaries, and no-wait release.
+
+    It is intentionally not a FakeTensor test: a CUDA E1 job must compile and
+    execute the extension.  Development Macs skip it, while an L4 preflight
+    treats a missing native extension as a preparation failure rather than
+    measuring the Python implementation.
+    """
+    assert flood_cuda.available(), "CUDA preflight must fail if native E1 kernels do not compile"
+    h, w = 19, 23  # crosses the kernel's 256-cell initialization tile.
+    blocked_np = np.ones((h, w), dtype=bool)
+    blocked_np[2, 1:22] = False
+    blocked_np[3:18, 21] = False
+    blocked_np[17, 2:22] = False
+    release_np = np.zeros_like(blocked_np, dtype=np.int64)
+    release_np[2, 2] = 2
+    # The immediate delayed neighbour leaves the FIFO empty, proving it is not
+    # requeued later merely because its release TTL has elapsed.
+    blocked_np[8, 1:4] = False
+    release_np[8, 2] = 9
+    starts = torch.tensor([[[1, 2]], [[1, 8]]], device="cuda", dtype=torch.long)
+    blocked = torch.as_tensor(blocked_np, device="cuda")[None, None].expand(2, -1, -1, -1)
+    release = torch.as_tensor(release_np, device="cuda")[None, None].expand(2, -1, -1, -1)
+    cap = torch.tensor([[4096], [4096]], device="cuda", dtype=torch.long)
+    got = _flood(starts, blocked, cap, release).cpu().numpy().reshape(-1)
+    expected = np.array(
+        [
+            _bfs_count((1, 2), blocked_np, 4096, release_np),
+            _bfs_count((1, 8), blocked_np, 4096, release_np),
+        ]
+    )
+    assert np.array_equal(got, expected)
+    # A failed early release attempt must not mark that cell seen: the longer
+    # route arrives at its release distance and must enqueue it exactly once.
+    retry_blocked = torch.tensor([[[[False, False, False], [False, False, True]]]], device="cuda")
+    retry_release = torch.tensor([[[[0, 3, 0], [0, 0, 0]]]], device="cuda", dtype=torch.long)
+    retry = _flood(
+        torch.tensor([[[0, 0]]], device="cuda"),
+        retry_blocked,
+        torch.tensor([[4096]], device="cuda"),
+        retry_release,
+    )
+    assert retry.cpu().item() == 5
+    # A non-default stream catches extensions which launch on stream 0 rather
+    # than PyTorch's current stream.  The event dependency makes the result
+    # observably wrong if the guard/stream contract is ignored.
+    stream = torch.cuda.Stream()
+    with torch.cuda.stream(stream):
+        stream_result = _flood(starts[:1], blocked[:1], cap[:1], release[:1])
+    stream.synchronize()
+    assert stream_result.cpu().item() == expected[0]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA toolkit/runtime")
+def test_native_cuda_components_match_serpentine_oracle_across_tiles() -> None:
+    """The union-find kernel must not inherit a short propagation bound."""
+    assert flood_cuda.available(), "CUDA preflight must fail if native E1 kernels do not compile"
+    h, w = 37, 41
+    allowed = np.zeros((h, w), dtype=bool)
+    for y in range(0, h, 2):
+        allowed[y, :] = True
+        if y + 1 < h:
+            allowed[y + 1, -1 if (y // 2) % 2 == 0 else 0] = True
+    sim, ttl = _ego_sim(allowed)
+    sim.device = torch.device("cuda")
+    sim.alive = sim.alive.cuda()
+    sim.direction = sim.direction.cuda()
+    sim._heads = sim._heads.cuda()
+    got = (
+        _component_sizes(sim, torch.tensor([[0, 0]], device="cuda"), ttl.cuda()).cpu().numpy()[0, 1]
+    )
+    assert got == _bfs_count((1, 0), ~allowed, allowed.size)
+
+    # Separate components, a dead row, an OOB start, and duplicate/shuffled
+    # rows exercise the native gather after its one-per-world union-find pass.
+    split = np.zeros((19, 23), dtype=bool)
+    split[1:18, 1:11] = True
+    split[2:5, 15:20] = True
+    split_sim, split_ttl = _ego_sim(split)
+    split_sim.device = torch.device("cuda")
+    split_sim.alive = torch.tensor([[True]], device="cuda")
+    split_sim.direction = torch.tensor([[1]], device="cuda")
+    split_sim._heads = torch.tensor([[[0, 9]]], device="cuda")
+    rows = torch.tensor([[0, 0], [0, 0]], device="cuda")
+    result = _component_sizes(split_sim, rows, split_ttl.cuda()).cpu().numpy()
+    assert np.array_equal(result[:, 1], np.array([170, 170]))
+    assert not result[:, (0, 2)].any()
+    split_sim.alive.zero_()
+    assert not _component_sizes(split_sim, rows[:1], split_ttl.cuda()).cpu().any()

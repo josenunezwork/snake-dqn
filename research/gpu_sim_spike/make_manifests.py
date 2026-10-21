@@ -17,7 +17,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 PRIMARY_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn")
-DEFAULT_ARTIFACT_DIR = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-e1")
+DEFAULT_ARTIFACT_DIR = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-e1b")
 PACKAGE = "research/gpu_sim_spike"
 SCRIPT = f"{PACKAGE}/colab.sh"
 
@@ -102,14 +102,26 @@ def preflight_binding(path: Path) -> dict[str, Any]:
         receipt = json.loads(receipt_path.read_text())
     except json.JSONDecodeError as exc:
         raise ManifestRefused(f"invalid preflight receipt: {receipt_path}") from exc
-    if receipt.get("status") != "PREFLIGHT" or receipt.get("device") != "cpu":
+    dense = receipt.get("dense_audit", receipt)
+    if receipt.get("status") != "PREFLIGHT" or dense.get("device") != "cpu":
         raise ManifestRefused("preflight must be a successful CPU PREFLIGHT receipt")
-    elapsed = receipt.get("elapsed_seconds")
+    elapsed = receipt.get("entrypoint_run_wall_seconds", receipt.get("elapsed_seconds"))
     if not isinstance(elapsed, (int, float)) or elapsed <= 0:
         raise ManifestRefused("preflight must record positive elapsed_seconds")
-    if receipt.get("parity", {}).get("decisions", 0) < 3:
+    if dense.get("parity", {}).get("decisions", 0) < 3:
         raise ManifestRefused("preflight must exercise at least three searched decisions")
-    if not receipt_path.with_name(receipt_path.name + ".complete").is_file():
+    if dense.get("parity", {}).get("classification_counts", {}).get("bug", 0):
+        raise ManifestRefused("preflight has unexplained CPU oracle disagreements")
+    realistic = receipt.get("realistic", {})
+    if receipt.get("mode") != "all" or realistic.get("preflight_clamped") is not True:
+        raise ManifestRefused("E1b preflight must exercise both dense and REALISTIC CPU paths")
+    mixes = {case.get("case") for case in realistic.get("cases", [])}
+    if not {"long-scripted", "long-frozen", "long-mixed"} <= mixes:
+        raise ManifestRefused("E1b REALISTIC preflight must cover all three mixes")
+    if any(len(case.get("repeats", [])) < 3 for case in realistic.get("cases", [])):
+        raise ManifestRefused("E1b REALISTIC preflight must exercise three warmed repeats")
+    marker = receipt_path.with_name(receipt_path.name + ".complete")
+    if not marker.is_file() or marker.read_text() != "complete\n":
         raise ManifestRefused("preflight completion marker is missing")
     sidecar = receipt_path.with_name(receipt_path.name + ".sha256")
     if not sidecar.is_file() or sidecar.read_text().split()[0] != sha256_file(receipt_path):
@@ -119,10 +131,15 @@ def preflight_binding(path: Path) -> dict[str, Any]:
         "sha256": sha256_file(receipt_path),
         "elapsed_seconds": elapsed,
         "status": receipt["status"],
-        "decisions": receipt["parity"]["decisions"],
-        "device_loop_seconds": receipt["device_loop_seconds"],
+        "decisions": dense["parity"]["decisions"],
+        "device_loop_seconds": dense["device_loop_seconds"],
         "source_sha256": receipt["source_sha256"],
-        "kill_rule_sha256": receipt["e1_kill_rule_sha256"],
+        "kill_rule_sha256": dense["e1_kill_rule_sha256"],
+        "realistic_cpu_precheck": {
+            "cases": len(realistic["cases"]),
+            "floor": realistic["floor"],
+            "long_body_contract": realistic["long_body_contract"],
+        },
     }
 
 
@@ -154,14 +171,21 @@ def make_manifest(
         if hashlib.sha256(payload).hexdigest() != expected:
             raise ManifestRefused(f"runtime source differs from measured preflight: {name}")
     return {
-        "job_id": f"bl-e1-{kind}-{commit[:8]}",
+        "job_id": f"bl-e1b-{kind}-{commit[:8]}",
         "commit": commit,
         "script": SCRIPT,
         "claim": "DEVELOPMENT_SPIKE_EXCLUDED_FROM_REGISTERED_VERDICTS_NOT_DISPATCHED",
         "transport": {"mode": "local_supervisor_upload", "dispatch_ready": False},
         "env": {
+            "COLAB_CLI_REQUIREMENTS": f"{PACKAGE}/requirements.txt",
             "PYTHONUNBUFFERED": "1",
             "GPU_SIM_SPIKE_DEVICE": "cuda",
+            "GPU_SIM_SPIKE_MODE": "all",
+            "GPU_SIM_SPIKE_REALISTIC_WORLDS": "256,1024,4096",
+            "GPU_SIM_SPIKE_REALISTIC_LENGTHS": "800,900,1000,1100,1300,1500",
+            "GPU_SIM_SPIKE_REALISTIC_TICKS": "12" if kind == "l4" else "3",
+            "GPU_SIM_SPIKE_REALISTIC_WARMUP_TICKS": "3",
+            "GPU_SIM_SPIKE_REALISTIC_REPEATS": "3",
             "GPU_SIM_SPIKE_COMMIT": commit,
             "GPU_SIM_SPIKE_HORIZON": horizon,
             "GPU_SIM_SPIKE_SECONDS": str(seconds),
@@ -216,7 +240,11 @@ def make_manifest(
             "spec": "docs/research/specs/2026-10-21_gpu_sim_spike.md",
             "baseline": f"{PACKAGE}/BASELINE.json",
             "kill_rule": f"{PACKAGE}/KILL_RULE.md",
-            "benchmark": f"six S0 fixtures x {decisions} decisions D{horizon}; CPU12 plus CUDA",
+            "benchmark": (
+                f"six S0 fixtures x {decisions} decisions D{horizon}; CPU12 plus CUDA; "
+                "REALISTIC 256/1024/4096 resident worlds, L800-1500, all three mixes, "
+                "five real opponents, three warmed repeats, p95 full tick"
+            ),
             "role": "full spike" if kind == "l4" else "optional probe; cannot qualify D300 rule",
             "forecast_scope": (
                 "bounded allocation timebox, not a completion forecast; tiny Mac extrapolation "
@@ -240,13 +268,18 @@ def validate_manifest(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[st
 
 def dispatch_text(manifests: dict[str, Path]) -> str:
     """Give Claude the only admissible next steps; this is intentionally not executable dispatch."""
-    return f"""# E1 dispatch handoff — PREPARED ONLY, NO COLAB CALLS BY SOL
+    return f"""# E1b Round 02 dispatch handoff — PREPARED ONLY, NO COLAB CALLS BY SOL
 
 Development experiment excluded from every registered verdict. Rule frozen at
 896310e3 before E1 data. No A100 run. Claude is the dispatcher, using only the
 qualified research.colab_cli supervisor. Preserve Round 0, D0, O1 priorities.
 Do not dispatch both manifests as automatic retries. The probe is optional,
 D8 diagnostic work; it cannot qualify the original D300 cost/agreement rule.
+Both run REALISTIC 256/1,024/4,096 concurrent resident worlds with L800–1,500,
+all three mixes and five real opponents, resets/collection writes included,
+three warmed repeats and p95 full tick. The spike measures 12 ticks/repeat;
+the optional diagnostic probe measures 3. These are world counts, not snake rows.
+The serial dense branch rate cannot qualify the production-shape floor.
 
 - L4 spike: `{manifests['l4']}` — 190 min planning timebox; 400 min wall cap;
   13.5 u execution cap + 1.5 u reserve = 15 u envelope at 2 u/h.
@@ -281,6 +314,7 @@ zero decisive samples is NO_COVERAGE.
 
 Every exported JSON must have immutable .sha256 and .complete sidecars, including
 benchmark.json, cpu-reference-before-device.json, decision-*.json and host-export.json.
+The REALISTIC result is part of benchmark.json; per-repeat exports retain sidecars.
 The package test exercises actual supervisor export discovery and checksum checks.
 """
 
@@ -289,7 +323,12 @@ def write_once(path: Path, payload: str) -> None:
     """Avoid overwriting a prior artifact handoff or its immutable draft."""
     if path.exists():
         raise ManifestRefused(f"refusing to overwrite existing artifact: {path}")
-    path.write_text(payload, encoding="utf-8")
+    with path.open("x", encoding="utf-8") as stream:
+        stream.write(payload)
+    with path.with_name(path.name + ".sha256").open("x") as stream:
+        stream.write(f"{sha256_file(path)}  {path.name}\n")
+    with path.with_name(path.name + ".complete").open("x") as stream:
+        stream.write("complete\n")
 
 
 def main() -> None:

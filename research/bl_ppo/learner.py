@@ -224,6 +224,8 @@ class PPOLearner:
         last_metrics: dict[str, float] = {}
         for _ in range(PPO_EPOCHS):
             logits, predicted_values = self._forward_rollout(rollout)
+            if not torch.isfinite(logits).all() or not torch.isfinite(predicted_values).all():
+                raise FloatingPointError("non-finite PPO logits or value")
             if rollout.action_masks is not None:
                 logits = logits.masked_fill(~rollout.action_masks.bool(), float("-inf"))
             dist = Categorical(logits=logits)

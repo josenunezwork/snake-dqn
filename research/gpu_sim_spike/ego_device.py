@@ -7,9 +7,9 @@ uint8 planes, four global uint8 planes, and the thirty ``ego2s-b`` float32
 scalars.  Optional v8 features are owned by the v8 port and are simply
 appended after the base thirty scalars here.
 
-The connected-component calculation uses monotone minimum-label propagation.
-It computes one component labelling per world, then gathers the three requested
-starts.  This avoids the former per-action ``H * W`` flood schedule.
+CUDA connectivity uses tiled union-find, boundary unions, pointer jumping and
+integer size reduction once per world. CPU/shape checks retain the monotone
+minimum-label oracle. Both gather the same three requested action starts.
 """
 
 from __future__ import annotations
@@ -17,6 +17,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torch
+
+from research.gpu_sim_spike import flood_cuda
 
 if TYPE_CHECKING:
     from research.gpu_sim_spike.device_sim import DeviceSim
@@ -143,6 +145,17 @@ def _component_sizes(sim: "DeviceSim", rows: torch.Tensor, ttl: torch.Tensor) ->
     paths use the static cardinal-path bound without reading a tensor value.
     """
     N, H, W = rows.shape[0], sim.grid_h, sim.grid_w
+    # CUDA admission is explicit: a benchmark cannot accidentally report the
+    # slow Torch label propagation as a native E1 kernel result.  CPU retains
+    # this independently testable oracle/fallback; FakeTensor keeps shapes.
+    if sim.device.type == "cuda" and type(rows).__name__ != "FakeTensor":
+        return flood_cuda.components(
+            (ttl.amax(dim=1) <= 1).contiguous(),
+            sim.heads().contiguous(),
+            sim.direction.contiguous(),
+            sim.alive.contiguous(),
+            rows.contiguous(),
+        )
     env, snake = rows[:, 0], rows[:, 1]
     cardinal = torch.tensor(_CARDINAL, dtype=torch.long, device=sim.device)
     heads, direction = sim.heads()[env, snake], sim.direction[env, snake]

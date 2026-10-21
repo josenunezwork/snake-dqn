@@ -30,6 +30,16 @@ from research.gpu_sim_spike.rollout import dense_decision
 PACKAGE = Path(__file__).resolve().parent
 
 
+def source_hashes() -> dict[str, str]:
+    """Hash the package's Python, launcher, and native-kernel source closure."""
+    suffixes = {".py", ".sh", ".cu", ".cuh", ".cpp", ".cc", ".c", ".h", ".hpp", ".txt"}
+    return {
+        str(path.relative_to(PACKAGE)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(PACKAGE.rglob("*"))
+        if path.is_file() and path.suffix in suffixes and "__pycache__" not in path.parts
+    }
+
+
 def source_commit() -> str:
     """Resolve pinned identity even in the supervisor's verified sparse fallback."""
     pinned = os.environ.get("GPU_SIM_SPIKE_COMMIT")
@@ -227,17 +237,9 @@ def throughput_report(rows: list[dict], *, device: str, pipeline_seconds: float)
     total_steps = sum(case["world_steps"] for case in cases.values())
     total_seconds = sum(case["rollout_seconds"] for case in cases.values())
     required = {"long-scripted", "long-frozen", "long-mixed"}
-    long_rates = {
-        name: cases[name]["full_world_steps_per_second"] for name in required & cases.keys()
-    }
     floor_status = "NOT_L4_DATA"
     if device == "cuda" and "L4" in torch.cuda.get_device_name(0):
-        if any(rate < 20000 for rate in long_rates.values()):
-            floor_status = "STOP_ENGINE_THESIS_THIS_WEEK"
-        elif required <= cases.keys():
-            floor_status = "FLOOR_MET_PENDING_COST_AND_PARITY_AUDIT"
-        else:
-            floor_status = "INCOMPLETE_LONG_BODY_COVERAGE"
+        floor_status = "DIAGNOSTIC_ONLY_REQUIRES_REALISTIC_PRODUCTION_SHAPE"
     return {
         "unit": "full six-snake world-step",
         "count_scope": (
@@ -250,6 +252,7 @@ def throughput_report(rows: list[dict], *, device: str, pipeline_seconds: float)
         "per_case": cases,
         "l4_long_body_floor": 20000,
         "l4_floor_status": floor_status,
+        "long_body_mix_coverage": sorted(required & cases.keys()),
     }
 
 
@@ -267,7 +270,7 @@ def run(args: argparse.Namespace) -> dict:
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     started = time.perf_counter()
-    deadline = started + args.seconds
+    deadline = getattr(args, "_absolute_deadline", started + args.seconds)
     names = (
         [row["case"] for row in fixture_cases()]
         if args.fixtures == "all"
@@ -490,10 +493,7 @@ def run(args: argparse.Namespace) -> dict:
         "cuda": torch.version.cuda,
         "gpu": torch.cuda.get_device_name(0) if args.device == "cuda" else None,
         "source_commit": source_commit(),
-        "source_sha256": {
-            str(p.relative_to(PACKAGE)): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(PACKAGE.glob("*.py"))
-        },
+        "source_sha256": source_hashes(),
         "threads": args.threads,
         "pid": os.getpid(),
     }
@@ -502,6 +502,7 @@ def run(args: argparse.Namespace) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--policy-backend", choices=("device", "reference"), default="device")
+    parser.add_argument("--mode", choices=("dense", "realistic", "all"), default="dense")
     parser.add_argument("--device", choices=("cpu", "cuda"), required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -512,6 +513,12 @@ def main() -> None:
     parser.add_argument("--threads", type=int, choices=(1, 2), default=1)
     parser.add_argument("--seconds", type=float, default=1800)
     parser.add_argument("--rate-units-per-hour", type=float, default=2.0)
+    parser.add_argument("--realistic-worlds", default="256,1024,4096")
+    parser.add_argument("--realistic-lengths", default="800,900,1000,1100,1300,1500")
+    parser.add_argument("--realistic-ticks", type=int, default=12)
+    parser.add_argument("--realistic-warmup-ticks", type=int, default=3)
+    parser.add_argument("--realistic-repeats", type=int, default=3)
+    parser.add_argument("--realistic-cpu-max-worlds", type=int, default=2)
     args = parser.parse_args()
     if min(args.horizon, args.decisions_per_case, args.cpu_workers, args.seconds) <= 0:
         parser.error("horizon/decisions/workers/seconds must be positive")
@@ -519,9 +526,51 @@ def main() -> None:
         parser.error("dense sample offsets must remain inside H5000")
     if args.output.exists():
         parser.error("output already exists; immutable receipts cannot be overwritten")
-    entrypoint_started = time.perf_counter()
+    from research.gpu_sim_spike.realistic_benchmark import comma_ints, run_realistic, validate_shape
+
     try:
-        receipt = run(args)
+        args.realistic_worlds, args.realistic_lengths = validate_shape(
+            comma_ints(args.realistic_worlds, name="realistic worlds"),
+            comma_ints(args.realistic_lengths, name="realistic lengths"),
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    if args.realistic_cpu_max_worlds < 1:
+        parser.error("realistic CPU max worlds must be positive")
+    entrypoint_started = time.perf_counter()
+    # `all` is one bounded experiment: dense qualification and realistic
+    # throughput share the same first-cap wall clock rather than each claiming
+    # a fresh full timebox.
+    args._absolute_deadline = entrypoint_started + args.seconds
+    try:
+        dense = run(args) if args.mode in ("dense", "all") else None
+        realistic = run_realistic(args) if args.mode in ("realistic", "all") else None
+        if args.mode == "dense":
+            receipt = dense
+        elif args.mode == "realistic":
+            receipt = {
+                "schema": "gpu-sim-spike-benchmark/v1",
+                "status": (
+                    "PREFLIGHT" if args.device == "cpu" else "MEASURED_PENDING_PROVIDER_RECEIPT"
+                ),
+                "verdict": (
+                    "PENDING_OPERATOR_GPU_DATA" if args.device == "cpu" else "STOP_OR_PENDING_AUDIT"
+                ),
+                "realistic": realistic,
+                "source_commit": source_commit(),
+                "source_sha256": source_hashes(),
+            }
+        else:
+            receipt = {
+                "schema": "gpu-sim-spike-benchmark/v1",
+                "status": dense["status"],
+                "verdict": dense["verdict"],
+                "dense_audit": dense,
+                "realistic": realistic,
+                "mode": "all",
+                "source_commit": source_commit(),
+                "source_sha256": source_hashes(),
+            }
     except TimeoutError as exc:
         receipt = {
             "schema": "gpu-sim-spike-benchmark/v1",
