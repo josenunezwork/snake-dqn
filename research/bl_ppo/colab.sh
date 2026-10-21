@@ -17,9 +17,14 @@ export NUMBA_NUM_THREADS="${NUMBA_NUM_THREADS:-1}"
 
 output_root="${COLAB_CLI_ROOT}/output"
 mkdir -p "${output_root}"
-checkpoint="${COLAB_INPUT_DIR}/B8_s3_final.pth"
+checkpoint_root="${COLAB_INPUT_DIR}"
+if [[ "${BL_PUBLIC_INPUTS:-0}" == "1" ]]; then
+  python -m research.bl_upload.inputs --input-dir "${COLAB_INPUT_DIR}"
+  checkpoint_root="${COLAB_INPUT_DIR}/public-checkpoints"
+fi
+checkpoint="${checkpoint_root}/B8_s3_final.pth"
 [[ -f "${checkpoint}" ]] || { echo "missing B8 checkpoint" >&2; exit 2; }
-export SNAKE_CKPT_DIR="${COLAB_INPUT_DIR}/checkpoints"
+export SNAKE_CKPT_DIR="${checkpoint_root}/checkpoints"
 for name in champion_a5_freespace_20260621.pth best_apex_fs.pth best_apex_stage1_fs.pth best_apex_pre_fs.pth frp3_m3_s12_u60000_20261005.pth; do
   [[ -f "${SNAKE_CKPT_DIR}/${name}" ]] || { echo "missing frozen roster checkpoint ${name}" >&2; exit 2; }
 done

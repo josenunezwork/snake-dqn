@@ -50,6 +50,19 @@ def test_preflight_rule_drift_is_refused(tmp_path, monkeypatch) -> None:
         )
 
 
+def test_registered_six_checkpoint_uploads_convert_to_the_public_catalog() -> None:
+    """The real protected checkpoint identities use the compact runtime catalog."""
+    from research.bl_upload import convert_public_checkpoints
+
+    converted = convert_public_checkpoints(
+        {"inputs": manifests.checkpoint_inputs(), "env": {}, "source_paths": []},
+        repo=manifests.ROOT,
+    )
+    assert converted["env"]["BL_PUBLIC_INPUTS"] == "1"
+    assert [item["dest"] for item in converted["inputs"]] == ["public-inputs.json"]
+    assert "research/bl_upload" in converted["source_paths"]
+
+
 def test_handoff_exports_have_complete_hash_sidecars_and_refuse_overwrite(tmp_path) -> None:
     path = tmp_path / "DISPATCH.txt"
     manifests.write_once(path, "prepared only\n")

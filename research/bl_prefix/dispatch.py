@@ -8,6 +8,9 @@ import os
 from pathlib import Path
 from typing import Any
 
+_PUBLIC_B8_ALIAS = Path("checkpoints/b8_s3_t7_20261016.pth")
+_PUBLIC_B8_DESTINATION = Path("B8_s3_final.pth")
+
 
 def resolve_inputs(value: Any, inputs: Path) -> Any:
     """Resolve explicitly tagged input-relative filenames, refusing traversal."""
@@ -19,7 +22,17 @@ def resolve_inputs(value: Any, inputs: Path) -> Any:
         relative = Path(value[6:])
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("unsafe input-relative path")
-        path = (inputs / relative).resolve(strict=True)
+        root = inputs
+        if os.environ.get("BL_PUBLIC_INPUTS") == "1":
+            # The public release uses its historic B8 filename at the root,
+            # while prefix plans bind the same hash below checkpoints/.  Map
+            # only that registered alias; the remaining roster keeps its
+            # bound relative checkpoint destinations.
+            if relative == _PUBLIC_B8_ALIAS:
+                root, relative = inputs / "public-checkpoints", _PUBLIC_B8_DESTINATION
+            elif relative.parts and relative.parts[0] == "checkpoints":
+                root = inputs / "public-checkpoints"
+        path = (root / relative).resolve(strict=True)
         if not path.is_relative_to(inputs.resolve()):
             raise ValueError("input path escapes upload root")
         return str(path)

@@ -13,6 +13,10 @@ set -euo pipefail
 : "${GPU_SIM_SPIKE_RATE_UNITS_PER_HOUR:?manifest must bind the provider rate ceiling}"
 
 input_root="${COLAB_INPUT_DIR}"
+if [[ "${BL_PUBLIC_INPUTS:-0}" == "1" ]]; then
+  python -m research.bl_upload.inputs --input-dir "${COLAB_INPUT_DIR}"
+  input_root="${COLAB_INPUT_DIR}/public-checkpoints"
+fi
 output_root="${COLAB_CLI_ROOT}/output"
 checkpoint="${input_root}/B8_s3_final.pth"
 export SNAKE_CKPT_DIR="${input_root}/checkpoints"

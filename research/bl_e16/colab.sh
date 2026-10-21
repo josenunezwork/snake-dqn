@@ -18,13 +18,18 @@ PY
 export PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
-export SNAKE_CKPT_DIR="${COLAB_INPUT_DIR}/checkpoints"
+input_root="${COLAB_INPUT_DIR}"
+if [[ "${BL_PUBLIC_INPUTS:-0}" == "1" ]]; then
+  python -m research.bl_upload.inputs --input-dir "${COLAB_INPUT_DIR}"
+  input_root="${COLAB_INPUT_DIR}/public-checkpoints"
+fi
+export SNAKE_CKPT_DIR="${input_root}/checkpoints"
 run_dir="${COLAB_CLI_ROOT}/output/arm-${BL_E16_ARM}"
 python -m research.bl_e16.runner train \
   --plan "${plan}" --arm "${BL_E16_ARM}" --output "${run_dir}" \
   --bank "${COLAB_INPUT_DIR}/bank/BANK.json" \
   --seed-audit "${COLAB_INPUT_DIR}/bank/SEED_AUDIT.json" \
-  --b8-checkpoint "${COLAB_INPUT_DIR}/B8_s3_final.pth" \
+  --b8-checkpoint "${input_root}/B8_s3_final.pth" \
   --parent "${COLAB_INPUT_DIR}/parent/F.pth" --device cuda \
   --critic-qualification "${COLAB_INPUT_DIR}/qualification/${BL_E16_ARM}.json"
 python - "${run_dir}/status.json" <<'PY'

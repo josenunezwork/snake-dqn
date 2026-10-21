@@ -1,6 +1,7 @@
 """Targeted tests for E3 source allocation and immutable supervisor exports."""
 
 import hashlib
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -12,6 +13,7 @@ from research.bl_info_value.catalog import check_path, choose_roots
 from research.bl_info_value.io import export_bytes, verify_export, write_json, write_npz
 from research.bl_info_value.manifests import forecast
 from research.bl_info_value.run import merge
+from research.bl_info_value.upload_readiness import require_upload_readiness
 from research.colab_cli.runtime import _exports
 
 
@@ -124,3 +126,40 @@ def test_forecast_prices_real_batch_cost_and_reserve():
     assert projected["fit_hours_cpu_upper_projection"] == pytest.approx(
         (0.01 * 2160 + 0.02 * 61) * 3 / 3600
     )
+
+
+def test_e3_upload_preflight_binds_final_manifest_and_source_fallback(tmp_path):
+    """The recovery package cannot publish a manifest without its own Z-9 receipt."""
+    repo = Path(__file__).resolve().parents[2]
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    inputs = tmp_path / "inputs.tar.gz"
+    inputs.write_bytes(b"compact catalog")
+    manifest = {
+        "job_id": "bl-e3-upload-preflight-test",
+        "commit": commit,
+        "script": "research/bl_info_value/job.sh",
+        "source_paths": [
+            "src",
+            "configs",
+            "pyproject.toml",
+            "research/colab_cli",
+            "research/bl_info_value",
+        ],
+        "env": {"COLAB_CLI_REQUIREMENTS": "research/bl_info_value/requirements.txt"},
+        "inputs": [
+            {
+                "path": str(inputs),
+                "dest": "inputs.tar.gz",
+                "sha256": hashlib.sha256(inputs.read_bytes()).hexdigest(),
+            }
+        ],
+    }
+    receipt = tmp_path / "upload-preflight.json"
+    result = require_upload_readiness(manifest, repo=repo, receipt_path=receipt)
+
+    assert result["normal_forecast_seconds"] <= result["normal_budget_seconds"]
+    assert result["fallback_total_bound_seconds"] <= result["transport"]["cap_seconds"]
+    assert result["source_plan"]["fallback_bytes"] > 0
+    assert json.loads(receipt.read_text()) == result
+    with pytest.raises(ValueError, match="already exists"):
+        require_upload_readiness(manifest, repo=repo, receipt_path=receipt)

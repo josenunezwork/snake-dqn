@@ -12,6 +12,7 @@ from typing import Any
 
 from research.bl_prefix.make_manifest import qualified_transport
 from research.bl_served_search.exports import digest, export_json, verify_export
+from research.bl_upload import assert_upload_budget, convert_public_checkpoints, qualify
 from research.colab_cli.supervisor import validate
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -128,6 +129,19 @@ def portable_allocation(source: Path, out: Path) -> tuple[Path, Path]:
         },
     )
     return out / "bank.json", out / "audit.json"
+
+
+def bind_l2_plan(manifest: dict[str, Any], plan: dict[str, Any], plan_path: Path) -> None:
+    """Create the plan once after the manifest's runtime inputs are final."""
+    plan["input_hashes"] = {row["dest"]: row["sha256"] for row in manifest["inputs"]}
+    export_json(plan_path, plan)
+    manifest["inputs"].append(
+        {
+            "dest": "l2-plan.json",
+            "path": str(plan_path.resolve()),
+            "sha256": digest(plan_path),
+        }
+    )
 
 
 def build(
@@ -252,14 +266,6 @@ def build(
                 "ruler_admitted": False,
             }
             plan_path = out / f"{label}-plan.json"
-            export_json(plan_path, plan)
-            job_inputs.append(
-                {
-                    "dest": "l2-plan.json",
-                    "path": str(plan_path.resolve()),
-                    "sha256": digest(plan_path),
-                }
-            )
         manifest = {
             "job_id": f"bl-{label}-20261021",
             "commit": commit,
@@ -317,10 +323,34 @@ def build(
                 "other_assignments": "not queried; review at eventual admission",
             },
         }
+        # The qualified initial-upload path has a shared 300-second cap.  The
+        # roster is the public, hash-verified six-checkpoint release, so ship
+        # its compact catalog and reconstruct the exact files on the runtime.
+        # Keep this before supervisor validation so an oversized future input
+        # cannot become a schema-valid manifest.
+        manifest = convert_public_checkpoints(manifest, repo=repo)
+        if not is_ruler:
+            # The plan authenticates the inputs the runtime reads before the
+            # workload begins.  After replacing the six uploads, bind the
+            # compact catalog instead; checkpoint files are verified during
+            # runtime reconstruction by ``public_inputs.materialize``.
+            bind_l2_plan(manifest, plan, plan_path)
+        assert_upload_budget(manifest, repo=repo)
         validated = validate(manifest, repo=repo)
+        qualification_path = out / f"upload-qualification-{label}.json"
+        qualify(validated, repo=repo, receipt_path=qualification_path)
         path = out / f"manifest-{label}-validation-only.json"
         export_json(path, validated)
-        manifests.append({"path": str(path), "sha256": digest(path)})
+        manifests.append(
+            {
+                "path": str(path),
+                "sha256": digest(path),
+                "upload_qualification": {
+                    "path": str(qualification_path),
+                    "sha256": digest(qualification_path),
+                },
+            }
+        )
     result = {
         "status": "SCHEMA_VALID_NOT_DISPATCHABLE",
         "commit": commit,

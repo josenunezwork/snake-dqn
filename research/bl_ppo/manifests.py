@@ -239,6 +239,16 @@ def _roster_inputs(paths: tuple[Path, ...]) -> list[dict[str, str]]:
     return [input_row(path, dest) for path, dest in zip(paths, ROSTER_DESTINATIONS)]
 
 
+def _qualify_inputs(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Move registered checkpoints off ContentsClient and refuse oversized drafts."""
+    from research.bl_ppo.upload_readiness import assert_upload_budget
+    from research.bl_upload.qualify import convert_public_checkpoints
+
+    manifest = convert_public_checkpoints(manifest, repo=ROOT)
+    assert_upload_budget(manifest, repo=ROOT)
+    return manifest
+
+
 def make_e4_manifest(
     *, commit: str, output_dir: Path, b8_checkpoint: Path, roster_checkpoints: tuple[Path, ...] = ()
 ) -> dict[str, Any]:
@@ -291,7 +301,7 @@ def make_e4_manifest(
         }
     )
     manifest["source_paths"] = _bounded_source_paths(manifest)
-    return manifest
+    return _qualify_inputs(manifest)
 
 
 def make_e2_manifests(
@@ -411,7 +421,7 @@ def make_e2_manifests(
             }
         )
         manifest["source_paths"] = _bounded_source_paths(manifest)
-        result.append(manifest)
+        result.append(_qualify_inputs(manifest))
     return result
 
 
@@ -481,13 +491,15 @@ def make_e2_templates(
             }
         )
         manifest["source_paths"] = _bounded_source_paths(manifest)
-        result.append(manifest)
+        result.append(_qualify_inputs(manifest))
     return result
 
 
 def validate_manifest(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[str, Any]:
+    from research.bl_ppo.upload_readiness import assert_upload_budget
     from research.colab_cli.supervisor import validate
 
+    assert_upload_budget(manifest, repo=repo)
     return validate(manifest, repo=repo)
 
 
@@ -499,12 +511,30 @@ def dispatch_text(e4_path: Path, e2_paths: list[Path] | None = None) -> str:
     return f"""# BL E4 then E2 dispatch handoff
 
 Prepared only; no Colab call has occurred. Validate each exact manifest locally.
+Z-9 receipt: `{e4_path.parent / 'upload-preflight.json'}`. Missing or stale
+receipt means NOT_DISPATCHABLE. Refresh it after any manifest edit, including
+account inventory. It binds the exact manifest and pinned source fallback bytes.
+The six public checkpoint identities are downloaded and verified on the runtime;
+only the small public-inputs catalog crosses the supervisor upload path.
 Do not dispatch E2 until E4 exports its payload, SHA sidecar and completion marker,
 its selected allocated hero rate is bound, and the forecast fits 20 units/10 L4 hours.
 Never auto-select 20M.
 
 - E4: `{e4_path}`
 {e2}
+
+Local checks (no allocation):
+    PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+    MANIFEST={e4_path}
+    PREP={e4_path.parent}
+    $PY -m research.bl_ppo.upload_readiness --manifest "$MANIFEST" \\
+      --receipt "$PREP/upload-preflight-refresh.json"
+    $PY -m research.colab_cli.supervisor --state-dir "$PREP/supervisor" \\
+      validate "$MANIFEST"
+
+E4 remains a 128-world, 6/12-process L4 ruler: 15-minute estimate, 30-minute
+wall cap, 2-unit cap at 2 u/h, 0.4-unit reserve, 600-second lease. Account
+assignments must be refreshed by the dispatcher; the draft is not live inventory.
 
 Every exported payload requires matching `.sha256` and `.complete` sidecars.
 A missing sidecar is INCOMPLETE.
@@ -521,6 +551,7 @@ def main() -> None:
     parser.add_argument("--e9-receipt", type=Path)
     parser.add_argument("--scale-20m", action="store_true")
     parser.add_argument("--validate", action="store_true")
+    parser.add_argument("--e4-only", action="store_true", help="prepare only the E4 recovery")
     args = parser.parse_args()
     commit, artifacts = args.commit or git_head(), args.artifacts.expanduser().resolve()
     if not artifacts.is_absolute():
@@ -535,7 +566,10 @@ def main() -> None:
         roster_checkpoints=roster,
     )
     if args.validate:
-        validate_manifest(e4)
+        e4 = validate_manifest(e4)
+    from research.bl_ppo.upload_readiness import qualify
+
+    qualify(e4, repo=ROOT, receipt_path=artifacts / "upload-preflight.json")
     from research.bl_ppo.exports import export_json
 
     export_json(e4_path, e4)
@@ -552,16 +586,26 @@ def main() -> None:
         ):
             target = artifacts / f"{manifest['job_id']}.json"
             if args.validate:
-                validate_manifest(manifest)
+                manifest = validate_manifest(manifest)
+            qualify(
+                manifest,
+                repo=ROOT,
+                receipt_path=artifacts / f"{manifest['job_id']}-upload-preflight.json",
+            )
             export_json(target, manifest)
             paths.append(target)
-    else:
+    elif not args.e4_only:
         for manifest in make_e2_templates(
             commit=commit, output_root=artifacts, b8_checkpoint=args.b8, roster_checkpoints=roster
         ):
             target = artifacts / f"{manifest['job_id']}.json"
             if args.validate:
-                validate_manifest(manifest)
+                manifest = validate_manifest(manifest)
+            qualify(
+                manifest,
+                repo=ROOT,
+                receipt_path=artifacts / f"{manifest['job_id']}-upload-preflight.json",
+            )
             export_json(target, manifest)
             paths.append(target)
     (artifacts / "DISPATCH.txt").write_text(dispatch_text(e4_path, paths), encoding="utf-8")

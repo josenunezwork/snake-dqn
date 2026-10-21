@@ -11,8 +11,15 @@ PYTHON_BIN="$COLAB_CLI_ROOT/.venv/bin/python"
 RULER_OPERATOR="${RULER_OPERATOR:-research.bl_served_search.ruler_operator:create_operator}"
 test -x "$PYTHON_BIN"
 test -f "$COLAB_INPUT_DIR/ruler-fixtures/ruler-fixtures.json"
-export SNAKE_CKPT_DIR="$COLAB_INPUT_DIR/checkpoints"
-export RULER_B8_PATH="$COLAB_INPUT_DIR/b8.pth"
+if [[ "${BL_PUBLIC_INPUTS:-0}" == "1" ]]; then
+  public_root="$("$PYTHON_BIN" -m research.bl_upload.inputs --input-dir "$COLAB_INPUT_DIR" | \
+    "$PYTHON_BIN" -c 'import json, sys; print(json.load(sys.stdin)["input_root"])')"
+  export SNAKE_CKPT_DIR="$public_root/checkpoints"
+  export RULER_B8_PATH="$public_root/B8_s3_final.pth"
+else
+  export SNAKE_CKPT_DIR="$COLAB_INPUT_DIR/checkpoints"
+  export RULER_B8_PATH="$COLAB_INPUT_DIR/b8.pth"
+fi
 cd "$COLAB_CLI_ROOT/repo"
 
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1

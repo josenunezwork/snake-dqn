@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from research.bl_e16.admission import RESERVE_UNITS, UNIT_CAP, forecast
+from research.bl_upload import assert_upload_budget, convert_public_checkpoints
 from research.colab_cli.supervisor import Refused, validate
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -174,6 +175,8 @@ def make_manifest(
         set(manifest["source_paths"])
         | {str(path.relative_to(ROOT)) for path in (ROOT / "research/bl_e16").glob("*.md")}
     )
+    manifest = convert_public_checkpoints(manifest, repo=ROOT)
+    assert_upload_budget(manifest, repo=ROOT)
     return manifest
 
 
@@ -186,6 +189,7 @@ def validate_offline(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[str
     if manifest.get("transport", {}).get("dispatch_ready") is not False:
         raise ManifestRefused("E16 templates must remain non-dispatchable")
     try:
+        assert_upload_budget(manifest, repo=repo)
         return validate(manifest, repo=repo)
     except Refused as exc:
         raise ManifestRefused(str(exc)) from exc
