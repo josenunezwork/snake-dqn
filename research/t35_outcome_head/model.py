@@ -87,7 +87,7 @@ def train_head(
     tx = torch.from_numpy(np.ascontiguousarray(x, dtype=np.float32)).to(device)
     if recipe.standardize:
         head.mu.copy_(tx.mean(0))
-        head.sd.copy_(tx.std(0).clamp_min(1e-4))
+        head.sd.copy_(tx.std(0, correction=0).clamp_min(1e-4))
     ts = torch.from_numpy(np.ascontiguousarray(y_surv, dtype=np.float32)).to(device)
     tm = torch.from_numpy(np.ascontiguousarray(y_mass, dtype=np.float32)).to(device)
     tk = torch.from_numpy(np.ascontiguousarray(mask, dtype=bool)).to(device)
