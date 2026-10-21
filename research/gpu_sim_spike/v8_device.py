@@ -26,6 +26,11 @@ _KEPT, _VETOED, _NO_SPACIOUS = 0, 1, 2
 _R_KEPT, _R_V2, _R_SAME_DIR, _R_LANDING_V2, _R_LANDING_NONE = range(5)
 
 
+def _host_scalar_safe(value: torch.Tensor) -> bool:
+    """Whether a convergence scalar can be read outside meta/FakeTensor tests."""
+    return value.device.type != "meta" and type(value).__name__ != "FakeTensor"
+
+
 @dataclass
 class V8DeviceResult:
     """Torch counterpart of ``v8_nb.V8Result``; every member stays on ``q.device``."""
@@ -121,9 +126,6 @@ def _flood(
     """
     n, a = start.shape[:2]
     h, w = blocked.shape[-2:]
-    yy, xx = torch.meshgrid(
-        torch.arange(h, device=start.device), torch.arange(w, device=start.device), indexing="ij"
-    )
     sx, sy = start[..., 0], start[..., 1]
     inside = (sx >= 0) & (sx < w) & (sy >= 0) & (sy < h)
     index = sy.clamp(0, h - 1) * w + sx.clamp(0, w - 1)
@@ -135,12 +137,13 @@ def _flood(
     seed.scatter_(2, index[..., None], (inside & ~start_blocked)[..., None])
     seen = seed.reshape(n, a, h, w)
     frontier = seen
-    dist = torch.zeros((n, a, h, w), dtype=torch.long, device=start.device)
-    # Board dimensions are static for a DeviceSim; this bound keeps CUDA shapes fixed.
-    # A component capped at C cannot require more than C wavefront expansions;
-    # v2/v5 use 160 and v7 uses min(4096, board cells).  This is a static loop
-    # bound, avoiding a device scalar read for CUDA graph capture.
-    for step in range(min(h * w, max_steps if max_steps is not None else _AREA_MAX)):
+    # A FIFO cannot consume more than ``cap`` cells.  v2/v5 cap at 160 and v7
+    # cap at 4096, so those are the only useful wavefront bounds.  We sample the
+    # all-lane completion predicate every eight rounds; reading that scalar is a
+    # deliberate CUDA synchronization, while all frontier work remains device
+    # resident.  Meta/FakeTensor paths keep the static bound for shape checks.
+    limit = min(h * w - 1, max_steps if max_steps is not None else _AREA_MAX)
+    for step in range(max(0, limit)):
         # The CPU kernel's _NBX/_NBY is cardinal-only.  A 3x3 max-pool would
         # silently add diagonal reachability and must never be used here.
         grow = torch.zeros_like(frontier)
@@ -157,7 +160,12 @@ def _flood(
         nxt &= count[..., None, None] < cap[..., None, None]
         seen |= nxt
         frontier = nxt
-        dist = torch.where(nxt, torch.full_like(dist, step + 1), dist)
+        if (step + 1) % 8 == 0 and _host_scalar_safe(frontier):
+            active = frontier.flatten(2).any(-1) & (seen.flatten(2).sum(-1) < cap)
+            # FIFO release has no waiting queue: an empty frontier stays empty
+            # even if a later release threshold would make another cell passable.
+            if not bool(active.any().item()):
+                break
     return seen.flatten(2).sum(-1).minimum(cap)
 
 

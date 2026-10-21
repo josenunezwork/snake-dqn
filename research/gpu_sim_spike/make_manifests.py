@@ -1,8 +1,8 @@
-"""Create and optionally validate the two GPU-simulator spike draft manifests.
+"""Create and optionally validate the E1 L4 spike and optional probe manifests.
 
 This module is deliberately allocation-free.  It binds the primary checkout's
-frozen B8 and vector-opponent checkpoints as supervisor uploads, produces one
-strict L4 and one strict A100 manifest, and writes dispatch instructions that
+frozen B8 and vector-opponent checkpoints as supervisor uploads, produces an L4
+spike and an optional L4 probe manifest, and writes dispatch instructions that
 require an operator to refresh account assignment and provider-rate evidence.
 """
 
@@ -17,9 +17,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 PRIMARY_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn")
-DEFAULT_ARTIFACT_DIR = Path(
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/gpu-sim-spike-20261021"
-)
+DEFAULT_ARTIFACT_DIR = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-e1")
 PACKAGE = "research/gpu_sim_spike"
 SCRIPT = f"{PACKAGE}/colab.sh"
 
@@ -124,6 +122,7 @@ def preflight_binding(path: Path) -> dict[str, Any]:
         "decisions": receipt["parity"]["decisions"],
         "device_loop_seconds": receipt["device_loop_seconds"],
         "source_sha256": receipt["source_sha256"],
+        "kill_rule_sha256": receipt["e1_kill_rule_sha256"],
     }
 
 
@@ -136,13 +135,18 @@ def make_manifest(
     if not output.is_absolute():
         raise ManifestRefused("output_dir must be an absolute fresh Mac directory")
     if kind == "l4":
-        gpu, rate, estimate, timeout, seconds = "L4", 2.0, 82, 165, 4800
-    elif kind == "a100":
-        # 48 min * 6.8 u/h = 5.44 u.  The operator replaces neither cap nor
-        # rate from a provider display; its measured rate belongs in the receipt.
-        gpu, rate, estimate, timeout, seconds = "A100", 6.8, 24, 48, 1380
+        gpu, rate, estimate, timeout, seconds = "L4", 2.0, 190, 400, 10800
+        unit_cap, reserve = 13.5, 1.5
+        horizon, decisions = "300", "3"
+    elif kind == "probe":
+        gpu, rate, estimate, timeout, seconds = "L4", 2.0, 60, 135, 3300
+        unit_cap, reserve = 4.5, 0.5
+        horizon, decisions = "8", "1"
     else:
-        raise ManifestRefused("kind must be l4 or a100")
+        raise ManifestRefused("kind must be l4 or probe")
+    rule = subprocess.check_output(["git", "show", f"{commit}:{PACKAGE}/KILL_RULE.md"], cwd=ROOT)
+    if hashlib.sha256(rule).hexdigest() != preflight["kill_rule_sha256"]:
+        raise ManifestRefused("kill rule differs from preflight")
     for name, expected in preflight.get("source_sha256", {}).items():
         if name.startswith("test_") or name == "make_manifests.py":
             continue
@@ -150,7 +154,7 @@ def make_manifest(
         if hashlib.sha256(payload).hexdigest() != expected:
             raise ManifestRefused(f"runtime source differs from measured preflight: {name}")
     return {
-        "job_id": f"gpu-sim-spike-{kind}-{commit[:8]}",
+        "job_id": f"bl-e1-{kind}-{commit[:8]}",
         "commit": commit,
         "script": SCRIPT,
         "claim": "DEVELOPMENT_SPIKE_EXCLUDED_FROM_REGISTERED_VERDICTS_NOT_DISPATCHED",
@@ -159,12 +163,12 @@ def make_manifest(
             "PYTHONUNBUFFERED": "1",
             "GPU_SIM_SPIKE_DEVICE": "cuda",
             "GPU_SIM_SPIKE_COMMIT": commit,
-            "GPU_SIM_SPIKE_HORIZON": "300",
+            "GPU_SIM_SPIKE_HORIZON": horizon,
             "GPU_SIM_SPIKE_SECONDS": str(seconds),
             "GPU_SIM_SPIKE_THREADS": "1",
             "GPU_SIM_SPIKE_CPU_WORKERS": "12",
             "GPU_SIM_SPIKE_FIXTURES": "all",
-            "GPU_SIM_SPIKE_DECISIONS_PER_CASE": "3",
+            "GPU_SIM_SPIKE_DECISIONS_PER_CASE": decisions,
             "GPU_SIM_SPIKE_RATE_UNITS_PER_HOUR": str(rate),
             "OMP_NUM_THREADS": "1",
             "MKL_NUM_THREADS": "1",
@@ -181,9 +185,9 @@ def make_manifest(
         "output_dir": str(output),
         "inputs": checkpoint_inputs(),
         "budget": {
-            "unit_cap": 5.5,
+            "unit_cap": unit_cap,
             "rate_units_per_hour": rate,
-            "reserve_units": 0.5,
+            "reserve_units": reserve,
             "other_assignments": {},
         },
         "lease_seconds": 600,
@@ -212,8 +216,11 @@ def make_manifest(
             "spec": "docs/research/specs/2026-10-21_gpu_sim_spike.md",
             "baseline": f"{PACKAGE}/BASELINE.json",
             "kill_rule": f"{PACKAGE}/KILL_RULE.md",
-            "benchmark": (
-                "six S0 fixtures x three searched decisions; " "CPU12 reference plus CUDA port"
+            "benchmark": f"six S0 fixtures x {decisions} decisions D{horizon}; CPU12 plus CUDA",
+            "role": "full spike" if kind == "l4" else "optional probe; cannot qualify D300 rule",
+            "forecast_scope": (
+                "bounded allocation timebox, not a completion forecast; tiny Mac extrapolation "
+                "does not measure full-board CUDA speed; see E1_PREFLIGHT.md"
             ),
             "provider_rate_notice": (
                 "Manifest rate is the conservative preflight ceiling; "
@@ -233,34 +240,48 @@ def validate_manifest(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[st
 
 def dispatch_text(manifests: dict[str, Path]) -> str:
     """Give Claude the only admissible next steps; this is intentionally not executable dispatch."""
-    return f"""# GPU simulator spike dispatch handoff
+    return f"""# E1 dispatch handoff — PREPARED ONLY, NO COLAB CALLS BY SOL
 
-These are **drafts only**.  Do not dispatch them until Round 0, Claim A D0,
-and O1 have a free account assignment; the account cap is three.  No automatic
-retry or GPU substitution is permitted.  This development port cannot satisfy the
-CONTINUE rule until CPU-rescored disagreements classify zero bugs.
+Development experiment excluded from every registered verdict. Rule frozen at
+896310e3 before E1 data. No A100 run. Claude is the dispatcher, using only the
+qualified research.colab_cli supervisor. Preserve Round 0, D0, O1 priorities.
+Do not dispatch both manifests as automatic retries. The probe is optional,
+D8 diagnostic work; it cannot qualify the original D300 cost/agreement rule.
 
-Before each individual dispatch, Claude must:
+- L4 spike: `{manifests['l4']}` — 190 min planning timebox; 400 min wall cap;
+  13.5 u execution cap + 1.5 u reserve = 15 u envelope at 2 u/h.
+- Optional L4 probe: `{manifests['probe']}` — 60 min planning timebox;
+  135 min wall cap; 4.5 u execution cap + 0.5 u reserve = 5 u envelope.
 
-1. Re-run the local supervisor validator on the exact manifest.
-2. Refresh the qualified transport/source binding for its pinned commit.
-3. Record every active account assignment and its reviewed positive rate in
-   `budget.other_assignments`; refuse an unknown endpoint or rate.
-4. Check the provider's displayed runtime type and measured rate after
-   allocation. L4 is pinned to L4 only; A100 is pinned to A100 only. Stop if
-   the measured rate would breach the 6-unit combined cap.
-5. Dispatch only through `python -m research.colab_cli.supervisor run
-   <manifest>` and retain the terminal receipt, bounded exports, hash, and
-   completion marker.
+First wall/unit cap wins. No substitution, automatic retry, or direct colab calls.
+Both estimates include setup/export headroom but are not measured CUDA completion
+forecasts. See committed E1_PREFLIGHT.md for measured tiny Mac extrapolation.
 
-Manifests:
+Before each dispatch Claude must locally validate the exact manifest, refresh
+qualified transport/source binding, and record all active assignments and their
+reviewed positive rates in budget.other_assignments. Empty assignments is a draft
+placeholder, NOT live inventory. Refuse unknown rates/endpoints. Refresh the
+provider rate and preserve the 15/5 u envelopes. Never edit pinned source/rule.
 
-- L4 (timeout 165 min, 5.5 u at 2.0 u/h plus 0.5 u reserve): `{manifests['l4']}`
-- A100 (timeout 48 min, 5.44 u at 6.8 u/h plus 0.5 u reserve): `{manifests['a100']}`
+From /Users/josenunez/Projects/ml/snake-dqn-bl-e1 (or a checkout containing the pin):
+PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+$PY -m research.colab_cli.supervisor \\
+  --state-dir {manifests['l4'].parent}/supervisor-l4 \\
+  validate {manifests['l4']}
+$PY -m research.colab_cli.supervisor \\
+  --state-dir {manifests['probe'].parent}/supervisor-probe \\
+  validate {manifests['probe']}
 
-The benchmark must leave `benchmark.json`, `benchmark.json.sha256`, and
-`benchmark.json.complete`; the runtime rejects a missing or mismatched export.
-This spike is excluded from every registered verdict.
+Claude dispatches the selected manifest through research/colab_cli/launch.sh
+in an owned tmux session with AC/lid guards. Retain terminal receipt, verified
+exports and independently confirmed assignment disappearance. Missing exports or
+INCOMPLETE cannot support CONTINUE. Apply <20k full world-steps/s on any L4 long
+mix => STOP engine thesis this week. Report decisive-root agreement separately;
+zero decisive samples is NO_COVERAGE.
+
+Every exported JSON must have immutable .sha256 and .complete sidecars, including
+benchmark.json, cpu-reference-before-device.json, decision-*.json and host-export.json.
+The package test exercises actual supervisor export discovery and checksum checks.
 """
 
 
@@ -294,7 +315,7 @@ def main() -> None:
     preflight = preflight_binding(args.preflight)
     artifacts.mkdir(parents=True, exist_ok=True)
     manifests: dict[str, Path] = {}
-    for kind in ("l4", "a100"):
+    for kind in ("l4", "probe"):
         output_dir = artifacts / f"{kind}-output"
         manifest = make_manifest(
             kind=kind, commit=commit, output_dir=output_dir, preflight=preflight

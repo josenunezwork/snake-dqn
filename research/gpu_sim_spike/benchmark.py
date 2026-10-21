@@ -215,6 +215,44 @@ def _candidate_json(result: dict, *, depth: int, snakes: int) -> dict:
     }
 
 
+def throughput_report(rows: list[dict], *, device: str, pipeline_seconds: float) -> dict:
+    """Count complete six-snake branch-world advances, never snake rows."""
+    cases = {}
+    for row in rows:
+        case = cases.setdefault(row["case"], {"world_steps": 0, "rollout_seconds": 0.0})
+        case["world_steps"] += row["full_world_steps"]
+        case["rollout_seconds"] += row["device_loop_seconds"]
+    for case in cases.values():
+        case["full_world_steps_per_second"] = case["world_steps"] / case["rollout_seconds"]
+    total_steps = sum(case["world_steps"] for case in cases.values())
+    total_seconds = sum(case["rollout_seconds"] for case in cases.values())
+    required = {"long-scripted", "long-frozen", "long-mixed"}
+    long_rates = {
+        name: cases[name]["full_world_steps_per_second"] for name in required & cases.keys()
+    }
+    floor_status = "NOT_L4_DATA"
+    if device == "cuda" and "L4" in torch.cuda.get_device_name(0):
+        if any(rate < 20000 for rate in long_rates.values()):
+            floor_status = "STOP_ENGINE_THESIS_THIS_WEEK"
+        elif required <= cases.keys():
+            floor_status = "FLOOR_MET_PENDING_COST_AND_PARITY_AUDIT"
+        else:
+            floor_status = "INCOMPLETE_LONG_BODY_COVERAGE"
+    return {
+        "unit": "full six-snake world-step",
+        "count_scope": (
+            "six scheduled branch lanes including dead/illegal lanes; all real opponent work"
+        ),
+        "warmup_excluded": True,
+        "world_steps": total_steps,
+        "full_world_steps_per_second": total_steps / total_seconds if total_seconds else None,
+        "pipeline_world_steps_per_second": total_steps / pipeline_seconds,
+        "per_case": cases,
+        "l4_long_body_floor": 20000,
+        "l4_floor_status": floor_status,
+    }
+
+
 def run(args: argparse.Namespace) -> dict:
     """Run a measured CPU phase then candidate phase; never allocate a runtime."""
     from research.gpu_sim_spike.device_policy import DevicePolicy
@@ -223,7 +261,7 @@ def run(args: argparse.Namespace) -> dict:
 
     if args.device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA requested but unavailable (never silently substitute CPU)")
-    if args.cpu_workers > 2 and platform.system() == "Darwin":
+    if max(args.cpu_workers, args.threads) > 2 and platform.system() == "Darwin":
         raise ValueError("Mac probes must stay within two CPU threads")
     torch.set_num_threads(args.threads)
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -345,6 +383,8 @@ def run(args: argparse.Namespace) -> dict:
                 "comparison": comparison,
                 "cpu_rescored_label": label_score,
                 "device_loop_seconds": elapsed,
+                "full_world_steps": sim.E * 6 * depth,
+                "full_world_steps_per_second": sim.E * 6 * depth / elapsed,
                 "host_launch_cpu_seconds": launch_cpu,
                 "warmup_seconds": warm_seconds,
                 "host_stages": getattr(policy, "host_stages", []),
@@ -359,6 +399,8 @@ def run(args: argparse.Namespace) -> dict:
                     "done": index + 1,
                     "total": len(jobs),
                     "case": name,
+                    "full_world_steps_per_second": rows[-1]["full_world_steps_per_second"],
+                    "decisive_root": comparison["decisive_root"],
                     "elapsed_seconds": time.perf_counter() - started,
                 }
             ),
@@ -437,6 +479,10 @@ def run(args: argparse.Namespace) -> dict:
         ).hexdigest(),
         "frozen_cost_baseline": baseline["frozen_cost_comparator_units_per_dense_decision"],
         "parity": parity,
+        "throughput": throughput_report(
+            rows, device=args.device, pipeline_seconds=candidate_pipeline_seconds
+        ),
+        "e1_kill_rule_sha256": hashlib.sha256((PACKAGE / "KILL_RULE.md").read_bytes()).hexdigest(),
         "rows": rows,
         "argv": vars(args) | {"checkpoint": str(args.checkpoint), "output": str(args.output)},
         "platform": platform.platform(),
@@ -484,6 +530,10 @@ def main() -> None:
             "reason": str(exc),
             "device": args.device,
             "source_commit": source_commit(),
+            "completed_decisions": [
+                json.loads(path.read_text())
+                for path in sorted(args.output.parent.glob("decision-*.json"))
+            ],
             "note": (
                 "budget timeout, no automatic retry; inspect immutable "
                 "completed decision receipts"

@@ -43,7 +43,14 @@ def compare_decision(reference: dict, candidate: dict, *, evidence: dict | None 
                 "alive_steps_error": actual["alive_steps"] - result["alive_steps"],
             }
         )
+    greedy = int(reference.get("greedy", np.asarray(reference["q"]).argmax()))
+    if greedy not in reference["outcomes"]:
+        raise ValueError("CPU greedy branch missing from decisive-root audit")
+    greedy_alive = reference["outcomes"][greedy]["alive_steps"]
+    best_alive = max(value["alive_steps"] for value in reference["outcomes"].values())
     return {
+        "decisive_root": best_alive > greedy_alive,
+        "cpu_survival_gain_over_greedy": best_alive - greedy_alive,
         "agreement": agreement,
         "classification": classification,
         "evidence": evidence,
@@ -56,12 +63,15 @@ def compare_decision(reference: dict, candidate: dict, *, evidence: dict | None 
     }
 
 
-def summarize(rows: list[dict[str, Any]]) -> dict:
+def _stratum(rows: list[dict[str, Any]]) -> dict:
     """Return sample counts alongside agreement; a tiny preflight is not a gate."""
     count = len(rows)
     return {
         "decisions": count,
-        "first_action_agreement": sum(row["agreement"] for row in rows) / max(1, count),
+        "coverage": "OBSERVED" if count else "NO_COVERAGE",
+        "first_action_agreement": (
+            sum(row["agreement"] for row in rows) / count if count else None
+        ),
         "classification_counts": {
             label: sum(row["classification"] == label for row in rows)
             for label in ("agreement", "float tie", "RNG-stream difference", "bug")
@@ -72,4 +82,14 @@ def summarize(rows: list[dict[str, Any]]) -> dict:
             else None
         ),
         "qualification": "observed finite fixture sample only; no serving or registered verdict",
+    }
+
+
+def summarize(rows: list[dict[str, Any]]) -> dict:
+    """Audit consequential roots independently of aggregate agreement."""
+    return {
+        **_stratum(rows),
+        "decisive_roots": _stratum([row for row in rows if row["decisive_root"]]),
+        "other_roots": _stratum([row for row in rows if not row["decisive_root"]]),
+        "decisive_definition": "CPU best legal alive_steps > CPU bare-greedy alive_steps",
     }

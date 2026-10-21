@@ -7,9 +7,9 @@ uint8 planes, four global uint8 planes, and the thirty ``ego2s-b`` float32
 scalars.  Optional v8 features are owned by the v8 port and are simply
 appended after the base thirty scalars here.
 
-The connected-component calculation is fixed-shape and exact, but deliberately
-unoptimised in this spike: it floods each requested action for ``H * W`` rounds.
-That cost belongs in the benchmark; replacing it needs a fixture comparison.
+The connected-component calculation uses monotone minimum-label propagation.
+It computes one component labelling per world, then gathers the three requested
+starts.  This avoids the former per-action ``H * W`` flood schedule.
 """
 
 from __future__ import annotations
@@ -23,6 +23,15 @@ if TYPE_CHECKING:
 
 
 _CARDINAL = ((0, -1), (1, 0), (0, 1), (-1, 0))
+
+
+def _host_scalar_safe(value: torch.Tensor) -> bool:
+    """Whether ``value.item()`` is safe for the optional convergence check.
+
+    Real CUDA tensors intentionally synchronize here only after a bulk round.
+    Meta and FakeTensor shape tests retain the fixed round bound instead.
+    """
+    return value.device.type != "meta" and type(value).__name__ != "FakeTensor"
 
 
 def _rows(sim: "DeviceSim", rows: torch.Tensor | None) -> torch.Tensor:
@@ -122,8 +131,16 @@ def _reach_time(ttl: torch.Tensor, wall: torch.Tensor) -> torch.Tensor:
 def _component_sizes(sim: "DeviceSim", rows: torch.Tensor, ttl: torch.Tensor) -> torch.Tensor:
     """Exact tail-aware region sizes for left/straight/right, ``(N,3)``.
 
-    A separate fixed-shape flood runs from each candidate next cell.  This is
-    intentionally expensive but has no dynamic Python data or host transfers.
+    Each world receives a monotone component label: every open cell begins with
+    its flat index and blocked cells carry sentinel ``V``.  A bulk round hooks a
+    label to the smallest cardinal-neighbour label and pointer-jumps through
+    that candidate.  Labels only decrease, so a component converges to its
+    minimum flat index.  Counts scatter once by component root, after which all
+    three action starts gather their component root's count.
+
+    The convergence check is a scalar synchronization on real tensors, sampled
+    every eight rounds.  All bulk propagation remains on device; meta/FakeTensor
+    paths use the static cardinal-path bound without reading a tensor value.
     """
     N, H, W = rows.shape[0], sim.grid_h, sim.grid_w
     env, snake = rows[:, 0], rows[:, 1]
@@ -134,21 +151,43 @@ def _component_sizes(sim: "DeviceSim", rows: torch.Tensor, ttl: torch.Tensor) ->
     start = heads[:, None, :] + move
     sx, sy = start[..., 0], start[..., 1]
     inside = (sx >= 0) & (sx < W) & (sy >= 0) & (sy < H)
-    blocked = ttl[env].amax(dim=1) > 1
-    flat_start = (sy.clamp(0, H - 1) * W + sx.clamp(0, W - 1)).reshape(N * 3)
-    allowed = (~blocked[:, None]).expand(-1, 3, -1, -1).reshape(N * 3, H, W)
-    seed = torch.zeros((N * 3, H * W), dtype=torch.bool, device=sim.device)
-    seed.scatter_(1, flat_start[:, None], inside.reshape(-1, 1))
-    reached = seed.reshape(N * 3, H, W) & allowed
-    # Connected components have no path longer than H*W-1.
-    for _ in range(H * W):
-        grow = torch.zeros_like(reached)
-        grow[:, 1:] |= reached[:, :-1]
-        grow[:, :-1] |= reached[:, 1:]
-        grow[:, :, 1:] |= reached[:, :, :-1]
-        grow[:, :, :-1] |= reached[:, :, 1:]
-        reached |= grow & allowed
-    sizes = reached.sum(dim=(1, 2)).reshape(N, 3)
+    V = H * W
+    # This occupancy is world-only: label once for each world, never for every
+    # selected row/action.  ``V`` is also the blocked sentinel and cannot be a
+    # valid component root.
+    allowed = ttl.amax(dim=1) <= 1
+    flat = torch.arange(V, device=sim.device, dtype=torch.long).expand(sim.E, -1)
+    labels = torch.where(allowed.reshape(sim.E, V), flat, torch.full_like(flat, V))
+    # Pointer jumping accelerates ordinary paths, but arbitrary graph label
+    # order has no proven logarithmic convergence bound for this local hook.
+    # V-1 is the rigorous cardinal-path bound; real inputs exit early below.
+    rounds = max(1, V - 1)
+    for round_index in range(rounds):
+        old = labels.reshape(sim.E, H, W)
+        candidate = old.clone()
+        candidate[:, 1:] = torch.minimum(candidate[:, 1:], old[:, :-1])
+        candidate[:, :-1] = torch.minimum(candidate[:, :-1], old[:, 1:])
+        candidate[:, :, 1:] = torch.minimum(candidate[:, :, 1:], old[:, :, :-1])
+        candidate[:, :, :-1] = torch.minimum(candidate[:, :, :-1], old[:, :, 1:])
+        candidate = candidate.reshape(sim.E, V)
+        # Every non-sentinel candidate names a valid flat cell.  Append a
+        # sentinel entry so blocked cells can be gathered without a host branch.
+        parents = torch.cat((labels, torch.full_like(labels[:, :1], V)), dim=1)
+        jumped = parents.gather(1, candidate)
+        updated = torch.minimum(candidate, jumped)
+        updated = torch.where(allowed.reshape(sim.E, V), updated, torch.full_like(updated, V))
+        changed = updated.ne(labels)
+        labels = updated
+        if (round_index + 1) % 8 == 0 and _host_scalar_safe(changed):
+            if not bool(changed.any().item()):
+                break
+    counts = torch.zeros((sim.E, V + 1), dtype=torch.long, device=sim.device)
+    counts.scatter_add_(1, labels, allowed.reshape(sim.E, V).long())
+    root_grid = labels.reshape(sim.E, H, W)
+    flat_start = sy.clamp(0, H - 1) * W + sx.clamp(0, W - 1)
+    start_root = root_grid[env].reshape(N, V).gather(1, flat_start)
+    sizes = counts[env].gather(1, start_root)
+    sizes = torch.where(inside & (start_root != V), sizes, torch.zeros_like(sizes))
     return torch.where(sim.alive[env, snake, None], sizes, torch.zeros_like(sizes))
 
 
