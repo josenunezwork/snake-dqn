@@ -1,6 +1,6 @@
 # GPU simulation development spike
 
-This isolated package implements the owner-approved [brief](../../../docs/research/specs/2026-10-21_gpu_sim_spike.md).
+This isolated package implements the owner-approved [brief](../../docs/research/specs/2026-10-21_gpu_sim_spike.md).
 It never changes serving, a registered collector, or the Colab supervisor.
 `BASELINE.json` and the verbatim `KILL_RULE.md` were committed first (`179d6044`).
 
@@ -36,7 +36,7 @@ forecasts, not measured throughput or a promise that all D300 cases finish.
 Run only targeted package checks, with `nice -n 10`, one native-library thread and
 the primary checkout's existing venv. Use `SNAKE_CKPT_DIR` for the uploaded or local
 reference checkpoint directory. The real Mac entrypoint command and immutable
-receipt are in `PREFLIGHT.md` once verified. CUDA FakeTensor checks cover tensor
+receipt are in `PREFLIGHT.md`. CUDA FakeTensor checks cover tensor
 syntax/shapes on a Mac; they do not prove CUDA numerical correctness or throughput.
 
 `make_manifests.py` prepares exactly one L4 and one A100 manifest in the external
