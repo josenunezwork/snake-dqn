@@ -51,8 +51,50 @@ on Q ties; the starting roots must be byte-identical. This is the owner's
 explicit runtime-target allowance, not cross-architecture policy identity or
 strict/serving qualification.
 
+Real Mac `job.sh` preflight used the v3 smoke bank, three original source
+worlds (including a mixed-policy roster), six roots, D300, two-epoch smoke fits,
+one math thread per process and nice15. Serial reconstruction took
+13.846653750 seconds; two-worker parity took 9.541679542 seconds; fits and
+batch benchmarks took 1.735764250 seconds; the complete entrypoint took
+25.738519250 seconds. All 13 dataset arrays match recovery-03's Mac baseline
+by dtype, shape and exact bytes. The new path's serial/two-worker arrays also
+match exactly. These smoke fits produce no scientific GO/KILL.
+
+The conservative six-worker L4 forecast is 1.310004307 hours / 2.620008615
+units at 2 units/hour: 0.904692579 hours reconstruction, 0.071978395 hours CPU
+fit upper projection and 20 minutes setup/export. It retains a 4x slower-host
+assumption and credits no CUDA speedup. Estimate 78.600258436 minutes; timeout
+158 minutes (at least 2x), 300-second lease and 256 MiB export cap. The timeout
+ceiling costs 5.266666667 units, inside the remaining 10.4-unit session cap.
+No recovery-04 x86 throughput or target identity has been measured.
+
+Targeted verification: 54 passed, 64 deselected across the E3 package and
+supervisor validation/public-input selection. Changed Python passes Black100,
+isort and flake8; `bash -n job.sh` and `git diff --check` pass. Independent
+read-only source review found no remaining material issue. Protected source,
+frozen protocol, prior attempts, checkpoints, serving pins and tmux sessions
+were not modified.
+
 Exact measured Mac preflight, bank size/digests, final published source pin,
 Z-9 receipt, budget forecast, offline validation and commands are recorded in
 `big-lever/exp/bl-e3/recovery-04/DISPATCH.txt`. That file is the operator handoff.
 The manifest is validated locally and remains NOT DISPATCHED. Account inventory
 must be reviewed by the future operator; no live account state is inferred here.
+
+Full Mac root-bank preparation passed all 256 worlds / 1,536 roots and all
+1,536 unchanged B8 controls. The archive is 1,954,150 bytes, below 2,000,000,
+SHA-256 `9878576dadd291668c8c809343b05422c7291de1050b3338d106105a16e2bb8c`.
+The original 192/32/32 splits, 768/768 classes and every original task field
+match exactly. Every tape member hash and portable checkpoint path verifies.
+Three overlap worlds match serial and three-worker recording by every action
+prefix, shared root hash and B8 control hash. All observed workers were nice15.
+Evidence: `recovery-04/{bank-verification,preflight-comparison}.json`, full-input
+archive/catalog/timing and `trace-bank.log`. The frozen-opponent world that
+failed at decision 2916 passed Mac source reconstruction and controls.
+
+The decision-2916 regression also passed actual v3 replay versus the original
+Mac live-policy reconstruction for all six frozen-opponent roots (decisions
+2916, 2936, 3286, 4476, 4481, 4486): all 13 arrays match by exact byte binding.
+Replay took 18.804049375 seconds; original reconstruction 22.737304625 seconds.
+Evidence: `recovery-04/decision-2916-verification.json`. Full Mac bank recording
+completed in 588.083684708 seconds. These are Mac checks, not x86 execution.
