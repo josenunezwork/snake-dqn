@@ -3,9 +3,11 @@
 **Prepared and independently reviewed; not dispatched.** Sol-R made zero Colab
 calls. Claude dispatches. B8 s3 remains served; there is no release authority.
 
-Executable pin: `f18cf1dfb31e010bb01e3325a895b9eb2dc29b4d` (published on main).
+Executable pin: `4bb1e32a7b6c960a2e23c3bab19715dee3d21bbc` (published on main).
 Registration commit: `464b21f8`; forecast/input helpers: `ad4ee761`; paired
 evaluation/bank pin: `d54e4a04`; durable runtime/admission: `7a986c9d`.
+Transport sidecar rename correction: `4bb1e32a`. It supersedes preparation
+against `f18cf1df`; the original registration bytes remain unchanged.
 Later documentation commits do not change this executable pin.
 
 Artifact root:
@@ -45,7 +47,7 @@ the envelope, the budget is stricter than the 46h ceiling. All phases sum to
 
 ## Dispatch sequence and evidence
 
-1. Use `y3/source-01/DISPATCH.txt` after Codex-V review, fresh account usage and
+1. Use `y3/source-02/DISPATCH.txt` after Codex-V review, fresh account usage and
    inventory, preceding terminal receipt and verified release. Regenerate a
    **new** attempt with `p1_manifests --inventory` if inventory changes. The
    source reconstructs public checkpoints and qualifies E8 before creating a
@@ -89,7 +91,7 @@ the envelope, the budget is stricter than the 46h ceiling. All phases sum to
 
 The executable manifest preparer is
 `python -m research.bl_ppo.p1_manifests --phase <phase> --root <fresh directory>
---commit f18cf1dfb31e010bb01e3325a895b9eb2dc29b4d --bank <bank.json>
+--commit 4bb1e32a7b6c960a2e23c3bab19715dee3d21bbc --bank <bank.json>
 --audit <seed_audit.json> [phase-specific evidence above]`.
 Run from `/Users/josenunez/Projects/ml/snake-dqn-wp3` with the primary venv
 `/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python`.
@@ -123,7 +125,9 @@ This does not claim a live Colab upload or timing measurement.
 
 ## Verification and remaining gates
 
-Root targeted P1/runtime/evaluation/admission/recovery/bank suite: **63 passed**.
+Root final P1/runtime/evaluation/admission/recovery/bank suite: **64 passed**
+in 17.08s, including the transport rename regression. Codex-V independently
+accepted that correction with **24 passed**.
 Separate unchanged transport/snapshot/export selection: **39 passed**, with
 overlap in recovery coverage. Codex-V independently ran 53 focused tests and a
 real frozen-opponent snapshot fingerprint reproduction. Changed Python passed
@@ -135,6 +139,10 @@ It is explicitly `scientific=false`, critic BYPASSED_PREFLIGHT_ONLY, and is
 neither a Y3 nor a critic/qualification PASS.
 
 No live Y3, 1M complete-job rate, 100M endpoint or efficacy result exists here.
+Attempt-01 preparation artifacts are retained and superseded because their
+renamed input sidecars did not verify. Use only attempt-02: Y3 `source-02` and
+`replacement-02`; qualification `prepare-02`; tranche `prepare-02/chunk-01..05`;
+evaluation `prepare-02`. No attempt-01 job ran.
 Registration/Y3 due Thu Oct22 14:00 PT; 1M Thu PM; tranche Thu night when slot A
 frees. No deadline has elapsed at preparation. A missed gate needs PLAN's
 create-only slip record and blocks only its descendants. No tmux/process kill
