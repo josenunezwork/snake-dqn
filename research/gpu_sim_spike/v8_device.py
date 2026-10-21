@@ -106,10 +106,14 @@ def _paint(cells: torch.Tensor, valid: torch.Tensor, h: int, w: int) -> torch.Te
     n = cells.shape[0]
     x, y = cells[..., 0], cells[..., 1]
     ok = valid & (x >= 0) & (x < w) & (y >= 0) & (y < h)
-    flat = torch.zeros((n, h * w), dtype=torch.bool, device=cells.device)
+    # CUDA scatter_reduce(amax) excludes Bool (CPU/meta accept it). Integer
+    # 0/1 max is the same union, including duplicate and invalid clamped cells.
+    flat = torch.zeros((n, h * w), dtype=torch.uint8, device=cells.device)
     index = (y.clamp(0, h - 1) * w + x.clamp(0, w - 1)).reshape(n, -1)
-    flat.scatter_reduce_(1, index, ok.reshape(n, -1), reduce="amax", include_self=True)
-    return flat.reshape(n, h, w)
+    flat.scatter_reduce_(
+        1, index, ok.reshape(n, -1).to(torch.uint8), reduce="amax", include_self=True
+    )
+    return flat.reshape(n, h, w) != 0
 
 
 def _flood(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode
 
@@ -77,7 +78,11 @@ def test_actual_b8_forward_fake_cuda_shapes_without_hardware() -> None:
         assert result.device == torch.device("cuda:0")
 
 
-def test_full_resident_policy_meta_dense_loop_shapes() -> None:
+@pytest.mark.parametrize("mechanics_version", (1, 2))
+@pytest.mark.parametrize("anchor_kind", ("greedy_food", "random_safe"))
+def test_full_resident_policy_meta_dense_loop_shapes(
+    mechanics_version: int, anchor_kind: str
+) -> None:
     """Exercise the real v8, ego, vector, scripted and simulator tensor paths."""
     from research.gpu_sim_spike.device_policy import DevicePolicy
     from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
@@ -91,6 +96,7 @@ def test_full_resident_policy_meta_dense_loop_shapes() -> None:
         initial_food=0,
         max_food=2,
         max_capacity=16,
+        mechanics_version=mechanics_version,
     )
     with torch.device("meta"):
         sim = DeviceSim(cfg, device="meta", allow_respawn=True)
@@ -100,7 +106,7 @@ def test_full_resident_policy_meta_dense_loop_shapes() -> None:
             torch.device("meta"),
             Ego2sNet(local_channels=7, n_scalars=60).eval(),
             opponent_networks=(torch.nn.Linear(61, 6), None),
-            anchor_kinds=(None, "random_safe"),
+            anchor_kinds=(None, anchor_kind),
             anchor_tables=(None, torch.empty((5000, 3), dtype=torch.long, device="meta")),
             vector_runtime=runtime,
             vector_prepared=False,
