@@ -122,3 +122,21 @@ All commands used the primary venv, nice-n10 and one-thread CPU settings.
   68passes+28deselected/58.05s because they include slow lifecycle timing beyond this
   transport-only change. They are not claimed as completed suites. Only their verified
   task-owned pytest PIDs were interrupted; no live jobs/tmux were touched.
+
+## Final resume strengthening — receipt03 supersedes02
+
+The independent follow-up required a never-restored live simulator as the control.
+That stronger proof exposed NumPy pickle breaking interior/padded grid view aliases.
+E16 restores those aliases locally (no shared simulator/backbone edit), with a synthetic
+pickle regression test. It also finalizes a terminal critic spool before the cap may
+interrupt at the final frame, so pending MC targets remain resumable at that boundary.
+
+preflight-03.json is the authoritative latest tiny proof:PASS,480worldsteps;
+serial2.772037s/173.1579steps/s; parallel3.104751s/154.6018steps/s; deterministic rowSHA
+unchanged d1b1ebb42f844703b157b967d9a5b2dc2fbfb89d884b7197998c373fab8a955f.
+A/G each warmed3fresh natural transitions, then an un-restored live branch and serialized
+restore produced identical next3transitions, policy tensors and Adam state. Receipt02
+is historical and does not supply that stronger control; it is superseded, not rewritten.
+The pending critic buffer/chunk/fit-offset test and terminal-cap regression pass.
+The latest full targeted selection is65tests (E16+borrowed PPO model/collector).
+Use the version3manifests and DISPATCH_UPDATE_03.txt alongside the original DISPATCH.txt.

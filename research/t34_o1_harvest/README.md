@@ -2,13 +2,15 @@
 
 Prepared implementation of the O1 mechanism screen adopted in
 [the independent judgment](../../docs/research/advice/2026-10-21_offense_vs_defense/JUDGMENT.md).
-The 48-world census has **not run**. No Colab calls or dispatch were made.
+The 48-world census has **not run**. The first Colab attempt stopped during its
+excluded timing fixture. The V3 recovery made no Colab calls and is undispatched.
 
 Read [PREREGISTRATION_O1.md](PREREGISTRATION_O1.md), then
-[REGISTRATION_O1_TIMING_V2.json](REGISTRATION_O1_TIMING_V2.json). The original
-[REGISTRATION_O1.json](REGISTRATION_O1.json) remains preserved for the earlier
-source version; the [timing erratum](PREFLIGHT_TIMING_ERRATUM.md) explains the
-source-only correction and both excluded fixture attempts. The frozen bank contains 48 fresh
+[REGISTRATION_O1_TIMING_V3.json](REGISTRATION_O1_TIMING_V3.json) and
+[TIMING_FIXTURE_V3.md](TIMING_FIXTURE_V3.md). Original registrations V1/V2 and
+the [earlier timing erratum](PREFLIGHT_TIMING_ERRATUM.md) remain preserved.
+V3 uses the exact two excluded L4 timing worlds on Mac at H5000/H500 with
+fixed timing roots 10/20; study roots remain unchanged. The frozen bank contains 48 fresh
 study identities (16/mix), two excluded L4 timing worlds, two excluded Mac
 preflight worlds, and three excluded observer-parity worlds. The original
 full-history audit is supplemented by a post-main-merge audit of published
@@ -50,8 +52,10 @@ observer parity. The three full H5000 parity worlds remain a mandatory runtime
 admission gate. Mac/x86 identity and serving qualification are outside O1.
 
 Source and registration are published before the mandatory excluded Mac fixture.
-See `VERIFICATION_O1.md` for the frozen SHAs, real entrypoint command, measured
-preflight timing, extrapolated L4 forecast, receipt hashes and draft manifest.
+See `VERIFICATION_TIMING_V3.md` for current SHAs, the exact-world Mac preflight,
+forecast, hashes and reproduction commands. `MANIFEST_L4_CENSUS_02.json` targets
+fresh `colab-census-02`, locally validated and undispatched.
+`VERIFICATION_O1.md` and `MANIFEST_L4.json` retain historical attempt evidence.
 All code changes are within this package. No frozen Round 0, Path B or ExIt source
 was edited, no running tmux service was touched, and no released checkpoint or
 serving pin was changed. The sealed Round 0 study directory was never opened.
