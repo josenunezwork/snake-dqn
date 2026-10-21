@@ -358,6 +358,7 @@ def portable_plan(
 
 def _write_progress(path: Path, *, completed: int, total: int, started: float) -> None:
     """Publish non-scientific operational telemetry without touching receipts."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     elapsed = time.perf_counter() - started
     eta = elapsed * (total - completed) / completed if completed else None
     temporary = path.with_suffix(path.suffix + ".tmp")
