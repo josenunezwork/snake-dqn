@@ -66,6 +66,27 @@ def verify_manifest(path: Path) -> dict[str, Any]:
         raise ValueError("K-1 frozen timing bar changed")
     if len(manifest["fixtures"]) != 9 or len(manifest["fresh_roots"]) != 24:
         raise ValueError("K-1 requires nine Y1 fixtures and 24 fresh roots")
+    if {(row["mix"], row["target_length"]) for row in manifest["fixtures"]} != {
+        (mix, length) for mix in ruler.MIXES for length in ruler.FIXTURE_TARGETS
+    }:
+        raise ValueError("K-1 fixture mix/length coverage differs")
+    for mix in ruler.MIXES:
+        if sum(row["mix"] == mix for row in manifest["fresh_roots"]) != 8:
+            raise ValueError("K-1 fresh roots require eight per mix")
+    all_rows = manifest["fixtures"] + manifest["fresh_roots"]
+    if len({row["fixture_id"] for row in all_rows}) != 33:
+        raise ValueError("duplicate K-1 fixture IDs")
+    seeds = [row["plan"]["seed"] for row in manifest["fresh_roots"]]
+    if len(set(seeds)) != 24 or set(seeds) & {row["plan"]["seed"] for row in manifest["fixtures"]}:
+        raise ValueError("K-1 fresh root seed collision")
+    if manifest["identity"] != {
+        "fixture_batches": 30,
+        "fresh_roots": 24,
+        "depth": 300,
+        "modes": ["stock", "replay", "kernel"],
+        "action_mismatch": "INVALID_MODE_STOP",
+    }:
+        raise ValueError("K-1 identity protocol differs")
     return manifest
 
 
