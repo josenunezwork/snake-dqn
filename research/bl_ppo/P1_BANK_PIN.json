@@ -1,0 +1,32 @@
+{
+  "allocation_sha256": "0cab994c7d1d9abc5463db807eb551cf72eecbcd35fec2fa25db4523c04a654c",
+  "audit": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/eval/bank-round-00/seed_audit.json",
+    "sha256": "81df75c16b2fe15168962425381c7510265caceea903e004ad8e92bbeb4bcedf"
+  },
+  "bank": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/eval/bank-round-00/bank.json",
+    "sha256": "8223a16b70165b23f86c5cc40f7195149b1b009bc4f79e6f0d049798489b11ba"
+  },
+  "burned_inventory": [
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/planned-burned-inventory-02.json",
+      "seed_count": 359,
+      "sha256": "4cf04b7d09d093d4f20702a9d4eaa33611632099fcdc4a718bcc7402400ef53b"
+    }
+  ],
+  "candidate_count": 384,
+  "collisions": [],
+  "counts": {
+    "frozen": 128,
+    "mixed": 128,
+    "scripted": 128
+  },
+  "historical_audit_status": "CLEAR",
+  "namespace": "bl-ppo-p1-eval-20261021/v1/round-0",
+  "p1_gameplay": false,
+  "round": 0,
+  "schema": "bl-p1-bank-pin/v1",
+  "serving_authority": false,
+  "status": "FROZEN_PRE_DATA"
+}
