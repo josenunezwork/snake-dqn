@@ -194,6 +194,7 @@ def collect(
     time_saved: dict[int, tuple[Any, Any]] = {}
     events, event_saved = [], {}
     last_event, base_seconds, base_steps = -64, 0.0, 0
+    first_step_seconds = 0.0
     parity_chain = hashlib.sha256()
     last_progress = time.monotonic()
     for decision in range(frames + 1):
@@ -222,7 +223,10 @@ def collect(
         tick_started = time.monotonic()
         actions = step(world, policy)
         observer.assert_accounting()
-        base_seconds += time.monotonic() - tick_started
+        step_seconds = time.monotonic() - tick_started
+        base_seconds += step_seconds
+        if decision == 0:
+            first_step_seconds = step_seconds
         base_steps += 1
         if parity:
             plain_actions = step(plain, policy)
@@ -286,6 +290,7 @@ def collect(
         "checkpoint_sha256": B8_SHA,
         "base_steps": base_steps,
         "base_seconds": base_seconds,
+        "first_step_seconds": first_step_seconds,
         "base_ledger": observer.ledger(),
         "base_final_digest": digest(world, observer),
         "base_survives": bool(world.sim.alive[0, 0]),
@@ -344,7 +349,11 @@ def collect_many(
 
 def fixture_forecast(worlds: list[dict[str, Any]], workers: int) -> dict[str, Any]:
     """Worst-case base/branch work from measured fixture component costs."""
-    base_rate = max(w["base_seconds"] / max(1, w["base_steps"]) for w in worlds)
+    if any(w["base_steps"] <= 1 for w in worlds):
+        raise ValueError("fixture lacks post-startup base transitions")
+    base_rate = max(
+        (w["base_seconds"] - w["first_step_seconds"]) / (w["base_steps"] - 1) for w in worlds
+    )
     branches = [b for w in worlds for r in w["roots"] for b in r["branches"].values()]
     if not branches:
         raise ValueError("timing fixture produced no branches")
@@ -352,7 +361,8 @@ def fixture_forecast(worlds: list[dict[str, Any]], workers: int) -> dict[str, An
     setup_per_world = max(
         0,
         max(
-            w["elapsed_seconds"]
+            w["first_step_seconds"]
+            + w["elapsed_seconds"]
             - w["base_seconds"]
             - sum(b["elapsed_seconds"] for r in w["roots"] for b in r["branches"].values())
             for w in worlds
@@ -466,6 +476,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             parity_worlds, admission = [], None
         else:
             timing_start = time.monotonic()
+            runtime_root = Path(os.environ["COLAB_CLI_ROOT"])
+            charged_setup = CAPS["ordinary_seconds"] - 60 - ordinary_remaining(runtime_root)
+            fixture_remaining = CAPS["timing_seconds"] - charged_setup
+            check_cap(timing_start + fixture_remaining)
             timing = collect_many(
                 bank["excluded_timing_rows"],
                 str(args.checkpoint),
@@ -476,13 +490,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 horizon=500,
                 time_roots=(1000, 3000),
                 event_limit=0,
-                deadline=min(deadline, timing_start + CAPS["timing_seconds"]),
+                deadline=min(deadline, timing_start + fixture_remaining),
                 **kwargs,
             )
             if any(len(w["roots"]) != 2 for w in timing):
                 raise CapExceeded("excluded timing fixture did not supply two roots per world")
             forecast = fixture_forecast(timing, args.workers)
-            admission = {"timing_seconds": time.monotonic() - timing_start, "forecast": forecast}
+            admission = {
+                "timing_seconds": charged_setup + time.monotonic() - timing_start,
+                "timing_work_seconds": time.monotonic() - timing_start,
+                "forecast": forecast,
+            }
             write_once(args.out / "timing.json", {"worlds": timing, **admission})
             if forecast["remaining_work_seconds"] > deadline - time.monotonic():
                 raise CapExceeded("L4 timing forecast does not fit remaining ordinary cap")

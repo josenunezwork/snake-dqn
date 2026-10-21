@@ -174,8 +174,9 @@ def test_event_reservoir_is_deterministic_and_outcome_independent() -> None:
 
 def test_forecast_uses_worst_rates_and_rounds_worker_waves_up() -> None:
     w = {
-        "base_steps": 40,
+        "base_steps": 41,
         "base_seconds": 1.0,
+        "first_step_seconds": 0.0,
         "elapsed_seconds": 2.0,
         "roots": [{"branches": {"1": {"elapsed_seconds": 1.0, "row_steps": 8}}}],
     }

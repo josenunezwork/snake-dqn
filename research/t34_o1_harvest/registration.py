@@ -50,6 +50,7 @@ def source_paths(repo: Path = ROOT) -> list[str]:
     paths.update((repo / "research/colab_cli").glob("*.sh"))
     for name in (
         "research/t34_o1_harvest/PREREGISTRATION_O1.md",
+        "research/t34_o1_harvest/PREFLIGHT_TIMING_ERRATUM.md",
         "research/t34_o1_harvest/BANK_O1.json",
         "research/t34_o1_harvest/SEED_AUDIT_O1.json",
         "research/t34_o1_harvest/SEED_AUDIT_MAIN_UPDATE.json",
