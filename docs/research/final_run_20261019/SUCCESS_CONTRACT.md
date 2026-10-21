@@ -110,3 +110,16 @@ Pass-through verdicts, which are copied unchanged (`applied: false`), route as t
   namespace, with no Round 0-D and no R1.
 
 Every Round 0-conditioned registration binds the SHA-256 of the governing `decision.json` and of its terminal.
+
+## §4 Amendment (2026-10-21 ~03:45 PT, owner decision, prospective, pre-data)
+
+Owner, in chat, answering two explicit questions: **"yes to both"** (records:
+`docs/research/advice/2026-10-21_big_lever/authority/{serving-envelope,probe}.json`, sha256 2067fd50… / 0d1ca5de…).
+
+1. **Serving clause.** For a served-search candidate (Claim B, "Assisted hero — [controller ID]"), the §4 phrase
+   "one extra CPU thread, ≤ 1 outstanding request" is replaced by **up to W = 4 worker processes and at most K = 8
+   outstanding search requests, on this Mac**. Every other §4 timing bar is unchanged (tick never blocked, deadline
+   miss → bare action, contract per-update p95, no cadence loss). W, K, backend, root rule and fallback are part of the
+   candidate identity: any change is a new digest with no inherited evidence. Bare-network candidates are unaffected.
+2. **Probe-only grant.** L1′ measurement probes may use expanded cells (W 1–4 processes, K ≤ 8) and the Mac GPU (MPS),
+   about 3 quiet Mac-hours after Phase 0. This grants no serving authority.

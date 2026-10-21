@@ -1,0 +1,15 @@
+{
+ "answer": "YES",
+ "envelope": {
+  "host": "this Mac (owner 2026-10-21 00:30 PT)",
+  "max_outstanding_K": 8,
+  "max_worker_processes_W": 4,
+  "timing_bars": "SUCCESS_CONTRACT \u00a74 unchanged; any W/K/backend change is a new identity"
+ },
+ "kind": "serving_clause",
+ "owner_words_verbatim": "yes to both",
+ "question_put": "May served search use up to 4 worker processes in real play? At most 8 searches would be queued, under the same timing gate.",
+ "recorded_at": "2026-10-21T06:55:58-0700",
+ "recorded_by": "Claude (operator) in the owner's chat",
+ "schema": "bl-owner-authority/v1"
+}

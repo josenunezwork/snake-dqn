@@ -1,0 +1,15 @@
+{
+ "answer": "YES",
+ "kind": "probe_only_grant",
+ "owner_words_verbatim": "yes to both",
+ "question_put": "May I test with more workers? During Mac measurements only, may I run up to 4 workers and the Mac GPU? This is about 3 hours in a quiet window and doesn't change serving.",
+ "recorded_at": "2026-10-21T06:55:58-0700",
+ "recorded_by": "Claude (operator) in the owner's chat",
+ "schema": "bl-owner-authority/v1",
+ "scope": {
+  "L1_prime_expanded_cells": "W1-4 / K<=8 processes",
+  "MPS_apple_gpu": true,
+  "duration": "~3 quiet Mac-hours after Phase 0",
+  "serving_authority": "none (probe only)"
+ }
+}
