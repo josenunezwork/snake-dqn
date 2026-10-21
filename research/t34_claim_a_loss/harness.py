@@ -133,34 +133,42 @@ class ResidualHead(nn.Module):
         return q_prev + self.out(torch.relu(self.hidden(h)))
 
 
-def make_model(trunk: str, checkpoint: Path | None) -> nn.Module:
+def make_model(trunk: str, checkpoint: Path | None, device: str = "cpu") -> nn.Module:
     if trunk == "residual":
-        return ResidualHead()
+        return ResidualHead().to(device)
     if trunk == "trainable":
         from src.model.ego2s_network import load_ego2s_checkpoint
 
         if checkpoint is None:
             raise ValueError("trainable trunk needs the B8 checkpoint")
-        return load_ego2s_checkpoint(str(checkpoint), "cpu").train()
+        return load_ego2s_checkpoint(str(checkpoint), "cpu").to(device).train()
     raise ValueError(f"unknown trunk {trunk}")
 
 
-def model_q(model: nn.Module, trunk: str, bank: Bank, idx: np.ndarray) -> torch.Tensor:
+def _t(array: np.ndarray, device: str) -> torch.Tensor:
+    return torch.from_numpy(np.ascontiguousarray(array)).to(device)
+
+
+def model_q(
+    model: nn.Module, trunk: str, bank: Bank, idx: np.ndarray, device: str = "cpu"
+) -> torch.Tensor:
     if trunk == "residual":
-        return model(torch.from_numpy(bank["h"][idx]), torch.from_numpy(bank["q_prev"][idx]))
+        return model(_t(bank["h"][idx], device), _t(bank["q_prev"][idx], device))
     return model(
-        torch.from_numpy(bank["local"][idx]),
-        torch.from_numpy(bank["global"][idx]),
-        torch.from_numpy(bank["scalars"][idx]),
+        _t(bank["local"][idx], device),
+        _t(bank["global"][idx], device),
+        _t(bank["scalars"][idx], device),
     )
 
 
-def predict(model: nn.Module, trunk: str, bank: Bank, idx: np.ndarray) -> np.ndarray:
+def predict(
+    model: nn.Module, trunk: str, bank: Bank, idx: np.ndarray, device: str = "cpu"
+) -> np.ndarray:
     model.eval()
     out = []
     with torch.no_grad():
         for s in range(0, len(idx), 2048):
-            out.append(model_q(model, trunk, bank, idx[s : s + 2048]).numpy())
+            out.append(model_q(model, trunk, bank, idx[s : s + 2048], device).cpu().numpy())
     model.train()
     return np.concatenate(out) if out else np.zeros((0, 6), np.float32)
 
@@ -168,18 +176,20 @@ def predict(model: nn.Module, trunk: str, bank: Bank, idx: np.ndarray) -> np.nda
 # ---------------------------------------------------------------------------
 # batches and row rules
 # ---------------------------------------------------------------------------
-def batch_tensors(bank: Bank, idx: np.ndarray, weight: np.ndarray) -> dict[str, torch.Tensor]:
+def batch_tensors(
+    bank: Bank, idx: np.ndarray, weight: np.ndarray, device: str = "cpu"
+) -> dict[str, torch.Tensor]:
     kind = bank["kind"][idx]
     decisive = kind == KIND_DECISIVE
     action = np.where(decisive, bank["a_star"][idx], bank["q_prev"][idx].argmax(1))
     forbidden = bank["forbidden"][idx] & decisive[:, None]
     return {
-        "q_prev": torch.from_numpy(bank["q_prev"][idx]),
-        "action_star": torch.from_numpy(action.astype(np.int64)),
-        "forbidden_mask": torch.from_numpy(forbidden),
-        "sample_weight": torch.from_numpy(weight.astype(np.float32)),
-        "decisive": torch.from_numpy(decisive),
-        "kl_anchor_only": torch.from_numpy(kind == KIND_ANCHOR),
+        "q_prev": _t(bank["q_prev"][idx], device),
+        "action_star": _t(action.astype(np.int64), device),
+        "forbidden_mask": _t(forbidden, device),
+        "sample_weight": _t(weight.astype(np.float32), device),
+        "decisive": _t(decisive, device),
+        "kl_anchor_only": _t(kind == KIND_ANCHOR, device),
     }
 
 
@@ -369,6 +379,7 @@ def run_fold(
     checkpoint: Path | None,
     edges: np.ndarray,
     seed: int = 0,
+    device: str = "cpu",
 ) -> tuple[FoldResult, dict[int, np.ndarray]]:
     started = time.perf_counter()
     torch.manual_seed(seed + 1000 * fold)
@@ -380,7 +391,7 @@ def run_fold(
     held_dec = np.flatnonzero(in_held & (bank["kind"] == KIND_DECISIVE))
     held_anc = np.flatnonzero(in_held & (bank["kind"] == KIND_ANCHOR))
     train_dec = np.flatnonzero(in_train & (bank["kind"] == KIND_DECISIVE))
-    model = make_model(cell.trunk, checkpoint)
+    model = make_model(cell.trunk, checkpoint, device)
     opt = torch.optim.Adam(model.parameters(), lr=cell.lr)
     fn = LOSSES[cell.loss]
     result = FoldResult(
@@ -389,7 +400,7 @@ def run_fold(
     held_q: dict[int, np.ndarray] = {}
 
     def record(updates: int, rows_seen: int, dec_seen: int) -> None:
-        qh = predict(model, cell.trunk, bank, held_dec)
+        qh = predict(model, cell.trunk, bank, held_dec, device)
         held_q[updates] = qh
         result.curve.append(
             {
@@ -399,17 +410,17 @@ def run_fold(
                 "decisive_passes": dec_seen / max(1, len(train_dec)),
                 "heldout_decisive": decisive_metrics(qh, bank, held_dec),
                 "train_decisive": decisive_metrics(
-                    predict(model, cell.trunk, bank, train_dec), bank, train_dec
+                    predict(model, cell.trunk, bank, train_dec, device), bank, train_dec
                 ),
                 "heldout_anchor": anchor_metrics(
-                    predict(model, cell.trunk, bank, held_anc), bank, held_anc, edges
+                    predict(model, cell.trunk, bank, held_anc, device), bank, held_anc, edges
                 ),
             }
         )
 
     def step(idx: np.ndarray, weight: np.ndarray) -> None:
-        q = model_q(model, cell.trunk, bank, idx)
-        loss = fn(q, batch_tensors(bank, idx, weight))
+        q = model_q(model, cell.trunk, bank, idx, device)
+        loss = fn(q, batch_tensors(bank, idx, weight, device))
         if not torch.isfinite(loss):
             raise FloatingPointError("non-finite loss")
         opt.zero_grad(set_to_none=True)
@@ -488,13 +499,19 @@ def pooled(bank: Bank, fold_results: list[tuple[FoldResult, dict[int, np.ndarray
 
 
 def run_cell(
-    bank: Bank, folds: np.ndarray, cell: Cell, checkpoint: Path | None, k: int, seed: int = 0
+    bank: Bank,
+    folds: np.ndarray,
+    cell: Cell,
+    checkpoint: Path | None,
+    k: int,
+    seed: int = 0,
+    device: str = "cpu",
 ) -> dict[str, Any]:
     lengths = bank["length"][bank["kind"] == KIND_ANCHOR]
     edges = np.quantile(lengths, np.linspace(0, 1, 11)[:-1])
     results = []
     for fold in range(k):
-        result, held_q = run_fold(bank, folds, fold, cell, checkpoint, edges, seed)
+        result, held_q = run_fold(bank, folds, fold, cell, checkpoint, edges, seed, device)
         results.append((result, held_q))
         print(json.dumps({"cell": cell.name, "fold": fold, "seconds": round(result.seconds, 1)}))
     return {
@@ -505,61 +522,103 @@ def run_cell(
 
 
 LONG = (0, 8, 16, 32, 64, 128, 256, 512, 1024, 2048)
+# D0 grid: every candidate production dose (512/1024/2048/4096 updates) is a checkpoint.
+D0_CONTROL = (0, 32, 128, 512, 1024, 2048)
+D0_CORRECTED = (0, 32, 128, 512, 1024, 2048, 4096)
 
 DEFAULT_CELLS = {
     # baseline: the frozen recipe exactly (loss, 1:1 rule, weights, lr, 5 epochs)
     "frozen_recipe": Cell("frozen_recipe", "frozen", "trainable", rule="ratified", epochs=5),
     # L3 2x2 under the stream rule and an explicit dose
-    "frozen_trainable": Cell("frozen_trainable", "frozen", "trainable"),
-    "split_trainable": Cell("split_trainable", "split", "trainable"),
-    "frozen_residual": Cell("frozen_residual", "frozen", "residual", lr=1e-4, checkpoints=LONG),
-    "split_residual": Cell("split_residual", "split", "residual", lr=1e-4, checkpoints=LONG),
-    # extras
-    "split_trainable_lr1e-4": Cell(
-        "split_trainable_lr1e-4", "split", "trainable", lr=1e-4, checkpoints=LONG[:8]
+    "frozen_trainable": Cell("frozen_trainable", "frozen", "trainable", checkpoints=D0_CONTROL),
+    "split_trainable": Cell("split_trainable", "split", "trainable", checkpoints=D0_CORRECTED),
+    "frozen_residual": Cell(
+        "frozen_residual", "frozen", "residual", lr=1e-4, checkpoints=D0_CONTROL
     ),
+    "split_residual": Cell(
+        "split_residual", "split", "residual", lr=1e-4, checkpoints=D0_CORRECTED
+    ),
+    # coefficient / step-size variants of the corrected objective
+    "split_trainable_lr1e-4": Cell(
+        "split_trainable_lr1e-4", "split", "trainable", lr=1e-4, checkpoints=D0_CORRECTED
+    ),
+    "split_tau2_trainable": Cell(
+        "split_tau2_trainable", "split_tau2", "trainable", checkpoints=D0_CORRECTED
+    ),
+    "split_tau2_residual": Cell(
+        "split_tau2_residual", "split_tau2", "residual", lr=1e-4, checkpoints=D0_CORRECTED
+    ),
+    "split_residual_lr1e-3": Cell(
+        "split_residual_lr1e-3", "split", "residual", lr=1e-3, checkpoints=D0_CORRECTED
+    ),
+    # unregistered extras (exploration only; never read by the D0 rule)
     "frozen_tau2_trainable": Cell("frozen_tau2_trainable", "frozen_tau2", "trainable"),
-    "split_tau2_trainable": Cell("split_tau2_trainable", "split_tau2", "trainable"),
     "frozen_tau2_residual": Cell(
         "frozen_tau2_residual", "frozen_tau2", "residual", lr=1e-4, checkpoints=LONG
     ),
-    "split_tau2_residual": Cell(
-        "split_tau2_residual", "split_tau2", "residual", lr=1e-4, checkpoints=LONG
-    ),
-    "split_residual_lr1e-3": Cell(
-        "split_residual_lr1e-3", "split", "residual", lr=1e-3, checkpoints=LONG
-    ),
 }
 
+# The registered D0 cell set (spec 2026-10-21 §4): three frozen-loss controls and six
+# corrected-objective cells.  ``decide.py`` refuses a report that lacks any of them.
+D0_CELLS = (
+    "frozen_recipe",
+    "frozen_trainable",
+    "frozen_residual",
+    "split_trainable",
+    "split_trainable_lr1e-4",
+    "split_tau2_trainable",
+    "split_residual",
+    "split_residual_lr1e-3",
+    "split_tau2_residual",
+)
+D0_FREE_Q = ("frozen", "frozen_tau2", "split", "split_tau2")
+D0_FOLDS = 3
+D0_FREE_Q_STEPS = 5000
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cache", type=Path, required=True)
-    parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--cells", default=",".join(DEFAULT_CELLS))
-    parser.add_argument("--free-q", default="frozen,frozen_tau2,split,split_tau2")
-    parser.add_argument("--free-q-steps", type=int, default=5000)
-    parser.add_argument("--folds", type=int, default=3)
-    parser.add_argument("--threads", type=int, default=2)
-    parser.add_argument("--seed", type=int, default=0)
-    args = parser.parse_args()
-    torch.set_num_threads(args.threads)
-    names = [c for c in args.cells.split(",") if c]
+
+def run_report(
+    cache: Path,
+    checkpoint: Path,
+    out: Path,
+    *,
+    cells: Sequence[str] = D0_CELLS,
+    free_q: Sequence[str] = D0_FREE_Q,
+    free_q_steps: int = D0_FREE_Q_STEPS,
+    folds_k: int = D0_FOLDS,
+    threads: int = 2,
+    seed: int = 0,
+    device: str = "cpu",
+) -> dict[str, Any]:
+    """Free-Q probes then every cell; ``out`` is written create-only at the end."""
+    torch.set_num_threads(threads)
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            raise SystemExit("--device cuda requested but CUDA is unavailable")
+        # fp32 everywhere (no TF32) so the diagnostic is comparable to the CPU tests
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+    names = list(cells)
+    unknown = [c for c in names if c not in DEFAULT_CELLS]
+    if unknown:
+        raise ValueError(f"unknown cells {unknown}")
     needs_rasters = any(DEFAULT_CELLS[c].trunk == "trainable" for c in names)
-    bank = load_bank(args.cache, rasters=needs_rasters)
+    bank = load_bank(cache, rasters=needs_rasters)
     bearing = [
         bool(((bank.world == w) & (bank["kind"] == KIND_DECISIVE)).any())
         for w in range(len(bank.world_ids))
     ]
-    folds = assign_folds(bank.world_ids, bearing, args.folds)
+    folds = assign_folds(bank.world_ids, bearing, folds_k)
     report: dict[str, Any] = {
         "schema": "t34-claim-a-loss-diagnostics/v1",
-        "cache_manifest_sha256": sha256_file(args.cache / "manifest.json"),
-        "checkpoint_sha256": sha256_file(args.checkpoint),
-        "threads": args.threads,
-        "folds": args.folds,
-        "seed": args.seed,
+        "claim": "D0_DESIGN_DIAGNOSTIC_EXCLUDED_A5_NOT_EVIDENCE",
+        "cache_manifest_sha256": sha256_file(cache / "manifest.json"),
+        "checkpoint_sha256": sha256_file(checkpoint),
+        "threads": threads,
+        "device": device,
+        "torch": torch.__version__,
+        "cells_requested": names,
+        "folds": folds_k,
+        "seed": seed,
         "bank": {
             "worlds": len(bank.world_ids),
             "decisive_bearing_worlds": int(sum(bearing)),
@@ -572,23 +631,53 @@ def main() -> None:
         "free_q": [],
         "cells": [],
     }
-    for loss in [x for x in args.free_q.split(",") if x]:
+    for loss in free_q:
         started = time.perf_counter()
         report["free_q"].append(
-            free_q_probe(bank, loss, steps=args.free_q_steps)
+            free_q_probe(bank, loss, steps=free_q_steps)
             | {"seconds": time.perf_counter() - started}
         )
-        print(json.dumps(report["free_q"][-1]))
-    args.out.parent.mkdir(parents=True, exist_ok=True)
+        print(json.dumps(report["free_q"][-1]), flush=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    partial = out.with_suffix(".partial.json")
     for name in names:
         report["cells"].append(
-            run_cell(bank, folds, DEFAULT_CELLS[name], args.checkpoint, args.folds, args.seed)
+            run_cell(bank, folds, DEFAULT_CELLS[name], checkpoint, folds_k, seed, device)
         )
         # partial receipt after each cell (overwritten), final create-only below
-        args.out.with_suffix(".partial.json").write_text(json.dumps(report, indent=1))
-    with args.out.open("x") as stream:
+        partial.write_text(json.dumps(report, indent=1))
+    with out.open("x") as stream:
         json.dump(report, stream, indent=1, sort_keys=True)
         stream.write("\n")
+    partial.unlink(missing_ok=True)
+    return report
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cache", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--cells", default=",".join(D0_CELLS))
+    parser.add_argument("--free-q", default=",".join(D0_FREE_Q))
+    parser.add_argument("--free-q-steps", type=int, default=D0_FREE_Q_STEPS)
+    parser.add_argument("--folds", type=int, default=D0_FOLDS)
+    parser.add_argument("--threads", type=int, default=2)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    args = parser.parse_args()
+    run_report(
+        args.cache,
+        args.checkpoint,
+        args.out,
+        cells=[c for c in args.cells.split(",") if c],
+        free_q=[x for x in args.free_q.split(",") if x],
+        free_q_steps=args.free_q_steps,
+        folds_k=args.folds,
+        threads=args.threads,
+        seed=args.seed,
+        device=args.device,
+    )
 
 
 if __name__ == "__main__":
