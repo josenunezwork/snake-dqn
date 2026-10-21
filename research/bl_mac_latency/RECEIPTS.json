@@ -1,0 +1,13 @@
+{
+  "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-l1-20261021",
+  "cells_sha256": "b8983ab8d978e3d59ce7dac14699a0f09a4126ce5c96eaf64ae77ad22b3c6a8f",
+  "exports_verified": 486,
+  "index_sha256": "0f4532de65707cae4b998f3eea6dbc8033cd0144a56ce7b7ea28cc41fca2a9f8",
+  "nominated_cell": null,
+  "report_sha256": "83654480522d35aa1bf8553936aaea1da86d4759a5cbf935a6dd020d74f7ef0e",
+  "schema": "bl-mac-l1-repository-pointer/v1",
+  "scientific_kill": false,
+  "verdict": "NOT_READY(INSTRUMENT_MISSING)",
+  "y1_quiet_host_acceptance": "NOT_READY",
+  "y1_sha256": "502f1eb67a783309fb638c595bcc20e9b4a34aa0810b0f0985ab90ad73ce6f22"
+}

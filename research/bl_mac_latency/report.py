@@ -26,19 +26,24 @@ def write_report(root: Path, y1_path: Path, cells_path: Path) -> dict[str, Any]:
     lines = [
         "# Mac Y1 and L1′ measurements — 2026-10-21",
         "",
-        "**Nominated cell: none. L1′ verdict: NOT_READY.**",
+        "**Nominated cell: none. L1′ verdict: NOT_READY(INSTRUMENT_MISSING).**",
         "",
         "These are Mac measurements. The requested production reachable-root provider is absent; "
         "the stress roots have no valid production consumption path. No serving or "
         "release is authorized.",
         "",
-        "## Y1 Mac dense batches",
+        "## Y1 Mac dense batches — contended inventory",
         "",
         f"Receipt: `{y1_path}`; SHA256 `{verify_export(y1_path)}`. "
         f"{y1['completed_batches']} actual batches, CPU W={y1['workers']}, 30 per fixture. "
         "Quantiles use nearest rank. All 30 include the first cold sample; warm-29 "
         "values are retained in the receipt. "
         "Operator timing excludes guard/export overhead; raw ruler wall timing retains it.",
+        "",
+        "The full run began after an idle sample but overlapped foreign research workers. "
+        "It is not a quiet-host acceptance. Quiet attempt 02 refused before data; final "
+        "attempt 03 stopped after five batches when analyticsd used 63.7% of one core. "
+        "No samples were spliced. **Y1 quiet-host acceptance: NOT_READY.**",
         "",
         "| Fixture | n | p50 (s) | p95 (s) | p99 (s) | max (s) |",
         "|---|---:|---:|---:|---:|---:|",
@@ -62,9 +67,9 @@ def write_report(root: Path, y1_path: Path, cells_path: Path) -> dict[str, Any]:
         "Cold worker initialization is included. These samples cannot qualify "
         "registered L1′ tails or coverage.",
         "",
-        "| Cell | n | S p50 (s) | S p95 (s) | S p99 (s) | Tick overruns | Valid "
-        "consumptions | Disposition |",
-        "|---|---:|---:|---:|---:|---:|---:|---|",
+        "| Cell | n | S p50 (s) | S p95 (s) | S p99 (s) | S screen cap (s) | "
+        "Max pending | Overruns burst/all | Update p95 (ms) | Disposition |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     table = []
     for cell in cells["cells"]:
@@ -80,6 +85,28 @@ def write_report(root: Path, y1_path: Path, cells_path: Path) -> dict[str, Any]:
             attempt.get("tick", {}).get("tick_overruns", 0)
             for attempt in attempts
             if isinstance(attempt.get("tick"), dict)
+        )
+        tick_records = [
+            record
+            for attempt in attempts
+            for record in (attempt.get("tick") or {}).get("tick_records", [])
+        ]
+        burst_overruns = sum(r["overrun"] for r in tick_records if r["in_burst"])
+        updates = distribution(
+            (r["update_finished_ns"] - r["update_started_ns"]) / 1e9 for r in tick_records
+        )
+        max_pending = max((a.get("actual_max_pending", 0) for a in attempts), default=0)
+        workers = int(cell["cell_id"].split("-w")[1].split("-")[0])
+        k1 = cell["cell_id"].endswith("-k1")
+        cap = None if k1 else {1: 1.458, 2: 0.830, 3: 1.250, 4: 1.458}[workers]
+        raw_screen = (
+            "C unavailable"
+            if k1
+            else (
+                "NOT_MEASURED"
+                if dist["p99_seconds"] is None
+                else "MISS" if dist["p99_seconds"] > cap else "WITHIN (diagnostic only)"
+            )
         )
         invalid = any(a.get("status") == "INVALID" for a in attempts)
         state = (
@@ -111,6 +138,11 @@ def write_report(root: Path, y1_path: Path, cells_path: Path) -> dict[str, Any]:
                 "S_diagnostic": dist,
                 "per_length": by_length,
                 "tick_overruns": overrun,
+                "burst_tick_overruns": burst_overruns,
+                "ordinary_update": updates,
+                "actual_max_pending": max_pending,
+                "diagnostic_S_screen_cap_seconds": cap,
+                "diagnostic_screen": raw_screen,
                 "valid_consumptions": 0,
                 "disposition": state,
                 "production_S_C_coverage": "NOT_MEASURED",
@@ -119,7 +151,9 @@ def write_report(root: Path, y1_path: Path, cells_path: Path) -> dict[str, Any]:
         lines.append(
             f"| {cell['cell_id']} | {dist['count']} | {_number(dist['p50_seconds'])} | "
             f"{_number(dist['p95_seconds'])} | {_number(dist['p99_seconds'])} | "
-            f"{overrun if attempts else '—'} | 0 | {state} |"
+            f"{_number(cap)} | {max_pending} | {burst_overruns}/{overrun} | "
+            f"{_number(None if updates['p95_seconds'] is None else 1000 * updates['p95_seconds'])}"
+            f" | {state}; {raw_screen} |"
         )
     lines += [
         "",
@@ -137,6 +171,19 @@ def write_report(root: Path, y1_path: Path, cells_path: Path) -> dict[str, Any]:
         "Zero overruns and Watch6 update p95 ≤11.688ms are required. Raw diagnostic S is not C. "
         "A matching stress result supplies neither exact-state consumption nor a production PASS.",
         "",
+        "The diagnostic inventory plans six trials per cell: three lengths × 12/15-second "
+        "burst windows, with one "
+        "cold submission wave per trial. Counts are small; nearest-rank p99 is the maximum "
+        "at these sample sizes. The full registered repetitions and four modes were not run. "
+        "Ticks continue beyond the burst until results are decoded. The table separates "
+        "overruns inside the burst from all recorded overruns. Update p95 pools observed "
+        "updates, including reduced load after terminal hero death, and cannot qualify timing.",
+        "",
+        "Worker receipts attest actual CPU/MPS placement, synchronization and thread counts. "
+        "CPU workers used one PyTorch thread; MPS initialization selected four CPU threads "
+        "(interop one). MPS still uses CPU simulation, features, vetoes and export. "
+        "These identities and cold-start costs are retained, with no backend speedup inference.",
+        "",
         "## Evidence and limits",
         "",
         f"- Cells receipt: `{cells_path}`; SHA256 `{verify_export(cells_path)}`.",
@@ -147,6 +194,16 @@ def write_report(root: Path, y1_path: Path, cells_path: Path) -> dict[str, Any]:
         "- First Y1 run overlapped local bl_info_value/reconstruction workers; its "
         "receipt and all samples remain retained. "
         "A separately completed quiet repetition, if present, is never spliced with it.",
+        "- `y1-mac-02-quiet/stopped.json` records a quiet-only attempt refused before "
+        "any batch because mediaanalysisd/Spotlight exceeded the foreign-load ceiling. "
+        "All completed and stopped attempts remain retained.",
+        "- `quiet-recovery-03-plan.json` was sealed before the final attempt. "
+        "`y1-mac-03-quiet/stopped.json` and its five batch receipts preserve the final "
+        "foreign-load guard stop; no additional retry was made.",
+        "- Independent raw execution audit: `cells-independent-audit.json`; source/contract "
+        "readiness review: `contract-review.json`; Y1 full inventory audit: "
+        "`y1-mac-01/audit.json`; source-bound synthetic clock-only proof: "
+        "`clock-preflight-01/clock.json`. The synthetic proof grants no production qualification.",
         "- Complete controller/replay/114-root semantic acceptance, two repetitions "
         "in all four invalidation/start modes, "
         "saturated K8 trace, valid consumption C, and client latency/cadence remain unmeasured. "
@@ -159,6 +216,8 @@ def write_report(root: Path, y1_path: Path, cells_path: Path) -> dict[str, Any]:
     result = {
         "schema": "bl-mac-l1-result/v1",
         "verdict": "NOT_READY",
+        "reason": "INSTRUMENT_MISSING",
+        "y1_quiet_host_acceptance": "NOT_READY",
         "nominated_cell": None,
         "y1_receipt": str(y1_path),
         "y1_sha256": verify_export(y1_path),
