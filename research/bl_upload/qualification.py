@@ -327,7 +327,12 @@ def convert_public_checkpoints(manifest: dict[str, Any], *, repo: Path = ROOT) -
     converted = copy.deepcopy(manifest)
     rows = _catalog_rows(repo)
     expected = {(str(row["dest"]), int(row["size_bytes"]), str(row["sha256"])) for row in rows}
-    aliases = {"B8_s3_final.pth": "b8.pth"}
+    aliases = {
+        "B8_s3_final.pth": {
+            "b8.pth",
+            "checkpoints/b8_s3_t7_20261016.pth",
+        }
+    }
     inputs = converted.get("inputs", [])
     if not isinstance(inputs, list):
         raise ValueError("manifest inputs must be a list")
@@ -341,10 +346,10 @@ def convert_public_checkpoints(manifest: dict[str, Any], *, repo: Path = ROOT) -
                     return converted
                 dest = str(item.get("dest"))
                 identity = (dest, path.stat().st_size, str(item.get("sha256")))
-                if dest == aliases["B8_s3_final.pth"]:
+                if dest in aliases["B8_s3_final.pth"]:
                     identity = ("B8_s3_final.pth", identity[1], identity[2])
                 local.append((index, identity))
-    catalog_dests = {identity[0] for identity in expected} | set(aliases.values())
+    catalog_dests = {identity[0] for identity in expected} | set().union(*aliases.values())
     # A package may also ship a small registration, bank, or sidecar.  Require
     # every catalog identity, but preserve those unrelated local inputs.
     if any(identity[0] in catalog_dests and identity not in expected for _index, identity in local):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import math
@@ -12,9 +13,57 @@ from typing import Any
 
 from research.bl_ppo.exports import export_json
 from research.bl_prefix.resource_limits import LIMITS, SESSION_LIMIT_MINUTES
+from research.bl_upload import assert_upload_budget, convert_public_checkpoints
 from research.colab_cli.supervisor import validate
 
 REPO = Path(__file__).resolve().parents[2]
+
+
+def source_paths(repo: Path = REPO) -> list[str]:
+    """Return the bounded local runtime-import closure for the prefix launcher."""
+    pending = [repo / "research/bl_prefix/dispatch.py"]
+    visited: set[Path] = set()
+    while pending:
+        path = pending.pop()
+        if path in visited:
+            continue
+        visited.add(path)
+        for ancestor in path.parents:
+            if ancestor == repo:
+                break
+            initializer = ancestor / "__init__.py"
+            if initializer.is_file() and initializer not in visited:
+                pending.append(initializer)
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            names: list[str] = []
+            if isinstance(node, ast.Import):
+                names = [item.name for item in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                prefix = node.module or ""
+                if node.level:
+                    package = list(path.relative_to(repo).parts[:-1])
+                    prefix = ".".join(
+                        package[: len(package) - node.level + 1] + ([prefix] if prefix else [])
+                    )
+                if prefix:
+                    names = [prefix, *(f"{prefix}.{item.name}" for item in node.names)]
+            for name in names:
+                base = repo.joinpath(*name.split("."))
+                for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+                    if candidate.is_file() and candidate not in visited:
+                        pending.append(candidate)
+    return sorted(
+        {str(path.relative_to(repo)) for path in visited}
+        | {
+            "research/bl_prefix/run.sh",
+            "research/bl_prefix/requirements.txt",
+            "research/colab_cli",
+            "src",
+            "configs",
+            "pyproject.toml",
+            "requirements.txt",
+        }
+    )
 
 
 def sha256(path: Path) -> str:
@@ -179,6 +228,7 @@ def build(
             "VECLIB_MAXIMUM_THREADS": "1",
         },
         "inputs": inputs,
+        "source_paths": source_paths(repo),
         "lease_seconds": 300,
         "max_export_bytes": 64 * 1024**2,
         "bl_prefix": {
@@ -196,6 +246,8 @@ def build(
             },
         },
     }
+    manifest = convert_public_checkpoints(manifest, repo=repo)
+    assert_upload_budget(manifest, repo=repo)
     return validate(manifest, repo=repo)
 
 

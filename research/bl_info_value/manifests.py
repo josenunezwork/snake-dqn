@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from research.bl_info_value.io import sha256, verify_export, write_json
-from research.colab_cli.source import prepare
 from research.colab_cli.supervisor import validate
 
 MAX_LOCAL_INPUT_BYTES = 1024**2
@@ -160,8 +159,16 @@ def build(
         max_export_bytes=256 * 1024**2,
     )
     validated = validate(manifest, repo=repo)
-    destination.mkdir(parents=True)
-    source = prepare(repo, validated, destination / "source")
+    # This package-local receipt exercises the pinned sparse-source builder and
+    # accounts for bootstrap, every Contents input, and the source fallback in
+    # the supervisor's single 300-second staging window.  It is deliberately
+    # written before the immutable manifest so a missing receipt cannot look
+    # dispatchable.  `qualify` is Mac-only and never allocates a runtime.
+    from research.bl_info_value.upload_readiness import require_upload_readiness
+
+    upload_preflight = require_upload_readiness(
+        validated, repo=repo, receipt_path=destination / "upload-preflight.json"
+    )
     write_json(destination / "job.json", validated)
     write_json(destination / "forecast.json", plan)
     write_json(
@@ -169,7 +176,7 @@ def build(
         dict(
             status="VALIDATED_NOT_DISPATCHED",
             commit=commit,
-            source_plan=source,
+            upload_preflight=upload_preflight,
             forecast_within_usable_budget=plan["dispatch_within_forecast"],
             input_sha256=sha256(inputs),
             timing_sha256=sha256(timing_path),

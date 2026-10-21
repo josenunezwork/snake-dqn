@@ -121,3 +121,45 @@ def test_public_conversion_requires_all_six_and_preserves_small_extra(
     assert "research/bl_upload" in converted["source_paths"]
     partial = {**manifest, "inputs": inputs[:-1], "env": {}, "source_paths": []}
     assert convert_public_checkpoints(partial)["inputs"] == partial["inputs"]
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        {"dest": "unbound.dat", "size_bytes": 10**9, "sha256": "a" * 64},
+        {
+            "dest": "remote.dat",
+            "url": "http://example.com/input",
+            "size_bytes": 1,
+            "sha256": "a" * 64,
+        },
+        {
+            "dest": "remote.dat",
+            "url": "https://example.com/input",
+            "size_bytes": True,
+            "sha256": "a" * 64,
+        },
+    ],
+)
+def test_budget_refuses_unbound_or_malformed_remote_inputs(tmp_path: Path, row: dict) -> None:
+    manifest = _manifest(tmp_path)
+    manifest["inputs"] = [row]
+    with pytest.raises((ValueError, RuntimeError)):
+        assert_upload_budget(manifest)
+
+
+def test_fallback_must_fit_half_cap_not_only_whole_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _manifest(tmp_path)
+    monkeypatch.setattr(
+        qualification,
+        "_source_plan",
+        lambda *_args: (
+            {"commit": manifest["commit"], "tree": "f" * 40, "fallback_size": 4_000_000},
+            4_000_000,
+            "a" * 64,
+        ),
+    )
+    with pytest.raises(ValueError, match="fallback upload forecast.*150"):
+        qualify(manifest)

@@ -269,3 +269,35 @@ def test_e2_materialization_refuses_missing_e9_before_any_manifest(tmp_path: Pat
             e4_receipt=receipt,
         )
     assert not (tmp_path / "blocked").exists()
+
+
+def test_e4_refuses_unqualified_large_custom_checkpoint(tmp_path: Path) -> None:
+    b8 = tmp_path / "unpublished-b8.pth"
+    with b8.open("wb") as stream:
+        stream.truncate(8 * 1024**2)
+    with pytest.raises(ValueError, match="upload|Upload"):
+        make_e4_manifest(
+            commit=COMMIT,
+            output_dir=tmp_path / "out",
+            b8_checkpoint=b8,
+            roster_checkpoints=_roster(tmp_path),
+        )
+
+
+def test_validation_also_refuses_oversized_manifest_after_edit(tmp_path: Path) -> None:
+    from research.bl_ppo.manifests import input_row, validate_manifest
+
+    b8 = tmp_path / "b8.pth"
+    b8.write_bytes(b"b8")
+    manifest = make_e4_manifest(
+        commit=COMMIT,
+        output_dir=tmp_path / "out",
+        b8_checkpoint=b8,
+        roster_checkpoints=_roster(tmp_path),
+    )
+    large = tmp_path / "extra.dat"
+    with large.open("wb") as stream:
+        stream.truncate(8 * 1024**2)
+    manifest["inputs"].append(input_row(large, "extra.dat"))
+    with pytest.raises(ValueError, match="upload|Upload"):
+        validate_manifest(manifest)

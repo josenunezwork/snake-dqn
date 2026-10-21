@@ -15,6 +15,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from research.bl_upload import assert_upload_budget, convert_public_checkpoints
+
 ROOT = Path(__file__).resolve().parents[2]
 PRIMARY_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn")
 DEFAULT_ARTIFACT_DIR = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-e1b")
@@ -170,7 +172,7 @@ def make_manifest(
         payload = subprocess.check_output(["git", "show", f"{commit}:{PACKAGE}/{name}"], cwd=ROOT)
         if hashlib.sha256(payload).hexdigest() != expected:
             raise ManifestRefused(f"runtime source differs from measured preflight: {name}")
-    return {
+    manifest = {
         "job_id": f"bl-e1b-{kind}-{commit[:8]}",
         "commit": commit,
         "script": SCRIPT,
@@ -257,12 +259,18 @@ def make_manifest(
             "mac_preflight": preflight,
         },
     }
+    # The registered six-checkpoint roster is available as a hash-verified
+    # public release.  Keep ContentsClient below its qualified deadline.
+    manifest = convert_public_checkpoints(manifest, repo=ROOT)
+    assert_upload_budget(manifest, repo=ROOT)
+    return manifest
 
 
 def validate_manifest(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[str, Any]:
     """Call the supervisor's local pure validator and never allocate a runtime."""
     from research.colab_cli.supervisor import validate
 
+    assert_upload_budget(manifest, repo=repo)
     return validate(manifest, repo=repo)
 
 

@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from research.bl_served_search.exports import digest, export_json
-from research.bl_served_search.manifests import forecast, portable_allocation, source_paths
+from research.bl_served_search.manifests import (
+    bind_l2_plan,
+    forecast,
+    portable_allocation,
+    source_paths,
+)
 from research.bl_served_search.readiness import check
 
 
@@ -89,8 +94,51 @@ def test_portable_bank_changes_only_path_presentation(tmp_path: Path) -> None:
 
 def test_static_closure_contains_t3_runtime_and_exports() -> None:
     paths = source_paths()
+    assert "research/bl_upload/qualification.py" in paths
     assert "research/t3_rollout_labels_20261015/bank_engine.py" in paths
     assert "research/t3_rollout_labels_20261015/trigger.py" in paths
     assert "research/bl_ppo/exports.py" in paths
     assert "configs" in paths
     assert "research/colab_cli" in paths
+
+
+def test_runtime_launchers_materialize_the_public_checkpoint_catalog() -> None:
+    package = Path(__file__).parent
+    for name in ("run_l2.sh", "run_ruler.sh"):
+        script = (package / name).read_text(encoding="utf-8")
+        assert "research.bl_upload.inputs --input-dir" in script
+        assert "BL_PUBLIC_INPUTS:-0" in script
+        assert "public_root/B8_s3_final.pth" in script
+        assert "public_root/checkpoints" in script
+
+
+def test_l2_plan_is_written_once_after_public_input_conversion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from research.bl_served_search import manifests
+
+    calls: list[Path] = []
+    real_export = manifests.export_json
+
+    def counted_export(path: Path, value: dict) -> None:
+        calls.append(path)
+        real_export(path, value)
+
+    monkeypatch.setattr(manifests, "export_json", counted_export)
+    catalog = tmp_path / "public-inputs.json"
+    catalog.write_text("{}\n", encoding="utf-8")
+    manifest = {
+        "inputs": [
+            {"dest": "bank.json", "sha256": "bank"},
+            {"dest": "public-inputs.json", "sha256": "catalog"},
+        ]
+    }
+    plan = {"input_hashes": {"stale-checkpoint.pth": "stale"}}
+    plan_path = tmp_path / "l2-plan.json"
+
+    bind_l2_plan(manifest, plan, plan_path)
+
+    assert calls == [plan_path]
+    assert plan["input_hashes"] == {"bank.json": "bank", "public-inputs.json": "catalog"}
+    assert manifest["inputs"][-1]["dest"] == "l2-plan.json"
+    assert manifest["inputs"][-1]["sha256"] == digest(plan_path)

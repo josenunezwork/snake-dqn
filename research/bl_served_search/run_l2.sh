@@ -23,14 +23,22 @@ fi
 "$PYTHON_BIN" -m research.bl_served_search.readiness \
   --plan "$COLAB_INPUT_DIR/l2-plan.json" --inputs "$COLAB_INPUT_DIR"
 
-export SNAKE_CKPT_DIR="$COLAB_INPUT_DIR/checkpoints"
+if [ "${BL_PUBLIC_INPUTS:-0}" = "1" ]; then
+  public_root="$("$PYTHON_BIN" -m research.bl_upload.inputs --input-dir "$COLAB_INPUT_DIR" | \
+    "$PYTHON_BIN" -c 'import json, sys; print(json.load(sys.stdin)["input_root"])')"
+  export SNAKE_CKPT_DIR="$public_root/checkpoints"
+  b8_path="$public_root/B8_s3_final.pth"
+else
+  export SNAKE_CKPT_DIR="$COLAB_INPUT_DIR/checkpoints"
+  b8_path="$COLAB_INPUT_DIR/b8.pth"
+fi
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 export NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu
 "$PYTHON_BIN" -m research.bl_served_search.ceiling \
   --allow-production \
   --bank "$COLAB_INPUT_DIR/bank.json" \
   --runtime-parity-receipt "$COLAB_INPUT_DIR/runtime-parity.json" \
-  --b8-path "$COLAB_INPUT_DIR/b8.pth" \
+  --b8-path "$b8_path" \
   --checkpoint-dir "$SNAKE_CKPT_DIR" \
   --out "$COLAB_OUTPUT_DIR/l2-shard-${BL_L2_SHARD_INDEX}.json" \
   --shard-index "$BL_L2_SHARD_INDEX" --shard-count "$BL_L2_SHARD_COUNT" \
