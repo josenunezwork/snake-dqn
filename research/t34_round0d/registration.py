@@ -175,6 +175,10 @@ def require_registration(
         or sizing.get("expected_units", 1e9) > 120.0
         or sizing.get("derived_ceiling", 1e9) > 120.0
         or sizing.get("study_unit_ceiling") != 120.0
+        or sizing.get("chunk_admission_ceiling")
+        != 120.0 - float(sizing.get("replay", {}).get("unit_cap", 1e9))
+        or sizing.get("first_stranded_chunk") is not None
+        or sizing.get("straggler_total_units", 1e9) > 120.0
         or sizing.get("max_in_flight") != 2
         or sizing.get("wall_hours_forecast", 1e9) > 24.0
         or sizing.get("teacher_worlds_per_hour", 0) < 5.0
@@ -239,7 +243,7 @@ def draft(out: Path = DRAFT, *, study_root: Path = STUDY_ROOT) -> dict[str, Any]
     bank = check_audit(BANK, AUDIT)
     check_pins(ROOT)
     table = {}
-    for rate in (4.0, 5.0, 6.0, 6.5, 7.0, 8.0, 10.0, 15.0, 23.0):
+    for rate in (4.0, 5.0, 6.0, 6.5, 7.0, 8.0, 9.0, 10.0, 15.0, 23.0):
         row = estimated_plan(rate)["plan"]
         table[f"{rate:g}"] = {
             key: row.get(key)
@@ -249,6 +253,9 @@ def draft(out: Path = DRAFT, *, study_root: Path = STUDY_ROOT) -> dict[str, Any]
                 "chunk_pairs",
                 "expected_units",
                 "derived_ceiling",
+                "straggler_total_units",
+                "first_stranded_chunk",
+                "chunk_admission_ceiling",
                 "study_unit_ceiling",
                 "wall_hours_forecast",
             )
@@ -286,6 +293,13 @@ def draft(out: Path = DRAFT, *, study_root: Path = STUDY_ROOT) -> dict[str, Any]
             "expected_units_cap": STUDY_UNIT_CAP,
             "wall_hours_cap_on_2_lanes": WALL_HOURS_CAP,
             "derived_ceiling_gate": "1.2 x expected + (lanes - 1) x max_chunk(cap - expected) <= 120",  # noqa: E501
+            "straggler_schedule_gate": (
+                "chunks charged setup + ceil(n/12) x max(slowest, wave) at 2.0 u/h; 2-lane "
+                "admission (in-flight and new chunk at full cap) against 120 - replay cap admits "
+                "every chunk, and straggler total + replay cap <= 120; else KILL"
+            ),
+            "wall_gate": "straggler makespans + 10 min gap per chunk on the longer lane + replay <= 24 h",  # noqa: E501
+            "replay_cap_reserved_inside_120u": True,
             "operative_study_ceiling_units": 120.0,
             "chunking": "multiples of 12 pairs; ceil(n/12) whole waves; timeouts from A5-D slowest world",  # noqa: E501
             "setup_minutes_rule": "max(15, ceil(observed A5-D setup) + 5)",

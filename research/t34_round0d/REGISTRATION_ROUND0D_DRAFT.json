@@ -26,7 +26,7 @@
     "A5-D receipt with fidelity PASS/EXPLAINED_TIE and a RATIFY table row",
     "operator activation JSON committed and pushed to main before first dispatch"
   ],
-  "built_from_commit": "6be381db7272878d3aed55c046e2083e0cd50a9d",
+  "built_from_commit": "392a97f9cea17e725e3a7d4d573a787a4c7e1b9a",
   "dense_r1_examples": {
     "r15_yield0.66_bearing0.5": {
       "expected_units": 60.666666666666664,
@@ -102,7 +102,7 @@
   },
   "preregistration": {
     "path": "research/t34_round0d/PREREGISTRATION_ROUND0D.md",
-    "sha256": "1def6e393d6033492b6f4667157a7803e648c0cbae0b23b3fb388a9989ab38be"
+    "sha256": "9fbb572d89d069354b703d84483fc26b2d8312d4b22eb5a6c70e0fe63b0b6b06"
   },
   "rate_to_action": {
     "chunking": "multiples of 12 pairs; ceil(n/12) whole waves; timeouts from A5-D slowest world",
@@ -110,99 +110,142 @@
     "estimated_rows_with_placeholder_L4_costs": {
       "10": {
         "action": "RATIFY",
+        "chunk_admission_ceiling": 118.0,
         "chunk_pairs": 24,
         "chunks": 10,
         "derived_ceiling": 73.06666666666666,
         "expected_units": 56.25,
-        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "first_stranded_chunk": null,
+        "reason": "r >= 5, expected and derived ceiling <= 120 u, straggler schedule admits every chunk within 120 u incl. the replay cap, straggler wall <= 24 h",
+        "straggler_total_units": 72.86666666666667,
         "study_unit_ceiling": 120.0,
-        "wall_hours_forecast": 15.216666666666667
+        "wall_hours_forecast": 19.016666666666666
       },
       "15": {
         "action": "RATIFY",
+        "chunk_admission_ceiling": 118.0,
         "chunk_pairs": 36,
         "chunks": 7,
         "derived_ceiling": 52.20000000000001,
         "expected_units": 38.75000000000001,
-        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "first_stranded_chunk": null,
+        "reason": "r >= 5, expected and derived ceiling <= 120 u, straggler schedule admits every chunk within 120 u incl. the replay cap, straggler wall <= 24 h",
+        "straggler_total_units": 50.56666666666667,
         "study_unit_ceiling": 120.0,
-        "wall_hours_forecast": 11.666666666666666
+        "wall_hours_forecast": 14.526666666666669
       },
       "23": {
         "action": "RATIFY",
+        "chunk_admission_ceiling": 118.0,
         "chunk_pairs": 48,
         "chunks": 5,
         "derived_ceiling": 37.20289855072463,
         "expected_units": 26.6195652173913,
-        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "first_stranded_chunk": null,
+        "reason": "r >= 5, expected and derived ceiling <= 120 u, straggler schedule admits every chunk within 120 u incl. the replay cap, straggler wall <= 24 h",
+        "straggler_total_units": 35.097101449275364,
         "study_unit_ceiling": 120.0,
-        "wall_hours_forecast": 8.777536231884058
+        "wall_hours_forecast": 10.895797101449274
       },
       "4": {
         "action": "KILL",
+        "chunk_admission_ceiling": null,
         "chunk_pairs": null,
         "chunks": 0,
         "derived_ceiling": null,
         "expected_units": null,
+        "first_stranded_chunk": null,
         "reason": "r < 5 dense worlds per lane-hour",
+        "straggler_total_units": null,
         "study_unit_ceiling": null,
         "wall_hours_forecast": null
       },
       "5": {
         "action": "KILL",
+        "chunk_admission_ceiling": 118.0,
         "chunk_pairs": 12,
         "chunks": 20,
         "derived_ceiling": 136.56666666666666,
         "expected_units": 109.27777777777779,
+        "first_stranded_chunk": 15,
         "reason": "derived ceiling > 120 u",
+        "straggler_total_units": 140.26666666666665,
         "study_unit_ceiling": 120.0,
-        "wall_hours_forecast": 29.316666666666666
+        "wall_hours_forecast": 36.716666666666676
       },
       "6": {
         "action": "KILL",
+        "chunk_admission_ceiling": 118.0,
         "chunk_pairs": 12,
         "chunks": 20,
         "derived_ceiling": 116.56666666666668,
         "expected_units": 93.27777777777779,
-        "reason": "forecast wall > 24 h on the registered lanes",
+        "first_stranded_chunk": 18,
+        "reason": "measured straggler schedule strands under 120 u",
+        "straggler_total_units": 119.46666666666668,
         "study_unit_ceiling": 120.0,
-        "wall_hours_forecast": 25.316666666666666
+        "wall_hours_forecast": 31.51666666666667
       },
       "6.5": {
-        "action": "RATIFY",
+        "action": "KILL",
+        "chunk_admission_ceiling": 118.0,
         "chunk_pairs": 12,
         "chunks": 20,
         "derived_ceiling": 108.88974358974359,
         "expected_units": 87.12393162393163,
-        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "first_stranded_chunk": null,
+        "reason": "straggler wall forecast > 24 h on the registered lanes",
+        "straggler_total_units": 111.46666666666667,
         "study_unit_ceiling": 120.0,
-        "wall_hours_forecast": 23.778205128205123
+        "wall_hours_forecast": 29.51666666666667
       },
       "7": {
-        "action": "RATIFY",
+        "action": "KILL",
+        "chunk_admission_ceiling": 118.0,
         "chunk_pairs": 12,
         "chunks": 20,
         "derived_ceiling": 102.2904761904762,
         "expected_units": 81.84920634920636,
-        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "first_stranded_chunk": null,
+        "reason": "straggler wall forecast > 24 h on the registered lanes",
+        "straggler_total_units": 104.60952380952381,
         "study_unit_ceiling": 120.0,
-        "wall_hours_forecast": 22.459523809523812
+        "wall_hours_forecast": 27.802380952380947
       },
       "8": {
-        "action": "RATIFY",
+        "action": "KILL",
+        "chunk_admission_ceiling": 118.0,
         "chunk_pairs": 12,
         "chunks": 20,
         "derived_ceiling": 91.56666666666668,
         "expected_units": 73.27777777777779,
-        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "first_stranded_chunk": null,
+        "reason": "straggler wall forecast > 24 h on the registered lanes",
+        "straggler_total_units": 93.46666666666667,
         "study_unit_ceiling": 120.0,
-        "wall_hours_forecast": 20.316666666666666
+        "wall_hours_forecast": 25.01666666666667
+      },
+      "9": {
+        "action": "RATIFY",
+        "chunk_admission_ceiling": 118.0,
+        "chunk_pairs": 12,
+        "chunks": 20,
+        "derived_ceiling": 83.23333333333333,
+        "expected_units": 66.61111111111111,
+        "first_stranded_chunk": null,
+        "reason": "r >= 5, expected and derived ceiling <= 120 u, straggler schedule admits every chunk within 120 u incl. the replay cap, straggler wall <= 24 h",
+        "straggler_total_units": 84.8,
+        "study_unit_ceiling": 120.0,
+        "wall_hours_forecast": 22.850000000000005
       }
     },
     "expected_units_cap": 120.0,
     "kill_below_worlds_per_lane_hour": 5.0,
     "operative_study_ceiling_units": 120.0,
+    "replay_cap_reserved_inside_120u": true,
     "setup_minutes_rule": "max(15, ceil(observed A5-D setup) + 5)",
+    "straggler_schedule_gate": "chunks charged setup + ceil(n/12) x max(slowest, wave) at 2.0 u/h; 2-lane admission (in-flight and new chunk at full cap) against 120 - replay cap admits every chunk, and straggler total + replay cap <= 120; else KILL",
+    "wall_gate": "straggler makespans + 10 min gap per chunk on the longer lane + replay <= 24 h",
     "wall_hours_cap_on_2_lanes": 24.0
   },
   "ratified": false,

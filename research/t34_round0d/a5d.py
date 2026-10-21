@@ -405,6 +405,39 @@ def _top_gap(q: np.ndarray, mask: np.ndarray) -> float | None:
     return values[0] - values[1] if len(values) >= 2 else None
 
 
+def platform_tie(
+    divergence: int | None,
+    records: Mapping[int, Mapping[str, Any]],
+    labels: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Leg (2) of EXPLAINED_PLATFORM at the first Mac/L4 action divergence.
+
+    The legs are exclusive, matching the prereg: at an unbatched decision the executed
+    action is greedy, so only the Mac's advisory top-2 Q gap may explain it; at a batched
+    decision the action came from search, so only the Q gap among the tied-longest
+    candidates may explain it (a greedy near-tie there explains nothing).
+    """
+    result: dict[str, Any] = {"batched": None, "leg": None, "gap": None, "explained": False}
+    if divergence is None:
+        return result
+    label = next((x for x in labels if int(x["decision"]) == divergence), None)
+    if label is not None:
+        q = np.asarray(label["q"], dtype=np.float64)
+        steps = {int(a): int(v["alive_steps"]) for a, v in label["outcomes"].items()}
+        best = max(steps.values())
+        tied = sorted((q[a] for a, s in steps.items() if s == best), reverse=True)
+        gap = float(tied[0] - tied[1]) if len(tied) >= 2 else None
+        result.update(batched=True, leg="tied_longest_q_gap", gap=gap)
+    elif divergence in records:
+        record = records[divergence]
+        gap = _top_gap(np.asarray(record["q"], dtype=np.float64), record["advisory"])
+        result.update(batched=False, leg="greedy_top2_advisory_q_gap", gap=gap)
+    else:
+        return result
+    result["explained"] = result["gap"] is not None and result["gap"] <= TIE_EPSILON
+    return result
+
+
 def resolve_hold(
     fixture_world: Mapping[str, Any], l4_export: Path, checkpoint: Path
 ) -> dict[str, Any]:
@@ -412,8 +445,9 @@ def resolve_hold(
 
     EXPLAINED_PLATFORM iff (1) this exact harness on the Mac reproduces T3 exactly
     (``compare`` is empty) and (2) at the first decision where the Mac and L4 hero action
-    traces differ, the Mac's advisory top-2 Q gap, or (at a batched decision) the Q gap
-    among the tied-longest candidates, is <= 1e-4. Anything else stays HOLD.
+    traces differ, the Mac's advisory top-2 Q gap (unbatched decision) or the Q gap
+    among the tied-longest candidates (batched decision) is <= 1e-4 (``platform_tie``).
+    Anything else stays HOLD.
     """
     if platform.system() != "Darwin":
         raise RuntimeError("the HOLD resolution re-run is Mac-only (T3's own platform)")
@@ -439,17 +473,9 @@ def resolve_hold(
         (d for d, (a, b) in enumerate(zip(mac_actions, l4_actions)) if a != b),
         None if len(mac_actions) == len(l4_actions) else min(len(mac_actions), len(l4_actions)),
     )
-    gap = None
-    explained = False
-    if not mac_differences and divergence is not None and divergence in records:
-        record = records[divergence]
-        gap = _top_gap(np.asarray(record["q"], dtype=np.float64), record["advisory"])
-        explained = gap is not None and gap <= TIE_EPSILON
-        if not explained:
-            labels = [
-                {k: x[k] for k in ("decision", "q", "legal", "outcomes")} for x in full["labels"]
-            ]
-            explained = tie_explained(divergence, labels)
+    labels = [{k: x[k] for k in ("decision", "q", "legal", "outcomes")} for x in full["labels"]]
+    tie = platform_tie(divergence, records, labels)
+    explained = not mac_differences and tie["explained"]
     return {
         "schema": RESOLUTION_SCHEMA,
         "world_id": fixture_world["row"]["world_id"],
@@ -457,7 +483,9 @@ def resolve_hold(
         "mac_reproduces_t3": not mac_differences,
         "mac_differences": mac_differences,
         "first_action_divergence": divergence,
-        "mac_top2_advisory_q_gap": gap,
+        "divergence_batched": tie["batched"],
+        "tie_leg": tie["leg"],
+        "tie_q_gap": tie["gap"],
         "tie_epsilon": TIE_EPSILON,
         "l4_export_sha256": sha256(l4_export),
         "checkpoint_sha256": sha256(checkpoint),

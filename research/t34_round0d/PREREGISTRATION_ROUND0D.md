@@ -231,8 +231,11 @@ Round 0-D runs only after a governing scientific Round 0 NO-GO. Its sole decisio
 3. survival-guard failure, which reads as survival harm;
 4. boost-clause-only failure.
 
-The reading never changes the decision code. It only selects the row's wording, and it is computed
-mechanically from the `clauses` and survival bounds in `decision.json`.
+The reading never changes the decision code. It only selects the row's wording. `analyze.outcome_reading`
+computes it mechanically from the `clauses`, `pooled_alive`, `per_mix` and `unconditional_faults` in
+`decision.json` and records it there as `outcome_reading`: `fault`, `premise_shrinkage` (or
+`premise_shrinkage_mass_only_scripted_gain` when only the mass bar failed and the scripted gain is ≥ +0.10),
+`survival_harm`, or `boost_clause`. Non-STOP decisions have none. A STOP that matches no row is invalid evidence.
 
 ## Integrity (Round 0's, imported or ported unchanged in substance)
 
@@ -274,13 +277,18 @@ Round 0 erratum is therefore never inherited silently.
 - **STOP:** an explained, typed controller fault.
 - At most one outcome-independent mechanical rerun per chunk.
 
-**Study ceiling.** The operative ceiling is exactly **120 u**, the JUDGMENT lane L7 study total. The
-forecast-derived bound must be ≤ 120 at activation (see Sizing), so whole-wave chunks and slow worlds do not
-strand the last chunk. A5-D's 10 u is pre-study qualification and is reported separately. Before each chunk is
-admitted:
+**Study ceiling.** The operative ceiling is exactly **120 u**, the JUDGMENT lane L7 study total, and it is a
+**hard total** of chunk and replay spend. The replay job's unit cap is reserved inside it: chunks are admitted
+against the registered `chunk_admission_ceiling` = 120 u − replay cap. Each attempt is hard-stopped by the
+supervisor at its unit cap, so admitted chunks plus the replay can never settle above 120 u. At activation the
+straggler schedule must admit every chunk at A5-D's measured slowest world (see Sizing); this is what keeps
+whole-wave chunks and slow worlds from stranding the last chunk at that measured slowness. A world slower than
+anything A5-D measured can still strand a chunk; that is then the integrity INCONCLUSIVE below, never a silent
+overrun. A5-D's 10 u is pre-study qualification and is reported separately. Before each chunk is admitted:
 
 - settled attempts are charged their recorded elapsed time at 2.0 u/h;
-- in-flight attempts, and attempts without a receipt, are charged their full cap.
+- in-flight attempts, and attempts without a receipt, are charged their full cap;
+- the chunk being admitted is charged its full cap.
 
 If the next chunk would cross the ceiling only because an attempt is in flight, the dispatcher refuses without
 making a claim; the operator retries once that attempt settles. If **settled charges alone** would cross it, the
@@ -365,11 +373,15 @@ hash-bound three ways, and `labels.py` is the only sanctioned reader. A test ass
   - Each divergent fidelity world is re-run on the Mac with this exact harness: one thread, nice 10, outside
     the Path B quiet and timing windows.
   - **EXPLAINED_PLATFORM** iff (1) the Mac run reproduces T3 exactly, and (2) at the first decision where the
-    Mac and L4 hero action traces differ, the Mac's advisory top-2 Q gap is ≤ 1e-4, or, at a batched
-    decision, the Q gap among the tied-longest candidates is ≤ 1e-4. The L4 fidelity export carries the full
-    actions.
+    Mac and L4 hero action traces differ: at an unbatched decision, the Mac's advisory top-2 Q gap is ≤ 1e-4;
+    at a batched decision, the Q gap among the tied-longest candidates is ≤ 1e-4. The legs are exclusive
+    (`a5d.platform_tie`): at a batched decision the action came from search, so a greedy-Q near-tie there
+    explains nothing. The L4 fidelity export carries the full actions.
   - Anything else stays HOLD.
-  - The resolution records are hash-bound into the A5-D receipt (`sizing --fidelity-resolution`).
+  - The resolution records are hash-bound into the A5-D receipt (`sizing --fidelity-resolution`). A record
+    counts only if its `l4_export_sha256` equals the supervisor-verified A5-D receipt's `fidelity-<i>.json`
+    export for that world, its `checkpoint_sha256` is B8 s3, `mac_reproduces_t3` is true with no
+    differences, and it used ε = 1e-4 (`sizing.resolved_fidelity`).
 - Scope: fidelity tests the T3 rule only on scripted worlds. For frozen and mixed worlds, "the exact T3 rule" is
   a definitional extension. Its correctness rests on the merged-vs-serial oracle
   (`tests/test_t34_shadow_batch_oracle.py`, all mixes), not on reproducing T3.
@@ -413,8 +425,14 @@ All inputs come from the A5-D receipt.
 **Totals.**
 
 - Expected units = Σ chunk forecasts + the replay.
-- Wall = the longer lane's chunk forecasts + 10 min dispatch and ledger gap per chunk + the replay.
 - Derived ceiling = 1.2 × expected + (lanes − 1) × max over chunks of (cap − expected).
+- **Straggler charge** per chunk = (setup + ceil(n/12)·max(slowest, wave)) / 60 × 2.0 u. A wave lasts as long
+  as its slowest of 12 worlds, so this is the slow-world-aware forecast.
+- **Straggler schedule** (`sizing.admission_schedule`): replay the 2-lane dispatcher. Chunk k is admitted while
+  chunk k − 1 is in flight at its full cap and every earlier chunk has settled at its straggler charge; the
+  admitted chunk is charged its full cap, against 120 u − replay cap. Every chunk must be admitted, and
+  Σ straggler charges + replay cap ≤ 120 u.
+- Wall = the longer lane's straggler makespans + 10 min dispatch and ledger gap per chunk + the replay estimate.
 
 | Condition (evaluated in order) | Action |
 |---|---|
@@ -422,29 +440,35 @@ All inputs come from the A5-D receipt.
 | r < 5 dense worlds per lane-hour | **KILL** |
 | one 12-pair wave exceeds the 180-minute bound | **KILL** |
 | expected > 120 u, or derived ceiling > 120 u | **KILL** |
-| forecast wall > 24 h on the 2 registered lanes | **KILL** |
+| straggler schedule strands a chunk, or straggler total + replay cap > 120 u | **KILL** ("measured straggler schedule strands under 120 u") |
+| straggler wall > 24 h on the 2 registered lanes | **KILL** |
 | otherwise | **RATIFY**, with an operative study ceiling of **120 u** |
 
 **ESTIMATED rows** (`registration draft`, placeholder L4 costs: bare 190 s/world, metric 50 s/pair, slowest
-world = 1.3 × wave, setup 15 min). A test checks that no chunk is stranded at r ∈ {6.5, 7, 8, 10, 15, 23}. The
-check runs every chunk as whole waves at the slowest-world time. It charges the other lane in flight at its full
-cap, and every admission must fit 120 u.
+world = 1.3 × wave, setup 15 min). These are illustrations; activation uses A5-D's measured slowest world.
+A test sweeps r ∈ {5, 6, 6.5, 7, 8, 9, 10, 15, 23} × slowest/wave ∈ {1.0, 1.3, 1.5, 1.6, 1.8, 2.0}: whenever
+`plan` says RATIFY, an independent 2-lane simulation at that slowest world strands no chunk and fits the
+replay cap inside 120 u. A second test checks that slowest = 1.6 × wave at r = 7 is KILL, not RATIFY.
 
-| r | Action | Chunks × pairs | Expected u | Derived ceiling u | Wall h (2 lanes) |
-|---|---|---|---|---|---|
-| 5 | KILL (derived ceiling) | 20 × 12 | 109.3 | 136.6 | 29.3 |
-| 6 | KILL (wall) | 20 × 12 | 93.3 | 116.6 | 25.3 |
-| 6.5 | RATIFY | 20 × 12 | 87.1 | 108.9 | 23.8 |
-| 7 | RATIFY | 20 × 12 | 81.8 | 102.3 | 22.5 |
-| 8 | RATIFY | 20 × 12 | 73.3 | 91.6 | 20.3 |
-| 10 | RATIFY | 10 × 24 | 56.2 | 73.1 | 15.2 |
-| 15 | RATIFY | 7 × 36 (last 24) | 38.8 | 52.2 | 11.7 |
-| 23 | RATIFY | 5 × 48 | 26.6 | 37.2 | 8.8 |
+| r | Action | Chunks × pairs | Expected u | Derived ceiling u | Straggler u (+ replay cap) | Wall h (2 lanes, straggler) |
+|---|---|---|---|---|---|---|
+| 5 | KILL (derived ceiling) | 20 × 12 | 109.3 | 136.6 | 140.3 | 36.7 |
+| 6 | KILL (straggler schedule strands) | 20 × 12 | 93.3 | 116.6 | 119.5 | 31.5 |
+| 6.5 | KILL (straggler wall) | 20 × 12 | 87.1 | 108.9 | 111.5 | 29.5 |
+| 7 | KILL (straggler wall) | 20 × 12 | 81.8 | 102.3 | 104.6 | 27.8 |
+| 8 | KILL (straggler wall) | 20 × 12 | 73.3 | 91.6 | 93.5 | 25.0 |
+| 9 | RATIFY | 20 × 12 | 66.6 | 83.2 | 84.8 | 22.9 |
+| 10 | RATIFY | 10 × 24 | 56.2 | 73.1 | 72.9 | 19.0 |
+| 15 | RATIFY | 7 × 36 (last 24) | 38.8 | 52.2 | 50.6 | 14.5 |
+| 23 | RATIFY | 5 × 48 | 26.6 | 37.2 | 35.1 | 10.9 |
 
-**Honest 2-lane threshold: about r = 6.5.** With 10-pair chunks and honest wave forecasting it would be about 8.
-This registration uses 2 lanes; a third lane is not pre-registered.
+**Honest 2-lane threshold at the placeholder slowness (1.3 × wave): about r = 9.** The earlier "about 6.5"
+used mean-wave wall time and ignored stragglers (FIX-FIRST 2, N1). The threshold moves with A5-D's measured
+slowest world: at 1.0 × wave it is about 6.5, at 1.6 × wave about 10. This registration uses 2 lanes; a third
+lane is not pre-registered.
 
-- The 120 u cap binds at almost the same r as the 24 h wall.
+- At the placeholder slowness the straggler wall binds first (r = 6.5–8); the straggler unit schedule binds
+  at r ≤ 6, and at r = 6.5–7 once the slowest world reaches 1.5 × wave.
 - A third lane would take the assignment reserved for the Path B unpaced arm.
 
 Below the threshold, the outcome is "not activated: capacity". The only lever that moves the threshold is

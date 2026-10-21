@@ -185,3 +185,26 @@ study file was opened.
 
 **Tests:** `tests/test_t34_round0d.py` has 37 passed. With the two Round 0 test files, 86 passed (1 thread,
 `-n 2`, nice 10).
+
+## FIX-FIRST revision 2 (2026-10-20 night, pre-data; `REVIEW_RESCOPE_2.md`)
+
+No Round 0 study file was opened. This section supersedes the "honest 2-lane threshold about r = 6.5" lines
+above, which used mean-wave wall time.
+
+1. **N1 straggler schedule (BLOCKER).** `sizing.plan` charges each chunk at its slow-world makespan
+   (setup + ceil(n/12)·max(slowest, wave), 2.0 u/h) and replays the 2-lane admission (`admission_schedule`)
+   against 120 u − replay cap; a stranded chunk or straggler total + replay cap > 120 u is KILL ("measured
+   straggler schedule strands under 120 u"). The wall gate uses the same straggler makespans. **Tests:**
+   slowest = 1.6 × wave at r = 7 is KILL (also with the wall gate disabled); a 9 × 6 grid of r × slowness
+   checks that every RATIFY survives an independent 2-lane simulation at its own slowest world. At the
+   placeholder 1.3 × wave, r = 6.5–8 now KILL on the straggler wall; the threshold is about r = 9.
+2. **120 u is a hard total.** The replay cap is reserved (`chunk_admission_ceiling` = 120 − replay cap, enforced
+   by `require_registration` and used by `dispatch`), and the admitted chunk is charged its full cap.
+3. **HOLD binding.** `resolved_fidelity` accepts a resolution only if its L4 export hash equals the verified A5-D
+   receipt's `fidelity-<i>.json` export, its checkpoint is B8 s3, the Mac reproduced T3 with no differences,
+   and ε = 1e-4. `a5d.platform_tie` makes the two legs exclusive: greedy top-2 gap only at unbatched decisions,
+   tied-longest gap only at batched ones. Both are tested.
+4. **Outcome precedence** is computed by `analyze.outcome_reading` and recorded in `decision.json`; tested.
+5. **Docstring** in `dispatch.py` names the 120 u admission ceiling. The DRAFT registration was regenerated.
+
+**Tests:** `tests/test_t34_round0d.py` has 89 passed (1 thread, nice 10).

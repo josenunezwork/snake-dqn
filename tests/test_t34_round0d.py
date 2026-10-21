@@ -397,6 +397,45 @@ def test_point_bar_failure_is_stop_exactly_as_round0() -> None:
     assert analyze.summarize(records)["decision"] == "STOP"
 
 
+def test_outcome_reading_follows_the_frozen_precedence() -> None:
+    base = analyze.summarize(_records())
+    assert analyze.outcome_reading(base) is None  # GO has no STOP reading
+
+    def stop(**clause_changes: bool) -> dict:
+        value = copy.deepcopy(base)
+        value["decision"] = "STOP"
+        value["clauses"].update(clause_changes)
+        return value
+
+    everything = dict(
+        scripted_no_death_ge_066=False,
+        survival_guard_b_scripted=False,
+        delivered_boost_share=False,
+    )
+    faulted = stop(**everything)
+    faulted["unconditional_faults"] = [{"fault": "non_finite_q"}]
+    assert analyze.outcome_reading(faulted) == "fault"
+    assert analyze.outcome_reading(stop(**everything)) == "premise_shrinkage"
+    assert (
+        analyze.outcome_reading(stop(mass_gain_ge_40=False))
+        == "premise_shrinkage_mass_only_scripted_gain"
+    )
+    assert (
+        analyze.outcome_reading(stop(mass_gain_ge_40=False, scripted_no_death_gain_ge_010=False))
+        == "premise_shrinkage"
+    )
+    assert (
+        analyze.outcome_reading(stop(survival_guard_b_scripted=False, delivered_boost_share=False))
+        == "survival_harm"
+    )
+    clear = stop(delivered_boost_share=False)
+    clear["pooled_alive"] = dict(clear["pooled_alive"], upper=-0.05)
+    assert analyze.outcome_reading(clear) == "survival_harm"
+    assert analyze.outcome_reading(stop(delivered_boost_share=False)) == "boost_clause"
+    with pytest.raises(analyze.InvalidEvidence):
+        analyze.outcome_reading(stop())
+
+
 # --------------------------------------------------------------------------- sizing / A5-D
 
 
@@ -421,9 +460,16 @@ def test_rate_to_action_table_wave_model_and_120u_ceiling() -> None:
         assert sizing.plan(_receipt(20.0, fidelity_status=status))["action"] == "RATIFY"
     with pytest.raises(sizing.SizingRefused, match="9 MiB"):
         sizing.plan(_receipt(20.0, measured_export_bytes_per_pair=10 * 1024**2))
-    for rate in (6.5, 7.0, 8.0, 10.0, 15.0, 23.0):
+    for rate in (6.5, 7.0, 8.0):  # placeholder slowest = 1.3 x wave: straggler wall > 24 h
+        result = sizing.plan(_receipt(rate))
+        assert result["action"] == "KILL", rate
+        assert result["reason"].startswith("straggler wall"), rate
+    for rate in (9.0, 10.0, 15.0, 23.0):
         result = sizing.plan(_receipt(rate))
         assert result["action"] == "RATIFY", rate
+        assert result["first_stranded_chunk"] is None
+        assert result["straggler_total_units"] <= 120
+        assert result["chunk_admission_ceiling"] == 120.0 - result["replay"]["unit_cap"]
         assert result["chunk_pairs"] % 12 == 0
         assert sum(c["count"] for c in result["chunks"]) == 240
         assert all(c["count"] % 12 == 0 for c in result["chunks"])
@@ -441,25 +487,77 @@ def test_rate_to_action_table_wave_model_and_120u_ceiling() -> None:
         )
 
 
-@pytest.mark.parametrize("rate", [6.5, 7.0, 8.0, 10.0, 15.0, 23.0])
-def test_no_chunk_is_stranded_by_whole_waves_and_slow_worlds(rate: float) -> None:
-    """Every chunk runs ceil(n/12) whole waves at the slowest world (1.3x the mean);
-    with the other lane in flight charged at its full cap, every admission fits 120 u."""
+def _slow(rate: float, ratio: float) -> dict:
     receipt = _receipt(rate)
-    result = sizing.plan(receipt)
+    return _receipt(rate, slowest_world_minutes=ratio * sizing.wave_minutes(receipt))
+
+
+def _stranded_independently(receipt: dict, result: dict) -> bool:
+    """Reviewer's 2-lane simulation: every chunk runs whole waves at the slowest world;
+    the other lane is in flight at its full cap; the admitted chunk is charged its cap
+    against 120 u minus the reserved replay cap; the replay cap fits inside 120 u."""
     chunks = result["chunks"]
     actual = [
-        (c["setup_minutes"] + c["waves"] * receipt["slowest_world_minutes"]) / 60.0 * 2.0
+        (c["setup_minutes"] + c["waves"] * max(receipt["slowest_world_minutes"], c["wave_minutes"]))
+        / 60.0
+        * 2.0
         for c in chunks
     ]
     assert all(a <= c["unit_cap"] for a, c in zip(actual, chunks))
+    ceiling = 120.0 - result["replay"]["unit_cap"]
     for k, chunk in enumerate(chunks):
-        prior = [{"elapsed_seconds": a / 2.0 * 3600.0} for a in actual[: max(k - 1, 0)]]
+        settled = sum(actual[: max(k - 1, 0)])
+        in_flight = chunks[k - 1]["unit_cap"] if k else 0.0
+        if settled + in_flight + chunk["unit_cap"] > ceiling:
+            return True
+    return sum(actual) + result["replay"]["unit_cap"] > 120.0
+
+
+@pytest.mark.parametrize("ratio", [1.0, 1.3, 1.5, 1.6, 1.8, 2.0])
+@pytest.mark.parametrize("rate", [5.0, 6.0, 6.5, 7.0, 8.0, 9.0, 10.0, 15.0, 23.0])
+def test_ratify_never_strands_at_its_measured_slowest_world(rate: float, ratio: float) -> None:
+    """Whenever plan() RATIFYs, its own measured slowest world cannot strand a chunk."""
+    receipt = _slow(rate, ratio)
+    result = sizing.plan(receipt)
+    if result["action"] != "RATIFY":
+        return
+    assert not _stranded_independently(receipt, result), (rate, ratio)
+    for k, chunk in enumerate(result["chunks"]):
+        prior = [
+            {"elapsed_seconds": c["straggler_minutes"] * 60.0}
+            for c in result["chunks"][: max(k - 1, 0)]
+        ]
         if k:
-            prior.append({"elapsed_seconds": None, "unit_cap": chunks[k - 1]["unit_cap"]})
-        spend = sizing.admission_spend(prior, chunk, result["study_unit_ceiling"])
-        assert spend["allowed"], (rate, k, spend)
-    assert sum(actual) + result["replay"]["unit_cap"] <= result["study_unit_ceiling"]
+            prior.append({"elapsed_seconds": None, "unit_cap": result["chunks"][k - 1]["unit_cap"]})
+        spend = sizing.admission_spend(prior, chunk, result["chunk_admission_ceiling"])
+        assert spend["allowed"], (rate, ratio, k, spend)
+
+
+def test_slow_straggler_at_rate_7_is_kill_not_ratify(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review N1: slowest = 1.6 x wave at r = 7 strands chunk 19 near 120 u -> KILL."""
+    result = sizing.plan(_slow(7.0, 1.6))
+    assert result["action"] == "KILL"
+    assert result["reason"] == "measured straggler schedule strands under 120 u"
+    assert result["first_stranded_chunk"] is not None
+    # The straggler-unit gate kills on its own, independent of the 24 h wall gate.
+    monkeypatch.setattr(sizing, "WALL_HOURS_CAP", 1e9)
+    assert (
+        sizing.plan(_slow(7.0, 1.6))["reason"] == "measured straggler schedule strands under 120 u"
+    )
+    assert sizing.plan(_slow(7.0, 1.3))["action"] == "RATIFY"
+    assert sizing.plan(_slow(10.0, 1.6))["action"] == "RATIFY"
+
+
+def test_admission_charges_the_new_chunk_at_its_cap_inside_the_replay_reserve() -> None:
+    result = sizing.plan(_receipt(10.0))
+    chunk = result["chunks"][0]
+    ceiling = result["chunk_admission_ceiling"]
+    assert ceiling == 120.0 - result["replay"]["unit_cap"]
+    room = (ceiling - chunk["unit_cap"]) / 2.0 * 3600.0
+    assert sizing.admission_spend([{"elapsed_seconds": room}], chunk, ceiling)["allowed"]
+    over = sizing.admission_spend([{"elapsed_seconds": room + 60.0}], chunk, ceiling)
+    assert not over["allowed"] and over["infeasible_on_settled_charges"]
+    assert over["chunk_charged_units"] == chunk["unit_cap"] > over["chunk_expected_units"]
 
 
 def test_setup_minutes_are_frozen_from_observation() -> None:
@@ -467,7 +565,12 @@ def test_setup_minutes_are_frozen_from_observation() -> None:
     assert sizing.frozen_setup_minutes(12.1) == 18
 
 
-def test_fidelity_hold_resolves_only_with_explained_platform_records(tmp_path: Path) -> None:
+def test_fidelity_hold_resolves_only_with_bound_explained_platform_records(
+    tmp_path: Path,
+) -> None:
+    from research.t34_round0d.a5d import TIE_EPSILON
+    from research.t34_round0d.common import B8_SHA
+
     data = {
         "fidelity": {
             "status": "HOLD",
@@ -477,28 +580,64 @@ def test_fidelity_hold_resolves_only_with_explained_platform_records(tmp_path: P
             ],
         }
     }
+    export_sha = "e" * 64
+    receipt = {"exports": [{"path": "a5d/fidelity-01.json", "sha256": export_sha}]}
+    good = {
+        "schema": "t34-round0d-fidelity-resolution/v1",
+        "world_id": "b",
+        "status": "EXPLAINED_PLATFORM",
+        "mac_reproduces_t3": True,
+        "mac_differences": [],
+        "tie_epsilon": TIE_EPSILON,
+        "l4_export_sha256": export_sha,
+        "checkpoint_sha256": B8_SHA,
+    }
     record = tmp_path / "b.json"
-    record.write_text(
-        json.dumps(
-            {
-                "schema": "t34-round0d-fidelity-resolution/v1",
-                "world_id": "b",
-                "status": "HOLD",
-            }
-        )
-    )
-    assert sizing.resolved_fidelity(data, [record]) == "HOLD"
-    record.write_text(
-        json.dumps(
-            {
-                "schema": "t34-round0d-fidelity-resolution/v1",
-                "world_id": "b",
-                "status": "EXPLAINED_PLATFORM",
-            }
-        )
-    )
-    assert sizing.resolved_fidelity(data, [record]) == "EXPLAINED_PLATFORM"
-    assert sizing.resolved_fidelity(data, []) == "HOLD"
+
+    def resolved(**changes: object) -> str:
+        record.write_text(json.dumps(dict(good, **changes)))
+        return sizing.resolved_fidelity(data, [record], receipt)
+
+    assert resolved() == "EXPLAINED_PLATFORM"
+    assert resolved(status="HOLD") == "HOLD"
+    assert resolved(l4_export_sha256="f" * 64) == "HOLD"  # not the receipt's fidelity export
+    assert resolved(checkpoint_sha256="0" * 64) == "HOLD"  # not B8 s3
+    assert resolved(mac_reproduces_t3=False) == "HOLD"
+    assert resolved(mac_differences=[{"field": "x"}]) == "HOLD"
+    assert resolved(world_id="a") == "HOLD"
+    record.write_text(json.dumps(good))
+    assert sizing.resolved_fidelity(data, [record], {"exports": []}) == "HOLD"
+    assert sizing.resolved_fidelity(data, [record], None) == "HOLD"
+    assert sizing.resolved_fidelity(data, [], receipt) == "HOLD"
+
+
+def test_platform_tie_greedy_leg_never_explains_a_batched_decision() -> None:
+    from research.t34_round0d.a5d import platform_tie
+
+    near_greedy = {"q": np.array([1.0, 2.0, 2.0 + 5e-5, 0, 0, 0]), "advisory": [True] * 6}
+    records = {15: near_greedy, 16: near_greedy}
+    batched = {
+        "decision": 15,
+        "q": [1.0, 2.0, 2.0 + 5e-5, 0.0, 0.0, 0.0],
+        "legal": [True] * 6,
+        # tied-longest candidates 0 and 2 are far apart in Q: a greedy near-tie between
+        # 1 and 2 must not explain a search-sourced divergence here.
+        "outcomes": {
+            "0": {"alive_steps": 300},
+            "1": {"alive_steps": 10},
+            "2": {"alive_steps": 300},
+        },
+    }
+    tie = platform_tie(15, records, [batched])
+    assert tie["batched"] is True and tie["leg"] == "tied_longest_q_gap"
+    assert not tie["explained"]
+    tied_near = dict(batched, q=[2.0, 0.0, 2.0 + 5e-5, 0.0, 0.0, 0.0])
+    assert platform_tie(15, records, [tied_near])["explained"]
+    unbatched = platform_tie(16, records, [batched])
+    assert unbatched["batched"] is False and unbatched["explained"]
+    far = {16: {"q": np.array([1.0, 2.0, 2.5, 0, 0, 0]), "advisory": [True] * 6}}
+    assert not platform_tie(16, far, [])["explained"]
+    assert not platform_tie(None, records, [batched])["explained"]
 
 
 def test_chunk_manifests_build_end_to_end_from_a_rescoped_plan(
@@ -508,14 +647,14 @@ def test_chunk_manifests_build_end_to_end_from_a_rescoped_plan(
     from research.t34_round0d import make_manifest
 
     a5d = tmp_path / "A5D_RECEIPT.json"
-    a5d.write_text(json.dumps(_receipt(8.0)))
+    a5d.write_text(json.dumps(_receipt(9.0)))
     study_root = (tmp_path / "t34-round0d-study-x").resolve()
     registration = {
         "commit": _git(ROOT, "rev-parse", "HEAD"),
         "approved_at": "2026-10-22T00:00:00+00:00",
         "study_root": str(study_root),
         "source_hashes": {"research/t34_round0d/run.sh": "0" * 64},
-        "sizing": sizing.plan(_receipt(8.0)),
+        "sizing": sizing.plan(_receipt(9.0)),
     }
     ratification = tmp_path / "REGISTRATION_ROUND0D.json"
     ratification.write_text(json.dumps(registration))
@@ -533,7 +672,12 @@ def test_chunk_manifests_build_end_to_end_from_a_rescoped_plan(
     )
     assert len(result["manifests"]) == len(registration["sizing"]["chunks"])
     assert (study_root / "manifests/FORECAST.json").is_file()
+    assert registration["sizing"]["action"] == "RATIFY"
     assert result["forecast"]["study_unit_ceiling"] == 120.0
+    assert (
+        result["forecast"]["chunk_admission_ceiling"]
+        == registration["sizing"]["chunk_admission_ceiling"]
+    )
     world_ids = [w for m in result["manifests"] for w in m["round0d"]["world_ids"]]
     assert len(world_ids) == len(set(world_ids)) == 240
     for manifest in result["manifests"]:

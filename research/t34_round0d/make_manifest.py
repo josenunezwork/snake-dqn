@@ -156,13 +156,15 @@ def make_chunk_manifests(
     # create-only write, so a missing field can never leave partial manifests behind.
     sizing = registration["sizing"]
     forecast = {
-        "schema": "t34-round0d-forecast/v2",
+        "schema": "t34-round0d-forecast/v3",
         "chunks": len(sizing["chunks"]),
         "chunk_pairs": sizing["chunk_pairs"],
         "lanes": lanes,
         "max_in_flight": sizing["max_in_flight"],
         "expected_units": sizing["expected_units"],
         "derived_ceiling": sizing["derived_ceiling"],
+        "straggler_total_units": sizing["straggler_total_units"],
+        "chunk_admission_ceiling": sizing["chunk_admission_ceiling"],
         "study_unit_ceiling": sizing["study_unit_ceiling"],
         "priced_chunk_caps_units": sizing["unit_cap"],
         "held_reserve_units": sizing["reserve_units"],

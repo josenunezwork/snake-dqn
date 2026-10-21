@@ -94,6 +94,39 @@ def _published(path: Path, admission: Mapping[str, Any]) -> None:
         raise InvalidEvidence("artifact is absent from immutable supervisor exports")
 
 
+POINT_BAR_CLAUSES = ("scripted_no_death_ge_066", "scripted_no_death_gain_ge_010", "mass_gain_ge_40")
+SURVIVAL_POINT_CLAUSES = ("survival_guard_a_absolute_floor", "survival_guard_b_scripted")
+
+
+def outcome_reading(decision: Mapping[str, Any]) -> str | None:
+    """Prereg outcome-table row for a STOP, by the frozen precedence; never changes the code.
+
+    1. unconditional fault -> ``fault``; 2. scripted or mass point bar ->
+    ``premise_shrinkage`` (``_mass_only_scripted_gain`` when only mass failed and the
+    scripted gain is >= +0.10); 3. survival guard (absolute floor, guard B, or a guard's
+    upper bound at or below its NI boundary) -> ``survival_harm``; 4. relative boost
+    clause only -> ``boost_clause``. Non-STOP decisions have no reading (None).
+    """
+    if decision.get("decision") != "STOP":
+        return None
+    if decision.get("unconditional_faults"):
+        return "fault"
+    clauses = decision["clauses"]
+    failed = [c for c in POINT_BAR_CLAUSES if not clauses[c]]
+    if failed:
+        if failed == ["mass_gain_ge_40"] and clauses["scripted_no_death_gain_ge_010"]:
+            return "premise_shrinkage_mass_only_scripted_gain"
+        return "premise_shrinkage"
+    clear_survival = decision["pooled_alive"]["upper"] <= -0.05 or any(
+        decision["per_mix"][m]["alive"]["upper"] <= -0.075 for m in MIXES
+    )
+    if clear_survival or any(not clauses[c] for c in SURVIVAL_POINT_CLAUSES):
+        return "survival_harm"
+    if not clauses["delivered_boost_share"]:
+        return "boost_clause"
+    raise InvalidEvidence("STOP matches no pre-registered outcome reading")
+
+
 def descriptive(records: list[Mapping[str, Any]]) -> dict[str, Any]:
     """Plan §3.1 decomposition: reported only, never a gate, never changes the branch."""
     out: dict[str, Any] = {"authority": "DESCRIPTIVE_ONLY_NEVER_A_GATE", "per_mix": {}}
@@ -228,6 +261,7 @@ def analyze_paths(  # noqa: C901 - mirrors Round 0's fail-closed consumer
                     release_authorized=False,
                     unconditional_faults=[fault],
                     fault_sha256=sha256(fault_path),
+                    outcome_reading="fault",
                 )
             admissions.append((chunk_root, admission))
         records, evidence, streams, chunk_hashes, runtimes = [], {}, {}, {}, set()
@@ -365,6 +399,7 @@ def analyze_paths(  # noqa: C901 - mirrors Round 0's fail-closed consumer
             descriptive=descriptive(records),
             sealed_labels_admissible_to_r1=result["decision"] == "GO",
         )
+        result["outcome_reading"] = outcome_reading(result)
         return result
     except CapExpiredHistory as exc:
         return dict(inconclusive(str(exc)), schema=SCHEMA)

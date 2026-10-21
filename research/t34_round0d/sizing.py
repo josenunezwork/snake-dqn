@@ -15,11 +15,19 @@ Round 0-D rules (PREREGISTRATION_ROUND0D.md "Sizing"), frozen pre-data:
   chunk's timeout >= max(estimate+25, 2*estimate, setup + waves*max(slowest, wave) + 25)
   where ``slowest`` is A5-D's slowest measured world (completed or censored at stop).
 * Setup minutes are frozen: max(15, ceil(observed A5-D setup/export/cleanup) + 5).
+* Straggler schedule (FIX-FIRST 2, N1): every chunk is also charged at its slow-world
+  makespan, setup + ceil(n/12)*max(slowest, wave) minutes at 2.0 u/h. The replay cap is
+  reserved inside the 120 u total, so chunks are admitted against 120 - replay cap, each
+  new chunk at its full unit cap (the supervisor's hard stop), with the other lane's
+  attempt in flight at its full cap. Simulating that 2-lane admission on the straggler
+  charges must admit every chunk, and straggler total + replay cap must be <= 120.
+  The wall forecast uses the same straggler makespans.
 * Action: HOLD if fidelity is not PASS/EXPLAINED_TIE/EXPLAINED_PLATFORM or nothing was
-  measured; KILL if r < 5; KILL if expected > 120 u, derived ceiling > 120 u, or wall
-  > 24 h on the 2 registered lanes; otherwise RATIFY. Derived ceiling
+  measured; KILL if r < 5; KILL if expected > 120 u, derived ceiling > 120 u, the
+  straggler schedule strands under 120 u, or straggler wall > 24 h on the 2 registered
+  lanes; otherwise RATIFY. Derived ceiling
   C = 1.2 * expected + (lanes - 1) * max_chunk(cap - expected) must be <= 120; the
-  operative study ceiling is then exactly 120 u (JUDGMENT lane L7 total).
+  operative study ceiling is then exactly 120 u (JUDGMENT lane L7 total), a hard total.
 * Dense R1 (only after a Round 0-D GO): label-yield sizing, <= 200 u, <= 24 h on 3 lanes.
 """
 
@@ -40,7 +48,7 @@ from research.t34_round0.make_manifest import (
     RESERVE_FRACTION,
     TIMEOUT_GRACE_MINUTES,
 )
-from research.t34_round0d.common import read_json, sha256, source_hashes, write_once
+from research.t34_round0d.common import B8_SHA, read_json, sha256, source_hashes, write_once
 
 SCHEMA = "t34-round0d-a5d/v3"
 KILL_WORLDS_PER_HOUR = 5.0
@@ -185,9 +193,13 @@ def plan(receipt: dict[str, Any], pairs: int = 240, lanes: int = LANES) -> dict[
     expected = sum(expected_chunk) + replay["expected_units"]
     headroom = max(c["unit_cap"] - e for c, e in zip(chunks, expected_chunk))
     derived = (1 + OVERRUN_FRACTION) * expected + (lanes - 1) * headroom
+    chunk_ceiling = STUDY_UNIT_CAP - replay["unit_cap"]
+    straggler_chunk = [c["straggler_minutes"] / 60.0 * RATE_UNITS_PER_HOUR for c in chunks]
+    straggler_total = sum(straggler_chunk) + replay["unit_cap"]
+    stranded = admission_schedule(chunks, straggler_chunk, chunk_ceiling, lanes)
     per_lane = [0.0] * lanes
     for index, chunk in enumerate(chunks):
-        per_lane[index % lanes] += chunk["workload_minutes"] + DISPATCH_GAP_MINUTES
+        per_lane[index % lanes] += chunk["straggler_minutes"] + DISPATCH_GAP_MINUTES
     wall_hours = (max(per_lane) + replay["estimate_minutes"] + DISPATCH_GAP_MINUTES) / 60.0
     sizing = dict(
         base,
@@ -199,6 +211,10 @@ def plan(receipt: dict[str, Any], pairs: int = 240, lanes: int = LANES) -> dict[
         expected_chunk_units=expected_chunk,
         replay=replay,
         derived_ceiling=derived,
+        straggler_chunk_units=straggler_chunk,
+        straggler_total_units=straggler_total,
+        first_stranded_chunk=stranded,
+        chunk_admission_ceiling=chunk_ceiling,
         study_unit_ceiling=STUDY_UNIT_CAP,
         study_unit_cap=STUDY_UNIT_CAP,
         wall_hours_forecast=wall_hours,
@@ -210,13 +226,44 @@ def plan(receipt: dict[str, Any], pairs: int = 240, lanes: int = LANES) -> dict[
         sizing.update(action="KILL", reason="forecast expected units > 120")
     elif derived > STUDY_UNIT_CAP:
         sizing.update(action="KILL", reason="derived ceiling > 120 u")
+    elif stranded is not None or straggler_total > STUDY_UNIT_CAP:
+        sizing.update(action="KILL", reason="measured straggler schedule strands under 120 u")
     elif wall_hours > WALL_HOURS_CAP:
-        sizing.update(action="KILL", reason="forecast wall > 24 h on the registered lanes")
+        sizing.update(
+            action="KILL", reason="straggler wall forecast > 24 h on the registered lanes"
+        )
     else:
         sizing.update(
-            action="RATIFY", reason="r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h"
+            action="RATIFY",
+            reason=(
+                "r >= 5, expected and derived ceiling <= 120 u, straggler schedule admits "
+                "every chunk within 120 u incl. the replay cap, straggler wall <= 24 h"
+            ),
         )
     return sizing
+
+
+def admission_schedule(
+    chunks: list[dict[str, Any]], charges: list[float], ceiling: float, lanes: int = LANES
+) -> int | None:
+    """First chunk the 2-lane dispatcher would refuse, else None.
+
+    Chunk k is admitted (``admission_spend``) while the previous ``lanes - 1`` chunks are
+    still in flight at their full caps and every earlier chunk has settled at its
+    ``charges`` entry (the measured slow-world makespan at 2.0 u/h).
+    """
+    for k, chunk in enumerate(chunks):
+        first_live = max(k - (lanes - 1), 0)
+        prior: list[dict[str, Any]] = [
+            {"elapsed_seconds": charge / RATE_UNITS_PER_HOUR * 3600.0}
+            for charge in charges[:first_live]
+        ]
+        prior += [
+            {"elapsed_seconds": None, "unit_cap": c["unit_cap"]} for c in chunks[first_live:k]
+        ]
+        if not admission_spend(prior, chunk, ceiling)["allowed"]:
+            return k
+    return None
 
 
 def replay_sizing(receipt: dict[str, Any], chunks: list[dict[str, Any]]) -> dict[str, Any]:
@@ -265,11 +312,14 @@ def validate(receipt: dict[str, Any]) -> dict[str, Any]:
 def admission_spend(
     prior: list[dict[str, Any]], chunk: dict[str, Any], ceiling: float
 ) -> dict[str, Any]:
-    """Refuse a chunk whose expected spend would cross the derived study ceiling.
+    """Refuse a chunk whose capped spend would cross the chunk admission ceiling.
 
-    Settled attempts are charged their whole-session elapsed time at 2.0 u/h; an
-    in-flight or receipt-less attempt is charged its full unit cap. ``settled_only``
-    reports whether the refusal stands without any in-flight charge (-> INCONCLUSIVE).
+    ``ceiling`` is the registered ``chunk_admission_ceiling`` (120 u minus the reserved
+    replay cap). Settled attempts are charged their whole-session elapsed time at
+    2.0 u/h; an in-flight or receipt-less attempt, and the chunk being admitted, are
+    charged their full unit caps (the supervisor's hard stop), so 120 u is a hard total.
+    ``infeasible_on_settled_charges`` reports whether the refusal stands without any
+    in-flight charge (-> INCONCLUSIVE).
     """
     settled = unsettled = 0.0
     for item in prior:
@@ -279,13 +329,15 @@ def admission_spend(
         else:
             unsettled += float(item.get("unit_cap", ceiling))
     expected = float(chunk["workload_minutes"]) / 60.0 * RATE_UNITS_PER_HOUR
+    cap = float(chunk["unit_cap"])
     return {
         "charged_units": settled + unsettled,
         "settled_units": settled,
         "chunk_expected_units": expected,
+        "chunk_charged_units": cap,
         "ceiling": ceiling,
-        "allowed": settled + unsettled + expected <= ceiling,
-        "infeasible_on_settled_charges": settled + expected > ceiling,
+        "allowed": settled + unsettled + cap <= ceiling,
+        "infeasible_on_settled_charges": settled + cap > ceiling,
     }
 
 
@@ -353,20 +405,44 @@ def slowest_world_minutes(data: dict[str, Any]) -> float:
     return max(values)
 
 
-def resolved_fidelity(data: dict[str, Any], resolutions: list[Path]) -> str:
-    """Overall fidelity after the pre-registered Mac re-run resolution of HOLD worlds."""
+def resolved_fidelity(
+    data: dict[str, Any], resolutions: list[Path], receipt: dict[str, Any] | None = None
+) -> str:
+    """Overall fidelity after the pre-registered Mac re-run resolution of HOLD worlds.
+
+    A resolution record counts only if it is bound to this A5-D run: its
+    ``l4_export_sha256`` equals the supervisor-verified receipt export
+    ``fidelity-<index>.json`` for that world, its ``checkpoint_sha256`` is B8 s3, the Mac
+    reproduced T3 exactly (``mac_reproduces_t3`` with no differences), and it used the
+    registered epsilon. Anything else leaves the world HOLD.
+    """
+    from research.t34_round0d.a5d import RESOLUTION_SCHEMA, TIE_EPSILON
+
     status = data["fidelity"]["status"]
     if status != "HOLD":
         return status
-    explained = {}
-    for path in resolutions:
-        record = read_json(path)
-        if record.get("schema") == "t34-round0d-fidelity-resolution/v1":
-            explained[record["world_id"]] = record["status"]
-    for world in data["fidelity"]["worlds"]:
+    exports = (receipt or {}).get("exports", [])
+    records = [read_json(path) for path in resolutions]
+    for index, world in enumerate(data["fidelity"]["worlds"]):
         if world["status"] in ("PASS", "EXPLAINED_TIE"):
             continue
-        if explained.get(world["world_id"]) != "EXPLAINED_PLATFORM":
+        name = f"fidelity-{index:02d}.json"
+        bound = {
+            e.get("sha256")
+            for e in exports
+            if str(e.get("path", "")).rsplit("/", 1)[-1] == name and e.get("sha256")
+        }
+        if not any(
+            record.get("schema") == RESOLUTION_SCHEMA
+            and record.get("world_id") == world["world_id"]
+            and record.get("status") == "EXPLAINED_PLATFORM"
+            and record.get("l4_export_sha256") in bound
+            and record.get("checkpoint_sha256") == B8_SHA
+            and record.get("mac_reproduces_t3") is True
+            and not record.get("mac_differences")
+            and record.get("tie_epsilon") == TIE_EPSILON
+            for record in records
+        ):
             return "HOLD"
     return "EXPLAINED_PLATFORM"
 
@@ -414,7 +490,7 @@ def build(a5d_benchmark: Path, preflight: Path, resolutions: list[Path] | None =
     payload = {
         "schema": SCHEMA,
         "teacher_worlds_per_hour": rates["teacher_worlds_per_hour"],
-        "fidelity_status": resolved_fidelity(data, resolutions),
+        "fidelity_status": resolved_fidelity(data, resolutions, receipt),
         "bare_seconds_per_world": bare,
         "metric_seconds_per_pair": metric,
         "slowest_world_minutes": slowest_world_minutes(data),

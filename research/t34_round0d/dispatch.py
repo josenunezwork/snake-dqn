@@ -5,8 +5,10 @@ create-only remote claim, fixed attempt paths, 48 h dispatch deadline, abort or
 unexplained interruption = KILL, first cap = INCONCLUSIVE, one outcome-independent
 mechanical rerun, no automatic retry. Generic settlement helpers are imported
 unchanged. Round 0-D additions: two concurrent lanes via an in-flight liveness
-lock (at most 2 in flight), and the forecast-derived charged-unit ceiling before every
-admission (a settled-charge breach seals INCONCLUSIVE).
+lock (at most 2 in flight), and the registered 120 u study ceiling before every
+admission: chunks are admitted against ``chunk_admission_ceiling`` (120 u minus the
+reserved replay cap), the new chunk charged at its full unit cap, so 120 u is a hard
+total (a settled-charge breach seals INCONCLUSIVE).
 """
 
 from __future__ import annotations
@@ -241,7 +243,7 @@ def dispatch(
         if (root / "replay").exists() or (root / "analysis").exists():
             raise HistoryError("no dispatch or mechanical rerun after a replay/outcome look")
         sizing = registration["sizing"]
-        ceiling = float(sizing["study_unit_ceiling"])
+        ceiling = float(sizing["chunk_admission_ceiling"])
         live = in_flight_count(registration)
         if live >= int(sizing["max_in_flight"]):
             raise HistoryError(
