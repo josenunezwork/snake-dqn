@@ -20,7 +20,8 @@ def request(request_id: str = "r1", *, cutoff_ns: int = 100, target_frame: int =
         root_digest="d" * 64,
         request_id=request_id,
         payload_sha=sha256({}),
-        cutoff_ns=cutoff_ns,
+        publish_cutoff_ns=cutoff_ns - 1,
+        consume_cutoff_ns=cutoff_ns,
     )
 
 
@@ -91,8 +92,8 @@ def test_cutoff_at_exact_nanosecond_falls_back_to_bare() -> None:
         event(
             2,
             "result_visible",
-            {"request_id": "r1", "payload": payload, "completed_ns": 9},
-            time_ns=9,
+            {"request_id": "r1", "payload": payload, "completed_ns": 8},
+            time_ns=8,
         ),
         event(3, "poll", poll(), time_ns=9),
         event(4, "validation_complete", {"request_id": "r1", "valid": True}, time_ns=9),

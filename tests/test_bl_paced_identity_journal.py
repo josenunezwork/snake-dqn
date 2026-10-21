@@ -26,7 +26,7 @@ SHA = "a" * 64
 
 
 def test_request_and_identity_bind_all_delivery_fields() -> None:
-    request = Request("session-1", 2, 12, 16, SHA, 3, SHA, "request-1", SHA, 999)
+    request = Request("session-1", 2, 12, 16, SHA, 3, SHA, "request-1", SHA, 999, 1000)
     assert request.as_dict()["target_frame"] == 16
     warmup = {"frames": [32]}
     identity = CandidateIdentity(
@@ -67,7 +67,7 @@ def test_request_and_identity_bind_all_delivery_fields() -> None:
     with pytest.raises(EventValidationError):
         CandidateIdentity(SHA, "edf", 300, "tie", 4, 3, "q", {"frames": 1}, "bare", "v1", {}, SHA)
     with pytest.raises(EventValidationError):
-        Request("session", 0, 3, 2, SHA, 0, SHA, "id", SHA, 1)
+        Request("session", 0, 3, 2, SHA, 0, SHA, "id", SHA, 1, 2)
 
 
 def test_event_from_dict_is_strict_and_finite() -> None:

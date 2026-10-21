@@ -215,7 +215,7 @@ class _Reducer:
                 self.invalid = True
                 self.emit("fault", request_id=request_id, reason="conflicting_duplicate")
             return
-        if now >= int(request.get("cutoff_ns", -1)):
+        if now >= int(request.get("publish_cutoff_ns", -1)):
             self.emit("refusal", request_id=request_id, reason="expired")
             return
         if (
@@ -277,6 +277,7 @@ class _Reducer:
             self._release(request_id)
             return
         item["visible"] = True
+        item["visible_ns"] = data["_event_time_ns"]
         item["result_payload"] = result["payload"]
         item["completed_ns"] = data.get("completed_ns")
 
@@ -298,7 +299,7 @@ class _Reducer:
         expected_id, item = min(
             queued,
             key=lambda row: (
-                int(row[1]["request"].get("cutoff_ns", -1)),
+                int(row[1]["request"].get("publish_cutoff_ns", -1)),
                 int(row[1]["request"].get("target_frame", -1)),
                 row[0],
             ),
@@ -333,12 +334,14 @@ class _Reducer:
         request_id, item = min(
             candidates,
             key=lambda row: (
-                int(row[1]["request"].get("cutoff_ns", -1)),
+                int(row[1]["request"].get("publish_cutoff_ns", -1)),
                 int(row[1]["request"].get("target_frame", -1)),
                 row[0],
             ),
         )
-        if now >= int(item["request"].get("cutoff_ns", -1)):
+        if now >= int(item["request"].get("consume_cutoff_ns", -1)) or item["visible_ns"] >= int(
+            item["request"].get("publish_cutoff_ns", -1)
+        ):
             self._release(request_id)
             self._decision(request_id, bare, "cutoff")
             return
@@ -414,9 +417,10 @@ class _Reducer:
             self._decision(request_id, bare, "stale")
             return
         if (
-            now >= int(request.get("cutoff_ns", -1))
-            or int(validation.get("completed_ns", now)) >= int(request.get("cutoff_ns", -1))
-            or int(item.get("completed_ns", now)) >= int(request.get("cutoff_ns", -1))
+            now >= int(request.get("consume_cutoff_ns", -1))
+            or int(validation.get("completed_ns", now)) >= int(request.get("consume_cutoff_ns", -1))
+            or int(item.get("visible_ns", now)) >= int(request.get("publish_cutoff_ns", -1))
+            or int(item.get("completed_ns", now)) >= int(request.get("publish_cutoff_ns", -1))
         ):
             self._release(request_id)
             self._decision(request_id, bare, "cutoff")
@@ -539,7 +543,7 @@ class _Reducer:
             if data.get("value_ns") != event.time_ns:
                 self.invalid = True
                 self.structural_error = "clock_mismatch"
-        elif event.kind in {"progress", "game_state"}:
+        elif event.kind in {"progress", "game_state", "transport_authorization"}:
             return
         else:
             self.invalid = True

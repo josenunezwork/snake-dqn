@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict
 
+from research.bl_paced_identity.clock_seam import EXPECTED, SCHEMA
 from research.bl_paced_identity.events import sha256
 from research.bl_paced_identity.fixtures import fixture_identity
 from research.bl_paced_identity.receipt import (
@@ -124,6 +126,15 @@ def test_full_audited_metadata_corpus_can_pass_receipt_gate() -> None:
         replay=replay,
         paced=paced,
         source_hashes=source,
+        clock_seam={
+            "schema": SCHEMA,
+            "verdict": "PASS",
+            "source_binding_sha256": sha256(source),
+            "cases": {
+                name: {"accepted": accepted, "reason": reason, "scheduler_verdict": "PASS"}
+                for name, (accepted, reason) in EXPECTED.items()
+            },
+        },
         input_hashes=inputs,
         reference_hashes=reference,
         commands=["registered runner --frozen-manifest manifest.json"],
@@ -143,6 +154,15 @@ def test_full_audited_metadata_corpus_can_pass_receipt_gate() -> None:
             "binding_sha256": binding,
         },
         source_hashes=source,
+        clock_seam={
+            "schema": SCHEMA,
+            "verdict": "PASS",
+            "source_binding_sha256": sha256(source),
+            "cases": {
+                name: {"accepted": accepted, "reason": reason, "scheduler_verdict": "PASS"}
+                for name, (accepted, reason) in EXPECTED.items()
+            },
+        },
         input_hashes=inputs,
         reference_hashes=reference,
         commands=["registered runner --frozen-manifest manifest.json"],
@@ -151,6 +171,25 @@ def test_full_audited_metadata_corpus_can_pass_receipt_gate() -> None:
     )
     assert l3_admission["verdict"] == "INCOMPLETE"
     assert l3_admission["l3_identity_prerequisites"] == "PASS"
+    proof_kwargs = {
+        key: l3_admission[key]
+        for key in ("identity", "commands", "journal_seals", "forecast", "clock_seam")
+    }
+    proof_kwargs.update(
+        **l3_admission["oracles"],
+        source_hashes=source,
+        input_hashes=inputs,
+        reference_hashes=reference,
+    )
+    for name in EXPECTED:
+        broken = deepcopy(proof_kwargs)
+        broken["clock_seam"]["cases"][name]["accepted"] = not EXPECTED[name][0]
+        blocked = make_receipt(**broken)
+        assert blocked["l3_identity_prerequisites"] == "BLOCKED"
+        assert "clock_seam_not_verified" in blocked["evidence_problems"]
+    for proof in (None, {}, {**l3_admission["clock_seam"], "source_binding_sha256": SHA}):
+        blocked = make_receipt(**{**proof_kwargs, "clock_seam": proof})
+        assert blocked["l3_identity_prerequisites"] == "BLOCKED"
 
 
 def test_missing_and_malformed_evidence_is_incomplete_but_divergence_is_invalid() -> None:

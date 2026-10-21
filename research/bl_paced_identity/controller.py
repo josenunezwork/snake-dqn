@@ -57,7 +57,7 @@ class PacedController:
                 self._fault(rid, "conflicting_duplicate")
                 return False
             reason = "duplicate"
-        elif event.time_ns >= request.cutoff_ns:
+        elif event.time_ns >= request.publish_cutoff_ns:
             reason = "expired"
         elif request.target_frame - request.source_frame > 432:
             reason = "lead_exceeded"
@@ -97,7 +97,7 @@ class PacedController:
         next_item = min(
             queued,
             key=lambda item: (
-                item["request"]["cutoff_ns"],
+                item["request"]["publish_cutoff_ns"],
                 item["request"]["target_frame"],
                 item["request"]["request_id"],
             ),
@@ -117,7 +117,7 @@ class PacedController:
 
     def publish(self, request_id: str, payload: dict[str, Any], completed_ns: int) -> None:
         """Observe a response at the coordinator; store the entire result."""
-        self._emit(
+        event = self._emit(
             "result_visible", request_id=request_id, payload=payload, completed_ns=completed_ns
         )
         value = {"payload": payload, "completed_ns": completed_ns}
@@ -135,7 +135,7 @@ class PacedController:
         if pending["fenced"]:
             del self.pending[request_id]
             return
-        pending["visible"] = copy.deepcopy(value)
+        pending["visible"] = copy.deepcopy({**value, "visible_ns": event.time_ns})
 
     def worker_error(self, request_id: str, error: str) -> None:
         """Retain all worker failures; a failed root always falls back."""
@@ -196,7 +196,7 @@ class PacedController:
                 and item["request"]["target_frame"] <= context["frame"]
             ),
             key=lambda item: (
-                item["request"]["cutoff_ns"],
+                item["request"]["publish_cutoff_ns"],
                 item["request"]["target_frame"],
                 item["request"]["request_id"],
             ),
@@ -213,7 +213,10 @@ class PacedController:
             "mask": list(mask),
             "valid": False,
         }
-        if event.time_ns >= raw["cutoff_ns"]:
+        if (
+            event.time_ns >= raw["consume_cutoff_ns"]
+            or item["visible"]["visible_ns"] >= raw["publish_cutoff_ns"]
+        ):
             return self._reject("cutoff")
         if not self._matches(raw, context) or context["shadow_epoch"] != self.epoch:
             return self._reject("stale")
@@ -267,9 +270,10 @@ class PacedController:
         # any further recorder call; the journal observes that committed action.
         commit_ns = self.clock()
         if (
-            commit_ns >= raw["cutoff_ns"]
-            or active.get("validated_ns", commit_ns) >= raw["cutoff_ns"]
-            or visible["completed_ns"] >= raw["cutoff_ns"]
+            commit_ns >= raw["consume_cutoff_ns"]
+            or active.get("validated_ns", commit_ns) >= raw["consume_cutoff_ns"]
+            or visible["visible_ns"] >= raw["publish_cutoff_ns"]
+            or visible["completed_ns"] >= raw["publish_cutoff_ns"]
         ):
             rejection = "cutoff"
         if rejection is not None:

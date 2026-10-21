@@ -8,6 +8,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Callable
 
+from .clock_seam import EXPECTED, SCHEMA
 from .controller import PacedController
 from .events import CandidateIdentity, Request, sha256
 from .record import Journal, export_json, read_journal
@@ -54,7 +55,8 @@ def fixture_request(rid: str = "r1", **changes: Any) -> Request:
         root_digest="d" * 64,
         request_id=rid,
         payload_sha=sha256({"root": "fixture"}),
-        cutoff_ns=100,
+        publish_cutoff_ns=90,
+        consume_cutoff_ns=100,
     )
     return replace(request, **changes)
 
@@ -118,9 +120,9 @@ def run_adversarial_fixtures(directory: Path) -> dict[str, Any]:
         def exercise(controller: PacedController, clock: FixtureClock) -> None:
             request = fixture_request()
             controller.submit(request, {"root": "fixture"})
-            clock.now = when if delivery is None else delivery
-            controller.worker_complete(request.request_id, min(99, when))
-            controller.publish(request.request_id, fixture_result(request), min(99, when))
+            clock.now = min(89, when) if delivery is None else delivery
+            controller.worker_complete(request.request_id, min(89, when))
+            controller.publish(request.request_id, fixture_result(request), min(89, when))
             clock.now = max(clock.now, when)
             action = controller.begin_poll(request_context(request), 0, [True] * 6)
             if action is None:
@@ -134,6 +136,44 @@ def run_adversarial_fixtures(directory: Path) -> dict[str, Any]:
         run(f"cutoff-{when}", boundary(when))
     run("completed-before-visible-after", boundary(99, delivery=101))
     run("validation-crossing-cutoff", boundary(99, validation=100))
+
+    # The publication deadline is two ticks before T_r, while consumption
+    # remains legal until one tick after T_r. No real clock or world is used.
+    for case, visibility, consumption, frame in (
+        ("on-time", 79, 100, 5),
+        ("publication-late", 80, 100, 5),
+        ("consumption-late", 79, 110, 5),
+        ("wrong-frame", 79, 100, 6),
+    ):
+
+        def clock_seam(
+            controller: PacedController,
+            clock: FixtureClock,
+            visible_ns: int = visibility,
+            consume_ns: int = consumption,
+            target_frame: int = frame,
+        ) -> None:
+            request = fixture_request(publish_cutoff_ns=80, consume_cutoff_ns=110)
+            controller.submit(request, {"root": "fixture"})
+            clock.now = 70
+            controller.worker_complete(request.request_id, 70)
+            clock.now = visible_ns
+            controller.publish(request.request_id, fixture_result(request), 70)
+            clock.now = 100
+            context = {**request_context(request), "frame": target_frame}
+            if controller.begin_poll(context, 0, [True] * 6) is None:
+                controller.validation_complete(request.request_id, True)
+                clock.now = consume_ns
+                controller.consume(request.request_id)
+
+        run("clock-seam-" + case, clock_seam)
+        decisions = rows[-1]["decisions"]
+        expected_acceptance, expected_reason = EXPECTED[case]
+        if len(decisions) != 1 or (
+            decisions[0]["accepted"] is not expected_acceptance
+            or decisions[0]["reason"] != expected_reason
+        ):
+            raise AssertionError(f"clock seam {case}: {decisions}")
 
     for field, value in (
         ("session", "stale"),
@@ -229,6 +269,20 @@ def run_adversarial_fixtures(directory: Path) -> dict[str, Any]:
 
         run("order-" + "-".join(order), interleave, capacity=2)
 
-    result = {"scope": "SYNTHETIC_PRECHECK_ONLY", "fixture_count": len(rows), "fixtures": rows}
+    cases = {
+        row["fixture_id"].removeprefix("clock-seam-"): {
+            "accepted": row["decisions"][0]["accepted"],
+            "reason": row["decisions"][0]["reason"],
+            "scheduler_verdict": row["observed"],
+        }
+        for row in rows
+        if row["fixture_id"].startswith("clock-seam-")
+    }
+    result = {
+        "scope": "SYNTHETIC_PRECHECK_ONLY",
+        "fixture_count": len(rows),
+        "fixtures": rows,
+        "clock_seam": {"schema": SCHEMA, "verdict": "PASS", "cases": cases},
+    }
     export_json(directory / "fixtures.json", copy.deepcopy(result))
     return result

@@ -96,7 +96,8 @@ class TinyGame:
             target_frame=context["frame"],
             root_digest=context["root_digest"],
             payload_sha=sha256(payload),
-            cutoff_ns=self.cutoff_base_ns + 15_000_000_000,
+            publish_cutoff_ns=self.cutoff_base_ns + 15_000_000_000,
+            consume_cutoff_ns=self.cutoff_base_ns + 16_000_000_000,
         )
         return {"request": asdict(request), "payload": payload}
 
@@ -175,7 +176,8 @@ def run_preflight(directory: Path) -> dict[str, Any]:
         target_frame=context["frame"],
         root_digest=context["root_digest"],
         payload_sha=sha256(payload),
-        cutoff_ns=cutoff_base + 15_000_000_000,
+        publish_cutoff_ns=cutoff_base + 15_000_000_000,
+        consume_cutoff_ns=cutoff_base + 16_000_000_000,
     )
     if not transport.submit(request, payload):
         raise RuntimeError("tiny transport admission refused")
@@ -230,6 +232,10 @@ def run_preflight(directory: Path) -> dict[str, Any]:
         replay=replay,
         paced={"verdict": "NOT_RUN", "reason": "owner requested no paced study runs"},
         source_hashes=file_hashes(source_paths),
+        clock_seam={
+            **fixtures["clock_seam"],
+            "source_binding_sha256": sha256(file_hashes(source_paths)),
+        },
         input_hashes={"initial_state": sha256(initial_state)},
         reference_hashes=file_hashes(reference_paths),
         commands=[" ".join(sys.argv)],

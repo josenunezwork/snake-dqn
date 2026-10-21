@@ -2,7 +2,7 @@
 
 Build-only implementation of advisor 03's three-oracle package, adopted by
 round-07 JUDGMENT §b03/X7, with round-06 §a7 delivery semantics and round-07 §c4/5
-corrections. This package does not change serving, run a paced study, allocate a
+corrections and the pre-data round-09 Z-2 clock seam. This package does not change serving, run a paced study, allocate a
 bank, invoke Colab, or ratify a registration. Serving remains on this Mac.
 
 The preflight demonstrates the plumbing on injected fixtures. Production
@@ -17,6 +17,9 @@ three-oracle PASS.
 | `events.py` | Canonical finite JSON, immutable request/config snapshots and integer-nanosecond events |
 | `record.py` | Bounded on-tick ring, explicit off-tick draining, create-only chained chunks/seal and verified imports |
 | `controller.py` | Request admission, exact target/identity/deadline fences, validation/consumption, bare fallback and intervention invalidation |
+| `adapter.py` | Frozen reachable-root selection and absolute tick schedule; two-cutoff request construction |
+| `authorization.py` | Explicit file-bound L1-prime PROBE_ONLY scope, separate from serving authority |
+| `clock_seam.py` | Four-case source-bound prerequisite for L3 admission |
 | `transport.py` | Mac-only spawned worker processes, one math thread each, bounded EDF queue and W/K accounting |
 | `replay.py` | Separately implemented reducer; independent request/dispatch expectations, validation, game actions, state and score replay |
 | `semantic.py` | Six first-action branches, greedy continuations, exact state/observation/action/event/mass comparison and full-horizon clone isolation |
@@ -29,10 +32,12 @@ The caller provides an immutable root and a separately pinned planner worker
 entire request binding, `action`, `bare`, `mask`, and all planner outputs required
 by its frozen semantic oracle. A request binds session, life, source/target
 frame, checkpoint SHA, shadow epoch, root digest, request ID, input-payload SHA
-and absolute cutoff. Root selection, two-tick cutoff margin, the 32/96/192/300
-horizon checkpoints and a lead cap of 432 decisions belong to the frozen
-candidate adapter. The package preserves those declarations; it does not invent
-the future candidate's roots or claim the T3 planner has been qualified.
+and two absolute cutoffs. The candidate adapter selects among caller-supplied
+immutable reachable bare-shadow roots and constructs requests from a frozen
+absolute tick schedule. It enforces the 32/96/192/300 horizon checkpoints,
+five-decision offered-root spacing and the lead cap of 432 decisions. The root
+provider and planner still require their own frozen production implementations
+and semantic qualification; constructing a request does not qualify T3.
 
 Before a tick, call `collect()` to observe ready IPC; it never waits. `submit()`
 admits at most K roots. Off tick, `dispatch()` starts the earliest cutoff, then
@@ -44,20 +49,42 @@ carry, RNG, source/fixture identities and frozen authorization, not just a seed.
 
 At a tick, `poll(context, bare, mask, validate)` consumes only a visible response
 for that exact context. Completion time, coordinator visibility and consumption
-are distinct events. Validation must finish and consumption must occur strictly
-before the request's own cutoff; equality is a miss. A result cannot borrow a
+are distinct events. At target tick `T_r`, publication must be visible strictly before
+`publish_cutoff_ns = T_r - 2 ticks`. Validation and the final consumption commit
+must occur strictly before `consume_cutoff_ns = T_r + 1 tick`. The adapter uses
+absolute integer tick times, including at fractional-nanosecond frame periods.
+Equality at either deadline is a miss. On-time publication remains consumable
+at its exact target frame after the publication deadline. A result cannot borrow a
 later root's deadline. Every rejected result uses the current bare action.
 Interventions advance the shadow epoch, fencing other answers. Respawn,
 checkpoint changes and host pause/resume call `invalidate()` with an advancing
 epoch. Cancelling unfinished work keeps its K slot occupied until collection.
 
 W defaults to 1 and K to 1. All integer configurations 1≤W≤4 and W≤K≤8 are
-representable and covered by model fixtures. **Actual multi-worker launch
-requires `owner_multi_worker=True` only after the owner's explicit OK.** This
-flag is not authorization itself; save the authorization in the prospective
-manifest. The preflight launches only W=1/K=1. K includes queued, running and
-completed-but-unconsumed work. No latency claim follows from a contended Phase-0
-fixture.
+representable and covered by model fixtures. Serving defaults to CPU/W1/K1;
+`owner_multi_worker=True` represents only an explicit owner serving clause,
+which must be retained in the prospective manifest. Probe authorization never
+grants serving authority.
+
+L1′ measurement probes use `mode="probe"`. Expanded W/K or `device="mps"`
+requires `probe_authorization_file` naming an explicit PROBE_ONLY authorization
+for L1_PRIME, covering the requested workers, pending capacity and device.
+Missing authorization leaves expanded cells NOT_MEASURED. A serving flag cannot
+substitute for a probe file. CPU/W1/K1 probes need no expanded-cell authorization.
+No live authorization file is created by this implementation. See
+[ROUND09_Z2.md](ROUND09_Z2.md) for the exact schema and scope.
+
+The transport configures the selected device in spawned workers; MPS is a
+probe-only backend and remains unmeasured here. Its caller-supplied worker must
+honor that device, and MPS availability is checked before executing worker code.
+K includes queued, running and completed-but-unconsumed work. The preflight
+launches only CPU/W1/K1. No latency claim follows from a contended Phase-0 fixture.
+
+The fake-clock four-case proof covers on-time acceptance, publication-late
+rejection, consumption-late rejection and wrong-frame rejection. Every case
+must also agree with the independent reducer. `make_receipt(clock_seam=...)`
+requires this complete proof bound to the same source map; a missing,
+mis-dispositioned or differently bound proof blocks `l3_identity_prerequisites`.
 
 ## Oracle contracts
 
