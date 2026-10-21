@@ -13,10 +13,14 @@ from pathlib import Path
 from typing import Any
 
 M2_BANK = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-shadow-20261019/bank")
+T3_CEILING = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/dense/ceiling"
+)
 EXPECTED_ALL_DIE = 33
-PRIMARY_COUNT = 10
+PRIMARY_COUNT = 7
 
-# Frozen by PREREGISTRATION.md (selection rule applied once, before any T35 data).
+# Frozen by PREREGISTRATION.md Amendment 1 (decision unit = distinct world): the earliest
+# all-die event of each of the 7 all-die worlds, worlds in name order.  Applied before data.
 PRIMARY_EVENTS = (
     "b8_s0_21@3707",
     "b8_s0_8@4318",
@@ -25,9 +29,6 @@ PRIMARY_EVENTS = (
     "b8_s3_6@4562",
     "b8_s3_8@4246",
     "b8_s3_9@4188",
-    "b8_s0_21@3737",
-    "b8_s0_8@4353",
-    "b8_s3_26@3675",
 )
 
 
@@ -125,3 +126,31 @@ def m2_layer1_row_steps(event: dict[str, Any]) -> int:
                 if int(action) != int(probe["greedy"])
             )
     raise KeyError(event["id"])
+
+
+def excluded_first_deviations(event: dict[str, Any]) -> list[tuple[int, int]]:
+    """First deviations whose branch M2 already proved all-die (Amendment 1).
+
+    T3's historical change ``(c, chosen)`` of this event, continued greedily, *is* the
+    greedy shadow of the next M2 case of the same world when that case starts at
+    ``c + 1``; its layer-2 window equals that case's window.  If that case is all-die the
+    branch is a known negative and is excluded from the beam.
+    """
+    receipt = json.loads(Path(event["m2_receipt"]).read_text())
+    change = int(event["historical_change"])
+    following = [c for c in receipt["cases"] if int(c["source_decision"]) == change + 1]
+    if not following or following[0]["truth"]["t_star"] is not None:
+        return []
+    t3 = json.loads((T3_CEILING / f"{event['world']}.json").read_text())
+    rows = [t for t in t3["trigger_rows"] if int(t["decision"]) == change]
+    if len(rows) != 1 or int(rows[0]["chosen"]) == int(rows[0]["greedy"]):
+        raise RuntimeError(("historical change not found in the T3 receipt", event["id"]))
+    return [(change, int(rows[0]["chosen"]))]
+
+
+# Amendment 1 (A1.7): multi-deviation paths already visible in the immutable inputs.
+# Reported separately by ``summarize``; never counted unless the registered beam finds them.
+KNOWN_PATHS = {
+    "b8_s3_19@4693": {"first": [4697, 2], "second": [4727, 4], "meets_600_bar": True},
+    "b8_s3_9@4188": {"first": [4198, 0], "second_decision": 4204, "meets_600_bar": None},
+}

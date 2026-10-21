@@ -1,7 +1,10 @@
 # T35 two-deviation rescue probe — pre-registration (2026-10-20 PT)
 
 **Status: REGISTERED, NOT RUN.** Written and committed before any registered-shape run. Research
-probe only: it grants no gate, training, serving or release authority. Source: GPU expert 2,
+probe only: it grants no gate, training, serving or release authority.
+**Amended pre-data on 2026-10-20 (Amendment 1, at the end of this file): it supersedes the event
+set, beam, verdict, timeout and Commands sections below; the original text is kept as history.**
+Source: GPU expert 2,
 `docs/research/advice/2026-10-20_a100/gpu_expert_2.md` §1 (last bullet) and §5.
 
 ## Question
@@ -147,3 +150,97 @@ CPU backend), `events.py` (selection), `run.py`; tests `tests/test_t35_two_devia
 (toy-world semantics incl. a known depth-1 rescue, beam limits, delay exclusion, episode-end
 cap, control failure, and a real-engine check that M2's `b8_s3_21` LAD 1978 / a* = 0
 single-deviation rescue is found at depth 1).
+
+---
+
+## Amendment 1 — 2026-10-20 ~19:00 PT, pre-data (no registered-shape run has happened)
+
+Trigger: a 3-persona Fable panel (design / engine / ops) reviewed `a4cb8d5d`; reports in
+`snake-dqn-artifacts/fable-panel-2dev/{design,engine,ops}.md`. No blocker; the orchestrator ruled
+the fixes below before the approval judge. Everything above that conflicts is superseded.
+
+**A1.1 Decision unit = distinct world; primary = 7 events.** Only 7 worlds have all-die events,
+so slots 8–10 of the original list were chained twins of the same trap (dooms 2–17 decisions
+apart). Primary = the earliest all-die event of each all-die world (the first round of the
+round-robin rule; still outcome-blind): `b8_s0_21@3707`, `b8_s0_8@4318`, `b8_s3_19@4693`,
+`b8_s3_26@3647`, `b8_s3_6@4562`, `b8_s3_8@4246`, `b8_s3_9@4188`. EXTEND = the other 26 in
+round-robin order: `b8_s0_21@3737`, `b8_s0_8@4353`, `b8_s3_26@3675`, `b8_s3_6@4592`, `b8_s3_8@4256`,
+`b8_s3_9@4259`, `b8_s0_21@3782`, `b8_s0_8@4378`, `b8_s3_26@3850`, `b8_s3_6@4602`, `b8_s3_8@4361`,
+`b8_s3_9@4304`, `b8_s0_21@3787`, `b8_s3_26@3855`, `b8_s3_6@4702`, `b8_s3_8@4381`, `b8_s3_9@4424`,
+`b8_s0_21@3882`, `b8_s3_6@4722`, `b8_s3_8@4421`, `b8_s3_9@4434`, `b8_s3_6@4757`, `b8_s3_8@4426`,
+`b8_s3_9@4464`, `b8_s3_8@4456`, `b8_s3_8@4496`.
+
+**A1.2 Beam rule (replaces step 2).** (a) *Exclusion:* drop a first deviation whose branch M2
+already proved all-die. Exactly: T3's historical change `(c, chosen)` of the event is excluded
+when the M2 case of the same world starting at `c + 1` is all-die (that branch's greedy
+continuation is that case's greedy shadow and its layer-2 window equals that case's window).
+Primary exclusions: `b8_s0_21@3707` (3736, 2); `b8_s0_8@4318` (4352, 2); `b8_s3_26@3647`
+(3674, 4); `b8_s3_6@4562` (4591, 0); `b8_s3_8@4246` (4255, 5); none for `b8_s3_19@4693`,
+`b8_s3_9@4188` (their next case is truth-capable). (b) *Stratification:* split the layer-1
+window (n decisions, first decision s) into k = 8 index bins, bin(t) = ⌊8 (t − s) / n⌋; keep the
+best remaining first deviation of each bin by the original key (latest death decision, then
+earlier t1, higher B8 Q, lower action). If fewer than 8 bins have a branch, fill with the best
+remaining branches at a t1 not yet used, then with any remaining branch. Ranks = the 8 kept
+branches in key order (rank 1 = latest death). Result: 8 distinct t1 spread over the window,
+early bins giving long (~300-decision) layer-2 windows. Code: `search.select_beam`.
+
+**A1.3 Verdict on 7 worlds; KILL wording; secondary read-out.** W = rescued worlds,
+U = INCOMPLETE/missing: W ≥ 3/7 → REAL; W ≤ 1/7 → KILL; W = 2/7 → EXTEND (the 26 remaining
+all-die events, same shape, separate cap ≤ 2 h on the Mac); INCONCLUSIVE when f(W) ≠ f(W + U).
+**KILL means: "the registered beam heuristic found ≤ 1 two-deviation rescue → do not fund GPU
+search now."** It does *not* show that one deviation is the ceiling (the beam covers ~1% of
+first deviations; the advisory mask also limits deviations). The t2 + 600 bar stays the
+primary rescue definition. **Secondary read-out (not in the verdict):** number of worlds with
+≥ 1 layer-2 candidate alive at t2 + 300 (`layer2_candidates_300`; confirmed + delay-only).
+
+**A1.4 Cap expiry (code now matches the text).** A wall-cap `TimeoutError` during layer 2 keeps
+all completed branches: a confirmed rescue already found stays `RESCUED_DEPTH2`
+(`cap_expired: true`, counts); otherwise `INCOMPLETE_TIMEOUT` (counts in U). A timeout during
+reconstruction or layer 1 is `INCOMPLETE`.
+
+**A1.5 Confirmation control.** The depth-600 confirmation must reproduce the expansion's
+300-step survival: a confirmation death before `t2 + min(300, 5000 − t2)` raises
+`ControlMismatch` (event INCOMPLETE). The layer-1 identity check now runs right after layer 1
+(`INCOMPLETE_IDENTITY` stops before layer 2). Wording correction: `backend.trimmed_source` is new
+T35 code (keeps saved triggers through the first one at/after `start`); everything else in
+reconstruction is imported unmodified, and the identity control would expose any difference.
+
+**A1.6 Preflight disclosure (outcomes).** Before `a4cb8d5d` was committed: primary event
+`b8_s0_21@3707` with window1-last 20 / beam 2 / window2 20 → NOT_RESCUED; with window1-last 120 /
+beam 1 / window2 120 → **NOT_RESCUED**, 0 candidates, rank-1 branch (3888, 5) d1 4017, best
+layer-2 death 4026; EXTEND `b8_s3_8@4496` window1-last 10 / beam 1 → NOT_RESCUED. After the
+amendment code: EXTEND `b8_s3_8@4456` window1-last 15 / beam 2 / window2 15 → NOT_RESCUED
+(plumbing check of exclusion (4495, 0) and the early identity check, 0 mismatches). These are
+restricted shapes and enter no count. Rule: any further preflight runs only on EXTEND events.
+
+**A1.7 Pre-data facts from the immutable inputs (disclosed; not counted).** T3 itself took
+multi-deviation paths in two primary worlds. `b8_s3_19@4693`: T3 changed (4697, 2), then
+(4727, 4), and the T3 world survived to 5000 — a two-deviation sequence that meets the 600 bar
+(episode end) exists for this event. `b8_s3_9@4188`: T3 changed (4198, 0); the M2 case starting
+at 4199 has a single-deviation 300-step survivor at 4204, i.e. a known two-deviation *candidate*
+(600 bar unknown). The verdict counts only rescues found by the registered beam; the summary
+reports these two known paths separately and whether the beam found them.
+
+**A1.8 Layout and Commands (replaces "Commands").** Unchanged layout: Mac, 3 single-thread
+processes, nice 10, cap 3 h wall (10,800 s), 0 Colab units. Projection: M2 layer-1 cost of the
+7 events = 578,932 row-steps, × 9 ≈ 5.2 M ≈ 1.45 worker-h at 1,004 row-steps/s → ≈ 30–40 min
+on 3 processes (largest event ≈ 15 min). Launch from a **detached frozen worktree** at the commit
+that adds this amendment (main fast-forwards every 10 min), with the main venv's absolute
+interpreter; the plan file records root, commit and interpreter, and `summarize` refuses
+receipts bound to more than one commit:
+
+```bash
+git -C /Users/josenunez/Projects/ml/snake-dqn worktree add --detach \
+  /Users/josenunez/Projects/ml/snake-dqn-t35-2dev-frozen <AMENDMENT-1 COMMIT>
+cd /Users/josenunez/Projects/ml/snake-dqn-t35-2dev-frozen
+SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python \
+  research/t35_two_deviation/run.py launch --events primary --procs 3 --nice 10 \
+  --cap-seconds 10800 \
+  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t35-two-deviation-20261020/primary
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python research/t35_two_deviation/run.py \
+  summarize --events primary --write \
+  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/t35-two-deviation-20261020/primary
+```
+
+`<AMENDMENT-1 COMMIT>` is the commit that introduces this section (recorded in CAMPAIGN_LOG /
+the handoff report). Tests: `tests/test_t35_two_deviation.py`, 22 (21 fast + 1 slow real-engine).

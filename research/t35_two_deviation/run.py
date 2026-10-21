@@ -156,20 +156,28 @@ def run_event(args: argparse.Namespace) -> int:
         window = list(range(event["start"], event["doom"] + 1))
         if args.window1_last:
             window = window[-args.window1_last :]
+        truth = ev.m2_truth_outcomes(event)
+        exclude = ev.excluded_first_deviations(event)
         search_started = time.perf_counter()
         result = two_deviation_search(
-            BankBackend(deadline), states, window, event["doom"], params, progress
+            BankBackend(deadline),
+            states,
+            window,
+            event["doom"],
+            params,
+            progress,
+            exclude=exclude,
+            after_layer1=lambda partial: identity_mismatches(partial, truth),
         )
         search_seconds = time.perf_counter() - search_started
-        mismatches = identity_mismatches(result, ev.m2_truth_outcomes(event))
-        status = result["status"] if not mismatches else "INCOMPLETE_IDENTITY"
+        status = result["status"]
         receipt = {
             **base,
             "status": status,
             "registered_shape": args.window1_last is None
             and params == SearchParams()
             and args.seconds_registered,
-            "identity_mismatches": mismatches[:50],
+            "identity_mismatches": result.get("identity_mismatches", []),
             "preparation": prep,
             "search": result,
             "search_seconds": search_seconds,
@@ -199,7 +207,7 @@ def run_event(args: argparse.Namespace) -> int:
 
 
 def event_set(name: str) -> list[str]:
-    """Registered event sets: ``primary`` (10), ``extend`` (remaining 23), or explicit ids."""
+    """Registered event sets: ``primary`` (7), ``extend`` (remaining 26), or explicit ids."""
     order = ev.round_robin_order(ev.all_die_events())
     if name == "primary":
         if tuple(order[: ev.PRIMARY_COUNT]) != ev.PRIMARY_EVENTS:
@@ -223,9 +231,19 @@ def launch(args: argparse.Namespace) -> int:
         args.out / f"plan-{args.events if args.events in ('primary', 'extend') else 'custom'}.json"
     )
     deadline = time.time() + args.cap_seconds
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     _write_once(
         plan,
-        {"events": ids, "procs": args.procs, "cap_seconds": args.cap_seconds, "deadline": deadline},
+        {
+            "events": ids,
+            "procs": args.procs,
+            "nice": args.nice,
+            "cap_seconds": args.cap_seconds,
+            "deadline": deadline,
+            "root": str(ROOT),
+            "commit": commit,
+            "python": sys.executable,
+        },
     )
     env = {**os.environ, **{name: "1" for name in THREAD_VARS}, "SNAKE_DQN_DEVICE": "cpu"}
     pending, running, codes = list(ids), [], {}
@@ -271,7 +289,7 @@ def verdict(rescued: int, unknown: int, total: int) -> str:
         return "EXTEND"
 
     if total != ev.PRIMARY_COUNT:
-        raise ValueError("the registered verdict is defined on the 10 primary events")
+        raise ValueError("the registered verdict is defined on the 7 primary events (worlds)")
     low, high = rule(rescued), rule(rescued + unknown)
     return low if low == high else "INCONCLUSIVE"
 
@@ -279,13 +297,19 @@ def verdict(rescued: int, unknown: int, total: int) -> str:
 def summarize(args: argparse.Namespace) -> int:
     ids = event_set(args.events)
     rows = []
+    commits = set()
     for event_id in ids:
         path = args.out / "events" / f"{event_id}.json"
         receipt = json.loads(path.read_text()) if path.exists() else {"status": "MISSING"}
         search = receipt.get("search", {})
+        if receipt.get("provenance"):
+            commits.add(receipt["provenance"]["commit"])
         rows.append(
             {
                 "event": event_id,
+                "world": event_id.split("@")[0],
+                "cap_expired": search.get("cap_expired"),
+                "layer2_candidates_300": len(search.get("layer2_candidates_300", []) or []),
                 "status": receipt["status"],
                 "registered_shape": receipt.get("registered_shape"),
                 "rescue": search.get("rescue"),
@@ -293,8 +317,19 @@ def summarize(args: argparse.Namespace) -> int:
                 "unconfirmed_survivors": len(search.get("unconfirmed_survivors", []) or []),
                 "row_steps": search.get("row_steps"),
                 "search_seconds": receipt.get("search_seconds"),
+                "known_path_a1_7": ev.KNOWN_PATHS.get(event_id),
+                "beam_contains_known_first_deviation": (
+                    None
+                    if event_id not in ev.KNOWN_PATHS
+                    else any(
+                        [b["decision"], b["action"]] == ev.KNOWN_PATHS[event_id]["first"]
+                        for b in search.get("planned_beam", []) or []
+                    )
+                ),
             }
         )
+    if len(commits) > 1:
+        raise RuntimeError(f"receipts bind more than one commit: {sorted(commits)}")
     rescued = sum(r["status"] == "RESCUED_DEPTH2" and r["registered_shape"] for r in rows)
     negative = sum(r["status"] == "NOT_RESCUED" and r["registered_shape"] for r in rows)
     unknown = len(rows) - rescued - negative
@@ -302,7 +337,11 @@ def summarize(args: argparse.Namespace) -> int:
     summary = {
         "schema": "t35-two-deviation-summary/v1",
         "events": rows,
+        "commit": next(iter(commits), None),
         "rescued": rescued,
+        "secondary_events_with_layer2_candidate_300": sum(
+            r["layer2_candidates_300"] > 0 for r in rows
+        ),
         "not_rescued": negative,
         "unknown": unknown,
         "rescued_at_rank_above_4": sum(
