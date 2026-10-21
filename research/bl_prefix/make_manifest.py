@@ -59,10 +59,12 @@ def forecast(experiment: str, seconds_per_world_step: float) -> dict[str, Any]:
     if not math.isfinite(seconds_per_world_step) or seconds_per_world_step <= 0:
         raise ValueError("positive measured seconds/world-step required")
     # Full H5000 bounds include source-bank collection and all secondary rows.
-    # E6: 4096 collection worlds, 256 roots, 3 controllers, 2 RNG, 2 protocols.
+    # E6: source collection + selected-source replay + both continuation protocols.
     # E7: 128 worlds, 3 ancestors, (8 train + 1 train B8 + 4 paired confirms).
     steps = (
-        4096 * 5000 + 256 * 3 * 2 * 2 * 5000 if experiment == "e6" else 128 * 3 * (8 + 1 + 4) * 5000
+        (4096 + 256) * 5000 + 256 * 3 * 2 * 2 * 5000
+        if experiment == "e6"
+        else 128 * 3 * (8 + 1 + 4) * 5000
     )
     central_minutes = 15 + steps * seconds_per_world_step * 3 / 12 / 60
     cap, reserve, timeout = LIMITS[experiment]
@@ -108,6 +110,24 @@ def build(
     inputs = [{"path": str(plan_path.resolve()), "dest": "plan.json", "sha256": sha256(plan_path)}]
     for dest, path in input_files or []:
         inputs.append({"path": str(path.resolve()), "dest": dest, "sha256": sha256(path)})
+        companions = [Path(str(path) + suffix) for suffix in (".sha256", ".complete")]
+        if any(part.exists() for part in companions):
+            from research.bl_ppo.exports import verify_export
+
+            verify_export(path)
+            if Path(dest).name != path.name:
+                raise ValueError("completed input basename must be preserved with its sidecars")
+            for suffix, companion in zip((".sha256", ".complete"), companions):
+                inputs.append(
+                    {
+                        "path": str(companion.resolve()),
+                        "dest": dest + suffix,
+                        "sha256": sha256(companion),
+                    }
+                )
+    from research.bl_prefix.readiness import validate_ready
+
+    validate_ready(plan, {item["dest"]: Path(item["path"]) for item in inputs})
     manifest = {
         "job_id": f"bl-prefix-{experiment}-{output_dir.name}"[:64],
         "commit": commit,
@@ -127,6 +147,7 @@ def build(
             "other_assignments": [],
         },
         "env": {
+            "COLAB_CLI_REQUIREMENTS": "research/bl_prefix/requirements.txt",
             "SNAKE_DQN_DEVICE": "cpu",
             "OMP_NUM_THREADS": "1",
             "OPENBLAS_NUM_THREADS": "1",

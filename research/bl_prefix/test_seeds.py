@@ -23,7 +23,9 @@ def test_registered_domains_are_deterministic_disjoint_and_sized() -> None:
     assert {name: len(values) for name, values in allocation.items()} == seeds.FROZEN_COUNTS
     assert len(set().union(*map(set, allocation.values()))) == sum(seeds.FROZEN_COUNTS.values())
     assert seeds.DOMAIN == "bl-prefix-e6e7-development/20261021/v2"
-    assert all(seeds.SEED_OFFSET <= value < 2**63 for values in allocation.values() for value in values)
+    assert all(
+        seeds.SEED_OFFSET <= value < 2**63 for values in allocation.values() for value in values
+    )
     assert seeds.namespace_seeds("source", 8, round_index=1) != seeds.namespace_seeds("source", 8)
 
 
