@@ -103,3 +103,34 @@ Final ruler repeat smoke: **27 actual batches / 181.246208 s / two workers**,
 three per fixture, all repeated semantic outputs equal. It remains
 PRECHECK_ONLY (3<30 batches/fixture), with no L4 timing or admission inference.
 All final exports have verified SHA256 and completion sidecars.
+
+## Published pin and final offline manifests
+
+Implementation commit: `45311654ddcc754c683c2e534909b1f7d4ff3d12`.
+Published merge/source pin: `57488b7b5bcc870359e03c9b8c77d1eee9c72e52`.
+All five manifests passed the unchanged supervisor's local validation and
+remain NOT_DISPATCHED / SCHEMA_VALID_NOT_DISPATCHABLE. Their directories are
+fresh. The local real-copy input checks confirmed all four `--check` refusals
+and chunk 1 ordinary-mode refusal at missing runtime parity before gameplay.
+The initial symlink-input check correctly rejected unsafe export components;
+the fresh real-copy generation `launcher-checks-08-final-r2` is authoritative.
+
+Artifact root: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-l2/`.
+Manifest directory: `manifests-08-final/`.
+
+| Manifest | SHA256 |
+|---|---|
+| manifest-y1-ruler-validation-only.json | a0916e3b2016e84e1151000547f4b972afb3cc71a17a3a8039eacb831d12aed3 |
+| manifest-l2-prime-chunk-1-validation-only.json | 8e3454de89253069e7cff83d49af7edaef46f32e39b8eebad786a677c5cd1fc9 |
+| manifest-l2-prime-chunk-2-validation-only.json | 7ec4178d2dbf7a224781e4c78bfc922318f2fd99482c4dce2bc0257d307878d2 |
+| manifest-l2-prime-chunk-3-validation-only.json | 0a24231f33ef4ca1ecf1b007d195e0196d09c0566e3c0262c99124c34f17a26b |
+| manifest-l2-prime-chunk-4-validation-only.json | 5e0fc3756c77c238611d4dd4895669e6a4f60e8a174cd91e12640c4cc464cb00 |
+
+`DISPATCH.txt` SHA256:
+`e1840f9aeae51df743c45d8f3b62cb472ccb428d8755681c87a14b9e43b632cf`.
+`closeout-08-final.json` SHA256:
+`2443fdd6114587a41a07673a5832ba6acf5776ce96f376018838e8bb95f49c6e`.
+Each has `.sha256` and `.complete` sidecars, as do every listed manifest and
+scientific/preflight export. The closeout indexes independent mass/ruler
+audits and final L0′ r4, and explicitly marks full Mac/L4 rulers and runtime
+parity PENDING. No Mac throughput is used as an L4 admission rate.
