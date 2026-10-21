@@ -46,3 +46,15 @@ Default create-only output:
 Wall cap: 6,900 seconds including reconstruction and diagnostics. AC, open lid
 and thermal guards are checked before launch and approximately every 30 seconds.
 Existing jobs remain untouched; host contention is disclosed, not filtered away.
+
+After the terminal receipt is complete, audit and render it with:
+
+```sh
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.t34_pathb_smoke.report --check
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.t34_pathb_smoke.report
+```
+
+The renderer verifies hashes and fixed paired coverage, then creates `audit.json`
+and `RESULT.md` without overwriting earlier artifacts. Source-hash verification
+requires the execution source files to remain available unchanged. The committed
+[RESULT.md](RESULT.md) is the human-readable copy; raw data stays in the artifact root.
