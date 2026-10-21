@@ -429,3 +429,23 @@ def test_broken_terminal_chain_never_opens_analyzer(
         "missing-eighth": "missing",
     }
     assert any(expected[fault] in error for error in value["errors"])
+
+
+def test_preflight_fallback_hash_is_exactly_the_exercised_archive(tmp_path: Path) -> None:
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[2]
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    payload = tmp_path / "input.json"
+    payload.write_text("{}")
+    manifest = {
+        "commit": commit,
+        "script": "research/bl_served_search/run_l2.sh",
+        "source_paths": ["research/bl_served_search/transport_v2.py"],
+        "inputs": [{"dest": "input.json", "path": str(payload), "sha256": digest(payload)}],
+    }
+    result = transport_v2.preflight(manifest, tmp_path / "receipt.json", repo=repo)
+    actual = next(row for row in result["files_transferred"] if row["dest"] == "source.tar.gz")
+    assert actual["sha256"] == result["source_plan"]["fallback_sha256"]
+    assert actual["bytes"] == result["source_plan"]["fallback_bytes"]
+    assert verify_export(tmp_path / "receipt.json")

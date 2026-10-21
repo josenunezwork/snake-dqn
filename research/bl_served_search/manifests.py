@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -120,6 +121,8 @@ def build(
     repo: Path = ROOT,
 ) -> dict:
     """Prepare nine immutable manifests without provider calls or clipped forecasts."""
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("full lowercase 40-character source pin required before preparation")
     from research.bl_served_search import evidence_v2
     from research.bl_served_search.ceiling import validate_bank
     from research.bl_served_search.chunks import CHUNK_COUNT, chunk_rows, world_ids_sha256

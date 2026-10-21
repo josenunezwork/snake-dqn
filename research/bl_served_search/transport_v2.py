@@ -68,6 +68,16 @@ def preflight(manifest: dict, receipt: Path | None = None, *, repo: Path = ROOT)
         source = _pinned_source_module(repo, commit)
         stage = root / "source"
         source.prepare(repo, manifest, stage)
+        actual_plan = json.loads((stage / source.PLAN_NAME).read_text())
+        if (
+            actual_plan["fallback_size"] != result["source_plan"]["fallback_bytes"]
+            or actual_plan["tree"] != result["source_plan"]["tree"]
+        ):
+            raise ValueError("exercised source fallback differs from qualified bytes/tree")
+        # gzip headers can change between preparations. Bind the receipt to the
+        # exact source-plan/archive pair exercised below, not the earlier sizing pass.
+        result["source_plan_sha256"] = digest(stage / source.PLAN_NAME)
+        result["source_plan"]["fallback_sha256"] = actual_plan["fallback_sha256"]
         local = []
         for name in ("bootstrap.sh", "source.py"):
             path = root / name
