@@ -190,6 +190,8 @@ def make_manifest(
         "max_export_bytes": 32 * 1024**2,
         "source_paths": [
             "src",
+            "web/backend",
+            "configs",
             PACKAGE,
             "research/colab_cli",
             "research/speed_s0_baseline",
