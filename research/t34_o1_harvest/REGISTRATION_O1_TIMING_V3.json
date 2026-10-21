@@ -1,0 +1,2057 @@
+{
+  "authority": "owner O1 instruction; JUDGMENT adopted O1",
+  "bank": {
+    "excluded_parity_rows": [
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/parity/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/parity/scripted/0000",
+        "world_seed": 3006882424
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/parity/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/parity/frozen/0000",
+        "world_seed": 3988631184
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/parity/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/parity/mixed/0000",
+        "world_seed": 2513176420
+      }
+    ],
+    "excluded_preflight_rows": [
+      {
+        "horizon": 40,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/mac-preflight/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/mac-preflight/scripted/0000",
+        "world_seed": 1441017192
+      },
+      {
+        "horizon": 40,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/mac-preflight/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/mac-preflight/frozen/0000",
+        "world_seed": 1940838160
+      }
+    ],
+    "excluded_timing_rows": [
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/timing/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/timing/frozen/0000",
+        "world_seed": 943080529
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/timing/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/timing/mixed/0000",
+        "world_seed": 2671445542
+      }
+    ],
+    "mechanics_version": 2,
+    "namespace": "t34-o1-harvest-20261021/v1",
+    "rows": [
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0000",
+        "world_seed": 2321431939
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0001",
+        "world_seed": 1376432891
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0002",
+        "world_seed": 1779393360
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0003",
+        "world_seed": 2871007824
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0004",
+        "world_seed": 971353683
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0005",
+        "world_seed": 3759652196
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0006",
+        "world_seed": 1182057609
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0007",
+        "world_seed": 1006269874
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0008",
+        "world_seed": 2426864964
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0009",
+        "world_seed": 2328967517
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0010",
+        "world_seed": 1516211312
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0011",
+        "world_seed": 3186261358
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0012",
+        "world_seed": 2060741202
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0013",
+        "world_seed": 2379326094
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0014",
+        "world_seed": 2539751948
+      },
+      {
+        "horizon": 5000,
+        "mix": "scripted",
+        "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ],
+          [
+            "scripted",
+            "greedy_food"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0015",
+        "world_seed": 1204281176
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0000",
+        "world_seed": 1641588207
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0001",
+        "world_seed": 850764800
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0002",
+        "world_seed": 3096134262
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0003",
+        "world_seed": 3541961271
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0004",
+        "world_seed": 269764679
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0005",
+        "world_seed": 1007128020
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0006",
+        "world_seed": 3960753728
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0007",
+        "world_seed": 2276517739
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0008",
+        "world_seed": 50723219
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0009",
+        "world_seed": 3185660566
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0010",
+        "world_seed": 1765553104
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0011",
+        "world_seed": 1005140785
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0012",
+        "world_seed": 2655810187
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0013",
+        "world_seed": 3197742643
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0014",
+        "world_seed": 3953766856
+      },
+      {
+        "horizon": 5000,
+        "mix": "frozen",
+        "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0015",
+        "world_seed": 270389631
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0000",
+        "world_seed": 702718103
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0001",
+        "world_seed": 3796835266
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0002",
+        "world_seed": 2832463259
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0003",
+        "world_seed": 3626271682
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0004",
+        "world_seed": 1334022668
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0005",
+        "world_seed": 214004131
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0006",
+        "world_seed": 1169082352
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0007",
+        "world_seed": 1382298598
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0008",
+        "world_seed": 2129115439
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0009",
+        "world_seed": 2366160564
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0010",
+        "world_seed": 3311191621
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0011",
+        "world_seed": 994160464
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0012",
+        "world_seed": 1761595381
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0013",
+        "world_seed": 2667571972
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0014",
+        "world_seed": 3413583917
+      },
+      {
+        "horizon": 5000,
+        "mix": "mixed",
+        "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+        "opponent_veto": "v8",
+        "opponent_veto_lambda": 8.0,
+        "opponents": [
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ],
+          [
+            "scripted",
+            "random_safe"
+          ],
+          [
+            "checkpoint",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+          ]
+        ],
+        "terminal_hero_slot": 0,
+        "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0015",
+        "world_seed": 2884983665
+      }
+    ],
+    "schema": "t34-o1-bank/v1"
+  },
+  "branch_horizon": 500,
+  "caps": {
+    "export_bytes": 67108864,
+    "ordinary_seconds": 11520,
+    "rate_units_per_hour": 2,
+    "reserve_units": 1.6,
+    "runner_seconds": 10320,
+    "runtime_seconds": 14400,
+    "timing_seconds": 1800,
+    "timing_units": 1,
+    "units": 8,
+    "workers": 11
+  },
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "death_attribution": "death_delta_mass_sum >= delta_mass_sum >= 2500",
+  "decision": {
+    "frozen_mixed": 4,
+    "worlds": 8
+  },
+  "dispatch_authorized": false,
+  "excluded_timing_fixture": {
+    "event_limit": 0,
+    "frames": 5000,
+    "horizon": 500,
+    "revision": "O1_TIMING_V3",
+    "rows": "excluded_timing_rows",
+    "time_roots": [
+      10,
+      20
+    ]
+  },
+  "frozen_before_data": true,
+  "one_look": true,
+  "schema": "t34-o1-registration/v1",
+  "source_commit": "eba4195c319cef8b8b71494fd1c2d7b4688a88c0",
+  "source_hashes": {
+    "configs/default.yaml": "d3c254eced9023b1820100c29a55fa8559f86dac593ce7c34876c4a3c6c1b1a1",
+    "configs/diag_arm_a.yaml": "42ce5e6e2571ccec1944f8e97b99b561f5fe98c480f2b2b3dcfed8b14a2bdf05",
+    "configs/diag_arm_b.yaml": "fa8d0475b693f4b667cd387e26d6fccbb6898f1cfbfb561247ff1965322f9a82",
+    "configs/diag_arm_c.yaml": "60cb1d8aced19bc76ce93ce8989f86994df775ac059b943b164c7ddd972e9671",
+    "configs/eval_free_space.yaml": "78ee6d13fc67bf1c25a40f450b1f7ef992697ad4a03d6f3d70d12e19610befcb",
+    "configs/free_space_v2.yaml": "41c590461b3179ddbf9ce0ed7fdfb754fc84b188c38790077b7e1cd159335624",
+    "configs/mechanics_v2.yaml": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+    "configs/production.yaml": "18adb20d19d428c16ac563a6c1e41f70b36b0cb32c538d9202bbfec6b6e2e4db",
+    "configs/promotion_mechanics_v2.yaml": "2acc555a7b99e7c1a241d96f2bdacee4054e793823e3f15c73989d637ff178eb",
+    "configs/training_fast.yaml": "72bcf53ff182944ba2adece79352fe2eafbe7cbe78a3afeeae8a3e6329c4d016",
+    "docs/research/advice/2026-10-21_offense_vs_defense/JUDGMENT.md": "3c0831061d826f99b2c27a08ebd725836bc849a3e5b428a4fd018e0c63961a42",
+    "docs/research/final_run_20261019/DESIGN_V2_SHADOW.md": "3297c8d774c7c16ae7fd71ffa6b616d382d37ed38d8599f83ab2e9d4e6f24e21",
+    "docs/research/final_run_20261019/P7_STATISTICS.md": "8ef03a45dbb8b1c6708ca0bab20bb4c97bc7f4bb942c3ae0dd587af2c82cd018",
+    "docs/research/final_run_20261019/SUCCESS_CONTRACT.md": "972b963538f13af48103dd685265914374facf7798bace472c758c851345e732",
+    "research/apex_safety_20260926/deployment.yaml": "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb71715aa5",
+    "research/apex_safety_20260926/dev_screen.py": "50374f4f236ecac208f250eaacfc94d5142cce99b96989dae231744dd30211fe",
+    "research/apex_veto_serving_20261001/__init__.py": "562ad5ef6db4262ebcbd3956451a487d355b3487217b0a7a80a90b385445303e",
+    "research/apex_veto_serving_20261001/serving_run.py": "fd229bdba600ecd278c64bb5170418bae9b002f0485afe73aff1a30e9058117c",
+    "research/apex_veto_strict_20260927/__init__.py": "b786fbd72c87bbe218aebdef0883a3e7fbf0de01ffb21bca1ea147ff80307d90",
+    "research/apex_veto_strict_20260927/strict_run.py": "e14fd167f226cbd8706e650f289f4bbeeaeda4ff542ada475a1d340a543b3c6d",
+    "research/b8_death_census_20261014/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "research/b8_death_census_20261014/census.py": "368d11a31da77424a1ec5a84b95cb1727161564b9e3d72e11f28b4422fad616a",
+    "research/colab_cli/QUALIFICATION.md": "17d8cb2bf8a2f1d0095f9c60306ccd70ffc3991d71ad6df476aa008fffb2ef50",
+    "research/colab_cli/__init__.py": "624677cd409539df23ec6c1f21ad999059fe779715ee5eab0183b7b2498851f1",
+    "research/colab_cli/acceptance.py": "e5856edf7d097c170ac4c27049bbbb256e34dd8f12cee81ad166bca5c965d489",
+    "research/colab_cli/acceptance_faults.py": "437437e8695f7f45b144f12343332399a6f960dcc462f50c02a86d65b9be8d2f",
+    "research/colab_cli/acceptance_probe.py": "5fe350618270ecbb51ecdb44b16fc80a071d80633ac94679ba94541694251610",
+    "research/colab_cli/acceptance_probe.sh": "9e7163c63bda2a86c96fe2eabee9be538d77e8151c13422467fe497d55be9064",
+    "research/colab_cli/accounting.py": "60ccfec58138adf9400c93ca1b8837cccd6da5b4fb2194a8ec4874f2ad33caeb",
+    "research/colab_cli/admission.py": "113ec7307777defd6f692dadc336fbb3ed37ddec7915966c3adb97bbfa9053cd",
+    "research/colab_cli/backup.py": "125b73b512c63e06f4b7656e52b534967510685314ab5b2c1b9fbbe4232239fe",
+    "research/colab_cli/bootstrap.sh": "e4a7bc69ba9da3ef5d5df6755a60bcb73878364d18b38f9d5a38d6ac18bbef7e",
+    "research/colab_cli/cli_guard.py": "e563610fc9fadb59df824a38a93699428800b31b6b85bce3b90aba503c583bc8",
+    "research/colab_cli/inputs.py": "56cce4bd7a6c9487f52ac914c743f34051b5e818893c8e48ca0da9ff08f03ae1",
+    "research/colab_cli/launch.sh": "173b51e74e5c0b44c40d0d549b0d4a3a1dc1ab787baa68eb854ca0663b50ea79",
+    "research/colab_cli/policy.py": "e2c43f8e0c5bb3c45b3d25303c7e41a3a938becbbfe1dd70455adac0aeeb3014",
+    "research/colab_cli/release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+    "research/colab_cli/runtime.py": "e1ff8c5a3b13fae272f98aa884d9210d1bec26e2eedc7490a8ad1ba22eeb1797",
+    "research/colab_cli/source.py": "8b5fccfc809d7345faacda58dec3b497787ddf4961218fdbbe6ef90a1b2eef6a",
+    "research/colab_cli/supervisor.py": "5b9ed88426a45993bec92df1bccc24a56bba14a31bf45a012fce161e7982a897",
+    "research/colab_cli/transfers.py": "a8fd12c425d7dff168e300a6bf0a6bec38230d75520c6251e86a59b0df83d95c",
+    "research/compute/thermal_guard.py": "3b2eee6f510b07df33637f71a865d71946083308035d087f4ece1b40e5cb1c0f",
+    "research/fixed_search.py": "a14ad6830457ccbb483d4d5363993767a2acc7a03ea6aae4b8bc09f82110b7cb",
+    "research/phase0_search_20261019/__init__.py": "337a8841059801d6a0065ae6859448005b1cd1800fc89962552eecfcf334ec79",
+    "research/phase0_search_20261019/bank.py": "c5f5e3056d9ad2f0960175ca45e0b49697f54f6e973c46660792d4b5979e65e5",
+    "research/phase0_search_20261019/teacher.py": "10270e520ce096d967832fe2b8acc19eca1e6f66a746daae566d7a46bb7130e5",
+    "research/redesign_m2_20261008/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "research/redesign_m2_20261008/dev_probe.py": "b264bcbdff78844e853b0b4f0eca80d854348bfe90f36cc60ca1a093e6f90658",
+    "research/redesign_m2_20261008/ni_spec.py": "8fe85c9964774f1d42dac977a435f025dfcbb878d9d931e1efb787b4f649368b",
+    "research/redesign_m2_20261008/ni_spec_m2b.py": "9ffa26b761d9b67af4b5e01dcba8b2715e0c7404f49a2efde83097374f0c15c8",
+    "research/redesign_m3c_20261008/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "research/redesign_m3c_20261008/obs_pack.py": "4e03a616f3fab75fe840eca887d8c8a20118e76d9950a116577e163cd9a3dfaa",
+    "research/redesign_scope_20261007/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "research/redesign_scope_20261007/grid_h5000_identity.py": "9f35a49dca30cae1a2b3c02f80e4ce18bd5e2d0b2b12ccf102653e1b2a080ef2",
+    "research/redesign_t7_phase_r_20261016/__init__.py": "5ea4a8b031d84217fd8c70c0f3bfd8d7b399e13b5a6e9baafd263dd25aa11b64",
+    "research/redesign_t7_phase_r_20261016/seed_audit.py": "45250ec78087e2fdf20348b392e2a1c547aa1af3491c252a93eec0206c9f7315",
+    "research/s1_mature_20261018/__init__.py": "a9bdef45854921dba8ee8c8335587fe3ac31e80a63ed43ef1bafab98e9b184fe",
+    "research/s1_mature_20261018/final_artifacts.py": "2cbb088417626918249db48a45e3827eea6ce93ae52d782094f9a29ff353adbe",
+    "research/t15_mixed_roster_20261017/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "research/t15_mixed_roster_20261017/episodes.py": "b93bef573e67f552e45362a1e436a36677a02297f60504125bc9dfdc385e8bc4",
+    "research/t1_commitment_20261015/__init__.py": "e62ac0e90c9074b04eb98fd908e4911bf78fecabf0cc3da04f349f3b927a2c6a",
+    "research/t1_commitment_20261015/replay.py": "b1a0fc74533533f7bba76beb876e2d687d000b3cb14537facfca3aaf6905bb10",
+    "research/t2_screen_20261015/__init__.py": "d9a9340d4518f53f1a7dd47bd92b768e559fe4bcbcfdf8b5780d2e2341ab868e",
+    "research/t2_screen_20261015/banks.py": "aafc47693d02f385a8168c0106030b039f40e9c00f6a6e1290c1d08eea317da4",
+    "research/t33_batched_teacher/__init__.py": "1273ff2e7b319cea8c948879a61ad20817c1666c5d9e5177d1494c56bc10834e",
+    "research/t33_batched_teacher/inference.py": "a15b142833873037d249d94454b0387819862629183819fff03c36f693dcc2c7",
+    "research/t33_batched_teacher/observation_kernels.py": "f8cd02d7d567e273ee5670b15f726f22d8b34d13af9005b6d21e4ab63f6f3c8c",
+    "research/t33_batched_teacher/observations.py": "558ac9a70a5cbca6d73ffb997d14ab2dff529beea1c61c14e8ef2fc492d186af",
+    "research/t33_batched_teacher/runtime.py": "6a4e7aafe0458cec839d1a9c4ba38b3536241c52e928eb1822053ca8db2821a2",
+    "research/t33_batched_teacher/teacher.py": "2181c4dce45055124e4b0732053669d95578154695a7510ce934506a78a88984",
+    "research/t34_claim_a/__init__.py": "34f41408a412be9a318cf75c01a6ceb1798ab934ce2c1483166a199dc83971fe",
+    "research/t34_claim_a/seed_audit.py": "3564b5b6fba4af998e1a825ab2b4e247fda002c1d23199dc4a87faa108e5001c",
+    "research/t34_exit_b8/PUBLIC_INPUTS.json": "736f7b4e7730f760b8b81db00772d14abcf84c74b261a8dc7630732fdd383a10",
+    "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
+    "research/t34_exit_b8/engine.py": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
+    "research/t34_exit_b8/exports.py": "7475130b190f6d2a845da5e9051bb15d21ea8808faf5944b6a24aec6251d232e",
+    "research/t34_exit_b8/faults.py": "f7a2e08ae05831420f3b92baba4d729894e6e0dc5362e433c75e5b58ee8739de",
+    "research/t34_exit_b8/policy.py": "11cb3334b7711c8d0150c68ac869db380472bd2dd293b013e3e96665f584e8e3",
+    "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
+    "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
+    "research/t34_exit_b8/trajectory.py": "390752220963124f2c0ce99f05d2cc5c1b47b4fe040bb486c6d69521c5bf50b9",
+    "research/t34_o1_harvest/BANK_O1.json": "37ffffe24ec00b6f13c9249f1272efe04d75a0ff3789699c1762154e63e41c2a",
+    "research/t34_o1_harvest/PREFLIGHT_TIMING_ERRATUM.md": "ce7c9ee4012db938b36a5e14cdb4c2e5c9375ec14491c3ebfa793089da97ba52",
+    "research/t34_o1_harvest/PREREGISTRATION_O1.md": "aff483970bcaa971e335c01c65ad5517c07cca4b532b7172095d118025c163ed",
+    "research/t34_o1_harvest/SEED_AUDIT_MAIN_UPDATE.json": "ed3dcca94467118677288195aaf035cf6219b0a33d1b64516a859ba7a78332cb",
+    "research/t34_o1_harvest/SEED_AUDIT_O1.json": "88a46cd0e019c43d24e7f31ea909436f56304782fb8d068c6990d6f45ea29245",
+    "research/t34_o1_harvest/TIMING_FIXTURE_V3.md": "24c2718b5b60cded6be536a666bdbef7bf41b833d9c8a80a1487fb5c8284087b",
+    "research/t34_o1_harvest/__init__.py": "ef45eb32432de6d887997f42405174e3700a63df49668747c84d5d5b08f82a36",
+    "research/t34_o1_harvest/analyze.py": "c7cb45014e91038d419b0652563522f63566be2ae7ca1895941dd606a4766451",
+    "research/t34_o1_harvest/bank.py": "5fdf0a69530010f0f8009296951bca182cda5fafd15417fd1480739092849260",
+    "research/t34_o1_harvest/export.py": "dc93ea5ba4341f21876a5dc79377844afe1c6b27a08c4560a0b15a7a7ef657ae",
+    "research/t34_o1_harvest/launch.sh": "a7d567d3cfa5ec1c5429fd3b51868b56848f39d989eef149f5fd8a55d1e10cf4",
+    "research/t34_o1_harvest/make_manifest.py": "4a4872f7f35e3955a9533d5b5186f9f02d4a69e23491135994b6f9204b8c3b91",
+    "research/t34_o1_harvest/provenance.py": "ed2a0f3723d17b426f404fb1b29c0439cf9b9e0177cbf008a3ced13ce13f5395",
+    "research/t34_o1_harvest/registration.py": "60f72f885e979aa41a8f3ea918efebdf9a1d5a1db8e998a083453c5274d19d43",
+    "research/t34_o1_harvest/runner.py": "d841825c10a3271ecfbe40c21c58ef9b5fb986f9120535610c7583ace16876b6",
+    "research/t34_o1_harvest/timing.py": "90590181004cf2758976d4d36ddeef1f7d7d2a58615a3dacd2dae2177c446527",
+    "research/t34_pathb/__init__.py": "492412914b3cd456dac0a834d2ab265f8ef0300f077b1d56a6334132779c6b2a",
+    "research/t34_pathb/adapter_v2.py": "28dc75bb901107873d2f61084897afdf621d25f5c82d6edb3214791ca17ba2f5",
+    "research/t34_pathb/analyze_v2.py": "c07622346188e6db8ed14b0286f7a9205f634cb89ee5ab8600d19b3e33e0d58f",
+    "research/t34_pathb/bank.py": "5db154f09cdbc60b4648d259aafba4d21a4cca400af0916a0a3b77583d5198da",
+    "research/t34_pathb/batch_v2.py": "907d0ce43810d7d75a689a174d763a12adab0455988e71b227d1661ece868f53",
+    "research/t34_pathb/controller_v2.py": "629b1cf5687d2a9b1a80a37b96f1e4e762870e2e290f38e304c3b95401b9e2be",
+    "research/t34_pathb/cost_smoke_v2.py": "7a6102b1a9d4abd349b44e4e05a1cd7ddfb3d012f2e9963335f784ff6bc719b7",
+    "research/t34_pathb/engine_v2.py": "5bd326cefc18f4c39c61773ac1f06bab50b01dcaef7dc1ed17ed17df6d9982ef",
+    "research/t34_pathb/host_guard_v2.py": "c31949ee3f675f95c1d7cd6aa0f09e192f31ca4581fe39c9b13a4eedf2382b61",
+    "research/t34_pathb/live.py": "39e8c010198660cf7f73db618024550c0d7b3b08c9d6e5dd26a73da097244bce",
+    "research/t34_pathb/precheck_v2.py": "277742640e81373c33bf2ef80886c85e017f5423f9d2bbc3baf2ab305971c53e",
+    "research/t34_pathb/retention_history_v2.py": "47c4afec2300eafb5c85dec1c7735547660d521f09e3734fa44801b3dbb043b6",
+    "research/t34_pathb/retention_v2.py": "6271c808fda59c1b9bd13eeff2c005b688b1593d9b3eb6ed3b6513f7ba1d046f",
+    "research/t34_pathb/source_binding_v2.py": "e328a9a285c7ccb03f9267c12d57abdb2e95f88e992e1c648793c2e438a7068c",
+    "research/t34_pathb/timing_v2.py": "21cd1302daaf2acbad628011a91098f374aea52cbb9c064a59dcf3a8c57c2532",
+    "research/t34_pathb/unpaced_colab.py": "672afe9bdb1e4ae641e3693f02e173c54a0ed7679d82124785ebd87784b79937",
+    "research/t34_round0/__init__.py": "b306000a7ac6a0c9a81816f0b75d770d5ea61d7b8a69b18390a691f64afae9da",
+    "research/t34_round0/bank.py": "303f10e00ac124ba58e761c9ae71c0e087d9224918a46eb014ffbc31575f0024",
+    "research/t34_round0/common.py": "13a1906941ccb3f180b18a031ea19c833183b0990b6bbeef14f741cba7a40514",
+    "research/t34_round0/history.py": "56167e875bc825ca0b82d5a1f1c814d60334b6022c7d27d8482416f8ff5c761c",
+    "research/t34_round0/make_manifest.py": "a955ae70b78a6fa8d0b83f6a00c8aeccbd830601df0d85ba66e9b40c70ad2d72",
+    "research/t34_round0/registration.py": "9f324913b97e47bca4e019473ffa5b324c886a153040351abe208e1c7169ffc2",
+    "research/t34_round0/sizing.py": "7752b8ba4a5174b2bb4af82b332be37ef5f6f52720cdd7787de6c955d62d2a03",
+    "research/t34_round0/validate.py": "39355faae180f6a0290b4e0b24fac98d8a6c1e4af0b749228e9865d6e7a461bb",
+    "research/t34_round0d/__init__.py": "2ca4ef6bf4e6be9567443d3303d7a48bff6d0d9b335214e9dbf79d6a976485a9",
+    "research/t34_round0d/bank.py": "65d3e6225c5b6ece9fa76b6d74182499c65f7fe3caa50165552f8d7a460cd8ff",
+    "research/t34_round0d/common.py": "dc67981516491f2a3a8a8830b9a313bfcc41c7a4204cbdcb5ff0f2d738344492",
+    "research/t34_shadow/__init__.py": "0d3874720d9057ea8c6a6ddb87ddb82d1c9755e2978f37b88c0330dcdc80c051",
+    "research/t34_shadow/common.py": "e9116f3552554e797228b6d5dfc3fab90e3e1a54ca2995d729655507bf49994b",
+    "research/t34_shadow/identity.py": "4ad8653d594f75f8ccc43371ef6c3cb4c0b151eab2a6058b1b4a8354dd1dc216",
+    "research/t34_shadow/shadow.py": "9346b8ff447dd7322c78b0f87aa01e7603870e95b6a394e92104889880019058",
+    "research/t3_rollout_labels_20261015/__init__.py": "8c847c649707f2d7f8b9eef36c86924bee9ad603682eddbe76f382d4cfe38de3",
+    "research/t3_rollout_labels_20261015/bank_engine.py": "c4446dad0b2323b5ce6efd1b53b6266fdca64dc3407bc2ea957e3dd77082d157",
+    "research/t3_rollout_labels_20261015/engine.py": "e2ed77ea86a55422a1cdec2b13b3684bbb9584b8e46edbe611365dbc5cf3dbb1",
+    "research/t3_screen_20261015/__init__.py": "c38a9b6be127216b3feb4a740152ba1f98968fd3dc335b47c5be5c8078474be1",
+    "research/t3_screen_20261015/banks.py": "5bbb79c60afd51ffe408721896eae75733ccdcfa804637daf48ca9984d0fcc92",
+    "research/t4e_return_20261016/__init__.py": "b9a16802359fa73adabdff9950680b256eceb78f4364b4af1a17bba94585ce2a",
+    "research/t4e_return_20261016/seed_audit.py": "5205ef9c3e02e76e8336a065d7679f1b94fc72cdd38d476fa0de53f778f6b8b6",
+    "research/t4f_return_20261016/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "research/t4f_return_20261016/seed_audit.py": "9074c181453fdbe8dac5ae6c6e2d3cc44cefd5e7801f1adc3b11dbf61b6ded88",
+    "src/__init__.py": "a0f2f59c74c74f1717ec95ba18259ccea059279c987d743649ce0667e4d9e080",
+    "src/core/__init__.py": "2eba380d8760a6666aacd9560b44cb21613da737394ac8909baa4fcb5e57da75",
+    "src/core/config_loader.py": "daa73b3bc69e3f172d6ebaab9dea5e3785ee7781721417958afedd3f7e234574",
+    "src/core/device_manager.py": "2957fac215fb43f6f7793daa4dcbf1277bca543791a58eeac096d31085c1d427",
+    "src/core/game_config.py": "e763c0f44f8d0263b10bbca188ab0ff60e5179be37fa8b05f244a1468f2122bb",
+    "src/core/mechanics_constants.py": "d5d26a6398393081af399c804cf566ba275a88b36057ac2dbd289210ecab32f2",
+    "src/core/reward_contract.py": "f0def93b39d51fcce38f0aff5f08b664ae4baaf68ace21689c88a7682761629a",
+    "src/core/reward_events.py": "55bc4264bf64fa8cf5f2cf00c80fd460dd9f174bf38e4fd70e8d03564fbebcf8",
+    "src/core/runtime_contract.py": "2deb892c1d2166290b2a55c611a5ee09d6b218f84f5efecedb8444d76d40095f",
+    "src/core/seeding.py": "4057c1697a230ce162654f659418e31c57fc6b902f9e2bc06a3d75961c0ac717",
+    "src/core/world_runtime.py": "11afa758cd5bb02793628a1190da195e7665bb56daa3db322595a5e35e4bbaa6",
+    "src/data/__init__.py": "b4268b3a6b9693573d2bc898d2f4c6192f6f11c21ad59a5a0264200ce93d77aa",
+    "src/data/memory_db_handler.py": "67bcb5106dd93bc144496068a8c1c90c95128b7fc198f6e51bfa54c7980082d7",
+    "src/data/replay_quality.py": "f9dbd6d9fe2f93a95e89cf762036b084d6f47cd8237c36f3be2edce42bcce2fb",
+    "src/data/score_store.py": "ead944d482421dcac2afba60239e09fcf2bbad388109d77b779ae29b002b6b5c",
+    "src/evaluation/__init__.py": "08a11304184d8710182a9b52be558c19f4252565544b6277146e3cfcfc87cad9",
+    "src/evaluation/anchors.py": "f013a8691a045d49f7b4c1fdd3f66372bf174d7fe8d789cdf31540dec2c556be",
+    "src/evaluation/artifacts.py": "2f041934903e90c6cb6e4e561649f283c2b2cb5409f9a40259bc49930935f14b",
+    "src/evaluation/metrics.py": "1a41c6c54ff13089901766702dbcaf81ea9a9df09d58d78f02431b651faeccf2",
+    "src/evaluation/protocol.py": "62658d1f444dde66df75efe800d35134930ccd60548412467e2f13cd66f022ee",
+    "src/evaluation/safety_veto.py": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+    "src/evaluation/safety_veto_v3.py": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+    "src/evaluation/safety_veto_v4.py": "3f0881afb7ff8ff980c9b425ef40134f127cc90f1f40260aac39f2264ed44578",
+    "src/evaluation/safety_veto_v5.py": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+    "src/evaluation/safety_veto_v6.py": "a6117cb98383f9f28bf8ebcf22d2ef63d7a03995734a36fb96bb1bf8bb1757d5",
+    "src/evaluation/safety_veto_v7.py": "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980",
+    "src/evaluation/safety_veto_v8.py": "faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05",
+    "src/evaluation/screen_stats.py": "1348ec781bb1b86e9fe763735cd053e0cbcf4a8ed59a4a2c2fbf9ae094e5eeb7",
+    "src/evaluation/strict_promotion.py": "96cf96cdc630edd7a4126d36058c9052cbf96dde09e56a643977fa4d343bfcba",
+    "src/game/__init__.py": "0e87294b02cafe1bbd71c083e7b27ee625e5ba00b36e0ce51dc1e9ad995685f8",
+    "src/game/ai_snake.py": "6228ebd197fa1a0d8de6488d40fc8857c7b49c1186f69b75483afcd737720ec9",
+    "src/game/food_manager.py": "e9799516bd810420f6b6bc98082ec7741bdad774ed4532ed44990368eabb526e",
+    "src/game/game_logic.py": "a8ddfca2a1c44bd5112c767e1a6f3505fed4a97b2454c4fd33defefe45e5f89c",
+    "src/game/game_state.py": "112a5d550d050007acf74a2c2f9d2e1388e377d7ebfbedd26977490325f77d37",
+    "src/game/game_state_factory.py": "d91b1e4b2c0557f5539a198f0d6947fe0ad992f462f2b3b4abe2ebf334502b91",
+    "src/game/human_snake.py": "019323e9c82ac7f6c27b9ac09252f70e68cb556fe33c7921e66b1b549c3cb70b",
+    "src/game/scripted_snake.py": "fd05622c3e1d8eb4c1cf9c9d5502d36fdcb99d4e63bad4ece4fa760c46c7424e",
+    "src/game/snake.py": "e2b4887963efe59966f2278f07467421e4df9c7453536f56754fc8a7f8caee0f",
+    "src/game/snake_factory.py": "e3821ffacc6ce1d02aa829415dc3db66ceeb3b82dd89baa065b76c3fa0835928",
+    "src/game/snake_geometry.py": "d88876d697993f7e3379aeed8ede54c1889f101689bd8c54f668a963eaa9dbbf",
+    "src/game/snake_reward.py": "8f4db4ff1e735f3c503e745b7ab7af4402f58669d37d37f30d43f58fbf3ffcd6",
+    "src/game/snake_state.py": "bccd3eddc3a1dd6aa25d1beea6124b3e81f5f88427150b754c0d165b77e86e2e",
+    "src/model/__init__.py": "28abd6fd65874ca9f93009f9763ca5528859a1a0c38febd1bec092813b4dda11",
+    "src/model/apex_network.py": "a40368a8d7b38764a4f8c1a88a59d13d97ee3c2daaaac1da63affe2638cf16d1",
+    "src/model/base_network.py": "c9dc1667261eb99f4805f28dbb90727b071bec29d329e86eb094ca1c8b7ec5ca",
+    "src/model/checkpoint_io.py": "27910d442d7e18124bf242561bbfab16c5f01bfec29d9d3eedd7cdf6d01a3d85",
+    "src/model/checkpoint_manager.py": "d2cc7cd0eefa4286743b3b36d734e6a9f7d576af2abb4d7cd3298335335bbd73",
+    "src/model/ego2s_network.py": "06b262b7ad4bc89ff4d46caff37090635fe32b81008fa91d5956b34d940345a9",
+    "src/model/inference_agent.py": "66ceb5d2f3123d6a56f4c45923f2d8a2d85c3cca187ea56a3cbba484ac4c366a",
+    "src/model/obs_spec.py": "863bad5420e696697dbf53ba77e537941efc3cbc2f85c5c01c6eb9e0bd01c451",
+    "src/model/raster_network.py": "70aa22048e15c3859753cae0f2b4cf6ae011e3a2bbccee9b8304e9632871c915",
+    "src/scripts/eval_cli.py": "ce9ecee3e612a5b31e49e2b8c3b07a6ee4a46ad57ed7ae1dc8ee4cd82d43f427",
+    "src/scripts/eval_stats.py": "9329b02058dfba2852fa8fe8fdc51a378bf8766c566c3b214468cf20d0429e69",
+    "src/scripts/tournament_eval.py": "05a2440a56463201c69c2f0e8c02fac616a4936899a54f62d244423b8b6795e6",
+    "src/simd_env/__init__.py": "79d97e065e845b05310c8b2578274d457c9886defc584c40bc1ac8ca37e79ac3",
+    "src/simd_env/batch_sim.py": "beb0421be2e526b512b5fc44464042cb03786f5636518dd0e60cb90a2bb7caad",
+    "src/simd_env/ego2s_policy.py": "8e5b048f353b69ebdf4a6f9718eb59eda926cf422afdb1e8d694c4289f1bb154",
+    "src/simd_env/ego_live_adapter.py": "7173dbc69a91370ce77b5b590c17121178df78737da6553c2a034c76a61b76c9",
+    "src/simd_env/ego_live_bv8.py": "7d0950e39170a1f583425ec3df00b545cfc313163012f52ea9fcd4ce2a693f74",
+    "src/simd_env/ego_raster.py": "0a9dea5a3128435656dec4beeab5c8b4a6f6b600a5f4b63c82beb635dfaf10ad",
+    "src/simd_env/ego_raster_b.py": "7de8197b98649486fa95e83eb8e7fa668a84b636d9e5915c811d0fd5f4e0d7c7",
+    "src/simd_env/ego_raster_bv8.py": "2d62739d3fca32f5d6d8ca4f2f6eaf363dc05a9af1615419865e26a97aca7a67",
+    "src/simd_env/ego_raster_nb.py": "cbbf17cb1e0fd31e0c25da7ccc5523bf04d63edf4fde6158e4d403706dd22558",
+    "src/simd_env/eval_engine.py": "d6bae5b525e26a91259a7330e0b90d807c6124766fa47614d372bc98deaa582c",
+    "src/simd_env/fast_anchors.py": "a25d5728e38cf694cf8b8fe6019678860f4ac0559b1dd52bc36ae3b4f74d96ac",
+    "src/simd_env/featurizer.py": "9fe4af66917c1adeb350de3c27ef1c72cbc712c07a5cf61b2da23cb7562b6c1f",
+    "src/simd_env/grid_sim.py": "ae48ae8270610e5d617e1af6e6c6dc35e524750dec26f15499b05355e4a0de02",
+    "src/simd_env/grid_sim_nb.py": "10544dffb6e5c9a86a103bca56163167bebd7db85b20c86f1c86330f57fcc4c3",
+    "src/simd_env/live_adapter.py": "ec9ed8b7bfd6a8397ee36305b566c28cefed90ea64198050d8edbd2833a3dbd1",
+    "src/simd_env/rng.py": "d5df755cfedd2bd27cf9c2e0cee61a696426c7892b4b30069c0afda9ebf09a08",
+    "src/simd_env/v8_nb.py": "3fdd85bcbad7ca63485ad4340619693b13c693684cb8adc8fc067c6531389eea",
+    "src/simd_env/vector61_featurizer.py": "c1cbdd6373b52ad72dc707ab0f68208402e592638206a0ace56a77e2d035efbe",
+    "src/simd_env/vector61_nb.py": "f433f87fe97d97af4e6600d804bd7b9e2534af348a4093f84c6304168bd57caa",
+    "src/simd_env/vector61_policy.py": "d26b80d902759f6b8cf58f6b4324c1be3c1a92bf790ff05dd6992206a35f327f",
+    "src/training/__init__.py": "5c07831c4da12f6f393839d80fb8257e197eccc249d42de14538b7155abe3d24",
+    "src/training/action_mask.py": "3d64f6c928099532c2dddccd2a1d04e0f718bcf17d22839530abf37de49e55dc",
+    "src/training/apex_policy.py": "8ea34bb1d1785dc1d2f89dc076b0d262f16065441de66fec75813613606bbcb8",
+    "src/training/apex_recipe.py": "608c98a5c01c7bc08fe40189aa800bb1e8347cdcd21f3932dfa014a173cc30e1",
+    "src/training/base_buffer.py": "224d827d49d576647eb126627202395b9c85bda59355f4fca4b3f869ab489cd6",
+    "src/training/base_dqn_policy.py": "57ab1a7af0d2b2315c0d91a24a331c26657c49cb976070fe2b57df3c84372ea1",
+    "src/training/behavior_probes.py": "98cd8143c42923fbce85364fa7b1fafa8a92628fe8f29ac167ec121a9fb47212",
+    "src/training/checkpoint_contract.py": "b261309117d98b4baa59fc57f0efc756626265c89fe99f644f9e5dadcc2c7855",
+    "src/training/multistep_buffer.py": "b6b042fcb30835d1c1fe5140ed77c51173179099e62cd10ef538492359515ee4",
+    "src/training/pqn_lifecycle.py": "cf03ea9781482c28740821a396e86ad1ff9fd3ecbbc6b7f5b36e67311093bcb7",
+    "src/training/replay_buffer.py": "45920e06370a47d08e2e696cef837a192f64a3a08d79a0b7f0c5b35643586b4b",
+    "src/training/resume_lineage.py": "37fea7d4585b796383b26e634919031dae161bc9b702bf5adb2ebd827eba3215",
+    "src/training/sum_tree.py": "1c2474ced385cc59c2acf57189ed44caf877101be5205104c30c67d6efd0b754",
+    "src/training/td_targets.py": "235b73ada6deb89ea26ac08ff0280423e9bc64fe77fa635eb356d2bdb26a937d",
+    "src/utils/__init__.py": "a31b65bdf6811d2246c17696554937ed3e56b19ad7b9b9d826d0ab655897b165",
+    "src/utils/nn_utils.py": "2c6dc76c733af8ba7751e2bbbc5289a4610ff5862649173272fd5d60e4556a6d",
+    "src/utils/tensor_utils.py": "efb910630dcf918bfa29ba51d14aa10447e22470fda40d0cea35a29cba2d3b11",
+    "web/backend/__init__.py": "a124987458e2fe3a87a0bb372186e0fc5cc0179ae78396cdd6b2451cca4c7014",
+    "web/backend/app.py": "989a08c817ff2dc7035c85e4687e2ceb9a793a7dab3b494f164f6f746373bfcf",
+    "web/backend/checkpoints.py": "3bda05179eb1b4ea17c284f6a3f176e9e80f38c1e4690bf63b53be16aa04a6e3",
+    "web/backend/ego2s_policy.py": "2de44e5b0ba8983a4ffd4f77130268ca076f33907a04291e7622ce1d0079bc97",
+    "web/backend/metrics.py": "b829ba34285c610bd4db9edd8dbac4720422e54632f09cb803f94737b3b0356e",
+    "web/backend/pathb.py": "7f61cdb7f43221436885cf5b7fe57d18e64dd43e8c215b6295bd08ba1c9d80e5",
+    "web/backend/pathb_controller.py": "254fd7cf152b004a952bbd46619b450f09cea36eb2682a3863215c915209ec21",
+    "web/backend/raster_policy.py": "2d7d5e95ce54210a3f638679659f71e3d881abb15501089f9cffe65ce4ba3c90",
+    "web/backend/release_monitoring.py": "235389c95a4927077e33f43c9d2c7c92586401fdc06f64486d1564ce28b39ca6",
+    "web/backend/safety_veto_serving.py": "9a1103765b4801852789cb7cadeee6aee1403c17d3fdffc24487161d9a8a63e6",
+    "web/backend/serialize.py": "239993f2e737dbde8760db78afa167f9309cf65e04467d5d4cec72999a4a0bd2",
+    "web/backend/served_checkpoint.py": "94d8e711007a574797897eb640e39651730eabeec3b47c222d1b89c7d9b059e4",
+    "web/backend/serving_speed.py": "b9eec9061d8cbeb9f3b319265db8389bbaef2c99a55b7c8e7dfab7534faadd0e",
+    "web/backend/session.py": "84e4e812231f1b3ce4684df3987c214909d33fd33bd19c3032bc21995b97a1e0",
+    "web/backend/state_labels.py": "6dcf856083b034e59a8c5c37836ed8ff06375bc981e4e8ea5d3514c255ba5610"
+  },
+  "study_worlds": 48
+}

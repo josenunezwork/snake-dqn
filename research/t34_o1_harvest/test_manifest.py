@@ -9,6 +9,9 @@ from pathlib import Path
 import pytest
 
 from research.t34_o1_harvest import make_manifest as manifests
+from research.t34_o1_harvest.bank import materialize
+from research.t34_o1_harvest.runner import fixture_forecast
+from research.t34_o1_harvest.timing import TIMING_FIXTURE
 
 REPO = Path(__file__).resolve().parents[2]
 COMMIT = "a" * 40
@@ -17,6 +20,7 @@ COMMIT = "a" * 40
 def _registration() -> dict[str, object]:
     return {
         "source_commit": COMMIT,
+        "bank": materialize(),
         "source_hashes": {
             "research/t34_o1_harvest/launch.sh": "b" * 64,
             "research/t34_o1_harvest/runner.py": "c" * 64,
@@ -26,6 +30,38 @@ def _registration() -> dict[str, object]:
 
 def _preflight(path: Path, registration: Path, *, seconds: float = 6_000.0) -> Path:
     receipt = path / "preflight-receipt.json"
+    entries = []
+    worlds = []
+    branch_rate = (seconds - 1200) / 240000
+    for i, row in enumerate(materialize()["excluded_timing_rows"]):
+        payload = path / f"world-{i:03d}.json"
+        world = {
+            "row": row,
+            "frames": 5000,
+            "horizon": 500,
+            "complete": True,
+            "accounting": True,
+            "cfg": {"mechanics_version": 2},
+            "base_steps": 40,
+            "base_seconds": 0.0,
+            "first_step_seconds": 0.0,
+            "elapsed_seconds": 2 * 500 * branch_rate,
+            "roots": [
+                {
+                    "decision": d,
+                    "time_root": True,
+                    "event_root": False,
+                    "horizon": 500,
+                    "branches": {"1": {"elapsed_seconds": 500 * branch_rate, "row_steps": 500}},
+                }
+                for d in (10, 20)
+            ],
+        }
+        worlds.append(world)
+        payload.write_text(json.dumps(world))
+        entries.append(
+            {"path": payload.name, "sha256": hashlib.sha256(payload.read_bytes()).hexdigest()}
+        )
     receipt.write_text(
         json.dumps(
             {
@@ -33,10 +69,9 @@ def _preflight(path: Path, registration: Path, *, seconds: float = 6_000.0) -> P
                 "status": "COMPLETE",
                 "mode": "preflight",
                 "registration_sha256": hashlib.sha256(registration.read_bytes()).hexdigest(),
-                "forecast": {
-                    "l4_forecast_seconds_including_setup_export": seconds,
-                    "l4_forecast_units_at_2_per_hour": seconds / 1800,
-                },
+                "timing_fixture": TIMING_FIXTURE,
+                "worlds": entries,
+                "forecast": fixture_forecast(worlds, 11),
             }
         )
     )
@@ -126,3 +161,39 @@ def test_manifest_binds_complete_bounded_preflight_when_provided(tmp_path, monke
     too_slow = _preflight(tmp_path, registration_path, seconds=11_521)
     with pytest.raises(manifests.ManifestRefused, match="120-minute"):
         manifests.make_manifest(**common, preflight_receipt=too_slow)
+
+
+@pytest.mark.parametrize(
+    "damage", ["old_spec", "missing_world", "corrupt_hash", "old_roots", "forecast"]
+)
+def test_manifest_refuses_wrong_or_unverified_timing_payloads(tmp_path, monkeypatch, damage):
+    registration = tmp_path / "registration.json"
+    registration.write_text("{}")
+    monkeypatch.setattr(manifests, "require_registration", lambda _: _registration())
+    monkeypatch.setattr(manifests, "require_qualified_transport", lambda *_: {})
+    receipt = _preflight(tmp_path, registration)
+    value = json.loads(receipt.read_text())
+    payload = tmp_path / "world-001.json"
+    if damage == "old_spec":
+        value.pop("timing_fixture")
+    elif damage == "missing_world":
+        payload.unlink()
+    elif damage == "corrupt_hash":
+        payload.write_text("{}")
+    elif damage == "forecast":
+        value["forecast"]["l4_forecast_seconds_including_setup_export"] = 1201
+    else:
+        world = json.loads(payload.read_text())
+        for root, decision in zip(world["roots"], (1000, 3000)):
+            root["decision"] = decision
+        payload.write_text(json.dumps(world))
+        value["worlds"][1]["sha256"] = hashlib.sha256(payload.read_bytes()).hexdigest()
+    receipt.write_text(json.dumps(value))
+    with pytest.raises(manifests.ManifestRefused, match="fixture|payloads"):
+        manifests.make_manifest(
+            registration=registration,
+            catalog=REPO / "research/t34_exit_b8/PUBLIC_INPUTS.json",
+            output_dir=tmp_path / "fresh",
+            commit=COMMIT,
+            preflight_receipt=receipt,
+        )

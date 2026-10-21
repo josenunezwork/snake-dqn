@@ -280,13 +280,11 @@ def analyze(registration_path: Path, run_dir: Path) -> dict[str, Any]:
             ):
                 raise ValueError("excluded three-world parity content differs")
             timing = read_json(run_dir / "timing.json")
+            from research.t34_o1_harvest.timing import validate_timing
+
+            validate_timing(timing["worlds"], registration["bank"]["excluded_timing_rows"])
             if (
-                [w["row"] for w in timing["worlds"]] != registration["bank"]["excluded_timing_rows"]
-                or any(
-                    len(w["roots"]) != 2 or w["horizon"] != 500 or w["frames"] != 5000
-                    for w in timing["worlds"]
-                )
-                or not 0 < timing["timing_seconds"] <= 1800
+                not 0 < timing["timing_seconds"] <= 1800
                 or receipt["elapsed_seconds"] > registration["caps"]["runner_seconds"]
             ):
                 raise ValueError("timing fixture/cap content differs")
