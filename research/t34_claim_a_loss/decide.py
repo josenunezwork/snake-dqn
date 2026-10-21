@@ -192,8 +192,8 @@ def decide(report: Mapping[str, Any]) -> dict[str, Any]:
     if not permissive_ok:
         return out | {
             "decision": "KILL",
-            "reason": "no eligible corrected objective reaches 70% decisive agreement even "
-            "in-sample (permissive diagnostic)",
+            "reason": "no corrected objective satisfies both free-Q eligibility (>=99%) and "
+            "in-sample decisive agreement (>=70%; permissive diagnostic)",
         }
     order = {loss: i for i, loss in enumerate(CORRECTED_LOSSES)}
     for trunk in ("trainable", "residual"):

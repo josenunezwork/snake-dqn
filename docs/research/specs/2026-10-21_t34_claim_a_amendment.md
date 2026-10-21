@@ -1,8 +1,10 @@
 # T34 Claim A amendment: corrected projection objective, frozen update dose, D0 diagnostics, R1 labels
 
-**Status: DRAFT. Prospective and pre-data.** It goes to independent review and then one judge (STATUS.md
-"Campaign authority"; Opus stand-in while Fable is limited). It authorizes nothing until it is approved, recorded
-in CAMPAIGN_LOG and merged to main. Release and serving authority stays with the owner.
+**Status: APPROVED WITH MECHANICAL CONDITIONS C1–C6 by independent Fable 5.1, 2026-10-20 PT.**
+Prospective and pre-data. The ruling is preserved in
+`docs/research/advice/2026-10-20_colab_lanes/CLAIMA_AMENDMENT_JUDGMENT.md`.
+Execution still requires the ruling's conditions, recording in CAMPAIGN_LOG and merge to main.
+Release and serving authority stays with the owner.
 
 - **Date:** 2026-10-21 (PT). **Author:** Claude (operator). Code: branch `t34-claim-a-amendment-20261021`.
 - **Rules on:** JUDGMENT §7a–§7d, lane rows L1/L2 and §5 item 2
@@ -85,10 +87,12 @@ Rules:
 - **Batch:** 1,024 rows = **128 decisive + 896 anchor**.
 - **Decisive rows:** drawn by cycling random permutations over all training decisive rows.
 - **Anchor rows:** drawn the same way over the **full** training shadow-confirm pool (§7a), never a 1:1 quota.
-- **DAgger age (R2+ only):** older-round rows keep weight 0.5 inside their stream's fixed-count mean.
-  R1 has only current-round rows.
+- **DAgger age (R2+ only):** older-round rows are intended to keep weight 0.5 inside their stream's fixed-count
+  mean. **Not implemented on this branch; required by any R2+ registration**, with tests before use.
+  The split loss currently uses `sample_weight` only as a positive-row mask. R1 has only current-round rows.
 - **Dose:** an explicit number of optimizer updates U\*, run in **4 blocks** of U\*/4 updates. Block ends replace
-  "epochs" in the ratified selection rule and tripwire checks (`train.py:281-288`, `diagnostics.py`).
+  "epochs" for tripwire checks (`train.py:281-288`, `diagnostics.py`). L3 uses the student at U*;
+  block ends do not select a student (§10 answer 4).
   - Starting proposal: U\* = 2,048, so 512 per block.
   - D0 freezes U\* ∈ {512, 1,024, 2,048, 4,096} by the rule in §4.4, using excluded A5 data only.
   - The optimizer is Adam: 2.5e-5 on pretrained parameters and 1e-4 on new ones (ratified), unless D0 selects
@@ -104,8 +108,10 @@ Rules:
 - The residual head is `Q = Q_B8 + W₂·relu(W₁·h)`. Here h is B8's fused 256-D feature, and W₂ is zero-initialised,
   so the step-0 Q equals B8's exactly.
 - The **frozen-loss cells are controls.** They use the same streams, batch and dose as the arms, so the contrast
-  isolates the loss. They stop at their tripwire. This shows the correction-vs-retention conflict on data rather
-  than asserting it.
+  isolates the loss. Their shared-weight loss uses decisive `sample_weight = 7.0` (= 896/128) and anchor
+  weight 1.0: the shared weighted mean is 0.875 times the sum of the two per-stream means, with equal stream
+  balance. This is a normalization equivalence, not an equivalence of the frozen and corrected objectives.
+  They stop at their tripwire. This shows the correction-vs-retention conflict on data rather than asserting it.
 - **Tripwires are unchanged** (FINAL_PLAN §8), evaluated at every block end:
   - non-finite loss;
   - more than 90% one-action share;
@@ -121,7 +127,7 @@ Rules:
 - R1 gives ~4,600 training decisive rows, so the same 2,048 updates ≈ 56 passes.
 - The anchor pool also scales with the number of worlds.
 - Updates fix the anchor drift budget (KL steps taken against B8), which is what the tripwires guard. Passes over
-  decisive rows are reported for each dose but are not the frozen unit. (Open question Q2.)
+  decisive rows are reported for each dose but are not the frozen unit (§10 answer 2).
 
 ## 4. L1 D0 diagnostics (excluded A5 data only)
 
@@ -134,7 +140,8 @@ Rules:
   1e-3 + 1e-4·|q|. Any rejected world makes the run `PRECONDITION_FAILED`.
 - **Anchor stride = 1** (the full shadow-confirm pool).
 - Folds: 3 world-level folds, stratified on decisive-bearing worlds and dealt by sha256(world id)
-  (`assign_folds`). Every metric is computed on worlds the fit did not see.
+  (`assign_folds`). Held-out metrics use worlds the fit did not see; the permissive diagnostic uses the
+  training fold, and the free-Q probe uses all decisive rows.
 
 ### 4.2 Registered measurements (`research/t34_claim_a_loss/harness.py`)
 
@@ -155,6 +162,10 @@ lr 1e-2.
 | split_residual_lr1e-3 | split | residual | 1e-3 | streams | same |
 | split_tau2_residual | split_tau2 | residual | 1e-4 | streams | same |
 
+The `frozen_trainable` and `frozen_residual` stream controls use decisive `sample_weight = 7.0` and anchor
+weight 1.0. With 128 decisive and 896 anchor rows, their shared weighted mean equals 0.875 times the sum
+of the two per-stream means (§2.4). `frozen_recipe` retains the full ratified 1:1 recipe and weights.
+
 At each checkpoint the harness records:
 
 - training-fold and held-out-fold decisive agreement (raw argmax == a\*, row-pooled and world-weighted);
@@ -169,6 +180,9 @@ The projection is closed if either holds:
 - no corrected loss flips **≥ 70%** of decisive rows even with free Q; or
 - no free-Q-eligible corrected cell reaches **≥ 70%** pooled training-fold decisive agreement at any checkpoint
   (the permissive diagnostic).
+
+Free-Q eligibility is stricter than the first prong: ≥ 99% (§4.4). If all corrected losses reach free-Q
+agreement in [70%, 99%), none is eligible and the result is also `KILL`, regardless of in-sample agreement.
 
 Claim A then rests on the tower question only (L6), as JUDGMENT §2 states.
 
@@ -209,8 +223,9 @@ cells and is reported. The 70% held-out bar is applied, unchanged, to the produc
   leaves room for at most one judge-approved mechanical rerun with a ≤ 4 u cap. There are no automatic retries.
 - **Before enqueue,** the operator runs the real entrypoint on the Mac on a tiny input (Colab job preflight rule),
   using `d0.sh` in local mode.
-- **Order:** D0 may run once this spec is approved. It does not wait for Round 0 or Path B, because A5 data is
-  excluded and this is design work.
+- **Order:** D0 may run from the merged main commit once this amendment and the ruling's preflight/dispatch
+  conditions are satisfied. It does not wait for Round 0 or Path B, because A5 data is excluded and this is
+  design work; it is not a Round 0-conditioned lane.
 - **Recording:** `D0_DECISION.json` is recorded in CAMPAIGN_LOG before any L3 registration. L3 binds its SHA-256.
 
 ## 5. §7b: "Round 0 GO" binding (restates the ruling; no new rule)
@@ -331,16 +346,26 @@ Only four things are set by `research/t34_claim_a_r1/make_manifest.py`:
 | `research/t34_claim_a_r1/seal.py` | Mac-side label inventory, support minimum, world-set hashes |
 | `tests/test_t34_claim_a_loss.py`, `tests/test_t34_claim_a_d0.py` | Tiny-fixture tests |
 
-## 10. Open questions for the judge
+## 10. Six binding answers from the independent judge
 
-1. **Permissive diagnostic.** Is "in-sample (training-fold) decisive agreement ≥ 70%" the right reading of "even
-   on the permissive diagnostic", or should the kill also need held-out cross-fold agreement?
-2. **Transfer unit.** Should the dose be frozen in updates (proposed), or in passes over decisive rows? The two
-   differ by ~30× between A5 folds and R1 (§3).
-3. **Control cells.** Should the L3 frozen-loss controls use the new streams and dose (proposed: isolates the
-   loss), or the full ratified recipe (1:1 rule, epochs)? D0 runs both; L3 needs one.
-4. **Selection bank.** The ratified block/epoch selection key uses held-out decisive agreement, and that is also
-   the 70% tripwire bank. Keep it, or select on a training-side split and use the held-out bank only for the
-   tripwire?
-5. **World balance.** Should decisive rows be world-balanced in the stream? Currently every decisive row is drawn
-   uniformly, which drops the ratified per-death-window mass-10 normalisation for the corrected arms.
+These answers are binding under the approval's C1–C6, preserved in `CLAIMA_AMENDMENT_JUDGMENT.md` §3.
+
+1. **Permissive diagnostic:** in-sample training-fold decisive agreement ≥ 70%, as implemented. The small A5
+   folds cannot support a 70% held-out requirement without testing data starvation. Held-out trend remains
+   reported and selection-only; the production R1 held-out bar stays unchanged.
+2. **Transfer unit:** freeze dose in optimizer updates, not decisive passes. Updates bound anchor drift;
+   freezing passes would multiply R1's dose about 30×. Report `decisive_passes_at_dose` alongside U*.
+3. **Control cells:** L3 frozen-loss controls use the new streams and dose to isolate the loss. Their decisive
+   `sample_weight = 7.0` gives the equal stream balance scaled by 0.875 (§2.4). D0 alone retains
+   `frozen_recipe` as the full ratified-recipe control.
+4. **No block selection in L3:** the student is the model at frozen dose U*. Block ends check tripwires only;
+   a breach yields `FIT_STOPPED`. Read the held-out bank once per block for tripwires and once at U* for the
+   report. Run the 32-world probe once, at U*. A later registration seeking selection must add its own
+   training-side world split.
+5. **World balance:** draw decisive rows uniformly, as implemented; D0 freezes dose under this sampler.
+   Report `flip_world_weighted` beside the pooled rate. The unchanged 70% R1 held-out bar is row-pooled;
+   the world-weighted rate is reported, not gated.
+6. **Order:** D0 may run as soon as this amendment is merged, before any Round 0 or Path B verdict, subject
+   to C2's preflight and dispatch requirements. Its only input is excluded A5 data, and it emits no student
+   evidence. D0 is not a Round 0-conditioned lane. L3 fits still wait for the R1 seal (`SUPPORTED`) and the
+   published Path B disposition.
