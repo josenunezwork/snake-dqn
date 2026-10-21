@@ -90,6 +90,7 @@ def test_recurrent_refresh_preserves_next_rollout_log_probabilities() -> None:
         "scalars": np.zeros((1, 60), dtype=np.float32),
         "mask": np.ones((1, 6), dtype=bool),
         "reset": np.array([False]),
+        "frame": np.array([0], dtype=np.int32),
     }
 
     def collect(steps):
@@ -102,6 +103,8 @@ def test_recurrent_refresh_preserves_next_rollout_log_probabilities() -> None:
             scalars=np.repeat(obs["scalars"], steps, axis=0),
             reward=np.ones(steps, dtype=np.float32),
             done=np.zeros(steps, dtype=bool),
+            frame=np.arange(steps, dtype=np.int32),
+            world_id=np.zeros(steps, dtype=np.int64),
         )
         return adapter.take_rollout(raw, obs)
 
@@ -116,3 +119,14 @@ def test_recurrent_refresh_preserves_next_rollout_log_probabilities() -> None:
     logits, _ = PPOLearner(policy)._forward_rollout(rollout)
     likelihood = Categorical(logits=logits).log_prob(rollout.actions)
     assert torch.equal(likelihood[32:], rollout.logp[32:])
+
+
+def test_recovery_requires_fresh_output_before_loading_or_collecting(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    from research.bl_ppo.run import run_train
+
+    (tmp_path / "monitor-0001.json").write_text("preserved")
+    with pytest.raises(ValueError, match="fresh output directory"):
+        run_train(SimpleNamespace(output=tmp_path))
+    assert (tmp_path / "monitor-0001.json").read_text() == "preserved"

@@ -32,12 +32,14 @@ case "${BL_PPO_MODE}" in
   train)
     e4_input="${COLAB_INPUT_DIR}/${BL_PPO_E4_BASENAME:-e4-ruler.json}"
     [[ -f "${e4_input}" ]] || { echo "missing E4 receipt" >&2; exit 2; }
+    e9_input="${COLAB_INPUT_DIR}/${BL_PPO_E9_BASENAME:-e9-oc.json}"
+    [[ -f "${e9_input}" ]] || { echo "missing E9 admission receipt" >&2; exit 2; }
     arm_lower="$(printf '%s' "${BL_PPO_ARM}" | tr '[:upper:]' '[:lower:]')"
     scale_args=()
     if [[ "${BL_PPO_TRANSITIONS}" == "20000000" ]]; then
       scale_args+=(--scale-forecast-approved)
     fi
-    python -m research.bl_ppo.run train --output "${output_root}/e2-${arm_lower}" --b8-checkpoint "${checkpoint}" --device "${BL_PPO_DEVICE}" --e4-receipt "${e4_input}" --arm "${BL_PPO_ARM}" --transitions "${BL_PPO_TRANSITIONS}" --processes "${BL_PPO_PROCESSES}" --checkpoint-every "${BL_PPO_CHECKPOINT_EVERY}" --native-v8 "${scale_args[@]}"
+    python -m research.bl_ppo.run train --output "${output_root}/e2-${arm_lower}" --b8-checkpoint "${checkpoint}" --device "${BL_PPO_DEVICE}" --e4-receipt "${e4_input}" --e9-receipt "${e9_input}" --arm "${BL_PPO_ARM}" --transitions "${BL_PPO_TRANSITIONS}" --processes "${BL_PPO_PROCESSES}" --checkpoint-every "${BL_PPO_CHECKPOINT_EVERY}" --native-v8 "${scale_args[@]}"
     payload="e2-${arm_lower}/training-status.json"
     ;;
   *) echo "unknown BL_PPO_MODE: ${BL_PPO_MODE}" >&2; exit 2 ;;

@@ -16,6 +16,9 @@ class ActionWindows:
     action_counts: list[int] = field(default_factory=lambda: [0] * 6)
     b8_boost_count: int = 0
     completed_windows: int = 0
+    total_count: int = 0
+    total_action_counts: list[int] = field(default_factory=lambda: [0] * 6)
+    total_b8_boost_count: int = 0
 
     def observe(self, actions: Any, b8_actions: Any) -> list[dict[str, Any]]:
         actions = np.asarray(actions).reshape(-1)
@@ -32,8 +35,13 @@ class ActionWindows:
             self.action_counts = (
                 np.asarray(self.action_counts) + np.bincount(chunk, minlength=6)
             ).tolist()
+            self.total_action_counts = (
+                np.asarray(self.total_action_counts) + np.bincount(chunk, minlength=6)
+            ).tolist()
             self.b8_boost_count += int((baseline[offset : offset + take] >= 3).sum())
+            self.total_b8_boost_count += int((baseline[offset : offset + take] >= 3).sum())
             self.count += take
+            self.total_count += take
             offset += take
             if self.count == 100_000:
                 evidence = {
@@ -49,3 +57,21 @@ class ActionWindows:
                 self.count, self.action_counts, self.b8_boost_count = 0, [0] * 6, 0
                 self.completed_windows += 1
         return events
+
+    def boost_contract_floor(self) -> dict[str, float | bool]:
+        """Return the endpoint-only 0.5% boost-floor flag required by E8.
+
+        This is deliberately separate from the frozen 100k 3x-B8 tripwire:
+        falling below the product floor annotates an otherwise valid endpoint;
+        it never changes a run status to KILL.
+        """
+        candidate_rate = (
+            float(sum(self.total_action_counts[3:]) / self.total_count) if self.total_count else 0.0
+        )
+        b8_rate = float(self.total_b8_boost_count / self.total_count) if self.total_count else 0.0
+        return {
+            "candidate_rate": candidate_rate,
+            "b8_rate": b8_rate,
+            "floor": 0.005,
+            "below_floor": candidate_rate < 0.005,
+        }

@@ -7,6 +7,35 @@ import copy
 import pytest
 
 from research.bl_ppo import bank, screen
+from research.bl_ppo.rule import RULE
+
+
+def _refresh_ledgers(results: dict) -> None:
+    """Populate the compact synthetic fixture with E8-reconciling ledgers."""
+    aggregate = screen._empty_e8_ledgers()
+    for row in results["rows"]:
+        ledger = {}
+        for arm in ("R", "F"):
+            if arm not in row["controllers"]:
+                continue
+            delta = (
+                row["controllers"][arm]["mass_integral"] - row["controllers"]["B8"]["mass_integral"]
+            )
+            ledger[arm] = {
+                "mass": {
+                    "both_alive_growth": delta * row["horizon"],
+                    "candidate_only": 0.0,
+                    "b8_only": 0.0,
+                    "total": delta * row["horizon"],
+                    "per_frame": delta,
+                },
+                "occupancy_by_frame_length": {},
+                "endpoint": None,
+                "candidate_growth_slope_l_ge_800": None,
+            }
+        row["e8_ledger"] = ledger
+        screen._add_e8_ledger(aggregate, row["mix"], ledger)
+    results["e8_ledgers"] = aggregate
 
 
 @pytest.fixture(scope="module")
@@ -50,7 +79,7 @@ def fixture() -> tuple[dict, dict, dict]:
             }
         )
     results = {
-        "schema": "bl-ppo-screen-results/v1",
+        "schema": "bl-ppo-screen-results/v2",
         "complete": True,
         "cap_expired": False,
         "bank_semantic_sha256": value["allocation_sha256"],
@@ -63,19 +92,48 @@ def fixture() -> tuple[dict, dict, dict]:
                 "tripwires": [],
                 "receipt_sha256": "c" * 64,
                 "target_transitions": 8_000_000,
-                "counters": {"hero_transitions": 8_000_000},
+                "counters": {
+                    "hero_transitions": 10_000_000,
+                    "actor_transitions": 8_000_000,
+                    "critic_refit_transitions": 2_000_000,
+                    "critic_refit_fit_transitions": 2_000_000,
+                },
+                "critic_refit": {
+                    "required_transitions": 2_000_000,
+                    "observed_transitions": 2_000_000,
+                    "observed_fit_transitions": 2_000_000,
+                    "popart": True,
+                    "qualified": True,
+                    "heldout_late_body": {
+                        "count": 1,
+                        "explained_variance": 0.2,
+                        "mse": 0.5,
+                        "baseline_mse": 1.0,
+                        "beats_baseline": True,
+                    },
+                },
+                "critic_qualified": True,
+                "boost_contract_floor": {
+                    "candidate_rate": 0.004,
+                    "b8_rate": 0.004,
+                    "floor": 0.005,
+                    "below_floor": True,
+                },
+                "e9_rule_sha256": bank.canonical_sha(RULE),
+                "e9_receipt_sha256": "d" * 64,
                 "checkpoint_sha256": hashes[arm],
             }
             for arm in ("R", "F")
         },
     }
+    _refresh_ledgers(results)
     return value, audit, results
 
 
 def test_allocation_and_fixture_disjointness(fixture: tuple) -> None:
     value, _, _ = fixture
     bank.validate_bank(value)
-    assert len(bank.all_seeds(value)) == 166
+    assert len(bank.all_seeds(value)) == 230
     assert {
         m: sum(r["mix"] == m for r in value["rows"]) for m in bank.MIX_COUNTS
     } == bank.MIX_COUNTS
@@ -126,6 +184,7 @@ def test_kill_precedes_go_and_zero_bound_kills(fixture: tuple) -> None:
     ]
     for row in results["rows"]:
         row["controllers"]["F"]["mass_integral"] = 100
+    _refresh_ledgers(results)
     decision = screen.analyze(value, audit, results)
     assert decision["arms"]["R"]["status"] == "KILL"
     assert decision["arms"]["F"]["status"] == "KILL"
@@ -210,17 +269,23 @@ def test_sealed_directory_is_excluded_before_traversal(tmp_path, monkeypatch) ->
 
 def test_intentional_tripwire_can_kill_before_endpoint(fixture: tuple) -> None:
     value, audit, results = copy.deepcopy(fixture)
-    results["training_status"]["R"] = {
-        "complete": False,
-        "stop_reason": "tripwire",
-        "receipt_sha256": "c" * 64,
-        "counters": {"hero_transitions": 0},
-        "target_transitions": 8_000_000,
-        "tripwires": [{"kind": "nonfinite", "stage": "gradient"}],
-    }
+    results["training_status"]["R"].update(
+        {
+            "complete": False,
+            "stop_reason": "tripwire",
+            "counters": {
+                "hero_transitions": 0,
+                "actor_transitions": 0,
+                "critic_refit_transitions": 0,
+                "critic_refit_fit_transitions": 0,
+            },
+            "tripwires": [{"kind": "nonfinite", "stage": "gradient"}],
+        }
+    )
     results["checkpoint_sha256"].pop("R")
     for row in results["rows"]:
         row["controllers"].pop("R")
+    _refresh_ledgers(results)
     decision = screen.analyze(value, audit, results)
     assert decision["status"] == "COMPLETE"
     assert decision["arms"]["R"]["status"] == "KILL"
@@ -230,22 +295,28 @@ def test_intentional_tripwire_can_kill_before_endpoint(fixture: tuple) -> None:
 def test_both_scientific_stops_need_no_outcome_episodes(fixture: tuple) -> None:
     value, audit, results = copy.deepcopy(fixture)
     for arm in ("R", "F"):
-        results["training_status"][arm] = {
-            "complete": False,
-            "stop_reason": "tripwire",
-            "receipt_sha256": "c" * 64,
-            "counters": {"hero_transitions": 100_000},
-            "target_transitions": 8_000_000,
-            "tripwires": [
-                {
-                    "kind": "action_collapse",
-                    "window_count": 100_000,
-                    "action_counts": [91_000, 9000, 0, 0, 0, 0],
-                }
-            ],
-        }
+        results["training_status"][arm].update(
+            {
+                "complete": False,
+                "stop_reason": "tripwire",
+                "counters": {
+                    "hero_transitions": 100_000,
+                    "actor_transitions": 100_000,
+                    "critic_refit_transitions": 0,
+                    "critic_refit_fit_transitions": 0,
+                },
+                "tripwires": [
+                    {
+                        "kind": "action_collapse",
+                        "window_count": 100_000,
+                        "action_counts": [91_000, 9000, 0, 0, 0, 0],
+                    }
+                ],
+            }
+        )
         results["checkpoint_sha256"].pop(arm)
     results["rows"] = []
+    _refresh_ledgers(results)
     decision = screen.analyze(value, audit, results)
     assert decision["status"] == "COMPLETE"
     assert all(x["status"] == "KILL" for x in decision["arms"].values())
@@ -330,6 +401,23 @@ def test_complete_endpoint_requires_exact_selected_transition_target(fixture: tu
     value, audit, results = copy.deepcopy(fixture)
     results["training_status"]["R"]["counters"]["hero_transitions"] = 0
     assert screen.analyze(value, audit, results)["status"] == "INCOMPLETE"
+
+
+def test_endpoint_screen_refuses_training_not_bound_to_frozen_e9_receipt(fixture: tuple) -> None:
+    value, audit, results = copy.deepcopy(fixture)
+    results["training_status"]["R"]["e9_receipt_sha256"] = "not-a-sha"
+    decision = screen.analyze(value, audit, results)
+    assert decision["status"] == "INCOMPLETE"
+    assert "frozen admitted E9 rule" in decision["errors"][0]
+
+
+def test_endpoint_screen_requires_two_million_actual_critic_fit_transitions(fixture: tuple) -> None:
+    value, audit, results = copy.deepcopy(fixture)
+    results["training_status"]["R"]["counters"]["critic_refit_fit_transitions"] = 1_999_999
+    results["training_status"]["R"]["critic_refit"]["observed_fit_transitions"] = 1_999_999
+    decision = screen.analyze(value, audit, results)
+    assert decision["status"] == "INCOMPLETE"
+    assert "critic must pass PopArt" in decision["errors"][0]
 
 
 def test_parity_compares_actions_observations_not_cpu_logit_bits() -> None:

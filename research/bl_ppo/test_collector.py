@@ -38,6 +38,9 @@ def test_persistent_preflight_peek_is_fresh_and_world_ordered() -> None:
     assert batch.world_id.tolist() == [0, 1]
     assert nxt["world_id"].tolist() == [0, 1]
     assert nxt["scalars"].shape == (2, 60)
+    assert batch.length.shape == (2,)
+    assert set(batch.mix.tolist()) <= {"scripted", "frozen", "mixed"}
+    assert batch.episode.tolist() == [0, 0]
 
 
 def test_real_native_snapshot_replays_next_transition() -> None:
