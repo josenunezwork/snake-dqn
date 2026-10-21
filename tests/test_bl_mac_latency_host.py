@@ -41,3 +41,31 @@ def test_nearest_rank_keeps_slow_tail():
     value = distribution(list(range(1, 101)))
     assert value == {"n": 100, "p50": 50, "p95": 95, "p99": 99, "max": 100}
     assert distribution([])["p99"] is None
+
+
+def test_process_screen_keeps_foreign_load_and_excludes_measurement(monkeypatch):
+    monkeypatch.setattr(host.os, "getpid", lambda: 42)
+    monkeypatch.setattr(
+        host,
+        "_read",
+        lambda argv: "PID PPID %CPU COMM\n42 1 100 own\n43 1 90 foreign\n44 1 4 background\n",
+    )
+    screen = host.process_screen()
+    assert [row["pid"] for row in screen["other_heavy_processes"]] == [43]
+    assert "42 1 100 own" in screen["processes"]
+
+
+def test_quiet_admission_stops_before_operator_math(monkeypatch, tmp_path):
+    import time
+
+    from research.bl_mac_latency import ruler_run
+
+    monkeypatch.setattr(ruler_run, "check_guard", lambda: {"reasons": []})
+    monkeypatch.setattr(
+        ruler_run, "process_screen", lambda: {"other_heavy_processes": [{"pid": 43}]}
+    )
+    operator = ruler_run.GuardedOperator(tmp_path, time.monotonic() + 60, require_quiet=True)
+    with pytest.raises(host.GuardError) as caught:
+        operator.batch({"fixture_id": "unexecuted"})
+    assert caught.value.observation["reasons"] == ["foreign_cpu_load_not_quiet"]
+    assert operator.completed == 0

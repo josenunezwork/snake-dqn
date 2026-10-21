@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from research.bl_mac_latency.host import check_guard, snapshot
+from research.bl_mac_latency.host import GuardError, check_guard, process_screen, snapshot
 from research.bl_served_search import ruler
 from research.bl_served_search.exports import digest, export_json, verify_export
 from research.bl_served_search.ruler_operator import ExactT3Operator
@@ -30,10 +30,11 @@ def distribution(samples: list[float]) -> dict[str, Any]:
 class GuardedOperator(ExactT3Operator):
     """Check safety between dense batches without changing simulator/operator math."""
 
-    def __init__(self, out: Path, deadline: float) -> None:
+    def __init__(self, out: Path, deadline: float, require_quiet: bool = False) -> None:
         super().__init__()
         self.out = out
         self.deadline = deadline
+        self.require_quiet = require_quiet
         self.guards: list[dict[str, Any]] = []
         self.completed = 0
         self.samples: dict[str, list[float]] = {}
@@ -42,6 +43,11 @@ class GuardedOperator(ExactT3Operator):
         if time.monotonic() >= self.deadline:
             raise RuntimeError("Mac measurement budget exhausted")
         guard = check_guard()
+        if self.require_quiet:
+            guard["process_screen"] = process_screen()
+            if guard["process_screen"]["other_heavy_processes"]:
+                guard["reasons"] = ["foreign_cpu_load_not_quiet"]
+                raise GuardError(guard)
         batch_started = time.monotonic()
         result = super().batch(fixture)
         elapsed = time.monotonic() - batch_started
@@ -69,6 +75,7 @@ def main() -> None:
     parser.add_argument("--fixtures", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--budget-seconds", type=float, default=7200)
+    parser.add_argument("--require-quiet", action="store_true")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=False)
     verify_export(args.fixtures)
@@ -78,7 +85,7 @@ def main() -> None:
     before = snapshot()
     export_json(args.out / "host-before.json", before)
     started = time.monotonic()
-    operator = GuardedOperator(args.out, started + args.budget_seconds)
+    operator = GuardedOperator(args.out, started + args.budget_seconds, args.require_quiet)
     try:
         receipt = ruler.run_ruler(
             fixtures, operator, platform_label="mac", workers=1, min_batches=30
@@ -91,6 +98,7 @@ def main() -> None:
                 "error": str(exc),
                 "completed": operator.completed,
                 "guards": operator.guards,
+                "failed_observation": getattr(exc, "observation", None),
             },
         )
         raise
@@ -100,6 +108,7 @@ def main() -> None:
         guard_source_sha256=digest(Path(__file__)),
         host_source_sha256=digest(Path(__file__).with_name("host.py")),
         guard_checks=operator.guards,
+        quiet_screen_each_batch=args.require_quiet,
         quantile_estimator="nearest_rank; all30 includes cold; warm29 excludes first",
         qualification="MAC_MICRO_TIMING_ONLY_PENDING_L4_SEMANTICS_AND_L1",
     )

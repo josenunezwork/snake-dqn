@@ -18,6 +18,37 @@ def _read(argv: list[str]) -> str:
     return result.stdout
 
 
+class GuardError(RuntimeError):
+    """Carry the failed host observation into a create-only stop receipt."""
+
+    def __init__(self, observation: dict[str, Any]) -> None:
+        self.observation = observation
+        super().__init__(f"host guard: {observation.get('reasons')}")
+
+
+def process_screen() -> dict[str, Any]:
+    """Record a point-in-time CPU screen, excluding only this measurement PID."""
+    raw = _read(["ps", "-Ao", "pid,ppid,%cpu,comm", "-r"])
+    heavy = []
+    for line in raw.splitlines()[1:]:
+        fields = line.strip().split(None, 3)
+        if len(fields) == 4 and int(fields[0]) != os.getpid() and float(fields[2]) >= 50:
+            heavy.append(
+                {
+                    "pid": int(fields[0]),
+                    "ppid": int(fields[1]),
+                    "cpu_percent": float(fields[2]),
+                    "command": fields[3],
+                }
+            )
+    return {
+        "processes": raw,
+        "other_heavy_processes": heavy,
+        "measurement_pid_excluded": os.getpid(),
+        "threshold_percent_one_core": 50,
+    }
+
+
 def check_guard() -> dict[str, Any]:
     """Stop admitting work on battery, closed lid, unknown state or throttling."""
     if platform.system() != "Darwin":
@@ -39,7 +70,7 @@ def check_guard() -> dict[str, Any]:
         "reasons": reasons,
     }
     if reasons:
-        raise RuntimeError(f"host guard: {reasons}")
+        raise GuardError(value)
     return value
 
 
