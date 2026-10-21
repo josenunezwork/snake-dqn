@@ -49,6 +49,7 @@ __all__ = [
 ]
 
 _ACTIVE_PHASE: ContextVar[Path | None] = ContextVar("round0d_active_phase", default=None)
+_LOCK_DEPTH: ContextVar[int] = ContextVar("round0d_history_lock_depth", default=0)
 TERMINAL_SCHEMA = "t34-round0d-terminal/v1"
 ADMISSION_SCHEMA = "t34-round0d-admission/v1"
 STATUSES = {"COMPLETE", "MECHANICAL_FAILURE", "INCONCLUSIVE", "KILL"}
@@ -65,15 +66,20 @@ class CapExpiredHistory(HistoryError):
 @contextmanager
 def history_lock(registration: Mapping[str, Any]) -> Iterator[None]:
     """Serialize history checks, reservations and seals across concurrent lane dispatchers."""
+    if _LOCK_DEPTH.get():  # re-entrant within one dispatcher (e.g. seal under the lock)
+        yield
+        return
     _, repo, _ = policy(registration)
     common = Path(_git(repo, "rev-parse", "--git-common-dir").strip())
     if not common.is_absolute():
         common = repo / common
     with (common / "t34-round0d-history.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        token = _LOCK_DEPTH.set(1)
         try:
             yield
         finally:
+            _LOCK_DEPTH.reset(token)
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
@@ -102,13 +108,21 @@ def in_flight(out: Path) -> bool:
     path = out / "inflight.lock"
     if not path.is_file() or (out / "phase_terminal.json").exists():
         return False
+    # Shared probe: concurrent probes never block each other, so a dead attempt
+    # cannot read as in flight because another probe happens to hold the file.
     with path.open("a") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
         except BlockingIOError:
             return True
         fcntl.flock(handle, fcntl.LOCK_UN)
     return False
+
+
+def in_flight_count(registration: Mapping[str, Any]) -> int:
+    """Number of chunk attempts whose dispatcher currently holds its liveness lock."""
+    root, _, _ = policy(registration)
+    return sum(in_flight(a) for a in (root / "chunks").glob("chunk-*/attempt-0[12]"))
 
 
 def require_active_phase(registration: Mapping[str, Any], phase: str) -> None:
@@ -142,7 +156,7 @@ def phase_name(out: Path, registration: Mapping[str, Any]) -> str:
     if out.resolve() != out or not out.is_relative_to(root):
         raise HistoryError("phase must be an unlinked path under the fixed study root")
     relative = out.relative_to(root).as_posix()
-    if not re.fullmatch(r"chunks/chunk-\d{3}/attempt-0[12]|replay|analysis", relative):
+    if not re.fullmatch(r"chunks/chunk-\d{3}/attempt-0[12]|ceiling|replay|analysis", relative):
         raise HistoryError("phase must use a fixed chunk/attempt or replay/analysis path")
     return relative
 
@@ -152,7 +166,7 @@ def _roots(registration: Mapping[str, Any]) -> list[Path]:
     found = sorted((root / "chunks").glob("*/*")) if (root / "chunks").exists() else []
     for path in found:
         phase_name(path, registration)
-    return found + [root / p for p in ("replay", "analysis") if (root / p).exists()]
+    return found + [root / p for p in ("ceiling", "replay", "analysis") if (root / p).exists()]
 
 
 def _claims(registration: Mapping[str, Any]) -> dict[str, str]:
@@ -325,6 +339,31 @@ def finalize(out: Path, registration: Mapping[str, Any], status: str, reason: st
             os.fsync(handle.fileno())
 
 
+def seal_ceiling(registration: Mapping[str, Any], spend: Mapping[str, Any]) -> None:
+    """Settle a schedule that settled charges alone make infeasible: sealed INCONCLUSIVE.
+
+    Called by dispatch under ``history_lock`` with no attempt in flight. The
+    create-only ``ceiling`` phase is claimed, records the spend arithmetic only
+    (no outcome), and is sealed INCONCLUSIVE so analysis settles INCONCLUSIVE via
+    ``CapExpiredHistory`` (first cap wins; no extension).
+    """
+    root, _, _ = policy(registration)
+    out = root / "ceiling"
+    reserve(out, registration)
+    write_once(
+        out / "ceiling.json",
+        {
+            "schema": "t34-round0d-ceiling/v1",
+            "status": "INCONCLUSIVE",
+            "no_extension": True,
+            "spend": dict(spend),
+        },
+    )
+    finalize(
+        out, registration, "INCONCLUSIVE", "registered study spend ceiling reached; first cap wins"
+    )
+
+
 def require_chunks(chunks: list[Path], registration: Mapping[str, Any]) -> None:
     """Require the sole admissible completed attempt of every fixed chunk."""
     root, _, _ = policy(registration)
@@ -415,7 +454,10 @@ def _analysis_reservation_allowed(registration: Mapping[str, Any]) -> None:
     unfinished = any(not (a / "phase_terminal.json").exists() for a in attempts) or bool(
         remote - local
     )
-    settled_early = any((a / "study_closed.json").is_file() for a in attempts)
+    settled_early = (
+        any((a / "study_closed.json").is_file() for a in attempts)
+        or (root / "ceiling" / "study_closed.json").is_file()
+    )
     pending = bool(expected - set(groups))
     for name in expected & set(groups):
         latest = sorted(p for p in groups[name].iterdir() if p.is_dir())

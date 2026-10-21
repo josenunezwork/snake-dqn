@@ -25,7 +25,7 @@ mass and survival. The frozen policy, food parent, external legality mask, raw-e
 validation, and food inventory remain unchanged.
 
 BM supplies the prior recipe evidence and its separate learning curves. BN creates no
-new learning curve because it trains nothing. See the [completed BM report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_shared_head_fresh_init_confirmation_2026-09-19/README.md)
+new learning curve because it trains nothing. See the [completed BM report](../solo_food_shared_head_fresh_init_confirmation_2026-09-19/README.md)
 for its fixed-benchmark training, held, and H128 evidence.
 
 ## Calibration and declared criteria

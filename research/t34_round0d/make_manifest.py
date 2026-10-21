@@ -27,11 +27,9 @@ from research.t34_round0d.common import BINDING_DOCS, PACKAGE, ROOT, read_json, 
 
 PACKAGE_REL = "research/t34_round0d"
 PUBLIC_INPUTS = ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json"
-A5D_TIMEOUT_MINUTES = 90
-A5D_ESTIMATE_MINUTES = 45
-A5D_WORK_SECONDS = 4800
-REPLAY_ESTIMATE_MINUTES = 30
-REPLAY_TIMEOUT_MINUTES = 60
+A5D_TIMEOUT_MINUTES = 300
+A5D_ESTIMATE_MINUTES = 150
+A5D_WORK_SECONDS = 16200
 
 
 class ManifestRefused(ValueError):
@@ -149,11 +147,31 @@ def make_chunk_manifests(
     if not 1 <= lanes <= 2 or lanes + len(other_assignments) > 3:
         raise ManifestRefused("Round 0-D uses at most two lanes within the account cap of three")
     registration = read_json(ratification)
-    require_registration(registration, BANK, AUDIT, repo=ROOT)
+    require_registration(registration, BANK, AUDIT, repo=ROOT, mac_side=True)
     require_qualified_transport(ROOT, registration["commit"])
     study_root = Path(registration["study_root"])
     if out_dir.resolve() != study_root / "manifests" or out_dir.exists():
         raise ManifestRefused("manifests must be written to a fresh study_root/manifests")
+    # Build the forecast from fields the re-scoped plan always emits, before any
+    # create-only write, so a missing field can never leave partial manifests behind.
+    sizing = registration["sizing"]
+    forecast = {
+        "schema": "t34-round0d-forecast/v3",
+        "chunks": len(sizing["chunks"]),
+        "chunk_pairs": sizing["chunk_pairs"],
+        "lanes": lanes,
+        "max_in_flight": sizing["max_in_flight"],
+        "expected_units": sizing["expected_units"],
+        "derived_ceiling": sizing["derived_ceiling"],
+        "straggler_total_units": sizing["straggler_total_units"],
+        "chunk_admission_ceiling": sizing["chunk_admission_ceiling"],
+        "study_unit_ceiling": sizing["study_unit_ceiling"],
+        "priced_chunk_caps_units": sizing["unit_cap"],
+        "held_reserve_units": sizing["reserve_units"],
+        "replay": sizing["replay"],
+        "lane_hours_expected": sizing["lane_hours_expected"],
+        "wall_hours_forecast": sizing["wall_hours_forecast"],
+    }
     out_dir.mkdir(parents=True)
     manifests = []
     for number in range(len(registration["sizing"]["chunks"])):
@@ -172,18 +190,6 @@ def make_chunk_manifests(
         with (out_dir / f"{manifest['job_id']}.json").open("x") as stream:
             json.dump(manifest, stream, indent=2, sort_keys=True)
             stream.write("\n")
-    sizing = registration["sizing"]
-    forecast = {
-        "schema": "t34-round0d-forecast/v1",
-        "chunks": len(manifests),
-        "lanes": lanes,
-        "expected_units": sizing["expected_units"],
-        "study_unit_ceiling": sizing["study_unit_ceiling"],
-        "worst_case_charged_units": sizing["worst_case_charged_units"],
-        "initial_liability_units": sizing["initial_liability_units"],
-        "lane_hours_expected": sizing["lane_hours_expected"],
-        "wall_hours_expected": sizing["lane_hours_expected"] / lanes,
-    }
     with (out_dir / "FORECAST.json").open("x") as stream:
         json.dump(forecast, stream, indent=2, sort_keys=True)
         stream.write("\n")
@@ -199,7 +205,7 @@ def qualify_source(manifest: dict[str, Any]) -> None:
 
 
 def a5d_manifest(*, commit: str, fidelity: Path, output_dir: Path) -> dict[str, Any]:
-    """The single excluded A5-D lane job (<= 90 min priced, <= 3 u cap, K=12)."""
+    """The single excluded A5-D lane job (5 h timeout, 10 u cap, K=12; may run pre-verdict)."""
     from research.t34_round0d.common import source_hashes
 
     hashes = source_hashes()
@@ -242,8 +248,8 @@ def a5d_manifest(*, commit: str, fidelity: Path, output_dir: Path) -> dict[str, 
         "max_export_bytes": 512 * 1024**2,
         "source_paths": sorted({*hashes, *BINDING_DOCS}),
     }
-    if not math.isclose(unit_cap, 3.0):
-        raise ManifestRefused("A5-D must stay within its 3 u cap")
+    if not math.isclose(unit_cap, 10.0):
+        raise ManifestRefused("A5-D must stay within its 10 u cap")
     return manifest
 
 

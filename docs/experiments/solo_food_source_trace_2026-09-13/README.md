@@ -9,7 +9,7 @@ collected 115 ambient contacts and no own-trail contacts.
 
 ## What this resolves
 
-The prior [solo food-and-survival report](</Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_survival_2026-09-13/README.md>)
+The prior [solo food-and-survival report](<../solo_food_survival_2026-09-13/README.md>)
 showed a predeclared two-seed S1 diagnostic signal but could not assign food to a
 source. This trace is a post-hoc diagnosis of the same checkpoints and worlds. It
 does not change the original eight-condition decision, create a new primary gate,

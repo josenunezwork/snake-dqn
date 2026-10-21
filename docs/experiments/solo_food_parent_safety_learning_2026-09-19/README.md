@@ -134,7 +134,7 @@ indication of unfinished work; all 37 logical science jobs are complete.
 - [BF learning curves](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-learning-r2/analysis/learning-curves.png)
 - [BF greedy-gameplay curves](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-learning-r2/analysis/gameplay-curves.png)
 - [BF representative gameplay](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-learning-r2/analysis/representative-gameplay.png)
-- [BE fresh parent-oracle confirmation](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_parent_safety_confirmation_2026-09-19/README.md)
+- [BE fresh parent-oracle confirmation](../solo_food_parent_safety_confirmation_2026-09-19/README.md)
 - [BA objective learning curve](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-reachability-r1/analysis/objective-learning-curve.png)
 - [BA fit learning curve](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-reachability-r1/analysis/fit-learning-curve.png)
 - [BA gameplay learning curve](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-reachability-r1/analysis/gameplay-learning-curve.png)

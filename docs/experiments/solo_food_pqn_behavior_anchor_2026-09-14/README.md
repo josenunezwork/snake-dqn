@@ -11,7 +11,7 @@ opponent performance, or promotion. Apex remains incumbent and the shared tourna
 the only promotion authority.
 
 This report is for researchers assessing the first successful retention intervention after
-[AO's failed unanchored warm start](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_pqn_warmstart_2026-09-14/README.md).
+[AO's failed unanchored warm start](../solo_food_pqn_warmstart_2026-09-14/README.md).
 It describes a fixed, paired hybrid configuration and what it can establish: under this exact
 H64 task, a same-step cross-entropy anchor protects the pre-existing learned food skill better
 than native PQN alone. It cannot identify the optimal anchor coefficient, prove a cause of AO's

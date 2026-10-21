@@ -32,6 +32,10 @@ from src.simd_env.vector61_merged import (
     apex_signature,
     mergeable,
 )
+from tests.actor_telemetry import (
+    WALL_CLOCK_ACTOR_FIELDS,
+    assert_post_baseline_actor_telemetry,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_v8_nb import HAVE_CKPT  # noqa: E402
@@ -387,7 +391,10 @@ def test_actor_messages_identical_with_merged_cpu(tmp_path, monkeypatch):
     ref_msgs, ref_ring = runs["per-group"]
     msgs, ring = runs["merged-cpu"]
     assert len(ref_msgs) == len(msgs) == frames
-    skip = {"env_s", "timing", "j"}
+    # Q0b production stamps measure wall time, independently of trajectory parity.
+    skip = WALL_CLOCK_ACTOR_FIELDS | {"j"}
+    assert_post_baseline_actor_telemetry(ref_msgs, "per-group")
+    assert_post_baseline_actor_telemetry(msgs, "merged-cpu")
     for f, (a, b) in enumerate(zip(ref_msgs, msgs)):
         assert a.keys() == b.keys(), f
         for k in a:

@@ -1,4 +1,10 @@
 {
+  "amendments": [
+    {
+      "path": "docs/research/specs/2026-10-20_t34_retention_amendment_bare_unpaced.md",
+      "sha256": "c7ed9086074337f4ee68afe40fae47a7b31657a00f876e6bf558c8d813a1ff0d"
+    }
+  ],
   "arms": [
     "bare",
     "paced",
@@ -8,6 +14,7 @@
     "path": "research/t34_pathb/RETENTION_BANK_V2.json",
     "sha256": "af54fd499e99575bcc960c78fc3c52d756f8e1c1a52ca65edb95bb5b013f6d95"
   },
+  "bare_fps": 0,
   "checkpoints": [
     {
       "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
@@ -36,8 +43,8 @@
   ],
   "fresh_disjoint_banks": true,
   "history_ledger": {
-    "path": "research/t34_pathb/ledger/t34-retention-v2-operator-01.jsonl",
-    "repo": "/Users/josenunez/Projects/ml/snake-dqn-retention-fixes6"
+    "path": "research/t34_pathb/ledger/t34-retention-v2-operator-02.jsonl",
+    "repo": "/Users/josenunez/Projects/ml/snake-dqn-retention-v2-author"
   },
   "horizon": 5000,
   "load_profile": {
@@ -66,7 +73,7 @@
   "max_elapsed_hours": 40.0,
   "operating_characteristic": {
     "path": "research/t34_pathb/RETENTION_OC_V2.json",
-    "sha256": "870060a17f0a2ad31af5d84910998c19ab42afab924cbb3c2254687fc809e180"
+    "sha256": "a464cc411c7bac5ceb4374022324c2f552982ef4a04e4c42eddc54a33c56095c"
   },
   "paced_fps": 24,
   "precheck_max_elapsed_hours": 8.0,
@@ -279,7 +286,7 @@
     "path": "research/t34_pathb/SEED_AUDIT_RETENTION_V2.json",
     "sha256": "7d895340b742d2011fde9e2731c3e73c1b58484023b3e4afbf66e769704f3b51"
   },
-  "source_commit": "97232d51c94cfa1cbe00839c45601dfa632508fc",
+  "source_commit": "81c54731a06f5a630bc1b95edca876832906a812",
   "source_hashes": {
     "configs/default.yaml": "d3c254eced9023b1820100c29a55fa8559f86dac593ce7c34876c4a3c6c1b1a1",
     "configs/diag_arm_a.yaml": "42ce5e6e2571ccec1944f8e97b99b561f5fe98c480f2b2b3dcfed8b14a2bdf05",
@@ -291,9 +298,10 @@
     "configs/production.yaml": "18adb20d19d428c16ac563a6c1e41f70b36b0cb32c538d9202bbfec6b6e2e4db",
     "configs/promotion_mechanics_v2.yaml": "2acc555a7b99e7c1a241d96f2bdacee4054e793823e3f15c73989d637ff178eb",
     "configs/training_fast.yaml": "72bcf53ff182944ba2adece79352fe2eafbe7cbe78a3afeeae8a3e6329c4d016",
-    "docs/research/final_run_20261019/DESIGN_V2_SHADOW.md": "0eba3e8c8a475ccc56e8a4e65391e9f7357ef045646c0dd34cf28e8aa3eb084d",
+    "docs/research/final_run_20261019/DESIGN_V2_SHADOW.md": "3297c8d774c7c16ae7fd71ffa6b616d382d37ed38d8599f83ab2e9d4e6f24e21",
     "docs/research/final_run_20261019/P7_STATISTICS.md": "8ef03a45dbb8b1c6708ca0bab20bb4c97bc7f4bb942c3ae0dd587af2c82cd018",
-    "docs/research/final_run_20261019/SUCCESS_CONTRACT.md": "9f34ef2f4947341c76cc719483bc72211019f68ce1096139e38f03dc63955191",
+    "docs/research/final_run_20261019/SUCCESS_CONTRACT.md": "cb3300bcdfc667f400ec43df8d81b0983b1c175d3bc2672d082d9595a2f94a7a",
+    "docs/research/specs/2026-10-20_t34_retention_amendment_bare_unpaced.md": "c7ed9086074337f4ee68afe40fae47a7b31657a00f876e6bf558c8d813a1ff0d",
     "research/apex_safety_20260926/deployment.yaml": "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb71715aa5",
     "research/apex_safety_20260926/dev_screen.py": "50374f4f236ecac208f250eaacfc94d5142cce99b96989dae231744dd30211fe",
     "research/apex_veto_serving_20261001/__init__.py": "562ad5ef6db4262ebcbd3956451a487d355b3487217b0a7a80a90b385445303e",
@@ -343,7 +351,8 @@
     "research/t34_exit_b8/PUBLIC_INPUTS.json": "736f7b4e7730f760b8b81db00772d14abcf84c74b261a8dc7630732fdd383a10",
     "research/t34_exit_b8/__init__.py": "ee904a2735c26cf58a17b66aca5115b27699d05ad490b7454d4a8875648a67a8",
     "research/t34_exit_b8/engine.py": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
-    "research/t34_exit_b8/policy.py": "49ef8bf4168dc4718997fc2b276fa0d2f423380067d4e2ba81d41e6f1db03abe",
+    "research/t34_exit_b8/faults.py": "f7a2e08ae05831420f3b92baba4d729894e6e0dc5362e433c75e5b58ee8739de",
+    "research/t34_exit_b8/policy.py": "11cb3334b7711c8d0150c68ac869db380472bd2dd293b013e3e96665f584e8e3",
     "research/t34_exit_b8/public_inputs.py": "a2d613ed2793542e34fb77b8a4398ae1dc6df822eb4a8add70d879f839920337",
     "research/t34_exit_b8/qualification.py": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
     "research/t34_exit_b8/unpaced_retention.sh": "944de88c68970cd52a7589cc8ef7c947603105636a3e7a3090df95bbcf94b690",
@@ -355,7 +364,7 @@
     "research/t34_pathb/SEED_AUDIT_RETENTION_V2.json": "7d895340b742d2011fde9e2731c3e73c1b58484023b3e4afbf66e769704f3b51",
     "research/t34_pathb/__init__.py": "492412914b3cd456dac0a834d2ab265f8ef0300f077b1d56a6334132779c6b2a",
     "research/t34_pathb/adapter_v2.py": "28dc75bb901107873d2f61084897afdf621d25f5c82d6edb3214791ca17ba2f5",
-    "research/t34_pathb/analyze_v2.py": "ed990555186de03d1c16f08113fa467f8d1943820420aace912cdbfe1e0c96d4",
+    "research/t34_pathb/analyze_v2.py": "c07622346188e6db8ed14b0286f7a9205f634cb89ee5ab8600d19b3e33e0d58f",
     "research/t34_pathb/bank.py": "5db154f09cdbc60b4648d259aafba4d21a4cca400af0916a0a3b77583d5198da",
     "research/t34_pathb/batch_v2.py": "907d0ce43810d7d75a689a174d763a12adab0455988e71b227d1661ece868f53",
     "research/t34_pathb/controller_v2.py": "629b1cf5687d2a9b1a80a37b96f1e4e762870e2e290f38e304c3b95401b9e2be",
@@ -365,11 +374,11 @@
     "research/t34_pathb/live.py": "39e8c010198660cf7f73db618024550c0d7b3b08c9d6e5dd26a73da097244bce",
     "research/t34_pathb/make_unpaced_manifest.py": "4d76df526f82ae6a3c7f68f5501b9adb6d3b650127af93569af0c1c820d9f8c9",
     "research/t34_pathb/precheck_v2.py": "277742640e81373c33bf2ef80886c85e017f5423f9d2bbc3baf2ab305971c53e",
-    "research/t34_pathb/registration_retention_v2.py": "457e889e8b1e45d9494dbb185411373ae8cd9fd5281c05e66615258d9e62ada4",
+    "research/t34_pathb/registration_retention_v2.py": "d5df680986ad842daae6dbe9ddbf4673d9e7fd56f422ecee74a04e9e4e0b0d2d",
     "research/t34_pathb/retention_history_v2.py": "47c4afec2300eafb5c85dec1c7735547660d521f09e3734fa44801b3dbb043b6",
     "research/t34_pathb/retention_oc_v2.py": "5fa5b4802e1d975f110d3a921a73e2c8fc1db5a2958fe7da0cd12b5d3e75c181",
-    "research/t34_pathb/retention_v2.py": "967955f4755ab521f0cedf04cd2d975812a2c8770d9243369bc5adf8ee9f6e20",
-    "research/t34_pathb/source_binding_v2.py": "b5cddf7b068620a6c233f1615622f66d6a2594517dcd244f5307548776f82d9f",
+    "research/t34_pathb/retention_v2.py": "6271c808fda59c1b9bd13eeff2c005b688b1593d9b3eb6ed3b6513f7ba1d046f",
+    "research/t34_pathb/source_binding_v2.py": "e328a9a285c7ccb03f9267c12d57abdb2e95f88e992e1c648793c2e438a7068c",
     "research/t34_pathb/timing_v2.py": "21cd1302daaf2acbad628011a91098f374aea52cbb9c064a59dcf3a8c57c2532",
     "research/t34_pathb/unpaced_colab.py": "672afe9bdb1e4ae641e3693f02e173c54a0ed7679d82124785ebd87784b79937",
     "research/t34_pathb/unpaced_colab.sh": "b24ed09769136e09f12a323bad8b3212c81552a5de7f04aa0ec708c2f08da74d",
@@ -489,7 +498,7 @@
     "web/backend/session.py": "84e4e812231f1b3ce4684df3987c214909d33fd33bd19c3032bc21995b97a1e0",
     "web/backend/state_labels.py": "6dcf856083b034e59a8c5c37836ed8ff06375bc981e4e8ea5d3514c255ba5610"
   },
-  "study_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-01",
+  "study_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-02",
   "terminal_per_mix": 48,
   "terminal_rows": [
     {
@@ -6253,7 +6262,7 @@
       "seed": 365977461
     }
   ],
-  "timing_attempt_parent": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-01/timing",
+  "timing_attempt_parent": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-02/timing",
   "timing_max_attempts": 3,
   "timing_max_elapsed_hours": 1.0,
   "timing_row": {

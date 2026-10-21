@@ -153,7 +153,7 @@ population result.
 ## Evidence and next step
 
 - [Analysis](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-lambda1/analysis/analysis.json), [analysis inputs](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-lambda1/analysis-inputs.json), [fit/mechanism audit](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-lambda1/fit-mechanism-audit.json), and [supervised receipts](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-lambda1/supervisor-runs)
-- [Preceding microbenchmark report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_microbenchmark_2026-09-13/README.md) and its completed λ=.65 [analysis](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-microbenchmark/analysis/analysis.json)
+- [Preceding microbenchmark report](../solo_food_microbenchmark_2026-09-13/README.md) and its completed λ=.65 [analysis](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-microbenchmark/analysis/analysis.json)
 
 The current evidence rejects λ=1 as a reliable replacement for λ=.65 in this
 fixed diagnostic. It does not say whether the loss comes from longer credit

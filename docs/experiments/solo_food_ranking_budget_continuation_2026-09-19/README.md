@@ -112,5 +112,5 @@ architecture superiority.
 - [BK completed closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-continuation/closeout.json)
 - [BK passing ledger review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-continuation/ledger-review.json)
 - [BK passing independent review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-continuation/independent-review.json)
-- [BJ completed report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_action_ranking_preservation_2026-09-19/README.md)
+- [BJ completed report](../solo_food_action_ranking_preservation_2026-09-19/README.md)
 - [BF representative gameplay — historical context, not BK evidence](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-learning-r2/analysis/representative-gameplay.png)

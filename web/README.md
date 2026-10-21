@@ -6,6 +6,11 @@ vector or raster policy) is the
 single source of truth; the React frontend is a pure view that renders frames streamed
 over a WebSocket. No game logic or model inference runs in the browser.
 
+**Served agent:** since 2026-10-17 the default Watch hero is bare **B8 seed 3** (`b8-s3`,
+no veto) in the `mixed` Watch roster. Rollback by restart: `SNAKE_SERVE_CHECKPOINT=frp3-s12`
+(or `=champion`). Full map of modules, the WebSocket protocol and every `SNAKE_SERVE_*`
+env var: [docs/architecture/WEB_MAP.md](../docs/architecture/WEB_MAP.md).
+
 ```
 React + TS (canvas)  ──WebSocket──►  FastAPI  ──►  GameState · selected policy
    (pure view)          frames /         (web/backend)      (reused src/, unchanged)
@@ -22,7 +27,7 @@ React + TS (canvas)  ──WebSocket──►  FastAPI  ──►  GameState · 
 cd web/frontend && npm install && npm run build && cd ../..
 
 # 3) serve everything (API + WebSocket + built UI) on one port
-./venv/bin/python web/serve.py            # -> http://localhost:8000
+./venv/bin/python web/serve.py            # -> http://127.0.0.1:8000
 #   PORT=9000 ./venv/bin/python web/serve.py
 ```
 
@@ -72,6 +77,10 @@ web/
     app.py              FastAPI: /ws/stream broadcast loop + REST + static serve
     session.py          GameSession: owns GameState + selected policy, controls
     serialize.py        GameState -> frame DTO (the wire contract); PyQt-free
+    served_checkpoint.py  pinned registry (b8-s3 / frp3-s12 / champion), env-selected
+    safety_veto_serving.py  v2/v5/v7/v8 veto wrappers (vector61 only)
+    ego2s_policy.py, raster_policy.py  serving policies for raster/ego checkpoints
+    pathb*.py, serving_speed.py, release_monitoring.py  see WEB_MAP.md
     metrics.py          dashboard data from saved_snakes/ + logs/eval_*.json
     state_labels.py     vector feature grouping for the inspector
   frontend/             Vite + React + TypeScript (canvas view, no extra UI deps)

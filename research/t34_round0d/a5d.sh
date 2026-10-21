@@ -24,4 +24,4 @@ exec "$T34_PYTHON" -m research.t34_round0d.a5d run \
   --bank "${COLAB_INPUT_DIR}/${T34_ROUND0D_BANK}" \
   --checkpoint "${INPUT_ROOT}/B8_s3_final.pth" \
   --output-dir "${COLAB_CLI_ROOT}/output/a5d" \
-  --seconds "${T34_ROUND0D_A5D_SECONDS:-4800}" --processes 12
+  --seconds "${T34_ROUND0D_A5D_SECONDS:-16200}" --processes 12

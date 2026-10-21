@@ -40,6 +40,7 @@ DECLARED_DATA_FILES: Final = frozenset(
         "research/t34_pathb/PROTOCOL_V2_BUILD_RULES.md",
         "research/t34_pathb/RETENTION_PROFILE_V2.json",
         "research/t34_pathb/PREREGISTRATION_RETENTION_V2.md",
+        "docs/research/specs/2026-10-20_t34_retention_amendment_bare_unpaced.md",
         "research/t34_pathb/RETENTION_BANK_V2.json",
         "research/t34_pathb/SEED_AUDIT_RETENTION_V2.json",
         "research/t34_round0/BANK_ROUND0.json",

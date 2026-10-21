@@ -115,4 +115,4 @@ is historical context only, not BJ gameplay evidence.
 - [BJ completed closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-action-ranking-preservation/closeout.json)
 - [BJ passing ledger review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-action-ranking-preservation/ledger-review.json)
 - [BJ passing independent review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-action-ranking-preservation/independent-review.json)
-- [BH report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_shared_safety_head_2026-09-19/README.md)
+- [BH report](../solo_food_shared_safety_head_2026-09-19/README.md)

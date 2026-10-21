@@ -86,3 +86,27 @@ are label data only until the Path B disposition is published; no Mac work for R
 or is admitted; R1 results may not be cited in or influence the retention verdict; R1 labels are never described as
 evidence or as "funded by Round 0". The owner may veto: before R1 dispatch this cancels the amendment, after
 dispatch it stops R1 with data kept unused. Release approval remains the owner's (§4 / line 57).
+
+## §5 Amendment clarification (2026-10-20 ~20:10 PT, prospective, pre-look; independent judge)
+Ruling: [RULING_round0_go_file.md](../advice/2026-10-20_colab_lanes/RULING_round0_go_file.md). The text above is
+unchanged. After the owner-approved Round 0 boost-floor amendment (merge 30b2739a), "Round 0 GO" in the §5
+Amendment, and every other Round 0 verdict that conditions a lane, means the published governing
+`<study_root>/amendment-boost-floor/decision.json`:
+- `governing: true`;
+- `phase_terminal.json` sealed;
+- its amendment-ledger line on `origin/main`.
+
+It never means the registered `analysis/decision.json`.
+
+The registered file governs only after a recorded `decide` refusal for late publication of the amendment. That
+refusal must be logged before any Round 0-conditioned lane is registered. Every other refusal is fixed and
+re-run. A post-claim failure, or an amend tag without a sealed terminal, is a governing KILL.
+
+Pass-through verdicts, which are copied unchanged (`applied: false`), route as the governing verdict:
+- GO (TIER_1_DEVELOPMENT) → R1 may be registered under the §5 Amendment;
+- scientific STOP (no unconditional fault), or scientific INCONCLUSIVE (TIER_1_DEVELOPMENT) → Round 0-D only;
+- fault STOP (unconditional or action-collapse fault) → fix and re-register Round 0;
+- INCONCLUSIVE (INVALID_OR_INCOMPLETE) or KILL (INTEGRITY_FAILURE) → mechanical re-registration on a fresh
+  namespace, with no Round 0-D and no R1.
+
+Every Round 0-conditioned registration binds the SHA-256 of the governing `decision.json` and of its terminal.

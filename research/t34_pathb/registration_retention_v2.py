@@ -30,6 +30,7 @@ for _thread_env in (
 from research.t34_pathb import bank  # noqa: E402
 from research.t34_pathb.retention_v2 import (  # noqa: E402
     ARMS,
+    BARE_UNPACED_AMENDMENT,
     DEFAULT_STUDY_ROOT,
     MAC_ARMS,
     MAX_CPU_HOURS,
@@ -346,6 +347,17 @@ def _check_common(registration: Mapping[str, Any], *, root: Path) -> None:
         raise RegistrationError("missing T34 retention registration schema")
     if registration.get("arms") != list(ARMS) or registration.get("paced_fps") != 24:
         raise RegistrationError("arms or 24 fps paced design differs from protocol")
+    if registration.get("bare_fps") != 0:
+        raise RegistrationError("bare arm must run unpaced under the pre-data amendment")
+    amendments = registration.get("amendments")
+    if (
+        not isinstance(amendments, list)
+        or len(amendments) != 1
+        or not isinstance(amendments[0], Mapping)
+        or amendments[0].get("path") != BARE_UNPACED_AMENDMENT
+    ):
+        raise RegistrationError("registration must point to the bare-unpaced amendment")
+    _bound_path(amendments[0], root=root, label="bare-unpaced amendment")
     expected = {
         "mac_arms": list(MAC_ARMS),
         "unpaced_colab": unpaced_colab_policy(),
@@ -602,6 +614,8 @@ def build_draft(
         "mac_arms": list(MAC_ARMS),
         "unpaced_colab": unpaced_colab_policy(),
         "paced_fps": 24,
+        "bare_fps": 0,
+        "amendments": [_binding(Path(BARE_UNPACED_AMENDMENT), root=root)],
         "terminal_per_mix": TERMINAL_PER_MIX,
         "product_sessions": PRODUCT_SESSIONS,
         "horizon": 5000,

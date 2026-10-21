@@ -11,9 +11,9 @@ BP reuses the completed BN and BO archives for seeds 2026094401–2026094403. It
 performs no rollout, training, inference, checkpoint selection, or promotion:
 `new_rollouts`, `new_training`, and `new_inference` are all zero. The fixed policy
 and the prior behavioral record remain in the [BM learning and fresh-initialization
-report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_shared_head_fresh_init_confirmation_2026-09-19/README.md),
-[BN H256 report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_longer_solo_confirmation_2026-09-19/README.md),
-and [BO H512 report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_h512_confirmation_2026-09-20/README.md).
+report](../solo_food_shared_head_fresh_init_confirmation_2026-09-19/README.md),
+[BN H256 report](../solo_food_longer_solo_confirmation_2026-09-19/README.md),
+and [BO H512 report](../solo_food_h512_confirmation_2026-09-20/README.md).
 
 ## Frozen evidence and definitions
 

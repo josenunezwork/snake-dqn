@@ -11,7 +11,7 @@ claim about downstream trajectory value, observation sufficiency, or a learner f
 BR remains `overall_success: false` with unchanged criteria. BS is saved-array
 analysis of its starting, control, and coverage marks. It does not change BR’s
 behavioral evidence, frozen thresholds, or policy status. See the [BR completed
-comparison](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_own_policy_coverage_2026-09-20/README.md)
+comparison](../solo_food_own_policy_coverage_2026-09-20/README.md)
 for actual learning and gameplay results.
 
 ## What the certificate tests
@@ -79,9 +79,9 @@ one-step comparison inspectable; they do not simulate the alternative action.
 
 | Seed | Final partition curve | First worse held example |
 |---|---|---|
-| 2026094501 | [curve](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_error_geometry_diagnostic_2026-09-20/partition-learning-seed2026094501.png) | [frame 0, lane 9](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_error_geometry_diagnostic_2026-09-20/held-example-seed2026094501.png) |
-| 2026094502 | [curve](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_error_geometry_diagnostic_2026-09-20/partition-learning-seed2026094502.png) | [frame 0, lane 6](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_error_geometry_diagnostic_2026-09-20/held-example-seed2026094502.png) |
-| 2026094503 | [curve](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_error_geometry_diagnostic_2026-09-20/partition-learning-seed2026094503.png) | [frame 0, lane 12](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_error_geometry_diagnostic_2026-09-20/held-example-seed2026094503.png) |
+| 2026094501 | [curve](partition-learning-seed2026094501.png) | [frame 0, lane 9](held-example-seed2026094501.png) |
+| 2026094502 | [curve](partition-learning-seed2026094502.png) | [frame 0, lane 6](held-example-seed2026094502.png) |
+| 2026094503 | [curve](partition-learning-seed2026094503.png) | [frame 0, lane 12](held-example-seed2026094503.png) |
 
 ## Execution, boundary, and next decision
 

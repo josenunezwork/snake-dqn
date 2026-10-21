@@ -180,11 +180,8 @@ def audit(allocation: dict[str, list[dict[str, Any]]], *, scan: Any = scan_histo
         raise RuntimeError("whole Round 0-D allocation rejected: internal collision")
     banks = known_banks()
     bank_hits = {name: sorted(set(seeds) & item["seeds"]) for name, item in banks.items()}
-    try:
-        census = t3_census_seeds()
-        census_record: dict[str, Any] = {"count": len(census), "available": True}
-    except Exception as exc:  # recorded coverage limit, never a silent pass
-        census, census_record = set(), {"available": False, "error": type(exc).__name__}
+    census = t3_census_seeds()  # fail closed: no CLEAR without the T3 census check
+    census_record: dict[str, Any] = {"count": len(census), "available": True}
     bank_hits["t3_dense_census"] = sorted(set(seeds) & census)
     # Positive controls: one known seed per explicit bank must be found by the
     # same scan, so a broken scanner cannot certify CLEAR by finding nothing.

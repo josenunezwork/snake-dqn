@@ -184,6 +184,9 @@ def _draft_inputs(tmp_path: Path, monkeypatch) -> tuple[dict, Path]:
         "collisions": [],
         "seeds": sorted({row["seed"] for row in terminal + product} | {timing["seed"]}),
     }
+    bare_unpaced = tmp_path / registration.BARE_UNPACED_AMENDMENT
+    bare_unpaced.parent.mkdir(parents=True, exist_ok=True)
+    bare_unpaced.write_bytes((registration.ROOT / registration.BARE_UNPACED_AMENDMENT).read_bytes())
     amendment = tmp_path / "amendment.md"
     amendment.write_text(
         "- Decision: ratified\n- Option: 1\n- Date: 2026-10-06\n- Changes, if any: none\n"

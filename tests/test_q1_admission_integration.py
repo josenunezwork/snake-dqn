@@ -9,6 +9,7 @@ including renamed Q0 audit output directories.
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import hashlib
 import io
 import json
@@ -27,6 +28,18 @@ from tests.test_q1_qualification import _packet as qualification_packet
 
 COMMIT = "a" * 40
 APPROVED = "APPROVED_Q0Q1_20261017"
+FIXTURE_ADMISSION_NOW = dt.datetime(2026, 10, 20, 11, 0, tzinfo=dt.timezone.utc)
+_PRODUCTION_VALIDATE_DISPATCH_HORIZON = allocation_accounting.validate_dispatch_horizon
+
+
+@pytest.fixture
+def admission_clock(monkeypatch):
+    # Historical fixture evidence must use its recorded pre-dispatch instant, not wall time.
+    monkeypatch.setattr(
+        allocation_accounting,
+        "validate_dispatch_horizon",
+        lambda value: _PRODUCTION_VALIDATE_DISPATCH_HORIZON(value, now=FIXTURE_ADMISSION_NOW),
+    )
 
 
 def _sha(path: Path) -> str:
@@ -395,7 +408,9 @@ def _job_env(job_path: Path, drive: Path) -> dict[str, str]:
     return env
 
 
-def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, tmp_path):
+def test_cli_materializes_120_bound_jobs_and_real_admission_checks(
+    admission_clock, monkeypatch, tmp_path
+):
     evidence = _evidence(tmp_path)
     out = tmp_path / "jobs"
     drive_output = evidence["drive"] / "q0q1-20261017/q1/jobs_approved"
@@ -454,7 +469,9 @@ def test_cli_materializes_120_bound_jobs_and_real_admission_checks(monkeypatch, 
         run_queue_job.admission_checks(env)
 
 
-def test_a5_refusal_writes_complete_forecast_without_queue_manifests(monkeypatch, tmp_path):
+def test_a5_refusal_writes_complete_forecast_without_queue_manifests(
+    admission_clock, monkeypatch, tmp_path
+):
     evidence = _evidence(tmp_path)
     accounting_path = evidence["accounting"]
     accounting = json.loads(accounting_path.read_text())
@@ -496,7 +513,7 @@ def test_a5_refusal_writes_complete_forecast_without_queue_manifests(monkeypatch
         "plan-amendment",
     ],
 )
-def test_admission_rejects_mutated_bound_evidence(monkeypatch, tmp_path, mutation):
+def test_admission_rejects_mutated_bound_evidence(admission_clock, monkeypatch, tmp_path, mutation):
     evidence = _evidence(tmp_path)
     out = tmp_path / "jobs"
     drive_output = evidence["drive"] / "q0q1-20261017/q1/jobs_approved"
@@ -555,3 +572,12 @@ def test_admission_rejects_mutated_bound_evidence(monkeypatch, tmp_path, mutatio
     else:
         with pytest.raises((RuntimeError, ValueError)):
             run_queue_job.admission_checks(env)
+
+
+def test_production_dispatch_horizon_rejects_expired_fixture_allocation(tmp_path):
+    accounting = json.loads(_evidence(tmp_path)["accounting"].read_text())
+
+    with pytest.raises(ValueError, match="allocation dispatch assumption expired"):
+        _PRODUCTION_VALIDATE_DISPATCH_HORIZON(
+            accounting, now=dt.datetime(2026, 10, 20, 12, 0, 1, tzinfo=dt.timezone.utc)
+        )

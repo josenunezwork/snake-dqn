@@ -27,7 +27,7 @@ pass thresholds. Head-trajectory figures contain recorded head positions only an
 not reconstruct bodies or food maps.
 
 BM supplies the learning evidence; BO trains nothing and therefore creates no new
-learning curve. See the [completed BM report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_shared_head_fresh_init_confirmation_2026-09-19/README.md)
+learning curve. See the [completed BM report](../solo_food_shared_head_fresh_init_confirmation_2026-09-19/README.md)
 for the fixed policy’s training, held, and shorter-horizon evidence.
 
 ## Calibration and frozen criteria
