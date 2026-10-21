@@ -473,7 +473,8 @@ def audit(
         "sealed_directory": {"name": SEALED_DIRECTORY, "opened_or_traversed": False},
         "limitations": [
             "Opaque binaries, unrecorded runs and inaccessible external history are not covered.",
-            "Symlinks are skipped without following them; published sealed bank covers its identities.",
+            "Symlinks are skipped without following them; "
+            "published sealed bank covers its identities.",
         ],
     }
 

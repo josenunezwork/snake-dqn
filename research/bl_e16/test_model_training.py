@@ -116,9 +116,12 @@ def test_critic_refit_preserves_actor_then_e12_gates_real_ppo() -> None:
     assert all(torch.equal(a, b) for a, b in zip(critic_before, policy.critic.parameters()))
     trainer.mark_e12_passed()
     actor_before = [parameter.detach().clone() for parameter in policy.actor_parameters()]
+    critic_before = [parameter.detach().clone() for parameter in policy.critic.parameters()]
     metrics = trainer.trainer_step(batch)
     assert metrics["stage"] == 1.0 and torch.isfinite(torch.tensor(metrics["actor_loss"]))
+    assert torch.isfinite(torch.tensor(metrics["critic_loss"]))
     assert any(not torch.equal(a, b) for a, b in zip(actor_before, policy.actor_parameters()))
+    assert any(not torch.equal(a, b) for a, b in zip(critic_before, policy.critic.parameters()))
 
 
 def test_refit_requires_complete_return_targets_and_uses_them() -> None:
@@ -134,6 +137,40 @@ def test_refit_requires_complete_return_targets_and_uses_them() -> None:
         raise AssertionError("critic refit accepted bootstrap-only targets")
 
 
+def test_masked_legal_row_performs_an_actor_update() -> None:
+    policy = E16Policy("A", _parent())
+    trainer = E16Trainer(policy, critic_refit_transitions=4)
+    batch = _batch(policy)
+    batch.action_masks[:, 0, 1:] = False
+    batch.actions[:, 0] = 0
+    with torch.no_grad():
+        for step in range(batch.actions.shape[0]):
+            logits = policy.actor_logits(
+                batch.local[step],
+                batch.global_[step],
+                batch.scalars[step],
+                action_mask=batch.action_masks[step],
+            )
+            batch.logp[step] = Categorical(logits=logits).log_prob(batch.actions[step])
+    trainer.trainer_step(batch)
+    trainer.mark_e12_passed()
+    before = [parameter.detach().clone() for parameter in policy.actor_parameters()]
+    metrics = trainer.trainer_step(batch)
+    assert metrics["stage"] == 1.0
+    assert any(not torch.equal(a, b) for a, b in zip(before, policy.actor_parameters()))
+
+
+def test_history_variant_requires_its_own_e3_e14_qualification() -> None:
+    policy = E16Policy("G", _parent(), use_history=True)
+    try:
+        E16Trainer(policy)
+    except ValueError as error:
+        assert "E3/E14" in str(error)
+    else:
+        raise AssertionError("unqualified G history variant was trainable")
+    E16Trainer(policy, history_qualified=True)
+
+
 def test_portable_export_contains_cpu_state() -> None:
     policy = E16Policy("A", _parent()).eval()
     payload = policy.portable_state_dict()
@@ -146,3 +183,26 @@ def test_portable_export_contains_cpu_state() -> None:
             policy.actor_logits(local[0], global_[0], scalars[0]),
             restored.actor_logits(local[0], global_[0], scalars[0]),
         )
+
+
+def test_final_optimizer_parameter_poison_is_a_tripwire(monkeypatch) -> None:
+    import pytest
+
+    from research.bl_e16.training import E16TripwireError
+
+    policy = E16Policy("A", _parent())
+    trainer = E16Trainer(policy, critic_refit_transitions=1)
+    batch = _batch(policy)
+    trainer.trainer_step(batch)
+    trainer.mark_e12_passed()
+    real_step = trainer.actor_optimizer.step
+
+    def poisoned_step(*args, **kwargs):
+        result = real_step(*args, **kwargs)
+        with torch.no_grad():
+            next(iter(policy.actor_parameters())).flatten()[0] = float("nan")
+        return result
+
+    monkeypatch.setattr(trainer.actor_optimizer, "step", poisoned_step)
+    with pytest.raises(E16TripwireError, match="updated actor parameter"):
+        trainer.trainer_step(_batch(policy, time=1, batch=2))

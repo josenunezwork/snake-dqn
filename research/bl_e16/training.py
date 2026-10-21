@@ -96,9 +96,12 @@ class E16Trainer:
         encoder_lr: float = 1e-5,
         new_actor_lr: float = 1e-4,
         critic_lr: float = 1e-4,
+        history_qualified: bool = False,
     ) -> None:
         if critic_refit_transitions < 1:
             raise ValueError("critic_refit_transitions must be positive")
+        if policy.arm == "G" and policy.use_history and not history_qualified:
+            raise ValueError("E16-G history needs its separately matched E3/E14 qualification")
         self.policy, self.critic_refit_transitions = policy, critic_refit_transitions
         self.refit_transitions = 0
         self.e12_passed = False
@@ -167,6 +170,14 @@ class E16Trainer:
             raise E16TripwireError(f"non-finite {name}")
 
     @staticmethod
+    def _require_legal_logits(logits: Tensor, action_masks: Tensor) -> None:
+        """Check only legal logits: action masking intentionally writes ``-inf``."""
+        if logits.shape != action_masks.shape or not action_masks.bool().any(dim=-1).all():
+            raise E16TripwireError("invalid PPO legal-action mask")
+        if not torch.isfinite(logits[action_masks.bool()]).all():
+            raise E16TripwireError("non-finite PPO legal logits")
+
+    @staticmethod
     def _guard_gradients(parameters: list[Tensor], label: str) -> None:
         for parameter in parameters:
             if parameter.grad is not None and not torch.isfinite(parameter.grad).all():
@@ -195,6 +206,8 @@ class E16Trainer:
             self.policy.critic.parameters(), 1.0, error_if_nonfinite=True
         )
         self.critic_optimizer.step()
+        for parameter in self.policy.critic.parameters():
+            self._require_finite("updated critic parameter", parameter)
         # Updating PopArt before backprop mutates the output head in-place.  Its
         # affine correction is applied only after the critic update, preserving
         # denormalised predictions for the next collection batch.
@@ -208,9 +221,35 @@ class E16Trainer:
         }
 
     def _actor_update(self, batch: E16Batch) -> dict[str, float]:
-        advantages, _ = compute_gae(batch)
+        advantages, returns = compute_gae(batch)
         if not self.e12_passed:
             raise RuntimeError("E12 PASS is required before the 4M actor block")
+        # The E12-qualified critic keeps learning on the on-policy actor block,
+        # but only after the external receipt has admitted this arm.  Unlike the
+        # preparation phase, these are ordinary GAE targets from the current
+        # actor batch rather than complete-life collector targets.
+        predicted = self._critic_values(batch)
+        self._require_finite("actor-block critic prediction", predicted)
+        critic_loss = (
+            0.5
+            * (
+                self.policy.critic.popart.normalized(predicted)
+                - self.policy.critic.popart.normalized(returns)
+            )
+            .square()
+            .mean()
+        )
+        self._require_finite("actor-block critic loss", critic_loss)
+        self.critic_optimizer.zero_grad(set_to_none=True)
+        critic_loss.backward()
+        self._guard_gradients(list(self.policy.critic.parameters()), "actor-block critic")
+        torch.nn.utils.clip_grad_norm_(
+            self.policy.critic.parameters(), 1.0, error_if_nonfinite=True
+        )
+        self.critic_optimizer.step()
+        for parameter in self.policy.critic.parameters():
+            self._require_finite("updated critic parameter", parameter)
+        self.policy.critic.popart.update(returns.detach().reshape(-1))
         flat = self._flat(batch)
         normalized = (advantages - advantages.mean()) / advantages.std(unbiased=False).clamp_min(
             1e-8
@@ -228,7 +267,7 @@ class E16Trainer:
                 history=flat["history"],
                 action_mask=flat["action_masks"],
             ).reshape(*batch.actions.shape, 6)
-            self._require_finite("PPO logits", logits)
+            self._require_legal_logits(logits, batch.action_masks)
             distribution = Categorical(logits=logits)
             new_logp = distribution.log_prob(batch.actions)
             ratio = torch.exp(new_logp - batch.logp)
@@ -249,8 +288,11 @@ class E16Trainer:
                 self.policy.actor_parameters(), 1.0, error_if_nonfinite=True
             )
             self.actor_optimizer.step()
+            for parameter in self.policy.actor_parameters():
+                self._require_finite("updated actor parameter", parameter)
         return {
             "stage": 1.0,
+            "critic_loss": float(critic_loss.detach()),
             "actor_loss": float(actor_loss.detach()),
             "approx_kl": float(approx_kl.detach()),
             "transitions": float(counted),
