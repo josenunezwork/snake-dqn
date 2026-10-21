@@ -1,0 +1,1773 @@
+{
+  "excluded_parity_rows": [
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/parity/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/parity/scripted/0000",
+      "world_seed": 3006882424
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/parity/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/parity/frozen/0000",
+      "world_seed": 3988631184
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/parity/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/parity/mixed/0000",
+      "world_seed": 2513176420
+    }
+  ],
+  "excluded_preflight_rows": [
+    {
+      "horizon": 40,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/mac-preflight/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/mac-preflight/scripted/0000",
+      "world_seed": 1441017192
+    },
+    {
+      "horizon": 40,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/mac-preflight/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/mac-preflight/frozen/0000",
+      "world_seed": 1940838160
+    }
+  ],
+  "excluded_timing_rows": [
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/timing/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/timing/frozen/0000",
+      "world_seed": 943080529
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/timing/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/timing/mixed/0000",
+      "world_seed": 2671445542
+    }
+  ],
+  "mechanics_version": 2,
+  "namespace": "t34-o1-harvest-20261021/v1",
+  "rows": [
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0000",
+      "world_seed": 2321431939
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0001",
+      "world_seed": 1376432891
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0002",
+      "world_seed": 1779393360
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0003",
+      "world_seed": 2871007824
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0004",
+      "world_seed": 971353683
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0005",
+      "world_seed": 3759652196
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0006",
+      "world_seed": 1182057609
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0007",
+      "world_seed": 1006269874
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0008",
+      "world_seed": 2426864964
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0009",
+      "world_seed": 2328967517
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0010",
+      "world_seed": 1516211312
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0011",
+      "world_seed": 3186261358
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0012",
+      "world_seed": 2060741202
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0013",
+      "world_seed": 2379326094
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0014",
+      "world_seed": 2539751948
+    },
+    {
+      "horizon": 5000,
+      "mix": "scripted",
+      "namespace": "t34-o1-harvest-20261021/v1/study/scripted",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ],
+        [
+          "scripted",
+          "greedy_food"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/scripted/0015",
+      "world_seed": 1204281176
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0000",
+      "world_seed": 1641588207
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0001",
+      "world_seed": 850764800
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0002",
+      "world_seed": 3096134262
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0003",
+      "world_seed": 3541961271
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0004",
+      "world_seed": 269764679
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0005",
+      "world_seed": 1007128020
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0006",
+      "world_seed": 3960753728
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0007",
+      "world_seed": 2276517739
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0008",
+      "world_seed": 50723219
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0009",
+      "world_seed": 3185660566
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0010",
+      "world_seed": 1765553104
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0011",
+      "world_seed": 1005140785
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0012",
+      "world_seed": 2655810187
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0013",
+      "world_seed": 3197742643
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0014",
+      "world_seed": 3953766856
+    },
+    {
+      "horizon": 5000,
+      "mix": "frozen",
+      "namespace": "t34-o1-harvest-20261021/v1/study/frozen",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/frozen/0015",
+      "world_seed": 270389631
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0000",
+      "world_seed": 702718103
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0001",
+      "world_seed": 3796835266
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0002",
+      "world_seed": 2832463259
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0003",
+      "world_seed": 3626271682
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0004",
+      "world_seed": 1334022668
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0005",
+      "world_seed": 214004131
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0006",
+      "world_seed": 1169082352
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0007",
+      "world_seed": 1382298598
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0008",
+      "world_seed": 2129115439
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0009",
+      "world_seed": 2366160564
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0010",
+      "world_seed": 3311191621
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0011",
+      "world_seed": 994160464
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0012",
+      "world_seed": 1761595381
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0013",
+      "world_seed": 2667571972
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0014",
+      "world_seed": 3413583917
+    },
+    {
+      "horizon": 5000,
+      "mix": "mixed",
+      "namespace": "t34-o1-harvest-20261021/v1/study/mixed",
+      "opponent_veto": "v8",
+      "opponent_veto_lambda": 8.0,
+      "opponents": [
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ],
+        [
+          "scripted",
+          "random_safe"
+        ],
+        [
+          "checkpoint",
+          "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+        ]
+      ],
+      "terminal_hero_slot": 0,
+      "world_id": "t34-o1-harvest-20261021/v1/study/mixed/0015",
+      "world_seed": 2884983665
+    }
+  ],
+  "schema": "t34-o1-bank/v1"
+}

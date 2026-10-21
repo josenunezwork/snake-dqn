@@ -1,0 +1,177 @@
+{
+  "bank_collisions": {
+    "pathb_retention_v2": [],
+    "phase0": [],
+    "round0": [],
+    "t3_dense_census": []
+  },
+  "bank_sha256": "37ffffe24ec00b6f13c9249f1272efe04d75a0ff3789699c1762154e63e41c2a",
+  "candidate_count": 55,
+  "collisions": [],
+  "concrete_hits": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts": [],
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/docs": [],
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/research": [],
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/scripts": [],
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/src": []
+  },
+  "coverage": "visible text source/docs/artifacts incl. CSV/TSV + historical exclusions",
+  "excluded_a5d_count": 5,
+  "excluded_live_study_roots": [
+    "t34-round0-study-01"
+  ],
+  "excluded_parity_count": 3,
+  "excluded_preflight_count": 2,
+  "excluded_timing_count": 2,
+  "explicit_banks": {
+    "pathb_retention_v2": {
+      "count": 177,
+      "path": "research/t34_pathb/RETENTION_BANK_V2.json",
+      "sha256": "af54fd499e99575bcc960c78fc3c52d756f8e1c1a52ca65edb95bb5b013f6d95"
+    },
+    "phase0": {
+      "count": 172,
+      "path": "research/phase0_search_20261019/WORLD_BANK.json",
+      "sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291"
+    },
+    "round0": {
+      "count": 242,
+      "path": "research/t34_round0/BANK_ROUND0.json",
+      "sha256": "76863477c4e47bee40c19980ca0dd01983f1bf49ea473c8b2fd4018958d0c2ae"
+    }
+  },
+  "historical_frp_exclusions": [
+    {
+      "collisions": [],
+      "count": 425901,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v2-20261004/namespaces/training_exclusions.json",
+      "sha256": "09e4cb22e569ceea6b8af7d3fb335f2e59e791a749b07d0151108c28548d3b72"
+    },
+    {
+      "collisions": [],
+      "count": 586062,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005/namespaces/training_exclusions.json",
+      "sha256": "4b0f33775544e36e2ccbe6a5d8ab35b81de40565c4328dc8abddd3cea4bc1edf"
+    },
+    {
+      "collisions": [],
+      "count": 714256,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v4-20261007/namespaces/training_exclusions.json",
+      "sha256": "d6223bf5c0bd03cb30bdbc2c455208800e30e880ba395bf0cb5d2f6c433f6d2a"
+    },
+    {
+      "collisions": [],
+      "count": 872512,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/namespaces/training_exclusions.json",
+      "sha256": "8a06d278ae51a71c3f71eff8afa120b1b9fc57f22ff2cac138302be29cf68cd4"
+    },
+    {
+      "collisions": [],
+      "count": 872513,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/namespaces-r2/training_exclusions.json",
+      "sha256": "04dc76fc95458e212a595772de86c8a8addfa0499ec480b83a0f8ac80e5ecf96"
+    },
+    {
+      "collisions": [],
+      "count": 1002787,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5s-20261009/namespaces/training_exclusions.json",
+      "sha256": "76b3b1fbb601115056d42e7198048b650ed7350ff8042a266cc830d97b9ddd88"
+    },
+    {
+      "collisions": [],
+      "count": 1135019,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5s2-20261009/namespaces/training_exclusions.json",
+      "sha256": "30726df2c26da9eb26a37659c3f525ec63bf3618495de5b380bc8e426edbd885"
+    }
+  ],
+  "limits": "opaque binaries, unrecorded external runs, inaccessible history, and the live Round 0 study root (identities checked via BANK_ROUND0.json) excluded",
+  "method": "deterministic-all-at-once-sha256-v1 (Round 0 _rows)",
+  "namespace": "t34-o1-harvest-20261021/v1",
+  "positive_controls": {
+    "pathb_retention_v2": 44043378,
+    "phase0": 6468802,
+    "round0": 2822540
+  },
+  "scan_globs": [
+    "*.json",
+    "*.jsonl",
+    "*.md",
+    "*.py",
+    "*.yaml",
+    "*.yml",
+    "*.sh",
+    "*.csv",
+    "*.tsv"
+  ],
+  "scan_roots": [
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/docs",
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/research",
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/src",
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/scripts",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts"
+  ],
+  "schema": "t34-o1-seed-audit/v1",
+  "seeds": [
+    2321431939,
+    1376432891,
+    1779393360,
+    2871007824,
+    971353683,
+    3759652196,
+    1182057609,
+    1006269874,
+    2426864964,
+    2328967517,
+    1516211312,
+    3186261358,
+    2060741202,
+    2379326094,
+    2539751948,
+    1204281176,
+    1641588207,
+    850764800,
+    3096134262,
+    3541961271,
+    269764679,
+    1007128020,
+    3960753728,
+    2276517739,
+    50723219,
+    3185660566,
+    1765553104,
+    1005140785,
+    2655810187,
+    3197742643,
+    3953766856,
+    270389631,
+    702718103,
+    3796835266,
+    2832463259,
+    3626271682,
+    1334022668,
+    214004131,
+    1169082352,
+    1382298598,
+    2129115439,
+    2366160564,
+    3311191621,
+    994160464,
+    1761595381,
+    2667571972,
+    3413583917,
+    2884983665,
+    1441017192,
+    1940838160,
+    943080529,
+    2671445542,
+    3006882424,
+    3988631184,
+    2513176420
+  ],
+  "selection_count": 48,
+  "status": "CLEAR",
+  "t3_dense_census": {
+    "available": true,
+    "count": 32
+  }
+}
