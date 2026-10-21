@@ -147,3 +147,9 @@ _As of 2026-10-20 ~19:25 PT:_
 - **Sol running:** test-suite hygiene (worktree `../snake-dqn-test-hygiene`, log `t34-sol/test-hygiene.log`); verify
   protected paths untouched after merge.
 - **Colab:** qualified on `dab00823`; 1,153.84 u at ~19:20 (`colab usage`); 1 L4 active (Round 0 chunk 000).
+
+## Claim A amendment judgment and local preflight — 2026-10-20 22:16 PDT
+
+- Independent Fable 5.1 approved the prospective amendment subject to C1–C6; verbatim ruling: `docs/research/advice/2026-10-20_colab_lanes/CLAIMA_AMENDMENT_JUDGMENT.md` (SHA-256 `c7c519706513fdd2db1458226f463751d11bd752b501ad271a3e393a6ee4dda9`). C1 text/string corrections are applied on `t34-claim-a-amendment-20261021`; merge and dispatch remain separate.
+- Local `d0.sh` preflight-03: 2 decisive-bearing excluded A5 worlds, all training folds supported; replay 2 accepted / 0 rejected; 15 real recipe updates across 3 fits. Wall 312.861 s; deliberately stopped during the first full-batch stream fold, preserving registered defaults. No `D0_DECISION.json`; non-REFUSED decision reached = false. **Incomplete preflight; C2 dispatch qualification is not met.**
+- Detailed command, inclusive seconds/update, fixture limitation and SHA-bound evidence: `docs/research/advice/2026-10-20_colab_lanes/CLAIMA_PREFLIGHT_03.md`; external summary `/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-claim-a-20261020/d0-inputs/preflight-03-summary.json`. Targeted tests: 58 passed. No Colab, no main merge, no claim-bearing outcome data read, no serving change.
