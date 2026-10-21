@@ -14,7 +14,7 @@ from research.bl_info_value.io import sha256, verify_export, write_json
 from research.bl_info_value.resources import RESERVED_CPUS, worker_count
 from research.colab_cli.supervisor import validate
 
-MAX_LOCAL_INPUT_BYTES = 1024**2
+MAX_LOCAL_INPUT_BYTES = 2_000_000
 
 
 def forecast(timing: dict[str, Any], workers: int = 6) -> dict[str, Any]:
@@ -87,8 +87,10 @@ def build(
     timing = json.loads(timing_path.read_text())
     with tarfile.open(inputs, "r:gz") as archive:
         catalog = json.load(archive.extractfile("catalog.json"))
-    if catalog["schema"] != "bl-e3-input/v2" or inputs.stat().st_size > MAX_LOCAL_INPUT_BYTES:
-        raise ValueError("compact v2 catalog upload must be at most 1 MiB")
+    if catalog["schema"] != "bl-e3-input/v3" or inputs.stat().st_size > MAX_LOCAL_INPUT_BYTES:
+        raise ValueError("Mac-verified v3 root bank upload must be at most 2 MB")
+    if any("trace_npz" not in task or "root_state_hashes" not in task for task in catalog["tasks"]):
+        raise ValueError("every world requires all-seat actions and root state hashes")
     if catalog["smoke"]:
         raise ValueError("production manifest requires the full frozen root catalog")
     if not math.isfinite(prior_units) or prior_units < 0:
@@ -97,6 +99,8 @@ def build(
         raise ValueError("recovery requires a fresh attempt identifier >= 02")
     if not timing["smoke"] or timing["parity_seconds"] <= 0:
         raise ValueError("real Mac preflight with serial/parallel proof required")
+    if timing.get("input_schema") != "bl-e3-input/v3":
+        raise ValueError("preflight must exercise the v3 action-replay path")
     # Guarantee the forecast's six workers *after* reserving two CPUs.
     # A smaller host is refused by hardware admission, never underpriced.
     min_vcpu = 8
@@ -185,6 +189,9 @@ def build(
             upload_preflight=upload_preflight,
             forecast_within_usable_budget=plan["dispatch_within_forecast"],
             input_sha256=sha256(inputs),
+            input_schema=catalog["schema"],
+            root_mode="Mac-verified all-seat action replay",
+            target_mode="fresh runtime reactive policies after forced first action",
             timing_sha256=sha256(timing_path),
             local_input_bytes=inputs.stat().st_size,
             local_input_limit_bytes=MAX_LOCAL_INPUT_BYTES,

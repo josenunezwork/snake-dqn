@@ -75,12 +75,14 @@ def execute(args: argparse.Namespace) -> dict:
     if not args.smoke and (args.epochs != 60 or args.device != "cuda"):
         raise ValueError("production fits require frozen 60 epochs on CUDA")
     inputs = work / "inputs"
-    if catalog["schema"] == "bl-e3-input/v2":
+    if catalog["schema"] in {"bl-e3-input/v2", "bl-e3-input/v3"}:
         from research.bl_info_value.compact import hydrate
 
         if args.checkpoint_archive is None:
             raise ValueError("compact inputs require the hash-bound checkpoint archive")
         hydrate(catalog, inputs, args.checkpoint_archive)
+    if not args.smoke and catalog["schema"] != "bl-e3-input/v3":
+        raise ValueError("production requires the Mac-verified all-seat action root bank")
     os.environ["SNAKE_CKPT_DIR"] = str(inputs / "checkpoints")
     out.mkdir(parents=True)
     tasks = []
@@ -88,6 +90,8 @@ def execute(args: argparse.Namespace) -> dict:
         item = json.loads(json.dumps(task))
         item["checkpoint"] = str(inputs / item["checkpoint"])
         item["source_npz"] = str(inputs / item["source_npz"])
+        if "trace_npz" in item:
+            item["trace_npz"] = str(inputs / item["trace_npz"])
         for spec in item["plan"]["specs"]:
             if spec[0] == "checkpoint":
                 spec[1] = str(inputs / spec[1])
@@ -186,6 +190,7 @@ def execute(args: argparse.Namespace) -> dict:
         fit_seconds = time.perf_counter() - fit_start
         report = dict(
             schema="bl-e3-timing/v1",
+            input_schema=catalog["schema"],
             smoke=args.smoke,
             workers=args.workers,
             requested_workers=requested_workers,

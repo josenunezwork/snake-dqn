@@ -26,7 +26,21 @@ the supervisor verifies its size/hash before allocation and again on runtime,
 and `compact.hydrate` verifies the exact checkpoint member set and every digest.
 This GitHub data asset grants no model release or serving authority.
 
-`manifests.py` enforces a conservative 1 MiB local-input limit for this recovery.
+Recovery-04 adds `trace_bank.py`: the Mac regenerates every selected world with
+the pinned checkpoints and roster, verifies original selected observation,
+action and frame identities, and records all six seats' actions. It also checks
+each unchanged B8 D300 branch against the actual Mac source mass prefix,
+including the zero-dead remainder. These are newly recorded, verified Mac
+tapes; the original T3 bank did not save complete trajectories or full-state
+hashes. The v3 root bank binds prepared simulator/RNG and Vector61 carry hashes.
+Runtime replay invokes no policy selection before roots and checks every root
+hash plus original selected observations. D300 branches then use fresh reactive
+policies on the runtime, with independent same-host B8 prefix controls. The Mac
+tape is never a continuation after intervention. Runtime continuations can
+differ from Mac continuations on float32 ties; the root state must still match
+exactly. PROTOCOL.md and the frozen continuation rule remain unchanged.
+
+`manifests.py` requires this v3 bank and enforces a 2 MB local-input limit.
 The supervisor has a shared 300-second initial upload deadline, not a fixed safe
 byte limit and not a fresh allowance per file. Public input downloads use its
 separate bounded path. Recovery job/output identifiers must be fresh; the failed
@@ -51,7 +65,7 @@ thread per process, serial reconstruction plus a two-process byte-parity check.
 
 Operator artifacts are under
 `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-e3/`.
-See its `DISPATCH.txt` for the measured forecast, pinned manifest and absolute
+See `recovery-04/DISPATCH.txt` for the measured forecast, pinned manifest and absolute
 commands. `manifests.py` only calls local supervisor validation/source packaging;
 it never allocates. Active endpoint prices must be reviewed by the operator at
 dispatch; unknown assignments remain a broker refusal. No auto-retries.

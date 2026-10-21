@@ -14,6 +14,7 @@ from research.bl_info_value.reconstruct import (
     _geometry,
     _history_state,
     _history_window,
+    _reconstruct_trace_world,
 )
 
 
@@ -102,3 +103,41 @@ def test_compact_row_requires_original_dtype_shape_bytes_action_and_frame() -> N
         _check_row(row, obs, 2, 4, 5)
     with pytest.raises(ReconstructionError, match="action/frame"):
         _check_row(row, obs, 1, 4, 6)
+
+
+def test_trace_refuses_tampering_before_world_creation(tmp_path) -> None:
+    from research.bl_info_value.io import sha256
+
+    path = tmp_path / "trace.npz"
+    np.savez_compressed(path, actions=np.ones((3, 6), dtype=np.uint8))
+    task = dict(
+        depth=300,
+        indices=[0],
+        row_bindings=[dict(decision=2)],
+        root_state_hashes={"2": "a" * 64},
+        mac_controls_verified=1,
+        trace_npz=str(path),
+        trace_sha256=sha256(path),
+    )
+    path.write_bytes(path.read_bytes() + b"changed")
+    with pytest.raises(ReconstructionError, match="trace SHA"):
+        _reconstruct_trace_world(task)
+
+
+@pytest.mark.parametrize("actions", [np.ones((3, 5), np.uint8), np.full((3, 6), 6, np.uint8)])
+def test_trace_refuses_incomplete_seats_or_invalid_actions(tmp_path, actions) -> None:
+    from research.bl_info_value.io import sha256
+
+    path = tmp_path / "trace.npz"
+    np.savez_compressed(path, actions=actions)
+    task = dict(
+        depth=300,
+        indices=[0],
+        row_bindings=[dict(decision=2)],
+        root_state_hashes={"2": "a" * 64},
+        mac_controls_verified=1,
+        trace_npz=str(path),
+        trace_sha256=sha256(path),
+    )
+    with pytest.raises(ReconstructionError, match="shape/dtype/range"):
+        _reconstruct_trace_world(task)

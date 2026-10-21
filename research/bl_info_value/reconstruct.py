@@ -149,6 +149,8 @@ def reconstruct_world(task: dict[str, Any]) -> tuple[dict[str, np.ndarray], dict
     missing = sorted(required.difference(task))
     if missing:
         raise ValueError(f"reconstruction task lacks {missing}")
+    if "trace_npz" in task:
+        return _reconstruct_trace_world(task)
     depth = int(task["depth"])
     if depth < 1 or depth > 300:
         raise ValueError("depth must be in [1, 300]")
@@ -309,6 +311,18 @@ def reconstruct_world(task: dict[str, Any]) -> tuple[dict[str, np.ndarray], dict
         if any(value != 0.0 for value in control["prefix"][max(offset, 0) :]):
             raise ReconstructionError("B8 control survived after the recorded terminal death")
     records.sort(key=lambda item: int(item["decision"]))
+    arrays = _record_arrays(records, task)
+    return arrays, {
+        "key": str(task.get("key", "")),
+        "roots": len(records),
+        "depth": depth,
+        "elapsed_seconds": time.perf_counter() - started,
+        "replayed_decisions": decision,
+    }
+
+
+def _record_arrays(records: list[dict[str, Any]], task: dict[str, Any]) -> dict[str, np.ndarray]:
+    """Pack source-ordered roots without changing the frozen student inputs."""
     arrays = {
         name: np.stack([item[name] for item in records])
         for name in ("local", "global", "scalars", "geometry", "history", "legal", "returns")
@@ -321,10 +335,130 @@ def reconstruct_world(task: dict[str, Any]) -> tuple[dict[str, np.ndarray], dict
         decision=np.asarray([item["decision"] for item in records], dtype=np.int64),
         frame=np.asarray([item["frame"] for item in records], dtype=np.int64),
     )
-    return arrays, {
+    return arrays
+
+
+def _runtime_control(world: Any, action: int, depth: int) -> list[float]:
+    """Independently advance the recorded first action on this runtime's CPU.
+
+    The Mac tape establishes roots only. After intervention both control and
+    target follow fresh policies on this host, including policy opponents.
+    """
+    from research.t3_rollout_labels_20261015.bank_engine import choose_and_step, step_prepared
+
+    control = world.clone()
+    step_prepared(control, action)
+    masses = [float(control.sim.length[0, 0]) if control.sim.alive[0, 0] else 0.0]
+    for _ in range(1, depth):
+        if control.sim.alive[0, 0]:
+            choose_and_step(control, capture_obs=False)
+        masses.append(float(control.sim.length[0, 0]) if control.sim.alive[0, 0] else 0.0)
+    return masses
+
+
+def _reconstruct_trace_world(task: dict[str, Any]) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+    """Replay all seats to byte-verified roots, then compute reactive host targets."""
+    from research.bl_info_value.trace_bank import state_binding, trace_step
+    from research.t3_rollout_labels_20261015.bank_engine import build_world
+
+    started = time.perf_counter()
+    depth = int(task["depth"])
+    if not 1 <= depth <= 300:
+        raise ValueError("depth must be in [1, 300]")
+    indices = [int(index) for index in task["indices"]]
+    rows = {int(row["decision"]): row for row in task["row_bindings"]}
+    if len(set(indices)) != len(indices) or len(rows) != len(indices) or not rows:
+        raise ReconstructionError("trace root count/uniqueness mismatch")
+    if task.get("mac_controls_verified") != len(rows):
+        raise ReconstructionError("Mac source-prefix controls are incomplete")
+    hashes = task.get("root_state_hashes", {})
+    if set(hashes) != {str(decision) for decision in rows}:
+        raise ReconstructionError("trace root state bindings missing or unexpected")
+    trace_path = Path(task["trace_npz"])
+    if sha256(trace_path) != task["trace_sha256"]:
+        raise ReconstructionError("action trace SHA-256 mismatch")
+    with np.load(trace_path, allow_pickle=False) as source:
+        actions = np.array(source["actions"], copy=True)
+    if actions.dtype != np.uint8 or actions.shape != (max(rows) + 1, 6) or np.any(actions > 5):
+        raise ReconstructionError("action trace shape/dtype/range mismatch")
+    world = build_world(
+        str(task["arm"]), dict(task["plan"]), hero_checkpoint=Path(task["checkpoint"])
+    )
+    history: deque[np.ndarray] = deque(maxlen=128)
+    records = []
+    prepared: dict[str, Any] = {}
+    original_prepare = world.runtime.prepare
+    decision = 0
+
+    def capture(sim: Any) -> None:
+        original_prepare(sim)
+        prepared["before"] = _history_state(sim)
+        if decision in rows:
+            if state_binding(world) != hashes[str(decision)]:
+                raise ReconstructionError(f"root state identity mismatch at decision {decision}")
+            prepared.update(
+                world=world.clone(),
+                history=_history_window(history),
+                geometry=_geometry(sim),
+                frame=int(sim.frame[0]),
+                resolved=np.asarray(sim.get_resolved_action_mask()[0, 0], dtype=bool).copy(),
+            )
+
+    world.runtime.prepare = capture
+    try:
+        for decision, recorded in enumerate(actions):
+            if not world.sim.alive[0, 0]:
+                raise ReconstructionError(f"trace ended before root at decision {decision}")
+            executed, _advisory, obs = trace_step(
+                world, recorded.reshape(1, 6).astype(np.int64), capture_obs=decision in rows
+            )
+            if decision in rows:
+                action = int(executed[0, 0])
+                _check_row(rows[decision], obs, action, decision, prepared["frame"])
+                legal = np.flatnonzero(prepared["resolved"])
+                if action not in legal:
+                    raise ReconstructionError(f"recorded action not legal at decision {decision}")
+                # A fresh reactive continuation is required after each forced
+                # first action. Never continue on the recorded Mac action tape.
+                control = _runtime_control(prepared["world"], action, depth)
+                returns = np.zeros(6, dtype=np.float32)
+                for forced in legal:
+                    value, masses, _dead = _mass_continuation(prepared["world"], int(forced), depth)
+                    returns[int(forced)] = value
+                    if int(forced) == action and masses != control:
+                        raise ReconstructionError(
+                            f"runtime B8 control mismatch at decision {decision}"
+                        )
+                records.append(
+                    {
+                        "local": np.asarray(obs["local"][0], dtype=np.uint8).copy(),
+                        "global": np.asarray(obs["global"][0], dtype=np.uint8).copy(),
+                        "scalars": np.asarray(obs["scalars"][0], dtype=np.float32).copy(),
+                        "geometry": prepared["geometry"],
+                        "history": prepared["history"],
+                        "legal": prepared["resolved"],
+                        "returns": returns,
+                        "action": action,
+                        "decisive": bool(rows[decision]["decisive"]),
+                        "decision": decision,
+                        "frame": prepared["frame"],
+                    }
+                )
+            before = prepared.pop("before")
+            before[6::7] = executed[0].astype(np.float32) / 5.0
+            history.append(before)
+    finally:
+        world.runtime.prepare = original_prepare
+    if len(records) != len(rows):
+        raise ReconstructionError("trace failed to reconstruct every selected root")
+    return _record_arrays(records, task), {
         "key": str(task.get("key", "")),
         "roots": len(records),
         "depth": depth,
         "elapsed_seconds": time.perf_counter() - started,
-        "replayed_decisions": decision,
+        "replayed_decisions": len(actions),
+        "root_state_hashes": hashes,
+        "root_mode": "Mac-verified all-seat action replay",
+        "target_mode": "fresh host reactive policies after forced first action",
+        "control_mode": "independent same-host reactive recorded-first-action prefix",
     }
