@@ -248,3 +248,58 @@ def test_audit_rejects_counter_corruption(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(native_v8, "_commit", corrupt)
     with pytest.raises(native_v8.NativeV8Mismatch, match="differs from the live hook"):
         _drive(_world("xlong", "mixed", ties=True), 1, native=True, audit=True)
+
+
+@pytest.mark.parametrize("grid", [False, True], ids=["BatchSim", "GridBatchSim"])
+@pytest.mark.parametrize("branch", [False, True], ids=["world", "branch"])
+def test_event_counter_observes_prepared_respawns_once(grid: bool, branch: bool) -> None:
+    from types import SimpleNamespace
+
+    from research.t34_exit_b8.engine import ExitTeacher
+    from research.t34_exit_b8.trajectory import prepare_world
+    from research.t34_speed_s2.identity import _Events
+    from src.simd_env.batch_sim import BatchSim, BatchSimConfig
+    from src.simd_env.grid_sim import GridBatchSim
+
+    cls = GridBatchSim if grid else BatchSim
+    sim = cls(BatchSimConfig(num_envs=1, num_snakes=2), seeds=[741], allow_respawn=True)
+    if grid:
+        sim._det = {"event_env": np.ones(1, dtype=bool)}
+    sim._apply_deaths(np.array([[False, True]]), [[1]])
+    sim.respawn_timer[0, 1] = 1
+    world = SimpleNamespace(sim=sim, runtime=SimpleNamespace(prepare=lambda sim: None))
+    originals = (
+        BatchSim.step,
+        ExitTeacher._rollout_merged,
+        BatchSim._respawn_dead,
+        GridBatchSim._respawn_dead,
+    )
+    events = _Events()
+    events._inside = int(branch)
+    restore = events.install()
+    prefix = "branch" if branch else "world"
+    try:
+        prepare_world(world)
+        assert sim.alive[0, 1]
+        assert events.counts[f"{prefix}_opponent_respawns"] == 1
+        assert events.counts[f"{prefix}_ticks"] == 0
+        prepare_world(world)
+        assert events.counts[f"{prefix}_opponent_respawns"] == 1
+        sim.step(np.ones((1, 2), dtype=np.int64))
+        assert events.counts[f"{prefix}_opponent_respawns"] == 1
+        assert events.counts[f"{prefix}_ticks"] == 1
+        # Also cover the unprepared raw step: its birth must be counted only once.
+        if grid:
+            sim._det = {"event_env": np.ones(1, dtype=bool)}
+        sim._apply_deaths(np.array([[False, True]]), [[1]])
+        sim.respawn_timer[0, 1] = 1
+        sim.step(np.ones((1, 2), dtype=np.int64))
+        assert events.counts[f"{prefix}_opponent_respawns"] == 2
+    finally:
+        restore()
+    assert originals == (
+        BatchSim.step,
+        ExitTeacher._rollout_merged,
+        BatchSim._respawn_dead,
+        GridBatchSim._respawn_dead,
+    )

@@ -134,7 +134,6 @@ class _Events:
         after = sim.alive[:, 1:]
         self.counts[f"{prefix}_ticks"] += 1
         self.counts[f"{prefix}_opponent_deaths"] += int((before & ~after).sum())
-        self.counts[f"{prefix}_opponent_respawns"] += int((~before & after).sum())
         self.counts[f"{prefix}_rows_opponent_len_ge_800"] += int(
             ((sim.length[:, 1:] >= 800) & after).any(axis=1).sum()
         )
@@ -154,8 +153,23 @@ class _Events:
     def install(self) -> Callable[[], None]:
         from research.t34_exit_b8.engine import ExitTeacher
         from src.simd_env.batch_sim import BatchSim
+        from src.simd_env.grid_sim import GridBatchSim
 
         events, original_rollout, original_step = self, ExitTeacher._rollout_merged, BatchSim.step
+
+        respawn_originals = [(cls, cls._respawn_dead) for cls in (BatchSim, GridBatchSim)]
+
+        def counted_respawn(original: Any) -> Any:
+            def respawn(sim: Any) -> Any:
+                before = sim.alive[:, 1:].copy()
+                result = original(sim)
+                prefix = "branch" if events._inside else "world"
+                events.counts[f"{prefix}_opponent_respawns"] += int(
+                    (~before & sim.alive[:, 1:]).sum()
+                )
+                return result
+
+            return respawn
 
         def rollout(teacher: Any, *args: Any, **kwargs: Any) -> Any:
             events._inside += 1
@@ -174,10 +188,14 @@ class _Events:
 
         ExitTeacher._rollout_merged = rollout
         BatchSim.step = step
+        for cls, original in respawn_originals:
+            cls._respawn_dead = counted_respawn(original)
 
         def restore() -> None:
             ExitTeacher._rollout_merged = original_rollout
             BatchSim.step = original_step
+            for cls, original in respawn_originals:
+                cls._respawn_dead = original
 
         return restore
 
