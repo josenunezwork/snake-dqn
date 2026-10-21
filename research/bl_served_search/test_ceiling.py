@@ -275,14 +275,14 @@ def test_chunks_are_seed_ordered_interleaved_and_balanced() -> None:
         for index in range(count):
             rows.append({"world_id": f"{mix}/{index}", "world_seed": count - index, "mix": mix})
     chunk = chunks.chunk_rows(rows, 0)
-    assert len(chunk) == 40
+    assert len(chunk) == 20
     assert [row["mix"] for row in chunk[:6]] == ["frozen", "mixed", "scripted"] * 2
     assert {mix: sum(row["mix"] == mix for row in chunk) for mix in ceiling.MIX_COUNTS} == {
-        "frozen": 16,
-        "mixed": 16,
-        "scripted": 8,
+        "frozen": 8,
+        "mixed": 8,
+        "scripted": 4,
     }
-    assert [row["world_seed"] for row in chunk if row["mix"] == "frozen"] == list(range(1, 17))
+    assert [row["world_seed"] for row in chunk if row["mix"] == "frozen"] == list(range(1, 9))
 
 
 def test_runtime_parity_rejects_copied_bank_or_missing_runtime_identity() -> None:

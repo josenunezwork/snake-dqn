@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import ast
 import json
-import math
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -13,8 +12,8 @@ from typing import Any
 from research.bl_prefix.make_manifest import qualified_transport
 from research.bl_served_search.exports import digest, export_json, verify_export
 from research.bl_served_search.fixture_bundle import BUNDLE_NAME, pack
+from research.bl_served_search.pricing_v2 import forecast
 from research.bl_served_search.upload_readiness import check as check_upload
-from research.bl_upload import convert_public_checkpoints, qualify
 from research.colab_cli.supervisor import validate
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,44 +67,6 @@ def source_paths(repo: Path = ROOT) -> list[str]:
     )
 
 
-def forecast(rate: float | None = None) -> dict[str, Any]:
-    """Price four chunks; only a measured qualified L4 rate can admit them."""
-    if rate is not None and (not math.isfinite(rate) or rate <= 0):
-        raise ValueError("positive finite L4 rate required")
-    historical_rate = 12 * 0.757 / 3
-    assumed = historical_rate if rate is None else rate
-    estimate = (23120 / assumed + 900) / 60
-    fits = rate is not None and rate >= 2.18 and 2 * estimate <= 384
-    return {
-        "schema": "bl-served-search-forecast/v2",
-        "status": "FITS" if fits else "NOT_DISPATCHABLE",
-        "worlds": 160,
-        "chunks": 4,
-        "worlds_per_chunk": 40,
-        "workers": 12,
-        "batches_per_world_assumption": 578,
-        "total_batches": 92480,
-        "measured_l4_aggregate_batches_per_second": rate,
-        "minimum_l4_aggregate_batches_per_second": 2.18,
-        "historical_scripted_unchunked_minutes": 529.026860414,
-        "historical_sensitivity_rate": historical_rate,
-        "setup_export_minutes": 60,
-        "chunk_setup_export_minutes": 15,
-        "conservative_allocation_minutes": estimate,
-        "total_estimated_allocation_minutes": 4 * estimate,
-        "two_times_conservative_minutes": 2 * estimate,
-        "total_two_times_minutes": 8 * estimate,
-        "timeout_minutes": 384,
-        "absolute_wall_cap_minutes": 480,
-        "unit_cap": 64,
-        "reserve_units": 12.8,
-        "chunk_unit_cap": 16,
-        "chunk_reserve_units": 3.2,
-        "usable_timeout_minutes": 1536,
-        "reason": "qualified L4 ruler and runtime parity required; Mac timing never transfers",
-    }
-
-
 def portable_allocation(source: Path, out: Path) -> tuple[Path, Path]:
     """Strip Mac checkpoint paths without changing seeds, rosters or semantics."""
     bank_path, audit_path = source / "bank.json", source / "audit.json"
@@ -152,109 +113,92 @@ def build(
     out: Path,
     *,
     fixtures: Path,
+    mac_ruler: Path,
+    parity_reference: Path,
+    l4_ruler: Path | None = None,
     ruler_estimate_minutes: float = 48,
     repo: Path = ROOT,
 ) -> dict:
-    """Publish five offline manifests, all fresh and explicitly undispatched."""
-    if out.exists():
-        raise FileExistsError("fresh manifest directory required")
+    """Prepare nine immutable manifests without provider calls or clipped forecasts."""
+    from research.bl_served_search import evidence_v2
+    from research.bl_served_search.ceiling import validate_bank
+    from research.bl_served_search.chunks import CHUNK_COUNT, chunk_rows, world_ids_sha256
+    from research.bl_served_search.pricing_v2 import fallback_open
+    from research.bl_served_search.provenance_v2 import FROZEN_BANK_SHA256
+    from research.bl_served_search.transport_v2 import preflight
+
+    if any((out / name).exists() for name in ("plan.json", "evidence", "y1", "chunk-01")):
+        raise FileExistsError("fresh manifest family required")
     authority = qualified_transport(repo, commit)
-    published = subprocess.run(
-        ["git", "branch", "-r", "--contains", commit],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
+    published = subprocess.check_output(
+        ["git", "branch", "-r", "--contains", commit], cwd=repo, text=True
+    )
     if "origin/main" not in published:
         raise ValueError("pin must be published on origin/main")
-    if not 0 < ruler_estimate_minutes <= 48:
-        raise ValueError("ruler estimate must fit 4u including 20% reserve and 2x timeout")
-    changed = subprocess.run(
-        ["git", "diff", "--name-only", commit, "--", *source_paths(repo)],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
+    changed = subprocess.check_output(
+        ["git", "diff", "--name-only", commit, "--", *source_paths(repo)], cwd=repo, text=True
+    )
     if changed.strip():
-        raise ValueError("local source differs from pinned published commit: " + changed)
-    out.mkdir(parents=True)
-    bank_path, audit_path = portable_allocation(allocation, out)
+        raise ValueError("local source differs from pin: " + changed)
+    if not 0 < ruler_estimate_minutes <= 48:
+        raise ValueError("Y1 ruler must fit 4u including reserve")
+    out.mkdir(parents=True, exist_ok=True)
+    bank_path, audit_path = portable_allocation(allocation, out / "evidence")
+    if digest(bank_path) != FROZEN_BANK_SHA256:
+        raise ValueError("bank differs from unchanged BANK_L2.json")
+    for path in (mac_ruler, parity_reference):
+        verify_export(path)
+    if l4_ruler:
+        verify_export(l4_ruler)
+    bundle = pack(fixtures, out / "evidence" / BUNDLE_NAME)
+    fixture_value = json.loads((fixtures / "ruler-fixtures.json").read_text())
+    estimate = forecast(
+        json.loads(mac_ruler.read_text()),
+        fixture_value,
+        json.loads(l4_ruler.read_text()) if l4_ruler else None,
+    )
+    reference = json.loads(parity_reference.read_text())
+    from research.bl_served_search.ceiling import source_manifest
+
+    if (
+        reference.get("identity", {}).get("bank_sha256") != digest(bank_path)
+        or reference.get("identity", {}).get("source_manifest") != source_manifest()
+    ):
+        raise ValueError("fresh source/portable-bank parity reference required")
     files = [
         ("bank.json", bank_path),
         ("audit.json", audit_path),
         ("registration.md", repo / "research/bl_served_search/PREREGISTRATION_L2.md"),
         ("amendment-08.md", repo / "research/bl_served_search/AMENDMENT_08.md"),
+        ("amendment-v2.md", repo / "research/bl_served_search/AMENDMENT_PLAN_V2_WP1.md"),
         ("ruler-fixture-spec-08.md", repo / "research/bl_served_search/RULER_FIXTURES_08.md"),
+        (BUNDLE_NAME, bundle),
+        ("ruler-mac.json", mac_ruler),
+        ("parity-mac.json", parity_reference),
     ]
-    from research.apex_safety_20260926 import dev_screen
-    from research.redesign_scope_20261007.grid_h5000_identity import FRP3_S12
-
-    checkpoint_root = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes")
-    for name, checksum in (*dev_screen.POOL, FRP3_S12):
-        path = checkpoint_root / name
-        if digest(path) != checksum:
-            raise ValueError(f"checkpoint drift: {name}")
-        files.append((f"checkpoints/{name}", path))
-    b8 = checkpoint_root / "b8_s3_t7_20261016.pth"
-    if digest(b8) != B8:
-        raise ValueError("B8 s3 drift")
-    files.append(("b8.pth", b8))
-    # One upload replaces all 30 original fixture export components.  The
-    # runtime verifies the archive hash, every sidecar and the embedded roots
-    # before making the original byte-identical fixture directory visible.
-    bundle = pack(fixtures, out / BUNDLE_NAME)
-    files.append((BUNDLE_NAME, bundle))
-    inputs = []
-    for dest, path in files:
-        inputs.append({"dest": dest, "path": str(path.resolve()), "sha256": digest(path)})
-        if dest in {"bank.json", "audit.json"}:
-            for suffix in (".sha256", ".complete"):
-                sidecar = Path(str(path) + suffix)
-                inputs.append(
-                    {
-                        "dest": dest + suffix,
-                        "path": str(sidecar.resolve()),
-                        "sha256": digest(sidecar),
-                    }
-                )
-    estimate = forecast()
+    if l4_ruler:
+        files.append(("ruler-l4.json", l4_ruler))
+    envelope = evidence_v2.pack(files, out / evidence_v2.NAME)
+    expanded_hashes = {name: digest(path) for name, path in files}
+    catalog = repo / "research/t34_exit_b8/PUBLIC_INPUTS.json"
+    inputs = [
+        {"dest": name, "path": str(path.resolve()), "sha256": digest(path)}
+        for name, path in ((evidence_v2.NAME, envelope), ("public-inputs.json", catalog))
+    ]
+    rows = validate_bank(json.loads(bank_path.read_text()))
     manifests = []
-    for index in range(5):
+    for index in range(CHUNK_COUNT + 1):
         is_ruler = index == 0
         chunk = index - 1
-        label = "y1-ruler" if is_ruler else f"l2-prime-chunk-{chunk + 1}"
-        job_inputs = list(inputs)
-        if not is_ruler:
-            from research.bl_served_search.ceiling import validate_bank
-            from research.bl_served_search.chunks import chunk_rows
-
-            bank = json.loads(bank_path.read_text())
-            selected = chunk_rows(validate_bank(bank), chunk)
-            plan = {
-                "schema": "bl-served-search-plan/v2",
-                "dispatchable": False,
-                "runtime_parity_admitted": False,
-                "development_only": True,
-                "excluded_from_registered_verdicts": True,
-                "commit": commit,
-                "chunk_index": chunk,
-                "chunk_count": 4,
-                "world_ids": [row["world_id"] for row in selected],
-                "forecast": estimate,
-                "input_hashes": {row["dest"]: row["sha256"] for row in inputs},
-                "ruler_admitted": False,
-            }
-            plan_path = out / f"{label}-plan.json"
+        directory = out / ("y1" if is_ruler else f"chunk-{chunk + 1:02d}")
+        directory.mkdir()
         manifest = {
-            "job_id": f"bl-{label}-20261021",
+            "job_id": "bl-wp1-v2-"
+            + ("y1" if is_ruler else f"chunk-{chunk+1:02d}")
+            + "-"
+            + __import__("hashlib").sha256(str(out.resolve()).encode()).hexdigest()[:8],
             "commit": commit,
-            "script": (
-                "research/bl_served_search/run_ruler.sh"
-                if is_ruler
-                else "research/bl_served_search/run_l2.sh"
-            ),
+            "script": "research/bl_served_search/" + ("run_ruler.sh" if is_ruler else "run_l2.sh"),
             "source_paths": source_paths(repo) + ["research/bl_served_search/run_ruler.sh"],
             "requirements": {
                 "gpu": "L4",
@@ -266,17 +210,19 @@ def build(
                     else estimate["conservative_allocation_minutes"]
                 ),
             },
-            "timeout_minutes": 2 * ruler_estimate_minutes if is_ruler else 384,
-            "output_dir": str(out / f"{label}-undispatched-runtime"),
+            "timeout_minutes": (
+                2 * ruler_estimate_minutes if is_ruler else min(720, estimate["timeout_minutes"])
+            ),
+            "output_dir": str((directory / "runtime-output").resolve()),
             "budget": {
-                "unit_cap": 4 if is_ruler else 16,
+                "unit_cap": 4 if is_ruler else 25,
                 "rate_units_per_hour": 2,
-                "reserve_units": 0.8 if is_ruler else 3.2,
+                "reserve_units": 0.8 if is_ruler else 5,
                 "other_assignments": {},
             },
             "env": {
                 "BL_L2_SHARD_INDEX": str(chunk),
-                "BL_L2_SHARD_COUNT": "4",
+                "BL_L2_SHARD_COUNT": "8",
                 "BL_L2_WORKERS": "12",
                 "SNAKE_DQN_DEVICE": "cpu",
                 "OMP_NUM_THREADS": "1",
@@ -286,82 +232,132 @@ def build(
                 "NUMBA_NUM_THREADS": "1",
                 "COLAB_CLI_REQUIREMENTS": "research/bl_served_search/requirements.txt",
                 "BL_RULER_FIXTURES_SHA256": digest(bundle),
+                "BL_EVIDENCE_SHA256": digest(envelope),
+                "BL_PUBLIC_INPUTS": "1",
             },
-            "inputs": job_inputs,
+            "inputs": list(inputs),
             "lease_seconds": 300,
             "max_export_bytes": 256 * 1024**2,
             "bl_served_search": {
                 "development_only": True,
                 "dispatch_status": "NOT_DISPATCHED",
-                "readiness": "NOT_DISPATCHABLE",
+                "readiness": "NOT_READY",
                 "validation_only": True,
                 "forecast": estimate,
                 "transport": authority,
-                "estimate_field": (
-                    "pre-data ruler planning bound, not measured on L4"
-                    if is_ruler
-                    else "historical sensitivity; L4 ruler not yet measured"
-                ),
-                "other_assignments": "not queried; review at eventual admission",
+                "inventory": "Claude must refresh account inventory before admission",
             },
         }
-        # The qualified initial-upload path has a shared 300-second cap.  The
-        # roster is the public, hash-verified six-checkpoint release, so ship
-        # its compact catalog and reconstruct the exact files on the runtime.
-        # Keep this before supervisor validation so an oversized future input
-        # cannot become a schema-valid manifest.
-        manifest = convert_public_checkpoints(manifest, repo=repo)
         if not is_ruler:
-            # The plan authenticates the inputs the runtime reads before the
-            # workload begins.  After replacing the six uploads, bind the
-            # compact catalog instead; checkpoint files are verified during
-            # runtime reconstruction by ``public_inputs.materialize``.
-            bind_l2_plan(manifest, plan, plan_path)
+            selected = chunk_rows(rows, chunk)
+            plan = {
+                "schema": "bl-served-search-plan/v3",
+                "commit": commit,
+                "dispatchable": estimate["status"] == "FITS",
+                "development_only": True,
+                "excluded_from_registered_verdicts": True,
+                "chunk_index": chunk,
+                "chunk_count": CHUNK_COUNT,
+                "world_ids": [row["world_id"] for row in selected],
+                "world_ids_sha256": world_ids_sha256(selected),
+                "forecast": estimate,
+                "input_hashes": expanded_hashes,
+                "analyzer_sha256": digest(repo / "research/bl_served_search/analyze.py"),
+            }
+            plan_path = directory / "plan.json"
+            export_json(plan_path, plan)
+            manifest["inputs"].append(
+                {
+                    "dest": "l2-plan.json",
+                    "path": str(plan_path.resolve()),
+                    "sha256": digest(plan_path),
+                }
+            )
         check_upload(manifest, repo=repo)
-        validated = validate(manifest, repo=repo)
-        qualification_path = out / f"upload-qualification-{label}.json"
-        qualify(validated, repo=repo, receipt_path=qualification_path)
-        path = out / f"manifest-{label}-validation-only.json"
-        export_json(path, validated)
+        validation_error = None
+        try:
+            validated = validate(manifest, repo=repo)
+        except (ValueError, RuntimeError) as exc:
+            if is_ruler or estimate["status"] == "FITS":
+                raise
+            validated, validation_error = manifest, str(exc)
+        transport_path = directory / "transport-preflight.json"
+        transport = preflight(validated, transport_path, repo=repo)
+        manifest_path = directory / "manifest.json"
+        export_json(manifest_path, validated)
         manifests.append(
             {
-                "path": str(path),
-                "sha256": digest(path),
-                "upload_qualification": {
-                    "path": str(qualification_path),
-                    "sha256": digest(qualification_path),
-                },
+                "path": str(manifest_path),
+                "sha256": digest(manifest_path),
+                "supervisor_validation": "REFUSED" if validation_error else "PASS",
+                "validation_error": validation_error,
+                "transport_receipt": str(transport_path),
+                "transport_sha256": digest(transport_path),
+                "upload_forecast_seconds": transport["normal_forecast_seconds"],
+                "fallback_upload_forecast_seconds": transport["fallback_upload_forecast_seconds"],
             }
         )
     result = {
-        "status": "SCHEMA_VALID_NOT_DISPATCHABLE",
+        "schema": "bl-served-search-wp1-plan/v2",
+        "status": "PREPARED_NOT_DISPATCHED",
+        "readiness": (
+            "SIZING_READY"
+            if estimate["status"] == "FITS" and fallback_open(estimate)
+            else "NOT_READY"
+        ),
         "commit": commit,
-        "manifests": manifests,
         "forecast": estimate,
+        "manifests": manifests,
+        "bank_sha256": digest(bank_path),
+        "allocation_bank_sha256": digest(allocation / "bank.json"),
+        "bank_world_ids_sha256": world_ids_sha256(rows),
         "colab_calls": 0,
+        "missing_evidence": [
+            "fresh inventory and prior terminal/release receipt",
+            "per-assignment runtime parity",
+        ]
+        + (
+            ["fitting measured Y1-L4 forecast; Mac fallback exceeds caps"]
+            if estimate["status"] != "FITS"
+            else []
+        ),
     }
-    export_json(out / "validation.json", result)
+    export_json(out / "plan.json", result)
+    export_json(
+        out / "transport-preflight.json",
+        {
+            "schema": "bl-served-search-wp1-transport-set/v2",
+            "status": "PASS_NOT_DISPATCHED",
+            "colab_calls": 0,
+            "receipts": [
+                {"path": row["transport_receipt"], "sha256": row["transport_sha256"]}
+                for row in manifests
+            ],
+        },
+    )
     return result
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit", required=True)
-    parser.add_argument("--allocation", type=Path, required=True)
-    parser.add_argument("--fixtures", type=Path, required=True)
+    for name in ("allocation", "fixtures", "mac-ruler", "parity-reference", "out"):
+        parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--l4-ruler", type=Path)
     parser.add_argument("--ruler-estimate-minutes", type=float, default=48)
-    parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    result = build(
+        args.commit,
+        args.allocation,
+        args.out,
+        fixtures=args.fixtures,
+        mac_ruler=args.mac_ruler,
+        parity_reference=args.parity_reference,
+        l4_ruler=args.l4_ruler,
+        ruler_estimate_minutes=args.ruler_estimate_minutes,
+    )
     print(
-        json.dumps(
-            build(
-                args.commit,
-                args.allocation,
-                args.out,
-                fixtures=args.fixtures,
-                ruler_estimate_minutes=args.ruler_estimate_minutes,
-            )
-        )
+        json.dumps({key: result[key] for key in ("status", "readiness", "forecast", "colab_calls")})
     )
 
 
