@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import json
+import time
+
 import numpy as np
 import pytest
 
 from research.bl_served_search import analyze, ceiling
 from research.t3_rollout_labels_20261015.trigger import DenseTrigger
+
+
+def test_progress_creates_fresh_output_parent(tmp_path) -> None:
+    path = tmp_path / "new" / "nested" / "progress.json"
+    ceiling._write_progress(path, completed=0, total=3, started=time.perf_counter())
+    value = json.loads(path.read_text())
+    assert (value["completed"], value["total"], value["eta_seconds"]) == (0, 3, None)
+    assert not path.with_suffix(".json.tmp").exists()
 
 
 def test_t3_score_excludes_fatal_transition_and_prefers_bare() -> None:
