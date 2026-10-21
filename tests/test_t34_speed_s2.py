@@ -191,3 +191,60 @@ def test_branch_rollouts_equal_stock(body: str, mix: str, ties: bool) -> None:
     assert stats.rows > 0 and stats.python_calls == 0
     assert stats.audited_rows == stats.rows
     assert stats.long_rows > 0
+
+
+def test_registered_roots_use_python_and_clones_use_native(monkeypatch: pytest.MonkeyPatch) -> None:
+    from research.t34_exit_b8.engine import ExitTeacher
+    from research.t34_speed_s2 import native_v8
+
+    monkeypatch.setattr(ExitTeacher, "actions", lambda *args: native_v8._depth())
+    teacher = native_v8.NativeV8ExitTeacher()
+    root, clone = object(), object()
+    teacher.register_root(root)
+    assert teacher.actions(root, 0) == 0
+    assert teacher.actions(clone, 0) == 1
+    assert native_v8._depth() == 0
+    teacher.release_roots()
+    native_v8.disable()
+
+
+@needs_checkpoint
+def test_missing_lazy_table_falls_back_without_partial_counter_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from research.t34_shadow.shadow import full_digest
+    from research.t34_speed_s2 import native_v8
+
+    stock_world = _world("xlong", "mixed", ties=True)
+    native_world = _world("xlong", "mixed", ties=True)
+    replay = native_v8._replay_row
+
+    def missing(*args, **kwargs):
+        # Build a complete local counter plan, then simulate a later missing table.
+        # No staged counter delta may leak into the stock fallback's hook state.
+        replay(*args, **kwargs)
+        raise native_v8._Missing
+
+    monkeypatch.setattr(native_v8, "_replay_row", missing)
+    stock = _drive(stock_world, 12, native=False)
+    native = _drive(native_world, 12, native=True, audit=True)
+    assert native[0] == stock[0]
+    assert native[1] == stock[1]
+    assert full_digest(stock_world) == full_digest(native_world)
+    assert native[3].rows == native[3].fallback_rows == native[3].audited_rows > 0
+    assert native[3].replayed_rows == 0
+
+
+@needs_checkpoint
+def test_audit_rejects_counter_corruption(monkeypatch: pytest.MonkeyPatch) -> None:
+    from research.t34_speed_s2 import native_v8
+
+    commit = native_v8._commit
+
+    def corrupt(hook, plan):
+        commit(hook, plan)
+        hook.v8.head_checks += 1
+
+    monkeypatch.setattr(native_v8, "_commit", corrupt)
+    with pytest.raises(native_v8.NativeV8Mismatch, match="differs from the live hook"):
+        _drive(_world("xlong", "mixed", ties=True), 1, native=True, audit=True)

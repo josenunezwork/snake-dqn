@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 import platform
+import statistics
 import subprocess
 import sys
 import time
@@ -281,6 +282,8 @@ def run_fixture(
     audit: bool,
 ) -> dict[str, Any]:
     """Stock vs native (timed, alternating), plus an optional audited native run."""
+    if repeats < 1:
+        raise ValueError("repeats must be positive")
     tag = f"{body}-{mix}{'-qties' if q_ties else ''}"
     timings: dict[str, list[float]] = {"stock": [], "native": []}
     cpu: dict[str, list[float]] = {"stock": [], "native": []}
@@ -329,8 +332,8 @@ def run_fixture(
             failures.append("audited native run differs from the stock run")
         audit_result = {**result["native_stats"], **dict(events.counts)}
     assert reference is not None
-    stock = min(timings["stock"])
-    native = min(timings["native"])
+    stock = float(statistics.median(timings["stock"]))
+    native = float(statistics.median(timings["native"]))
     rows = int(reference["deterministic"]["executed_row_steps"] or 0)
     return {
         "fixture": tag,
@@ -353,7 +356,8 @@ def run_fixture(
             "stock": 1000.0 * stock / rows if rows else None,
             "native": 1000.0 * native / rows if rows else None,
         },
-        "speedup_min_wall": stock / native if native else None,
+        "speedup_median_wall": stock / native if native else None,
+        "speedup_min_wall": min(timings["stock"]) / min(timings["native"]),
     }
 
 
@@ -431,7 +435,7 @@ def main() -> None:
                             "identical",
                             "row_steps",
                             "ms_per_row_step",
-                            "speedup_min_wall",
+                            "speedup_median_wall",
                             "audit",
                         )
                     },
@@ -441,8 +445,10 @@ def main() -> None:
             )
     total_stock = sum(min(f["wall_seconds"]["stock"]) for f in fixtures)
     total_native = sum(min(f["wall_seconds"]["native"]) for f in fixtures)
+    median_stock = sum(statistics.median(f["wall_seconds"]["stock"]) for f in fixtures)
+    median_native = sum(statistics.median(f["wall_seconds"]["native"]) for f in fixtures)
     receipt = {
-        "schema": "t34-speed-s2-identity/v1",
+        "schema": "t34-speed-s2-identity/v2",
         "provenance": {**_provenance(), "load_average_end": os.getloadavg()},
         "recipe": {
             "threads": 1,
@@ -455,11 +461,14 @@ def main() -> None:
             "audit": args.audit,
             "native_mode": args.native_mode,
             "namespace": DIAGNOSTIC_NAMESPACE,
+            "timing_aggregation": "median per fixture; pooled sum of fixture medians",
         },
         "all_identical": all(f["identical"] for f in fixtures),
         "total_row_steps": sum(f["row_steps"] for f in fixtures),
         "total_min_wall_seconds": {"stock": total_stock, "native": total_native},
-        "pooled_speedup": total_stock / total_native if total_native else None,
+        "total_median_wall_seconds": {"stock": median_stock, "native": median_native},
+        "pooled_speedup": median_stock / median_native if median_native else None,
+        "pooled_speedup_min_wall": total_stock / total_native if total_native else None,
         "fixtures": fixtures,
     }
     target = args.output_dir / "identity.json"
