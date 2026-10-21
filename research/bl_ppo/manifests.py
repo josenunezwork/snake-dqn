@@ -132,6 +132,31 @@ def _budget(minutes: int, unit_cap: float) -> dict[str, Any]:
     }
 
 
+def _bounded_source_paths(manifest: dict[str, Any]) -> list[str]:
+    """Select executable closure and small source data, excluding historical dumps."""
+    prefixes = [p for p in manifest["source_paths"] if p != "docs/research"]
+    raw = subprocess.check_output(
+        ["git", "ls-tree", "-r", "-l", manifest["commit"]], cwd=ROOT, text=True
+    )
+    selected = []
+    for line in raw.splitlines():
+        meta, path = line.split("\t", 1)
+        mode, kind, _oid, size = meta.split()
+        if kind != "blob" or mode == "120000":
+            continue
+        if not any(path == prefix or path.startswith(prefix + "/") for prefix in prefixes):
+            continue
+        if (
+            path.startswith(("src/", "configs/", PACKAGE + "/", "research/colab_cli/"))
+            or path in {"requirements.txt", "pyproject.toml"}
+            or path.endswith((".py", ".yaml", ".yml", ".sh"))
+            or path.endswith(".json")
+            and int(size) <= 262144
+        ):
+            selected.append(path)
+    return sorted(selected)
+
+
 def _base(
     *, job_id: str, commit: str, output: Path, estimate: int, timeout: int, cap: float
 ) -> dict[str, Any]:
@@ -258,6 +283,7 @@ def make_e4_manifest(
             },
         }
     )
+    manifest["source_paths"] = _bounded_source_paths(manifest)
     return manifest
 
 
@@ -343,6 +369,7 @@ def make_e2_manifests(
                 },
             }
         )
+        manifest["source_paths"] = _bounded_source_paths(manifest)
         result.append(manifest)
     return result
 
@@ -407,6 +434,7 @@ def make_e2_templates(
                 },
             }
         )
+        manifest["source_paths"] = _bounded_source_paths(manifest)
         result.append(manifest)
     return result
 
