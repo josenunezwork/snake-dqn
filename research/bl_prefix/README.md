@@ -90,3 +90,39 @@ forecasts and operator handoff are stored outside Git at:
 Never edit the protected T34 packages, transport implementation, serving pins,
 released checkpoints or frozen registration bytes. Add a sibling pre-data
 addendum if a rule must be clarified.
+
+## E10 population bridge (registered before new gameplay)
+
+`REGISTRATION_E10.md` adds the round-3/4 reporting contract without rewriting
+frozen E6/E7 registrations. Collection retains every screened source, selected
+and unselected eligibility, and death/survivor facts. E7 selection exports all
+24 training prefix outcomes per source and the two selected-prefix confirmation
+streams. The continuation traces supply the common-alive, candidate-only, and
+B8-only mass terms and the productive dead-tail check.
+
+Historical E7 confirmation/point labels remain visible alongside Wilson LB90.
+The additional productive readout requires the original confirmation predicate,
+B8 death, candidate H5000 survival and >=90% tail retention in both streams.
+A historical TRANSFER_ADMISSIBLE label alone never admits an archive: E10 also
+requires productive population coverage, feasible tau, and its envelope check.
+The bridge uses prevalence times EARLY-stratum mean, never balanced EPD.
+
+Run the reporting-only `research.bl_prefix.e10` entrypoint on verified completed
+scientific bank/E6/E7 exports. SAMPLING_E10_ADDENDUM.md distinguishes eligible sources not selected by design
+from missing selected outcomes. U is prevalence times selected-world mean;
+missing selected training/confirmation rows make the envelope INCOMPLETE.
+Coverage, overlap-aware uncertainty and stopping sensitivity are exported.
+All mined worlds are burned for later evaluation. No E10 result grants release.
+
+`production_preflight.py` measures burned full-H5000 source and continuation
+fixtures through the real worker code, with reacting opponents and one native
+math thread per worker. It is operational timing only. Run under Mac AC/lid,
+thermal and slot guards with nice10 and at most two workers. The measured rate
+still requires the explicit conservative L4 CPU slowdown assumption.
+
+Resource preparation and scientific admission are separate fields. A manifest's
+`bl_prefix.resource_readiness.ready` means its hash-bound measured forecast fits
+the prepared budget with the two-times timeout margin inside 24 hours. The
+existing `bl_prefix.ready` and plan `ready` remain false until final scientific
+inputs exist and pass the unchanged admission checks. `DISPATCH.txt` lists each
+missing dependency. A resource-ready manifest never bypasses that runtime fence.

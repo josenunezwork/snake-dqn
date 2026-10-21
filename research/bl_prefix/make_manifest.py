@@ -11,10 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from research.bl_ppo.exports import export_json
+from research.bl_prefix.resource_limits import LIMITS, SESSION_LIMIT_MINUTES
 from research.colab_cli.supervisor import validate
 
 REPO = Path(__file__).resolve().parents[2]
-LIMITS = {"e6": (4.0, 0.8, 96.0), "e7": (20.0, 4.0, 480.0)}
 
 
 def sha256(path: Path) -> str:
@@ -59,10 +59,10 @@ def forecast(experiment: str, seconds_per_world_step: float) -> dict[str, Any]:
     if not math.isfinite(seconds_per_world_step) or seconds_per_world_step <= 0:
         raise ValueError("positive measured seconds/world-step required")
     # Full H5000 bounds include source-bank collection and all secondary rows.
-    # E6: source collection + selected-source replay + both continuation protocols.
+    # E6: collection + selected replay + terminal-sealer replay + both protocols.
     # E7: 128 worlds, 3 ancestors, (8 train + 1 train B8 + 4 paired confirms).
     steps = (
-        (4096 + 256) * 5000 + 256 * 3 * 2 * 2 * 5000
+        (4096 + 256 + 128) * 5000 + 256 * 3 * 2 * 2 * 5000
         if experiment == "e6"
         else 128 * 3 * (8 + 1 + 4) * 5000
     )
@@ -81,7 +81,9 @@ def forecast(experiment: str, seconds_per_world_step: float) -> dict[str, Any]:
         "unit_cap": cap,
         "reserve_units": reserve,
         "usable_timeout_minutes": timeout,
-        "fits_with_two_times_margin": 2 * central_minutes <= timeout,
+        "fits_with_two_times_margin": 2 * central_minutes <= timeout <= SESSION_LIMIT_MINUTES,
+        "minimum_unit_cap_with_reserve_and_two_times_margin": central_minutes / 12,
+        "fits_single_24h_session": 2 * central_minutes <= SESSION_LIMIT_MINUTES,
         "status": "FORECAST_ONLY_NOT_MEASURED_ON_L4",
     }
 
@@ -105,7 +107,12 @@ def build(
         raise ValueError("plan experiment mismatch")
     cap, reserve, timeout = LIMITS[experiment]
     estimate = timeout / 2 if estimate_minutes is None else estimate_minutes
-    if not math.isfinite(estimate) or estimate <= 0 or 2 * estimate > timeout:
+    if (
+        not math.isfinite(estimate)
+        or estimate <= 0
+        or 2 * estimate > timeout
+        or timeout > SESSION_LIMIT_MINUTES
+    ):
         raise ValueError("forecast does not fit the frozen cap with 2x margin")
     inputs = [{"path": str(plan_path.resolve()), "dest": "plan.json", "sha256": sha256(plan_path)}]
     for dest, path in input_files or []:
@@ -127,7 +134,23 @@ def build(
                 )
     from research.bl_prefix.readiness import validate_ready
 
-    validate_ready(plan, {item["dest"]: Path(item["path"]) for item in inputs})
+    delivered = {item["dest"]: Path(item["path"]) for item in inputs}
+    validate_ready(plan, delivered)
+    resource_ready = False
+    forecast_tag = plan.get("forecast", "")
+    if isinstance(forecast_tag, str) and forecast_tag.startswith("input:"):
+        bound = delivered.get(forecast_tag[6:])
+        if bound is not None:
+            from research.bl_ppo.exports import verify_export
+
+            verify_export(bound)
+            measured = json.loads(bound.read_text())
+            recomputed = forecast(experiment, measured["mac_seconds_per_world_step"])
+            if any(measured.get(key) != value for key, value in recomputed.items()):
+                raise ValueError("resource forecast differs from measured work/cap calculation")
+            resource_ready = recomputed["fits_with_two_times_margin"] and math.isclose(
+                estimate, recomputed["estimated_allocation_minutes"], rel_tol=1e-12
+            )
     manifest = {
         "job_id": f"bl-prefix-{experiment}-{output_dir.name}"[:64],
         "commit": commit,
@@ -164,6 +187,13 @@ def build(
             "ready": plan.get("ready") is True,
             "dispatch_status": "NOT_DISPATCHED",
             "transport": authority,
+            "resource_readiness": {
+                "ready": resource_ready,
+                "scope": "CODE_FORECAST_AND_PROPOSED_BUDGET_ONLY",
+                "dispatch_ready": plan.get("ready") is True,
+                "dependencies": list(plan.get("blocking_reasons", [])),
+                "cap_authority": "research/bl_prefix/CAP_NOTE.md (proposal; not dispatch approval)",
+            },
         },
     }
     return validate(manifest, repo=repo)

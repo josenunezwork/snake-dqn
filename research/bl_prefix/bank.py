@@ -32,6 +32,7 @@ from research.bl_prefix.engine import (
     PREFIX_HISTORY,
     PrefixRecord,
     capture_root,
+    clone_world,
     initial_world,
     load_root,
     save_root,
@@ -171,10 +172,18 @@ def _workers(plan: Mapping[str, Any], *, preflight: bool) -> int:
 
 
 def _deadline(plan: Mapping[str, Any], *, preflight: bool) -> float:
-    value = plan.get("collection_deadline_seconds", 1800 if preflight else 5760)
-    if type(value) not in {int, float} or not 1 <= float(value) <= (1800 if preflight else 5760):
-        raise BankIncomplete("bank collection deadline is outside the frozen wall cap")
-    return float(value)
+    if preflight:
+        value = plan.get("collection_deadline_seconds", 1800)
+        if type(value) not in {int, float} or not 1 <= float(value) <= 1800:
+            raise BankIncomplete("bank preflight deadline is outside the frozen wall cap")
+        return float(value)
+    from research.bl_prefix.resource_limits import usable_seconds
+
+    if "collection_deadline_seconds" in plan and float(
+        plan["collection_deadline_seconds"]
+    ) != usable_seconds("e6"):
+        raise BankIncomplete("scientific bank deadline must use the registered E6 first cap")
+    return usable_seconds("e6")
 
 
 def _ordered_parallel(
@@ -286,9 +295,82 @@ def _select(sources: list[Source]) -> tuple[list[Source], list[tuple[Source, Sou
     return late, pairs
 
 
+def _collection_ledger(
+    sources: Iterable[Source],
+    selected: Iterable[Source],
+    sealers: Mapping[int, Mapping[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Publish every screened source; no unselected eligible world is hidden.
+
+    T1's geometric corridor classifier is not available in this collector.
+    Its required evidence is therefore represented explicitly as ``unresolved``
+    rather than guessing a hero/opponent cause from collision attribution.
+    """
+    selected_ids = {item.seed for item in selected}
+    sealers = sealers or {}
+    rows = []
+    for source in sources:
+        eligible = (
+            source.death_frame is not None
+            and source.death_frame >= 2000
+            and (source.death_length or 0) >= 700
+        )
+        rows.append(
+            {
+                "source_world": str(source.seed),
+                "mix": source.mix,
+                "death_frame": source.death_frame,
+                "last_living_length": source.death_length,
+                "survived_h5000": source.survived,
+                "eligible": eligible,
+                "selected": source.seed in selected_ids,
+                "sealer": sealers.get(source.seed, {}).get(
+                    "sealer", "none" if source.survived else "unresolved"
+                ),
+                "sealer_evidence": sealers.get(source.seed, {}).get(
+                    "evidence", "survived_h5000" if source.survived else "not_collected"
+                ),
+            }
+        )
+    return rows
+
+
 def _write_root(root: Any, path: Path) -> str:
     save_root(root, path)
     return str(path.name)
+
+
+def _terminal_sealer(source: Source, b8_path: Path) -> dict[str, str]:
+    """Apply T1's causal closure test to a selected source's terminal transition.
+
+    The source scan intentionally retains no snapshots.  Replaying only the
+    selected source to its recorded terminal frame supplies the exact before and
+    after simulator states without treating a collision killer as a sealer.
+    A closure that happened before the terminal transition remains explicitly
+    unresolved because this collector did not capture its onset.
+    """
+    if source.death_frame is None:
+        return {"sealer": "none", "evidence": "survived_h5000"}
+    world = initial_world(arm="s3", plan=source.plan, b8_path=b8_path)
+    b8 = B8Controller(b8_path)
+    while int(world.sim.frame[0]) < source.death_frame - 1 and bool(world.sim.alive[0, 0]):
+        step(world, b8)
+    if int(world.sim.frame[0]) != source.death_frame - 1 or not bool(world.sim.alive[0, 0]):
+        return {"sealer": "unresolved", "evidence": "terminal_replay_mismatch"}
+    before = clone_world(world)
+    result = step(world, b8)
+    if not result.died or int(world.sim.frame[0]) != source.death_frame:
+        return {"sealer": "unresolved", "evidence": "terminal_replay_mismatch"}
+    from research.t1_commitment_20261015.topology import sealer_identity
+
+    # T1 accepts an already-selected flat per-opponent kind list.  Passing
+    # the outer roster list would make slot >=2 look up another inner spec.
+    kinds = [str(spec[0]) if spec else None for spec in world.specs]
+    observed = sealer_identity(before.sim, world.sim, kinds)
+    owner = str(observed.get("owner", "unresolved"))
+    if owner in {"hero", "opponent"}:
+        return {"sealer": owner, "evidence": "t1_terminal_closure"}
+    return {"sealer": "unresolved", "evidence": "no_terminal_causal_closure"}
 
 
 def _capture_pair_task(task: tuple[Source, Source, str, str]) -> dict[str, Any]:
@@ -314,6 +396,7 @@ def _capture_pair_task(task: tuple[Source, Source, str, str]) -> dict[str, Any]:
         "ordinary_world": ordinary.seed,
         "ancestors": ancestors,
         "ordinary_root": ordinary_path,
+        "sealer": _terminal_sealer(death, b8_path),
     }
 
 
@@ -451,8 +534,9 @@ def build(plan: Mapping[str, Any], out: Path) -> dict[str, Any]:
             deadline=remaining,
             phase="selected-root-capture",
         )
-        roots, early = [], []
+        roots, early, sealer_rows = [], [], {}
         for captured in captured_pairs:
+            sealer_rows[int(captured["source_world"])] = captured["sealer"]
             roots.append(
                 {
                     "stratum": "early",
@@ -490,6 +574,7 @@ def build(plan: Mapping[str, Any], out: Path) -> dict[str, Any]:
             ],
             "roots": roots,
             "early_roots": early,
+            "collection_ledger": _collection_ledger(sources, late, sealer_rows),
         }
     value = {
         "schema": "bl-prefix-bank/v1",

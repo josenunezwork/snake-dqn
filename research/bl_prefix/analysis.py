@@ -14,10 +14,28 @@ from typing import Any, Iterable, Mapping
 from src.scripts.eval_stats import student_t_isf
 
 MIXES = ("scripted", "frozen", "mixed")
+_Z90 = 1.2815515655446004
 
 
 class IncompleteResult(ValueError):
     """A required input/result row is absent or inconsistent."""
+
+
+def _one_sided_wilson(successes: int, total: int) -> dict[str, float | int]:
+    """One-sided 90% Wilson display for the frozen E7 point rule."""
+    if total <= 0 or not 0 <= successes <= total:
+        raise IncompleteResult("invalid Wilson count")
+    point = successes / total
+    denominator = 1.0 + _Z90**2 / total
+    center = (point + _Z90**2 / (2 * total)) / denominator
+    radius = _Z90 * math.sqrt(point * (1 - point) / total + _Z90**2 / (4 * total**2)) / denominator
+    return {
+        "count": successes,
+        "total": total,
+        "point": point,
+        "lb90": max(0.0, center - radius),
+        "ub90": min(1.0, center + radius),
+    }
 
 
 def _number(value: Any, name: str) -> float:
@@ -173,6 +191,7 @@ def e7_summary(
             raise IncompleteResult("unexpected E7 source/ancestor")
         found[source, ancestor].append(row)
     confirmed: dict[str, dict[int, bool]] = {source: {} for source in expected}
+    productive: dict[str, dict[int, bool]] = {source: {} for source in expected}
     fallback_total = 0
     for source in expected:
         for ancestor in (100, 150, 200):
@@ -180,6 +199,7 @@ def e7_summary(
             if len(entries) != 2 or {int(x.get("stream", -1)) for x in entries} != {0, 1}:
                 raise IncompleteResult("E7 requires exactly two confirmation rows")
             good = True
+            productive_good = True
             for entry in entries:
                 delta = _number(entry.get("candidate_score"), "candidate score") - _number(
                     entry.get("b8_score"), "B8 score"
@@ -194,17 +214,52 @@ def e7_summary(
                     raise IncompleteResult("E7 fallback count must be a nonnegative integer")
                 survival = entry["candidate_survival"] >= entry["b8_survival"]
                 good = good and delta >= 20.0 and survival
+                # This is deliberately stricter than the frozen E7 historical
+                # display: an all-die delay cannot enter an archive admission.
+                if entry["b8_survival"]:
+                    productive_good = False
+                else:
+                    death = entry.get("b8_death_frame")
+                    if type(death) is not int or not 0 <= death <= 5000:
+                        raise IncompleteResult("E7 productive confirmation requires B8 death frame")
+                    last_value = _number(
+                        entry.get("b8_last_living_length"), "E7 B8 last living length"
+                    )
+                    tail_value = _number(
+                        entry.get("candidate_tail_mean_length"), "E7 candidate tail mean length"
+                    )
+                    productive_good = (
+                        productive_good
+                        and entry["candidate_survival"]
+                        and tail_value >= 0.9 * last_value
+                    )
                 fallback_total += fallback
             confirmed[source][ancestor] = good
+            productive[source][ancestor] = good and productive_good
     per_ancestor = {
         str(a): sum(values[a] for values in confirmed.values()) / len(expected)
         for a in (100, 150, 200)
     }
     union = sum(any(values.values()) for values in confirmed.values()) / len(expected)
+    productive_by_ancestor = {
+        str(a): _one_sided_wilson(sum(values[a] for values in productive.values()), len(expected))
+        for a in (100, 150, 200)
+    }
+    productive_union = _one_sided_wilson(
+        sum(any(values.values()) for values in productive.values()), len(expected)
+    )
     return {
         "sources": len(expected),
         "confirmed_fraction": union,
         "by_ancestor": per_ancestor,
+        "confirmed_wilson_lb90": _one_sided_wilson(
+            sum(any(values.values()) for values in confirmed.values()), len(expected)
+        ),
+        "productive_by_ancestor": productive_by_ancestor,
+        "productive_wilson_lb90": productive_union,
+        # E10 supplies q, C, and tau.  This hard false prevents the old point
+        # rule from admitting a delay-only prefix before that bridge is scored.
+        "productive_transfer_admissible": False,
         "fallback_count": fallback_total,
         "decision": "TRANSFER_ADMISSIBLE" if union >= 0.20 else "FRONTIER_SCARCE",
     }

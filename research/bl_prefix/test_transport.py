@@ -69,9 +69,9 @@ def test_runtime_input_path_refusal(tmp_path: Path, value: str) -> None:
 def test_forecast_charges_collection_secondary_and_confirmations() -> None:
     e6 = forecast("e6", 0.001)
     e7 = forecast("e7", 0.001)
-    assert e6["world_step_upper_bound"] == 37_120_000
+    assert e6["world_step_upper_bound"] == 37_760_000
     assert e7["world_step_upper_bound"] == 24_960_000
-    assert e6["unit_cap"] == 4 and e7["unit_cap"] == 20
+    assert e6["unit_cap"] == 43.4 and e7["unit_cap"] == 28.5
     assert e6["estimated_units_at_2_per_hour"] > 0
 
 
@@ -83,13 +83,13 @@ def test_manifest_uses_real_offline_supervisor_validation(tmp_path: Path) -> Non
     plan.write_text('{"experiment":"e6","ready":false}')
     result = build("e6", plan, tmp_path / "fresh-output", commit)
     assert result["requirements"]["gpu"] == "L4"
-    assert result["budget"]["unit_cap"] == 4
-    assert result["timeout_minutes"] == 96
+    assert result["budget"]["unit_cap"] == 43.4
+    assert result["timeout_minutes"] == 1041.6
     assert result["bl_prefix"]["ready"] is False
     assert result["bl_prefix"]["dispatch_status"] == "NOT_DISPATCHED"
     assert not (tmp_path / "fresh-output").exists()
     with pytest.raises(ValueError, match="forecast does not fit"):
-        build("e6", plan, tmp_path / "fresh-output", commit, estimate_minutes=49)
+        build("e6", plan, tmp_path / "fresh-output", commit, estimate_minutes=522)
 
 
 def test_ready_plan_cannot_admit_unuploaded_mac_files(tmp_path: Path) -> None:
@@ -102,3 +102,63 @@ def test_ready_plan_cannot_admit_unuploaded_mac_files(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="delivery tags"):
         validate_ready({"experiment": "e6", "ready": True, "seed_audit": str(local)}, {})
     assert local_inputs("input:delivered.json", {"delivered.json": local}) == str(local)
+
+
+def test_resource_readiness_cannot_bypass_scientific_gate(tmp_path: Path) -> None:
+    """A fitting forecast is independently reviewable but cannot supply endpoints."""
+    import subprocess
+
+    from research.bl_prefix.make_manifest import LIMITS
+
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    measured = forecast("e6", 0.00001)
+    timing = tmp_path / "forecast.json"
+    export_json(timing, measured)
+    plan = tmp_path / "plan.json"
+    export_json(
+        plan,
+        {
+            "experiment": "e6",
+            "ready": False,
+            "forecast": "input:forecast.json",
+            "blocking_reasons": ["final R/F endpoints and critic receipts are absent"],
+        },
+    )
+    result = build(
+        "e6",
+        plan,
+        tmp_path / "fresh-output",
+        commit,
+        input_files=[("forecast.json", timing)],
+        estimate_minutes=measured["estimated_allocation_minutes"],
+    )
+    assert result["bl_prefix"]["ready"] is False
+    assert result["bl_prefix"]["resource_readiness"]["ready"] is True
+    assert result["bl_prefix"]["resource_readiness"]["dispatch_ready"] is False
+    assert result["timeout_minutes"] == LIMITS["e6"][2] <= 1440
+    with pytest.raises(ValueError, match="NOT_DISPATCHABLE"):
+        execute(plan, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_manifest_rejects_tampered_resource_forecast(tmp_path: Path) -> None:
+    import subprocess
+
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    record = forecast("e7", 0.00001)
+    record["estimated_allocation_minutes"] = 0.01
+    timing = tmp_path / "forecast.json"
+    export_json(timing, record)
+    plan = tmp_path / "plan.json"
+    export_json(plan, {"experiment": "e7", "ready": False, "forecast": "input:forecast.json"})
+    with pytest.raises(ValueError, match="resource forecast differs"):
+        build("e7", plan, tmp_path / "output", commit, input_files=[("forecast.json", timing)])
+
+
+def test_retired_operational_ids_cannot_reenter_science() -> None:
+    from research.bl_prefix.operational_burns import BURNED_IDENTITIES, require_unburned
+
+    with pytest.raises(ValueError, match="operationally burned"):
+        require_unburned([1102882751176])
+    require_unburned([1, 2, 3])
+    assert len(BURNED_IDENTITIES) == 2

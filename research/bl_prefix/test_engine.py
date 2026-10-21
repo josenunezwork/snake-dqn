@@ -118,3 +118,15 @@ def test_parity_refuses_incomplete_prefix_before_reconstructing_source() -> None
     )
     with pytest.raises(engine.IncompleteRoot, match="128"):
         engine.verify_root_parity(root)
+
+
+def test_mass_ledger_keeps_common_and_one_sided_tail_terms_separate() -> None:
+    candidate = engine.RolloutResult(0.0, True, (), 4, 0, mass_trace=(10.0, 12.0, 13.0, 14.0))
+    baseline = engine.RolloutResult(0.0, False, (), 3, 0, mass_trace=(10.0, 11.0, 0.0))
+    result = engine.mass_ledger(candidate, baseline, prefix_steps=2)
+    assert result == {
+        "both_alive_delta": 1.0 / engine.HORIZON,
+        "candidate_only_mass": 27.0 / engine.HORIZON,
+        "b8_only_mass": 0.0,
+        "common_alive_prefix_growth": 1.0 / engine.HORIZON,
+    }

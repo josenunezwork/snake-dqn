@@ -83,6 +83,9 @@ class RolloutResult:
     steps: int
     fallback_count: int
     truncated: bool = False
+    mass_trace: tuple[float, ...] = ()
+    death_frame: int | None = None
+    last_living_length: int | None = None
 
 
 def initial_world(
@@ -543,7 +546,8 @@ def rollout(
                 ),
             )
     b8.reset()
-    mass, tape, fallbacks = 0.0, [], 0
+    mass, tape, fallbacks, trace = 0.0, [], 0, []
+    last_living_length: int | None = None
     effective_prefix = len(forced_actions) if forced_actions is not None else prefix_steps
     while int(world.sim.frame[0]) < horizon and bool(world.sim.alive[0, 0]):
         if max_steps is not None and len(tape) >= max_steps:
@@ -558,6 +562,9 @@ def rollout(
             result = step(world, chosen)
         tape.append(result.action)
         mass += result.mass
+        trace.append(result.mass)
+        if result.pre_alive:
+            last_living_length = result.pre_length
     truncated = bool(
         max_steps is not None
         and len(tape) >= max_steps
@@ -565,5 +572,43 @@ def rollout(
         and bool(world.sim.alive[0, 0])
     )
     return RolloutResult(
-        mass, bool(world.sim.alive[0, 0]), tuple(tape), len(tape), fallbacks, truncated
+        mass,
+        bool(world.sim.alive[0, 0]),
+        tuple(tape),
+        len(tape),
+        fallbacks,
+        truncated,
+        tuple(trace),
+        None if bool(world.sim.alive[0, 0]) else int(world.sim.frame[0]),
+        last_living_length,
     )
+
+
+def mass_ledger(
+    candidate: RolloutResult, baseline: RolloutResult, *, prefix_steps: int = 64
+) -> dict[str, float]:
+    """Return the three exact paired mass terms and prefix common-alive growth.
+
+    A rollout trace begins at the same root frame and is intentionally kept in
+    memory only.  Missing tail entries are dead-frame zeros, never imputed
+    observations, so the terms retain the H5000 dead-frame convention.
+    """
+    width = max(len(candidate.mass_trace), len(baseline.mass_trace))
+    cand = candidate.mass_trace + (0.0,) * (width - len(candidate.mass_trace))
+    base = baseline.mass_trace + (0.0,) * (width - len(baseline.mass_trace))
+    both = candidate_only = b8_only = prefix_growth = 0.0
+    for index, (candidate_mass, b8_mass) in enumerate(zip(cand, base)):
+        if candidate_mass > 0.0 and b8_mass > 0.0:
+            both += candidate_mass - b8_mass
+            if index < prefix_steps:
+                prefix_growth += candidate_mass - b8_mass
+        elif candidate_mass > 0.0:
+            candidate_only += candidate_mass
+        elif b8_mass > 0.0:
+            b8_only += b8_mass
+    return {
+        "both_alive_delta": both / HORIZON,
+        "candidate_only_mass": candidate_only / HORIZON,
+        "b8_only_mass": b8_only / HORIZON,
+        "common_alive_prefix_growth": prefix_growth / HORIZON,
+    }

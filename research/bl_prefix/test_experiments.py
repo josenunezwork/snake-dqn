@@ -56,6 +56,9 @@ def test_e7_requires_both_confirmation_streams_and_explicit_survival() -> None:
                         "b8_score": 0.0,
                         "candidate_survival": True,
                         "b8_survival": True,
+                        "b8_death_frame": None,
+                        "b8_last_living_length": None,
+                        "candidate_tail_mean_length": None,
                         "fallback_count": 0,
                     }
                 )

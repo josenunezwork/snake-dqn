@@ -15,7 +15,7 @@ from research.bl_ppo.exports import export_json, verify_export
 from research.bl_prefix import seeds
 from research.bl_prefix.analysis import IncompleteResult, e6_summary
 from research.bl_prefix.controllers import B8Controller, E2Controller
-from research.bl_prefix.engine import HORIZON, load_root, relocate_root, rollout
+from research.bl_prefix.engine import HORIZON, load_root, mass_ledger, relocate_root, rollout
 
 
 def _roots(
@@ -130,9 +130,10 @@ def _root_rows(
     }
     rows = []
     for stream, seed in enumerate(future_values):
-        for name, controller in controllers.items():
-            for phase, prefix_steps in (("primary", 64), ("secondary", HORIZON - root.frame)):
-                result = rollout(
+        for phase, prefix_steps in (("primary", 64), ("secondary", HORIZON - root.frame)):
+            results = {}
+            for name, controller in controllers.items():
+                results[name] = rollout(
                     root,
                     controller,
                     b8,
@@ -140,28 +141,33 @@ def _root_rows(
                     future_seed=seed,
                     **({"max_steps": max_steps, "preflight": True} if preflight else {}),
                 )
-                rows.append(
-                    {
-                        "stratum": item["stratum"],
-                        "mix": root.mix,
-                        "source_world": item["source_world"],
-                        "stream": stream,
-                        "controller": name,
-                        "phase": phase,
-                        "score": result.mass_sum / HORIZON,
-                        "terminal_survival": result.terminal_survival,
-                        "steps": result.steps,
-                        "truncated": bool(getattr(result, "truncated", False)),
-                    }
-                )
+            baseline = results["B8"]
+            for name, result in results.items():
+                row = {
+                    "stratum": item["stratum"],
+                    "mix": root.mix,
+                    "source_world": item["source_world"],
+                    "stream": stream,
+                    "controller": name,
+                    "phase": phase,
+                    "score": result.mass_sum / HORIZON,
+                    "terminal_survival": result.terminal_survival,
+                    "steps": result.steps,
+                    "truncated": bool(getattr(result, "truncated", False)),
+                }
+                if name != "B8":
+                    row["ledger"] = mass_ledger(result, baseline, prefix_steps=64)
+                rows.append(row)
     return rows
 
 
 def run(plan: Mapping[str, Any], out: Path, *, preflight: bool = False) -> dict[str, Any]:
     """Run only a fully-bound E6 plan; any missing scientific guard is INCOMPLETE."""
     begun = time.perf_counter()
-    cap_seconds = 96 * 60
     preflight = bool(preflight or plan.get("preflight"))
+    from research.bl_prefix.resource_limits import usable_seconds
+
+    cap_seconds = usable_seconds("e6")
     try:
         if plan.get("experiment") != "e6" or bool(plan.get("preflight")) != preflight:
             raise IncompleteResult("E6 plan/preflight identity mismatch")
@@ -269,6 +275,10 @@ def run(plan: Mapping[str, Any], out: Path, *, preflight: bool = False) -> dict[
             "workers": workers,
             "rows": rows,
             "analysis": analyses,
+            "bank_sha256": _digest(bank_path),
+            "audit_sha256": _digest(audit_path),
+            "b8_sha256": _digest(checkpoints["B8"]),
+            "controller_sha256": {name: _digest(path) for name, path in checkpoints.items()},
             "elapsed_seconds": time.perf_counter() - begun,
         }
     except (KeyError, OSError, ValueError, IncompleteResult, RuntimeError) as exc:

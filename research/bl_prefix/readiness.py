@@ -140,6 +140,9 @@ def _validate_resolved(resolved: dict[str, Any]) -> None:
         raise ValueError("future RNG identities are incomplete or unaudited")
     if resolved["experiment"] == "e7":
         exploration = resolved["exploration_seeds"]
+        from research.bl_prefix.operational_burns import require_unburned
+
+        require_unburned([*future, *exploration])
         if (
             len(exploration) != 128 * 24
             or len(set(exploration)) != len(exploration)

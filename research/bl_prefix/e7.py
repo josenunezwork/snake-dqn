@@ -19,7 +19,23 @@ from research.bl_prefix.controllers import (
     StochasticB8Controller,
     calibrate_b8_temperature,
 )
-from research.bl_prefix.engine import HORIZON, load_root, relocate_root, rollout
+from research.bl_prefix.engine import HORIZON, load_root, mass_ledger, relocate_root, rollout
+
+
+def _tail_mean_length(candidate: Any, baseline: Any, *, horizon_steps: int) -> float | None:
+    """Mean candidate length over frames where the paired B8 continuation is dead."""
+    if baseline.death_frame is None:
+        return None
+    # The terminal B8 step is recorded as zero mass, so it is the first dead
+    # tail frame and must be included rather than dropped with ``len(trace)``.
+    start = max(0, len(baseline.mass_trace) - 1)
+    if not start < horizon_steps:
+        return None
+    candidate_trace = candidate.mass_trace + (0.0,) * max(
+        0, horizon_steps - len(candidate.mass_trace)
+    )
+    tail = candidate_trace[start:horizon_steps]
+    return sum(tail) / len(tail)
 
 
 def _load_bank(
@@ -86,7 +102,7 @@ def _source_rows(
             b8, [p.observation for p in root.prefix], [p.legal for p in root.prefix], 0.05
         )
         training, sampled = [], []
-        for _ in range(8):
+        for training_index in range(8):
             stochastic = StochasticB8Controller(
                 b8_path, net=b8.net, temperature=temperature, seed=policy_seeds[offset]
             )
@@ -102,8 +118,6 @@ def _source_rows(
                 )
             )
             sampled.append(stochastic)
-        selected_index = max(range(8), key=lambda i: training[i].mass_sum)
-        selected = training[selected_index]
         train_b8 = rollout(
             root,
             b8,
@@ -112,6 +126,24 @@ def _source_rows(
             future_seed=future[0],
             **({"max_steps": max_steps, "preflight": True} if preflight else {}),
         )
+        training_outcomes = []
+        for training_index, (result, stochastic) in enumerate(zip(training, sampled)):
+            ledger = mass_ledger(result, train_b8)
+            training_outcomes.append(
+                {
+                    "source_world": source["source_world"],
+                    "mix": root.mix,
+                    "ancestor": ancestor,
+                    "training_index": training_index,
+                    "paired_delta": result.mass_sum / HORIZON - train_b8.mass_sum / HORIZON,
+                    "candidate_survival": result.terminal_survival,
+                    "b8_survival": train_b8.terminal_survival,
+                    "realized_non_greedy": stochastic.realized_non_greedy_rate,
+                    **ledger,
+                }
+            )
+        selected_index = max(range(8), key=lambda i: training[i].mass_sum)
+        selected = training[selected_index]
         selection.append(
             {
                 "source_world": source["source_world"],
@@ -125,6 +157,7 @@ def _source_rows(
                 "expected_non_greedy": 0.05,
                 "realized_non_greedy": [x.realized_non_greedy_rate for x in sampled],
                 "stochastic_decisions": [x.draw_count for x in sampled],
+                "training_outcomes": training_outcomes,
             }
         )
         for stream, seed in enumerate(future[1:3]):
@@ -145,9 +178,11 @@ def _source_rows(
                 future_seed=seed,
                 **({"max_steps": max_steps, "preflight": True} if preflight else {}),
             )
+            tail_mean = _tail_mean_length(candidate, baseline, horizon_steps=HORIZON - root.frame)
             confirmations.append(
                 {
                     "source_world": source["source_world"],
+                    "mix": root.mix,
                     "ancestor": ancestor,
                     "stream": stream,
                     "candidate_score": candidate.mass_sum / HORIZON,
@@ -155,6 +190,17 @@ def _source_rows(
                     "candidate_survival": candidate.terminal_survival,
                     "b8_survival": baseline.terminal_survival,
                     "fallback_count": candidate.fallback_count,
+                    "b8_death_frame": baseline.death_frame,
+                    "b8_last_living_length": baseline.last_living_length,
+                    "candidate_tail_mean_length": tail_mean,
+                    "productive": bool(
+                        candidate.mass_sum / HORIZON - baseline.mass_sum / HORIZON >= 20.0
+                        and not baseline.terminal_survival
+                        and candidate.terminal_survival
+                        and baseline.last_living_length is not None
+                        and tail_mean is not None
+                        and tail_mean >= 0.9 * baseline.last_living_length
+                    ),
                 }
             )
     return selection, confirmations
@@ -163,7 +209,9 @@ def _source_rows(
 def run(plan: Mapping[str, Any], out: Path, *, preflight: bool = False) -> dict[str, Any]:
     begun = time.perf_counter()
     preflight = bool(preflight or plan.get("preflight"))
-    cap_seconds = 480 * 60
+    from research.bl_prefix.resource_limits import usable_seconds
+
+    cap_seconds = usable_seconds("e7")
     try:
         if plan.get("experiment") != "e7" or bool(plan.get("preflight")) != preflight:
             raise IncompleteResult("E7 plan/preflight identity mismatch")
@@ -181,8 +229,9 @@ def run(plan: Mapping[str, Any], out: Path, *, preflight: bool = False) -> dict[
         relocations = plan.get("checkpoint_relocations", {})
         if not isinstance(relocations, Mapping):
             raise IncompleteResult("missing verified checkpoint relocations")
+        bank_path = Path(str(plan["bank"]))
         bank = _load_bank(
-            Path(str(plan["bank"])),
+            bank_path,
             preflight,
             b8_path,
             hashlib.sha256(audit_path.read_bytes()).hexdigest(),
@@ -205,6 +254,10 @@ def run(plan: Mapping[str, Any], out: Path, *, preflight: bool = False) -> dict[
             or set(future) & set(policy_seeds)
         ):
             raise IncompleteResult("E7 lacks independent training/confirmation RNG seeds")
+        if not preflight:
+            from research.bl_prefix.operational_burns import require_unburned
+
+            require_unburned([*future, *policy_seeds])
         confirmations: list[dict[str, Any]] = []
         selection: list[dict[str, Any]] = []
         tasks = []
@@ -255,8 +308,14 @@ def run(plan: Mapping[str, Any], out: Path, *, preflight: bool = False) -> dict[
             "status": "PREFLIGHT_ONLY" if preflight else "COMPLETE",
             "workers": workers,
             "selection": selection,
+            "training_outcomes": [
+                row for selection_row in selection for row in selection_row["training_outcomes"]
+            ],
             "confirmations": confirmations,
             "analysis": summary,
+            "bank_sha256": hashlib.sha256(bank_path.read_bytes()).hexdigest(),
+            "audit_sha256": hashlib.sha256(audit_path.read_bytes()).hexdigest(),
+            "b8_sha256": hashlib.sha256(Path(b8_path).read_bytes()).hexdigest(),
             "elapsed_seconds": time.perf_counter() - begun,
         }
     except (KeyError, OSError, ValueError, IncompleteResult, RuntimeError) as exc:

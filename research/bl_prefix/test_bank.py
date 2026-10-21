@@ -238,3 +238,33 @@ def test_capture_includes_last_requested_boundary(monkeypatch: pytest.MonkeyPatc
     )
     assert result == {"200": 128, "150": 178, "100": 228}
     assert int(world.sim.frame[0]) == 228
+
+
+def test_collection_ledger_retains_unselected_and_unresolved_screening_facts() -> None:
+    eligible = _source(10, "scripted", death=2000, lengths={}, survived=False)
+    survivor = _source(11, "scripted", death=None, lengths={}, survived=True)
+    rows = bank._collection_ledger([eligible, survivor], [eligible])
+    assert rows == [
+        {
+            "source_world": "10",
+            "mix": "scripted",
+            "death_frame": 2000,
+            "last_living_length": 700,
+            "survived_h5000": False,
+            "eligible": True,
+            "selected": True,
+            "sealer": "unresolved",
+            "sealer_evidence": "not_collected",
+        },
+        {
+            "source_world": "11",
+            "mix": "scripted",
+            "death_frame": None,
+            "last_living_length": None,
+            "survived_h5000": True,
+            "eligible": False,
+            "selected": False,
+            "sealer": "none",
+            "sealer_evidence": "survived_h5000",
+        },
+    ]
