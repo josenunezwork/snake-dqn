@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from research.t34_o1_harvest.timing import TIMING_FIXTURE
 from research.t34_round0.common import B8_SHA, head, read_json, sha256, write_once
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -51,6 +52,7 @@ def source_paths(repo: Path = ROOT) -> list[str]:
     for name in (
         "research/t34_o1_harvest/PREREGISTRATION_O1.md",
         "research/t34_o1_harvest/PREFLIGHT_TIMING_ERRATUM.md",
+        "research/t34_o1_harvest/TIMING_FIXTURE_V3.md",
         "research/t34_o1_harvest/BANK_O1.json",
         "research/t34_o1_harvest/SEED_AUDIT_O1.json",
         "research/t34_o1_harvest/SEED_AUDIT_MAIN_UPDATE.json",
@@ -101,6 +103,7 @@ def freeze(path: Path) -> None:
             "death_attribution": "death_delta_mass_sum >= delta_mass_sum >= 2500",
             "decision": {"worlds": 8, "frozen_mixed": 4},
             "dispatch_authorized": False,
+            "excluded_timing_fixture": TIMING_FIXTURE,
         },
     )
 
@@ -118,6 +121,7 @@ def require_registration(path: Path) -> dict[str, Any]:
         or value.get("branch_horizon") != 500
         or value.get("decision") != {"worlds": 8, "frozen_mixed": 4}
         or value.get("death_attribution") != "death_delta_mass_sum >= delta_mass_sum >= 2500"
+        or value.get("excluded_timing_fixture") != TIMING_FIXTURE
     ):
         raise ValueError("not the frozen O1 authority")
     expected = source_paths()
