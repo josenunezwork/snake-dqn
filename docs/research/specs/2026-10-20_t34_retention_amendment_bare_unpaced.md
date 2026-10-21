@@ -35,6 +35,18 @@ Line numbers refer to the amended source bound with this file.
 | `registration_retention_v2.py:350–360`, `:617–618` | — | The builder emits `bare_fps: 0` and `amendments: [binding of this file]`. `_check_common` refuses a registration without them. |
 | `source_binding_v2.DECLARED_DATA_FILES` | — | Adds this file, so `source_hashes` binds its bytes |
 
+**Closure drift outside this amendment (disclosed for review).** Rebuilding at a current source also binds two
+Round 0 commits that landed after 97232d51 inside the retention import closure, which `unpaced_colab` reaches:
+
+- `26fc3dd9` and `c96617c6` add `research/t34_exit_b8/faults.py` and change `research/t34_exit_b8/policy.py`.
+  - In `PolicyEvaluation`, non-finite Q now raises `NonFiniteQLossFault`.
+  - `action_grid` now raises `IllegalActionFault` for an out-of-range hero action.
+- Both new exceptions subclass `ValueError`, so existing handlers behave the same.
+- The Mac `bare` and `paced` paths do not call them. `_collect` matches only the engine's `NonFiniteQ`.
+
+Compared with the 97232d51 registration, `source_hashes` differs only in this amendment's three source files, this
+file, and those two files.
+
 Unchanged: the paced arm, the timing gate (`timing_v2`, including its paced OFF probes), host guard, caps,
 contention budget, banks, seeds, pairing and order, OC/power, analysis and decision rules.
 
@@ -147,11 +159,18 @@ All steps run on branch `t34-retention-bare-unpaced-20261020` in the authoring c
 2. Get Fable approval. Record the review and the approval in CAMPAIGN_LOG (landing in step 8).
 3. Regenerate the OC on the branch in the authoring checkout, with the same inputs and new paths:
    `retention_oc_v2 --reps 20000 --seed 3420261020 --max-seconds 60` (repeat with `--resume` until complete).
-   **Acceptance:** every field of the new OC except `source_commit` and `source_hashes` must be byte-equal to the
-   ratified `RETENTION_OC_V2.json`, including `rates`, `pathb_joint_go_power`, `watch6_product_power`,
-   `development_summary`, `scenarios`, `fixed_vs_sequential`, `world_pool_sha256` and `simulator_hash`. Any other
-   difference means **STOP**, because it would mean the amendment changed a statistic. Copy the receipt over
-   `RETENTION_OC_V2.json`, commit it, and record the key-level diff in CAMPAIGN_LOG.
+   **Acceptance:** compare the new OC with the ratified `RETENTION_OC_V2.json`.
+   - `source_commit` and `source_hashes` may differ.
+   - `development_pool` may differ only in the checkout-root prefix of its `source_files` keys. The OC records the
+     absolute path of `research/t13b_six_snake_20261017/results/episodes.json.gz`, and the ratified OC was built in
+     `/Users/josenunez/Projects/ml/snake-dqn-retention-fixes6/`. `world_pool_sha256` therefore differs too. After
+     replacing the old checkout root with the new one, `development_pool` must be equal (same file sha256 values)
+     and its canonical sha256 must equal the new `world_pool_sha256`.
+   - Every other field must be byte-equal: `rates`, `pathb_joint_go_power`, `watch6_product_power`,
+     `development_summary`, `scenarios`, `fixed_vs_sequential`, `simulator_hash`, `acceptance` and the rest.
+
+   Any other difference means **STOP**, because it would mean the amendment changed a statistic. Copy the receipt
+   over `RETENTION_OC_V2.json`, commit it, and record the key-level diff in CAMPAIGN_LOG.
 4. Run `registration_retention_v2 build --study-root /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-02 --checkpoints …`
    in that same checkout, so that `history_ledger.repo` is the publishing checkout and the ledger is
    `research/t34_pathb/ledger/t34-retention-v2-operator-02.jsonl`. The draft carries `bare_fps: 0` and the
