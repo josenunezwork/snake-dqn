@@ -57,6 +57,7 @@ class RolloutBatch:
     action: np.ndarray
     reward: np.ndarray
     done: np.ndarray
+    survived_horizon: np.ndarray
     reset: np.ndarray
     world_id: np.ndarray
     frame: np.ndarray
@@ -727,6 +728,9 @@ class PersistentCollector:
             action=np.asarray([item[2]["action"][item[3]] for item in flat], dtype=np.int64),
             reward=np.asarray([item[2]["reward"][item[3]] for item in flat], dtype=np.float32),
             done=np.asarray([item[2]["done"][item[3]] for item in flat], dtype=bool),
+            survived_horizon=np.asarray(
+                [item[2]["survived_horizon"][item[3]] for item in flat], dtype=bool
+            ),
             reset=np.asarray([item[2]["reset"][item[3]] for item in flat], dtype=bool),
             world_id=np.asarray([item[0] for item in flat], dtype=np.int64),
             frame=np.asarray([item[2]["frame"][item[3]] for item in flat], dtype=np.int32),
