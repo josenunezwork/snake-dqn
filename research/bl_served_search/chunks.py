@@ -1,9 +1,9 @@
-"""Immutable L2' four-chunk assignment and validation.
+"""Immutable L2' eight-chunk assignment and validation.
 
 The selection bank remains one collision-audited allocation.  Chunks are a
 transport boundary only: each receives a deterministic, interleaved subset so
-that a completed receipt always contains 16 frozen, 16 mixed and 8 scripted
-worlds.  They must be merged only after all four terminal receipts exist.
+that a completed receipt always contains 8 frozen, 8 mixed and 4 scripted
+worlds.  They must be merged only after all eight terminal receipts exist.
 """
 
 from __future__ import annotations
@@ -12,9 +12,9 @@ import hashlib
 from collections import Counter
 from typing import Any, Iterable
 
-CHUNK_COUNT = 4
-CHUNK_SIZE = 40
-CHUNK_MIX_COUNTS = {"frozen": 16, "mixed": 16, "scripted": 8}
+CHUNK_COUNT = 8
+CHUNK_SIZE = 20
+CHUNK_MIX_COUNTS = {"frozen": 8, "mixed": 8, "scripted": 4}
 _MIX_ORDER = ("frozen", "mixed", "scripted")
 
 
@@ -32,18 +32,20 @@ def ordered_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         raise ValueError("L2' chunking requires the complete 64/64/32 allocation")
     result: list[dict[str, Any]] = []
     for chunk_index in range(CHUNK_COUNT):
-        # Eight full cycles make all three mixes visible early in every chunk;
+        # Four full cycles make all three mixes visible early in every chunk;
         # the remaining frozen/mixed rows retain the same pairwise cadence.
         for offset in range(CHUNK_MIX_COUNTS["frozen"]):
-            result.append(by_mix["frozen"][chunk_index * 16 + offset])
-            result.append(by_mix["mixed"][chunk_index * 16 + offset])
+            result.append(by_mix["frozen"][chunk_index * CHUNK_MIX_COUNTS["frozen"] + offset])
+            result.append(by_mix["mixed"][chunk_index * CHUNK_MIX_COUNTS["frozen"] + offset])
             if offset < CHUNK_MIX_COUNTS["scripted"]:
-                result.append(by_mix["scripted"][chunk_index * 8 + offset])
+                result.append(
+                    by_mix["scripted"][chunk_index * CHUNK_MIX_COUNTS["scripted"] + offset]
+                )
     return result
 
 
 def chunk_rows(rows: Iterable[dict[str, Any]], chunk_index: int) -> list[dict[str, Any]]:
-    """Select one exact 40-world chunk, preserving its deterministic order."""
+    """Select one exact 20-world chunk, preserving its deterministic order."""
     if not 0 <= chunk_index < CHUNK_COUNT:
         raise ValueError("invalid L2' chunk index")
     ordered = ordered_rows(rows)

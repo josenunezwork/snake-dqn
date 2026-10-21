@@ -29,6 +29,9 @@ from research.bl_served_search.chunks import (
 from research.bl_served_search.exports import export_json, verify_export
 from src.scripts.eval_stats import student_t_isf
 
+LABEL_MAP_VERSION = "plan-v2-wp1/v1"
+LABEL_MAP = {"FUND_MAC_SYSTEMS": "FUND_SYSTEMS", "KILL_SERVED_SEARCH_PUSH": "PACKAGE_KILL"}
+
 
 def _finite(value: Any, *, boolean: bool = False) -> float:
     if isinstance(value, bool):
@@ -528,7 +531,11 @@ def analyze(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "authoritative_for_l2": False,
             "scope": "future L4 budget status; does not alter L2 scientific label",
         },
-        "decision": {"label": verdict, "frozen_kill_ub90": pooled["upper90"]},
+        "decision": {
+            "label": LABEL_MAP.get(verdict, verdict),
+            "label_map_version": LABEL_MAP_VERSION,
+            "frozen_kill_ub90": pooled["upper90"],
+        },
     }
 
 
