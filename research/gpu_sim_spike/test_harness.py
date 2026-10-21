@@ -103,3 +103,69 @@ def test_candidate_nonfinite_q_cannot_count_as_agreement() -> None:
     }
     with pytest.raises(ValueError, match="nonfinite"):
         _candidate_json(result, depth=2, snakes=6)
+
+
+def test_decisive_audit_uses_cpu_survival_gain_not_candidate_choice() -> None:
+    from research.gpu_sim_spike.parity import summarize
+
+    reference = _label(1)
+    reference["greedy"] = 0
+    reference["outcomes"][1]["alive_steps"] = 3
+    mismatch = compare_decision(reference, _label(0))
+    assert mismatch["decisive_root"]
+    assert mismatch["cpu_survival_gain_over_greedy"] == 1
+    other = compare_decision(_label(0), _label(0))
+    audit = summarize([mismatch, other])
+    assert audit["first_action_agreement"] == 0.5
+    assert audit["decisive_roots"]["decisions"] == 1
+    assert audit["decisive_roots"]["first_action_agreement"] == 0
+    assert audit["decisive_roots"]["classification_counts"]["bug"] == 1
+    assert audit["other_roots"]["first_action_agreement"] == 1
+    absent = summarize([other])["decisive_roots"]
+    assert absent["coverage"] == "NO_COVERAGE"
+    assert absent["first_action_agreement"] is None
+
+
+def test_receipt_sidecars_are_discovered_and_verified_by_supervisor(tmp_path) -> None:
+    import hashlib
+
+    from research.colab_cli.runtime import _exports
+    from research.gpu_sim_spike.benchmark import write_receipt
+
+    target = tmp_path / "output" / "benchmark.json"
+    write_receipt(target, {"status": "PREFLIGHT"})
+    assert target.with_name("benchmark.json.complete").read_text() == "complete\n"
+    digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    assert target.with_name("benchmark.json.sha256").read_text() == f"{digest}  benchmark.json\n"
+    assert _exports(tmp_path, 1024) == [
+        {"path": "benchmark.json", "sha256": digest, "size": target.stat().st_size}
+    ]
+    with pytest.raises(FileExistsError):
+        write_receipt(target, {"status": "OVERWRITE"})
+    target.with_name("benchmark.json.sha256").unlink()
+    with pytest.raises(RuntimeError, match="invalid completed export marker"):
+        _exports(tmp_path, 1024)
+
+
+def test_full_world_throughput_uses_six_branches_not_six_snake_rows(monkeypatch) -> None:
+    from research.gpu_sim_spike.benchmark import throughput_report
+
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA L4")
+    rows = [
+        {"case": name, "full_world_steps": 1800, "device_loop_seconds": 0.09}
+        for name in ("long-scripted", "long-frozen", "long-mixed")
+    ]
+    report = throughput_report(rows, device="cuda", pipeline_seconds=1)
+    assert report["world_steps"] == 5400
+    assert report["full_world_steps_per_second"] == pytest.approx(20000)
+    assert report["pipeline_world_steps_per_second"] == 5400
+    assert report["l4_floor_status"] == "FLOOR_MET_PENDING_COST_AND_PARITY_AUDIT"
+    rows[0]["device_loop_seconds"] = 0.1
+    assert (
+        throughput_report(rows, device="cuda", pipeline_seconds=1)["l4_floor_status"]
+        == "STOP_ENGINE_THESIS_THIS_WEEK"
+    )
+    assert (
+        throughput_report(rows, device="cpu", pipeline_seconds=1)["l4_floor_status"]
+        == "NOT_L4_DATA"
+    )
