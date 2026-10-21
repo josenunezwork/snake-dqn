@@ -362,6 +362,7 @@ def test_runtime_validator_checks_fixed_parent_policy_before_source_admission(mo
         "unpaced_colab": runner.unpaced_colab_policy(),
         "paced_fps": 24,
         "bare_fps": 0,
+        "amendments": [runner.bare_unpaced_amendment_binding()],
         "terminal_per_mix": 48,
         "product_sessions": 32,
         "horizon": 5000,

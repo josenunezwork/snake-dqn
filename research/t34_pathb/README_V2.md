@@ -115,7 +115,9 @@ The operator prepares `schema:"t34-pathb-v2-registration/v1"`, `ratified:true`,
 `source_commit` (the exact detached execution `HEAD`), `source_hashes` from
 `retention_v2.source_inventory()`, `arms:["bare","paced","unpaced"]`,
 `mac_arms:["bare","paced"]`, and the fixed `unpaced_colab` policy,
-`paced_fps:24`, `terminal_per_mix:48`, `product_sessions:32`, `horizon:5000`,
+`paced_fps:24`, `bare_fps:0` with `amendments:[{path,sha256}]` pointing to the
+bare-unpaced amendment (docs/research/specs/2026-10-20_t34_retention_amendment_bare_unpaced.md),
+`terminal_per_mix:48`, `product_sessions:32`, `horizon:5000`,
 `workers:1`, `max_elapsed_hours:40`, `max_cpu_hours:60`, `precheck_max_elapsed_hours:8`,
 `fresh_disjoint_banks:true`, and the complete materialized `terminal_rows`,
 `product_rows`, `timing_row`, `timing_ticks` and `timing_warmup`. Freeze the load
@@ -374,6 +376,29 @@ Fixed N stays fixed. The simulator is one-thread, checkpointed every 250 replica
 # If INCOMPLETE, repeat that exact command with --resume; do not change its inputs.
 ```
 
+### Bare-unpaced amendment (2026-10-20): binding re-ratification order
+
+The pre-data amendment
+[2026-10-20_t34_retention_amendment_bare_unpaced.md](../../docs/research/specs/2026-10-20_t34_retention_amendment_bare_unpaced.md)
+runs the Mac `bare` arm unpaced (`ARM_FPS = {"bare": 0, "paced": 24}`); the paced arm stays at 24 fps. It
+supersedes the registration ratified at 97232d51 (study `t34-retention-v2-operator-01`). Once the new registration
+lands, the 97232d51 registration is VOID for execution. Section 6 of the amendment is binding. All of the following
+runs on branch `t34-retention-bare-unpaced-20261020`, in the authoring checkout that will publish the JSON:
+
+1. Make the fixes, then get an independent re-review, then Fable approval.
+2. Regenerate the OC (same `--reps 20000 --seed 3420261020`, new paths). Every field except `source_commit` and
+   `source_hashes` must be byte-equal to the ratified OC; otherwise STOP.
+3. Run `build --study-root …/t34-retention-v2-operator-02`, then `validate`, then commit.
+4. Create a fresh detached worktree at the draft `source_commit`.
+5. Produce the trace receipt with `T34_TRACE_RECEIPT=1`. It must show `tests/test_t34_pathb_bare_unpaced_v2.py`
+   passed with 0 skipped.
+6. Run `ratify`, overwriting `REGISTRATION_RETENTION_V2_RATIFIED.json` on the branch.
+7. Land on main in **one push**, only after the receipt PASS, together with the supersession notes. Until that push,
+   the 97232d51 design remains the runnable fallback.
+
+Retired at landing: the worktrees `snake-dqn-retention-fixes6` and `snake-dqn-retention-trace-97232d51-20261020`.
+Dispatch the Colab unpaced arm only from the new source commit.
+
 The following is an **operator-only sequence**, not run by this implementation
 job. The registration remains a draft. Obtain an actual final-source PASS trace
 receipt; the old source receipt is stale after these fixes. Phase 0 must finish
@@ -400,7 +425,7 @@ cd "$AUTHOR_ROOT"
 export SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
-E=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-01
+E=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-02
 TRACE=/absolute/path/actual-final-source-trace-receipt.json
 READY="$AUTHOR_ROOT/research/t34_pathb/REGISTRATION_RETENTION_V2_RATIFIED.json"
 mkdir "$E"
@@ -556,13 +581,13 @@ commit and push that append **from the authoring checkout**:
 ```bash
 cd "$AUTHOR_ROOT"
 # Use the exact history_ledger.path printed in the ratified registration.
-LEDGER=research/t34_pathb/ledger/t34-retention-v2-operator-01.jsonl
+LEDGER=research/t34_pathb/ledger/t34-retention-v2-operator-02.jsonl
 git add -- "$LEDGER"
 git commit -m 'Preserve T34 retention terminal history before next phase'
 git fetch origin
 git merge origin/main
 git push origin HEAD:main
-git push origin t34-retention-fixes6-20261020
+git push origin t34-retention-bare-unpaced-20261020
 cd "$FROZEN"
 ```
 
