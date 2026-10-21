@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -36,11 +37,39 @@ def execute(plan_path: Path, out: Path) -> dict[str, Any]:
     if experiment not in {"e6", "e7"}:
         raise ValueError("unknown experiment")
     plan = resolve_inputs(plan, plan_path.parent)
+    if plan.get("checkpoint_dir"):
+        os.environ["SNAKE_CKPT_DIR"] = str(plan["checkpoint_dir"])
+    if plan.get("bank_bundle"):
+        from research.bl_prefix.bundles import unpack_bank
+
+        plan["bank"] = str(
+            unpack_bank(Path(plan["bank_bundle"]), out.parent / f"{out.name}-bank-work")
+        )
+    if experiment == "e6" and plan.get("collection") is not None:
+        from research.bl_prefix.bank import run as collect_bank
+        from research.bl_prefix.bundles import pack_bank
+
+        collection = collect_bank(
+            plan["collection"],
+            out.parent / f"{out.name}-bank-work",
+            preflight=plan.get("preflight") is True,
+        )
+        expected_bank = "PREFLIGHT_ONLY" if plan.get("preflight") is True else "COMPLETE"
+        if collection.get("status") != expected_bank:
+            raise RuntimeError(
+                f"bank collection: {collection.get('reason', collection.get('status'))}"
+            )
+        plan["bank"] = str(collection["bank_path"])
+        pack_bank(Path(collection["bank_path"]).parent, out / "bank-export")
     if experiment == "e6":
         from research.bl_prefix.e6 import run
     else:
         from research.bl_prefix.e7 import run
-    return run(plan, out, preflight=plan.get("preflight") is True)
+    result = run(plan, out, preflight=plan.get("preflight") is True)
+    expected = "PREFLIGHT_ONLY" if plan.get("preflight") is True else "COMPLETE"
+    if result.get("status") != expected:
+        raise RuntimeError(f"{experiment}: {result.get('status')}: {result.get('reason', '')}")
+    return result
 
 
 def main() -> None:
@@ -48,7 +77,16 @@ def main() -> None:
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    print(json.dumps(execute(args.plan, args.out), sort_keys=True))
+    result = execute(args.plan, args.out)
+    print(
+        json.dumps(
+            {
+                key: result.get(key)
+                for key in ("schema", "status", "preflight", "scientific", "elapsed_seconds")
+            },
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":
