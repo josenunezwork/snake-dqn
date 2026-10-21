@@ -85,3 +85,45 @@ def test_reset_accepts_inference_tensor_caches_created_by_real_policy() -> None:
         template = SimpleNamespace(carry=torch.tensor([[3.0, 4.0]]))
     realistic._resident_reset(destination, template)
     assert destination.carry.tolist() == [[3.0, 4.0]]
+
+
+def test_final_unit_overrun_cannot_produce_successful_floor_receipt(tmp_path, monkeypatch) -> None:
+    import json
+    import sys
+
+    from research.gpu_sim_spike import benchmark
+
+    clock = [0.0]
+    monkeypatch.setattr(benchmark.time, "perf_counter", lambda: clock[0])
+    monkeypatch.setattr(benchmark, "source_commit", lambda: "a" * 40)
+    monkeypatch.setattr(
+        benchmark, "run", lambda args: {"status": "PREFLIGHT", "verdict": "PENDING"}
+    )
+
+    def slow_final_unit(args):
+        clock[0] = 2.0  # the last tick completed beyond the one-second cap.
+        return {"floor": {"status": "FLOOR_MET_PENDING_COST_AND_PARITY_AUDIT"}}
+
+    monkeypatch.setattr(realistic, "run_realistic", slow_final_unit)
+    output = tmp_path / "benchmark.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "benchmark",
+            "--mode",
+            "all",
+            "--device",
+            "cpu",
+            "--checkpoint",
+            str(tmp_path / "unused.pth"),
+            "--output",
+            str(output),
+            "--seconds",
+            "1",
+        ],
+    )
+    benchmark.main()
+    result = json.loads(output.read_text())
+    assert result["status"] == "INCOMPLETE"
+    assert result["verdict"] == "NO_CONTINUE"
