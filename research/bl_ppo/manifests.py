@@ -180,9 +180,11 @@ def _base(
         # sparse-source safety policy as an unbounded evidence-tree upload.
         "source_paths": [
             "src",
+            "web/backend",
             "configs",
             "docs/research",
             "research/apex_safety_20260926",
+            "research/fixed_search.py",
             PACKAGE,
             "research/colab_cli",
             "research/compute",
