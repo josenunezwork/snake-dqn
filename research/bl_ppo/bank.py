@@ -25,7 +25,13 @@ SCHEMA = "bl-ppo-screen-bank/v2"
 SEALED_DIRECTORY = "t34-round0-study-01"
 
 
-def _scan_history(candidates: list[int], repo: Path, artifacts: Path) -> dict[str, Any]:
+def _scan_history(
+    candidates: list[int],
+    repo: Path,
+    artifacts: Path,
+    *,
+    excluded_artifact_studies: frozenset[str] = frozenset({"bl-e2"}),
+) -> dict[str, Any]:
     """Scan explicit safe roots; never give ripgrep the live artifact parent.
 
     A basename-only negative glob is insufficient when rg receives an absolute
@@ -68,7 +74,10 @@ def _scan_history(candidates: list[int], repo: Path, artifacts: Path) -> dict[st
                 for name in directories
                 if name not in {SEALED_DIRECTORY, "bl_ppo", ".git"}
                 and not (current_path / name).is_symlink()
-                and not (name == "bl-e2" and current_path.parts[-2:] == ("big-lever", "exp"))
+                and not (
+                    name in excluded_artifact_studies
+                    and current_path.parts[-2:] == ("big-lever", "exp")
+                )
             ]
             for name in names:
                 path = current_path / name
