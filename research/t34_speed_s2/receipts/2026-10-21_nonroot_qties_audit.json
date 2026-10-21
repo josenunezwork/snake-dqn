@@ -1,0 +1,543 @@
+{
+  "all_identical": true,
+  "fixtures": [
+    {
+      "audit": {
+        "audited_rows": 1995,
+        "boost_base_rows": 14,
+        "calls": 1995,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 8,
+        "python_calls": 0,
+        "replayed_rows": 1995,
+        "rows": 1995,
+        "tail_release_rows": 0,
+        "tie_overrides": 7,
+        "tie_rows": 1869,
+        "v5_changes": 8,
+        "v7_changes": 0,
+        "world_contested_food_envs": 0,
+        "world_opponent_deaths": 0,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 0,
+        "world_ticks": 499
+      },
+      "body": "short",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 499,
+        "decisions": 100,
+        "executed_row_steps": 499,
+        "export_bytes": 178946,
+        "invalid_reason": null,
+        "mixes": {
+          "frozen": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 499,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 100,
+          "search_row_steps": 0,
+          "shadow_row_steps": 399
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "b30d0184c272053c496298e2705e80886b9954e85a7493b73b82af3bba28a32c",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "140fbf678223532ea9a93b73d56164badaa25d51022c19d5e450f19734ba4f4c"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "short-frozen-qties",
+      "frames": 100,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.07808158302213997,
+          "export_s": 0.008990375004941598,
+          "root_policy_s": 0.11541583508369513,
+          "root_step_s": 0.3792543689487502,
+          "shadow_s": 1.9419332139077596
+        },
+        "stock": {
+          "build_s": 0.07752416699077003,
+          "export_s": 0.008621041983133182,
+          "root_policy_s": 0.10908887206460349,
+          "root_step_s": 0.36755416908999905,
+          "shadow_s": 2.04958258595434
+        }
+      },
+      "identical": true,
+      "mix": "frozen",
+      "ms_per_row_step": {
+        "native": 5.11474031466246,
+        "stock": 5.290919088211213
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 14,
+        "calls": 1995,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 8,
+        "python_calls": 0,
+        "replayed_rows": 1995,
+        "rows": 1995,
+        "tail_release_rows": 0,
+        "tie_overrides": 7,
+        "tie_rows": 1869,
+        "v5_changes": 8,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          2.541208000000001
+        ],
+        "stock": [
+          2.628202
+        ]
+      },
+      "q_ties": true,
+      "row_steps": 499,
+      "speedup_min_wall": 1.0344453017572954,
+      "wall_seconds": {
+        "native": [
+          2.5522554170165677
+        ],
+        "stock": [
+          2.6401686250173952
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 1197,
+        "boost_base_rows": 0,
+        "calls": 1197,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1197,
+        "rows": 1197,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 1197,
+        "v5_changes": 0,
+        "v7_changes": 0,
+        "world_contested_food_envs": 0,
+        "world_opponent_deaths": 1,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 0,
+        "world_ticks": 499
+      },
+      "body": "short",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 499,
+        "decisions": 100,
+        "executed_row_steps": 499,
+        "export_bytes": 178810,
+        "invalid_reason": null,
+        "mixes": {
+          "mixed": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 499,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 100,
+          "search_row_steps": 0,
+          "shadow_row_steps": 399
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "06b6a1b81eac93324632ffc1dd37786228a10048e1d00e3c82a7d90582eb2bb8",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "7b1c01a7c8fff6df93abec03ede78d84b20c94276385b2970e438085986805cb"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "short-mixed-qties",
+      "frames": 100,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.054290333995595574,
+          "export_s": 0.008831416023895144,
+          "root_policy_s": 0.11445779114728794,
+          "root_step_s": 0.32620696022058837,
+          "shadow_s": 1.8890426169673447
+        },
+        "stock": {
+          "build_s": 0.05893724999623373,
+          "export_s": 0.009650708001572639,
+          "root_policy_s": 0.11600062102661468,
+          "root_step_s": 0.31381571892416105,
+          "shadow_s": 1.8937460340675898
+        }
+      },
+      "identical": true,
+      "mix": "mixed",
+      "ms_per_row_step": {
+        "native": 4.855104709426239,
+        "stock": 4.854312791574918
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 0,
+        "calls": 1197,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1197,
+        "rows": 1197,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 1197,
+        "v5_changes": 0,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          2.408334
+        ],
+        "stock": [
+          2.406276
+        ]
+      },
+      "q_ties": true,
+      "row_steps": 499,
+      "speedup_min_wall": 0.9998368896452874,
+      "wall_seconds": {
+        "native": [
+          2.4226972500036936
+        ],
+        "stock": [
+          2.422302082995884
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 1995,
+        "boost_base_rows": 98,
+        "calls": 1995,
+        "fallback_rows": 0,
+        "head_changes": 2,
+        "long_rows": 1000,
+        "no_spacious": 8,
+        "overrides": 7,
+        "python_calls": 0,
+        "replayed_rows": 1995,
+        "rows": 1995,
+        "tail_release_rows": 0,
+        "tie_overrides": 6,
+        "tie_rows": 1523,
+        "v5_changes": 5,
+        "v7_changes": 0,
+        "world_contested_food_envs": 0,
+        "world_opponent_deaths": 1,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 499,
+        "world_ticks": 499
+      },
+      "body": "xlong",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 499,
+        "decisions": 100,
+        "executed_row_steps": 499,
+        "export_bytes": 179150,
+        "invalid_reason": null,
+        "mixes": {
+          "frozen": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 499,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 100,
+          "search_row_steps": 0,
+          "shadow_row_steps": 399
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "27d4f690731ccbd356f1ecdfb9ec8b2d2274781990b0b1eda66ceb37244bfe94",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "f83ae57565210febae8155d3af2523967d85ff1d7d55c7bdf90ec7668eb2c6d2"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "xlong-frozen-qties",
+      "frames": 100,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.08237954098149203,
+          "export_s": 0.010463624988915399,
+          "root_policy_s": 0.1357443848683033,
+          "root_step_s": 1.4745775878545828,
+          "shadow_s": 2.5251584170327988
+        },
+        "stock": {
+          "build_s": 0.07885512500070035,
+          "export_s": 0.010164749983232468,
+          "root_policy_s": 0.13741879610461183,
+          "root_step_s": 1.5447364930878393,
+          "shadow_s": 6.692726119916188
+        }
+      },
+      "identical": true,
+      "mix": "frozen",
+      "ms_per_row_step": {
+        "native": 8.5385058436567,
+        "stock": 17.02662274548933
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 98,
+        "calls": 1995,
+        "fallback_rows": 0,
+        "head_changes": 2,
+        "long_rows": 1000,
+        "no_spacious": 8,
+        "overrides": 7,
+        "python_calls": 0,
+        "replayed_rows": 1995,
+        "rows": 1995,
+        "tail_release_rows": 0,
+        "tie_overrides": 6,
+        "tie_rows": 1523,
+        "v5_changes": 5,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          4.233070000000001
+        ],
+        "stock": [
+          8.450346
+        ]
+      },
+      "q_ties": true,
+      "row_steps": 499,
+      "speedup_min_wall": 1.9940986230206184,
+      "wall_seconds": {
+        "native": [
+          4.260714415984694
+        ],
+        "stock": [
+          8.496284749999177
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 1197,
+        "boost_base_rows": 9,
+        "calls": 1197,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 798,
+        "no_spacious": 0,
+        "overrides": 13,
+        "python_calls": 0,
+        "replayed_rows": 1197,
+        "rows": 1197,
+        "tail_release_rows": 3,
+        "tie_overrides": 13,
+        "tie_rows": 1173,
+        "v5_changes": 10,
+        "v7_changes": 3,
+        "world_contested_food_envs": 0,
+        "world_opponent_deaths": 6,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 499,
+        "world_ticks": 499
+      },
+      "body": "xlong",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 499,
+        "decisions": 100,
+        "executed_row_steps": 499,
+        "export_bytes": 179254,
+        "invalid_reason": null,
+        "mixes": {
+          "mixed": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 499,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 100,
+          "search_row_steps": 0,
+          "shadow_row_steps": 399
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "4298dbc8507f5dfb5dec447e1d5a34df101dfa0e4224cfa39c4af882c10c0772",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "01a3a947313b3f2077628c6e8c9de56c3b08d7b48947d9131e8b0ce7fdbcb388"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "xlong-mixed-qties",
+      "frames": 100,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.06013024999992922,
+          "export_s": 0.010616750019835308,
+          "root_policy_s": 0.12639846507227048,
+          "root_step_s": 0.973081753909355,
+          "shadow_s": 2.3840712458768394
+        },
+        "stock": {
+          "build_s": 0.057905833004042506,
+          "export_s": 0.009563667001202703,
+          "root_policy_s": 0.13165728916646913,
+          "root_step_s": 1.0417618727660738,
+          "shadow_s": 4.5526800381194334
+        }
+      },
+      "identical": true,
+      "mix": "mixed",
+      "ms_per_row_step": {
+        "native": 7.179905144338644,
+        "stock": 11.671423011987596
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 9,
+        "calls": 1197,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 798,
+        "no_spacious": 0,
+        "overrides": 13,
+        "python_calls": 0,
+        "replayed_rows": 1197,
+        "rows": 1197,
+        "tail_release_rows": 3,
+        "tie_overrides": 13,
+        "tie_rows": 1173,
+        "v5_changes": 10,
+        "v7_changes": 3
+      },
+      "process_cpu_seconds": {
+        "native": [
+          3.562781000000001
+        ],
+        "stock": [
+          5.752194000000003
+        ]
+      },
+      "q_ties": true,
+      "row_steps": 499,
+      "speedup_min_wall": 1.6255678560308717,
+      "wall_seconds": {
+        "native": [
+          3.582772667024983
+        ],
+        "stock": [
+          5.82404008298181
+        ]
+      }
+    }
+  ],
+  "pooled_speedup": 1.5121025584216672,
+  "provenance": {
+    "argv": [
+      "/Users/josenunez/Projects/ml/snake-dqn/.claude/worktrees/agent-aeace3a450c90f2a2/research/t34_speed_s2/identity.py",
+      "--checkpoint",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-a5-20261020/inputs/B8_s3_final.pth",
+      "--output-dir",
+      "/private/tmp/claude-501/-Users-josenunez-Projects-ml-snake-dqn/74a3b23b-bf7f-40f3-b57b-1db45b4d93fe/scratchpad/id4",
+      "--frames",
+      "100",
+      "--warmup-frames",
+      "5",
+      "--repeats",
+      "1",
+      "--audit",
+      "--q-ties",
+      "--mixes",
+      "frozen,mixed",
+      "--bodies",
+      "short,xlong"
+    ],
+    "authority": "excluded diagnostic (speed program S2); not A5/Round 0/gate evidence",
+    "load_average_end": [
+      12.04541015625,
+      12.248046875,
+      11.8583984375
+    ],
+    "load_average_start": [
+      12.04541015625,
+      12.248046875,
+      11.8583984375
+    ],
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]",
+    "source_revision": "743749776fccc8dcb924746533b0f94e8ddcb6de"
+  },
+  "recipe": {
+    "audit": true,
+    "device": "cpu",
+    "frames": 100,
+    "namespace": "t34-exit-cpu-profile-diagnostic/v1",
+    "native_mode": "non_root",
+    "q_ties": true,
+    "repeats": 1,
+    "threads": 1,
+    "warmup_frames": 5,
+    "warmup_seconds": 6.184408375003841
+  },
+  "schema": "t34-speed-s2-identity/v1",
+  "total_min_wall_seconds": {
+    "native": 12.818439750029938,
+    "stock": 19.382795540994266
+  },
+  "total_row_steps": 1996
+}
