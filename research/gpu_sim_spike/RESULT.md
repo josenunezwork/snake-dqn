@@ -3,7 +3,9 @@
 Excluded development evidence. No serving or registered verdict authority.
 Baseline and kill rule were frozen at `179d6044` before device code execution.
 
-Status: **PENDING L4/A100 OPERATOR RUNS — NOT DISPATCHED BY SOL**.
+Status: **E1 PENDING L4 OPERATOR RUN — NOT DISPATCHED BY SOL**.
+E1 rule additions frozen before E1 data at `896310e3` (KILL_RULE.md).
+The optional 5 u D8 probe cannot qualify the full D300 rule.
 The Mac preflight is a tiny syntax/shape/runtime check, not a GPU cost result.
 
 ## Frozen rule (verbatim)
@@ -20,7 +22,7 @@ Otherwise STOP: write `RESULT.md` with the numbers and the reason; no second att
 | Mac CPU reference | tiny preflight; see PREFLIGHT.md | | local / no Colab debit | | |
 | L4 CPU reference | 12 processes, S0, D300 | | | | |
 | L4 candidate | six S0 cases, D300 | | | | |
-| A100 candidate | six S0 cases, D300 | | measured provider rate | | |
+| Optional L4 probe | six S0 cases, D8; diagnostic only | | measured provider rate | | |
 
 Include account/provider rate, bootstrap, allocation, host construction/upload,
 Python dispatch, CPU label rescoring, readback, export and shutdown. Do not add
@@ -44,6 +46,30 @@ List every disagreement with decision, branch values, Q margins, first divergent
 state/event, classification and evidence. Counter RNG alone does not establish
 an RNG explanation: record matched-event replay evidence. Unknowns are bugs.
 Every generated label must retain its independent CPU rescoring result.
+
+## E1 full-world throughput and decisive audit
+
+**<20,000 full world-steps/s on L4 => STOP engine thesis this week.** Apply to
+each long-body mix. Record synchronized rollout and pipeline rates from the
+benchmark, six branch worlds × depth, all six snakes and real opponents.
+Disclose scheduled dead/illegal lanes. Warmup excluded only from rollout rate;
+bootstrap/export/allocation costs come from supervisor receipts.
+
+| Long mix | Full world-steps | Rollout seconds | Full world-steps/s | Pipeline rate | Floor status |
+| --- | --- | --- | --- | --- | --- |
+| scripted | | | | | |
+| frozen | | | | | |
+| mixed | | | | | |
+
+| CPU-defined stratum | Roots | Agreement | Branch mass MAE | Tie | RNG | Unexplained |
+| --- | --- | --- | --- | --- | --- | --- |
+| Decisive (best survival > bare-greedy survival) | | | | | | |
+| Other | | | | | | |
+
+Zero decisive roots is NO_COVERAGE. Include every mismatch's root and evidence.
+No threshold replaces the original ≥99% overall rule; audit does not confer
+registered verdict or release authority. `BASELINE.json` retains historical
+A100 wording; E1's owner brief authorizes an L4 spike + optional L4 probe only.
 
 ## Port boundary and decision
 
