@@ -407,6 +407,9 @@ runs on branch `t34-retention-bare-unpaced-20261020`, in the authoring checkout 
 7. Land on main in **one push**, only after the receipt PASS, together with the supersession notes. Until that push,
    the 97232d51 design remains the runnable fallback.
 
+**Landed 2026-10-20 ~20:05 PT:** `SOURCE_COMMIT=81c54731a06f5a630bc1b95edca876832906a812`, `FROZEN=/Users/josenunez/Projects/ml/snake-dqn-retention-v2-frozen-02`, `AUTHOR_ROOT=/Users/josenunez/Projects/ml/snake-dqn-retention-v2-author`,
+`E=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-retention-v2-operator-02`, `TRACE=$E/trace-receipt.json`.
+
 Retired at landing: the worktrees `snake-dqn-retention-fixes6` and `snake-dqn-retention-trace-97232d51-20261020`.
 Dispatch the Colab unpaced arm only from the new source commit.
 
