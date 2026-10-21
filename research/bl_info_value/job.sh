@@ -7,6 +7,7 @@ if [[ -n "${COLAB_CLI_ROOT:-}" ]]; then
   exec python -m research.bl_info_value.run run \
     --archive "${COLAB_INPUT_DIR:?}/inputs.tar.gz" \
     --archive-sha256 "${E3_INPUT_SHA256:?}" \
+    --checkpoint-archive "${COLAB_INPUT_DIR:?}/checkpoints.tar.gz" \
     --work "${COLAB_CLI_ROOT}/e3-work" \
     --out "${COLAB_CLI_ROOT}/output/e3" \
     --workers "${E3_WORKERS:-6}" --device cuda --epochs 60
@@ -14,6 +15,7 @@ else
   [[ "${E3_SMOKE:-}" == 1 ]] || { echo 'Mac entrypoint is smoke-only' >&2; exit 2; }
   exec python -m research.bl_info_value.run run \
     --archive "${E3_ARCHIVE:?}" --archive-sha256 "${E3_INPUT_SHA256:?}" \
+    --checkpoint-archive "${E3_CHECKPOINT_ARCHIVE:?}" \
     --work "${E3_WORK:?}" --out "${E3_OUT:?}" \
     --workers 1 --device cpu --epochs "${E3_SMOKE_EPOCHS:-2}" --smoke --check-parallel
 fi

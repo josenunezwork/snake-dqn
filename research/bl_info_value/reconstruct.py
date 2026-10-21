@@ -95,6 +95,15 @@ def _exact(name: str, expected: np.ndarray, actual: np.ndarray, decision: int) -
 def _check_row(
     row: dict[str, np.ndarray], obs: dict[str, np.ndarray], action: int, decision: int, frame: int
 ) -> None:
+    if "obs_hashes" in row:
+        from research.bl_info_value.compact import array_binding
+
+        for field in _OBS_FIELDS:
+            if array_binding(np.asarray(obs[field][0])) != row["obs_hashes"].get(field):
+                raise ReconstructionError(f"saved {field} identity mismatch at decision {decision}")
+        if int(row["action"]) != action or int(row["frame"]) != frame:
+            raise ReconstructionError(f"saved action/frame mismatch at decision {decision}")
+        return
     for field in _OBS_FIELDS:
         if field not in row:
             raise ReconstructionError(f"source row lacks {field}")
@@ -136,7 +145,7 @@ def reconstruct_world(task: dict[str, Any]) -> tuple[dict[str, np.ndarray], dict
     """
     from research.t3_rollout_labels_20261015.bank_engine import build_world, choose_and_step
 
-    required = {"arm", "plan", "checkpoint", "source_npz", "indices", "depth", "split", "world"}
+    required = {"arm", "plan", "checkpoint", "indices", "depth", "split", "world"}
     missing = sorted(required.difference(task))
     if missing:
         raise ValueError(f"reconstruction task lacks {missing}")
@@ -146,26 +155,29 @@ def reconstruct_world(task: dict[str, Any]) -> tuple[dict[str, np.ndarray], dict
     indices = [int(value) for value in task["indices"]]
     if len(indices) != len(set(indices)):
         raise ValueError("source indices must be unique")
-    source_path = Path(task["source_npz"])
-    expected_source_sha = task.get("source_sha256")
-    if expected_source_sha is not None and sha256(source_path) != str(expected_source_sha):
-        raise ReconstructionError("source_npz SHA-256 differs from the task binding")
     expected_count = task.get("selected_indices_count", len(indices))
     if int(expected_count) != len(indices):
         raise ReconstructionError("selected source-index count differs from task binding")
-    with np.load(source_path, allow_pickle=False) as source:
-        need = {"decision", "action", *_OBS_FIELDS}
-        absent = need.difference(source.files)
-        if absent:
-            raise ReconstructionError(f"source shard lacks {sorted(absent)}")
-        if any(index < 0 or index >= len(source["decision"]) for index in indices):
-            raise IndexError("source row index outside shard")
-        rows = {
-            int(source["decision"][index]): {
-                name: np.array(source[name][index], copy=True) for name in source.files
+    if "row_bindings" in task:
+        rows = {int(row["decision"]): row for row in task["row_bindings"]}
+    else:
+        source_path = Path(task["source_npz"])
+        expected_source_sha = task.get("source_sha256")
+        if expected_source_sha is not None and sha256(source_path) != str(expected_source_sha):
+            raise ReconstructionError("source_npz SHA-256 differs from the task binding")
+        with np.load(source_path, allow_pickle=False) as source:
+            need = {"decision", "action", *_OBS_FIELDS}
+            absent = need.difference(source.files)
+            if absent:
+                raise ReconstructionError(f"source shard lacks {sorted(absent)}")
+            if any(index < 0 or index >= len(source["decision"]) for index in indices):
+                raise IndexError("source row index outside shard")
+            rows = {
+                int(source["decision"][index]): {
+                    name: np.array(source[name][index], copy=True) for name in source.files
+                }
+                for index in indices
             }
-            for index in indices
-        }
     if len(rows) != len(indices):
         raise ReconstructionError("selected source rows share a decision")
 

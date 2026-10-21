@@ -6,12 +6,15 @@ import argparse
 import json
 import math
 import subprocess
+import tarfile
 from pathlib import Path
 from typing import Any
 
 from research.bl_info_value.io import sha256, verify_export, write_json
 from research.colab_cli.source import prepare
 from research.colab_cli.supervisor import validate
+
+MAX_LOCAL_INPUT_BYTES = 1024**2
 
 
 def forecast(timing: dict[str, Any], workers: int = 6) -> dict[str, Any]:
@@ -72,6 +75,9 @@ def build(
     destination: Path,
     *,
     assignments: dict[str, float] | None = None,
+    checkpoint_url: str,
+    prior_units: float = 0.2,
+    attempt: str = "02",
 ) -> dict[str, Any]:
     """Bind a published source commit, verified inputs, forecast and fresh output."""
     if destination.exists():
@@ -79,17 +85,29 @@ def build(
     verify_export(inputs)
     verify_export(timing_path)
     timing = json.loads(timing_path.read_text())
+    with tarfile.open(inputs, "r:gz") as archive:
+        catalog = json.load(archive.extractfile("catalog.json"))
+    if catalog["schema"] != "bl-e3-input/v2" or inputs.stat().st_size > MAX_LOCAL_INPUT_BYTES:
+        raise ValueError("compact v2 catalog upload must be at most 1 MiB")
+    if catalog["smoke"]:
+        raise ValueError("production manifest requires the full frozen root catalog")
+    if not math.isfinite(prior_units) or prior_units < 0:
+        raise ValueError("failed-attempt charge must be finite and nonnegative")
+    if not attempt.isdigit() or int(attempt) < 2:
+        raise ValueError("recovery requires a fresh attempt identifier >= 02")
     if not timing["smoke"] or timing["parity_seconds"] <= 0:
         raise ValueError("real Mac preflight with serial/parallel proof required")
     plan = forecast(timing)
+    plan.update(prior_attempt_units=prior_units, usable_hours=(12.8 - prior_units) / 2)
+    plan["dispatch_within_forecast"] = plan["total_hours"] <= plan["usable_hours"]
     estimate = 60 * plan["total_hours"]
     timeout = max(3, math.ceil(2 * estimate))
-    if timeout > 384:
+    if timeout / 60 * 2 > 12.8 - prior_units:
         # Keep the full design and rule; never forge a lower estimate to fit cap.
         destination.mkdir(parents=True)
         write_json(
             destination / "DISPATCH_BLOCKED.json",
-            plan | dict(reason="2x estimate exceeds 12.8u usable session envelope"),
+            plan | dict(reason="2x estimate exceeds remaining usable session envelope"),
         )
         return {"blocked": True, "forecast": plan}
     repo = Path(__file__).resolve().parents[2]
@@ -116,7 +134,7 @@ def build(
 
     qualification = require_qualified_transport(repo, commit)
     manifest = dict(
-        job_id="bl-e3-info-value-01",
+        job_id=f"bl-e3-info-value-{attempt}",
         commit=commit,
         script="research/bl_info_value/job.sh",
         source_paths=sorted(set(source_paths)),
@@ -128,10 +146,13 @@ def build(
         requirements=dict(gpu="L4", allowed_gpus=["L4"], min_vcpu=6, est_minutes=estimate),
         timeout_minutes=timeout,
         lease_seconds=300,
-        output_dir=str(destination.parent / "colab-output-01"),
-        inputs=[dict(path=str(inputs.resolve()), dest="inputs.tar.gz", sha256=sha256(inputs))],
+        output_dir=str(destination.parent / f"colab-output-{attempt}"),
+        inputs=[
+            dict(path=str(inputs.resolve()), dest="inputs.tar.gz", sha256=sha256(inputs)),
+            dict(url=checkpoint_url, dest="checkpoints.tar.gz", **catalog["checkpoint_archive"]),
+        ],
         budget=dict(
-            unit_cap=12.8,
+            unit_cap=12.8 - prior_units,
             rate_units_per_hour=2,
             reserve_units=3.2,
             other_assignments=assignments or {},
@@ -152,6 +173,10 @@ def build(
             forecast_within_usable_budget=plan["dispatch_within_forecast"],
             input_sha256=sha256(inputs),
             timing_sha256=sha256(timing_path),
+            local_input_bytes=inputs.stat().st_size,
+            local_input_limit_bytes=MAX_LOCAL_INPUT_BYTES,
+            checkpoint_archive=catalog["checkpoint_archive"],
+            prior_attempt_units=prior_units,
             transport_qualification=qualification,
         ),
     )
@@ -163,12 +188,28 @@ def main() -> None:
     parser.add_argument("--inputs", type=Path, required=True)
     parser.add_argument("--timing", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--checkpoint-url", required=True)
+    parser.add_argument("--prior-units", type=float, default=0.2)
+    parser.add_argument("--attempt", default="02")
     parser.add_argument(
         "--assignments", type=Path, help="Operator-reviewed endpoint-to-positive-rate JSON"
     )
     args = parser.parse_args()
     assignments = json.loads(args.assignments.read_text()) if args.assignments else None
-    print(json.dumps(build(args.inputs, args.timing, args.out, assignments=assignments), indent=2))
+    print(
+        json.dumps(
+            build(
+                args.inputs,
+                args.timing,
+                args.out,
+                assignments=assignments,
+                checkpoint_url=args.checkpoint_url,
+                prior_units=args.prior_units,
+                attempt=args.attempt,
+            ),
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
