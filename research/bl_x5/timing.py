@@ -85,6 +85,23 @@ def host() -> dict[str, Any]:
         reasons.append("AC_required")
     if '"AppleClamshellState" = No' not in lid:
         reasons.append("lid_open_required")
+    processes = command(["ps", "-axo", "pid,ppid,pcpu,comm"])
+    foreign = []
+    owned_parents = {os.getpid(), os.getppid()}
+    for line in processes.splitlines()[1:]:
+        parts = line.split(None, 3)
+        if len(parts) != 4:
+            continue
+        pid, ppid, cpu, executable = parts
+        if (
+            Path(executable).name.lower().startswith("python")
+            and int(pid) not in owned_parents
+            and int(ppid) not in owned_parents
+            and float(cpu) >= 25
+        ):
+            foreign.append(line.strip())
+    if foreign:
+        reasons.append("foreign_python_cpu_lane")
     return {
         "time_pt": now(),
         "loadavg": os.getloadavg(),
@@ -95,7 +112,8 @@ def host() -> dict[str, Any]:
         "reasons": reasons,
         "nice": os.getpriority(os.PRIO_PROCESS, 0),
         "top": command(["top", "-l", "1", "-n", "0"]),
-        "processes": command(["ps", "-axo", "pid,ppid,pcpu,comm"]),
+        "processes": processes,
+        "foreign_python_cpu_lanes": foreign,
     }
 
 
@@ -165,7 +183,7 @@ def audit_worlds(worlds: list[int], root: Path) -> dict[str, Any]:
     }
 
 
-def prepare(root: Path) -> None:
+def prepare(root: Path, allocation_key: str = "attempt-01") -> None:
     from research.apex_safety_20260926 import dev_screen as ds
     from research.redesign_scope_20261007 import grid_h5000_identity as gid
     from src.evaluation.strict_promotion import _expected_world_identity
@@ -181,7 +199,7 @@ def prepare(root: Path) -> None:
     if idle["reasons"]:
         raise ValueError(idle["reasons"])
     seal(root / "x5-idle.json", idle)
-    worlds = ds.screen_seeds(48, "bl-x5-development-timing/20261021/v1", "attempt-01")
+    worlds = ds.screen_seeds(48, "bl-x5-development-timing/20261021/v1", allocation_key)
     audit = audit_worlds(worlds, root)
     seal(root / "x5-seed-audit.json", audit)
     if not audit["pass"]:
@@ -225,6 +243,7 @@ def prepare(root: Path) -> None:
                 )
             },
             "banks": banks,
+            "allocation_key": allocation_key,
             "rows": rows,
             "checkpoints": checkpoints,
             "horizon": 5000,
@@ -603,6 +622,7 @@ def main() -> int:
     parser.add_argument("action", choices=("check", "prepare", "run", "worker"))
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--mix", choices=MIXES)
+    parser.add_argument("--allocation-key", default="attempt-01")
     args = parser.parse_args()
     for name in THREADS:
         os.environ[name] = "1"
@@ -623,7 +643,7 @@ def main() -> int:
         )
         return 0
     if args.action == "prepare":
-        prepare(args.root)
+        prepare(args.root, args.allocation_key)
         return 0
     if args.action == "worker":
         return worker(args.root, args.mix)

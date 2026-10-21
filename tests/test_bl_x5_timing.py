@@ -83,3 +83,23 @@ def test_partial_launch_drains_before_releasing_slots(tmp_path, monkeypatch):
         timing.run(tmp_path)
     assert events == ["launch", "wait", "release"]
     assert timing.read_sealed(tmp_path / "x5-coordinator-error.json")["status"] == "INCOMPLETE"
+
+
+def test_foreign_cpu_lane_blocks_host_admission(monkeypatch):
+    def command(argv):
+        if argv == ["pmset", "-g", "batt"]:
+            return "AC Power"
+        if argv[0] == "ioreg":
+            return '"AppleClamshellState" = No'
+        if argv == ["pmset", "-g", "therm"]:
+            return (
+                "Note: No thermal warning level has been recorded\n"
+                "Note: No performance warning level has been recorded\n"
+                "Note: No CPU power status has been recorded"
+            )
+        if argv[0] == "ps":
+            return "PID PPID %CPU COMM\n999999 999998 100.0 /bin/Python"
+        return "nominal"
+
+    monkeypatch.setattr(timing, "command", command)
+    assert timing.host()["reasons"] == ["foreign_python_cpu_lane"]
