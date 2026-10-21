@@ -36,36 +36,58 @@ def _tensor_sha(values: dict[str, torch.Tensor]) -> str:
 
 
 def resume_proof(path: Path, bank: dict[str, Any]) -> dict[str, Any]:
-    """Two fresh deserializations yield identical next collection AND optimizer state."""
+    """Compare a live, never-restored world/optimizer with a serialized restore."""
     verify_export(path)
+    weights = torch.load(path, map_location="cpu", weights_only=False)
+    # Start a fresh natural world, not an already restored collector. Weight
+    # loading merely supplies a portable trained actor for this tiny proof.
+    policy = E16Policy.from_portable_state(weights["policy"])
+    trainer = E16Trainer(policy, critic_refit_transitions=1, history_qualified=policy.use_history)
+    collectors = {
+        phase: NaturalLifeCollector(bank, phase) for phase in ("critic", "actor", "preflight")
+    }
+    torch.manual_seed(16931)
+    prepare, _, _ = collect_natural_batch(
+        policy, bank, phase="preflight", cursor=0, steps=1, collector=collectors["preflight"]
+    )
+    prepare.critic_targets = prepare.rewards.clone()
+    trainer.trainer_step(prepare)
+    trainer.mark_e12_passed()
+    warmup, _, _ = collect_natural_batch(
+        policy, bank, phase="preflight", cursor=0, steps=2, collector=collectors["preflight"]
+    )
+    trainer.trainer_step(warmup)
+    boundary = _snapshot(policy, trainer, {"cursor": 0}, {"smoke_only": True}, collectors)
+    wire = io.BytesIO()
+    torch.save(boundary, wire)
+    frozen_wire = wire.getvalue()
     results = []
-    frozen_wire = None
+    diagnostics = []
     for attempt in range(2):
-        payload = torch.load(
-            path if attempt == 0 else io.BytesIO(frozen_wire),
-            map_location="cpu",
-            weights_only=False,
-        )
-        policy = E16Policy.from_portable_state(payload["policy"])
-        trainer = E16Trainer(
-            policy, critic_refit_transitions=1, history_qualified=policy.use_history
-        )
-        collectors = {phase: NaturalLifeCollector(bank, phase) for phase in payload["collector"]}
-        counters = restore_snapshot(policy, trainer, collectors, payload)
-        if attempt == 0:
-            boundary = _snapshot(policy, trainer, counters, payload["identity"], collectors)
-            wire = io.BytesIO()
-            torch.save(boundary, wire)
-            frozen_wire = wire.getvalue()
+        if attempt == 1:
+            restored = torch.load(io.BytesIO(frozen_wire), map_location="cpu", weights_only=False)
+            policy = E16Policy.from_portable_state(restored["policy"])
+            trainer = E16Trainer(
+                policy, critic_refit_transitions=1, history_qualified=policy.use_history
+            )
+            collectors = {
+                phase: NaturalLifeCollector(bank, phase) for phase in restored["collector"]
+            }
+            restore_snapshot(policy, trainer, collectors, restored)
         batch, _, _ = collect_natural_batch(
             policy, bank, phase="preflight", cursor=0, steps=3, collector=collectors["preflight"]
         )
         before = _tensor_sha(
             {key: value for key, value in vars(batch).items() if isinstance(value, torch.Tensor)}
         )
+        diagnostics.append(
+            {
+                key: _tensor_sha({key: value})
+                for key, value in vars(batch).items()
+                if isinstance(value, torch.Tensor)
+            }
+        )
         trainer.trainer_step(batch)
-        after = _tensor_sha(policy.state_dict())
-        # Include all Adam moment tensors, not only final actor weights.
         optimizer_tensors = {}
         for label, optimizer in (
             ("actor", trainer.actor_optimizer),
@@ -75,13 +97,15 @@ def resume_proof(path: Path, bank: dict[str, Any]) -> dict[str, Any]:
                 for name, value in state.items():
                     if isinstance(value, torch.Tensor):
                         optimizer_tensors[f"{label}/{parameter}/{name}"] = value
-        results.append((before, after, _tensor_sha(optimizer_tensors)))
+        results.append((before, _tensor_sha(policy.state_dict()), _tensor_sha(optimizer_tensors)))
     if results[0] != results[1]:
-        raise RuntimeError("on-platform exact next-collection/update resume failed")
+        differences = [key for key in diagnostics[0] if diagnostics[0][key] != diagnostics[1][key]]
+        raise RuntimeError(f"resume differs in {differences}; {results}")
     return {
         "status": "PASS",
-        "comparison": "uninterrupted boundary vs serialized restore",
+        "comparison": "never-restored live world vs serialized restore",
         "next_transitions": 3,
+        "warmup_transitions": 3,
         "batch_sha256": results[0][0],
         "updated_policy_sha256": results[0][1],
         "optimizer_sha256": results[0][2],
