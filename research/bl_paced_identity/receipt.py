@@ -12,6 +12,7 @@ import platform
 from pathlib import Path
 from typing import Any
 
+from .clock_seam import clock_seam_passed
 from .events import CandidateIdentity, EventValidationError, sha256
 from .record import export_json
 
@@ -274,6 +275,7 @@ def evidence_ready(
     journal_seals: list[dict[str, Any]],
     e13_receipts: dict[str, str] | None,
     planner_over_net: bool,
+    clock_seam: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return every admission defect; missing evidence is INCOMPLETE, never a pass."""
     problems: list[str] = []
@@ -283,6 +285,8 @@ def evidence_ready(
         candidate_sha = None
         problems.append("candidate_identity_invalid")
     source = _hash_map(source_hashes, "source_hashes", problems)
+    if source is None or not clock_seam_passed(clock_seam, sha256(source)):
+        problems.append("clock_seam_not_verified")
     inputs = _hash_map(input_hashes, "input_hashes", problems)
     reference = _hash_map(reference_hashes, "reference_hashes", problems)
     if (
@@ -376,6 +380,7 @@ def make_receipt(
     forecast: dict[str, Any],
     e13_receipts: dict[str, str] | None = None,
     planner_over_net: bool = False,
+    clock_seam: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Join three frozen oracle receipts without granting release authority."""
     oracles = {"semantic": semantic, "replay": replay, "paced": paced}
@@ -403,6 +408,7 @@ def make_receipt(
         journal_seals=journal_seals,
         e13_receipts=e13_receipts,
         planner_over_net=planner_over_net,
+        clock_seam=clock_seam,
     )
     invalid = (
         first is not None
@@ -423,6 +429,7 @@ def make_receipt(
         "reference_binding_sha256": readiness["reference_binding_sha256"],
         "evidence_problems": readiness["problems"],
         "oracles": oracles,
+        "clock_seam": clock_seam,
         "oracle_event_counts": {
             name: {
                 "expected": value.get("expected_event_count"),

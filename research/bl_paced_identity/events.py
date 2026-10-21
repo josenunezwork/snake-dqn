@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -72,7 +73,8 @@ class Request:
     root_digest: str
     request_id: str
     payload_sha: str
-    cutoff_ns: int
+    publish_cutoff_ns: int
+    consume_cutoff_ns: int
 
     def __post_init__(self) -> None:
         _required_string(self.session, "session")
@@ -86,7 +88,10 @@ class Request:
         _sha(self.root_digest, "root_digest")
         _required_string(self.request_id, "request_id")
         _sha(self.payload_sha, "payload_sha")
-        _nonnegative(self.cutoff_ns, "cutoff_ns")
+        _nonnegative(self.publish_cutoff_ns, "publish_cutoff_ns")
+        _nonnegative(self.consume_cutoff_ns, "consume_cutoff_ns")
+        if self.publish_cutoff_ns >= self.consume_cutoff_ns:
+            raise EventValidationError("publication cutoff must precede consumption cutoff")
 
     def as_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -141,20 +146,55 @@ class CandidateIdentity:
     def as_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
-    def authorized(self, *, owner_multi_worker: bool = False) -> bool:
-        """Return whether the frozen envelope is currently permitted to run.
+    def authorized(
+        self,
+        *,
+        owner_multi_worker: bool = False,
+        mode: str = "serving",
+        probe_authorization_file: str | Path | None = None,
+        device: str = "cpu",
+    ) -> bool:
+        """Keep serving authority separate from file-bound L1-prime probes.
 
-        Build and fixture configurations may describe the full W<=4/K<=8 envelope.
-        Runtime admission remains fail-closed at W=1/K=1 until the owner explicitly
-        authorizes the multi-worker envelope.
+        The owner flag represents only the owner's serving clause. It cannot
+        authorize an expanded measurement probe or an MPS backend. Probe files
+        grant measurement scope only and never broaden serving admission.
         """
         if type(owner_multi_worker) is not bool:
             raise EventValidationError("owner_multi_worker must be an explicit boolean")
-        return owner_multi_worker is True or (self.workers == 1 and self.max_pending == 1)
+        if mode not in {"serving", "probe"}:
+            raise EventValidationError("mode must be serving or probe")
+        if device not in {"cpu", "mps"}:
+            raise EventValidationError("device must be cpu or mps")
+        baseline = self.workers == 1 and self.max_pending == 1
+        if mode == "serving":
+            return device == "cpu" and (owner_multi_worker or baseline)
+        if probe_authorization_file is None:
+            return baseline and device == "cpu"
+        from .authorization import load_probe_authorization
 
-    def require_authorized(self, *, owner_multi_worker: bool = False) -> None:
-        if not self.authorized(owner_multi_worker=owner_multi_worker):
-            raise EventValidationError("multi-worker envelope requires owner authorization")
+        authorization = load_probe_authorization(probe_authorization_file)
+        return authorization.permits(self.workers, self.max_pending, device)
+
+    def require_authorized(
+        self,
+        *,
+        owner_multi_worker: bool = False,
+        mode: str = "serving",
+        probe_authorization_file: str | Path | None = None,
+        device: str = "cpu",
+    ) -> None:
+        """Refuse an envelope without its distinct serving or probe authority."""
+        if not self.authorized(
+            owner_multi_worker=owner_multi_worker,
+            mode=mode,
+            probe_authorization_file=probe_authorization_file,
+            device=device,
+        ):
+            raise EventValidationError(
+                "envelope requires owner serving authorization or explicit L1_PRIME "
+                "PROBE_ONLY authorization; MPS is probe-only"
+            )
 
 
 @dataclass(frozen=True)
