@@ -1,5 +1,211 @@
 # Research record index
 
+Start with [../STATUS.md](../STATUS.md) for the current program state. This page has two parts:
+
+1. **Navigation and loose-file catalog** (added 2026-10-20). It lists every file directly in
+   `docs/research/` on `main`, grouped by campaign and date, with one row per file.
+2. **Chronological record** (kept from the earlier index). It includes branch-only reports and
+   results recorded outside this directory.
+
+## Where to look
+
+| What | Where |
+|---|---|
+| **Current campaign (T34, search teacher)** | [final_run_20261019/](final_run_20261019/) (`HANDOFF_2026-10-20.md`, `CAMPAIGN_LOG.md`, `SUCCESS_CONTRACT.md`, `FINAL_PLAN.md`, `P7_STATISTICS.md`) |
+| Specs and pre-registrations | [specs/INDEX.md](specs/INDEX.md) |
+| Advisor and panel advice | [advice/INDEX.md](advice/INDEX.md) |
+| Research code packages (`research/`) | [../../research/INDEX.md](../../research/INDEX.md) |
+| Ops inventories (artifacts, worktrees, Colab units) | [ops/](ops/) |
+| Terms and definitions | [GLOSSARY.md](GLOSSARY.md) (as recorded through 2026-10-08) |
+| Evidence subfolders | [panel_2026-10-15/](panel_2026-10-15/), [m3c_m3d_evidence/](m3c_m3d_evidence/), [t3_diagnostics_2026-10-16_evidence/](t3_diagnostics_2026-10-16_evidence/), [t4a_posthoc_2026-10-16_evidence/](t4a_posthoc_2026-10-16_evidence/), [t5_separability_2026-10-16_evidence/](t5_separability_2026-10-16_evidence/), [t5b_risk_and_fuse_2026-10-16_evidence/](t5b_risk_and_fuse_2026-10-16_evidence/), [t8_probes_2026-10-17_evidence/](t8_probes_2026-10-17_evidence/), [t10_certificate_horizon_2026-10-17_evidence/](t10_certificate_horizon_2026-10-17_evidence/), [colab_cli_receipts/](colab_cli_receipts/), [colab_cli_ref/](colab_cli_ref/) |
+
+## Loose-file catalog
+
+**Type** is one of these: result, prereg (pre-registration or design frozen before data), decision,
+plan, diagnostic, tooling, policy, receipt (machine JSON) or reference. **Status** quotes or
+condenses the file's own label. "Unclear" means the file does not state one. A development
+screen or diagnostic is never promotion evidence.
+
+### Task-aligned 6102 bridge and challenger (2026-09-24 to 09-26)
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| 2026-09-24 | [task_aligned_bridge_preflight_replacement_decision_2026-09-24.md](task_aligned_bridge_preflight_replacement_decision_2026-09-24.md) | decision | Request for one replacement attempt after a preflight-only failure | Proposal only |
+| 2026-09-24 | [task_aligned_bridge_saved_prefix_decision_2026-09-24.md](task_aligned_bridge_saved_prefix_decision_2026-09-24.md) | decision | Keep the failed capture prefix and qualify only the work not yet run | Proposal only |
+| 2026-09-24 | [task_aligned_challenger_design_draft_2026-09-24.md](task_aligned_challenger_design_draft_2026-09-24.md) | plan | Draft of a bounded challenge of the original 6102 against Apex | DRAFT, not frozen or admitted |
+| 2026-09-24 | [task_aligned_challenger_serving_plan_2026-09-24.md](task_aligned_challenger_serving_plan_2026-09-24.md) | plan | Possible serving bridge and strict challenge for candidate 6102 | PLAN ONLY, not admitted |
+| 2026-09-24 | [task_aligned_challenger_qualification_preparation_2026-09-24.json](task_aligned_challenger_qualification_preparation_2026-09-24.json) | receipt | Source preparation for challenger qualification | Source implemented and reviewed, not admitted |
+| 2026-09-24 | [task_aligned_serving_bridge_preparation_2026-09-24.json](task_aligned_serving_bridge_preparation_2026-09-24.json) | receipt | Source preparation for the serving bridge | Source implemented, not numerically qualified |
+| 2026-09-25 | [task_aligned_bridge_heartbeat_recovery_decision_2026-09-25.md](task_aligned_bridge_heartbeat_recovery_decision_2026-09-25.md) | decision | One last bridge qualification attempt after the heartbeat defect | Reviewed plan, awaiting decision, not admitted |
+| 2026-09-26 | [task_aligned_strict_challenge_preregistration_2026-09-26.md](task_aligned_strict_challenge_preregistration_2026-09-26.md) | prereg | Strict challenge of 6102 against Apex, with a feasibility check | DRAFT, not admitted, authorized or run |
+
+### Governance and policy (2026-09-26 to 10-08)
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| 2026-09-26 | [governance_tiers_2026-09-26.md](governance_tiers_2026-09-26.md) | policy | Tiers: development, Tier-1 screen, Tier-2 strict gate, serving qualification | Policy draft (governing framework) |
+| 2026-10-02 | [compute_policy_2026-10-02.md](compute_policy_2026-10-02.md) | policy | CPU slots, AC/lid and thermal guard for research runs | Opt-in tooling landed; 3 slots not default |
+| 2026-10-02 | [governance_amendment_sequential_gates_2026-10-02.md](governance_amendment_sequential_gates_2026-10-02.md) | policy | Group-sequential Tier-2 strict gates | Header says proposed; earlier index records it as ratified |
+| 2026-10-03 | [governance_amendment_paired_bands_2026-10-03.md](governance_amendment_paired_bands_2026-10-03.md) | policy | Paired survival bands for strict gates | Header says proposed; earlier index records it as ratified |
+| 2026-10-05 | [governance_amendment_strict_on_runpod_2026-10-05.md](governance_amendment_strict_on_runpod_2026-10-05.md) | policy | Strict gates on RunPod serverless | NOT RATIFIED; superseded (see the status note) |
+| 2026-10-06 | [governance_amendment_survival_band_v2_2026-10-06.md](governance_amendment_survival_band_v2_2026-10-06.md) | policy | Survival band v2: pooled paired NI plus a per-mix catastrophic floor | Ratified 2026-10-06 (option 1) |
+| 2026-10-07 | [governance_amendment_sequential_phase_r_2026-10-07.md](governance_amendment_sequential_phase_r_2026-10-07.md) | policy | Sequential Phase R for Tier-1 screens | RATIFIED 2026-10-08 |
+| 2026-10-08 | [governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md](governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md) | decision | Erratum to the LH-1 header (the amendment itself is branch-only) | Erratum |
+| 2026-10-08 | [governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md](governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md) | decision | Status note for the RunPod strict-gate amendment | Not ratified |
+
+### Portfolio review and vector61 (2026-09-26)
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| 2026-09-26 | [experiment_portfolio_review_2026-09-26.md](experiment_portfolio_review_2026-09-26.md) | result | Review of 192 experiments from Sep 6 to 26 | Review; Apex/vector61 stayed incumbent |
+| 2026-09-26 | [simd_vector61_plan_2026-09-26.md](simd_vector61_plan_2026-09-26.md) | plan | Batched vector61 featurizer status and plan | 48/48 records identical; SIMD path opt-in |
+
+### Apex veto era: trap horizon, death censuses, feasibility (2026-10-01 to 10-03)
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| 2026-10-01 | [trap_horizon_2026-10-01.md](trap_horizon_2026-10-01.md) | result | Point of no return before Apex self-collision deaths | Diagnostic result |
+| 2026-10-02 | [death_census_v5_2026-10-02.md](death_census_v5_2026-10-02.md) | result | What kills the champion under the released v5 veto | Census with a ranked recommendation |
+| 2026-10-03 | [death_census_v8_2026-10-03.md](death_census_v8_2026-10-03.md) | result | What still kills or limits the champion under v8 | Census; opponent-closed enclosures remain |
+| 2026-10-03 | [runpod_x86_consistency_2026-10-03.md](runpod_x86_consistency_2026-10-03.md) | result | Mac versus RunPod x86 consistency | 28/28 episodes bit-identical (per the earlier index) |
+| 2026-10-03 | [serving_time_search_feasibility_2026-10-03.md](serving_time_search_feasibility_2026-10-03.md) | plan | Serving-time lookahead search on the v8 hero | Feasibility study |
+
+### FRP-v3 strict gate and release (2026-10-06)
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| 2026-10-06 | [frp3_strict_result_2026-10-06.md](frp3_strict_result_2026-10-06.md) | result | FRP-v3 s12 M3@60000 + v8 strict gate | `STRICT_PASS` at look 2 |
+| 2026-10-06 | [frp3_serving_result_and_release_2026-10-06.md](frp3_serving_result_and_release_2026-10-06.md) | decision | Checkpoint swap, serving qualification and release | `SERVING_PASS`; released |
+
+### Perf-sim and redesign, M3 to M4 (2026-10-07 to 10-13)
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| 2026-10-07 | [perf_plan_2026-10-07.md](perf_plan_2026-10-07.md) | plan | CPU throughput plan for perf-sim | Plan with a measured speed-up |
+| 2026-10-07 | [redesign_scope_2026-10-07.md](redesign_scope_2026-10-07.md) | plan | Vectorized simulator and ego-raster policy scope | Approved by the owner, code-only scoping |
+| 2026-10-07 | [sequential_phase_r_design_2026-10-07.md](sequential_phase_r_design_2026-10-07.md) | prereg | Design for sequential Phase R in Tier-1 screens | Design (the amendment was ratified 2026-10-08) |
+| 2026-10-08 | [m3c_design_2026-10-08.md](m3c_design_2026-10-08.md) | prereg | M3-C metric-aligned RL fine-tune of the ego2s-b student | Design |
+| 2026-10-12 | [m3c_m3d_learnings_2026-10-12.md](m3c_m3d_learnings_2026-10-12.md) | result | M3-C result and M3-D diagnostic lessons | M3-C failed; M3-D negative or inconclusive |
+| 2026-10-12 | [m4a_design_2026-10-12.md](m4a_design_2026-10-12.md) | prereg | M4-A: fix the M3-C setup so the student needs no veto | Design |
+| 2026-10-13 | [m4_phase_r_result_2026-10-13.md](m4_phase_r_result_2026-10-13.md) | result | B8 without a veto against frp3-s12 + v8 | `PARTIAL` |
+
+### B8 scripted-survival gap: M6 and panel (2026-10-14)
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| 2026-10-14 | [m6_result_2026-10-14.md](m6_result_2026-10-14.md) | result | Reward levers (tightness cost, length-scaled death) | NULL, not adopted |
+| 2026-10-14 | [panel_mac_answers_2026-10-14.md](panel_mac_answers_2026-10-14.md) | result | Mac read-only check of the panel memo's claims | Verification |
+| 2026-10-14 | [panel_review_summary_2026-10-14.md](panel_review_summary_2026-10-14.md) | decision | One-page summary of the two-expert panel; full text in [panel_2026-10-15/](panel_2026-10-15/) | Summary |
+
+### T-series results (2026-10-15 to 10-17)
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| 2026-10-15 | [t1_commitment_study_2026-10-15.md](t1_commitment_study_2026-10-15.md) | result | T1-A exact-replay commitment and contrast study | Diagnostic |
+| 2026-10-15 | [t1_fuse_probe_2026-10-15.md](t1_fuse_probe_2026-10-15.md) | result | T1-C B8 fuse representation probe | Diagnostic; "value learning is the limit" |
+| 2026-10-15 | [t2_screen_status_2026-10-15.md](t2_screen_status_2026-10-15.md) | result | T2 Huber delta × anchor screen | INCOMPLETE (HUBER_s12 action collapse) |
+| 2026-10-15 | [t2b_delta_sweep_2026-10-15.md](t2b_delta_sweep_2026-10-15.md) | result | T2b Huber-delta sweep (10 and 30) | Development screen; not adopted (per the earlier index) |
+| 2026-10-15 | [t3_label_bank_2026-10-15.md](t3_label_bank_2026-10-15.md) | tooling | T3 rollout label bank | Development data |
+| 2026-10-15 | [t3_ceiling_test_2026-10-15.md](t3_ceiling_test_2026-10-15.md) | result | T3 rollout-label ceiling test | NO_GO |
+| 2026-10-15 | [t3_screen_result_2026-10-15.md](t3_screen_result_2026-10-15.md) | result | T3 development screen (LABELS / KEEPV8 / KEEPV8_LO) | No GO (per the earlier index) |
+| 2026-10-15 | [t4_pod_plan_2026-10-15.md](t4_pod_plan_2026-10-15.md) | plan | T4 pod plan, dry run | Dry-run PASS; 4× speed-up not shown; no launch |
+| 2026-10-15 | [t4_pod_plan_dry_run_2026-10-15.json](t4_pod_plan_dry_run_2026-10-15.json) | receipt | Dry-run inputs for the T4 pod plan | Unclear (no status field) |
+| 2026-10-15 | [t4_prep_tooling_2026-10-15.md](t4_prep_tooling_2026-10-15.md) | tooling | T4 preparation tools and measurements | Tooling only |
+| 2026-10-15 | [t4_prep_results_2026-10-15.json](t4_prep_results_2026-10-15.json) | receipt | T4 prep artifacts and smoke results | Unclear (no status field) |
+| 2026-10-15 | [t4_update_every_and_curve_2026-10-15.md](t4_update_every_and_curve_2026-10-15.md) | result | T4 update cadence and checkpoint curve | Diagnostic; does not change T3 |
+| 2026-10-16 | [t3_diagnostics_2026-10-16.md](t3_diagnostics_2026-10-16.md) | result | T3 label-arm diagnostics | Diagnostic |
+| 2026-10-16 | [t4a_implementation_2026-10-16.md](t4a_implementation_2026-10-16.md) | tooling | T4a two-sided bank implementation | Implementation |
+| 2026-10-16 | [t4a_counter_matching_2026-10-16.json](t4a_counter_matching_2026-10-16.json) | receipt | T4a counter balance and seed namespace | Unclear (no status field) |
+| 2026-10-16 | [t4a_cpu_smoke_2026-10-16.json](t4a_cpu_smoke_2026-10-16.json) | receipt | T4a real-bank CPU smoke | Unclear (no status field) |
+| 2026-10-16 | [t4a_default_trace_2026-10-16.json](t4a_default_trace_2026-10-16.json) | receipt | T4a default-path trace | Has a `result` object; no top-level status |
+| 2026-10-16 | [t4a_probe_launch_2026-10-16.json](t4a_probe_launch_2026-10-16.json) | receipt | T4a probe launch inputs | Unclear (no status field) |
+| 2026-10-16 | [t4a_screen_result_2026-10-16.md](t4a_screen_result_2026-10-16.md) | result | T4a TWO_SIDED development screen | KILL (per the earlier index) |
+| 2026-10-16 | [t4a_posthoc_diagnostics_2026-10-16.md](t4a_posthoc_diagnostics_2026-10-16.md) | result | T4a spillover and growth after the fact | Diagnostic |
+| 2026-10-16 | [t4c_data_2026-10-16.md](t4c_data_2026-10-16.md) | tooling | T4c immutable label data | Data preparation |
+| 2026-10-16 | [t4c_data_audit_2026-10-16.json](t4c_data_audit_2026-10-16.json) | receipt | T4c independent data audit | pass = true |
+| 2026-10-16 | [t4c_implementation_2026-10-16.md](t4c_implementation_2026-10-16.md) | tooling | T4c TWO_SIDED_T implementation and validation | Prepared; no training |
+| 2026-10-16 | [t4c_cpu_smoke_2026-10-16.json](t4c_cpu_smoke_2026-10-16.json) | receipt | T4c real-bank CPU smoke | Unclear (no status field) |
+| 2026-10-16 | [t4c_default_trace_2026-10-16.json](t4c_default_trace_2026-10-16.json) | receipt | T4c default-path trace | pass = true |
+| 2026-10-16 | [t4c_default_trace_final_2026-10-16.json](t4c_default_trace_final_2026-10-16.json) | receipt | T4c default-path trace, final | pass = true |
+| 2026-10-16 | [t4c_default_trace_strict_shards_2026-10-16.json](t4c_default_trace_strict_shards_2026-10-16.json) | receipt | T4c default-path trace, strict shards | pass = true |
+| 2026-10-16 | [t4c_drift_diagnostic_2026-10-16.md](t4c_drift_diagnostic_2026-10-16.md) | result | T4c same-init drift | Diagnostic |
+| 2026-10-16 | [t4c_screen_result_2026-10-16.md](t4c_screen_result_2026-10-16.md) | result | T4c tightened two-sided screen | KILL |
+| 2026-10-16 | [t4_return_regression_tooling_2026-10-16.md](t4_return_regression_tooling_2026-10-16.md) | tooling | T4d return-regression build and CPU check | Tooling only |
+| 2026-10-16 | [t4d_build_validation_2026-10-16.json](t4d_build_validation_2026-10-16.json) | receipt | T4d build validation | Unclear (no status field) |
+| 2026-10-16 | [t4_snapshot_restart_tooling_2026-10-16.md](t4_snapshot_restart_tooling_2026-10-16.md) | tooling | T4b snapshot-restart curriculum build | Build only |
+| 2026-10-16 | [t4_snapshot_restart_validation_2026-10-16.json](t4_snapshot_restart_validation_2026-10-16.json) | receipt | T4b build validation | PASS |
+| 2026-10-16 | [t4e_default_trace_2026-10-16.json](t4e_default_trace_2026-10-16.json) | receipt | T4e default-path trace | pass = true |
+| 2026-10-16 | [t4e_precollection_validation_2026-10-16.json](t4e_precollection_validation_2026-10-16.json) | receipt | T4e validation before collection | Unclear (no status field) |
+| 2026-10-16 | [t4e_collection_preflight_repair_2026-10-16.json](t4e_collection_preflight_repair_2026-10-16.json) | receipt | T4e collection preflight repair | 12 tests passed |
+| 2026-10-16 | [t4e_collection_result_2026-10-16.md](t4e_collection_result_2026-10-16.md) | result | T4e return bank and prepared launch | Bank complete and validated |
+| 2026-10-16 | [t4e_prepared_validation_2026-10-16.json](t4e_prepared_validation_2026-10-16.json) | receipt | T4e return-arm prepared validation | PASS_PREPARED_NOT_STARTED |
+| 2026-10-16 | [t4e_calibration_default_trace_2026-10-16.json](t4e_calibration_default_trace_2026-10-16.json) | receipt | T4e calibration default-path trace | pass = true |
+| 2026-10-16 | [t4e_calibration_result_2026-10-16.json](t4e_calibration_result_2026-10-16.json) | receipt | T4e calibration (chosen weight) | Unclear (no status field) |
+| 2026-10-16 | [t4e_calibration_seed_audit_2026-10-16.json](t4e_calibration_seed_audit_2026-10-16.json) | receipt | T4e calibration seed audit | PASS |
+| 2026-10-16 | [t4e_calibration_validation_2026-10-16.json](t4e_calibration_validation_2026-10-16.json) | receipt | T4e calibration launch checks | Unclear (no status field) |
+| 2026-10-16 | [t4e_bugcheck_2026-10-16.md](t4e_bugcheck_2026-10-16.md) | result | RETURN boost-drift bug check | Preference exists in decisive states only |
+| 2026-10-16 | [t4e_bugcheck_result_2026-10-16.json](t4e_bugcheck_result_2026-10-16.json) | receipt | Machine verdicts for the bug check | Has a `verdicts` object |
+| 2026-10-16 | [t4f_preparation_result_2026-10-16.md](t4f_preparation_result_2026-10-16.md) | result | T4f RETURN_C preparation | A, B, C complete; 8M runs not started |
+| 2026-10-16 | [t4f_calibration_2026-10-16.json](t4f_calibration_2026-10-16.json) | receipt | T4f contrast calibration summary | Unclear (no status field) |
+| 2026-10-16 | [t4f_calibration_clarification_2026-10-16.json](t4f_calibration_clarification_2026-10-16.json) | receipt | T4f calibration clarification | Documentary clarification, no reselection |
+| 2026-10-16 | [t4f_seed_audit_2026-10-16.json](t4f_seed_audit_2026-10-16.json) | receipt | T4f seed-bank audit (filtered) | PASS |
+| 2026-10-16 | [t4f_seed_audit_unfiltered_2026-10-16.json](t4f_seed_audit_unfiltered_2026-10-16.json) | receipt | T4f seed-bank audit (unfiltered) | FAIL (the filtered version is PASS) |
+| 2026-10-16 | [t4f_addendum2_result_2026-10-16.md](t4f_addendum2_result_2026-10-16.md) | result | RETURN_C addendum 2: corrected boost macro and recalibration | Complete; no 8M training started |
+| 2026-10-16 | [t4f_addendum2_result_2026-10-16.json](t4f_addendum2_result_2026-10-16.json) | receipt | Machine record for addendum 2 | Unclear (no status field) |
+| 2026-10-16 | [t4f_calibration_addendum2_2026-10-16.json](t4f_calibration_addendum2_2026-10-16.json) | receipt | Addendum 2 calibration summary | Unclear (no status field) |
+| 2026-10-16 | [t4f_seed_audit_addendum2_2026-10-16.json](t4f_seed_audit_addendum2_2026-10-16.json) | receipt | Addendum 2 seed audit (filtered) | PASS |
+| 2026-10-16 | [t4f_seed_audit_addendum2_unfiltered_2026-10-16.json](t4f_seed_audit_addendum2_unfiltered_2026-10-16.json) | receipt | Addendum 2 seed audit (unfiltered) | FAIL (the filtered version is PASS) |
+| 2026-10-16 | [t5_separability_2026-10-16.md](t5_separability_2026-10-16.md) | result | T5 input-feature separability | FAIL |
+| 2026-10-16 | [t5b_risk_and_fuse_2026-10-16.md](t5b_risk_and_fuse_2026-10-16.md) | result | T5b B8 survival risk and fuse-layer separability | Modeled guard-failure risk 38.81% |
+| 2026-10-16 | [t6_preparation_2026-10-16.md](t6_preparation_2026-10-16.md) | tooling | T6 RESTART preparation | Prepared; smoke passed |
+| 2026-10-16 | [t6_seed_audit_2026-10-16.json](t6_seed_audit_2026-10-16.json) | receipt | T6 restart seed-bank audit | PASS |
+| 2026-10-16 | [t6_smoke_validation_2026-10-16.json](t6_smoke_validation_2026-10-16.json) | receipt | T6 restart smoke | pass = true |
+| 2026-10-16 | [t7_phase_r_result_2026-10-16.md](t7_phase_r_result_2026-10-16.md) | result | T7 B8 fresh-bank Phase R | STRICT_PASS |
+| 2026-10-17 | [t6_screen_result_2026-10-17.md](t6_screen_result_2026-10-17.md) | result | T6 RESTART screen | KILL |
+| 2026-10-17 | [t8_probes_2026-10-17.md](t8_probes_2026-10-17.md) | result | T8 raw-raster and arrival-race probes | Diagnostic |
+| 2026-10-17 | [t9_divergence_2026-10-17.md](t9_divergence_2026-10-17.md) | result | T9 fatal versus surviving divergence after the LAD | Diagnostic; no clean early separator |
+| 2026-10-17 | [t10_certificate_horizon_2026-10-17.md](t10_certificate_horizon_2026-10-17.md) | result | T10 certificate audit and horizon-stratified AUC | Diagnostic |
+| 2026-10-17 | [t11_implementation_2026-10-17.md](t11_implementation_2026-10-17.md) | tooling | T11 LOCAL30 implementation and MPS smoke | Prepared; 8M not started |
+| 2026-10-17 | [t11_screen_result_2026-10-17.md](t11_screen_result_2026-10-17.md) | result | T11 LOCAL30 screen | KILL before gameplay evaluation |
+
+### B8 seed 3 release, Watch roster and closure (2026-10-17)
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| 2026-10-17 | [t12_b8_serving_qualification_2026-10-17.md](t12_b8_serving_qualification_2026-10-17.md) | result | B8 s3 extended Mac serving qualification | `SERVING_FAIL` / HOLD, not a release record |
+| 2026-10-17 | [b8_s3_release_2026-10-17.md](b8_s3_release_2026-10-17.md) | decision | Web serving release of B8 seed 3 without a veto | RELEASE |
+| 2026-10-17 | [b8_s3_monitoring_erratum_2026-10-17.md](b8_s3_monitoring_erratum_2026-10-17.md) | decision | Erratum to the release monitoring threshold | Erratum; serving defaults unchanged |
+| 2026-10-17 | [t13_product_roster_2026-10-17.md](t13_product_roster_2026-10-17.md) | result | All-B8 versus FRP3 Watch roster, measured | Descriptive, not a gate |
+| 2026-10-17 | [t13b_six_snake_roster_2026-10-17.md](t13b_six_snake_roster_2026-10-17.md) | prereg | Six-snake roster decision rule | Rule fixed before data |
+| 2026-10-17 | [t13b_six_snake_roster_2026-10-17_results.md](t13b_six_snake_roster_2026-10-17_results.md) | result | Six-snake roster results | `PLAN_MIXED_PENDING_ROSTER_QUALIFICATION` |
+| 2026-10-17 | [t14_ci_validation_2026-10-17.md](t14_ci_validation_2026-10-17.md) | result | CI closure validation | CI maintenance only |
+| 2026-10-17 | [t15_mixed_roster_qualification_2026-10-17.md](t15_mixed_roster_qualification_2026-10-17.md) | result | Mixed Watch roster qualification | SERVING_PASS, all six checks |
+| 2026-10-17 | [b8_s3_release_erratum_mixed_watch_2026-10-17.md](b8_s3_release_erratum_mixed_watch_2026-10-17.md) | decision | Mixed Watch roster as the default | RELEASE, approved by the owner |
+| 2026-10-17 | [redesign_campaign_retrospective_2026-10-17.md](redesign_campaign_retrospective_2026-10-17.md) | result | Retrospective of the redesign campaign | Goal met (B8 s3 released) |
+
+### Colab compute and Q0 (2026-10-17 to 10-18)
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| 2026-10-17 | [t16_colab_smoke_2026-10-17.md](t16_colab_smoke_2026-10-17.md) | plan | T16 Colab CUDA throughput smoke runbook for the owner | Bounded smoke only |
+| 2026-10-17 | [t16_mac_baseline_2026-10-17.md](t16_mac_baseline_2026-10-17.md) | result | Mac baseline for the Colab throughput comparison | Throughput only |
+| 2026-10-17 | [t16_colab_smoke02_results_2026-10-17.md](t16_colab_smoke02_results_2026-10-17.md) | result | Colab smoke-02 results and diagnosis | Throughput only |
+| 2026-10-18 | [colab_agent_access_2026-10-18.md](colab_agent_access_2026-10-18.md) | reference | How coding agents can use Colab compute units | Research note |
+| 2026-10-18 | [overnight_2026-10-18.md](overnight_2026-10-18.md) | result | What ran overnight and what waits for the owner | Log; lists the owner decisions needed |
+| 2026-10-18 | [q0_mass_mac_timing_20261018.json](q0_mass_mac_timing_20261018.json) | receipt | Q0 local timing on the Mac | bank_audit_pass = true |
+| 2026-10-18 | [q0_mass_worker_parity_20261018.json](q0_mass_worker_parity_20261018.json) | receipt | Q0 worker parity | PASS |
+
+### Reference
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| through 2026-10-08 | [GLOSSARY.md](GLOSSARY.md) | reference | Research glossary | Not updated after 2026-10-08 |
+| 2026-10-20 | [INDEX.md](INDEX.md) | reference | This index | Current |
+
+---
+
+# Chronological record (kept from the earlier index)
+
 This is the chronological map of the Snake DQN study and decision record. For
 the current program state, start with [../STATUS.md](../STATUS.md); this index
 preserves the result or decision recorded at the time, including proposals that
