@@ -27,6 +27,7 @@ import torch
 from torch.distributions import Categorical
 
 from research.bl_e16 import bank
+from research.bl_e16.admission import ALLOCATION_HOUR_CAP
 from research.bl_e16.model import E16Policy
 from research.bl_e16.spool import StreamingLife
 from research.bl_e16.training import E16Batch, E16Trainer, E16TripwireError
@@ -702,7 +703,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         now = time.monotonic()
         elapsed = counters["allocation_seconds"] + now - started
         if not smoke and elapsed >= min(
-            10 * 3600, plan["_reservations"][args.arm]["timeout_minutes"] * 60
+            ALLOCATION_HOUR_CAP * 3600, plan["_reservations"][args.arm]["timeout_minutes"] * 60
         ):
             raise AdmissionRequired("first total wall/unit cap reached")
         if now - reported >= 120:
