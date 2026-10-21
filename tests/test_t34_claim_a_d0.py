@@ -137,6 +137,25 @@ def test_d0_rule_refuses_an_incomplete_report() -> None:
         D.decide(report)
 
 
+def test_d0_rule_handles_empty_training_metrics_without_relaxing_guards() -> None:
+    report = _report()
+    for cell in report["cells"]:
+        for point in cell["folds"][0]["curve"]:
+            point["train_decisive"] = {"n": 0}
+            point["heldout_anchor"] = {"n": 0}
+        if cell["cell"]["rule"] == "streams":
+            assert D.train_agreement(cell, 512) == pytest.approx(0.95)
+            assert not D.guards_hold(cell, 512)
+            assert D.dose_for(cell) is None
+    decision = D.decide(report)
+    assert decision["decision"] == "KILL" and "guards" in decision["reason"]
+    cell = report["cells"][1]
+    for fold in cell["folds"]:
+        for point in fold["curve"]:
+            point["train_decisive"] = {"n": 0}
+    assert D.train_agreement(cell, 512) == 0.0
+
+
 # ---------------------------------------------------------------------------
 # input tarball
 # ---------------------------------------------------------------------------
@@ -178,10 +197,10 @@ def test_inputs_pack_is_deterministic_and_unpack_verifies(tmp_path: Path) -> Non
 # ---------------------------------------------------------------------------
 # runner wiring on a tiny cache (residual trunk, CPU)
 # ---------------------------------------------------------------------------
-def _write_cache(tmp_path: Path) -> Path:
+def _write_cache(tmp_path: Path, bank: H.Bank | None = None) -> Path:
     from tests.test_t34_claim_a_loss import tiny_bank
 
-    bank = tiny_bank()
+    bank = tiny_bank() if bank is None else bank
     cache = tmp_path / "cache"
     cache.mkdir()
     receipts = []
@@ -205,6 +224,44 @@ def _write_cache(tmp_path: Path) -> Path:
     return cache
 
 
+def test_run_report_pools_sparse_folds_and_preserves_absent_metrics(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from tests.test_t34_claim_a_loss import tiny_bank
+
+    bank = tiny_bank(worlds=4)
+    # Both retained worlds have decisive rows; the third held-out fold is empty.
+    rows = bank.world < 2
+    bank = H.Bank(
+        bank.world_ids[:2], bank.world[rows], {k: v[rows] for k, v in bank.arrays.items()}
+    )
+    cache = _write_cache(tmp_path, bank)
+    ckpt = tmp_path / "b8.pth"
+    ckpt.write_bytes(b"residual-does-not-load-this")
+    tiny = H.Cell("tiny", "split", "residual", n_dec=4, n_anchor=12, checkpoints=(0, 1))
+    monkeypatch.setitem(H.DEFAULT_CELLS, "tiny", tiny)
+    report = H.run_report(
+        cache, ckpt, tmp_path / "report.json", cells=["tiny"], free_q=[], folds_k=3, threads=1
+    )
+    cell = report["cells"][0]
+    empty = cell["folds"][2]
+    assert empty["heldout_worlds"] == []
+    assert empty["curve"][0]["heldout_anchor"] == {"n": 0}
+    assert cell["pooled"][0]["heldout_anchor_agree"] == 1.0
+    assert cell["pooled"][0]["heldout_anchor_max_decile_disagree"] == 0.0
+    assert cell["pooled"][0]["heldout_boost_ratio_max"] == 1.0
+    assert not D.guards_hold(cell, 1)
+
+    # All-empty support stays absent, rather than manufacturing perfect agreement.
+    result = H.FoldResult(0, 0, 0, 0, curve=[empty["curve"][0]])
+    pooled = H.pooled(bank, [(result, {0: np.zeros((0, 6), np.float32)})], np.zeros(10))[0]
+    assert pooled["heldout_decisive"] == {"n": 0}
+    assert pooled["heldout_anchor_agree"] is None
+    assert pooled["heldout_anchor_max_decile_disagree"] is None
+    assert pooled["heldout_boost_ratio_max"] is None
+    json.dumps(report, allow_nan=False)
+
+
 def test_run_report_wires_cache_free_q_and_cells(tmp_path: Path, monkeypatch) -> None:
     cache = _write_cache(tmp_path)
     ckpt = tmp_path / "b8.pth"
@@ -222,6 +279,59 @@ def test_run_report_wires_cache_free_q_and_cells(tmp_path: Path, monkeypatch) ->
         D.decide(json.loads(out.read_text()))
     with pytest.raises(FileExistsError):
         H.run_report(cache, ckpt, out, cells=["tiny"], free_q=[], folds_k=2, threads=1)
+
+
+def test_d0_runner_writes_refusal_for_a_two_world_fixture(tmp_path: Path, monkeypatch) -> None:
+    from research.t34_claim_a_loss import run_d0 as runner
+    from tests.test_t34_claim_a_loss import tiny_bank
+
+    bank = tiny_bank(worlds=3)  # one decisive-bearing world, one anchor-only world
+    rows = bank.world < 2
+    bank = H.Bank(
+        bank.world_ids[:2], bank.world[rows], {k: v[rows] for k, v in bank.arrays.items()}
+    )
+    cache = _write_cache(tmp_path, bank)
+    ckpt = tmp_path / "b8.pth"
+    ckpt.write_bytes(b"preflight-never-fits")
+    monkeypatch.setattr(runner.inputs, "unpack", lambda *_: [Path("world0"), Path("world1")])
+
+    def build_cache(_roots, _ckpt, out, **_kwargs):
+        out.mkdir()
+        for source in cache.iterdir():
+            (out / source.name).write_bytes(source.read_bytes())
+        return {"accepted": 2, "rejected": [], "totals": {"rows": bank.n}}
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("unsupported folds must not run probes or fabricate cell updates")
+
+    monkeypatch.setattr(runner, "build_cache", build_cache)
+    monkeypatch.setattr(H, "run_cell", unexpected)
+    monkeypatch.setattr(H, "free_q_probe", unexpected)
+    out = tmp_path / "out"
+    timing = runner.run(
+        tarball=tmp_path / "tiny.tar.gz",
+        tarball_sha256="a" * 64,
+        checkpoint=ckpt,
+        work=tmp_path / "work",
+        out_dir=out,
+        workers=2,
+        device="cpu",
+        threads=1,
+        expect_worlds=2,
+    )
+    report = json.loads((out / "d0_report.json").read_text())
+    decision = json.loads((out / "D0_DECISION.json").read_text())
+    assert timing["status"] == "COMPLETE"
+    assert report["status"] == "PRECONDITION_FAILED"
+    assert report["unsupported_training_folds"] == [
+        {"fold": 0, "train_decisive": 0, "train_anchor": 0}
+    ]
+    assert report["cells_requested"] == list(H.D0_CELLS)
+    assert report["folds"] == H.D0_FOLDS
+    assert report["cells"] == report["free_q"] == []
+    assert decision["decision"] == "REFUSED"
+    assert decision["report_sha256"] == dinputs.sha256_file(out / "d0_report.json")
+    assert decision["registered_run"] is True
 
 
 # ---------------------------------------------------------------------------

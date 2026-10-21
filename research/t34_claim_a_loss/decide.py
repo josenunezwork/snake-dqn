@@ -66,6 +66,7 @@ def _curve(cell: Mapping[str, Any], updates: int) -> list[dict[str, Any]]:
 
 def train_agreement(cell: Mapping[str, Any], updates: int) -> float:
     points = [c["train_decisive"] for c in _curve(cell, updates)]
+    points = [p for p in points if p["n"] > 0]
     n = sum(p["n"] for p in points)
     return sum(p["flip"] * p["n"] for p in points) / n if n else 0.0
 

@@ -475,16 +475,22 @@ def pooled(bank: Bank, fold_results: list[tuple[FoldResult, dict[int, np.ndarray
             next(c for c in r.curve if c["updates"] == updates)["heldout_anchor"]
             for r, _ in fold_results
         ]
+        # Empty held-out folds carry only {"n": 0}, with no measured metrics.
+        anchors = [a for a in anchors if a["n"] > 0]
         n = sum(a["n"] for a in anchors)
         out.append(
             {
                 "updates": updates,
                 "heldout_decisive": decisive_metrics(q, bank, idx),
-                "heldout_anchor_agree": sum(a["agree"] * a["n"] for a in anchors) / n,
-                "heldout_anchor_max_decile_disagree": max(
-                    a["max_decile_disagree"] for a in anchors
+                "heldout_anchor_agree": (
+                    sum(a["agree"] * a["n"] for a in anchors) / n if n else None
                 ),
-                "heldout_boost_ratio_max": max((a["boost_ratio"] or 0.0) for a in anchors),
+                "heldout_anchor_max_decile_disagree": max(
+                    (a["max_decile_disagree"] for a in anchors), default=None
+                ),
+                "heldout_boost_ratio_max": max(
+                    ((a["boost_ratio"] or 0.0) for a in anchors), default=None
+                ),
                 "decisive_passes_mean": float(
                     np.mean(
                         [
@@ -631,6 +637,27 @@ def run_report(
         "free_q": [],
         "cells": [],
     }
+    if any(DEFAULT_CELLS[name].rule == "streams" for name in names):
+        unsupported = []
+        for fold in range(folds_k):
+            train = folds[bank.world] != fold
+            decisive = int((train & (bank["kind"] == KIND_DECISIVE)).sum())
+            anchors = int((train & (bank["kind"] == KIND_ANCHOR)).sum())
+            if not decisive or not anchors:
+                unsupported.append(
+                    {"fold": fold, "train_decisive": decisive, "train_anchor": anchors}
+                )
+        if unsupported:
+            # A tiny fixture can lack stream training support. Preserve the fixed
+            # folds and cells; an incomplete report makes the frozen rule refuse.
+            report["status"] = "PRECONDITION_FAILED"
+            report["reason"] = "training fold lacks decisive or anchor rows"
+            report["unsupported_training_folds"] = unsupported
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with out.open("x") as stream:
+                json.dump(report, stream, indent=1, sort_keys=True)
+                stream.write("\n")
+            return report
     for loss in free_q:
         started = time.perf_counter()
         report["free_q"].append(
