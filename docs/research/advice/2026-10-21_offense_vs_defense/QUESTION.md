@@ -1,4 +1,4 @@
-# Offense vs defense — owner question (2026-10-21 ~01:20 PT)
+# Offense vs defense — owner question (2026-10-20 ~22:05 PT)
 
 ## Owner's text (verbatim, pasted by the owner; it is a prior assistant answer the owner wants tested)
 > Probably not the best plan for a big jump. It's a reasonable plan for closing B8's remaining weakness, but that
