@@ -77,6 +77,7 @@ def dense_trace(
     device: str,
     on_progress: Any = None,
     min_length: int = MIN_LENGTH,
+    on_decision: Any = None,
 ) -> dict[str, Any]:
     """Execute the T3-dense controller for one terminal-hero episode, with labels."""
     teacher = ExitTeacher(
@@ -96,6 +97,8 @@ def dense_trace(
             break
         prepare_world(world)
         action, label = controller.decide(world, decision)
+        if on_decision is not None:
+            on_decision(decision, controller.last)
         actions.append(_step(world, teacher, action))
         if label is not None:
             labels.append(label)

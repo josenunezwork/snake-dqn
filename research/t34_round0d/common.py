@@ -48,6 +48,10 @@ ROUND0_RULES = (
     "research/t34_round0/ERRATUM_FIXES1.md",
     "research/t34_round0/ERRATUM_INTEGRITY_SIZING.md",
     "research/t34_round0/OC_ROUND0.json",
+    "research/t34_round0_amend/AMENDMENT_BOOST_FLOOR.json",
+    "docs/research/specs/2026-10-20_t34_round0_boost_floor_amendment.md",
+    "docs/research/advice/2026-10-20_colab_lanes/JUDGMENT.md",
+    "docs/research/advice/2026-10-20_colab_lanes/RULING_round0_go_file.md",
 )
 PACKAGE_RULES = (
     "research/t34_round0d/PREREGISTRATION_ROUND0D.md",

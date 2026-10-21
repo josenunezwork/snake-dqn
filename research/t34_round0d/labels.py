@@ -70,6 +70,22 @@ def iter_labels(inventory: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
             yield {"world_id": world["world_id"], **label}
 
 
+def measure_yield(inventory: list[dict[str, Any]]) -> dict[str, float]:
+    """Dense R1 yield inputs (after GO only): decisive rows/world, decisive-bearing fraction."""
+    from research.t34_exit_b8.exports import load_world
+
+    rows, bearing = 0, 0
+    for item in inventory:
+        world = load_world(item["absolute_path"])
+        decisive = sum(label.get("label_kind") == "decisive" for label in world["labels"])
+        rows += decisive
+        bearing += int(decisive > 0)
+    return {
+        "decisive_rows_per_world": rows / len(inventory),
+        "decisive_world_fraction": bearing / len(inventory),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ratification", type=Path, required=True)

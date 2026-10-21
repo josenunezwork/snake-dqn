@@ -5,7 +5,10 @@ create-only remote claim, fixed attempt paths, 48 h dispatch deadline, abort or
 unexplained interruption = KILL, first cap = INCONCLUSIVE, one outcome-independent
 mechanical rerun, no automatic retry. Generic settlement helpers are imported
 unchanged. Round 0-D additions: two concurrent lanes via an in-flight liveness
-lock, and the 48 u charged-unit study ceiling checked before every admission.
+lock (at most 2 in flight), and the registered 120 u study ceiling before every
+admission: chunks are admitted against ``chunk_admission_ceiling`` (120 u minus the
+reserved replay cap), the new chunk charged at its full unit cap, so 120 u is a hard
+total (a settled-charge breach seals INCONCLUSIVE).
 """
 
 from __future__ import annotations
@@ -34,10 +37,12 @@ from research.t34_round0d.history import (
     finalize,
     history_lock,
     in_flight,
+    in_flight_count,
     phase_name,
     policy,
     require_published_history,
     reserve,
+    seal_ceiling,
 )
 from research.t34_round0d.registration import (
     require_published_registration,
@@ -151,7 +156,11 @@ def prior_spend(registration: dict[str, Any]) -> list[dict[str, Any]]:
     charges = []
     for attempt in sorted((root / "chunks").glob("*/attempt-0[12]")):
         manifest_path = attempt / "dispatch_manifest.json"
-        cap = read_json(manifest_path)["budget"]["unit_cap"] if manifest_path.is_file() else 48.0
+        cap = (
+            read_json(manifest_path)["budget"]["unit_cap"]
+            if manifest_path.is_file()
+            else float(registration["sizing"]["study_unit_ceiling"])
+        )
         receipt_path = attempt / "job" / "receipt.json"
         elapsed = None
         if receipt_path.is_file() and not in_flight(attempt):
@@ -201,7 +210,10 @@ def dispatch(
 
     registration = read_json(registration_path)
     require_registration(
-        registration, PACKAGE / "BANK_ROUND0D.json", PACKAGE / "SEED_AUDIT_ROUND0D.json"
+        registration,
+        PACKAGE / "BANK_ROUND0D.json",
+        PACKAGE / "SEED_AUDIT_ROUND0D.json",
+        mac_side=True,
     )
     require_published_registration(registration, registration_path)
     if sha256(a5d_path) != registration["a5d"]["sha256"]:
@@ -230,19 +242,31 @@ def dispatch(
             raise HistoryError("unconditional controller fault closes this study with STOP")
         if (root / "replay").exists() or (root / "analysis").exists():
             raise HistoryError("no dispatch or mechanical rerun after a replay/outcome look")
+        sizing = registration["sizing"]
+        ceiling = float(sizing["chunk_admission_ceiling"])
+        live = in_flight_count(registration)
+        if live >= int(sizing["max_in_flight"]):
+            raise HistoryError(
+                f"{live} attempts already in flight; at most {sizing['max_in_flight']} lanes "
+                "(the third account assignment stays free for Path B); refused without a claim"
+            )
         spend = admission_spend(
             [
                 {"elapsed_seconds": c["elapsed_seconds"], "unit_cap": c["unit_cap"]}
                 for c in prior_spend(registration)
             ],
             size,
+            ceiling,
         )
         if not spend["allowed"]:
+            if live == 0 and spend["infeasible_on_settled_charges"]:
+                seal_ceiling(registration, spend)
+                raise HistoryError(
+                    "registered study ceiling reached on settled charges: sealed INCONCLUSIVE"
+                )
             raise HistoryError(
-                f"48 u charged-unit study ceiling would be crossed ({spend}); refused without "
-                "a claim. Wait for in-flight attempts to settle; if settled charges still "
-                "cross the ceiling the schedule cannot complete and the study settles "
-                "INCONCLUSIVE"
+                f"study ceiling would be crossed while attempts are in flight ({spend}); "
+                "refused without a claim; retry after they settle"
             )
         if mechanical_rerun:
             prior = read_json(attempt.with_name("attempt-01") / "phase_terminal.json")
