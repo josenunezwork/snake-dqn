@@ -1,7 +1,7 @@
 """L1 D0 driver: unpack excluded A5 exports -> diagnostic cache -> registered cells -> rule.
 
 One process, run by ``d0.sh`` on one L4 runtime (or locally on a tiny fixture).
-Phases, each timed into ``d0_timing.json`` (rewritten after every phase):
+Phases, each timed into ``work/d0_timing.json`` (rewritten after every phase):
 
 1. ``unpack``: verify the hash-bound tarball and every world digest (``inputs.unpack``);
 2. ``cache``: replay each world through the ratified A2 regenerator (checkpoint and
@@ -10,8 +10,9 @@ Phases, each timed into ``d0_timing.json`` (rewritten after every phase):
 3. ``report``: free-Q probes + the registered D0 cell set on world-level folds;
 4. ``decide``: the frozen D0 rule (``decide.py``) -> ``D0_DECISION.json``.
 
-Outputs land in ``--out-dir`` (exported); the cache stays in ``--work``.  Nothing
-here is evidence about a student, and no weights are written or exported.
+Final receipts land in ``--out-dir`` with immutable CLI export sidecars; progress
+and the cache stay in ``--work``. Nothing here is evidence about a student, and
+no weights are written or exported.
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ import os
 import time
 from pathlib import Path
 from typing import Any
+
+from research.t34_exit_b8.label import _write_once
 
 from . import inputs
 from .cache import build_cache
@@ -71,7 +74,9 @@ def run(
         "phases": {},
         "status": "RUNNING",
     }
-    timing_path = out_dir / "d0_timing.json"
+    # The runtime rejects any change to a discovered completed export. Keep
+    # progress private and publish the timing receipt only at the terminal state.
+    timing_path = work / "d0_timing.json"
 
     def phase(name: str, started: float, **extra: Any) -> None:
         timing["phases"][name] = {"seconds": round(time.perf_counter() - started, 3), **extra}
@@ -93,7 +98,10 @@ def run(
             workers=workers,
             expect_worlds=expect_worlds,
         )
-        (out_dir / "cache_manifest.json").write_text((work / "cache" / "manifest.json").read_text())
+        _write_once(
+            out_dir / "cache_manifest.json",
+            json.loads((work / "cache" / "manifest.json").read_text()),
+        )
         phase(
             "cache",
             started,
@@ -104,7 +112,6 @@ def run(
         if manifest["rejected"]:
             timing["status"] = "PRECONDITION_FAILED"
             timing["reason"] = "replay rejected worlds (hash or Q mismatch); see cache_manifest"
-            _write(timing_path, timing)
             return timing
 
         started = time.perf_counter()
@@ -112,7 +119,7 @@ def run(
         run_report(
             work / "cache",
             checkpoint,
-            report_path,
+            work / "d0_report.json",
             cells=cells,
             free_q=D0_FREE_Q,
             free_q_steps=free_q_steps,
@@ -120,6 +127,7 @@ def run(
             threads=threads,
             device=device,
         )
+        _write_once(report_path, json.loads((work / "d0_report.json").read_text()))
         phase("report", started)
 
         started = time.perf_counter()
@@ -130,17 +138,16 @@ def run(
             decision = {"decision": "REFUSED", "reason": str(exc)}
         decision["report_sha256"] = hashlib.sha256(raw).hexdigest()
         decision["registered_run"] = timing["registered"]
-        with (out_dir / "D0_DECISION.json").open("x") as stream:
-            json.dump(decision, stream, indent=2, sort_keys=True)
-            stream.write("\n")
+        _write_once(out_dir / "D0_DECISION.json", decision)
         phase("decide", started, decision=decision["decision"])
         timing["status"] = "COMPLETE"
     except BaseException as exc:  # record, then re-raise for the supervisor
         timing["status"] = "FAILED"
         timing["error"] = f"{type(exc).__name__}: {exc}"
-        _write(timing_path, timing)
         raise
-    _write(timing_path, timing)
+    finally:
+        _write(timing_path, timing)
+        _write_once(out_dir / "d0_timing.json", timing)
     return timing
 
 
