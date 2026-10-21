@@ -1,5 +1,6 @@
 {
   "a5d": {
+    "hold_resolution": "pre-registered Mac re-run (a5d.py resolve-hold)",
     "may_run_pre_verdict": true,
     "timeout_minutes": 300,
     "unit_cap": 10.0
@@ -25,7 +26,7 @@
     "A5-D receipt with fidelity PASS/EXPLAINED_TIE and a RATIFY table row",
     "operator activation JSON committed and pushed to main before first dispatch"
   ],
-  "built_from_commit": "bfe18981a7b56a2758cb28c9f9482320722f3251",
+  "built_from_commit": "6be381db7272878d3aed55c046e2083e0cd50a9d",
   "dense_r1_examples": {
     "r15_yield0.66_bearing0.5": {
       "expected_units": 60.666666666666664,
@@ -101,42 +102,47 @@
   },
   "preregistration": {
     "path": "research/t34_round0d/PREREGISTRATION_ROUND0D.md",
-    "sha256": "0447b9ef4e451d6cbccbec0aefe212ffd2ed97a256c667855ee6f57ac479bb7d"
+    "sha256": "1def6e393d6033492b6f4667157a7803e648c0cbae0b23b3fb388a9989ab38be"
   },
   "rate_to_action": {
-    "ceiling": "1.2 x expected + (lanes - 1) x max_chunk(cap - expected)",
+    "chunking": "multiples of 12 pairs; ceil(n/12) whole waves; timeouts from A5-D slowest world",
+    "derived_ceiling_gate": "1.2 x expected + (lanes - 1) x max_chunk(cap - expected) <= 120",
     "estimated_rows_with_placeholder_L4_costs": {
       "10": {
         "action": "RATIFY",
-        "chunk_pairs": 20,
-        "chunks": 12,
-        "expected_units": 57.222222222222236,
-        "reason": "r >= 5, expected <= 120 u, wall <= 24 h",
-        "study_unit_ceiling": 73.41111111111113,
-        "wall_hours_forecast": 15.61666666666667
+        "chunk_pairs": 24,
+        "chunks": 10,
+        "derived_ceiling": 73.06666666666666,
+        "expected_units": 56.25,
+        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "study_unit_ceiling": 120.0,
+        "wall_hours_forecast": 15.216666666666667
       },
       "15": {
         "action": "RATIFY",
-        "chunk_pairs": 30,
-        "chunks": 8,
-        "expected_units": 39.22222222222222,
-        "reason": "r >= 5, expected <= 120 u, wall <= 24 h",
-        "study_unit_ceiling": 51.9,
-        "wall_hours_forecast": 10.783333333333333
+        "chunk_pairs": 36,
+        "chunks": 7,
+        "derived_ceiling": 52.20000000000001,
+        "expected_units": 38.75000000000001,
+        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "study_unit_ceiling": 120.0,
+        "wall_hours_forecast": 11.666666666666666
       },
       "23": {
         "action": "RATIFY",
-        "chunk_pairs": 50,
+        "chunk_pairs": 48,
         "chunks": 5,
-        "expected_units": 26.59178743961353,
-        "reason": "r >= 5, expected <= 120 u, wall <= 24 h",
-        "study_unit_ceiling": 37.373429951690824,
-        "wall_hours_forecast": 8.564734299516909
+        "derived_ceiling": 37.20289855072463,
+        "expected_units": 26.6195652173913,
+        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "study_unit_ceiling": 120.0,
+        "wall_hours_forecast": 8.777536231884058
       },
       "4": {
         "action": "KILL",
         "chunk_pairs": null,
         "chunks": 0,
+        "derived_ceiling": null,
         "expected_units": null,
         "reason": "r < 5 dense worlds per lane-hour",
         "study_unit_ceiling": null,
@@ -144,49 +150,65 @@
       },
       "5": {
         "action": "KILL",
-        "chunk_pairs": 10,
-        "chunks": 24,
-        "expected_units": 111.22222222222221,
-        "reason": "forecast wall > 24 h on the registered lanes",
-        "study_unit_ceiling": 138.1222222222222,
-        "wall_hours_forecast": 30.116666666666656
+        "chunk_pairs": 12,
+        "chunks": 20,
+        "derived_ceiling": 136.56666666666666,
+        "expected_units": 109.27777777777779,
+        "reason": "derived ceiling > 120 u",
+        "study_unit_ceiling": 120.0,
+        "wall_hours_forecast": 29.316666666666666
       },
       "6": {
         "action": "KILL",
-        "chunk_pairs": 10,
-        "chunks": 24,
-        "expected_units": 95.22222222222221,
+        "chunk_pairs": 12,
+        "chunks": 20,
+        "derived_ceiling": 116.56666666666668,
+        "expected_units": 93.27777777777779,
         "reason": "forecast wall > 24 h on the registered lanes",
-        "study_unit_ceiling": 118.25555555555555,
-        "wall_hours_forecast": 26.116666666666656
+        "study_unit_ceiling": 120.0,
+        "wall_hours_forecast": 25.316666666666666
+      },
+      "6.5": {
+        "action": "RATIFY",
+        "chunk_pairs": 12,
+        "chunks": 20,
+        "derived_ceiling": 108.88974358974359,
+        "expected_units": 87.12393162393163,
+        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "study_unit_ceiling": 120.0,
+        "wall_hours_forecast": 23.778205128205123
       },
       "7": {
         "action": "RATIFY",
-        "chunk_pairs": 10,
-        "chunks": 24,
-        "expected_units": 83.7936507936508,
-        "reason": "r >= 5, expected <= 120 u, wall <= 24 h",
-        "study_unit_ceiling": 104.08412698412698,
-        "wall_hours_forecast": 23.25952380952381
+        "chunk_pairs": 12,
+        "chunks": 20,
+        "derived_ceiling": 102.2904761904762,
+        "expected_units": 81.84920634920636,
+        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "study_unit_ceiling": 120.0,
+        "wall_hours_forecast": 22.459523809523812
       },
       "8": {
         "action": "RATIFY",
-        "chunk_pairs": 20,
-        "chunks": 12,
-        "expected_units": 69.22222222222223,
-        "reason": "r >= 5, expected <= 120 u, wall <= 24 h",
-        "study_unit_ceiling": 88.81111111111112,
-        "wall_hours_forecast": 18.616666666666667
+        "chunk_pairs": 12,
+        "chunks": 20,
+        "derived_ceiling": 91.56666666666668,
+        "expected_units": 73.27777777777779,
+        "reason": "r >= 5, expected and derived ceiling <= 120 u, wall <= 24 h",
+        "study_unit_ceiling": 120.0,
+        "wall_hours_forecast": 20.316666666666666
       }
     },
     "expected_units_cap": 120.0,
     "kill_below_worlds_per_lane_hour": 5.0,
+    "operative_study_ceiling_units": 120.0,
+    "setup_minutes_rule": "max(15, ceil(observed A5-D setup) + 5)",
     "wall_hours_cap_on_2_lanes": 24.0
   },
   "ratified": false,
   "release_authorized": false,
   "remote_claim_prefix": "refs/tags/t34-round0d/<study_root>/<phase>",
-  "schema": "t34-round0d-registration-draft/v2",
+  "schema": "t34-round0d-registration-draft/v3",
   "status": "DRAFT",
   "study_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0d-study-01"
 }

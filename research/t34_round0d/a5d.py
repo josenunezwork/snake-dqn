@@ -9,7 +9,8 @@ world. One supervised job, K=12 single-thread processes, timeout 5 h, cap 10 u.
    changed action. Status per world: PASS; EXPLAINED_TIE (pre-registered: the first
    divergence is at a decision where this run batched and either the B8 top-2
    advisory Q gap or the Q gap among the tied-longest candidates is <= 1e-4, the
-   known Mac<->x86 float32 BLAS-order flip); DIFFERENCE or INCOMPLETE -> HOLD.
+   known Mac<->x86 float32 BLAS-order flip); DIFFERENCE or INCOMPLETE -> HOLD, which only
+   the pre-registered Mac re-run (``resolve-hold``) can turn into EXPLAINED_PLATFORM.
 2. Throughput. The other 4 processes start at t=0 on the 30 excluded A5-D worlds
    (4:3:3 order) and every freed process continues with them. Each throughput item
    runs the full paired worker recipe (bare + dense + metric replay), so bare and
@@ -45,7 +46,7 @@ from research.t34_round0d.common import B8_SHA, read_json, sha256, write_once
 from research.t34_round0d.runner import dense_trace, public_trace
 
 FIXTURE_SCHEMA = "t34-round0d-fidelity-fixture/v1"
-BENCHMARK_SCHEMA = "t34-round0d-a5d-benchmark/v2"
+BENCHMARK_SCHEMA = "t34-round0d-a5d-benchmark/v3"
 T3_DENSE = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/dense")
 FIDELITY_WORLDS = 8
 PROCESSES = 12
@@ -326,7 +327,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         while (cursor < len(items) or pending) and time.time() < deadline:
             while cursor < len(items) and len(pending) < processes:
                 item = dict(items[cursor], checkpoint=str(checkpoint), export_dir=str(out))
-                pending[pool.submit(_work, item)] = items[cursor]
+                pending[pool.submit(_work, item)] = dict(items[cursor], submitted_at=time.time())
                 cursor += 1
             done, _ = concurrent.futures.wait(
                 pending, timeout=5.0, return_when=concurrent.futures.FIRST_COMPLETED
@@ -351,6 +352,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     flush=True,
                 )
     finally:
+        stopped = time.time()
+        in_progress = [
+            {
+                "world_id": item["row"]["world_id"],
+                "kind": item["kind"],
+                "mix": item["row"]["mix"],
+                "elapsed_seconds": stopped - item["submitted_at"],
+            }
+            for item in pending.values()
+        ]
         for future in pending:
             future.cancel()
         for process in list(getattr(pool, "_processes", {}).values()):
@@ -377,12 +388,80 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "fidelity": fidelity_status(fixture, results),
         "export_bytes_per_pair_upper": max(sizes) if sizes else None,
         "worlds": worlds,
-        "in_progress_at_stop": [item["row"]["world_id"] for item in pending.values()],
+        "in_progress_at_stop": in_progress,
         "errors": errors,
         "local_smoke": bool(args.local_smoke),
     }
     _write_new(out / "benchmark.json", benchmark)
     return benchmark
+
+
+RESOLUTION_SCHEMA = "t34-round0d-fidelity-resolution/v1"
+
+
+def _top_gap(q: np.ndarray, mask: np.ndarray) -> float | None:
+    allowed = [a for a in range(6) if mask[a]] or [0, 1, 2]
+    values = sorted((float(q[a]) for a in allowed), reverse=True)
+    return values[0] - values[1] if len(values) >= 2 else None
+
+
+def resolve_hold(
+    fixture_world: Mapping[str, Any], l4_export: Path, checkpoint: Path
+) -> dict[str, Any]:
+    """Pre-registered Mac re-run that may resolve an A5-D fidelity HOLD (one world).
+
+    EXPLAINED_PLATFORM iff (1) this exact harness on the Mac reproduces T3 exactly
+    (``compare`` is empty) and (2) at the first decision where the Mac and L4 hero action
+    traces differ, the Mac's advisory top-2 Q gap, or (at a batched decision) the Q gap
+    among the tied-longest candidates, is <= 1e-4. Anything else stays HOLD.
+    """
+    if platform.system() != "Darwin":
+        raise RuntimeError("the HOLD resolution re-run is Mac-only (T3's own platform)")
+    from research.t34_exit_b8.exports import load_world
+
+    records: dict[int, dict[str, Any]] = {}
+    full = dense_trace(
+        dict(fixture_world["row"]),
+        checkpoint,
+        frames=int(fixture_world["row"]["horizon"]),
+        device="cpu",
+        on_decision=lambda d, last: records.__setitem__(int(d), dict(last)),
+    )
+    with tempfile.TemporaryDirectory(prefix="t34-round0d-resolve-") as temporary:
+        public = Path(temporary) / "teacher.json"
+        _write_export(public, public_trace(full))
+        metrics = _metrics_from_trace(_load_export(public), checkpoint)
+    mac_differences = compare(fixture_world["expected"], _observed(full, metrics))
+    l4 = load_world(l4_export)
+    mac_actions = [int(row[0]) for row in full["actions"]]
+    l4_actions = [int(row[0]) for row in l4["actions"]]
+    divergence = next(
+        (d for d, (a, b) in enumerate(zip(mac_actions, l4_actions)) if a != b),
+        None if len(mac_actions) == len(l4_actions) else min(len(mac_actions), len(l4_actions)),
+    )
+    gap = None
+    explained = False
+    if not mac_differences and divergence is not None and divergence in records:
+        record = records[divergence]
+        gap = _top_gap(np.asarray(record["q"], dtype=np.float64), record["advisory"])
+        explained = gap is not None and gap <= TIE_EPSILON
+        if not explained:
+            labels = [
+                {k: x[k] for k in ("decision", "q", "legal", "outcomes")} for x in full["labels"]
+            ]
+            explained = tie_explained(divergence, labels)
+    return {
+        "schema": RESOLUTION_SCHEMA,
+        "world_id": fixture_world["row"]["world_id"],
+        "status": "EXPLAINED_PLATFORM" if explained else "HOLD",
+        "mac_reproduces_t3": not mac_differences,
+        "mac_differences": mac_differences,
+        "first_action_divergence": divergence,
+        "mac_top2_advisory_q_gap": gap,
+        "tie_epsilon": TIE_EPSILON,
+        "l4_export_sha256": sha256(l4_export),
+        "checkpoint_sha256": sha256(checkpoint),
+    }
 
 
 def main() -> None:
@@ -399,10 +478,21 @@ def main() -> None:
     bench.add_argument("--processes", type=int, default=PROCESSES)
     bench.add_argument("--limit", type=int, default=0)
     bench.add_argument("--local-smoke", action="store_true")
+    res = sub.add_parser("resolve-hold")
+    res.add_argument("--fidelity", type=Path, required=True)
+    res.add_argument("--index", type=int, required=True)
+    res.add_argument("--l4-export", type=Path, required=True)
+    res.add_argument("--checkpoint", type=Path, required=True)
+    res.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "prepare-fidelity":
         result = prepare_fidelity(args.out)
         print(json.dumps({"worlds": len(result["worlds"])}))
+    elif args.command == "resolve-hold":
+        world = read_json(args.fidelity)["worlds"][args.index]
+        result = resolve_hold(world, args.l4_export, args.checkpoint)
+        write_once(args.out, result)
+        print(json.dumps({"status": result["status"]}))
     else:
         if not args.local_smoke and args.processes != PROCESSES:
             parser.error("A5-D requires K=12 processes")

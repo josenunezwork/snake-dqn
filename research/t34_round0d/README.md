@@ -62,13 +62,23 @@ $PY -m research.t34_round0d.make_manifest a5d --commit "$(git rev-parse HEAD)" \
   --fidelity "$PREP/FIDELITY_T3.json" --output-dir "$PREP/a5d-01/job" --out "$PREP/a5d-01.json"
 research/colab_cli/launch.sh --state-dir "$PREP/a5d-01-state" run "$PREP/a5d-01.json"   # 300 min, 10 u cap
 $PY -m research.t34_round0d.sizing --a5d-benchmark "$PREP/a5d-01/job/exports/a5d/benchmark.json" \
-  --preflight-dir "$PREP/a6-XX/output" --setup-minutes 15 --out "$PREP/A5D_RECEIPT.json"
+  --preflight-dir "$PREP/a6-XX/output" --out "$PREP/A5D_RECEIPT.json"   # setup minutes frozen by rule
+```
+
+**On a fidelity HOLD**, run the pre-registered Mac re-run for each divergent world. Run it outside the Path B
+quiet and timing windows. Then rebuild the receipt with the resolution records:
+
+```bash
+nice -n 10 $PY -m research.t34_round0d.a5d resolve-hold --fidelity "$PREP/FIDELITY_T3.json" --index <i> \
+  --l4-export "$PREP/a5d-01/job/exports/a5d/fidelity-0<i>.json" --checkpoint "$B8" \
+  --out "$PREP/resolution-<i>.json"
+$PY -m research.t34_round0d.sizing ... --fidelity-resolution "$PREP"/resolution-*.json
 ```
 
 The sizing command prints the frozen table action:
 
 - **HOLD:** fidelity failed, or nothing was measured.
-- **KILL:** r < 5, expected > 120 u, or wall > 24 h on 2 lanes.
+- **KILL:** any of r < 5, expected > 120 u, derived ceiling > 120 u, or wall > 24 h on 2 lanes.
 - **RATIFY:** activation may proceed.
 
 ## 2b. Activation: only after the governing Round 0 verdict routes here

@@ -46,6 +46,7 @@ GOVERNING_PHASE = "amendment-boost-floor"
 GOVERNING_LEDGER = f"research/t34_round0_amend/ledger/{ROUND0_ROOT.name}.jsonl"
 FALLBACK_LEDGER = f"research/t34_round0/ledger/{ROUND0_ROOT.name}.jsonl"
 BANK = PACKAGE / "BANK_ROUND0D.json"
+FALLBACK_REFUSAL_TEXT = "amendment was not published before the analysis was reserved"
 AUDIT = PACKAGE / "SEED_AUDIT_ROUND0D.json"
 
 
@@ -77,8 +78,16 @@ def bind_round0_verdict(
     ledger = GOVERNING_LEDGER if governing else FALLBACK_LEDGER
     if decision_path.resolve() != ROUND0_ROOT / phase / "decision.json":
         raise ValueError("Round 0 verdict must be the governing amendment-boost-floor decision")
-    if not governing and not fallback_refusal.is_file():
-        raise ValueError("the registered-file fallback requires the preserved decide refusal")
+    if not governing:
+        # RULING §2.2: the only admissible refusal is late amendment publication, and it
+        # must be preserved and logged in CAMPAIGN_LOG before any Round 0-conditioned lane.
+        text = fallback_refusal.read_text() if fallback_refusal.is_file() else ""
+        log = (ROOT / "docs/research/final_run_20261019/CAMPAIGN_LOG.md").read_text()
+        if FALLBACK_REFUSAL_TEXT not in text or sha256(fallback_refusal) not in log:
+            raise ValueError(
+                "registered-file fallback needs the preserved late-publication decide refusal, "
+                "logged by SHA-256 in CAMPAIGN_LOG.md"
+            )
     seal_path = decision_path.parent / "phase_terminal.json"
     seal = read_json(seal_path)
     if seal.get("status") != "COMPLETE" or seal.get("files", {}).get("decision.json") != sha256(
@@ -164,6 +173,9 @@ def require_registration(
         or not sizing.get("chunks")
         or sizing.get("action") != "RATIFY"
         or sizing.get("expected_units", 1e9) > 120.0
+        or sizing.get("derived_ceiling", 1e9) > 120.0
+        or sizing.get("study_unit_ceiling") != 120.0
+        or sizing.get("max_in_flight") != 2
         or sizing.get("wall_hours_forecast", 1e9) > 24.0
         or sizing.get("teacher_worlds_per_hour", 0) < 5.0
     ):
@@ -227,7 +239,7 @@ def draft(out: Path = DRAFT, *, study_root: Path = STUDY_ROOT) -> dict[str, Any]
     bank = check_audit(BANK, AUDIT)
     check_pins(ROOT)
     table = {}
-    for rate in (4.0, 5.0, 6.0, 7.0, 8.0, 10.0, 15.0, 23.0):
+    for rate in (4.0, 5.0, 6.0, 6.5, 7.0, 8.0, 10.0, 15.0, 23.0):
         row = estimated_plan(rate)["plan"]
         table[f"{rate:g}"] = {
             key: row.get(key)
@@ -236,12 +248,13 @@ def draft(out: Path = DRAFT, *, study_root: Path = STUDY_ROOT) -> dict[str, Any]
                 "reason",
                 "chunk_pairs",
                 "expected_units",
+                "derived_ceiling",
                 "study_unit_ceiling",
                 "wall_hours_forecast",
             )
         } | {"chunks": len(row.get("chunks", []))}
     payload = {
-        "schema": "t34-round0d-registration-draft/v2",
+        "schema": "t34-round0d-registration-draft/v3",
         "status": "DRAFT",
         "ratified": False,
         "dispatch_authorized": False,
@@ -272,14 +285,22 @@ def draft(out: Path = DRAFT, *, study_root: Path = STUDY_ROOT) -> dict[str, Any]
             "kill_below_worlds_per_lane_hour": KILL_WORLDS_PER_HOUR,
             "expected_units_cap": STUDY_UNIT_CAP,
             "wall_hours_cap_on_2_lanes": WALL_HOURS_CAP,
-            "ceiling": "1.2 x expected + (lanes - 1) x max_chunk(cap - expected)",
+            "derived_ceiling_gate": "1.2 x expected + (lanes - 1) x max_chunk(cap - expected) <= 120",  # noqa: E501
+            "operative_study_ceiling_units": 120.0,
+            "chunking": "multiples of 12 pairs; ceil(n/12) whole waves; timeouts from A5-D slowest world",  # noqa: E501
+            "setup_minutes_rule": "max(15, ceil(observed A5-D setup) + 5)",
             "estimated_rows_with_placeholder_L4_costs": table,
         },
         "dense_r1_examples": {
             "r8_yield0.66_bearing0.5": dense_r1_plan(8.0, 0.66, 0.5),
             "r15_yield0.66_bearing0.5": dense_r1_plan(15.0, 0.66, 0.5),
         },
-        "a5d": {"timeout_minutes": 300, "unit_cap": 10.0, "may_run_pre_verdict": True},
+        "a5d": {
+            "timeout_minutes": 300,
+            "unit_cap": 10.0,
+            "may_run_pre_verdict": True,
+            "hold_resolution": "pre-registered Mac re-run (a5d.py resolve-hold)",
+        },
         "dispatch_window_hours": 48,
         "blockers": [
             "independent review and judge approval of these exact bytes on main",

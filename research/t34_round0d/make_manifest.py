@@ -152,6 +152,24 @@ def make_chunk_manifests(
     study_root = Path(registration["study_root"])
     if out_dir.resolve() != study_root / "manifests" or out_dir.exists():
         raise ManifestRefused("manifests must be written to a fresh study_root/manifests")
+    # Build the forecast from fields the re-scoped plan always emits, before any
+    # create-only write, so a missing field can never leave partial manifests behind.
+    sizing = registration["sizing"]
+    forecast = {
+        "schema": "t34-round0d-forecast/v2",
+        "chunks": len(sizing["chunks"]),
+        "chunk_pairs": sizing["chunk_pairs"],
+        "lanes": lanes,
+        "max_in_flight": sizing["max_in_flight"],
+        "expected_units": sizing["expected_units"],
+        "derived_ceiling": sizing["derived_ceiling"],
+        "study_unit_ceiling": sizing["study_unit_ceiling"],
+        "priced_chunk_caps_units": sizing["unit_cap"],
+        "held_reserve_units": sizing["reserve_units"],
+        "replay": sizing["replay"],
+        "lane_hours_expected": sizing["lane_hours_expected"],
+        "wall_hours_forecast": sizing["wall_hours_forecast"],
+    }
     out_dir.mkdir(parents=True)
     manifests = []
     for number in range(len(registration["sizing"]["chunks"])):
@@ -170,18 +188,6 @@ def make_chunk_manifests(
         with (out_dir / f"{manifest['job_id']}.json").open("x") as stream:
             json.dump(manifest, stream, indent=2, sort_keys=True)
             stream.write("\n")
-    sizing = registration["sizing"]
-    forecast = {
-        "schema": "t34-round0d-forecast/v1",
-        "chunks": len(manifests),
-        "lanes": lanes,
-        "expected_units": sizing["expected_units"],
-        "study_unit_ceiling": sizing["study_unit_ceiling"],
-        "worst_case_charged_units": sizing["worst_case_charged_units"],
-        "initial_liability_units": sizing["initial_liability_units"],
-        "lane_hours_expected": sizing["lane_hours_expected"],
-        "wall_hours_expected": sizing["lane_hours_expected"] / lanes,
-    }
     with (out_dir / "FORECAST.json").open("x") as stream:
         json.dump(forecast, stream, indent=2, sort_keys=True)
         stream.write("\n")

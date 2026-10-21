@@ -1,6 +1,6 @@
 # T34 Round 0-D: dense-teacher premise test (pre-registration, RE-SCOPED)
 
-**DRAFT_PENDING_INDEPENDENT_REVIEW_AND_JUDGE_APPROVAL. First committed 2026-10-20 18:50 PT (`8729a1db`); re-scoped 2026-10-20 ~21:30 PT (branch `t34-round0d-rescope-20261021`). Both versions were written before any Round 0 outcome existed.**
+**DRAFT_PENDING_INDEPENDENT_REVIEW_AND_JUDGE_APPROVAL. First committed 2026-10-20 18:50 PT (`8729a1db`); re-scoped 2026-10-20 ~21:30 PT and revised after the FIX-FIRST review (`REVIEW_RESCOPE.md`) the same night (branch `t34-round0d-rescope-20261021`). Both versions were written before any Round 0 outcome existed.**
 At each commit `t34-round0-study-01/analysis/` did not exist, and no Round 0 chunk, pair or outcome file had
 been opened. The re-scope implements the Opus stand-in panels (`snake-dqn-artifacts/fable-panel-round0d/`
 integrity, science and ops), JUDGMENT §5 action 3 and §7e/§7f (`docs/research/advice/2026-10-20_colab_lanes/`),
@@ -216,11 +216,23 @@ Round 0-D runs only after a governing scientific Round 0 NO-GO. Its sole decisio
 |---|---|---|
 | GO | **Rule loss (ii):** the dense rule works on fresh 3-mix worlds where teacher_v2 did not | Sealed labels become admissible to dense R1 *fitting*. Dense R1 runs only under the yield rule below. It fits only after the ratified Claim A loss amendment and the PB-disposition ordering clause |
 | STOP on scripted or mass point bars | **Premise shrinkage (i):** T3's effect does not survive fresh worlds under either rule. A mass-only STOP with scripted gain ≥ +0.10 reads "no generalization across mixes" | Search-teacher Claim A family closes (plan §4; JUDGMENT L7) |
+| STOP on the survival guards (absolute alive fraction < 0.30 in a mix, guard B < +0.03, or a guard's upper bound at or below its NI boundary), with no scripted/mass point-bar failure | **The teacher harms survival** | Family closes |
 | STOP on the relative boost clause only | Teacher boost use falls below half of bare's, or exceeds 10% | Recorded as this teacher failing its registered bar; family closes |
 | STOP by unconditional fault | Controller bug, not science | Fix and re-register on a fresh namespace (Round 0's rule), with its own approval. A bug does not close the family |
 | Scientific INCONCLUSIVE | Unresolved; authorizes no extension | Family closes for this campaign (JUDGMENT: "scientific non-GO → close") |
 | Integrity INCONCLUSIVE (cap, ceiling, divergence, deadline) or KILL | Mechanical; not an answer about the premise | No extension. A fresh-namespace re-registration needs new judge approval and reserve units (JUDGMENT reserve). Without that, the family closes as "not tested to completion" |
 | Not activated (A5-D KILL or HOLD, or table KILL) | Premise not tested | Reported as a capacity or fidelity failure, never as evidence about the premise |
+
+**Precedence for a STOP that fails several clauses.** The first matching reading applies, in this order:
+
+1. unconditional fault, which is the bug branch;
+2. any scripted or mass point-bar failure, which is reading (i): scripted no-death ≥ 0.66 or its gain
+   ≥ +0.10, or pooled mass ≥ +40;
+3. survival-guard failure, which reads as survival harm;
+4. boost-clause-only failure.
+
+The reading never changes the decision code. It only selects the row's wording, and it is computed
+mechanically from the `clauses` and survival bounds in `decision.json`.
 
 ## Integrity (Round 0's, imported or ported unchanged in substance)
 
@@ -262,8 +274,10 @@ Round 0 erratum is therefore never inherited silently.
 - **STOP:** an explained, typed controller fault.
 - At most one outcome-independent mechanical rerun per chunk.
 
-**Study ceiling.** The ceiling is derived from the forecast (see Sizing), so that charging for in-flight attempts
-never strands the last chunk. Before each chunk is admitted:
+**Study ceiling.** The operative ceiling is exactly **120 u**, the JUDGMENT lane L7 study total. The
+forecast-derived bound must be ≤ 120 at activation (see Sizing), so whole-wave chunks and slow worlds do not
+strand the last chunk. A5-D's 10 u is pre-study qualification and is reported separately. Before each chunk is
+admitted:
 
 - settled attempts are charged their recorded elapsed time at 2.0 u/h;
 - in-flight attempts, and attempts without a receipt, are charged their full cap.
@@ -298,7 +312,8 @@ hash-bound three ways, and `labels.py` is the only sanctioned reader. A test ass
 
 1. **The replay runs on a second L4 runtime, not on the Mac** (`replay.py`, `replay.sh`).
    - The sample rule is Round 0's `selected_rows`, imported: ceil(10%) per chunk, mix-stratified, in bank order.
-     For 240 worlds that is 24 worlds and 48 traces.
+     With 12-pair chunks this is 2 pairs per chunk: 40 worlds and 80 traces when chunks are 12 pairs, and
+     fewer when chunks are larger.
    - As in Round 0, the replay **re-scores the exported action traces**: hashes, metrics and the final hash, for
      both arms. It does not re-run the dense search.
    - It is sized from A5-D's measured L4 metric cost (`sizing.replay_sizing`): timeout ≥ max(estimate + 25,
@@ -313,6 +328,13 @@ hash-bound three ways, and `labels.py` is the only sanctioned reader. A test ass
    - Delay rows still shape the teacher-arm state distribution.
    - The FINAL_PLAN §8 held-out split may draw on sealed worlds, which count as fit-internal.
 3. **The relative boost floor**, as described above.
+4. **Wave-based chunking replaces Round 0's perfect-packing chunk formula** (`sizing.chunk_record`). Round 0's
+   pinned `size_round` is not called, and Round 0 files are unchanged.
+   - The runner gives each pair to one of 12 processes, so a chunk of n pairs runs ceil(n/12) whole waves.
+   - Chunks are multiples of **12 pairs**. A chunk therefore no longer holds an exact 4:3:3 mix ratio;
+     composition follows Round 0's interleaved `ordered_rows`. This is harmless, because no chunk outcome is
+     opened before all chunks are terminal.
+   - The replay sample stays Round 0's ceil(10%) per chunk: 2 pairs per 12-pair chunk.
 
 ## A6 and A5-D (excluded worlds only; may run before the Round 0 verdict)
 
@@ -338,6 +360,16 @@ hash-bound three ways, and `labels.py` is the only sanctioned reader. A test ass
   candidates is ≤ 1e-4. This is the known Mac↔x86 float32 BLAS-order flip; T3's receipts were produced on the
   Mac.
 - Any other difference, or an incomplete world, is **HOLD**.
+- **Pre-registered HOLD resolution: a Mac re-run** (`a5d.py resolve-hold`). It is needed because the tie rule
+  covers only batched decisions, and most decisions are unbatched.
+  - Each divergent fidelity world is re-run on the Mac with this exact harness: one thread, nice 10, outside
+    the Path B quiet and timing windows.
+  - **EXPLAINED_PLATFORM** iff (1) the Mac run reproduces T3 exactly, and (2) at the first decision where the
+    Mac and L4 hero action traces differ, the Mac's advisory top-2 Q gap is ≤ 1e-4, or, at a batched
+    decision, the Q gap among the tied-longest candidates is ≤ 1e-4. The L4 fidelity export carries the full
+    actions.
+  - Anything else stays HOLD.
+  - The resolution records are hash-bound into the A5-D receipt (`sizing --fidelity-resolution`).
 - Scope: fidelity tests the T3 rule only on scripted worlds. For frozen and mixed worlds, "the exact T3 rule" is
   a definitional extension. Its correctness rests on the merged-vs-serial oracle
   (`tests/test_t34_shadow_batch_oracle.py`, all mixes), not on reproducing T3.
@@ -346,6 +378,8 @@ hash-bound three ways, and `labels.py` is the only sanctioned reader. A test ass
 
 - The other 4 processes start at t = 0 on the 30 excluded A5-D worlds. Every process that frees up continues with
   those worlds.
+- Items still running at stop are recorded with their elapsed time. That is a censored lower bound, and it
+  still counts toward the slowest-world bound.
 - Each throughput item runs the full paired recipe (bare, dense, metric replay). Bare, metric and export costs
   are therefore measured on L4.
 - The rate estimate is frozen as follows:
@@ -358,47 +392,63 @@ hash-bound three ways, and `labels.py` is the only sanctioned reader. A test ass
 
 ## Sizing: frozen rate-to-action table
 
-**Chunk sizing** uses Round 0's `size_round`, imported unchanged:
+All inputs come from the A5-D receipt.
 
-- n is the largest multiple of 10 such that setup + n·(3600/r + (bare + metric)/12)/60 ≤ 180 minutes;
-- bare and metric are the L4-measured costs (factor 1.0);
-- each chunk's timeout is at least max(estimate + 25, 2 × estimate);
-- the price is 2.0 u/h, with a 20% held reserve.
+**Inputs.**
 
-**Forecasts.**
+- **Setup minutes are frozen** at max(15, ceil(observed A5-D setup, export and cleanup) + 5). This is not an
+  operator choice.
+- **One wave** = 12·60/r + (bare + metric)/60 minutes. Bare and metric are L4-measured means.
+- **slowest** = A5-D's slowest world in minutes, counting completed pairs, fidelity worlds and censored in-progress
+  items.
 
-- Expected units = the sum of chunk workloads, plus the replay.
-- Wall time = the longest of the 2 lanes' chunk workloads, plus a 10-minute dispatch and ledger gap per chunk,
-  plus the replay.
+**Each chunk.**
 
-| Condition, evaluated in order from the A5-D receipt | Action |
+- Size: the largest multiple of 12 pairs such that setup + waves·wave ≤ 180 minutes. This is Round 0's
+  estimate bound, and it is pinned.
+- Forecast: setup + ceil(n/12)·wave.
+- Timeout ≥ max(forecast + 25, 2 × forecast, setup + ceil(n/12)·max(slowest, wave) + 25).
+- Price: 2.0 u/h on the timeout, plus a 20% reserve held.
+
+**Totals.**
+
+- Expected units = Σ chunk forecasts + the replay.
+- Wall = the longer lane's chunk forecasts + 10 min dispatch and ledger gap per chunk + the replay.
+- Derived ceiling = 1.2 × expected + (lanes − 1) × max over chunks of (cap − expected).
+
+| Condition (evaluated in order) | Action |
 |---|---|
-| Fidelity is not PASS or EXPLAINED_TIE, or nothing was measured | **HOLD** |
-| r < 5 dense worlds per lane-hour | **KILL** before production |
-| Forecast expected > **120 u** | **KILL** |
-| Forecast wall > **24 h** on the 2 registered lanes | **KILL** |
-| Otherwise | **RATIFY**: activation may proceed |
+| fidelity not PASS / EXPLAINED_TIE / EXPLAINED_PLATFORM, or nothing measured | **HOLD** |
+| r < 5 dense worlds per lane-hour | **KILL** |
+| one 12-pair wave exceeds the 180-minute bound | **KILL** |
+| expected > 120 u, or derived ceiling > 120 u | **KILL** |
+| forecast wall > 24 h on the 2 registered lanes | **KILL** |
+| otherwise | **RATIFY**, with an operative study ceiling of **120 u** |
 
-On RATIFY, the study ceiling is C = 1.2 × expected + (lanes − 1) × the largest per-chunk (cap − expected).
+**ESTIMATED rows** (`registration draft`, placeholder L4 costs: bare 190 s/world, metric 50 s/pair, slowest
+world = 1.3 × wave, setup 15 min). A test checks that no chunk is stranded at r ∈ {6.5, 7, 8, 10, 15, 23}. The
+check runs every chunk as whole waves at the slowest-world time. It charges the other lane in flight at its full
+cap, and every admission must fit 120 u.
 
-**ESTIMATED table rows.** These use placeholder L4 costs: Round 0-D's A6 bare and metric costs × 9, the ops
-panel's upper L4 per-process penalty. That gives bare 190 s/world, metric 50 s/pair, and 15 min setup per chunk.
-The A5-D receipt replaces all of these.
-
-| r | Action | Chunks × pairs | Expected u | Ceiling u | Wall h (2 lanes) |
+| r | Action | Chunks × pairs | Expected u | Derived ceiling u | Wall h (2 lanes) |
 |---|---|---|---|---|---|
-| 4 | KILL (r < 5) | — | — | — | — |
-| 5 | KILL (wall) | 24 × 10 | 111.2 | 138.1 | 30.1 |
-| 6 | KILL (wall) | 24 × 10 | 95.2 | 118.3 | 26.1 |
-| 7 | RATIFY | 24 × 10 | 83.8 | 104.1 | 23.3 |
-| 8 | RATIFY | 12 × 20 | 69.2 | 88.8 | 18.6 |
-| 10 | RATIFY | 12 × 20 | 57.2 | 73.4 | 15.6 |
-| 15 | RATIFY | 8 × 30 | 39.2 | 51.9 | 10.8 |
-| 23 | RATIFY | 5 × 50 | 26.6 | 37.4 | 8.6 |
+| 5 | KILL (derived ceiling) | 20 × 12 | 109.3 | 136.6 | 29.3 |
+| 6 | KILL (wall) | 20 × 12 | 93.3 | 116.6 | 25.3 |
+| 6.5 | RATIFY | 20 × 12 | 87.1 | 108.9 | 23.8 |
+| 7 | RATIFY | 20 × 12 | 81.8 | 102.3 | 22.5 |
+| 8 | RATIFY | 20 × 12 | 73.3 | 91.6 | 20.3 |
+| 10 | RATIFY | 10 × 24 | 56.2 | 73.1 | 15.2 |
+| 15 | RATIFY | 7 × 36 (last 24) | 38.8 | 52.2 | 11.7 |
+| 23 | RATIFY | 5 × 48 | 26.6 | 37.2 | 8.8 |
 
-The ops panel's central estimate is r ≈ 5–10. At low r, the imported 180-minute chunk estimate forces 10-pair
-chunks, and per-chunk setup then dominates wall time. A third lane, or longer qualified chunks, would lower the
-effective threshold. Neither is adopted here; either one would need a disclosed amendment.
+**Honest 2-lane threshold: about r = 6.5.** With 10-pair chunks and honest wave forecasting it would be about 8.
+This registration uses 2 lanes; a third lane is not pre-registered.
+
+- The 120 u cap binds at almost the same r as the 24 h wall.
+- A third lane would take the assignment reserved for the Path B unpaced arm.
+
+Below the threshold, the outcome is "not activated: capacity". The only lever that moves the threshold is
+per-world cost, through the disclosed greedy-survives-skip amendment below.
 
 ## Dense R1: label-yield sizing (only after a published Round 0-D GO)
 

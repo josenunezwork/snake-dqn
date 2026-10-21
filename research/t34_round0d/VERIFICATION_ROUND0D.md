@@ -151,3 +151,37 @@ Protected packages are still untouched: `research/t34_round0`, `t34_round0_amend
 
 The A6 and the earlier engine checks above predate this re-scope. Activation requires a fresh, source-current A6
 on the final approved commit, followed by A5-D.
+
+## FIX-FIRST revision (2026-10-20 night, pre-data; `REVIEW_RESCOPE.md`)
+
+The branch was rebased on main `d62070e5`. `t34-round0-study-01/analysis/` still did not exist, and no Round 0
+study file was opened.
+
+1. **`make_chunk_manifests` KeyError (BLOCKER).** FORECAST.json now uses only fields that `sizing.plan` always
+   emits. It is built before any create-only write, so a missing field cannot leave partial manifests behind.
+   **Test:** an end-to-end build of all chunk manifests and FORECAST.json from a re-scoped plan, using the real
+   supervisor `validate`. Ratification is stubbed out.
+2. **Wave-quantized forecast (BLOCKER).** Round 0-D now uses its own partition (deliberate difference 4), and
+   Round 0's pinned `size_round` is no longer called.
+   - Chunks are multiples of 12 pairs, and each is forecast as setup + ceil(n/12) whole waves.
+   - Timeouts are at least setup + waves × max(A5-D slowest world, wave) + 25.
+   - A5-D now records censored in-progress elapsed times.
+   - The replay sample follows Round 0's ceil(10%) per chunk.
+   - **Test:** no chunk is stranded at r ∈ {6.5, 7, 8, 10, 15, 23}, with every wave at 1.3× the mean world and
+     the other lane in flight charged at its full cap.
+3. **Outcome table.** It now has a survival-guard STOP row and a precedence rule: fault, then scripted or mass,
+   then survival, then boost.
+4. **Ceiling.**
+   - The derived ceiling must be ≤ 120 u, otherwise KILL.
+   - The operative ceiling is exactly 120 u. `require_registration` enforces 120 u and `max_in_flight` = 2.
+   - The honest 2-lane threshold is about r = 6.5, and no third lane is used.
+5. **Setup and HOLD path.**
+   - Setup minutes are frozen at max(15, ceil(observed) + 5).
+   - The pre-registered Mac re-run (`a5d.py resolve-hold`) gives EXPLAINED_PLATFORM only when the Mac
+     reproduces T3 and there is a near-tie (≤ 1e-4) at the first Mac–L4 action divergence. Its records are
+     hash-bound into the receipt. **Test:** resolution is accepted only from EXPLAINED_PLATFORM records.
+6. **Fallback route (review ruling 4).** The fallback requires the exact late-publication refusal text, and the
+   refusal file's SHA-256 must appear in CAMPAIGN_LOG.md.
+
+**Tests:** `tests/test_t34_round0d.py` has 37 passed. With the two Round 0 test files, 86 passed (1 thread,
+`-n 2`, nice 10).
