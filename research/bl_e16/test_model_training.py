@@ -183,3 +183,26 @@ def test_portable_export_contains_cpu_state() -> None:
             policy.actor_logits(local[0], global_[0], scalars[0]),
             restored.actor_logits(local[0], global_[0], scalars[0]),
         )
+
+
+def test_final_optimizer_parameter_poison_is_a_tripwire(monkeypatch) -> None:
+    import pytest
+
+    from research.bl_e16.training import E16TripwireError
+
+    policy = E16Policy("A", _parent())
+    trainer = E16Trainer(policy, critic_refit_transitions=1)
+    batch = _batch(policy)
+    trainer.trainer_step(batch)
+    trainer.mark_e12_passed()
+    real_step = trainer.actor_optimizer.step
+
+    def poisoned_step(*args, **kwargs):
+        result = real_step(*args, **kwargs)
+        with torch.no_grad():
+            next(iter(policy.actor_parameters())).flatten()[0] = float("nan")
+        return result
+
+    monkeypatch.setattr(trainer.actor_optimizer, "step", poisoned_step)
+    with pytest.raises(E16TripwireError, match="updated actor parameter"):
+        trainer.trainer_step(_batch(policy, time=1, batch=2))
