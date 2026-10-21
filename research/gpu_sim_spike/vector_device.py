@@ -442,7 +442,7 @@ class DeviceVectorRuntime:
         out[:, 57] = (lrow >= int(self.params.min_boost_length)).float() * valid
         if self.params.use_free_space:
             occupied = torch.zeros(
-                (e, sim.grid_h, sim.grid_w), dtype=torch.bool, device=self.device
+                (e, sim.grid_h, sim.grid_w), dtype=torch.uint8, device=self.device
             )
             all_cells = cells.reshape(e, -1, 2)
             all_live = live_body.reshape(e, -1)
@@ -451,12 +451,12 @@ class DeviceVectorRuntime:
             occupied.flatten(1).scatter_reduce_(
                 1,
                 (oy.clamp(0, sim.grid_h - 1) * sim.grid_w + ox.clamp(0, sim.grid_w - 1)),
-                inb,
+                inb.to(torch.uint8),
                 "amax",
                 include_self=True,
             )
             out[:, 58:61] = (
-                self._free_space(sim, heads, direction, occupied)[er, sr] * valid[:, None]
+                self._free_space(sim, heads, direction, occupied != 0)[er, sr] * valid[:, None]
             )
         return out
 
