@@ -1,0 +1,38 @@
+{
+ "actionable_findings": [],
+ "code": "T7 fullH5000/batch8/CPU/rowwise/advisory/noheroVeto; cooperative STOP; locks retained through child exit",
+ "files_changed_by_reviewer": [],
+ "limitations": [
+  "no completed timing and no bank forecast",
+  "foreign Python threshold and 30-second sampling are operational guards, not zero-contention proof",
+  "OS/native hangs cannot be hard-killed under owner instruction"
+ ],
+ "recorded_by": "Codex root from independent reviewer final report",
+ "reviewer": "Codex-V / x5_review",
+ "reviewer_tests": {
+  "original_tests_passed": 4,
+  "root_final_passed": 6,
+  "subsequent_tests_reviewed": 2,
+  "target": "tests/test_bl_x5_timing.py"
+ },
+ "schema": "bl-x5-independent-review/v1",
+ "script_syntax": "zsh -n PASS",
+ "serving_changed": false,
+ "time_pt": "2026-10-21T15:01:00.651021-07:00",
+ "verdict": "NO_COMPLETED_TIMING / NOT_READY(exclusive Mac window)",
+ "verified_referenced_receipts": 6,
+ "verified_seals": [
+  {
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5.json",
+   "sha256": "59ba9a8c193e0bf1eba1d24bcaf4c5a6d688c00296fc424b2b766c4de8f21d94"
+  },
+  {
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-disposition.json",
+   "sha256": "fb77b0a586918c004cf41b38f7debddca12479595c964817a664590b452eb3cb"
+  },
+  {
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-dispatch-manifest.json",
+   "sha256": "4d21de5121637b1d4d7c5af10537f26820a7de5b3c7fce4a597828332cc85796"
+  }
+ ]
+}

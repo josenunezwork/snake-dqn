@@ -103,3 +103,45 @@ def test_foreign_cpu_lane_blocks_host_admission(monkeypatch):
 
     monkeypatch.setattr(timing, "command", command)
     assert timing.host()["reasons"] == ["foreign_python_cpu_lane"]
+
+
+def test_unit_reducer_rejects_changed_world_identity(tmp_path):
+    timing.seal(tmp_path / "x5-manifest.json", {"frozen": True})
+    plan = {"arms": ["B8-repeat-1", "B8-repeat-2"], "banks": {}, "rows": {}}
+    workers = []
+    for mix in timing.MIXES:
+        plan["banks"][mix] = list(range(16))
+        plan["rows"][mix] = {str(s): {"identity": {"seed": s}} for s in range(16)}
+        refs = []
+        for arm in plan["arms"]:
+            for offset in (0, 8):
+                worlds = list(range(offset, offset + 8))
+                unit = {
+                    "mix": mix,
+                    "arm": arm,
+                    "offset": offset,
+                    "worlds": worlds,
+                    "cpu_seconds": 1,
+                    "wall_seconds": 2,
+                    "records": [{"seed": s, "world_identity": {"seed": s}} for s in worlds],
+                }
+                path = tmp_path / f"{mix}-{arm}-{offset}.json"
+                timing.seal(path, unit)
+                refs.append(
+                    {
+                        "path": str(path),
+                        "sha256": timing.sha(path),
+                        **{k: v for k, v in unit.items() if k != "records"},
+                    }
+                )
+        workers.append(
+            {
+                "mix": mix,
+                "units": refs,
+                "manifest_sha256": timing.sha(tmp_path / "x5-manifest.json"),
+            }
+        )
+    timing.validate_units(tmp_path, plan, workers)
+    plan["rows"]["scripted"]["0"]["identity"] = {"seed": 999}
+    with pytest.raises(ValueError, match="world identity"):
+        timing.validate_units(tmp_path, plan, workers)

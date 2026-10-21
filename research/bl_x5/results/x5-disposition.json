@@ -1,0 +1,36 @@
+{
+ "canonical_receipt": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5.json",
+  "sha256": "59ba9a8c193e0bf1eba1d24bcaf4c5a6d688c00296fc424b2b766c4de8f21d94",
+  "status": "INCOMPLETE"
+ },
+ "colab_calls": 0,
+ "explanation": "PLAN_v2 section2 requires serial exclusive Mac timing; unrelated K1 identity audit holds a CPU slot. Owner forbids process or tmux kills. Existing receipts retained; no rate invented from partial/contended work.",
+ "first_attempt": {
+  "completed_units": 0,
+  "elapsed_wall_seconds": 55.1244,
+  "reason": "concurrent K1 CPU audit; cooperative STOP, no signals",
+  "worker_cpu_seconds": 154.7434
+ },
+ "preserved_scientific_verdict": true,
+ "readiness_manifest": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-dispatch-manifest.json",
+  "sha256": "4d21de5121637b1d4d7c5af10537f26820a7de5b3c7fce4a597828332cc85796"
+ },
+ "recovery01": {
+  "children_started": 0,
+  "status": "REFUSED_BEFORE_EPISODES"
+ },
+ "recovery02": {
+  "root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-recovery-02",
+  "status": "PREPARE_REFUSED_BEFORE_ALLOCATION"
+ },
+ "reviewer": "Codex-V / x5_review",
+ "schema": "bl-x5-disposition/v1",
+ "scientific_verdict": "NOT_APPLICABLE_DEVELOPMENT_TIMING",
+ "serving_changed": false,
+ "status": "NOT_READY",
+ "strict_family_opened": false,
+ "time_pt": "2026-10-21T15:00:27.436517-07:00",
+ "timing_measurement": "UNAVAILABLE"
+}

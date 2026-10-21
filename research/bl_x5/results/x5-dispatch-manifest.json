@@ -1,0 +1,90 @@
+{
+ "allocation_key": "recovery-02",
+ "blocking_evidence": {
+  "command": "research.bl_k1.audit",
+  "cpu_slot_holder": true,
+  "identity_forecast_seconds": [
+   5400,
+   14400
+  ],
+  "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-k1/prepared-02/manifest.json",
+  "pid": 69694
+ },
+ "builder": "Codex root / Sol-X5",
+ "code_sha256": "cec17c45b265520b322fd71072ca69c7b8115a5d1399f6da9710428d416b6b92",
+ "created_pt": "2026-10-21T15:00:27.433932-07:00",
+ "development_only": true,
+ "dispatch_script": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-dispatch-when-exclusive.sh",
+  "sha256": "39c6be8465abfe5bb07aae9502c90535b397d7b38fa7ad61f9e3e2c744345c14"
+ },
+ "forecast": {
+  "bank_cpu_hours": "UNPRICED: no completed uncontended timing units",
+  "cpu_cap_hours": 2,
+  "required_banks": {
+   "e13_total_episodes": 768,
+   "single_and_paired_192_96_96": {
+    "frozen": 96,
+    "mixed": 96,
+    "scripted": 192
+   },
+   "single_and_paired_384_128_128": {
+    "frozen": 128,
+    "mixed": 128,
+    "scripted": 384
+   }
+  },
+  "units": 0,
+  "wall_cap_hours": 2
+ },
+ "gate": "exclusive Mac window",
+ "harness_commit": "709a673609bec1ce1e8b06d5bf2f4f7e57f5fc84",
+ "next_authorized_action": "coordinator reserves exclusive Mac window; check; prepare fresh recovery-02; independent review; explicitly launch once. No automatic retry.",
+ "next_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-recovery-02",
+ "prior_evidence": [
+  {
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5.json",
+   "sha256": "59ba9a8c193e0bf1eba1d24bcaf4c5a6d688c00296fc424b2b766c4de8f21d94"
+  },
+  {
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-exclusive-protocol-stop.json",
+   "sha256": "cb05b097c7aa0b178d49dc2d397a446aa67474a7166512b0f13fea893fba8e02"
+  },
+  {
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-manifest.json",
+   "sha256": "e4b418c8d1841b3beaffee34fa32830f3198b575a9c83ca9118f31723d26be96"
+  },
+  {
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-recovery-01/x5-manifest.json",
+   "sha256": "b601d99564d77f2902ac49a86f90b237270709716b58622e92d58c7cf1cb1620"
+  },
+  {
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-recovery-01/x5-coordinator-error.json",
+   "sha256": "01219079e6ad4424268efb5028fb28ae5fd47f994bc86091f8eb614cb6db653d"
+  },
+  {
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-recovery-01/x5-admission-refusal.json",
+   "sha256": "358d44a1c3938f327d26fdcfd9a8e6da8f12d5974f699bc3525ca9d218ba13c6"
+  }
+ ],
+ "readiness": {
+  "exclusive_window": false,
+  "fresh_48_world_audit_for_next_attempt": false,
+  "idle_receipt_for_next_attempt": false,
+  "next_attempt_started": false
+ },
+ "registered_study": false,
+ "reviewer": "Codex-V / x5_review",
+ "schema": "bl-x5-dispatch-readiness/v1",
+ "status": "NOT_READY",
+ "test_results": {
+  "passed": 6,
+  "target": "tests/test_bl_x5_timing.py"
+ },
+ "upload": {
+  "bytes": 0,
+  "colab_calls": 0,
+  "reason": "no transport or Colab job; no Z-9 PASS claimed",
+  "status": "NOT_APPLICABLE_MAC_ONLY"
+ }
+}

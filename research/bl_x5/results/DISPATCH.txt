@@ -1,0 +1,30 @@
+X5: NOT_READY(exclusive Mac window) as of 2026-10-21T15:00:27.437183-07:00
+
+No further attempt is running. No Colab calls. B8/serving unchanged.
+Coordinator must reserve the exclusive Mac before these commands; current K1 audit owns a slot.
+Do not kill or signal any process. There is no automatic retry.
+
+Readiness manifest: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-dispatch-manifest.json
+Disposition: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-disposition.json
+Canonical retained incomplete attempt: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5.json
+
+After the Mac is exclusively available, use the clean committed X5 worktree:
+cd /Users/josenunez/Projects/ml/snake-dqn-x5
+/bin/zsh /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-dispatch-when-exclusive.sh --check
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_x5.timing prepare --root /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-recovery-02 --allocation-key recovery-02
+
+Independently verify manifest, idle and fresh seed-audit sidecars before explicit launch:
+tmux new-session -d -s x5-bare-20261021-03 '/bin/zsh /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-dispatch-when-exclusive.sh --run'
+
+Observe:
+tail -f /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-recovery-02/x5-run.log
+cat /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-recovery-02/x5-run.exit
+
+Only cooperative owned-attempt stop, if needed:
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -c "from pathlib import Path; Path('/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/week1-20261021/mac/x5-recovery-02/STOP').open('x').write('operator cooperative stop\n')"
+
+Success requires exit0, 12 complete sealed units/96 episodes/48 disjoint worlds, no guard stop,
+create-only x5.json+.sha256+.complete and independent audit. Publish a new sibling disposition;
+never replace the original canonical INCOMPLETE x5.json or any retained receipt.
+Forecasts: UNPRICED until completed uncontended X5 measurement. Max 2 wall/CPU hours; zero units.
+No strict family opens, no release/serving changes, no fixed N authorized.
