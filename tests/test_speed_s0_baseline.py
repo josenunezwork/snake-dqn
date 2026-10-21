@@ -161,3 +161,42 @@ def test_engine_source_digest_is_stable() -> None:
     assert first == second
     assert first["files"] > 10
     assert json.dumps(first)
+
+
+def test_engine_runner_default_and_native_roots_stay_python(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from research.t34_exit_b8 import teacher_v2
+    from research.t34_speed_s2 import native_v8
+
+    config = {"device": "cpu"}
+    calls = []
+
+    def stock(value):
+        calls.append(("stock", value))
+        return {"complete": True}
+
+    def collector(value):
+        teacher = value["teacher"]
+        assert not teacher.include_roots and not teacher.branch_only
+        calls.append(("native", value))
+        return {"complete": True}
+
+    monkeypatch.setattr(teacher_v2, "run_worlds", stock)
+    assert h.engine_runner()(config) == {"complete": True}
+    monkeypatch.setattr(teacher_v2, "run_worlds", collector)
+    result = h.engine_runner("native-v8")(config)
+    assert result["native_v8"]["scope"] == "all non-root rows"
+    assert [call[0] for call in calls] == ["stock", "native"]
+    assert "teacher" not in config
+    with pytest.raises(ValueError, match="unknown S0 engine"):
+        h.engine_runner("typo")
+    native_v8.disable()
+
+
+def test_native_source_digest_extends_stock_closure() -> None:
+    stock = h.engine_source_digest()
+    native = h.engine_source_digest(engine="native-v8")
+    assert native["roots"] == stock["roots"] + ["research/t34_speed_s2"]
+    assert native["files"] > stock["files"]
+    assert native["combined_sha256"] != stock["combined_sha256"]
