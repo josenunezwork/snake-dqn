@@ -28,6 +28,8 @@ def check(plan: dict, inputs: Path) -> None:
         raise ValueError("bank/audit identity mismatch")
     if bank.get("counts") != {"frozen": 64, "mixed": 64, "scripted": 32}:
         raise ValueError("wrong L2 counts")
+    if plan.get("runtime_parity_admitted") is not True:
+        raise ValueError("NOT_DISPATCHABLE: L4 runtime parity has not been admitted")
     forecast = plan.get("forecast", {})
     estimate = forecast.get("conservative_allocation_minutes")
     timeout = forecast.get("timeout_minutes")

@@ -36,6 +36,7 @@ def test_readiness_never_lets_schema_validation_override_forecast(tmp_path: Path
     with pytest.raises(ValueError, match="NOT_DISPATCHABLE"):
         check(plan, tmp_path)
     plan["dispatchable"] = True
+    plan["runtime_parity_admitted"] = True
     plan["forecast"]["status"] = "FITS"
     with pytest.raises(ValueError, match="exceeds"):
         check(plan, tmp_path)
