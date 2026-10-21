@@ -1,0 +1,131 @@
+{
+  "domain": "t34-exit-b8-20261019/v1",
+  "history_scan": {
+    "candidate_count": 2000,
+    "concrete_hits": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts": 0,
+      "/Users/josenunez/Projects/ml/snake-dqn/docs": 0,
+      "/Users/josenunez/Projects/ml/snake-dqn/research": 0,
+      "/Users/josenunez/Projects/ml/snake-dqn/scripts": 0,
+      "/Users/josenunez/Projects/ml/snake-dqn/src": 0
+    },
+    "coverage": "visible text source/docs/artifacts plus concrete historical exclusions",
+    "historical_frp_exclusions": 7,
+    "limits": "opaque binaries, unrecorded external runs, and inaccessible history excluded",
+    "method": "deterministic-all-at-once-sha256-v1",
+    "scan_roots": [
+      "/Users/josenunez/Projects/ml/snake-dqn/docs",
+      "/Users/josenunez/Projects/ml/snake-dqn/research",
+      "/Users/josenunez/Projects/ml/snake-dqn/src",
+      "/Users/josenunez/Projects/ml/snake-dqn/scripts",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts"
+    ]
+  },
+  "namespaces": {
+    "t34-claim-a/r1-labels-v4/heldout/s0/a0": {
+      "count": 100,
+      "sha256": "412186e6e74ce69750065c6199fc3da3618b96a759b2ca08085264c7d0c67893"
+    },
+    "t34-claim-a/r1-labels-v4/heldout/s0/a1": {
+      "count": 100,
+      "sha256": "c9f399d570dfca2179053221ada7c553ce8800765702762849a2cdae4cb892d9"
+    },
+    "t34-claim-a/r1-labels-v4/heldout/s1/a0": {
+      "count": 100,
+      "sha256": "06866b8eac5db30eadcf951ef32454eada9420aa8cd2856cbdafc0e737f10b4f"
+    },
+    "t34-claim-a/r1-labels-v4/heldout/s1/a1": {
+      "count": 100,
+      "sha256": "4d4fe78325d412c60b2e0d65d08c3222cb6a3fd16a82145bc610270bbb86df7b"
+    },
+    "t34-claim-a/r1-labels-v4/train/s0/a0": {
+      "count": 100,
+      "sha256": "a81b3b704515bd5e0a3a5e4a2cbe00f4a33b94716689bffbde16aaa7d3394552"
+    },
+    "t34-claim-a/r1-labels-v4/train/s0/a1": {
+      "count": 100,
+      "sha256": "9c5444c79a9de86dd3426436229a527a2eb50b25b5b1825274584c88c537a8d6"
+    },
+    "t34-claim-a/r1-labels-v4/train/s1/a0": {
+      "count": 100,
+      "sha256": "444f33f9d3bfe744b814807df37976688e03a37aa451a062cdf6ed1b8fe064b3"
+    },
+    "t34-claim-a/r1-labels-v4/train/s1/a1": {
+      "count": 100,
+      "sha256": "9c2ff1814d57b2ca59d117b90ec1140981a1409b973a0e45db2d93a43a40fb99"
+    },
+    "t34-claim-a/r1-labels-v4/train/s2/a0": {
+      "count": 100,
+      "sha256": "474efa360735dd733f1b72a7b3dc4cecd9ca24928a0987c79d9ea99b761d1c94"
+    },
+    "t34-claim-a/r1-labels-v4/train/s2/a1": {
+      "count": 100,
+      "sha256": "4ce128160824a79a6efac71c115f1b902802d1ec8f6a625ee45f38ff212f1975"
+    },
+    "t34-claim-a/r1-labels-v4/train/s3/a0": {
+      "count": 100,
+      "sha256": "88e0c1ea896e2cf4af56ce78c7ca06f7934e65e2aab3d2b723c2eb6ac40bd630"
+    },
+    "t34-claim-a/r1-labels-v4/train/s3/a1": {
+      "count": 100,
+      "sha256": "252258488dc57fab5c30d4037b4f009fdbbaf0f621af3f04bc1afe69fa53e7bb"
+    },
+    "t34-claim-a/r1-labels-v4/train/s4/a0": {
+      "count": 100,
+      "sha256": "cf14e307e5206ab9867b60a98a10d8a930c2faad4363643e74edbd480853cca9"
+    },
+    "t34-claim-a/r1-labels-v4/train/s4/a1": {
+      "count": 100,
+      "sha256": "fba462fe2beee85d4dacf4777380108e430bb19828a3150295060d19fb33df45"
+    },
+    "t34-claim-a/r1-labels-v4/train/s5/a0": {
+      "count": 100,
+      "sha256": "c07c642a501d763c604f4254af6ba44975ff8dd2430cb8ed153b18df1ae51fd6"
+    },
+    "t34-claim-a/r1-labels-v4/train/s5/a1": {
+      "count": 100,
+      "sha256": "983783a6615e42337bae713afc4ae34ec9896c3364ff0cba876ad739e747bb97"
+    },
+    "t34-claim-a/r1-labels-v4/train/s6/a0": {
+      "count": 100,
+      "sha256": "fddcc9a01e319ca2c49d8371157f2f467d6adf6313c95761acc677cbf881915d"
+    },
+    "t34-claim-a/r1-labels-v4/train/s6/a1": {
+      "count": 100,
+      "sha256": "43f23ab696f0f4270f5394070b7a9821d53932e223f8ceb5a8d587b129b39c7f"
+    },
+    "t34-claim-a/r1-labels-v4/train/s7/a0": {
+      "count": 100,
+      "sha256": "0fed4f9fb2999bf8785cddf68aabd4e98147d73972a6fdecffd907bc483eb227"
+    },
+    "t34-claim-a/r1-labels-v4/train/s7/a1": {
+      "count": 100,
+      "sha256": "5755572e48f07b5379ecdd52cb1aecb41d97a3b99965cc85f96ab325bc0dfd1e"
+    }
+  },
+  "note": "raw seeds deliberately omitted; recompute with namespace_seeds()",
+  "registered_banks": {
+    "retention_v2": {
+      "bank_seeds": 177,
+      "collisions": 0,
+      "path": "research/t34_pathb/RETENTION_BANK_V2.json",
+      "sha256": "af54fd499e99575bcc960c78fc3c52d756f8e1c1a52ca65edb95bb5b013f6d95"
+    },
+    "round0": {
+      "bank_seeds": 242,
+      "collisions": 0,
+      "path": "research/t34_round0/BANK_ROUND0.json",
+      "sha256": "76863477c4e47bee40c19980ca0dd01983f1bf49ea473c8b2fd4018958d0c2ae"
+    },
+    "round0d": {
+      "bank_seeds": 272,
+      "collisions": 0,
+      "path": "research/t34_round0d/BANK_ROUND0D.json",
+      "sha256": "1d8ec23e1613047c46d28334f2a0762117f696c0ed9e79555baea9eaf3dfdff0"
+    }
+  },
+  "scan_repo": "/Users/josenunez/Projects/ml/snake-dqn",
+  "schema": "t34-claim-a-seed-audit/v1",
+  "selection": "namespace family r1-labels-v4: first family (v1..) whose full audit passed; earlier families failed the fail-closed freshness scan on incidental numeric matches",
+  "status": "PASS"
+}
