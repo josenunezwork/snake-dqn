@@ -2,8 +2,8 @@
 
 Development experiments only, excluded from every registered T34 verdict.
 No result here authorizes a release, serving change, or automatic training run.
-The frozen authorities are `REGISTRATION_E6.md`, `REGISTRATION_E7.md`, and the
-pre-data `IDENTITY_ADDENDUM.md`. They were published before any gameplay.
+The frozen authorities are `REGISTRATION_E6.md`, `REGISTRATION_E7.md`, and their sibling
+identity/allocation/compatibility addenda. They were published before any gameplay.
 
 E6 measures whether 64 candidate decisions, taken 100 decisions before a late
 B8 death, improve remaining H5000 mass after B8 resumes. It includes ordinary
@@ -53,8 +53,8 @@ complete E6 source bank and never silently recollects a replacement bank.
 
 `run.sh` is the child script for the unchanged qualified `research/colab_cli`
 supervisor. It uses Python 3.12/bootstrap dependencies and CPU policies on an
-L4 assignment, with one native math thread per worker. Scientific runs use up
-to 12 processes and deterministic merge order. Local preflight uses nice10 and
+L4 assignment, with one native math thread per worker. Scientific runs use exactly
+12 processes and deterministic merge order. Local preflight uses nice10 and
 at most two single-thread processes. No launcher in this package allocates or
 calls the Colab CLI. This build does not dispatch.
 
