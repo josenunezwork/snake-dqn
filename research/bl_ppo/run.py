@@ -8,6 +8,7 @@ published results are create-only exports with the supervisor sidecars.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -288,7 +289,9 @@ def _make_collector(args: argparse.Namespace, processes: int):
         long_bodies=args.long_bodies,
         native_v8=args.native_v8,
         preflight=args.preflight,
-        excluded_seeds=frozenset(all_seeds(materialize())),
+        excluded_seeds=frozenset(
+            set(all_seeds(materialize())) | set(getattr(args, "p1_excluded_seeds", ()))
+        ),
     )
     return PersistentCollector(config)
 
@@ -418,7 +421,7 @@ def _identity(args: argparse.Namespace, temperature: float) -> dict[str, Any]:
     from research.bl_ppo.bank import canonical_sha, materialize
     from research.bl_ppo.rule import RULE
 
-    return {
+    value = {
         "arm": args.arm,
         "temperature": temperature,
         "horizon": HORIZON,
@@ -436,9 +439,24 @@ def _identity(args: argparse.Namespace, temperature: float) -> dict[str, Any]:
         "native_v8": bool(args.native_v8),
         "long_bodies": args.long_bodies,
         "roster": args.roster,
-        "e4_receipt_sha256": None if args.preflight else verify_export(args.e4_receipt),
-        "e9_receipt_sha256": None if args.preflight else verify_export(args.e9_receipt),
+        "e4_receipt_sha256": (
+            None
+            if args.preflight or getattr(args, "p1_runtime", False)
+            else verify_export(args.e4_receipt)
+        ),
+        "e9_receipt_sha256": (
+            None
+            if args.preflight or getattr(args, "p1_runtime", False)
+            else verify_export(args.e9_receipt)
+        ),
     }
+    if getattr(args, "p1_runtime", False):
+        value.update(
+            p1_runtime=True,
+            p1_registration_sha256=args.p1_registration_sha256,
+            p1_evaluation_bank_sha256=args.p1_evaluation_bank_sha256,
+        )
+    return value
 
 
 def _record_fixed_bank_monitor(
@@ -508,17 +526,43 @@ def _record_fixed_bank_monitor(
 
 
 def run_train(args: argparse.Namespace) -> dict[str, Any]:
-    """Run one fixed E2 arm.  Completion and tripwire status are always exported."""
+    """Run one fixed E2 arm or the separately registered P1 endpoint.
+
+    The P1 switches are deliberately opt-in and validated here, rather than
+    weakening any of E2's E4/E9 admission rules.  A P1 pause is a complete
+    collector boundary with a full snapshot; only its 100M boundary writes an
+    evaluator endpoint.
+    """
     run_started = time.monotonic()
+    p1_runtime = bool(getattr(args, "p1_runtime", False))
     if args.output.exists() and (not args.output.is_dir() or any(args.output.iterdir())):
         raise ValueError("training and explicit recovery require a fresh output directory")
-    transitions = (
-        args.transitions
-        if args.preflight
-        else e4_target_transitions(
-            args.e4_receipt, args.transitions, allow_scale=args.scale_forecast_approved
+    if p1_runtime:
+        if args.preflight or args.arm != "F" or args.seed != 20261021:
+            raise ValueError("P1 is fixed to the production F recipe and seed 20261021")
+        if args.transitions != 100_000_000 or args.worlds != 128:
+            raise ValueError("P1 endpoint is exactly 100000000 actor transitions on 128 worlds")
+        if args.long_bodies:
+            raise ValueError("P1 uses natural resets; long-body ruler fixtures are prohibited")
+        if args.processes != 12 or args.rollout_steps != 128 or args.roster != "frozen-equal-mixes":
+            raise ValueError(
+                "P1 collector recipe is fixed at 12 processes, 128 rollout steps and equal mixes"
+            )
+        if args.native_v8 is not True:
+            raise ValueError("P1 requires the frozen native-v8 opponent recipe")
+        transitions = 100_000_000
+        pause_at = int(getattr(args, "pause_at", transitions))
+        if not 0 <= pause_at <= transitions or pause_at % args.worlds:
+            raise ValueError("P1 pause_at must be a whole 128-world actor boundary")
+    else:
+        transitions = (
+            args.transitions
+            if args.preflight
+            else e4_target_transitions(
+                args.e4_receipt, args.transitions, allow_scale=args.scale_forecast_approved
+            )
         )
-    )
+        pause_at = transitions
     if args.preflight and (not isinstance(transitions, int) or transitions < 1):
         raise ValueError("tiny preflight requires an explicit positive --transitions")
     if args.preflight:
@@ -526,9 +570,9 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError("preflight train is limited to <=2 worlds/processes")
         if not args.allow_tiny_preflight:
             raise ValueError("preflight requires --allow-tiny-preflight")
-    elif args.checkpoint_every < 1800:
+    elif not p1_runtime and args.checkpoint_every < 1800:
         raise ValueError("scientific E2 checkpoint cadence must be at least 1800 seconds")
-    else:
+    elif not p1_runtime:
         # This check is intentionally before calibration, model construction or
         # worker creation: a failed E9 operating-characteristics result means
         # E2 has no prospectively admissible scientific collection design.
@@ -542,6 +586,15 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
 
     import numpy as np
     import torch
+
+    if p1_runtime:
+        # Y3 compares a continuation across replacement L4 assignments.  This
+        # is P1-only setup made before model construction; legacy E2 behavior
+        # remains byte-for-byte untouched.
+        torch.use_deterministic_algorithms(True)
+        if torch.cuda.is_available():
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
 
     from research.bl_ppo.bank import all_seeds, materialize
     from research.bl_ppo.collector import CollectorConfig, PersistentCollector
@@ -585,7 +638,9 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         long_bodies=args.long_bodies,
         native_v8=args.native_v8,
         preflight=args.preflight,
-        excluded_seeds=frozenset(all_seeds(materialize())),
+        excluded_seeds=frozenset(
+            set(all_seeds(materialize())) | set(getattr(args, "p1_excluded_seeds", ()))
+        ),
     )
     collector = PersistentCollector(config)
     counters: dict[str, Any] = {
@@ -594,6 +649,8 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         "critic_refit_fit_transitions": 0,
         "actor_transitions": 0,
         "updates": 0,
+        "actor_updates": 0,
+        "actor_episode_boundaries": 0,
         "actor_enabled": False,
         "collection_seconds": 0.0,
         "learner_seconds": 0.0,
@@ -606,6 +663,15 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         refit_bank = getattr(adapter, "refit_bank", None)
         if not isinstance(refit_bank, CompleteLifeRefitBank):
             raise ValueError("E8 resume lacks complete-life critic qualification state")
+    counters.setdefault("actor_updates", 0)
+    counters.setdefault("actor_episode_boundaries", 0)
+    actor_updates_at_start = int(counters.get("actor_updates", 0))
+    actor_episodes_at_start = int(counters.get("actor_episode_boundaries", 0))
+    action_trace: list[dict[str, Any]] = []
+    trace_limit = int(getattr(args, "p1_trace_actions", 0))
+    trace_hasher = hashlib.sha256() if trace_limit else None
+    trace_actions_total = 0
+    durability_mode = bool(getattr(args, "p1_durability", False))
     requested_stop = {"value": False}
 
     def mark_stop(_signum: int, _frame: Any) -> None:
@@ -617,6 +683,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     last_checkpoint = time.monotonic()
     status = "RUNNING"
     tripwires: list[dict[str, Any]] = []
+    snapshot_export: Path | None = None
     try:
         # Critic-only refit must complete on at least 2M *stochastic initial
         # actor* transitions before any residual actor / encoder update.
@@ -750,10 +817,25 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         counters["actor_enabled"] = status == "RUNNING"
         while (
             status == "RUNNING"
-            and counters["actor_transitions"] < transitions
+            and (
+                counters["actor_transitions"] < pause_at
+                or (
+                    durability_mode
+                    and (
+                        counters["actor_transitions"] < 1_000
+                        or counters["actor_updates"] - actor_updates_at_start < 3
+                        or counters["actor_episode_boundaries"] - actor_episodes_at_start < 1
+                    )
+                )
+            )
             and not requested_stop["value"]
         ):
-            remaining = transitions - counters["actor_transitions"]
+            remaining = pause_at - counters["actor_transitions"]
+            if durability_mode:
+                # Durability stops only after its independently stated minimums;
+                # it may pass the nominal 1k action floor at whole-rollout
+                # boundaries, never by trimming an on-policy rollout.
+                remaining = max(remaining, args.worlds * args.rollout_steps)
             if remaining % args.worlds:
                 raise ValueError(
                     "fixed E2 target must divide exactly into whole-world collector steps"
@@ -766,6 +848,24 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             rollout = adapter.take_rollout(raw, collector.peek())
             counters["hero_transitions"] += int(raw.active_transitions)
             counters["actor_transitions"] += int(raw.active_transitions)
+            counters["actor_episode_boundaries"] += int(np.asarray(raw.done, dtype=bool).sum())
+            if trace_limit and len(action_trace) < trace_limit:
+                take = min(trace_limit - len(action_trace), len(raw.action))
+                action_trace.extend(
+                    {
+                        "action": int(action),
+                        "done": bool(done),
+                        "world_id": int(world),
+                        "episode": int(episode),
+                    }
+                    for action, done, world, episode in zip(
+                        raw.action[:take], raw.done[:take], raw.world_id[:take], raw.episode[:take]
+                    )
+                )
+            if trace_hasher is not None:
+                for part in (raw.action, raw.done, raw.world_id, raw.episode):
+                    trace_hasher.update(np.ascontiguousarray(part).tobytes())
+                trace_actions_total += len(raw.action)
             events = adapter.action_windows.observe(adapter.last_actions, adapter.last_b8_actions)
             adapter.diagnostics.observe(
                 raw,
@@ -786,6 +886,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 _record_fixed_bank_monitor(adapter, policy, args, counters)
             counters["learner_seconds"] += time.monotonic() - learning_started
             counters["updates"] += 1
+            counters["actor_updates"] += 1
             print(json.dumps({"progress": counters}), flush=True)
             if time.monotonic() - last_checkpoint >= args.checkpoint_every:
                 from research.bl_ppo.recovery import capture_full_snapshot
@@ -806,15 +907,25 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 last_checkpoint = time.monotonic()
         # The endpoint is deliberately evaluator-loadable; full recovery state
         # remains in a distinct periodic snapshot.
-        if status == "RUNNING":
-            if not args.preflight and adapter.ordinary_bank.frozen:
+        if status == "RUNNING" and counters["actor_transitions"] >= pause_at:
+            if (
+                not args.preflight
+                and adapter.ordinary_bank.frozen
+                and (not p1_runtime or pause_at == transitions)
+            ):
                 _record_fixed_bank_monitor(adapter, policy, args, counters, endpoint=True)
-            endpoint = args.output / "endpoint.pt"
-            export_torch(endpoint, policy.checkpoint_dict())
             from research.bl_ppo.recovery import capture_full_snapshot
 
+            snapshot_label = str(getattr(args, "p1_snapshot_label", ""))
+            snapshot_prefix = f"{snapshot_label}-" if snapshot_label else ""
+            snapshot_export = _unique_path(
+                args.output,
+                snapshot_prefix
+                + ("final-snapshot" if pause_at == transitions else "pause-snapshot"),
+                ".pt",
+            )
             export_torch(
-                _unique_path(args.output, "final-snapshot", ".pt"),
+                snapshot_export,
                 capture_full_snapshot(
                     policy,
                     learner,
@@ -826,7 +937,38 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 ),
                 max_payload_bytes=SNAPSHOT_MAX_BYTES,
             )
-            status = "COMPLETE" if counters["actor_transitions"] >= transitions else "INTERRUPTED"
+            if pause_at == transitions:
+                endpoint = args.output / "endpoint.pt"
+                export_torch(endpoint, policy.checkpoint_dict())
+                status = "COMPLETE"
+            else:
+                status = "PAUSED"
+        elif status == "RUNNING" and requested_stop["value"]:
+            # A signal is observed only after `collect` has returned and the
+            # learner has completed the rollout.  Preserve that exact boundary
+            # for a prepared recovery, while never presenting it as an endpoint.
+            from research.bl_ppo.recovery import capture_full_snapshot
+
+            snapshot_label = str(getattr(args, "p1_snapshot_label", ""))
+            snapshot_export = _unique_path(
+                args.output,
+                f"{snapshot_label + '-' if snapshot_label else ''}interrupted-snapshot",
+                ".pt",
+            )
+            export_torch(
+                snapshot_export,
+                capture_full_snapshot(
+                    policy,
+                    learner,
+                    collector,
+                    adapter,
+                    counters,
+                    identity,
+                    immutable_dir=args.output,
+                ),
+                max_payload_bytes=SNAPSHOT_MAX_BYTES,
+            )
+            status = "INTERRUPTED"
     except FloatingPointError as exc:
         tripwires.append(
             {
@@ -853,8 +995,13 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             )
         status = "KILL"
     except ValueError as exc:
-        tripwires.append({"kind": "integrity", "error": str(exc)})
-        status = "INCOMPLETE"
+        numeric_failure = p1_runtime and any(
+            token in str(exc).lower() for token in ("nonfinite", "non-finite", "finite", "nan")
+        )
+        tripwires.append(
+            {"kind": "nonfinite" if numeric_failure else "integrity", "error": str(exc)}
+        )
+        status = "KILL" if numeric_failure else "INCOMPLETE"
     finally:
         signal.signal(signal.SIGTERM, old_term)
         signal.signal(signal.SIGUSR1, old_usr1)
@@ -881,11 +1028,15 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             bool(critic_refit.get("qualified", False)) if "critic_refit" in locals() else False
         ),
         "target_transitions": transitions,
+        "pause_at": pause_at,
         "wall_seconds": time.monotonic() - run_started,
-        "e4_receipt_sha256": None if args.preflight else verify_export(args.e4_receipt),
+        "e4_receipt_sha256": (
+            None if args.preflight or p1_runtime else verify_export(args.e4_receipt)
+        ),
         "e9_rule_sha256": identity["e9_rule_sha256"],
         "e9_receipt_sha256": identity["e9_receipt_sha256"],
         "scientific": not args.preflight,
+        "p1_runtime": p1_runtime,
         "stop_reason": (
             "tripwire"
             if tripwires
@@ -893,13 +1044,36 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 "endpoint"
                 if status == "COMPLETE"
                 else (
-                    "critic_not_qualified"
-                    if status == "INCOMPLETE" and "critic_refit" in locals()
-                    else status.lower()
+                    "pause_boundary"
+                    if status == "PAUSED"
+                    else (
+                        "critic_not_qualified"
+                        if status == "INCOMPLETE" and "critic_refit" in locals()
+                        else status.lower()
+                    )
                 )
             )
         ),
     }
+    if snapshot_export is not None:
+        value["snapshot"] = {"path": snapshot_export.name, "sha256": verify_export(snapshot_export)}
+    if trace_limit:
+        trace_path = args.output / "action-trace.json"
+        trace_export = export_json(
+            trace_path,
+            {
+                "schema": "bl-ppo-p1-action-trace/v1",
+                "actions_requested": trace_limit,
+                "actions_recorded": len(action_trace),
+                "full_tape_actions": trace_actions_total,
+                "full_tape_sha256": trace_hasher.hexdigest() if trace_hasher else None,
+                "rows": action_trace,
+                "actor_updates": counters["actor_updates"] - actor_updates_at_start,
+                "episode_boundaries": counters["actor_episode_boundaries"]
+                - actor_episodes_at_start,
+            },
+        )
+        value["action_trace"] = {"path": trace_path.name, **trace_export}
     if status == "COMPLETE":
         value["checkpoint_sha256"] = verify_export(args.output / "endpoint.pt")
     export_json(args.output / "training-status.json", value)

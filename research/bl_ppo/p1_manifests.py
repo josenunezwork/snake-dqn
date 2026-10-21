@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import gzip
+import io
 import json
 import math
 import subprocess
+import tarfile
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +123,7 @@ def _source_identity(commit: str) -> dict[str, str]:
     paths = [
         "REGISTRATION_P1.md",
         "P1_EXECUTION_NOTE.md",
+        "P1_BANK_PIN.json",
         "E8_AMENDMENT.md",
         "model.py",
         "learner.py",
@@ -144,6 +148,30 @@ def _source_identity(commit: str) -> dict[str, str]:
     return result
 
 
+def bundle_inputs(root: Path, rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Keep Contents staging at two inputs, including actual receipt sidecars."""
+    public = [row for row in rows if row["dest"] == "public-inputs.json"]
+    packed = [row for row in rows if row["dest"] != "public-inputs.json"]
+    buffer = io.BytesIO()
+    with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0) as compressed:
+        with tarfile.open(fileobj=compressed, mode="w") as archive:
+            for row in sorted(packed, key=lambda item: item["dest"]):
+                if Path(row["dest"]).name != row["dest"]:
+                    raise ValueError("P1 input bundle permits only flat regular files")
+                path = Path(row["path"])
+                if digest(path) != row["sha256"]:
+                    raise ValueError("P1 input changed while preparing bundle")
+                body = path.read_bytes()
+                header = tarfile.TarInfo(row["dest"])
+                header.size = len(body)
+                archive.addfile(header, io.BytesIO(body))
+    payload = buffer.getvalue()
+    if len(payload) > 6 * 1024**2:
+        raise ValueError("P1 input bundle exceeds 6 MiB; use runtime download catalogs")
+    export_bytes(root / "p1-inputs.tar.gz", payload)
+    return public + [input_row(root / "p1-inputs.tar.gz", "p1-inputs.tar.gz")]
+
+
 def prepare(
     *,
     root: Path,
@@ -159,6 +187,7 @@ def prepare(
     audit: Path | None = None,
     parity: Path | None = None,
     endpoint_receipt: Path | None = None,
+    previous_receipt: Path | None = None,
 ) -> dict[str, Any]:
     """Write a fresh attempt, immutable manifest and real source/upload receipt."""
     if phase not in PHASES or not 1 <= chunk <= 5:
@@ -197,6 +226,8 @@ def prepare(
             item["unit_cap"],
             item["pause_at"],
         )
+        if chunk > 1 and previous_receipt is None:
+            blockers.append("immutable preceding tranche receipt and exact boundary snapshot")
     else:
         estimate, timeout, cap, pause = 90, 180, 10.0, TARGET
         if bank is None:
@@ -212,6 +243,7 @@ def prepare(
         "phase": phase,
         "target": TARGET,
         "pause_at": pause,
+        "start_at": plan["chunks"][chunk - 1]["start"] if phase == "tranche" else 0,
         "requested_pause_at": 1_000_000 if phase == "qual-1m" else pause,
         "seed": 20261021,
         "arm": "F",
@@ -231,6 +263,19 @@ def prepare(
         "expected_trace_name": expected_trace_name,
         "prerequisites": prerequisites,
     }
+    if bank is not None and audit is not None:
+        from research.bl_ppo.p1_eval import check_audit
+
+        allocation, seed_audit = complete_json(bank), complete_json(audit)
+        check_audit(allocation, seed_audit)
+        control.update(
+            evaluation_round=allocation["round_index"],
+            evaluation_bank_sha256=allocation["allocation_sha256"],
+            evaluation_audit_sha256=digest(audit),
+            evaluation_excluded_seeds=sorted(int(row["world_seed"]) for row in allocation["rows"]),
+        )
+    elif phase != "eval":
+        blockers.append("pre-data frozen fresh evaluation bank and collision audit")
     inputs = [input_row(ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json", "public-inputs.json")]
     if downloads is not None:
         download_rows = validate_catalog(json.loads(downloads.read_text()))
@@ -239,24 +284,41 @@ def prepare(
             raise ValueError("resume snapshot missing from transitive download catalog")
         if expected_trace_name and expected_trace_name not in names:
             raise ValueError("Y3 expected trace missing from download catalog")
+        if phase == "eval" and resume_name and endpoint_receipt:
+            endpoint = complete_json(endpoint_receipt)
+            downloaded = next(row for row in download_rows if row["name"] == resume_name)
+            if downloaded["sha256"] != endpoint.get("checkpoint_sha256"):
+                raise ValueError("evaluation runtime download differs from the fixed 100M endpoint")
         inputs.append(input_row(downloads, "runtime-downloads.json"))
         control["runtime_downloads_sha256"] = digest(downloads)
     elif phase != "y3-source":
         blockers.append("runtime-fetch catalog with complete transitive snapshot set")
-    if phase in {"y3-replacement", "qual-1m", "tranche"} and resume_name is None:
+    if phase in {"y3-replacement", "qual-1m", "tranche", "eval"} and resume_name is None:
         blockers.append("exact origin/preceding boundary snapshot name")
     if phase == "y3-replacement" and expected_trace_name is None:
         blockers.append("source continuation tape and full-state identity")
+    if previous_receipt is not None:
+        previous = complete_json(previous_receipt)
+        if (
+            previous.get("schema") != "bl-p1-tranche/v1"
+            or previous.get("status") != "PAUSED"
+            or previous.get("source_commit") != commit
+            or previous.get("target") != TARGET
+            or previous.get("actor_transitions") != control["start_at"]
+        ):
+            raise ValueError("preceding tranche receipt differs from the frozen boundary")
+        control["previous_receipt_sha256"] = digest(previous_receipt)
     if evidence is not None:
         for suffix in ("", ".sha256", ".complete"):
             inputs.append(input_row(Path(str(evidence) + suffix), "admission.json" + suffix))
-    if bank is not None:
+    if bank is not None and phase == "eval":
         for suffix in ("", ".sha256", ".complete"):
             inputs.append(input_row(Path(str(bank) + suffix), "bank.json" + suffix))
     for path, name in (
         (audit, "bank-audit.json"),
         (parity, "parity.json"),
         (endpoint_receipt, "endpoint-receipt.json"),
+        (previous_receipt, "previous.json"),
     ):
         if path is not None:
             complete_json(path)
@@ -267,7 +329,8 @@ def prepare(
         not b.startswith(("Claude:", "independent")) for b in blockers
     )
     export_json(root / "p1-control.json", control)
-    inputs.append(input_row(root / "p1-control.json", "p1-control.json"))
+    for suffix in ("", ".sha256", ".complete"):
+        inputs.append(input_row(root / ("p1-control.json" + suffix), "p1-control.json" + suffix))
     manifest = _base(
         job_id=f"bl-p1-{phase}-{chunk:02d}-{commit[:8]}-{root.name}",
         commit=commit,
@@ -279,7 +342,7 @@ def prepare(
     manifest.update(
         script="research/bl_ppo/p1_colab.sh",
         claim="P1_FIXED_ENDPOINT_DEVELOPMENT_ONLY",
-        inputs=inputs,
+        inputs=bundle_inputs(root, inputs),
         env={
             "BL_P1_MODE": phase,
             "BL_PPO_COMMIT": commit,
@@ -362,6 +425,7 @@ def main() -> None:
     parser.add_argument("--audit", type=Path)
     parser.add_argument("--parity", type=Path)
     parser.add_argument("--endpoint-receipt", type=Path)
+    parser.add_argument("--previous-receipt", type=Path)
     parser.add_argument("--inventory", type=Path)
     args = parser.parse_args()
     inventory = json.loads(args.inventory.read_text()) if args.inventory else None
@@ -381,6 +445,7 @@ def main() -> None:
                 audit=args.audit,
                 parity=args.parity,
                 endpoint_receipt=args.endpoint_receipt,
+                previous_receipt=args.previous_receipt,
             ),
             sort_keys=True,
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,12 @@ from research.bl_ppo.p1_manifests import QUAL_PAUSE, complete_json, measured_pla
 
 def terminal(path: Path) -> dict[str, Any]:
     """Require success and verified release, not a CLI return code."""
-    row = complete_json(path)
+    # The unchanged supervisor publishes receipt.json with write_once(),
+    # without experiment sidecars. Bind those exact original bytes in our
+    # create-only result; never alter the supervisor's receipt.
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("missing or unsafe supervisor receipt")
+    row = json.loads(path.read_text())
     if (
         row.get("status") != "PASS"
         or row.get("stop_verified") is not True
@@ -52,6 +58,17 @@ def finalize(
         raise ValueError("Y3 source and replacement must be distinct assignments")
     if len({s.get("commit") for s in (source, replacement, qual_session)}) != 1:
         raise ValueError("P1 qualification source commit differs across assignments")
+    if (
+        durability.get("source_endpoint") != source["endpoint"]
+        or durability.get("replacement_endpoint") != replacement["endpoint"]
+        or durability.get("source_commit") != source["commit"]
+        or not any(item.get("sha256") == digest(y3) for item in replacement.get("exports", []))
+        or not any(
+            item.get("sha256") == durability.get("source_receipt_sha256")
+            for item in source.get("exports", [])
+        )
+    ):
+        raise ValueError("Y3 proof is not bound to its source/replacement terminal exports")
     exports = qual_session.get("exports", [])
     if not any(
         item.get("sha256") == digest(runtime) and Path(item.get("path", "")).name == runtime.name
@@ -65,6 +82,8 @@ def finalize(
         or run.get("actor_transitions") != QUAL_PAUSE
         or run.get("target") != 100_000_000
         or run.get("source_commit") != qual_session.get("commit")
+        or not run.get("origin_snapshot_sha256")
+        or run.get("origin_snapshot_sha256") != durability.get("origin_snapshot_sha256")
     ):
         raise ValueError("qualification runtime is not the fixed P1 1M boundary")
     actor_seconds = run.get("actor_phase_seconds")
@@ -87,8 +106,11 @@ def finalize(
         "prefix_seconds": sum(s["elapsed_seconds"] for s in (source, replacement, qual_session)),
         "transfer_and_release_verified": True,
         "source_commit": qual_session["commit"],
+        "registration_sha256": run.get("registration_sha256"),
         "runtime_sha256": digest(runtime),
         "y3_sha256": digest(y3),
+        "snapshot": run.get("snapshot"),
+        "origin_snapshot_sha256": run["origin_snapshot_sha256"],
         "supervisor_receipts": [
             {"path": str(p.resolve()), "sha256": digest(p)}
             for p in (source_supervisor, replacement_supervisor, supervisor)

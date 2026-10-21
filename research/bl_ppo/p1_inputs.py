@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import tarfile
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,41 @@ from research.bl_ppo.exports import export_bytes, verify_export
 
 MAX_BYTES = 2 * 1024**3
 SCHEMA = "bl-p1-runtime-downloads/v1"
+
+
+def unpack_bundle(bundle: Path, output: Path) -> dict[str, Any]:
+    """Extract the small pinned flat-file input bundle without path/link escapes."""
+    if bundle.stat().st_size > 6 * 1024**2:
+        raise ValueError("P1 compressed input bundle exceeds 6 MiB")
+    output.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(bundle, "r:gz") as archive:
+        members = archive.getmembers()
+        names: set[str] = set()
+        total = 0
+        for member in members:
+            if (
+                not member.isfile()
+                or Path(member.name).name != member.name
+                or member.name in {"", ".", ".."}
+                or member.name in names
+                or (output / member.name).exists()
+                or (output / member.name).is_symlink()
+            ):
+                raise ValueError("unsafe or conflicting P1 bundle member")
+            total += member.size
+            names.add(member.name)
+        if total > 64 * 1024**2 or not members:
+            raise ValueError("P1 bundle is empty or exceeds 64 MiB unpacked")
+        for member in members:
+            stream = archive.extractfile(member)
+            if stream is None:
+                raise ValueError("missing P1 bundle payload")
+            with (output / member.name).open("xb") as target:
+                target.write(stream.read())
+    for name in names:
+        if name.endswith(".complete"):
+            verify_export(output / name.removesuffix(".complete"))
+    return {"status": "VERIFIED", "files": len(members), "bytes": total}
 
 
 def validate_catalog(value: dict[str, Any]) -> list[dict[str, Any]]:
@@ -77,10 +113,17 @@ def materialize(catalog: Path, output: Path) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--catalog", type=Path, required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--catalog", type=Path)
+    mode.add_argument("--bundle", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    print(json.dumps(materialize(args.catalog, args.output), sort_keys=True))
+    result = (
+        unpack_bundle(args.bundle, args.output)
+        if args.bundle
+        else materialize(args.catalog, args.output)
+    )
+    print(json.dumps(result, sort_keys=True))
 
 
 if __name__ == "__main__":

@@ -118,3 +118,41 @@ def test_runtime_download_verifies_bytes_before_creating_sidecars(
     with pytest.raises(ValueError, match="size/hash"):
         materialize(path, tmp_path / "runtime")
     assert not list((tmp_path / "runtime").iterdir())
+
+
+def test_small_input_bundle_preserves_complete_receipts(tmp_path: Path) -> None:
+    from research.bl_ppo.exports import export_json, verify_export
+    from research.bl_ppo.manifests import input_row
+    from research.bl_ppo.p1_inputs import unpack_bundle
+    from research.bl_ppo.p1_manifests import bundle_inputs
+
+    source = tmp_path / "input"
+    source.mkdir()
+    receipt = source / "p1-control.json"
+    export_json(receipt, {"phase": "y3-source", "target": TARGET})
+    rows = [
+        input_row(Path(str(receipt) + suffix), receipt.name + suffix)
+        for suffix in ("", ".sha256", ".complete")
+    ]
+    manifest_inputs = bundle_inputs(source, rows)
+    assert len(manifest_inputs) == 1
+    destination = tmp_path / "runtime"
+    report = unpack_bundle(source / "p1-inputs.tar.gz", destination)
+    assert report["files"] == 3
+    assert verify_export(receipt) == verify_export(destination / receipt.name)
+
+
+@pytest.mark.parametrize("unsafe", ["../secret", "/secret"])
+def test_bundle_rejects_directory_escapes(tmp_path: Path, unsafe: str) -> None:
+    import io
+    import tarfile
+
+    from research.bl_ppo.p1_inputs import unpack_bundle
+
+    bundle = tmp_path / "input.tar.gz"
+    with tarfile.open(bundle, "w:gz") as archive:
+        member = tarfile.TarInfo(unsafe)
+        member.size = 1
+        archive.addfile(member, io.BytesIO(b"x"))
+    with pytest.raises(ValueError, match="unsafe"):
+        unpack_bundle(bundle, tmp_path / "output")

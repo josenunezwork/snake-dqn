@@ -1,5 +1,6 @@
 """A fast collection ruler is insufficient to admit the P1 tranche."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -22,27 +23,43 @@ def inputs(root: Path, *, stop_verified: bool = True, actor_seconds: float = 700
             "source_commit": "a" * 40,
             "actor_phase_seconds": actor_seconds,
             "timing_includes_collection_updates_probes": True,
+            "origin_snapshot_sha256": "b" * 64,
         },
     )
     y3 = root / "y3.json"
-    export_json(y3, {"schema": "bl-p1-y3/v1", "status": "PASS"})
+    export_json(
+        y3,
+        {
+            "schema": "bl-p1-y3/v1",
+            "status": "PASS",
+            "source_endpoint": "source",
+            "replacement_endpoint": "replacement",
+            "source_commit": "a" * 40,
+            "source_receipt_sha256": "c" * 64,
+            "origin_snapshot_sha256": "b" * 64,
+        },
+    )
     sessions = []
     for name in ("source", "replacement", "qualification"):
         path = root / f"{name}-supervisor.json"
-        export_json(
-            path,
-            {
-                "status": "PASS",
-                "stop_verified": stop_verified,
-                "cleanup_error": None,
-                "error": None,
-                "endpoint": name,
-                "commit": "a" * 40,
-                "terminal": {"status": "succeeded", "returncode": 0},
-                "elapsed_seconds": 900,
-                "exports": [{"path": run.name, "sha256": digest(run)}],
-            },
-        )
+        # Match the real supervisor convention: create-only JSON, no sidecars.
+        payload = {
+            "status": "PASS",
+            "stop_verified": stop_verified,
+            "cleanup_error": None,
+            "error": None,
+            "endpoint": name,
+            "commit": "a" * 40,
+            "terminal": {"status": "succeeded", "returncode": 0},
+            "elapsed_seconds": 900,
+            "exports": [{"path": run.name, "sha256": digest(run)}],
+        }
+        if name == "source":
+            payload["exports"] = [{"path": "receipt.json", "sha256": "c" * 64}]
+        if name == "replacement":
+            payload["exports"] = [{"path": "receipt.json", "sha256": digest(y3)}]
+        with path.open("x") as stream:
+            json.dump(payload, stream)
         sessions.append(path)
     return dict(
         runtime=run,
@@ -78,3 +95,14 @@ def test_slow_complete_job_is_retained_as_not_ready(tmp_path: Path) -> None:
 def test_runtime_cannot_claim_more_time_than_whole_assignment(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="collection\\+update\\+probe"):
         finalize(**inputs(tmp_path, actor_seconds=901))
+
+
+@pytest.mark.parametrize("which", ["source_supervisor", "replacement_supervisor"])
+def test_unrelated_successful_sessions_cannot_supply_y3(tmp_path: Path, which: str) -> None:
+    arguments = inputs(tmp_path)
+    path = arguments[which]
+    receipt = json.loads(path.read_text())
+    receipt["exports"] = [{"path": "unrelated.json", "sha256": "d" * 64}]
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="terminal exports"):
+        finalize(**arguments)
