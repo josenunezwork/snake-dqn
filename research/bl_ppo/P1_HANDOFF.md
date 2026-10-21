@@ -15,6 +15,9 @@ Artifact root:
 The root `DISPATCH.txt` indexes exact phase instructions and all preparation
 receipts. Every new receipt, manifest, bank and instruction has `.sha256` and
 `.complete`; they are create-only. A preparation receipt is never a live PASS.
+The committed `P1_PREPARATION_INDEX.json` binds all nine current manifest hashes,
+phase receipts, the artifact index, verification commands and Codex-V's
+`ARTIFACT_PREPARATION_ACCEPTED` receipt.
 
 ## Frozen contract and initial invoice
 
