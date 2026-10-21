@@ -170,3 +170,24 @@ def test_full_digest_equal_between_stock_and_native_steps() -> None:
         _drive(stock_world, 8, native=False)
         _drive(native_world, 8, native=True)
         assert full_digest(native_world) == full_digest(stock_world)
+
+
+@needs_checkpoint
+@pytest.mark.parametrize("body,mix,ties", [("xlong", "frozen", False), ("xlong", "mixed", True)])
+def test_branch_rollouts_equal_stock(body: str, mix: str, ties: bool) -> None:
+    """Merged branch rows (all six first actions, compaction, deaths) match the stock engine."""
+    from research.t34_exit_b8.engine import ExitTeacher, ExitTeacherConfig
+    from research.t34_speed_s2.native_v8 import NativeV8ExitTeacher
+
+    config = ExitTeacherConfig(horizon=60)
+    stock = ExitTeacher(config, device="cpu")
+    native = NativeV8ExitTeacher(config, device="cpu", audit=True)
+    choices = [list(range(6))]
+    expected = stock._rollout_merged([_world(body, mix, ties=ties)], choices)
+    observed = native._rollout_merged([_world(body, mix, ties=ties)], choices)
+    assert observed == expected
+    assert stock.profile()["active_row_steps"] == native.profile()["active_row_steps"]
+    stats = native.native_stats
+    assert stats.rows > 0 and stats.python_calls == 0
+    assert stats.audited_rows == stats.rows
+    assert stats.long_rows > 0
