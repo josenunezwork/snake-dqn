@@ -190,6 +190,17 @@ class _E16TerminalDriver:
             import importlib
 
             driver.sim._kernels = importlib.import_module(state["kernel_module"])
+        # NumPy pickle serializes views as separate arrays. Reattach the three
+        # occupancy interiors to padded storage before any compiled featurizer
+        # or dynamics call; otherwise restored observations use stale padding.
+        sim = driver.sim
+        pad = int(sim._grid_pad)
+        for name in ("owner", "slot", "food"):
+            stored = getattr(sim, f"_{name}")
+            view = getattr(sim, f"_{name}_pad")[:, pad : pad + sim.grid_h, pad : pad + sim.grid_w]
+            if not np.array_equal(stored, view):
+                raise AdmissionRequired("checkpoint grid interior/padding identity differs")
+            setattr(sim, f"_{name}", view)
         driver.last_actions = state.get("last_actions")
         driver.last_history_state = state.get("last_history_state")
         return driver
@@ -569,11 +580,12 @@ def _collect_critic_life(
         result = driver.step(action)
         collector.history.append(driver.last_history_state)
         spool.append(record, float(result["mass"]) / 1000.0, result["done"], result["frame"] - 1)
-        progress()
         if result["done"]:
             collector.terminal_reset()
             spool.finish()
+            progress()
             return spool
+        progress()
     raise RuntimeError("critic life failed to terminate at H5000")
 
 
