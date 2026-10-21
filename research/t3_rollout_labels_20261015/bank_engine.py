@@ -535,28 +535,38 @@ def rollout_all(
         )
         outcomes.pop("_batch_receipt")
         return outcomes
-    outcomes: dict[int, dict[str, Any]] = {}
-    for action in legal:
-        branch = world.clone()
-        executed = 0
-        step_prepared(branch, int(action))
-        executed += 1
-        while executed < depth and bool(branch.sim.alive[0, 0]):
-            choose_and_step(branch, capture_obs=False)
+    from research.bl_k1.native import branch_scope
+
+    with branch_scope(world.mix):
+        outcomes: dict[int, dict[str, Any]] = {}
+        for action in legal:
+            branch = world.clone()
+            # Branch diagnostics must never alias the parent or another branch.
+            for policy in [branch.hero, *branch.opponents]:
+                for name in ("live_vetoes", "veto_counters", "boost_counters", "last_veto"):
+                    if hasattr(policy, name):
+                        setattr(policy, name, copy.deepcopy(getattr(policy, name)))
+            executed = 0
+            step_prepared(branch, int(action))
             executed += 1
-        outcome = {
-            "survives": bool(branch.sim.alive[0, 0]) and executed == depth,
-            "frames_executed": executed,
-        }
-        if record_outcomes:
-            outcome.update(
-                death_decision=(
-                    None if bool(branch.sim.alive[0, 0]) else int(decision) + executed - 1
-                ),
-                # Dead heroes contribute zero logical mass at the branch horizon.
-                final_length=int(branch.sim.length[0, 0]) if bool(branch.sim.alive[0, 0]) else 0,
-            )
-        outcomes[int(action)] = outcome
+            while executed < depth and bool(branch.sim.alive[0, 0]):
+                choose_and_step(branch, capture_obs=False)
+                executed += 1
+            outcome = {
+                "survives": bool(branch.sim.alive[0, 0]) and executed == depth,
+                "frames_executed": executed,
+            }
+            if record_outcomes:
+                outcome.update(
+                    death_decision=(
+                        None if bool(branch.sim.alive[0, 0]) else int(decision) + executed - 1
+                    ),
+                    # Dead heroes contribute zero logical mass at the branch horizon.
+                    final_length=(
+                        int(branch.sim.length[0, 0]) if bool(branch.sim.alive[0, 0]) else 0
+                    ),
+                )
+            outcomes[int(action)] = outcome
     return outcomes
 
 
