@@ -61,6 +61,12 @@ def execute(args: argparse.Namespace) -> dict:
     if not args.smoke and (args.epochs != 60 or args.device != "cuda"):
         raise ValueError("production fits require frozen 60 epochs on CUDA")
     inputs = work / "inputs"
+    if catalog["schema"] == "bl-e3-input/v2":
+        from research.bl_info_value.compact import hydrate
+
+        if args.checkpoint_archive is None:
+            raise ValueError("compact inputs require the hash-bound checkpoint archive")
+        hydrate(catalog, inputs, args.checkpoint_archive)
     os.environ["SNAKE_CKPT_DIR"] = str(inputs / "checkpoints")
     out.mkdir(parents=True)
     tasks = []
@@ -78,6 +84,8 @@ def execute(args: argparse.Namespace) -> dict:
             schema="bl-e3-start/v1",
             protocol_sha256=sha256(PROTOCOL),
             input_sha256=args.archive_sha256,
+            source_archive_sha256=catalog.get("source_archive_sha256", args.archive_sha256),
+            input_schema=catalog["schema"],
             smoke=args.smoke,
             workers=args.workers,
             worlds=len(tasks),
@@ -132,7 +140,12 @@ def execute(args: argparse.Namespace) -> dict:
                 ) as parity_pool:
                     repeated = list(parity_pool.map(_reconstruct, tasks))
             other = merge(repeated)
-            if any(not np.array_equal(arrays[name], other[name]) for name in arrays):
+            if any(
+                arrays[name].dtype != other[name].dtype
+                or arrays[name].shape != other[name].shape
+                or arrays[name].tobytes(order="C") != other[name].tobytes(order="C")
+                for name in arrays
+            ):
                 raise ValueError("serial/parallel array-byte identity failed")
             parity_seconds = time.perf_counter() - parity_start
         write_npz(out / "dataset.npz", arrays)
@@ -195,6 +208,7 @@ def main() -> None:
     run = commands.add_parser("run")
     run.add_argument("--archive", type=Path, required=True)
     run.add_argument("--archive-sha256", required=True)
+    run.add_argument("--checkpoint-archive", type=Path)
     run.add_argument("--work", type=Path, required=True)
     run.add_argument("--out", type=Path, required=True)
     run.add_argument("--workers", type=int, default=1)

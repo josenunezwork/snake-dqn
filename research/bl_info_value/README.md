@@ -15,6 +15,23 @@ with 192/32/32 world splits and 768 decisive/768 counterweight roots. Each world
 has both classes. Split quotas fill shortages from other roots in that split,
 in fixed identity order; no target outcome participates in selection.
 
+The upload recovery uses `compact.py` to verify the original v1 archive and
+replace saved observation payloads with per-root SHA-256, dtype and shape
+bindings. The v2 archive contains only the seed/roster/root catalog. Replay
+regenerates local/global rasters, scalars and masks and checks their exact byte
+identities before any branch target. Original source indices, frames, actions,
+classes, death controls, splits, checkpoint hashes and protocol hash are retained.
+The original checkpoint bytes travel in a separate public GitHub input asset;
+the supervisor verifies its size/hash before allocation and again on runtime,
+and `compact.hydrate` verifies the exact checkpoint member set and every digest.
+This GitHub data asset grants no model release or serving authority.
+
+`manifests.py` enforces a conservative 1 MiB local-input limit for this recovery.
+The supervisor has a shared 300-second initial upload deadline, not a fixed safe
+byte limit and not a fresh allowance per file. Public input downloads use its
+separate bounded path. Recovery job/output identifiers must be fresh; the failed
+attempt is charged conservatively against the original 16-unit envelope.
+
 `reconstruct.py` verifies original raster/scalar/mask/action/frame identities,
 records preceding 128 decisions at the prepared selector seam, extracts six
 owner-relative occupancy planes plus unclipped tail-release order, and verifies

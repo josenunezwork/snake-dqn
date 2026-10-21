@@ -9,6 +9,7 @@ import pytest
 
 from research.bl_info_value.reconstruct import (
     ReconstructionError,
+    _check_row,
     _exact,
     _geometry,
     _history_state,
@@ -69,3 +70,35 @@ def test_exact_rejects_float_or_byte_drift() -> None:
     _exact("scalars", value, value.copy(), 3)
     with pytest.raises(ReconstructionError, match="identity mismatch"):
         _exact("scalars", value, np.array([1.00001], dtype=np.float32), 3)
+
+
+def test_compact_row_requires_original_dtype_shape_bytes_action_and_frame() -> None:
+    from research.bl_info_value.compact import array_binding
+
+    obs = {
+        name: np.array([[1, 2]], dtype=dtype)
+        for name, dtype in (
+            ("local", "uint8"),
+            ("global", "uint8"),
+            ("scalars", "float32"),
+            ("mask", "bool"),
+        )
+    }
+    row = dict(
+        obs_hashes={name: array_binding(value[0]) for name, value in obs.items()},
+        action=1,
+        frame=5,
+    )
+    _check_row(row, obs, 1, 4, 5)
+    for field in obs:
+        changed = dict(obs)
+        changed[field] = obs[field].astype("float64")
+        with pytest.raises(ReconstructionError, match="identity mismatch"):
+            _check_row(row, changed, 1, 4, 5)
+        changed[field] = obs[field].reshape((1, 1, 2))
+        with pytest.raises(ReconstructionError, match="identity mismatch"):
+            _check_row(row, changed, 1, 4, 5)
+    with pytest.raises(ReconstructionError, match="action/frame"):
+        _check_row(row, obs, 2, 4, 5)
+    with pytest.raises(ReconstructionError, match="action/frame"):
+        _check_row(row, obs, 1, 4, 6)
