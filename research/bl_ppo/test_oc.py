@@ -46,7 +46,8 @@ def test_efficacy_zero_variance_and_unequal_mix_weights() -> None:
 def test_new_bank_preserves_legacy_bytes() -> None:
     legacy = bank.materialize(0, allocation_version=1)
     prior = Path(
-        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-e2/screen-bank-v2/bank.json"
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-e2/"
+        "screen-bank-v2/bank.json"
     )
     if prior.exists():
         import json

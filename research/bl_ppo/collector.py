@@ -57,9 +57,13 @@ class RolloutBatch:
     action: np.ndarray
     reward: np.ndarray
     done: np.ndarray
+    survived_horizon: np.ndarray
     reset: np.ndarray
     world_id: np.ndarray
     frame: np.ndarray
+    length: np.ndarray
+    mix: np.ndarray
+    episode: np.ndarray
     active_transitions: int
     allocated_transitions: int
     wall_seconds: float
@@ -365,6 +369,20 @@ class _GridShard:
             allow_respawn=True,
         )
         self.rosters = _roster_rows(config, self.world_ids)
+        # The fixed roster allocation is the source of this label.  It is carried
+        # with every hero transition so reporting never tries to infer a mix from
+        # an opponent action or a post-hoc world ordering.
+        self.mix = np.asarray(
+            [
+                (
+                    "scripted"
+                    if all(kind == "scripted" for kind, _ in roster)
+                    else "frozen" if all(kind != "scripted" for kind, _ in roster) else "mixed"
+                )
+                for roster in self.rosters
+            ],
+            dtype="U8",
+        )
         self.frozen = _FrozenRoster(
             self.sim, self.episode_seeds, self.rosters, native_v8=config.native_v8
         )
@@ -389,6 +407,9 @@ class _GridShard:
             "reset": self.reset_next.copy(),
             "world_id": self.world_ids.copy(),
             "frame": self.episode_frame.copy(),
+            "length": self.sim.length[:, 0].copy(),
+            "mix": self.mix.copy(),
+            "episode": self.episode_number.copy(),
         }
 
     def _frozen_actions(self, actions: np.ndarray) -> None:
@@ -418,6 +439,9 @@ class _GridShard:
             "action": hero_actions.copy(),
             "reward": reward,
             "done": terminal.copy(),
+            # `done` alone conflates an H5000 survivor with a death on the
+            # final action.  Endpoint ledgers must retain this distinction.
+            "survived_horizon": (terminal & horizon & alive).copy(),
         }
         if terminal.any():
             selected = np.flatnonzero(terminal)
@@ -654,7 +678,18 @@ class PersistentCollector:
             ordered = [messages[index] for index in sorted(messages)]
             merged = {
                 key: np.concatenate([item[key] for item in ordered], axis=0)
-                for key in ("local", "global", "scalars", "mask", "reset", "world_id", "frame")
+                for key in (
+                    "local",
+                    "global",
+                    "scalars",
+                    "mask",
+                    "reset",
+                    "world_id",
+                    "frame",
+                    "length",
+                    "mix",
+                    "episode",
+                )
             }
             actions = self._actions(policy, merged)
             offset = 0
@@ -693,9 +728,15 @@ class PersistentCollector:
             action=np.asarray([item[2]["action"][item[3]] for item in flat], dtype=np.int64),
             reward=np.asarray([item[2]["reward"][item[3]] for item in flat], dtype=np.float32),
             done=np.asarray([item[2]["done"][item[3]] for item in flat], dtype=bool),
+            survived_horizon=np.asarray(
+                [item[2]["survived_horizon"][item[3]] for item in flat], dtype=bool
+            ),
             reset=np.asarray([item[2]["reset"][item[3]] for item in flat], dtype=bool),
             world_id=np.asarray([item[0] for item in flat], dtype=np.int64),
             frame=np.asarray([item[2]["frame"][item[3]] for item in flat], dtype=np.int32),
+            length=np.asarray([item[2]["length"][item[3]] for item in flat], dtype=np.int32),
+            mix=np.asarray([item[2]["mix"][item[3]] for item in flat], dtype="U8"),
+            episode=np.asarray([item[2]["episode"][item[3]] for item in flat], dtype=np.int64),
             active_transitions=active,
             allocated_transitions=self.config.worlds * steps,
             wall_seconds=wall,
@@ -730,7 +771,18 @@ class PersistentCollector:
         replies.sort(key=lambda row: int(row["worker"]))
         merged = {
             key: np.concatenate([row[key] for row in replies], axis=0)
-            for key in ("local", "global", "scalars", "mask", "reset", "world_id", "frame")
+            for key in (
+                "local",
+                "global",
+                "scalars",
+                "mask",
+                "reset",
+                "world_id",
+                "frame",
+                "length",
+                "mix",
+                "episode",
+            )
         }
         order = np.argsort(merged["world_id"], kind="stable")
         return {key: value[order] for key, value in merged.items()}

@@ -52,12 +52,14 @@ def export_json(path: Path, value: Any) -> dict[str, Any]:
     return export_bytes(path, (json.dumps(value, sort_keys=True, allow_nan=False) + "\n").encode())
 
 
-def export_torch(path: Path, value: Any) -> dict[str, Any]:
+def export_torch(path: Path, value: Any, *, max_payload_bytes: int | None = None) -> dict[str, Any]:
     """Export a complete torch snapshot with supervisor sidecars."""
     import torch
 
     buffer = io.BytesIO()
     torch.save(value, buffer)
+    if max_payload_bytes is not None and buffer.tell() > max_payload_bytes:
+        raise ValueError("snapshot exceeds its predeclared export byte bound")
     return export_bytes(path, buffer.getvalue())
 
 

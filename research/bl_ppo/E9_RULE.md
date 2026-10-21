@@ -76,9 +76,9 @@ False funding, false final efficacy, missed winners and expected units for that
 future pipeline are left null. No invented persistence gate substitutes for E17.
 This limitation and missing S1 prevent describing E9 as fully qualified.
 
-Immutable output: external `big-lever/exp/bl-e2/e9-oc-03/report.json`, with
+Immutable output: external `big-lever/exp/bl-e2/e9-oc-04/report.json`, with
 `.sha256` and `.complete`; SHA256
-`8ecc4a957587b6c8ef569901b788c554374df54edbef52d1201da495933c46f6`.
+`9b8ae3eb5ba02f85ed979de936191b9f5c3d3ceb270784cce444c14f9f26530e`.
 The report binds its `oc.py`/`rule.py` source hashes and the semantic rule SHA256
 `0275c6fdc52d67a117f732461844622516233bd2674e5a188a82a571e6d4fad6`.
-The earlier e9-oc-01 and e9-oc-02 exports are retained; e9-oc-03 supersedes them for planning.
+The earlier e9-oc-01 and e9-oc-02 exports are retained; e9-oc-04 supersedes them for planning.

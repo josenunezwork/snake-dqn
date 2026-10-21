@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from research.bl_ppo.exports import verify_export
+from research.bl_ppo.exports import export_torch, verify_export
 
 SCHEMA = "bl-ppo-full-snapshot/v1"
 
@@ -35,6 +35,48 @@ def _move(value: Any, device: str | torch.device) -> Any:
     return copy.deepcopy(value)
 
 
+_IMMUTABLE_REF = "__bl_ppo_immutable_state_ref__"
+
+
+def _adapter_snapshot_state(adapter: Any, immutable_dir: Path | None) -> dict[str, Any]:
+    state = {k: v for k, v in vars(adapter).items() if k not in {"policy", "device"}}
+    if immutable_dir is None or not isinstance(state.get("critic_refit_receipt"), dict):
+        return state
+    from research.bl_ppo.bank import canonical_sha
+
+    static = {"refit_bank": (canonical_sha(state["critic_refit_receipt"]), 64 * 1024**2)}
+    ordinary = state.get("ordinary_bank")
+    if getattr(ordinary, "frozen", False):
+        static["ordinary_bank"] = (ordinary.sha256, 192 * 1024**2)
+    for key, (identity, cap) in static.items():
+        if key not in state:
+            continue
+        target = Path(immutable_dir) / f"immutable-{key}-{identity[:16]}.pt"
+        if target.exists():
+            checksum = verify_export(target)
+        else:
+            checksum = export_torch(target, _move(state[key], "cpu"), max_payload_bytes=cap)[
+                "sha256"
+            ]
+        state[key] = {_IMMUTABLE_REF: {"name": target.name, "sha256": checksum}}
+    return state
+
+
+def _restore_adapter_value(value: Any, snapshot_path: Path) -> Any:
+    if not isinstance(value, dict) or _IMMUTABLE_REF not in value:
+        return value
+    reference = value[_IMMUTABLE_REF]
+    if set(value) != {_IMMUTABLE_REF} or not isinstance(reference, dict):
+        raise ValueError("invalid immutable recovery reference")
+    name = reference.get("name")
+    if not isinstance(name, str) or Path(name).name != name or name in {".", ".."}:
+        raise ValueError("unsafe immutable recovery reference")
+    target = Path(snapshot_path).parent / name
+    if verify_export(target) != reference.get("sha256"):
+        raise ValueError("immutable recovery reference digest differs")
+    return torch.load(target, map_location="cpu", weights_only=False)
+
+
 def capture_full_snapshot(
     policy: Any,
     learner: Any,
@@ -42,11 +84,13 @@ def capture_full_snapshot(
     adapter: Any,
     counters: dict[str, Any],
     identity: dict[str, Any],
+    *,
+    immutable_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Capture only between complete rollouts, including the actual burn-in history."""
     if getattr(adapter, "records", []):
         raise ValueError("checkpoint requires a completed rollout boundary")
-    adapter_state = {k: v for k, v in vars(adapter).items() if k not in {"policy", "device"}}
+    adapter_state = _adapter_snapshot_state(adapter, immutable_dir)
     return {
         "schema": SCHEMA,
         "identity": copy.deepcopy(identity),
@@ -107,7 +151,7 @@ def restore_full_snapshot(
         if key not in {"policy", "device"}:
             delattr(adapter, key)
     for key, item in _move(value["adapter"], adapter.device).items():
-        setattr(adapter, key, item)
+        setattr(adapter, key, _move(_restore_adapter_value(item, path), adapter.device))
     # Restore RNG last: model construction / process startup must not perturb the next draw.
     random.setstate(rng["python"])
     np.random.set_state(rng["numpy"])

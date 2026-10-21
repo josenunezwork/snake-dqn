@@ -57,6 +57,52 @@ class _MatchedFeedForward(nn.Module):
         return self.norm(self.down(torch.relu(self.up(features))))
 
 
+class PopArtValueHead(nn.Module):
+    """A PopArt-normalised value head with output-preserving statistic updates.
+
+    The underlying linear layer predicts a normalised finite-horizon return.
+    ``forward`` always returns values on the original mass-return scale.  When
+    target statistics move, the affine output layer is refit analytically so a
+    fixed input has exactly the same unnormalised value before and after the
+    update.
+    """
+
+    def __init__(self, input_size: int, beta: float = 0.999) -> None:
+        super().__init__()
+        if not 0.0 <= beta < 1.0:
+            raise ValueError("PopArt beta must lie in [0, 1)")
+        self.linear = nn.Linear(input_size, 1)
+        self.beta = float(beta)
+        self.register_buffer("mean", torch.zeros(()))
+        self.register_buffer("second_moment", torch.ones(()))
+        self.register_buffer("scale", torch.ones(()))
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        return self.scale * self.linear(features).squeeze(-1) + self.mean
+
+    def update_targets(self, targets: torch.Tensor) -> None:
+        """Update target moments while preserving all denormalised predictions."""
+        targets = targets.detach().reshape(-1).to(device=self.mean.device, dtype=self.mean.dtype)
+        if not targets.numel() or not torch.isfinite(targets).all():
+            raise ValueError("PopArt targets must be a non-empty finite tensor")
+        batch_mean = targets.mean()
+        batch_second = targets.square().mean()
+        old_mean, old_scale = self.mean.clone(), self.scale.clone()
+        new_mean = self.beta * self.mean + (1.0 - self.beta) * batch_mean
+        new_second = self.beta * self.second_moment + (1.0 - self.beta) * batch_second
+        new_scale = (new_second - new_mean.square()).clamp_min(1e-8).sqrt()
+        with torch.no_grad():
+            self.linear.weight.mul_(old_scale / new_scale)
+            self.linear.bias.mul_(old_scale).add_(old_mean - new_mean).div_(new_scale)
+            self.mean.copy_(new_mean)
+            self.second_moment.copy_(new_second)
+            self.scale.copy_(new_scale)
+
+    def normalise(self, targets: torch.Tensor) -> torch.Tensor:
+        """Return targets in the current PopArt coordinate system."""
+        return (targets - self.mean) / self.scale
+
+
 class PPOPolicy(nn.Module):
     """E2 categorical actor-critic with either recurrent or matched feedforward core.
 
@@ -98,7 +144,10 @@ class PPOPolicy(nn.Module):
         self.residual_policy = nn.Linear(256, 6)
         nn.init.zeros_(self.residual_policy.weight)
         nn.init.zeros_(self.residual_policy.bias)
-        self.critic = nn.Linear(256, 1)
+        # The actor remains exactly B8-plus-residual.  Only the critic sees the
+        # finite-horizon clock requested by E8.
+        self.critic = PopArtValueHead(257)
+        self._last_critic_features: torch.Tensor | None = None
 
     @property
     def is_recurrent(self) -> bool:
@@ -141,6 +190,8 @@ class PPOPolicy(nn.Module):
         scalars: torch.Tensor,
         hidden: torch.Tensor | None = None,
         reset: torch.Tensor | None = None,
+        *,
+        remaining_horizon: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
         """Return categorical logits, value estimate, and the next recurrent state.
 
@@ -154,8 +205,39 @@ class PPOPolicy(nn.Module):
             base_logits = self.teacher(local, global_, scalars) / self.temperature
         features = self.encoder(local, global_, scalars)
         core, next_hidden = self._core_forward(features, hidden, reset)
+        if remaining_horizon is None:
+            remaining_horizon = torch.ones((core.shape[0], 1), device=core.device, dtype=core.dtype)
+        elif remaining_horizon.shape == (core.shape[0],):
+            remaining_horizon = remaining_horizon.to(
+                device=core.device, dtype=core.dtype
+            ).unsqueeze(-1)
+        elif remaining_horizon.shape == (core.shape[0], 1):
+            remaining_horizon = remaining_horizon.to(device=core.device, dtype=core.dtype)
+        else:
+            raise ValueError("remaining_horizon must have shape [N] or [N, 1]")
+        if not torch.isfinite(remaining_horizon).all() or not (
+            (remaining_horizon >= 0.0).all() and (remaining_horizon <= 1.0).all()
+        ):
+            raise ValueError("remaining_horizon must be finite and lie in [0, 1]")
         logits = base_logits + self.residual_policy(core)
-        return logits, self.critic(core).squeeze(-1), next_hidden
+        critic_features = torch.cat((core, remaining_horizon), dim=-1)
+        # During E8 refit the shared core is frozen, so an adapter may retain
+        # held-out feature rows and evaluate them under the *final* PopArt head.
+        self._last_critic_features = critic_features.detach()
+        return logits, self.critic(critic_features), next_hidden
+
+    @property
+    def last_critic_features(self) -> torch.Tensor:
+        """Most recent ``[N, 257]`` critic input, detached from its forward graph."""
+        if self._last_critic_features is None:
+            raise RuntimeError("critic features are unavailable before a policy forward pass")
+        return self._last_critic_features
+
+    def value_from_critic_features(self, features: torch.Tensor) -> torch.Tensor:
+        """Evaluate the current PopArt critic head on saved frozen-core features."""
+        if features.ndim != 2 or features.shape[1] != 257:
+            raise ValueError("critic features must have shape [N, 257]")
+        return self.critic(features)
 
     def act(
         self,
@@ -167,6 +249,7 @@ class PPOPolicy(nn.Module):
         *,
         deterministic: bool = False,
         action_mask: torch.Tensor | None = None,
+        remaining_horizon: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
         """Select a categorical action and return ``(action, logp, value, hidden)``.
 
@@ -174,7 +257,14 @@ class PPOPolicy(nn.Module):
         before both sampling and log-probability calculation, so collector and
         learner must use the same mask semantics when one is supplied.
         """
-        logits, value, next_hidden = self(local, global_, scalars, hidden, reset)
+        logits, value, next_hidden = self(
+            local,
+            global_,
+            scalars,
+            hidden,
+            reset,
+            remaining_horizon=remaining_horizon,
+        )
         if not torch.isfinite(logits).all() or not torch.isfinite(value).all():
             raise FloatingPointError("non-finite policy logits or value")
         if action_mask is not None:
