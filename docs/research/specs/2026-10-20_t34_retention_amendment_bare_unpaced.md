@@ -1,4 +1,9 @@
-# T34 Path B v2 retention — pre-data amendment: the bare arm runs unpaced
+# T34 Path B v2 retention — pre-data amendment: the bare arm runs unpaced (+ relative boost floor)
+
+This amendment has two dated pre-data items:
+
+- **Item 1** (§1–§6): the Mac bare arm runs unpaced.
+- **Item 2** (§7, after the ratification order in §6): the owner-approved relative boost floor, 2026-10-20 ~19:55 PT.
 
 Status: **APPROVED pre-data amendment.** It takes effect only through a ratified registration that binds this
 file's sha256, both in `source_hashes` and in its `amendments` pointer. Such a registration exists only after the
@@ -44,15 +49,19 @@ Round 0 commits that landed after 97232d51 inside the retention import closure, 
 - Both new exceptions subclass `ValueError`, so existing handlers behave the same.
 - The Mac `bare` and `paced` paths do not call them. `_collect` matches only the engine's `NonFiniteQ`.
 
-Compared with the 97232d51 registration, `source_hashes` differs only in this amendment's three source files, this
-file, and those two files.
+Compared with the 97232d51 registration, `source_hashes` differs only in this file, those two files, and the
+amendment's sources: the three item-1 files above plus `analyze_v2.py` for item 2 (§7).
 
-Unchanged: the paced arm, the timing gate (`timing_v2`, including its paced OFF probes), host guard, caps,
-contention budget, banks, seeds, pairing and order, OC/power, analysis and decision rules.
+Item 1 leaves the following unchanged: the paced arm, the timing gate (`timing_v2`, including its paced OFF
+probes), the host guard, caps, contention budget, banks, seeds, pairing and order, OC/power, and the analysis and
+decision rules. The only analysis change is item 2's boost floor (§7).
 
-The preregistration is sha-bound and is not edited. This file is its sibling amendment. Preregistration line 219
-now reads "bare: unpaced (free running)". The study root on preregistration line 26 now reads
-`t34-retention-v2-operator-02`.
+The preregistration is sha-bound and is not edited. This file is its sibling amendment and supersedes three of its
+lines:
+
+- Line 219 is superseded to read "bare: unpaced (free running)".
+- The study root on line 26 is superseded to read `t34-retention-v2-operator-02`.
+- The boost rows at lines 314 and 349 are superseded by §7.
 
 ## 3. Why bare outcomes cannot change
 
@@ -179,8 +188,9 @@ All steps run on branch `t34-retention-bare-unpaced-20261020` in the authoring c
 5. Create a fresh detached worktree at the draft's `source_commit`.
 6. Write the trace receipt from that frozen worktree to a new file,
    `…/t34-retention-v2-operator-02/trace-receipt.json`. It runs the `tests/test_t34_pathb_*v2.py` glob with
-   `T34_TRACE_RECEIPT=1` on the Mac that holds the B8 artifact. It must show the bare-unpaced identity tests
-   **passed with 0 skipped**, and an overall PASS.
+   `T34_TRACE_RECEIPT=1` on the Mac that holds the B8 artifact. It must show an overall PASS, with both
+   `tests/test_t34_pathb_bare_unpaced_v2.py` and `tests/test_t34_pathb_boost_floor_v2.py` **passed with 0 skipped**.
+   `ratify` checks only the receipt's status and hashes, so the ratifier reads these counts in the receipt.
 7. Run `ratify --source-commit <draft source_commit> --trace-receipt <receipt>` and write the ratified JSON on the
    branch. Overwrite `REGISTRATION_RETENTION_V2_RATIFIED.json` with the new bytes; git history keeps the 97232d51
    bytes. Commit on the branch.
@@ -193,3 +203,57 @@ All steps run on branch `t34-retention-bare-unpaced-20261020` in the authoring c
    `validate --ready` from the frozen worktree.
 9. If anything fails before step 8, run the ratified 97232d51 design unchanged. It costs the ~8.7 h and loses
    nothing scientifically.
+
+## 7. Item 2 — owner-approved relative boost floor (pre-data, 2026-10-20 ~19:55 PT)
+
+**Decision (owner).** The absolute 0.5% boost-share floor in SUCCESS_CONTRACT §2 and in P7 "Delivered-controller
+bar" is replaced, for Path B, by a relative floor. The 10% ceiling is unchanged.
+
+**Evidence.** `snake-dqn-artifacts/boost-bar-check-20261020/REPORT.md`, an independent verifier:
+
+- Under the exact definition, released bare B8 s3 delivers boost on **0.12%** of decisions (190,779 decisions over
+  39 excluded A5 v2 worlds; per mix 0.130 / 0.108 / 0.106%).
+- Every other source is below 0.5%: T13 0.19–0.24%, T13b 0.15–0.17%, T3 0.19–0.39%.
+- The teacher adds only about 0.007 percentage points.
+- So the old clause (`analyze_v2.py` `skill_summary`, prereg lines 314/349, with a non-overridable KILL at prereg
+  lines 380–394) would have killed the paced arm whatever its outcomes.
+- The floor has no recorded rationale. The B8 s3 release itself never applied a boost clause.
+
+**Rule.** Let `s_arm` = Σ boost decisions / Σ executed hero decisions, pooled over the 144 registered terminal
+worlds. This is the same definition and pooling as before: delivered hero action ≥ 3, dead frames excluded,
+fallbacks included. The candidate arm passes the boost clause iff:
+
+`0.5 × s_bare ≤ s_candidate ≤ 0.10`
+
+- `s_bare` is the paired Mac bare arm's share on the same rows of the same efficacy phase.
+- If `s_bare = 0`, the floor is 0.
+
+The clause keeps its name (`boost_share`) and its place in the paced skill bars and the KILL precedence; only the
+floor changes. The descriptive unpaced summary uses the same rule against the Mac bare records.
+
+**Code.**
+
+- `analyze_v2.py:32–33`: `BOOST_FLOOR_FRACTION_OF_BARE = 0.5`, `BOOST_CEILING = 0.10`.
+- `:216` `boost_share(rows, arm)`.
+- `skill_summary` `:255–270`: the candidate and bare shares on the same rows, the floor, and the clause. Its report
+  adds `bare_boost_share`, `boost_floor` and `boost_ceiling`.
+- `analyze_v2.py` is already in `source_hashes`, so the new registration binds it.
+- Tests are in `tests/test_t34_pathb_boost_floor_v2.py`:
+  - bare and paced at 0.12% → pass
+  - paced 0.05% vs bare 0.12% → fail
+  - exactly half the bare share → pass
+  - paced 11% → fail; 10% → pass
+  - bare 0 → floor 0
+  - an end-to-end `decide`
+
+**Not edited.** SUCCESS_CONTRACT.md and P7_STATISTICS.md are sha-bound by the live Round 0 registration, and
+PREREGISTRATION_RETENTION_V2.md is bound here. Editing them would break those bindings, so this file is the
+binding statement for Path B. Round 0 and any other study that applies the 0.5% floor need their own decision.
+
+**OC impact.** None on statistics. `retention_oc_v2` does not compute a boost clause: `pathb_joint_go_power.interpretation`
+says "Timing, boost, and product growth are assumed to pass", and `limitations` says boost is "not measured".
+`simulator_hash` is the sha of `retention_oc_v2.py` only, which is unchanged. The regenerated OC differs from the
+ratified one only as §6 step 3 allows: `source_commit`, `source_hashes` (now including `analyze_v2.py`), and the
+checkout-root path in `development_pool`/`world_pool_sha256`. Joint-GO power was computed with the boost bar
+assumed to pass. The old floor would in fact have made GO impossible, so the relative floor makes the stated power
+assumption realistic rather than changing a computed number.

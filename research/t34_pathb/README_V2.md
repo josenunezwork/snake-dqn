@@ -380,18 +380,29 @@ Fixed N stays fixed. The simulator is one-thread, checkpointed every 250 replica
 
 The pre-data amendment
 [2026-10-20_t34_retention_amendment_bare_unpaced.md](../../docs/research/specs/2026-10-20_t34_retention_amendment_bare_unpaced.md)
-runs the Mac `bare` arm unpaced (`ARM_FPS = {"bare": 0, "paced": 24}`); the paced arm stays at 24 fps. It
+runs the Mac `bare` arm unpaced (`ARM_FPS = {"bare": 0, "paced": 24}`); the paced arm stays at 24 fps. Its item 2
+(owner-approved 2026-10-20) replaces the 0.5% boost floor with `0.5 × paired bare share ≤ paced share ≤ 0.10`. It
 supersedes the registration ratified at 97232d51 (study `t34-retention-v2-operator-01`). Once the new registration
 lands, the 97232d51 registration is VOID for execution. Section 6 of the amendment is binding. All of the following
 runs on branch `t34-retention-bare-unpaced-20261020`, in the authoring checkout that will publish the JSON:
 
 1. Make the fixes, then get an independent re-review, then Fable approval.
-2. Regenerate the OC (same `--reps 20000 --seed 3420261020`, new paths). Every field except `source_commit` and
-   `source_hashes` must be byte-equal to the ratified OC; otherwise STOP.
+2. Regenerate the OC at the **final** source, in this persistent authoring checkout (same
+   `--reps 20000 --seed 3420261020`, new paths). Never commit an OC built in another checkout; `validate` re-hashes
+   its absolute `development_pool` paths. Acceptance, per spec §6 step 3:
+   - `source_commit` and `source_hashes` may differ.
+   - `development_pool` may differ only in the checkout-root prefix of its `source_files` key, so
+     `world_pool_sha256` differs too. After swapping `/Users/josenunez/Projects/ml/snake-dqn-retention-fixes6` for
+     this checkout's root, the pool must be equal and its canonical sha must reproduce the new
+     `world_pool_sha256`.
+   - Every other field must be byte-equal.
+
+   Anything else means STOP.
 3. Run `build --study-root …/t34-retention-v2-operator-02`, then `validate`, then commit.
 4. Create a fresh detached worktree at the draft `source_commit`.
 5. Produce the trace receipt with `T34_TRACE_RECEIPT=1`. It must show `tests/test_t34_pathb_bare_unpaced_v2.py`
-   passed with 0 skipped.
+   passed (11) and `tests/test_t34_pathb_boost_floor_v2.py` passed (7), both with 0 skipped. `ratify` checks only
+   status and hashes, so read the receipt yourself.
 6. Run `ratify`, overwriting `REGISTRATION_RETENTION_V2_RATIFIED.json` on the branch.
 7. Land on main in **one push**, only after the receipt PASS, together with the supersession notes. Until that push,
    the 97232d51 design remains the runnable fallback.

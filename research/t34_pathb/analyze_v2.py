@@ -27,6 +27,10 @@ ARMS = ("bare", "paced", "unpaced")
 HORIZON = 5000
 PHASE_CAP_SECONDS = {"timing": 3600, "precheck": 28800, "study": 144000}
 MAX_CONTENDED_FRACTION = 0.02
+# Delivered boost bar: relative floor (owner-approved 2026-10-20, pre-data),
+# absolute ceiling unchanged.
+BOOST_FLOOR_FRACTION_OF_BARE = 0.5
+BOOST_CEILING = 0.10
 UNPACED_WORLD_SCHEMA = "t34-unpaced-world/v1"
 UNPACED_SHARD_SCHEMA = "t34-unpaced-shard/v1"
 DESCRIPTIVE_ERRORS = (OSError, KeyError, TypeError, ValueError, ArithmeticError, RuntimeError)
@@ -209,6 +213,15 @@ def _validate_records(records: list[Mapping[str, Any]]) -> None:
         raise InvalidRetention("fixed N requires 48 terminal worlds/mix and 32 product sessions")
 
 
+def boost_share(rows: Iterable[Mapping[str, Any]], arm: str) -> float:
+    """Delivered boost share: total boost decisions / total decisions over rows."""
+    rows = list(rows)
+    decisions = sum(row["arms"][arm]["decisions"] for row in rows)
+    if decisions <= 0:
+        raise InvalidRetention(f"{arm} arm has no delivered decisions")
+    return sum(row["arms"][arm]["boost_decisions"] for row in rows) / decisions
+
+
 def skill_summary(records: Iterable[Mapping[str, Any]], arm: str) -> dict[str, Any]:
     """Calculate contract skill bars vs bare B8 s3, with P7 paired-world units."""
     if arm not in (*ACTIVE_ARMS, "unpaced"):
@@ -239,9 +252,12 @@ def skill_summary(records: Iterable[Mapping[str, Any]], arm: str) -> dict[str, A
         for mix in MIXES
     }
     rows = [row for group in groups.values() for row in group]
-    boost = sum(row["arms"][arm]["boost_decisions"] for row in rows) / sum(
-        row["arms"][arm]["decisions"] for row in rows
-    )
+    boost = boost_share(rows, arm)
+    # Owner-approved relative boost floor (pre-data, 2026-10-20; bare-unpaced
+    # amendment spec item 2): the absolute 0.5% floor is replaced by half of the
+    # paired bare arm's delivered share on the same rows, pooled the same way.
+    bare_boost = boost_share(rows, "bare")
+    boost_floor = BOOST_FLOOR_FRACTION_OF_BARE * bare_boost
     clauses = {
         "mass_gain_ge_40": mass["mean"] >= 40,
         "mass_lb90_positive": mass["lower"] > 0,
@@ -251,7 +267,7 @@ def skill_summary(records: Iterable[Mapping[str, Any]], arm: str) -> dict[str, A
             per_mix[mix]["absolute_alive_fraction"] >= 0.30 for mix in MIXES
         ),
         "survival_guard_b_scripted": per_mix["scripted"]["no_death"]["mean"] >= 0.03,
-        "boost_share": 0.005 <= boost <= 0.10,
+        "boost_share": boost_floor <= boost <= BOOST_CEILING,
     }
     return {
         "arm": arm,
@@ -260,6 +276,9 @@ def skill_summary(records: Iterable[Mapping[str, Any]], arm: str) -> dict[str, A
         "per_mix": per_mix,
         "independent_unit": "paired_world",
         "boost_share": boost,
+        "bare_boost_share": bare_boost,
+        "boost_floor": boost_floor,
+        "boost_ceiling": BOOST_CEILING,
         "mass_p_one_sided": _one_sided_p(mass),
         "clauses": clauses,
         "pass": all(clauses.values()),
