@@ -115,9 +115,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     out.mkdir(parents=True, exist_ok=False)
     cache = out / "features"
     cache.mkdir()
-    paths = discover_worlds(args.exports_root)
+    paths = sorted(p for root in args.exports_root for p in discover_worlds(root))
     if args.max_worlds:
         paths = paths[: args.max_worlds]
+    if args.expect_worlds and len(paths) != args.expect_worlds:
+        raise SystemExit(f"expected {args.expect_worlds} worlds, found {len(paths)}")
     if not paths:
         raise SystemExit("no complete world exports found")
     targets = {}
@@ -347,7 +349,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: Iterable[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--exports-root", required=True)
+    ap.add_argument("--exports-root", required=True, nargs="+")
+    ap.add_argument("--expect-worlds", type=int, default=0)
     ap.add_argument("--checkpoint", required=True)
     ap.add_argument("--out", required=True, help="fresh output directory (create-only)")
     ap.add_argument("--workers", type=int, default=2)
