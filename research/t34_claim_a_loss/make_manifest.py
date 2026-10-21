@@ -26,8 +26,9 @@ PACKAGE = "research/t34_claim_a_loss"
 SOURCE_PATHS = sorted(set(claim_a.SOURCE_PATHS) | {PACKAGE})
 LANE_CAP_UNITS = 12.0
 L4_RATE_UNITS_PER_HOUR = 2.0
-# Bound: bootstrap 8 + unpack 2 + cache (39 worlds / 11 workers, <= 4 waves x ~8 min) 32
-# + free-Q 5 + cells (~40k CUDA updates + held-out predictions) <= 45 + decide 1 = ~93.
+# Bound: bootstrap 8 + unpack 2 + cache 32 (Mac smoke: one A5 world replays in 3.5 s on one
+# core; 39 worlds on 11 L4 workers at a 2-3x slower vCPU is minutes, bounded generously)
+# + free-Q 5 + cells (~43k CUDA updates + held-out predictions) <= 45 + decide 1 = ~93.
 WORKLOAD_BOUND_MINUTES = 95
 SETUP_EXPORT_MARGIN_MINUTES = 25
 CLAIM = "D0_DESIGN_DIAGNOSTIC_EXCLUDED_A5_NOT_EVIDENCE"
