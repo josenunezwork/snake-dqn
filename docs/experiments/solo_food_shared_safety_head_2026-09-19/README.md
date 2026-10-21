@@ -123,6 +123,6 @@ training budget is a confound, not evidence of inherent architecture superiority
 - [BH training curves](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-shared-safety-head/admission/training-curves.png)
 - [BH qualification receipt](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-shared-safety-head/qualification-complete.json)
 - [BH resource rollup](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-shared-safety-head/resource-rollup.json)
-- [BF learning report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_parent_safety_learning_2026-09-19/README.md)
+- [BF learning report](../solo_food_parent_safety_learning_2026-09-19/README.md)
 - [BF learning curves — historical context, not BH behavior evidence](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-learning-r2/analysis/learning-curves.png)
 - [BF representative gameplay — historical context, not BH behavior evidence](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-learning-r2/analysis/representative-gameplay.png)

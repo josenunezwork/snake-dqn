@@ -30,7 +30,7 @@ Only the training collection split enters gradients. The final mark is fixed at 
 The eight paired worlds per seed are the statistical units. Lanes and the three
 seeds are not pooled to inflate evidence.
 
-The completed [BQ state diagnostic](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_stall_state_diagnostic_2026-09-20/README.md)
+The completed [BQ state diagnostic](../solo_food_stall_state_diagnostic_2026-09-20/README.md)
 motivated this test by finding visible food and teacher disagreement on saved stalls.
 It did not show observation sufficiency, teacher escape, or a learned correction.
 
@@ -87,9 +87,9 @@ first food regression (78/84/81).
 
 | Seed | Learning and fit | H512 gameplay curve | Fixed adverse representative |
 |---|---|---|---|
-| 2026094501 | [curve](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_own_policy_coverage_2026-09-20/learning-fit-seed2026094501.png) | [comparison](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_own_policy_coverage_2026-09-20/gameplay-comparison-seed2026094501.png) | [lane 7](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_own_policy_coverage_2026-09-20/representative-gameplay-seed2026094501.png) |
-| 2026094502 | [curve](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_own_policy_coverage_2026-09-20/learning-fit-seed2026094502.png) | [comparison](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_own_policy_coverage_2026-09-20/gameplay-comparison-seed2026094502.png) | [lane 14](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_own_policy_coverage_2026-09-20/representative-gameplay-seed2026094502.png) |
-| 2026094503 | [curve](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_own_policy_coverage_2026-09-20/learning-fit-seed2026094503.png) | [comparison](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_own_policy_coverage_2026-09-20/gameplay-comparison-seed2026094503.png) | [lane 1](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_own_policy_coverage_2026-09-20/representative-gameplay-seed2026094503.png) |
+| 2026094501 | [curve](learning-fit-seed2026094501.png) | [comparison](gameplay-comparison-seed2026094501.png) | [lane 7](representative-gameplay-seed2026094501.png) |
+| 2026094502 | [curve](learning-fit-seed2026094502.png) | [comparison](gameplay-comparison-seed2026094502.png) | [lane 14](representative-gameplay-seed2026094502.png) |
+| 2026094503 | [curve](learning-fit-seed2026094503.png) | [comparison](gameplay-comparison-seed2026094503.png) | [lane 1](representative-gameplay-seed2026094503.png) |
 
 ## Guarded execution and next question
 

@@ -80,7 +80,7 @@ Every paired food delta was positive in each seed (8/8). These comparisons apply
 only to the eight fixed diagnostic worlds. The scripted calls supply descriptive
 scale only and do not serve as opponents, controls, or thresholds.
 
-The completed [food-source trace](</Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_source_trace_2026-09-13/README.md>)
+The completed [food-source trace](<../solo_food_source_trace_2026-09-13/README.md>)
 replayed these same finalist-world rows exactly and verified the mechanism. Seed
 2026091601 had 8,679 own-trail contacts among 8,807 food contacts (98.5466%);
 seed 2026091602 had 115 ambient contacts and no own-trail contacts. Seed 1601

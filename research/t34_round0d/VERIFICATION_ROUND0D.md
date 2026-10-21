@@ -1,0 +1,114 @@
+# Round 0-D build verification (2026-10-20, pre-data; DRAFT)
+
+This record is not part of the source closure. It was written before any Round 0 analysis existed:
+`t34-round0-study-01/analysis/` was absent at commit and at push. No Round 0 chunk, pair, trace or outcome file
+was opened. The seed scan excluded the live study root.
+
+## Untouched hash-bound packages
+
+`git diff origin/main...HEAD` is empty for:
+
+- `research/t34_round0`
+- `research/t34_pathb`
+- `research/t34_exit_b8`
+- `research/t34_exit_b8_fit`
+- `research/t3_rollout_labels_20261015`
+- `research/colab_cli`
+
+Every reuse is by import.
+
+## Bank and audit
+
+- **Allocation:** 240 selection worlds (96/72/72) plus 2 A6 fixtures and 30 A5-D worlds, 272 seeds in total.
+  Rows are identical to Round 0's `_rows` under the new namespace (tested).
+- **Explicit disjointness:** the Round 0 bank (242 seeds), Path B retention v2 (177), Phase 0 (172), and the T3
+  dense census (32). Zero hits.
+- **Text scan:** docs/, research/, src/, scripts/ and the artifact tree (JSON/JSONL/MD/PY/YAML/SH/CSV/TSV,
+  hidden and ignored files included); about 30 s single-threaded. Zero hits. Positive controls (one seed from
+  each explicit bank) were all found. As a manual check, a Round 0, a Path B and a Phase 0 seed were each found
+  in both research/ and the artifact tree, and a non-existent integer was not found.
+- **FRP training exclusions:** 7 inventories, zero hits.
+
+## Tests
+
+`tests/test_t34_round0d.py`: **21 passed** (including one `slow` real-engine test), about 5 s on one thread under
+nice 10. Coverage:
+
+- **Controller:**
+  - the selection rule matches T3's verbatim expression on 2,000 random cases;
+  - Amendment 2 label roles;
+  - the trigger clock: first L ≥ 600, every 5th decision, no reset on length dips;
+  - all-die delays execute;
+  - depth is truncated at H, and the teacher config is restored after each batch;
+  - an empty advisory set falls back to bare;
+  - candidates are advisory-legal only.
+- **Bank:** fresh and disjoint, equal to Round 0's `_rows`; any collision rejects the whole allocation.
+- **History** (real temporary git remote):
+  - Round 0-D tags never match `refs/tags/t34-round0/*`;
+  - the Round 0 ledger path is refused;
+  - an in-flight attempt is skipped, and its analysis reservation is refused;
+  - an abandoned (unlocked) claim is KILL;
+  - a seal must be committed and pushed;
+  - an interrupted analysis seals a KILL decision.
+- **Analysis:**
+  - `summarize` is the same function object as Round 0's;
+  - a point-bar failure is STOP;
+  - the descriptive decomposition never gates.
+- **Sizing:**
+  - A5-D kill below 8 worlds/h, fidelity HOLD refusal, and the 9 MiB export guard;
+  - Round 0's chunk formula, with multiples of 10, estimate ≤ 180 min, and timeout ≥ 2 × estimate;
+  - the 48 u ceiling charges unsettled attempts at their cap;
+  - the dense R1 arithmetic.
+- **Sealed labels:** refused for any purpose other than R1, and refused without a published GO. The public
+  trace has its labels stripped.
+- **Closure:** the source closure binds Round 0's rule documents, this pre-registration, and the NO-GO plan.
+
+## Mac preflight (A6, real entrypoint; excluded fixtures; one thread; nice 10; commit `9d26fa3d`)
+
+| Run | Worlds | Wall (`/usr/bin/time real`) | Producer elapsed | Per-arm rollout s (bare / teacher) | Metric s per arm |
+|---|---|---|---|---|---|
+| a6-01 | scripted fixture (H500) | **5.05 s** | 3.99 s | 1.31 / 0.84 | 0.19 / 0.19 |
+| a6-02 | scripted + frozen fixtures (H500) | **9.71 s** | 8.73 s | 1.30 / 0.85; 2.02 / 2.04 | ≈ 0.2–0.27 |
+
+`validate` on a6-02 returned **PASS**, bound to the source of `9d26fa3d`. The checks:
+
+- every world is excluded and H500;
+- public traces carry no labels;
+- sealed exports exist and are hash-bound;
+- the run used Darwin, one thread and CPU.
+
+At H500 the hero never reaches L ≥ 600, so the dense search does not run in A6 by design. A6 sizes only the bare
+and metric components: 10 × H500 gives 13–20 s bare per world and about 4.7 s metric per pair, below the 92 s and
+8 s placeholders used in the ESTIMATED draft forecast. The search path is exercised by the real-engine test, by
+the probes below, and by A5-D. Ratification needs a fresh, source-current A6 after the final commit, because
+main has moved since this run.
+
+## Pre-registration engine checks (development only, not evidence; Mac, one thread)
+
+All of these used T3's own historical dense census receipts, b8_s3. No Round 0 or Round 0-D outcome was involved.
+
+- **Prefix identity (env 0).** Bare stepping through the Round 0 harness reproduced T3's length, greedy action
+  and advisory set at triggers 1913, 1918 and 1923. The first batch's per-action frames-survived matched T3
+  exactly (300 for each of {1, 2, 4, 5}).
+- **First changed decision (env 1).** At decision 2592, this harness gave greedy 1 → chosen **4** (a boost),
+  matching T3 [2592, 1, 4]. Per-action frames {0: 300, 1: 297, 2: 300, 3: 300, 4: 300, 5: 300} were identical
+  to T3's. The choice of 4 among the 300-frame ties exercises the highest-Q tie-break.
+- **First changed decision (env 6).** At decision 3751: greedy 1 → chosen **0**, matching T3 [3751, 1, 0].
+  Frames {0: 300, 1: 299, 2: 14, 3: 300, 4: 300} were identical.
+- **Batch cost.** One full D = 300 batch of 6 candidates cost 2.3 s (scripted) to 3.5 s (frozen) on the loaded
+  Mac, about 500–800 row-steps/s. T3 dense census worlds run about 600–716 batches, so on the order of 25–40
+  minutes per world per core. This is consistent with E8's 15–23 worlds/h on a K = 12 L4 lane, and it is why
+  A5-D fidelity is priced at 90 minutes rather than 60.
+
+The full A5-D fidelity check still runs on L4: all 8 worlds, complete endpoints and every changed action.
+
+## Sizing arithmetic found during the build
+
+Both findings are in the reviewer questions.
+
+- At 2.0 u/h with Round 0's chunk formula, Round 0-D's expected spend is 26.7–39.3 u for r = 23–15. The
+  plan's "18–32 u" counted only teacher lane-hours. The draft therefore uses a ratification gate of expected
+  ≤ 40 u and a charged ceiling of 48 u (40 + 20%).
+- Dense R1 at 560 fresh worlds is 24–37 lane-h, or **49–75 u**, against the plan's "15–25 u, ≤ 30 u". The plan
+  appears to have priced wall hours instead of lane-hours, missing a factor of three. As registered, R1 is
+  fundable only at ≤ 30 u, so a larger R1 needs a new approval.

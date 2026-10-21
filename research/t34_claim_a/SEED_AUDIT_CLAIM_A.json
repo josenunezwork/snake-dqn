@@ -1,0 +1,74 @@
+{
+  "domain": "t34-exit-b8-20261019/v1",
+  "history_scan": {
+    "candidate_count": 856,
+    "concrete_hits": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts": 0,
+      "/Users/josenunez/Projects/ml/snake-dqn/docs": 0,
+      "/Users/josenunez/Projects/ml/snake-dqn/research": 0,
+      "/Users/josenunez/Projects/ml/snake-dqn/scripts": 0,
+      "/Users/josenunez/Projects/ml/snake-dqn/src": 0
+    },
+    "coverage": "visible text source/docs/artifacts plus concrete historical exclusions",
+    "historical_frp_exclusions": 7,
+    "limits": "opaque binaries, unrecorded external runs, and inaccessible history excluded",
+    "method": "deterministic-all-at-once-sha256-v1",
+    "scan_roots": [
+      "/Users/josenunez/Projects/ml/snake-dqn/docs",
+      "/Users/josenunez/Projects/ml/snake-dqn/research",
+      "/Users/josenunez/Projects/ml/snake-dqn/src",
+      "/Users/josenunez/Projects/ml/snake-dqn/scripts",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts"
+    ]
+  },
+  "namespaces": {
+    "t34-claim-a/qualification/label": {
+      "count": 24,
+      "sha256": "07c895478f097a77cca88e8e10ebfc40e73f5750e51d7eb2480955fe31741f87"
+    },
+    "t34-claim-a/qualification/probe": {
+      "count": 32,
+      "sha256": "bcd448f768c24506a9c06492a49322a1ae8583624e1fc327247d0d6d59bf351d"
+    },
+    "t34-claim-a/r1/probe": {
+      "count": 32,
+      "sha256": "8aac832147d064687e5892f62a5e98339c9379d0ddf6ba15206bdc6c7b6693ee"
+    },
+    "t34-claim-a/v2/r1/s0/a0": {
+      "count": 256,
+      "sha256": "a65f45832883776e9e4f358421314586809d5e23acda56c0c01baec55dd37907"
+    },
+    "t34-claim-a/v2/r2/s0/a0": {
+      "count": 256,
+      "sha256": "726f1d3e6b386e2141fe8773ea26313dd83c285d9ab720bca699da6e8af6bf30"
+    },
+    "t34-claim-a/v2/r3/s0/a0": {
+      "count": 256,
+      "sha256": "31d11196f8a477f806f629d447187b9605b8c442e61f7bdba3c1af8faa0347d5"
+    }
+  },
+  "note": "raw seeds deliberately omitted; recompute with namespace_seeds()",
+  "registered_banks": {
+    "retention_v2": {
+      "bank_seeds": 177,
+      "collisions": 0,
+      "path": "research/t34_pathb/RETENTION_BANK_V2.json",
+      "sha256": "af54fd499e99575bcc960c78fc3c52d756f8e1c1a52ca65edb95bb5b013f6d95"
+    },
+    "round0": {
+      "bank_seeds": 242,
+      "collisions": 0,
+      "path": "research/t34_round0/BANK_ROUND0.json",
+      "sha256": "76863477c4e47bee40c19980ca0dd01983f1bf49ea473c8b2fd4018958d0c2ae"
+    },
+    "round0d": {
+      "bank_seeds": 272,
+      "collisions": 0,
+      "path": "research/t34_round0d/BANK_ROUND0D.json",
+      "sha256": "1d8ec23e1613047c46d28334f2a0762117f696c0ed9e79555baea9eaf3dfdff0"
+    }
+  },
+  "scan_repo": "/Users/josenunez/Projects/ml/snake-dqn",
+  "schema": "t34-claim-a-seed-audit/v1",
+  "status": "PASS"
+}

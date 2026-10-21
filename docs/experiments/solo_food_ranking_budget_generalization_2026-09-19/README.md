@@ -15,7 +15,7 @@ training admission in every reused seed: intervention fit was 108/111, 99/103, a
 83/88, and preservation-set parent agreement was 100% in every seed. That is
 training-split evidence. It admitted a separate fresh gameplay study, without
 establishing generalization, food collection, survival, or policy replacement. See
-the [completed BK report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_ranking_budget_continuation_2026-09-19/README.md)
+the [completed BK report](../solo_food_ranking_budget_continuation_2026-09-19/README.md)
 for the training curves, resumed-checkpoint provenance, and audited resource record.
 
 BL reuses those three training seeds and immutable BJ-500 and BK-1500 checkpoints.
@@ -231,4 +231,4 @@ longer solo horizons or opponents.
 - [BL held analysis](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/held-analysis/analysis.json)
 - [BL held intervention-accuracy figure](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/held-analysis/held-intervention-accuracy.png)
 - [BL held qualification completion](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/held-qualification-complete.json)
-- [BK completed training-admission report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_ranking_budget_continuation_2026-09-19/README.md)
+- [BK completed training-admission report](../solo_food_ranking_budget_continuation_2026-09-19/README.md)

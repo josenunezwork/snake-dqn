@@ -9,7 +9,7 @@ native PQN loss fell while food performance worsened. Apex remains the incumbent
 tournament gate remains the only promotion authority.
 
 This report is for researchers continuing the bounded solo food-seeking sequence after the
-[AN point-versus-raster comparison](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_point_model_2026-09-14/README.md).
+[AN point-versus-raster comparison](../solo_food_point_model_2026-09-14/README.md).
 It records the frozen protocol and completed results so they can be interpreted without
 rerunning completed work. AO is a short H64
 retention study, not a DQfD reproduction, long-horizon survival study, opponent study, or

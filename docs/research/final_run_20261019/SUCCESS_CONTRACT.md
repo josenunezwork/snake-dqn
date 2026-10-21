@@ -71,3 +71,18 @@ runs as planned. Interpretation, pre-registered:
 Statistical frame, guard naming ("Tier 1 + Tier 2" above = survival guards A/B, both vs B8 s3), tie rule,
 tripwire precedence and look choice are fixed in [P7_STATISTICS.md](P7_STATISTICS.md). FINAL_PLAN §8's
 "B8 is reported as the bare ceiling" is replaced by "this teacher failed its registered bar".
+
+## §5 Amendment (2026-10-20 ~18:20 PT, prospective, pre-data; operator under the owner's 10-20 delegation)
+Approved with conditions by an independent Fable judge:
+[RULING_label_ordering.md](../advice/2026-10-20_a100/RULING_label_ordering.md). The ratified §5 text above is
+unchanged; this amendment adds one permission:
+
+*R1 teacher-label collection (Colab only, bare B8 s3 + teacher, β=1) may be registered and, once its registration is approved, dispatched after a published Round 0 GO, in parallel with the Path B retention phases. R1/R2 fits, R1/R2 screens, R2 labels and any Mac work for Claim A wait for the Path B disposition (GO/KILL/INCONCLUSIVE decision.json). Round 0 GO authorizes nothing by itself.*
+
+Conditions (all binding; full text in the ruling §3): Round 0 GO means the published registered
+`decision.json` = GO only; R1 needs its own registration → review loop → one Fable approval, with fresh
+collision-audited seeds disjoint from the Round 0, retention and strict banks, no Round 0 output admitted, outputs
+are label data only until the Path B disposition is published; no Mac work for R1 while any retention phase runs
+or is admitted; R1 results may not be cited in or influence the retention verdict; R1 labels are never described as
+evidence or as "funded by Round 0". The owner may veto: before R1 dispatch this cancels the amendment, after
+dispatch it stops R1 with data kept unused. Release approval remains the owner's (§4 / line 57).

@@ -1,6 +1,6 @@
 # Independent confirmation of the body correction (AU)
 
-The subsequent [AV exact-trajectory diagnostic](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_body_trajectory_2026-09-19/README.md)
+The subsequent [AV exact-trajectory diagnostic](../solo_food_body_trajectory_2026-09-19/README.md)
 found reduced ordinary teacher agreement in all three seeds and sparse, weak escape agreement.
 It identifies a focused learning question without changing AU's results or proving causality.
 
@@ -94,7 +94,7 @@ shadow labels are diagnostic and do not prove an alternative action would rescue
 - [Every seed, horizon, pose, world and confidence interval](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-body-confirmation/analysis/analysis.json)
 - [Within-game curves](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-body-confirmation/analysis/gameplay-curve.png)
 - [Representative saved gameplay](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-body-confirmation/analysis/representative-gameplay.png)
-- [Previous AT learning and fit results](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_body_residual_2026-09-19/README.md)
+- [Previous AT learning and fit results](../solo_food_body_residual_2026-09-19/README.md)
 - [Qualification](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-body-confirmation/qualification-complete.json)
 - [Resource rollup including tests](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-body-confirmation/resource-rollup.json)
 - [Independent review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-body-confirmation/independent-review.json)

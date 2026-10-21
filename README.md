@@ -1,263 +1,115 @@
 # snake-dqn
 
-Snake DQN is a local reinforcement-learning project with a live FastAPI/React
-snake game, the released `b8-s3` policy, a historical distributed Apex DQN
-policy, and an experimental raster/PQN path. No command in this repository
-silently replaces the served checkpoint.
+A reinforcement-learning project for a multi-snake, slither.io-style arena.
+Agents train with DQN-family methods. A FastAPI + React web app streams
+server-side games to the browser, where you can watch the trained agent or play
+against it. No command in this repository replaces the served checkpoint
+silently. Releases are explicit and need the owner's OK.
 
 ![architecture](docs/architecture.svg)
 
-![python](https://img.shields.io/badge/python-3.12-blue)
-![tests](https://img.shields.io/badge/tests-pytest-brightgreen)
-![code style](https://img.shields.io/badge/code%20style-black-000000)
-![license](https://img.shields.io/badge/license-MIT-lightgrey)
+## Served agent (as of 2026-10-17)
 
-## Documentation
+The Watch hero is **bare B8 seed 3 (`b8-s3`), served without a veto**
+(checkpoint SHA prefix `3e649783`). Watch defaults to a **mixed** roster: the B8
+hero faces `frp3-s12 + v8` opponents. The release claim is **more mass at equal
+survival against the previously served agent, with no veto**. It does not claim
+that B8 is safer. Evidence: T7 Phase R `STRICT_PASS` + Tier 2 PASS, then the
+T12/T15 serving checks. See the
+[release record](docs/research/b8_s3_release_2026-10-17.md) and the
+[mixed-Watch erratum](docs/research/b8_s3_release_erratum_mixed_watch_2026-10-17.md).
 
-Use the [documentation map](docs/README.md) to find the current status,
-release records, research chronology, and historical study evidence.
-
-## What is established, and what is not
-
-The deployed reference is **b8-s3, without a veto**. Its release claim is
-**more mass at equal survival against the served agent, with no veto**; it is
-not a claim that B8 is safer. The [release record](docs/research/b8_s3_release_2026-10-17.md)
-documents the strict and serving evidence, disclosures, monitoring, and the
-fact that late-game deaths remain at parity with the prior served agent.
-
-To roll the server back, restart it with either of these explicit selections:
+Rollback means restarting the server with an explicit selection:
 
 ```bash
-SNAKE_SERVE_CHECKPOINT=frp3-s12 ./venv/bin/python web/serve.py
-SNAKE_SERVE_CHECKPOINT=champion ./venv/bin/python web/serve.py
+SNAKE_SERVE_WATCH_ROSTER=all_b8 ./venv/bin/python web/serve.py   # all-B8 roster
+SNAKE_SERVE_CHECKPOINT=frp3-s12 ./venv/bin/python web/serve.py   # frp3-s12 + v8
+SNAKE_SERVE_CHECKPOINT=champion ./venv/bin/python web/serve.py   # champion + v8
 ```
 
-With the remaining serving environment at its defaults, these restore
-`frp3-s12 + v8` and `champion + v8`, respectively. The 61-feature free-space
-Apex checkpoint remains historical evidence; its earlier gate was pre-repair,
-alive-conditioned, and narrow-opponent. The raster/PQN route remains an
-experimental path, not a promoted replacement or an algorithm winner.
+[docs/STATUS.md](docs/STATUS.md) is the authority for the released agent,
+monitoring thresholds, and operating rules.
 
-The history also has an important correction: GRU/DRQN was trained and lost the
-older frozen-opponent trials, but the frequently repeated claim that CNNs were
-trained and lost is false. Git history found CNN code but no CNN training run or
-checkpoint. Those older trials also predate the repaired evaluation work. Read
-[the dated findings record](docs/project_history_and_findings.md) and the
-[redesign blueprint](docs/ml_redesign_blueprint_2026-07.md) before making a
-model-selection claim.
+## Current campaign
+
+The active campaign is **T34 ExIt-B8**: an exact-simulator search teacher plus
+DAgger into the B8 network. Start here:
+
+1. [docs/research/final_run_20261019/HANDOFF_2026-10-20.md](docs/research/final_run_20261019/HANDOFF_2026-10-20.md)
+   (read the **START HERE** section)
+2. [CAMPAIGN_LOG.md](docs/research/final_run_20261019/CAMPAIGN_LOG.md): decisions and results
+3. [docs/STATUS.md](docs/STATUS.md): the "Campaign authority" block and the binding contract documents
 
 ## Quick start
 
-This section is for a developer who has Python, Node.js, and a local checkout.
 Use the project virtual environment for every Python command.
 
 ```bash
 python3 -m venv venv
-./venv/bin/python -m pip install -r requirements.txt
+make install            # runtime deps (requirements.txt)
+make install-dev        # dev deps + pre-commit hooks
 
-# Build and serve the browser game at http://localhost:8000.
+make web                # build the frontend, then serve at http://localhost:8000
+# or, step by step:
 cd web/frontend && npm install && npm run build && cd ../..
 ./venv/bin/python web/serve.py
-
-# Apex is the incumbent training stack. This is a headless training command,
-# not an evaluation or promotion command.
-./venv/bin/python src/main.py --headless --episodes 100000
 ```
 
-The browser renders state supplied by the Python server. The **Play** tab lets a
-human steer a snake; the game, scoring, inference, and the SQLite leaderboard
-remain server-side. See [web/README.md](web/README.md) for its interface.
+The browser is a pure view. Game state, inference, scoring and the SQLite
+leaderboard all stay on the server. The panels, dev mode (`npm run dev` on :5173)
+and the REST API are in [web/README.md](web/README.md).
 
-## Evaluation has two different purposes
-
-`src/scripts/tournament_eval.py` keeps diagnostic comparisons separate from
-promotion authority. Do not use a diagnostic exit code as a release decision.
-
-### Legacy diagnostics and inexpensive screens
-
-The default diagnostic compares paired world seeds, reports mass integral (dead
-frames contribute zero), and can retain content-addressed input snapshots. Its
-old `--gate` status is only a convenient diagnostic signal: an exit code of zero
-does **not** promote a checkpoint.
-
-This fully scripted command is a copyable plumbing check. It needs no saved
-model, writes the comparison JSON, and places a snapshot receipt beside the
-immutable inputs. Replace `scripted:random_safe` with a candidate only after
-selecting compatible baseline and opponents.
+## Tests and lint
 
 ```bash
-SNAKE_DQN_DEVICE=cpu ./venv/bin/python src/scripts/tournament_eval.py \
-  scripted:random_safe \
-  --baseline scripted:greedy_food \
-  --opponents scripted:greedy_food \
-  --engine live \
-  --evaluation-profile legacy-diagnostic \
-  --frames 3000 --seeds 0-9 \
-  --snapshot-dir runs/evaluation_artifacts/readme-diagnostic \
-  --json-output runs/evaluation_artifacts/readme-diagnostic/results.json
+make test               # full pytest suite (2 workers by default; PYTEST_WORKERS=N)
+make test-fast          # skips tests marked slow
+make test-web           # frontend vitest (npm ci && npm test)
+make lint               # black --check, isort --check, flake8 (src, web/backend)
+make format             # isort + black at line length 100
 ```
 
-`results.json` records `authority: "diagnostic-only"`; the adjacent evaluation
-input receipt records the config and checkpoint or scripted-agent identities
-used for that run. Add `--gate` only when automation needs the legacy
-diagnostic exit status. It still writes diagnostic-only output.
+Do not run the suite while a governed study is using the Mac's CPU slots. The
+compute rules are in [AGENTS.md](AGENTS.md) and [docs/STATUS.md](docs/STATUS.md).
 
-`--engine simd` is useful for a raster or scripted **screen** under a declared
-profile. It is never a promotion path. In particular, a SIMD result cannot
-replace a live serving-path result, even when it has the same seeds or metric.
-Use `--engine live` for vector61 checkpoints; BatchSim only accepts compatible
-raster or scripted agents.
+## Training and evaluation
 
-### Strict promotion authority
+- **Legacy Apex DQN (vector61):**
+  `./venv/bin/python src/main.py --headless --episodes 100000`. The vector61 line is
+  frozen for new governed studies (STATUS.md).
+- **Raster PQN:** `src/scripts/train_pqn.py` and the bounded
+  `src/scripts/pqn_correctness_diagnostic.py`.
+- **B8 lineage** (GridBatchSim + ego2s raster, distil then RL) comes from the
+  `research/redesign_m4*` and `research/redesign_t7_phase_r_20261016` packages.
+  Current work is in the `research/t34_*` packages.
+- **Evaluation:** `src/scripts/tournament_eval.py`. Diagnostic runs are
+  `authority: "diagnostic-only"`, and their exit code is never a release
+  decision. Strict promotion is a separate live-only mode
+  (`--strict-promotion-request …`) that runs on the Mac. A passing receipt is
+  evidence only. It does not change the served default.
 
-Strict promotion is a separate, live-only operation supplied by the E2 repair.
-It starts from a frozen request and derives its engine, roster, seeds, world,
-and output locations from evidence; it rejects diagnostic candidates, `--gate`,
-`--pilot`, and diagnostic overrides. The request binds immutable candidate,
-incumbent, opponent, source, and serving evidence before final worlds run.
+Before you make a model-selection claim, read the
+[project history and findings](docs/project_history_and_findings.md). It records
+corrected claims, for example that CNNs were never trained in the older trials.
 
-The final profile has 5,000 scored frames and 5,000 observation-progress frames.
-It requires at least 40 fresh paired worlds, or the larger count from the paired
-pilot; three predeclared mixes; Holm-corrected superiority on at least two
-mixes; and a scripted-mix one-sided noninferiority bound against a predeclared
-absolute margin. The final receipt also rechecks readiness and provenance.
+## Where things are
 
-The execution protocol supplies the five evidence inputs below and selects a
-new final-receipt path. The inputs must describe the same frozen candidate and
-deployment profile; diagnostic artifacts are not interchangeable with them.
-
-```bash
-./venv/bin/python src/scripts/tournament_eval.py \
-  --strict-promotion-request artifacts/strict/request.json \
-  --strict-promotion-receipt artifacts/strict/final-receipt.json \
-  --strict-e0-receipt artifacts/strict/e0-receipt.json \
-  --strict-pilot-artifact artifacts/strict/paired-pilot.json \
-  --strict-calibration-artifact artifacts/strict/calibration.json \
-  --strict-serving-bundle artifacts/strict/serving-bundle.json
-```
-
-A passing final receipt is evidence for a later, explicit release operation. It
-does not copy a checkpoint, change a default, publish a service, or replace the
-incumbent by itself. The details and handoff requirements are in the
-[RL contract-repair plan](docs/plans/rl_repair_2026-09-06/README.md) and its
-[agent execution runbook](docs/plans/rl_repair_2026-09-06/agent_runbook.md).
-The [repair execution status](docs/experiments/rl_repair_execution_2026-09-08.md)
-records accepted packages and pending G0/X0 evidence; it is not a promotion
-result.
-
-## Corrected PQN diagnostics
-
-The corrected recipe is opt-in. It records `raster31v3` and a
-`corrected-v3` recipe; it does not reinterpret legacy observations. Existing
-`vector61` and `raster31v2` paths remain for compatible inference and archived
-reproduction. A checkpoint with missing metadata is legacy compatibility input,
-not verified v3 evidence.
-
-`pqn_correctness_diagnostic.py` is a bounded, non-promoting runner. It freezes
-a manifest, retains initial and final checkpoints plus terminal receipts, and
-evaluates only after its learner process exits. The modes are intentionally
-different:
-
-```bash
-# Tiny CPU smoke: one environment and a short, explicit positive budget.
-OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=2 \
-  ./venv/bin/python src/scripts/pqn_correctness_diagnostic.py \
-  --mode smoke --device cpu --out-dir runs/pqn_h0_smoke --seed 1000 --total-steps 32
-
-# G0-style operational shakedown: the mode requires exactly 100,000 steps.
-OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=2 \
-  ./venv/bin/python src/scripts/pqn_correctness_diagnostic.py \
-  --mode shakedown --device mps --out-dir runs/pqn_h0_shakedown \
-  --seed 1001 --total-steps 100000
-
-# Fixed-budget screen: the mode requires exactly 500,000 steps and a compatible
-# shakedown receipt from the same source, device, and rollout geometry.
-OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=2 \
-  ./venv/bin/python src/scripts/pqn_correctness_diagnostic.py \
-  --mode screen --device mps --out-dir runs/pqn_h0_screen --seed 1002 \
-  --total-steps 500000 \
-  --shakedown-receipt runs/pqn_h0_shakedown/shakedown_projection_receipt.json
-```
-
-The small smoke training budget does not shorten evaluation. Smoke and
-shakedown each evaluate their initial and final checkpoints for the full
-5,000-frame profile on one world against the scripted mix.
-
-Each output directory contains an immutable manifest, per-arm terminal status,
-checkpoint-lineage receipts, and evaluation artifacts. `completed` means that
-the bounded diagnostic completed its stated work; it never means that a model
-was promoted. A tripwire, resource stop, source/protocol drift, or failed
-evaluation remains an artifact to inspect, not a reason to extend or retry a
-run with changed defaults.
-
-The Mac resource limits are deliberate: each H0 invocation runs one learner and
-its worker uses two native CPU threads, including a CPU smoke. Do not start a
-test suite, build, corpus job, second learner, or evaluation while an MPS learner
-runs; evaluate only after it exits. Initial fail-closed limits are 4 GiB process
-RSS, 8 GiB MPS-driver allocation, and a 6 GiB system-memory reserve. RSS and
-MPS allocation overlap on unified memory and must not be added together. The
-runbook owns resource slots and requires retained logs, telemetry, and
-checkpoints when a cap is reached.
-
-## Architecture
-
-### Apex DQN: the incumbent
-
-The incumbent path is distributed Apex DQN: CPU actors with varied exploration
-feed a SumTree-backed prioritized buffer and n-step returns to one learner,
-which broadcasts weights back to the actors. `ApexNetwork` is a feedforward
-dueling network over the hand-crafted 58-D or free-space 61-D vector.
-
-### Raster/PQN: an experimental path
-
-The redesign uses `BatchSim`, an ego-centred dual-scale raster observation, and
-a synchronous replay-free PQN Q(lambda) learner. Its raster network is separate
-from the Apex policy hierarchy. The simulator and raster make efficient batched
-experiments possible, but neither establishes live-product parity nor policy
-quality without the relevant evidence.
-
-The current repair keeps the legacy sampler available for reproduction and makes
-full-epoch sampling opt-in. The prior five-seed sampler comparison was
-inconclusive, so it does not justify changing a default. The repair also does
-not prescribe a larger convolutional model, recurrence, attention, or a new
-optimizer before semantics and provenance are qualified.
-
-## Development
-
-```bash
-make install-dev
-make test
-make lint
-cd web/frontend && npm test
-```
-
-For repair work, follow the runbook rather than running broad commands in
-parallel: small CPU checks use one native numerical thread each, and the full
-suite runs alone with at most two pytest workers. `make test-fast` uses
-`-n auto` and is not part of that execution protocol.
-
-## References
-
-- [Algorithm documentation](docs/ml_algorithm.md) — Apex DQN details and its
-  historical context.
-- [Project history and durable findings](docs/project_history_and_findings.md)
-  — dated results, corrected historical claims, and provenance.
-- [RL research portfolio](docs/experiments/rl_research_portfolio_2026-09-12/README.md)
-  — experiment ledger, retained failures, measured outcomes, and parallel research waves.
-- [Living-mass reward experiment](docs/experiments/mass_objective_2026-09-13/README.md)
-  — four bounded training arms; a promising first gain reversed on the fresh seed.
-- [PQN decision-phase contract](docs/pqn_decision_phase_2026-09-12.md)
-  — opt-in training/evaluation alignment and its CPU/MPS qualification.
-- [SIMD environment contract](docs/simd_env_spec.md) — documented simulator
-  dynamics contract.
-- [RL contract-repair plan](docs/plans/rl_repair_2026-09-06/README.md) —
-  versioned repair decisions, evidence gates, and experiment sequence.
-- [Repair execution status](docs/experiments/rl_repair_execution_2026-09-08.md)
-  — accepted-package receipts and pending qualification evidence.
-- [Ape-X](https://arxiv.org/abs/1803.00933) ·
-  [Double DQN](https://arxiv.org/abs/1509.06461) ·
-  [Dueling Networks](https://arxiv.org/abs/1511.06581) ·
-  [PER](https://arxiv.org/abs/1511.05952)
+| What | Where |
+|---|---|
+| Documentation map | [docs/README.md](docs/README.md) |
+| Glossary | [docs/GLOSSARY.md](docs/GLOSSARY.md) (study terms: [docs/research/GLOSSARY.md](docs/research/GLOSSARY.md)) |
+| Timeline | [docs/TIMELINE.md](docs/TIMELINE.md) |
+| Research study packages | [research/INDEX.md](research/INDEX.md) |
+| Specs | [docs/research/specs/INDEX.md](docs/research/specs/INDEX.md) |
+| Advisor advice | [docs/research/advice/INDEX.md](docs/research/advice/INDEX.md) |
+| Research catalog | [docs/research/catalog/](docs/research/catalog/) |
+| Source map (`src/`) | [docs/architecture/SRC_MAP.md](docs/architecture/SRC_MAP.md) |
+| Tests map (`tests/`) | [docs/architecture/TESTS_MAP.md](docs/architecture/TESTS_MAP.md) |
+| Web app map (`web/`) | [docs/architecture/WEB_MAP.md](docs/architecture/WEB_MAP.md) |
+| Repository top level | [docs/architecture/REPO_TOP_LEVEL.md](docs/architecture/REPO_TOP_LEVEL.md) |
+| Agent working rules | [AGENTS.md](AGENTS.md) |
+| Algorithm design (Apex DQN) | [docs/ml_algorithm.md](docs/ml_algorithm.md) |
+| Simulator contract | [docs/simd_env_spec.md](docs/simd_env_spec.md) |
 
 ## License
 

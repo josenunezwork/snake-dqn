@@ -99,7 +99,7 @@ inherently superior.
 - [BE passing resource rollup](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-confirmation/resource-rollup.json)
 - [BE greedy-gameplay curve](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-confirmation/analysis/gameplay-curve.png)
 - [BE representative first-world paths](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-confirmation/analysis/representative-gameplay.png)
-- [BD reused-world oracle screen](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_parent_safety_oracle_2026-09-19/README.md)
+- [BD reused-world oracle screen](../solo_food_parent_safety_oracle_2026-09-19/README.md)
 - [BA objective learning curve](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-reachability-r1/analysis/objective-learning-curve.png)
 - [BA fit learning curve](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-reachability-r1/analysis/fit-learning-curve.png)
 - [BA greedy-gameplay learning curve](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-reachability-r1/analysis/gameplay-learning-curve.png)

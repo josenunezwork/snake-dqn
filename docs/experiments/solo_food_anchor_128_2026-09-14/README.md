@@ -10,7 +10,7 @@ closeout status is `CLOSED_COMPLETE_CONFIRMATION_FAIL`.
 
 This report is for researchers deciding whether the AP behavior anchor is limited to H64 or merits
 further solo evaluation. It builds on the completed
-[AP H64 retention comparison](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_pqn_behavior_anchor_2026-09-14/README.md).
+[AP H64 retention comparison](../solo_food_pqn_behavior_anchor_2026-09-14/README.md).
 AP established short-horizon retention, not longer-horizon reliability. AQ is a zero-shot transfer
 probe; it does not establish a new learning gain.
 
@@ -109,7 +109,7 @@ anchored-parent food intervals cross zero.
 
 AQ performs no new fit inference. AP's fixed 3,072-row original behavior-cloning agreement and
 1,536-row fresh H64 teacher-agreement measurements remain available in the
-[AP report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_pqn_behavior_anchor_2026-09-14/README.md).
+[AP report](../solo_food_pqn_behavior_anchor_2026-09-14/README.md).
 Those report-only measures remain separate from H128 greedy gameplay and cannot rescue a failed
 H128 behavior decision. The completed AR diagnostic below examines the saved actions and worlds
 to distinguish no-safe-action self-traps from advisory-safe fatal transitions.
