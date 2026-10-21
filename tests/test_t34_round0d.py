@@ -361,6 +361,34 @@ def test_bars_are_round0s_function_object_and_descriptives_never_gate() -> None:
     assert report["t3_reference_scripted_no_death_gain_b8_s3"] == 0.28
 
 
+def _set_boosts(records: list[dict], arm: str, boosts_per_world: int) -> None:
+    for row in records:
+        item = row["arms"][arm]
+        counts = item["action_counts"]
+        counts[0] += counts[3] - boosts_per_world
+        counts[3] = boosts_per_world
+        item["boost_decisions"] = boosts_per_world
+
+
+def test_relative_boost_floor_replaces_the_absolute_floor() -> None:
+    from research.t34_round0_amend.rule import amend, pooled_boosts
+
+    assert analyze.amend is amend
+    records = _records()
+    # B8-like regime: both arms ~0.1% boosts. Registered absolute floor STOPs; the
+    # amended relative floor (teacher >= 0.5 x bare) passes and the verdict is GO.
+    _set_boosts(records, "bare", 5)
+    _set_boosts(records, "teacher", 4)
+    registered = analyze.summarize(copy.deepcopy(records))
+    assert registered["decision"] == "STOP"
+    amended = amend(registered, pooled_boosts(records, "teacher"), pooled_boosts(records, "bare"))
+    assert amended["decision"] == "GO" and amended["clauses"]["delivered_boost_share"]
+    _set_boosts(records, "teacher", 2)  # below half the paired bare share
+    registered = analyze.summarize(copy.deepcopy(records))
+    amended = amend(registered, pooled_boosts(records, "teacher"), pooled_boosts(records, "bare"))
+    assert amended["decision"] == "STOP"
+
+
 def test_point_bar_failure_is_stop_exactly_as_round0() -> None:
     records = _records()
     for row in records:
@@ -372,60 +400,115 @@ def test_point_bar_failure_is_stop_exactly_as_round0() -> None:
 
 
 def _receipt(rate: float, **changes: object) -> dict:
-    receipt = sizing.estimated_plan(rate)  # sanity: estimator itself must work
-    assert receipt["status"] == "ESTIMATED_NOT_DISPATCHABLE"
+    import hashlib
+
     value = {
         "schema": sizing.SCHEMA,
         "fidelity_status": "PASS",
         "teacher_worlds_per_hour": rate,
-        "bare_seconds_per_world": 92.0,
-        "metric_seconds_per_pair": 8.0,
-        "cpu_slowdown_factor": 3.0,
+        "bare_seconds_per_world": 190.0,
+        "metric_seconds_per_pair": 50.0,
+        "cpu_slowdown_factor": 1.0,
         "setup_minutes": 15.0,
-        "steady_window_seconds": 1200,
         "measured_export_bytes_per_pair": 3 * 1024**2,
         "evidence": {"fixture": True},
     }
     value.update(changes)
-    import hashlib
-
     value["evidence_sha256"] = hashlib.sha256(
         json.dumps(value["evidence"], sort_keys=True).encode()
     ).hexdigest()
     return value
 
 
-def test_a5d_kill_hold_and_round0_chunk_formula() -> None:
-    with pytest.raises(sizing.SizingRefused, match="KILL"):
-        sizing.plan(_receipt(7.9))
+def test_rate_to_action_table_and_round0_chunk_formula() -> None:
+    assert sizing.plan(_receipt(4.9))["action"] == "KILL"
+    assert "wall" in sizing.plan(_receipt(5.5))["reason"]
     with pytest.raises(sizing.SizingRefused, match="HOLD"):
-        sizing.plan(_receipt(20.0, fidelity_status="HOLD"))
+        sizing.plan(_receipt(20.0, fidelity_status="DIFFERENCE"))
+    assert sizing.plan(_receipt(20.0, fidelity_status="EXPLAINED_TIE"))["action"] == "RATIFY"
     with pytest.raises(sizing.SizingRefused, match="9 MiB"):
         sizing.plan(_receipt(20.0, measured_export_bytes_per_pair=10 * 1024**2))
-    result = sizing.plan(_receipt(20.0))
-    assert result["chunk_pairs"] % 10 == 0
+    result = sizing.plan(_receipt(10.0))
+    assert result["action"] == "RATIFY" and result["expected_units"] <= 120
+    assert result["wall_hours_forecast"] <= 24 and result["max_in_flight"] == 2
     assert sum(chunk["count"] for chunk in result["chunks"]) == 240
     assert all(chunk["estimate_minutes"] <= 180 for chunk in result["chunks"])
-    assert all(
-        chunk["timeout_minutes"] >= 2 * chunk["estimate_minutes"] for chunk in result["chunks"]
+    headroom = max(
+        c["unit_cap"] - e for c, e in zip(result["chunks"], result["expected_chunk_units"])
     )
-    assert result["study_unit_ceiling"] == 48.0
+    assert result["study_unit_ceiling"] == pytest.approx(1.2 * result["expected_units"] + headroom)
+    replay = result["replay"]
+    assert replay["timeout_minutes"] >= max(
+        replay["estimate_minutes"] + 25, 2 * replay["estimate_minutes"]
+    )
 
 
-def test_study_ceiling_counts_unsettled_attempts_at_their_cap() -> None:
-    chunk = {"workload_minutes": 150.0}
-    settled = [{"elapsed_seconds": 3600 * 2.5, "unit_cap": 10.0}] * 7
-    assert sizing.admission_spend(settled, chunk)["allowed"]
-    unsettled = settled + [{"elapsed_seconds": None, "unit_cap": 10.0}]
-    assert not sizing.admission_spend(unsettled, chunk)["allowed"]
+def test_derived_ceiling_never_strands_the_last_chunk_with_one_lane_in_flight() -> None:
+    result = sizing.plan(_receipt(8.0))
+    chunks, expected = result["chunks"], result["expected_chunk_units"]
+    prior = [{"elapsed_seconds": e / 2.0 * 3600.0} for e in expected[:-2]]
+    prior.append({"elapsed_seconds": None, "unit_cap": chunks[-2]["unit_cap"]})
+    spend = sizing.admission_spend(prior, chunks[-1], result["study_unit_ceiling"])
+    assert spend["allowed"]
+    settled_over = [{"elapsed_seconds": 3600.0 * result["study_unit_ceiling"]}]
+    spend = sizing.admission_spend(settled_over, chunks[-1], result["study_unit_ceiling"])
+    assert not spend["allowed"] and spend["infeasible_on_settled_charges"]
 
 
-def test_dense_r1_plan_arithmetic_is_explicit() -> None:
-    plan = sizing.dense_r1_plan(20.0)
-    assert plan["total_label_worlds"] == 800
-    assert plan["lane_hours"] == pytest.approx(28.0)
-    assert plan["expected_units"] == pytest.approx(56.0)
-    assert plan["fundable"] is False  # > 30 u cap: needs a fresh approval
+def test_a5d_rate_comes_from_process_seconds_and_rows_never_a_window() -> None:
+    worlds = [
+        {
+            "kind": "fidelity",
+            "mix": "scripted",
+            "teacher_seconds": 7200.0,
+            "rollout_row_steps": 900_000,
+            "decisions": 5000,
+        },
+        {
+            "kind": "throughput",
+            "mix": "frozen",
+            "teacher_seconds": 600.0,
+            "rollout_row_steps": 50_000,
+            "decisions": 1500,
+        },
+    ]
+    rates = sizing.rate_estimates(worlds)
+    rho = 7800.0 / (950_000 + 6500)
+    assert rates["seconds_per_step"] == pytest.approx(rho)
+    assert rates["rows_per_world_used"] == sizing.T3_ROWS_PER_WORLD  # conservative max
+    assert rates["r_rows"] == pytest.approx(12 * 3600 / (rho * (859_420 + 5000)))
+    assert rates["r_completed"] == pytest.approx(12 * 3600 / 600.0)
+    assert rates["teacher_worlds_per_hour"] == min(rates["r_rows"], rates["r_completed"])
+    with pytest.raises(sizing.SizingRefused, match="HOLD"):
+        sizing.rate_estimates([])
+
+
+def test_dense_r1_is_label_yield_sized_and_capped_at_200u() -> None:
+    plan = sizing.dense_r1_plan(10.0, 0.66, 0.5)
+    assert plan["fresh_worlds"] == 455  # ceil(300 / 0.66)
+    assert plan["expected_units"] == pytest.approx(455 / 10.0 * 2.0)
+    assert plan["fundable"] is True and plan["fit_preconditions"]
+    assert sizing.dense_r1_plan(5.0, 0.66, 0.5)["fundable"] is False  # > 24 h on 3 lanes
+    assert sizing.dense_r1_plan(20.0, 0.3, 0.5)["reason"].startswith("held-out minimum")
+    assert sizing.dense_r1_plan(20.0, 0.0, 0.0)["fundable"] is False
+
+
+def test_fidelity_tie_rule_is_pre_registered_and_narrow() -> None:
+    from research.t34_round0d.a5d import first_divergence, tie_explained
+
+    expected = {"batch_decisions": [10, 15], "changes": [[15, 1, 0]]}
+    observed = {"batch_decisions": [10, 15], "changes": [[15, 1, 2]]}
+    assert first_divergence(expected, observed) == 15
+    near = {
+        "decision": 15,
+        "q": [1.0, 2.0, 2.0 + 5e-5, 0.0, 0.0, 0.0],
+        "legal": [True] * 6,
+        "outcomes": {"0": {"alive_steps": 300}, "2": {"alive_steps": 300}},
+    }
+    assert tie_explained(15, [near])
+    far = dict(near, q=[1.0, 2.0, 2.5, 0.0, 0.0, 0.0])
+    assert not tie_explained(15, [far])
+    assert not tie_explained(16, [near])
 
 
 def test_fidelity_compare_is_exact() -> None:
@@ -492,3 +575,86 @@ def test_real_dense_trace_on_excluded_fixture_with_lowered_trigger(
     assert full["teacher_v2"]["batches"] >= 1
     assert all(label["horizon"] <= 25 - label["decision"] for label in full["labels"])
     assert len(full["actions"]) == 25 or full["actions"]
+
+
+# --------------------------------------------------------------------------- re-scope integrity
+
+
+def test_ceiling_breach_on_settled_charges_seals_inconclusive_not_kill(tmp_path: Path) -> None:
+    author = _authoring_repo(tmp_path)
+    value = _registration(tmp_path, author)
+    history.seal_ceiling(value, {"settled_units": 99.0, "ceiling": 90.0})
+    _git(author, "add", value["history_ledger"]["path"])
+    _git(author, "commit", "-m", "ledger")
+    _git(author, "push", "origin", "main")
+    with pytest.raises(history.CapExpiredHistory):
+        history.require_chunks([], value)
+    sealed = json.loads((Path(value["study_root"]) / "ceiling/phase_terminal.json").read_text())
+    assert sealed["status"] == "INCONCLUSIVE"
+
+
+def test_two_live_attempts_are_counted_and_shared_probes_do_not_fake_liveness(
+    tmp_path: Path,
+) -> None:
+    import fcntl
+
+    author = _authoring_repo(tmp_path)
+    value = _registration(tmp_path, author)
+    root = Path(value["study_root"])
+    claims = []
+    for number in range(2):
+        attempt = root / f"chunks/chunk-{number:03d}/attempt-01"
+        history.reserve(attempt, value, world_ids=[f"w{number}"])
+        claims.append(history.InflightClaim(attempt))
+    assert history.in_flight_count(value) == 2
+    claims[0].release()
+    assert history.in_flight_count(value) == 1
+    # A concurrent shared probe on the dead attempt must not make it look alive.
+    dead = root / "chunks/chunk-000/attempt-01"
+    with (dead / "inflight.lock").open("a") as other:
+        fcntl.flock(other, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        assert not history.in_flight(dead)
+    claims[1].release()
+
+
+def test_round0_route_follows_the_go_file_ruling() -> None:
+    from research.t34_round0d.registration import round0_route
+
+    base = {"governing": True, "evidence_authority": "TIER_1_DEVELOPMENT", "reason": "x"}
+    assert round0_route(dict(base, decision="STOP"), governing=True) == "ROUND0D"
+    assert round0_route(dict(base, decision="INCONCLUSIVE"), governing=True) == "ROUND0D"
+    assert round0_route(dict(base, decision="GO"), governing=True) == "GO_PLAN_SHELVE_ROUND0D"
+    fault = dict(base, decision="STOP", unconditional_faults=[{"fault": "illegal_action"}])
+    assert round0_route(fault, governing=True) == "BUG_BRANCH"
+    integrity = dict(base, decision="INCONCLUSIVE", evidence_authority="INVALID_OR_INCOMPLETE")
+    assert round0_route(integrity, governing=True) == "MECHANICAL_BRANCH"
+    kill = dict(base, decision="KILL", evidence_authority="INTEGRITY_FAILURE")
+    assert round0_route(kill, governing=True) == "MECHANICAL_BRANCH"
+    not_governing = dict(base, decision="STOP", governing=False)
+    assert round0_route(not_governing, governing=True) == "NOT_GOVERNING"
+
+
+def test_imported_round0_and_amendment_bytes_are_pinned() -> None:
+    from research.t34_round0d.pins import PINNED, check_pins
+
+    assert "research/t34_round0/analyze.py" in PINNED
+    assert "research/t34_round0_amend/rule.py" in PINNED
+    check_pins(ROOT)
+    amendment = json.loads(
+        (ROOT / "research/t34_round0_amend/AMENDMENT_BOOST_FLOOR.json").read_text()
+    )
+    for name, digest in amendment["registered_sources"].items():
+        if name in PINNED:
+            assert PINNED[name] == digest
+
+
+def test_only_labels_py_reads_sealed_exports() -> None:
+    allowed = {"labels.py", "runner.py", "validate.py"}
+    readers = []
+    for path in (ROOT / "research").rglob("*.py"):
+        if path.parent.name == "t34_round0d" and path.name in allowed:
+            continue
+        text = path.read_text(errors="ignore")
+        if "round0d" in text and "sealed/" in text:
+            readers.append(str(path))
+    assert readers == []

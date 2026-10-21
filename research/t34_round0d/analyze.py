@@ -1,4 +1,4 @@
-"""The sole fixed-N Round 0-D decision; bars are Round 0's, imported verbatim.
+"""The sole fixed-N Round 0-D decision; Round 0's bars (imported) + the relative boost floor.
 
 ``research.t34_round0.analyze.summarize`` (unchanged) computes every clause and
 the GO/STOP/INCONCLUSIVE order, so Round 0-D cannot drift from Round 0's bars.
@@ -25,6 +25,7 @@ from research.t34_round0.analyze import (
     inconclusive,
     summarize,
 )
+from research.t34_round0_amend.rule import amend, pooled_boosts
 from research.t34_round0d.common import B8_SHA, PACKAGE, ROOT, read_json, sha256
 
 SCHEMA = "t34-round0d-decision/v1"
@@ -179,7 +180,7 @@ def analyze_paths(  # noqa: C901 - mirrors Round 0's fail-closed consumer
     bank_path, audit_path = PACKAGE / "BANK_ROUND0D.json", PACKAGE / "SEED_AUDIT_ROUND0D.json"
     try:
         ratification = read_json(ratification_path)
-        bank = require_registration(ratification, bank_path, audit_path, repo=repo)
+        bank = require_registration(ratification, bank_path, audit_path, repo=repo, mac_side=True)
         require_active_phase(ratification, "analysis")
         verify_frozen_worktree(repo, ratification["commit"])
         try:
@@ -336,8 +337,16 @@ def analyze_paths(  # noqa: C901 - mirrors Round 0's fail-closed consumer
             or replay.get("checked_pairs") != [evidence[world_id] for world_id in selected]
         ):
             raise InvalidEvidence("missing cross-runtime L4 replay or unexplained divergence")
-        result = summarize(records)
+        registered = summarize(records)
+        # Owner-approved relative boost floor (research/t34_round0_amend/rule.py, pinned):
+        # 0.5 x paired bare pooled share <= teacher pooled share <= 0.10. Only the
+        # boost clause is re-evaluated; Round 0's decision order is otherwise unchanged.
+        result = amend(
+            registered, pooled_boosts(records, "teacher"), pooled_boosts(records, "bare")
+        )
         result["schema"] = SCHEMA
+        result["registered_round0_clause_decision"] = registered["decision"]
+        result["boost_rule"] = "relative floor (research/t34_round0_amend/rule.py)"
         faults = _window_faults(bank["rows"], streams)
         if faults:
             result.update(

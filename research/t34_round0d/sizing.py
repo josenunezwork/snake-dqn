@@ -1,19 +1,25 @@
-"""Bind the A5-D receipt and the excluded Mac A6 into Round 0-D chunk sizing.
+"""A5-D receipt -> frozen rate-to-action table, Round 0 chunk sizing, ceilings, dense R1 yield.
 
 Round 0's chunk formula (``research.t34_round0.make_manifest.size_round``) is
 imported unchanged: chunk n is the largest multiple of ten with
-setup + n*(3600/r + 3*(bare+metric)/12)/60 <= 180 minutes, timeout >=
+setup + n*(3600/r + f*(bare+metric)/12)/60 <= 180 minutes, timeout >=
 max(estimate+25, 2*estimate), priced at 2.0 u/h with a held 20% reserve.
 
-Round 0-D-specific rules (PREREGISTRATION_ROUND0D.md "Sizing and caps"):
+Round 0-D rules (PREREGISTRATION_ROUND0D.md "Rate-to-action table"), frozen pre-data:
 
-* r is the A5-D dense-teacher completion rate on one L4 lane (K=12), measured
-  over a 1,200 s steady window after a 1,200 s cold fill. KILL if r < 8.
-* A5-D fidelity must be PASS (all 8 T3 census worlds reproduce); any
-  difference HOLDS sizing until explained by the operator's review.
-* Ratification requires a forecast expected spend <= 40 u (the plan cap). The study
-  charged-unit ceiling is 48 u = 40 u + the held 20% reserve (``admission_spend``).
-* Dense R1 (only after a Round 0-D GO) is sized here from the same r.
+* r (dense teacher worlds / lane-hour, K=12) = min(r_rows, r_completed), where
+  r_rows = 12*3600 / (rho * (R + 5000)); rho = measured teacher process-seconds per
+  (rollout row-step + decision) over every completed A5-D world, R = max(T3's
+  859,420 rows/world, the 4:3:3 mix-weighted mean over completed throughput
+  worlds); r_completed = 12*3600 / mean teacher process-seconds per completed
+  throughput world (reported; biased fast because early deaths finish first).
+* Bare and metric costs are the measured L4 per-process means (factor 1.0).
+* Action: KILL if r < 5; KILL if forecast expected units > 120 or forecast wall
+  > 24 h on the 2 registered lanes; HOLD if fidelity is not PASS/EXPLAINED_TIE or
+  nothing was measured; otherwise RATIFY with the study charged-unit ceiling
+  C = 1.2 * expected + (lanes - 1) * max_chunk(cap - expected), derived from
+  the forecast so that the last chunk is never stranded by in-flight charging.
+* Dense R1 (only after a Round 0-D GO): label-yield sizing, <= 200 u, <= 24 h on 3 lanes.
 """
 
 from __future__ import annotations
@@ -28,21 +34,27 @@ from typing import Any
 from research.t34_round0.make_manifest import RATE_UNITS_PER_HOUR, size_round
 from research.t34_round0d.common import read_json, sha256, source_hashes, write_once
 
-SCHEMA = "t34-round0d-a5d/v1"
-KILL_WORLDS_PER_HOUR = 8.0
-STEADY_WINDOW_SECONDS = 1200
-COLD_FILL_SECONDS = 1200
-EXPECTED_UNIT_CEILING = 40.0
-STUDY_UNIT_CEILING = 48.0
-H500_TO_H5000 = 10
-CPU_SLOWDOWN_FACTOR = 3.0
+SCHEMA = "t34-round0d-a5d/v2"
+KILL_WORLDS_PER_HOUR = 5.0
+STUDY_UNIT_CAP = 120.0
+WALL_HOURS_CAP = 24.0
+LANES = 2
+OVERRUN_FRACTION = 0.20
+T3_ROWS_PER_WORLD = 859_420  # docs/research/t3_ceiling_test_2026-10-15.md:129 (E8)
+DECISIONS_PER_WORLD = 5000
+MIX_WEIGHTS = {"scripted": 0.4, "frozen": 0.3, "mixed": 0.3}
+CPU_SLOWDOWN_FACTOR = 1.0  # bare/metric are measured on the L4 lane itself
 EXPORT_BYTES_PER_PAIR_LIMIT = 9 * 1024**2  # Round 0's registered allowance
-R1_FRESH_WORLDS = 560
+DISPATCH_GAP_MINUTES = 10  # operator ledger-publication barrier between serial chunks
+REPLAY_SAMPLE_PAIRS = 24
+R1_MAX_FRESH_WORLDS = 560
 R1_SEALED_WORLDS = 240
 R1_LANES = 3
-R1_UNIT_CAP = 30.0
+R1_UNIT_CAP = 200.0
+R1_HELDOUT_DECISIVE_ROWS = 300  # L2 held-out minimum (JUDGMENT lane L2)
+R1_HELDOUT_DECISIVE_WORLDS = 60
 R1_NAMESPACE = "t34-round0d-dense-r1-20261021/v1"
-R1_COUNTS = {"scripted": 224, "frozen": 168, "mixed": 168}
+FIDELITY_OK = ("PASS", "EXPLAINED_TIE")
 
 
 class SizingRefused(ValueError):
@@ -57,50 +69,119 @@ def _positive(value: Any, name: str) -> float:
     return float(value)
 
 
-def plan(receipt: dict[str, Any], pairs: int = 240) -> dict[str, Any]:
-    """Return Round 0's frozen chunk partition plus the Round 0-D spend forecast."""
+def rate_estimates(worlds: list[dict[str, Any]], processes: int = 12) -> dict[str, Any]:
+    """Frozen estimator from completed A5-D worlds (never a completion-window count)."""
+    done = [w for w in worlds if w.get("teacher_seconds", 0) > 0]
+    if not done:
+        raise SizingRefused("A5-D completed no dense world: HOLD, nothing measured")
+    seconds = sum(w["teacher_seconds"] for w in done)
+    steps = sum(w["rollout_row_steps"] + w["decisions"] for w in done)
+    rho = seconds / steps
+    throughput = [w for w in done if w["kind"] == "throughput"]
+    by_mix = {
+        mix: [w["rollout_row_steps"] for w in throughput if w["mix"] == mix] for mix in MIX_WEIGHTS
+    }
+    measured_rows = (
+        sum(MIX_WEIGHTS[m] * sum(v) / len(v) for m, v in by_mix.items() if v)
+        / sum(MIX_WEIGHTS[m] for m, v in by_mix.items() if v)
+        if throughput
+        else 0.0
+    )
+    rows = max(float(T3_ROWS_PER_WORLD), measured_rows)
+    r_rows = processes * 3600.0 / (rho * (rows + DECISIONS_PER_WORLD))
+    r_completed = (
+        processes * 3600.0 / (sum(w["teacher_seconds"] for w in throughput) / len(throughput))
+        if throughput
+        else None
+    )
+    rate = min(r_rows, r_completed) if r_completed is not None else r_rows
+    return {
+        "seconds_per_step": rho,
+        "rows_per_world_used": rows,
+        "rows_per_world_measured_mix_weighted": measured_rows,
+        "rows_per_world_t3": T3_ROWS_PER_WORLD,
+        "r_rows": r_rows,
+        "r_completed": r_completed,
+        "teacher_worlds_per_hour": rate,
+        "completed_worlds": len(done),
+        "completed_throughput_worlds": len(throughput),
+    }
+
+
+def plan(receipt: dict[str, Any], pairs: int = 240, lanes: int = LANES) -> dict[str, Any]:
+    """Round 0 chunk partition + the frozen rate-to-action decision and derived ceiling."""
     validate(receipt)
+    rate = float(receipt["teacher_worlds_per_hour"])
+    base: dict[str, Any] = {"teacher_worlds_per_hour": rate, "lanes": lanes}
+    if rate < KILL_WORLDS_PER_HOUR:
+        return dict(base, action="KILL", reason="r < 5 dense worlds per lane-hour")
     sizing = size_round(
         pairs,
-        teacher_worlds_per_hour=receipt["teacher_worlds_per_hour"],
+        teacher_worlds_per_hour=rate,
         bare_seconds_per_world=receipt["bare_seconds_per_world"],
         metric_seconds_per_pair=receipt["metric_seconds_per_pair"],
         cpu_slowdown_factor=receipt["cpu_slowdown_factor"],
         setup_minutes=receipt["setup_minutes"],
     )
-    expected = sum(
-        float(chunk["workload_minutes"]) / 60.0 * RATE_UNITS_PER_HOUR for chunk in sizing["chunks"]
-    )
-    largest_headroom = max(
-        float(chunk["unit_cap"]) - float(chunk["workload_minutes"]) / 60.0 * RATE_UNITS_PER_HOUR
-        for chunk in sizing["chunks"]
-    )
+    chunks = sizing["chunks"]
+    expected_chunk = [float(c["workload_minutes"]) / 60.0 * RATE_UNITS_PER_HOUR for c in chunks]
+    replay = replay_sizing(receipt)
+    expected = sum(expected_chunk) + replay["expected_units"]
+    headroom = max(float(c["unit_cap"]) - e for c, e in zip(chunks, expected_chunk))
+    ceiling = (1 + OVERRUN_FRACTION) * expected + (lanes - 1) * headroom
+    per_lane = [0.0] * lanes
+    for index, chunk in enumerate(chunks):
+        per_lane[index % lanes] += float(chunk["workload_minutes"]) + DISPATCH_GAP_MINUTES
+    wall_hours = (max(per_lane) + replay["estimate_minutes"] + DISPATCH_GAP_MINUTES) / 60.0
     sizing.update(
+        base,
         expected_units=expected,
-        expected_unit_ceiling=EXPECTED_UNIT_CEILING,
-        study_unit_ceiling=STUDY_UNIT_CEILING,
-        worst_case_charged_units=STUDY_UNIT_CEILING + largest_headroom,
+        expected_chunk_units=expected_chunk,
+        replay=replay,
+        study_unit_ceiling=ceiling,
+        study_unit_cap=STUDY_UNIT_CAP,
+        wall_hours_forecast=wall_hours,
+        wall_hours_cap=WALL_HOURS_CAP,
         lane_hours_expected=expected / RATE_UNITS_PER_HOUR,
-        initial_liability_units=sizing["unit_cap"] + sizing["reserve_units"],
+        max_in_flight=lanes,
     )
+    if expected > STUDY_UNIT_CAP:
+        sizing.update(action="KILL", reason="forecast expected units > 120")
+    elif wall_hours > WALL_HOURS_CAP:
+        sizing.update(action="KILL", reason="forecast wall > 24 h on the registered lanes")
+    else:
+        sizing.update(action="RATIFY", reason="r >= 5, expected <= 120 u, wall <= 24 h")
     return sizing
 
 
+def replay_sizing(receipt: dict[str, Any]) -> dict[str, Any]:
+    """One second-L4 replay job sized from A5-D's measured L4 metric cost (K=12)."""
+    per_pair = float(receipt["metric_seconds_per_pair"]) * float(receipt["cpu_slowdown_factor"])
+    workload = float(receipt["setup_minutes"]) + math.ceil(REPLAY_SAMPLE_PAIRS / 12) * per_pair / 60
+    estimate = math.ceil(workload)
+    timeout = max(math.ceil(workload + 25), 2 * estimate, 60)
+    cap = timeout * RATE_UNITS_PER_HOUR / 60.0
+    return {
+        "sample_pairs": REPLAY_SAMPLE_PAIRS,
+        "estimate_minutes": estimate,
+        "timeout_minutes": timeout,
+        "unit_cap": cap,
+        "reserve_units": 0.2 * cap,
+        "expected_units": workload / 60.0 * RATE_UNITS_PER_HOUR,
+    }
+
+
 def validate(receipt: dict[str, Any]) -> dict[str, Any]:
-    """Refuse a missing, failed, or out-of-contract A5-D receipt."""
+    """Refuse a missing, held, or out-of-contract A5-D receipt."""
     if receipt.get("schema") != SCHEMA:
         raise SizingRefused("A5-D receipt schema differs")
-    if receipt.get("fidelity_status") != "PASS":
-        raise SizingRefused("A5-D fidelity is not PASS: HOLD until each difference is explained")
-    rate = _positive(receipt.get("teacher_worlds_per_hour"), "teacher_worlds_per_hour")
-    if rate < KILL_WORLDS_PER_HOUR:
-        raise SizingRefused("A5-D KILL: fewer than 8 dense worlds/h/lane; re-plan on Mac capacity")
+    if receipt.get("fidelity_status") not in FIDELITY_OK:
+        raise SizingRefused("A5-D fidelity is not PASS/EXPLAINED_TIE: HOLD")
+    _positive(receipt.get("teacher_worlds_per_hour"), "teacher_worlds_per_hour")
     for key in ("bare_seconds_per_world", "metric_seconds_per_pair", "setup_minutes"):
         _positive(receipt.get(key), key)
     if receipt.get("cpu_slowdown_factor") != CPU_SLOWDOWN_FACTOR:
-        raise SizingRefused("A5-D receipt must use the registered 3x CPU planning factor")
-    if receipt.get("steady_window_seconds") != STEADY_WINDOW_SECONDS:
-        raise SizingRefused("A5-D receipt must use the registered 1,200 s steady window")
+        raise SizingRefused("A5-D receipt must use measured L4 costs (factor 1.0)")
     exported = _positive(receipt.get("measured_export_bytes_per_pair"), "export bytes")
     if exported > EXPORT_BYTES_PER_PAIR_LIMIT:
         raise SizingRefused("measured exports exceed the 9 MiB/pair allowance; re-size first")
@@ -110,48 +191,86 @@ def validate(receipt: dict[str, Any]) -> dict[str, Any]:
     return receipt
 
 
-def admission_spend(prior_receipts: list[dict[str, Any]], chunk: dict[str, Any]) -> dict:
-    """Study ceiling: refuse a chunk whose expected spend would cross 48 charged units.
+def admission_spend(
+    prior: list[dict[str, Any]], chunk: dict[str, Any], ceiling: float
+) -> dict[str, Any]:
+    """Refuse a chunk whose expected spend would cross the derived study ceiling.
 
-    Prior attempts are charged at the priced rate over their recorded whole-session
-    elapsed time; an attempt without a terminal elapsed time is charged its full cap.
+    Settled attempts are charged their whole-session elapsed time at 2.0 u/h; an
+    in-flight or receipt-less attempt is charged its full unit cap. ``settled_only``
+    reports whether the refusal stands without any in-flight charge (-> INCONCLUSIVE).
     """
-    charged = 0.0
-    for receipt in prior_receipts:
-        elapsed = receipt.get("elapsed_seconds")
+    settled = unsettled = 0.0
+    for item in prior:
+        elapsed = item.get("elapsed_seconds")
         if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool) and elapsed >= 0:
-            charged += float(elapsed) / 3600.0 * RATE_UNITS_PER_HOUR
+            settled += float(elapsed) / 3600.0 * RATE_UNITS_PER_HOUR
         else:
-            charged += float(receipt.get("unit_cap", STUDY_UNIT_CEILING))
+            unsettled += float(item.get("unit_cap", ceiling))
     expected = float(chunk["workload_minutes"]) / 60.0 * RATE_UNITS_PER_HOUR
-    allowed = charged + expected <= STUDY_UNIT_CEILING
-    return {"charged_units": charged, "chunk_expected_units": expected, "allowed": allowed}
+    return {
+        "charged_units": settled + unsettled,
+        "settled_units": settled,
+        "chunk_expected_units": expected,
+        "ceiling": ceiling,
+        "allowed": settled + unsettled + expected <= ceiling,
+        "infeasible_on_settled_charges": settled + expected > ceiling,
+    }
 
 
-def dense_r1_plan(teacher_worlds_per_hour: float) -> dict[str, Any]:
-    """Conditional dense R1 sizing; executes only after a published Round 0-D GO."""
+def dense_r1_plan(
+    teacher_worlds_per_hour: float, decisive_rows_per_world: float, decisive_world_fraction: float
+) -> dict[str, Any]:
+    """Label-yield dense R1 sizing; executes only after a published Round 0-D GO.
+
+    Yield (decisive rows/world) and the decisive-bearing world fraction are measured
+    on the 240 sealed teacher worlds (labels.py, after GO). N_fresh is the smallest
+    whole-world count whose expectation meets the L2 held-out minimum (>= 300
+    decisive rows and >= 60 decisive-bearing worlds), capped at 560; funded only
+    within 200 u and 24 h wall on 3 lanes. Fitting additionally requires the
+    ratified Claim A loss amendment and the PB-disposition ordering clause.
+    """
     rate = _positive(teacher_worlds_per_hour, "teacher_worlds_per_hour")
-    lane_hours = R1_FRESH_WORLDS / rate
-    wall_hours = lane_hours / R1_LANES
-    expected = lane_hours * RATE_UNITS_PER_HOUR
+    if decisive_rows_per_world <= 0 or decisive_world_fraction <= 0:
+        return {"fundable": False, "reason": "zero measured decisive yield", "fresh_worlds": 0}
+    needed = max(
+        math.ceil(R1_HELDOUT_DECISIVE_ROWS / decisive_rows_per_world),
+        math.ceil(R1_HELDOUT_DECISIVE_WORLDS / decisive_world_fraction),
+    )
+    fresh = min(R1_MAX_FRESH_WORLDS, needed)
+    lane_hours = fresh / rate
+    units = lane_hours * RATE_UNITS_PER_HOUR
+    wall = lane_hours / R1_LANES
+    reachable = needed <= R1_MAX_FRESH_WORLDS
+    fundable = reachable and units <= R1_UNIT_CAP and wall <= WALL_HOURS_CAP
     return {
         "namespace": R1_NAMESPACE,
-        "fresh_worlds": R1_FRESH_WORLDS,
-        "fresh_counts": R1_COUNTS,
+        "fresh_worlds": fresh,
+        "fresh_worlds_needed_for_heldout_minimum": needed,
         "sealed_round0d_teacher_worlds": R1_SEALED_WORLDS,
-        "total_label_worlds": R1_FRESH_WORLDS + R1_SEALED_WORLDS,
-        "lanes": R1_LANES,
         "lane_hours": lane_hours,
-        "wall_hours": wall_hours,
-        "expected_units": expected,
+        "wall_hours_on_3_lanes": wall,
+        "expected_units": units,
         "unit_cap": R1_UNIT_CAP,
-        "fundable": expected <= R1_UNIT_CAP,
-        "condition": "published Round 0-D analysis/decision.json == GO",
+        "fundable": fundable,
+        "reason": (
+            "fundable"
+            if fundable
+            else (
+                "held-out minimum unreachable within 560 fresh worlds"
+                if not reachable
+                else "exceeds 200 u or 24 h on 3 lanes"
+            )
+        ),
+        "fit_preconditions": [
+            "ratified Claim A loss amendment (JUDGMENT §7a) shown to move decisive argmaxes",
+            "dense R1 ordering clause: labels only until the Path B disposition is published",
+        ],
     }
 
 
 def build(a5d_benchmark: Path, preflight: Path, setup_minutes: float) -> dict[str, Any]:
-    """Bind the supervisor-verified A5-D export and the excluded A6 Mac costs."""
+    """Bind the supervisor-verified A5-D export (L4 costs) and the source-current A6."""
     data = read_json(a5d_benchmark)
     job = a5d_benchmark.parents[2]  # <job>/exports/a5d/benchmark.json
     receipt = read_json(job / "receipt.json")
@@ -163,7 +282,7 @@ def build(a5d_benchmark: Path, preflight: Path, setup_minutes: float) -> dict[st
             and entry.get("sha256") == sha256(a5d_benchmark)
             for entry in receipt.get("exports", [])
         )
-        or data.get("schema") != "t34-round0d-a5d-benchmark/v1"
+        or data.get("schema") != "t34-round0d-a5d-benchmark/v2"
         or data.get("processes") != 12
     ):
         raise SizingRefused("A5-D requires a verified L4 PASS benchmark with K=12 processes")
@@ -174,43 +293,29 @@ def build(a5d_benchmark: Path, preflight: Path, setup_minutes: float) -> dict[st
     chunk = read_json(chunk_path)
     if chunk.get("preflight") is not True or chunk.get("status") != "complete":
         raise SizingRefused("A6 must be a complete excluded Mac preflight")
-    pairs = [read_json(preflight / item["path"]) for item in chunk["pairs"]]
-    costs = [
-        {
-            arm: {
-                k: p["arms"][arm][k] for k in ("rollout_elapsed_seconds", "metric_elapsed_seconds")
-            }
-            for arm in ("bare", "teacher")
-        }
-        for p in pairs
-    ]
-    bare = max(c["bare"]["rollout_elapsed_seconds"] for c in costs) * H500_TO_H5000
-    metric = (
-        max(sum(c[a]["metric_elapsed_seconds"] for a in ("bare", "teacher")) for c in costs)
-        * H500_TO_H5000
-    )
+    rates = rate_estimates(data["worlds"])
+    paired = [w for w in data["worlds"] if w["kind"] == "throughput" and w.get("bare_seconds")]
+    if not paired:
+        raise SizingRefused("A5-D measured no paired bare/metric cost: HOLD")
+    bare = sum(w["bare_seconds"] for w in paired) / len(paired)
+    metric = sum(w["metric_seconds"] for w in paired) / len(paired)
     evidence = {
         "a5d_benchmark": {"path": str(a5d_benchmark.resolve()), "sha256": sha256(a5d_benchmark)},
         "a5d_receipt_sha256": sha256(job / "receipt.json"),
-        "a5d_window": data["window"],
+        "a5d_rates": rates,
         "a5d_fidelity": data["fidelity"],
         "a6_chunk_sha256": sha256(chunk_path),
-        "a6_pair_costs": costs,
-        "h500_to_h5000_factor": H500_TO_H5000,
-        "cpu_slowdown_factor": CPU_SLOWDOWN_FACTOR,
         "observed_setup_export_cleanup_minutes": observed_setup,
         "setup_minutes": setup_minutes,
     }
     payload = {
         "schema": SCHEMA,
-        "teacher_worlds_per_hour": float(data["window"]["completed_worlds_per_hour"]),
+        "teacher_worlds_per_hour": rates["teacher_worlds_per_hour"],
         "fidelity_status": data["fidelity"]["status"],
         "bare_seconds_per_world": bare,
         "metric_seconds_per_pair": metric,
         "cpu_slowdown_factor": CPU_SLOWDOWN_FACTOR,
         "setup_minutes": setup_minutes,
-        "steady_window_seconds": STEADY_WINDOW_SECONDS,
-        "cold_fill_seconds": COLD_FILL_SECONDS,
         "measured_export_bytes_per_pair": float(data["export_bytes_per_pair_upper"]),
         "a6_measurement_sha256": sha256(chunk_path),
         "a6_source_sha256": hashlib.sha256(
@@ -225,36 +330,30 @@ def build(a5d_benchmark: Path, preflight: Path, setup_minutes: float) -> dict[st
         json.dumps(evidence, sort_keys=True).encode()
     ).hexdigest()
     payload["plan"] = plan(payload)
-    payload["dense_r1_plan"] = dense_r1_plan(payload["teacher_worlds_per_hour"])
     return payload
 
 
 def estimated_plan(teacher_worlds_per_hour: float, setup_minutes: float = 15.0) -> dict:
-    """ESTIMATED draft sizing from the plan's E8 bracket; never admits dispatch."""
+    """ESTIMATED draft table row; never admits dispatch.
+
+    Placeholder L4 costs: Round 0-D's own A6 (Mac, H500x10: bare 20.2 s/world, metric
+    5.4 s/pair) times the ops panel's 6-9x L4 per-process penalty (9x), rounded up.
+    """
     receipt = {
         "schema": SCHEMA,
         "fidelity_status": "PASS",
         "teacher_worlds_per_hour": teacher_worlds_per_hour,
-        # Placeholders only: Round 0's own measured A6 costs (bare 91.9 s/world incl.
-        # warm-up, metric 3.9 s/pair, H500x10), rounded up. Ratification uses the
-        # source-current Round 0-D A6 instead (``build``).
-        "bare_seconds_per_world": 92.0,
-        "metric_seconds_per_pair": 8.0,
+        "bare_seconds_per_world": 190.0,
+        "metric_seconds_per_pair": 50.0,
         "cpu_slowdown_factor": CPU_SLOWDOWN_FACTOR,
         "setup_minutes": setup_minutes,
-        "steady_window_seconds": STEADY_WINDOW_SECONDS,
         "measured_export_bytes_per_pair": 4 * 1024**2,
         "evidence": {"estimated": True},
     }
     receipt["evidence_sha256"] = hashlib.sha256(
         json.dumps(receipt["evidence"], sort_keys=True).encode()
     ).hexdigest()
-    return {
-        "status": "ESTIMATED_NOT_DISPATCHABLE",
-        "assumed_teacher_worlds_per_hour": teacher_worlds_per_hour,
-        "plan": plan(receipt),
-        "dense_r1_plan": dense_r1_plan(teacher_worlds_per_hour),
-    }
+    return {"status": "ESTIMATED_NOT_DISPATCHABLE", "plan": plan(receipt)}
 
 
 def main() -> None:
@@ -265,9 +364,8 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     payload = build(args.a5d_benchmark, args.preflight_dir, args.setup_minutes)
-    if payload["plan"]["expected_units"] > EXPECTED_UNIT_CEILING:
-        raise SizingRefused("forecast expected spend exceeds 40 u: re-plan, do not ratify")
     write_once(args.out, payload)
+    print(json.dumps({k: payload["plan"].get(k) for k in ("action", "reason")}))
 
 
 if __name__ == "__main__":
