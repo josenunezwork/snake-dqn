@@ -5,9 +5,29 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import tempfile
 from pathlib import Path
 
 from research.bl_served_search.exports import digest, verify_export
+
+
+def fixture_bank(inputs: Path, hashes: dict[str, str]) -> dict:
+    """Read only hash-bound fixtures, including the single-upload transport."""
+    from research.bl_served_search.fixture_bundle import BUNDLE_NAME, unpack
+
+    if BUNDLE_NAME in hashes:
+        with tempfile.TemporaryDirectory(prefix="l2-fixture-check-") as directory:
+            manifest = unpack(
+                inputs / BUNDLE_NAME, Path(directory) / "fixtures", hashes[BUNDLE_NAME]
+            )
+            return json.loads(manifest.read_text())
+    fixture_dest = "ruler-fixtures/ruler-fixtures.json"
+    if fixture_dest not in hashes:
+        raise ValueError("NOT_DISPATCHABLE: qualified fixtures must be hash-bound")
+    manifest = inputs / fixture_dest
+    if digest(manifest) != hashes[fixture_dest]:
+        raise ValueError("changed input: " + fixture_dest)
+    return json.loads(manifest.read_text())
 
 
 def check(plan: dict, inputs: Path) -> None:
@@ -78,11 +98,8 @@ def check(plan: dict, inputs: Path) -> None:
     validate_qualification(json.loads((inputs / "ruler-mac.json").read_text()), l4)
     from research.bl_served_search.ruler import canonical, sha256_bytes
 
-    fixture_dest = "ruler-fixtures/ruler-fixtures.json"
-    if fixture_dest not in plan["input_hashes"]:
-        raise ValueError("NOT_DISPATCHABLE: qualified fixtures must be hash-bound")
-    fixture_bank = json.loads((inputs / fixture_dest).read_text())
-    if l4["fixture_sha256"] != sha256_bytes(canonical(fixture_bank).encode()):
+    fixtures = fixture_bank(inputs, plan["input_hashes"])
+    if l4["fixture_sha256"] != sha256_bytes(canonical(fixtures).encode()):
         raise ValueError("NOT_DISPATCHABLE: ruler differs from uploaded fixtures")
     if not math.isclose(rate, l4["aggregate_batches_per_second"], rel_tol=0, abs_tol=1e-12):
         raise ValueError("NOT_DISPATCHABLE: forecast R differs from qualified L4 receipt")

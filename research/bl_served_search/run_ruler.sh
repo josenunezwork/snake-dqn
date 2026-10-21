@@ -10,6 +10,12 @@ set -euo pipefail
 PYTHON_BIN="$COLAB_CLI_ROOT/.venv/bin/python"
 RULER_OPERATOR="${RULER_OPERATOR:-research.bl_served_search.ruler_operator:create_operator}"
 test -x "$PYTHON_BIN"
+cd "$COLAB_CLI_ROOT/repo"
+if [[ -n "${BL_RULER_FIXTURES_SHA256:-}" ]]; then
+  "$PYTHON_BIN" -m research.bl_served_search.fixture_bundle \
+    --bundle "$COLAB_INPUT_DIR/ruler-fixtures.tar.gz" \
+    --sha256 "$BL_RULER_FIXTURES_SHA256" --out "$COLAB_INPUT_DIR/ruler-fixtures"
+fi
 test -f "$COLAB_INPUT_DIR/ruler-fixtures/ruler-fixtures.json"
 if [[ "${BL_PUBLIC_INPUTS:-0}" == "1" ]]; then
   public_root="$("$PYTHON_BIN" -m research.bl_upload.inputs --input-dir "$COLAB_INPUT_DIR" | \
@@ -20,7 +26,6 @@ else
   export SNAKE_CKPT_DIR="$COLAB_INPUT_DIR/checkpoints"
   export RULER_B8_PATH="$COLAB_INPUT_DIR/b8.pth"
 fi
-cd "$COLAB_CLI_ROOT/repo"
 
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 export NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu

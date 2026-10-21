@@ -12,7 +12,9 @@ from typing import Any
 
 from research.bl_prefix.make_manifest import qualified_transport
 from research.bl_served_search.exports import digest, export_json, verify_export
-from research.bl_upload import assert_upload_budget, convert_public_checkpoints, qualify
+from research.bl_served_search.fixture_bundle import BUNDLE_NAME, pack
+from research.bl_served_search.upload_readiness import check as check_upload
+from research.bl_upload import convert_public_checkpoints, qualify
 from research.colab_cli.supervisor import validate
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -199,36 +201,15 @@ def build(
     if digest(b8) != B8:
         raise ValueError("B8 s3 drift")
     files.append(("b8.pth", b8))
-    verify_export(fixtures / "ruler-fixtures.json")
-    fixture_manifest = json.loads((fixtures / "ruler-fixtures.json").read_text())
-    if fixture_manifest.get("mode") != "full":
-        raise ValueError("full nine-fixture ruler bank required for L4 manifest")
-    from research.bl_served_search.ruler import source_identity, validate_fixtures
-
-    fixture_rows = validate_fixtures(fixture_manifest, full=True)
-    if fixture_manifest.get("source_identity") != source_identity():
-        raise ValueError("fixture sources differ from pinned ruler implementation")
-    for row in fixture_rows:
-        relative = Path(row["root_file"])
-        if relative.name != str(relative):
-            raise ValueError("fixture root must be a portable basename")
-        root_path = fixtures / relative
-        verify_export(root_path)
-        root = json.loads(root_path.read_text())
-        if (
-            root.get("fixture_id") != row["fixture_id"]
-            or root.get("root_sha256") != row["root_sha256"]
-            or root.get("root_bytes_b64") != row["root_bytes_b64"]
-        ):
-            raise ValueError("root sidecar payload disagrees with frozen fixture bank")
-    for path in sorted(fixtures.iterdir()):
-        if path.is_file() and not path.name.endswith((".sha256", ".complete")):
-            verify_export(path)
-            files.append((f"ruler-fixtures/{path.name}", path))
+    # One upload replaces all 30 original fixture export components.  The
+    # runtime verifies the archive hash, every sidecar and the embedded roots
+    # before making the original byte-identical fixture directory visible.
+    bundle = pack(fixtures, out / BUNDLE_NAME)
+    files.append((BUNDLE_NAME, bundle))
     inputs = []
     for dest, path in files:
         inputs.append({"dest": dest, "path": str(path.resolve()), "sha256": digest(path)})
-        if dest in {"bank.json", "audit.json"} or dest.startswith("ruler-fixtures/"):
+        if dest in {"bank.json", "audit.json"}:
             for suffix in (".sha256", ".complete"):
                 sidecar = Path(str(path) + suffix)
                 inputs.append(
@@ -291,7 +272,7 @@ def build(
                 "unit_cap": 4 if is_ruler else 16,
                 "rate_units_per_hour": 2,
                 "reserve_units": 0.8 if is_ruler else 3.2,
-                "other_assignments": [],
+                "other_assignments": {},
             },
             "env": {
                 "BL_L2_SHARD_INDEX": str(chunk),
@@ -304,6 +285,7 @@ def build(
                 "VECLIB_MAXIMUM_THREADS": "1",
                 "NUMBA_NUM_THREADS": "1",
                 "COLAB_CLI_REQUIREMENTS": "research/bl_served_search/requirements.txt",
+                "BL_RULER_FIXTURES_SHA256": digest(bundle),
             },
             "inputs": job_inputs,
             "lease_seconds": 300,
@@ -335,7 +317,7 @@ def build(
             # compact catalog instead; checkpoint files are verified during
             # runtime reconstruction by ``public_inputs.materialize``.
             bind_l2_plan(manifest, plan, plan_path)
-        assert_upload_budget(manifest, repo=repo)
+        check_upload(manifest, repo=repo)
         validated = validate(manifest, repo=repo)
         qualification_path = out / f"upload-qualification-{label}.json"
         qualify(validated, repo=repo, receipt_path=qualification_path)

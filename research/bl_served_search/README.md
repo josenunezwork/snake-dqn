@@ -58,3 +58,14 @@ worker. Only targeted package tests run. Exports are create-only payloads
 with `.sha256` and `.complete` sidecars. Current commands, pins, manifests,
 forecasts and remaining admission requirements are recorded in the artifact
 root's `DISPATCH.txt` and [PREFLIGHT_08.md](PREFLIGHT_08.md).
+
+Y1 upload recovery uses the Z-9 public checkpoint catalog and a single
+`ruler-fixtures.tar.gz` upload containing the original 30 fixture export
+components. The runtime verifies the manifest-bound archive SHA-256, restores
+into a fresh directory, then checks every payload/sidecar, root identity and
+unchanged ruler source identity before timing. No root is regenerated or
+reselected. `budget.other_assignments` is an empty map at offline preparation;
+review actual account assignments at eventual admission. The package upload
+gate and full pinned-source qualification refuse forecasts above 150 seconds
+(including sparse-source fallback), within the shared 300-second deadline.
+Fixtures, operator, timing rules and the measured L4 R≥2.18 bar are unchanged.
