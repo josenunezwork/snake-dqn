@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 from research.bl_served_search.exports import digest, verify_export
@@ -11,7 +12,7 @@ from research.bl_served_search.exports import digest, verify_export
 
 def check(plan: dict, inputs: Path) -> None:
     """Offline preparation is not dispatch admission; no environment bypass."""
-    if plan.get("schema") != "bl-served-search-plan/v1":
+    if plan.get("schema") != "bl-served-search-plan/v2":
         raise ValueError("wrong L2 plan schema")
     for dest, checksum in plan.get("input_hashes", {}).items():
         relative = Path(dest)
@@ -28,6 +29,14 @@ def check(plan: dict, inputs: Path) -> None:
         raise ValueError("bank/audit identity mismatch")
     if bank.get("counts") != {"frozen": 64, "mixed": 64, "scripted": 32}:
         raise ValueError("wrong L2 counts")
+    from research.bl_served_search.ceiling import validate_bank
+    from research.bl_served_search.chunks import chunk_rows
+
+    if plan.get("chunk_count") != 4 or type(plan.get("chunk_index")) is not int:
+        raise ValueError("four immutable chunks required")
+    selected = chunk_rows(validate_bank(bank), plan["chunk_index"])
+    if plan.get("world_ids") != [row["world_id"] for row in selected]:
+        raise ValueError("chunk world order disagrees with frozen bank")
     if plan.get("runtime_parity_admitted") is not True:
         raise ValueError("NOT_DISPATCHABLE: L4 runtime parity has not been admitted")
     forecast = plan.get("forecast", {})
@@ -37,8 +46,57 @@ def check(plan: dict, inputs: Path) -> None:
         raise ValueError("missing conservative forecast")
     if plan.get("dispatchable") is not True or forecast.get("status") != "FITS":
         raise ValueError("NOT_DISPATCHABLE: L4 forecast/preflight is not admitted")
-    if not 0 < 2 * estimate <= timeout <= 384:
+    if not (
+        math.isfinite(estimate)
+        and math.isfinite(timeout)
+        and 0 < 2 * estimate <= timeout <= 384
+        and timeout <= 480
+    ):
         raise ValueError("NOT_DISPATCHABLE: conservative forecast exceeds frozen envelope")
+    rate = forecast.get("measured_l4_aggregate_batches_per_second")
+    if (
+        isinstance(rate, bool)
+        or not isinstance(rate, (int, float))
+        or not math.isfinite(rate)
+        or rate < 2.18
+    ):
+        raise ValueError("NOT_DISPATCHABLE: measured L4 R must be >=2.18")
+    expected_minutes = (23120 / rate + 900) / 60
+    if not math.isclose(estimate, expected_minutes, rel_tol=0, abs_tol=1e-9):
+        raise ValueError("NOT_DISPATCHABLE: forecast does not price measured R")
+    if forecast.get("total_two_times_minutes") != 8 * estimate or 8 * estimate > 1536:
+        raise ValueError("NOT_DISPATCHABLE: aggregate timeout exceeds usable 64u envelope")
+    if plan.get("ruler_admitted") is not True:
+        raise ValueError("NOT_DISPATCHABLE: separate Mac and L4 ruler receipts required")
+    for name in ("ruler-mac.json", "ruler-l4.json"):
+        if name not in plan.get("input_hashes", {}):
+            raise ValueError("NOT_DISPATCHABLE: ruler receipt must be hash-bound")
+        verify_export(inputs / name)
+    from research.bl_served_search.ruler import validate_qualification
+
+    l4 = json.loads((inputs / "ruler-l4.json").read_text())
+    validate_qualification(json.loads((inputs / "ruler-mac.json").read_text()), l4)
+    from research.bl_served_search.ruler import canonical, sha256_bytes
+
+    fixture_dest = "ruler-fixtures/ruler-fixtures.json"
+    if fixture_dest not in plan["input_hashes"]:
+        raise ValueError("NOT_DISPATCHABLE: qualified fixtures must be hash-bound")
+    fixture_bank = json.loads((inputs / fixture_dest).read_text())
+    if l4["fixture_sha256"] != sha256_bytes(canonical(fixture_bank).encode()):
+        raise ValueError("NOT_DISPATCHABLE: ruler differs from uploaded fixtures")
+    if not math.isclose(rate, l4["aggregate_batches_per_second"], rel_tol=0, abs_tol=1e-12):
+        raise ValueError("NOT_DISPATCHABLE: forecast R differs from qualified L4 receipt")
+    if "runtime-parity.json" not in plan.get("input_hashes", {}):
+        raise ValueError("NOT_DISPATCHABLE: runtime parity must be hash-bound")
+    verify_export(inputs / "runtime-parity.json")
+    from research.bl_served_search.ceiling import source_manifest, validate_runtime_parity
+
+    validate_runtime_parity(
+        json.loads((inputs / "runtime-parity.json").read_text()),
+        bank_sha256=digest(inputs / "bank.json"),
+        source=source_manifest(),
+        require_local_runtime=True,
+    )
 
 
 def main() -> None:

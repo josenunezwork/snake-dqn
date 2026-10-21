@@ -36,9 +36,4 @@ export NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu
   --shard-index "$BL_L2_SHARD_INDEX" --shard-count "$BL_L2_SHARD_COUNT" \
   --workers "$BL_L2_WORKERS"
 
-if [ "$BL_L2_SHARD_COUNT" -eq 1 ]; then
-  "$PYTHON_BIN" -m research.bl_served_search.analyze \
-    --bank "$COLAB_INPUT_DIR/bank.json" \
-    --shard "$COLAB_OUTPUT_DIR/l2-shard-0.json" \
-    --out "$COLAB_OUTPUT_DIR/analysis.json"
-fi
+# Merge and analyze exactly once on the Mac after all four terminal chunks.

@@ -22,6 +22,12 @@ from typing import Any
 
 import numpy as np
 
+from research.bl_served_search.chunks import (
+    CHUNK_COUNT,
+    chunk_rows,
+    validate_chunk_rows,
+    world_ids_sha256,
+)
 from research.bl_served_search.exports import export_json
 from research.t1_commitment_20261015.replay import configure_cpu
 from research.t3_rollout_labels_20261015.trigger import DenseTrigger
@@ -93,6 +99,7 @@ def source_manifest() -> dict[str, str]:
     root = Path(__file__).resolve().parents[2]
     paths = (
         Path(__file__),
+        root / "research/bl_served_search/chunks.py",
         root / "research/t3_rollout_labels_20261015/trigger.py",
         root / "research/t3_rollout_labels_20261015/bank_engine.py",
         root / "research/t3_rollout_labels_20261015/engine.py",
@@ -219,7 +226,10 @@ def run_arm(plan: dict[str, Any], *, dense: bool, b8_path: Path, horizon: int) -
     trigger = DenseTrigger(min_length=600, interval=5) if dense else None
     mass = alive_frames = decisions = 0
     mass_trace: list[int] = []
+    alive_trace: list[bool] = []
     batches = changes = surviving_changes = delay_only_changes = residual_changes = 0
+    d300_escape_changes = 0
+    death_frame = death_length = death_cause = None
     rollout_env_frames = 0
     rollout_wall_seconds = 0.0
     started = time.perf_counter()
@@ -241,6 +251,7 @@ def run_arm(plan: dict[str, Any], *, dense: bool, b8_path: Path, horizon: int) -
                 bare = outcomes[int(selected["bare"])]
                 if bool(chosen["survives"]) and not bool(bare["survives"]):
                     surviving_changes += 1
+                    d300_escape_changes += 1
                 else:
                     # Every non-rescue changed choice is a finite-horizon
                     # delay: both branches die, or the bare branch lasts to
@@ -252,9 +263,17 @@ def run_arm(plan: dict[str, Any], *, dense: bool, b8_path: Path, horizon: int) -
         logical_mass = int(world.sim.length[0, 0]) if alive else 0
         mass += logical_mass
         mass_trace.append(logical_mass)
+        alive_trace.append(alive)
         if not alive:
+            death_frame = decision
+            death_length = int(selected["length"])
+            death_cause = int(world.sim.get_death_cause()[0, 0])
             break
     mass_trace.extend([0] * (horizon - len(mass_trace)))
+    alive_trace.extend([False] * (horizon - len(alive_trace)))
+    # A local H300 rescue that still ends in an episode death is disclosed as
+    # a D300-only escape/re-death rather than counted as a productive rescue.
+    d300_only = d300_escape_changes if death_frame is not None else 0
     return {
         "mass_integral": mass / horizon,
         "alive_frame_fraction": alive_frames / horizon,
@@ -265,10 +284,23 @@ def run_arm(plan: dict[str, Any], *, dense: bool, b8_path: Path, horizon: int) -
         "horizon_surviving_changes": surviving_changes,
         "delay_only_changes": delay_only_changes,
         "residual_changes": residual_changes,
+        "d300_escape_changes": d300_escape_changes,
+        "d300_only_escapes": d300_only,
+        "re_deaths": int(bool(d300_only)),
+        "proposed_interventions": batches,
+        "completed_interventions": batches,
+        # L2' has no paced deadline/consumer.  It must never manufacture a
+        # deadline-valid count from an unpaced replay.
+        "consumed_before_deadline_interventions": None,
+        "consumed_before_deadline_availability": "UNAVAILABLE_UNPACED_L2",
+        "death_frame": death_frame,
+        "death_length": death_length,
+        "death_cause": death_cause,
         "rollout_env_frames": rollout_env_frames,
         "rollout_wall_seconds": rollout_wall_seconds,
         "wall_seconds": time.perf_counter() - started,
         "_mass_trace": mass_trace,
+        "_alive_trace": alive_trace,
     }
 
 
@@ -283,8 +315,11 @@ def run_world(row: dict[str, Any], *, b8_path: Path) -> dict[str, Any]:
     baseline = run_arm(plan, dense=False, b8_path=b8_path, horizon=horizon)
     dense = run_arm(plan, dense=True, b8_path=b8_path, horizon=horizon)
     baseline_trace, dense_trace = baseline.pop("_mass_trace"), dense.pop("_mass_trace")
+    baseline_alive, dense_alive = baseline.pop("_alive_trace"), dense.pop("_alive_trace")
     if len(baseline_trace) != horizon or len(dense_trace) != horizon:
         raise RuntimeError("full-horizon mass trace is incomplete")
+    if len(baseline_alive) != horizon or len(dense_alive) != horizon:
+        raise RuntimeError("full-horizon alive trace is incomplete")
     common_delta = dense_only = baseline_only = 0
     for base_mass, dense_mass in zip(baseline_trace, dense_trace):
         if base_mass and dense_mass:
@@ -303,6 +338,54 @@ def run_world(row: dict[str, Any], *, b8_path: Path) -> dict[str, Any]:
         ledger["total"], dense["mass_integral"] - baseline["mass_integral"], abs_tol=1e-12
     ):
         raise RuntimeError("mass ledger does not reconcile to paired mass delta")
+    baseline_last_length = int(baseline["death_length"] or 0)
+    baseline_tail = (
+        dense_trace[int(baseline["death_frame"]) :] if baseline["death_frame"] is not None else []
+    )
+    productive_rescue = bool(
+        baseline["death_frame"] is not None
+        and dense["death_frame"] is None
+        and baseline_tail
+        and sum(baseline_tail) / len(baseline_tail) >= 0.9 * baseline_last_length
+    )
+    common_alive_growth_loss = (
+        sum(
+            max(0, base_mass - dense_mass)
+            for base_mass, dense_mass, base_alive, dense_alive in zip(
+                baseline_trace, dense_trace, baseline_alive, dense_alive
+            )
+            if base_alive and dense_alive
+        )
+        / horizon
+    )
+
+    def sealer(arm: dict[str, Any]) -> str:
+        # A death-cause code describes contact, not the topology/onset needed
+        # for T1-style sealer attribution.  Preserve it separately and label
+        # every unreconstructed death unresolved.
+        return "none" if arm["death_frame"] is None else "unresolved"
+
+    world_ledger = {
+        "productive_rescue": productive_rescue,
+        "d300_only_escape": int(dense["d300_only_escapes"]) > 0,
+        "re_death": int(dense["re_deaths"]) > 0,
+        "delay_only_changes": int(dense["delay_only_changes"]),
+        "newly_caused_death": baseline["death_frame"] is None and dense["death_frame"] is not None,
+        "common_alive_growth_loss": common_alive_growth_loss,
+        "natural_world_denominator": 1,
+        "baseline_died": baseline["death_frame"] is not None,
+        "b8_death_frame": baseline["death_frame"],
+        "b8_death_length": baseline["death_length"],
+        "b8_death_cause": baseline["death_cause"],
+        "baseline_sealer": sealer(baseline),
+        "dense_sealer": sealer(dense),
+        "interventions": {
+            "proposed": int(dense["proposed_interventions"]),
+            "completed": int(dense["completed_interventions"]),
+            "consumed_before_deadline": dense["consumed_before_deadline_interventions"],
+            "consumed_before_deadline_availability": dense["consumed_before_deadline_availability"],
+        },
+    }
     return {
         "schema": ROW_SCHEMA,
         "world_id": str(row["world_id"]),
@@ -317,6 +400,8 @@ def run_world(row: dict[str, Any], *, b8_path: Path) -> dict[str, Any]:
             for key in ("mass_integral", "alive_frame_fraction", "no_death_episode")
         },
         "mass_ledger": ledger,
+        "trajectories": {"baseline_mass": baseline_trace, "dense_mass": dense_trace},
+        "world_ledger": world_ledger,
     }
 
 
@@ -445,10 +530,13 @@ def main() -> None:
             )
         except (KeyError, ValueError) as exc:
             parser.error(str(exc))
-    if not 1 <= args.workers <= 12 or not 1 <= args.shard_count <= 160:
-        parser.error("workers must be 1..12 and shard-count 1..160")
-    if not 0 <= args.shard_index < args.shard_count:
-        parser.error("invalid shard index")
+    if not 1 <= args.workers <= 12:
+        parser.error("workers must be 1..12")
+    if args.fixture:
+        if not 1 <= args.shard_count <= 3 or not 0 <= args.shard_index < args.shard_count:
+            parser.error("fixture shard-count must be 1..3 with a valid index")
+    elif args.shard_count != CHUNK_COUNT or not 0 <= args.shard_index < CHUNK_COUNT:
+        parser.error("L2' requires exactly four immutable chunk receipts (indices 0..3)")
     if args.out.exists() or any(
         Path(str(args.out) + suffix).exists() for suffix in (".sha256", ".complete")
     ):
@@ -457,9 +545,13 @@ def main() -> None:
     rows = validate_bank(bank, fixture=args.fixture)
     if not args.b8_path.is_file() or digest_file(args.b8_path) != B8_SHA256:
         parser.error("--b8-path must name the supervisor-provided B8 checkpoint")
-    selected = [
-        row for index, row in enumerate(rows) if index % args.shard_count == args.shard_index
-    ]
+    selected = (
+        [row for index, row in enumerate(rows) if index % args.shard_count == args.shard_index]
+        if args.fixture
+        else chunk_rows(rows, args.shard_index)
+    )
+    if not args.fixture:
+        validate_chunk_rows(selected)
     selected = [
         {
             **row,
@@ -495,7 +587,8 @@ def main() -> None:
             _write_progress(
                 progress_path, completed=len(results), total=len(selected), started=started
             )
-    results.sort(key=lambda value: str(value["world_id"]))
+    selected_order = {str(row["world_id"]): index for index, row in enumerate(selected)}
+    results.sort(key=lambda value: selected_order[str(value["world_id"])])
     payload = {
         "schema": SCHEMA if not args.fixture else "bl-served-search-l2-fixture-shard/v1",
         "status": "completed",
@@ -504,6 +597,9 @@ def main() -> None:
             "bank_semantic_sha256": digest_value(bank),
             "shard_index": args.shard_index,
             "shard_count": args.shard_count,
+            "chunk_index": args.shard_index if not args.fixture else None,
+            "chunk_count": CHUNK_COUNT if not args.fixture else None,
+            "chunk_world_ids_sha256": world_ids_sha256(selected) if not args.fixture else None,
             "workers": args.workers,
             "arm": ARM,
             "b8_sha256": B8_SHA256,
