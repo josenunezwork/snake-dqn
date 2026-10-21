@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 from research.bl_served_search.exports import digest, export_bytes, verify_export
+from research.bl_served_search.provenance_v2 import compatible_source
 from research.bl_served_search.ruler import source_identity, validate_fixtures
 
 BUNDLE_NAME = "ruler-fixtures.tar.gz"
@@ -24,7 +25,9 @@ def validate_directory(directory: Path) -> list[Path]:
     verify_export(manifest)
     value = json.loads(manifest.read_text())
     rows = validate_fixtures(value, full=True)
-    if value.get("mode") != "full" or value.get("source_identity") != source_identity():
+    if value.get("mode") != "full" or not compatible_source(
+        value.get("source_identity", {}), source_identity()
+    ):
         raise ValueError("full fixtures with unchanged ruler sources required")
     files = [manifest]
     for row in rows:

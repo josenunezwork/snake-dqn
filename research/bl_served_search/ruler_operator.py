@@ -112,7 +112,8 @@ def _fixture_plan(plan: dict[str, Any]) -> dict[str, Any]:
 class ExactT3Operator:
     """Use the same dense operator on both hosts; timing fixtures stay separate."""
 
-    def __init__(self) -> None:
+    def __init__(self, native_mode: str = "stock") -> None:
+        self.native_mode = native_mode
         self._roots: dict[str, Any] = {}
 
     def _world(self, row: dict[str, Any]) -> Any:
@@ -174,7 +175,10 @@ class ExactT3Operator:
         return root
 
     def batch(self, fixture: dict[str, Any]) -> dict[str, Any]:
-        with StageTimer() as timer:
+        from research.bl_k1.native import RowStats, configure
+
+        stats = RowStats()
+        with configure(self.native_mode, stats), StageTimer() as timer:
             with timer.measure("clone_digest"):
                 root = self._restore(fixture)
             result = ceiling._step(
@@ -200,7 +204,11 @@ class ExactT3Operator:
         }
         stages = {key: float(timer.seconds[key]) for key in STAGES}
         stages.update(submit_visible=0.0, submit_consumed=0.0)
-        return {"semantic": semantic, "stage_seconds": stages}
+        return {
+            "semantic": semantic,
+            "stage_seconds": stages,
+            "native_v8": {"mode": self.native_mode, **stats.as_dict()},
+        }
 
 
 def create_operator() -> ExactT3Operator:
