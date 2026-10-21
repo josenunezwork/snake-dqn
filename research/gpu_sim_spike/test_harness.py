@@ -58,3 +58,48 @@ def test_value_error_uses_full_horizon_mass() -> None:
     candidate["outcomes"][2]["mass_integral"] = 0.0
     result = compare_decision(reference, candidate)
     assert np.isclose(result["mean_absolute_mass_integral_error"], 10 / 6)
+
+
+def test_sparse_source_commit_uses_manifest_pin(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from research.gpu_sim_spike import benchmark
+
+    pinned = "a" * 40
+    monkeypatch.setenv("GPU_SIM_SPIKE_COMMIT", pinned)
+    monkeypatch.setattr(
+        benchmark.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=128, stdout="", stderr="not a git repository"),
+    )
+    assert benchmark.source_commit() == pinned
+
+
+def test_source_commit_rejects_pin_drift(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from research.gpu_sim_spike import benchmark
+
+    monkeypatch.setenv("GPU_SIM_SPIKE_COMMIT", "a" * 40)
+    monkeypatch.setattr(
+        benchmark.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout="b" * 40, stderr=""),
+    )
+    with pytest.raises(ValueError, match="differs from manifest pin"):
+        benchmark.source_commit()
+
+
+def test_candidate_nonfinite_q_cannot_count_as_agreement() -> None:
+    from research.gpu_sim_spike.benchmark import _candidate_json
+
+    result = {
+        "action": torch.zeros(1, dtype=torch.long),
+        "q": torch.tensor([[float("nan"), 0, 0, 0, 0, 0]]),
+        "legal": torch.ones((1, 6), dtype=torch.bool),
+        "alive_steps": torch.ones((1, 6), dtype=torch.long),
+        "mass_integral": torch.ones((1, 6)),
+        "action_trace": torch.ones((1, 6, 2, 6), dtype=torch.long),
+    }
+    with pytest.raises(ValueError, match="nonfinite"):
+        _candidate_json(result, depth=2, snakes=6)

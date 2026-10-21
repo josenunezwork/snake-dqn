@@ -39,6 +39,7 @@ def dense_decision(
     first = torch.arange(6, device=q.device).repeat(q.shape[0])
     mass = torch.zeros_like(first, dtype=torch.float64)
     alive_steps = torch.zeros_like(first)
+    action_trace: list[torch.Tensor] = []
     for tick in range(depth):
         if deadline is not None and time.perf_counter() >= deadline:
             raise TimeoutError("device rollout exhausted spike wall budget; no retry")
@@ -48,6 +49,7 @@ def dense_decision(
         else:
             _, _, hero = branch_policy.evaluate(branches)
         actions = branch_policy.actions(branches, hero)
+        action_trace.append(actions.clone())
         branches.step(actions)
         after_step = getattr(branch_policy, "after_step", None)
         if after_step is not None:
@@ -62,4 +64,7 @@ def dense_decision(
         "legal": legal,
         "alive_steps": counts,
         "mass_integral": mass.reshape(-1, 6) / depth,
+        "action_trace": torch.stack(action_trace)
+        .reshape(depth, q.shape[0], 6, sim.S)
+        .permute(1, 2, 0, 3),
     }

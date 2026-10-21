@@ -71,5 +71,5 @@ def summarize(rows: list[dict[str, Any]]) -> dict:
             if rows
             else None
         ),
-        "qualification": "observed finite S0 sample only; no serving or registered verdict",
+        "qualification": "observed finite fixture sample only; no serving or registered verdict",
     }

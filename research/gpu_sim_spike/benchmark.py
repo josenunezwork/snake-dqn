@@ -14,6 +14,7 @@ import multiprocessing as mp
 import os
 import platform
 import queue
+import re
 import subprocess
 import time
 import traceback
@@ -23,16 +24,38 @@ from typing import Any
 import torch
 
 from research.gpu_sim_spike.parity import compare_decision, summarize
-from research.gpu_sim_spike.reference import cpu_decision, fixture_worlds
+from research.gpu_sim_spike.reference import cpu_decision, fixture_worlds, rescore_label
 from research.gpu_sim_spike.rollout import dense_decision
 
 PACKAGE = Path(__file__).resolve().parent
 
 
+def source_commit() -> str:
+    """Resolve pinned identity even in the supervisor's verified sparse fallback."""
+    pinned = os.environ.get("GPU_SIM_SPIKE_COMMIT")
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=PACKAGE.parents[1],
+        timeout=10,
+    )
+    actual = result.stdout.strip() if result.returncode == 0 else None
+    if pinned is not None:
+        if not re.fullmatch(r"[0-9a-f]{40}", pinned):
+            raise ValueError("GPU_SIM_SPIKE_COMMIT must be a full lowercase SHA")
+        if actual is not None and pinned != actual:
+            raise ValueError("runtime source commit differs from manifest pin")
+        return pinned
+    if actual is None:
+        raise ValueError("verified sparse source requires GPU_SIM_SPIKE_COMMIT")
+    return actual
+
+
 def write_receipt(path: Path, result: dict) -> None:
     """Create immutable JSON + checksum + completion sidecars."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = (json.dumps(result, indent=2, sort_keys=True) + "\n").encode()
+    payload = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     with path.open("xb") as stream:
         stream.write(payload)
     digest = hashlib.sha256(payload).hexdigest()
@@ -128,13 +151,17 @@ def _reference_phase(jobs: list[tuple], workers: int, deadline: float) -> list[d
 
 
 def _advance(world: Any, offset: int) -> None:
-    from research.t3_rollout_labels_20261015.bank_engine import choose_and_step
+    from research.t34_exit_b8.engine import ExitTeacher
     from research.t34_exit_b8.trajectory import prepare_world
 
+    teacher = ExitTeacher(device="cpu")
     for _ in range(offset):
         if not world.sim.alive[0, 0]:
             raise ValueError("fixture hero died before requested dense decision")
-        choose_and_step(world, capture_obs=False)
+        prepare_world(world)
+        action = teacher.evaluate(world).greedy_action()
+        world.sim.step(teacher.actions(world, action))
+        world.runtime.observe_step(world.sim)
     prepare_world(world)
 
 
@@ -143,12 +170,41 @@ def _sync(device: str) -> None:
         torch.cuda.synchronize()
 
 
-def _candidate_json(result: dict) -> dict:
-    values = {key: value.detach().cpu().tolist()[0] for key, value in result.items()}
+def _candidate_json(result: dict, *, depth: int, snakes: int) -> dict:
+    """Validate transferred values before they can enter a parity receipt."""
+    downloaded = {key: value.detach().cpu() for key, value in result.items()}
+    shapes = {
+        "action": (1,),
+        "q": (1, 6),
+        "legal": (1, 6),
+        "alive_steps": (1, 6),
+        "mass_integral": (1, 6),
+        "action_trace": (1, 6, depth, snakes),
+    }
+    for key, shape in shapes.items():
+        if key not in downloaded or tuple(downloaded[key].shape) != shape:
+            raise ValueError(f"candidate {key} has invalid shape (expected {shape})")
+    for key in ("q", "mass_integral"):
+        if not bool(torch.isfinite(downloaded[key]).all()):
+            raise ValueError(f"candidate {key} contains nonfinite values")
+    if downloaded["legal"].dtype != torch.bool:
+        raise ValueError("candidate legal mask must be boolean")
+    for key in ("action", "action_trace", "alive_steps"):
+        if downloaded[key].dtype not in (torch.int32, torch.int64):
+            raise ValueError(f"candidate {key} must be integer")
+    for key in ("action", "action_trace"):
+        if bool(((downloaded[key] < 0) | (downloaded[key] >= 6)).any()):
+            raise ValueError(f"candidate {key} has out-of-range action")
+    if bool(((downloaded["alive_steps"] < 0) | (downloaded["alive_steps"] > depth)).any()):
+        raise ValueError("candidate survival count is outside the full horizon")
+    if bool((downloaded["mass_integral"] < 0).any()):
+        raise ValueError("candidate mass integral is negative")
+    values = {key: value.tolist()[0] for key, value in downloaded.items()}
     return {
         "action": values["action"],
         "q": values["q"],
         "legal": values["legal"],
+        "action_trace": values["action_trace"],
         "outcomes": {
             action: {
                 "alive_steps": values["alive_steps"][action],
@@ -177,23 +233,69 @@ def run(args: argparse.Namespace) -> dict:
     names = (
         [row["case"] for row in fixture_cases()]
         if args.fixtures == "all"
-        else args.fixtures.split(",")
+        else (
+            ["tiny-scripted", "tiny-frozen", "tiny-mixed"]
+            if args.fixtures == "tiny"
+            else args.fixtures.split(",")
+        )
     )
     jobs = [
-        (name, str(args.checkpoint), 5 * sample, args.horizon)
+        (name, str(args.checkpoint), 5 * sample, min(args.horizon, 5000 - 5 * sample))
         for name in names
         for sample in range(args.decisions_per_case)
     ]
     reference_started = time.perf_counter()
-    refs = _reference_phase(jobs, args.cpu_workers, deadline)
+    refs = []
+    cpu_case_baselines = {}
+    for name in names:
+        selected = [job for job in jobs if job[0] == name]
+        # Fill all requested CPU slots using repeated frozen inputs. Repeats
+        # count only for throughput, never as extra independent parity samples.
+        repeats = max(1, (args.cpu_workers + len(selected) - 1) // len(selected))
+        baseline_jobs = selected * repeats
+        case_started = time.perf_counter()
+        measured = _reference_phase(baseline_jobs, args.cpu_workers, deadline)
+        wall = time.perf_counter() - case_started
+        refs.extend(measured[: len(selected)])
+        cpu_case_baselines[name] = {
+            "wall_seconds": wall,
+            "executed_decisions": len(measured),
+            "unique_parity_inputs": len(selected),
+            "workers": min(args.cpu_workers, len(measured)),
+            "seconds_per_dense_decision": wall / len(measured),
+            "units_per_decision_at_session_rate": (
+                wall * args.rate_units_per_hour / 3600 / len(measured)
+                if args.device == "cuda"
+                else None
+            ),
+            "repeats_are_throughput_only": True,
+        }
     reference_seconds = time.perf_counter() - reference_started
+    write_receipt(
+        args.output.with_name("cpu-reference-before-device.json"),
+        {
+            "schema": "gpu-sim-spike-cpu-before-device/v1",
+            "source_commit": source_commit(),
+            "frozen_baseline_sha256": hashlib.sha256(
+                (PACKAGE / "BASELINE.json").read_bytes()
+            ).hexdigest(),
+            "per_case": cpu_case_baselines,
+            "references": refs,
+            "qualification": (
+                "same-runtime CPU reference measured and persisted before device setup; "
+                "A100 CPU is not L4 CPU"
+            ),
+        },
+    )
     rows = []
     host = {
         "fixture_build_seconds": 0.0,
         "upload_and_policy_setup_seconds": 0.0,
         "download_seconds": 0.0,
-        "cpu_rescoring_seconds": reference_seconds,
+        "parity_cpu_search_seconds": reference_seconds,
+        "label_cpu_rescoring_seconds": 0.0,
     }
+    candidate_pipeline_started = time.perf_counter()
     runtime = 0.0
     host_launch_cpu_seconds = 0.0
     limitations: set[str] = set()
@@ -207,7 +309,9 @@ def run(args: argparse.Namespace) -> dict:
         host["fixture_build_seconds"] += time.perf_counter() - stage
         stage = time.perf_counter()
         sim = DeviceSim.from_reference(world.sim, device=args.device)
-        policy = DevicePolicy.from_world(world, device=args.device)
+        policy = DevicePolicy.from_world(
+            world, device=args.device, backend=args.policy_backend, sim=sim
+        )
         for owner in (sim, policy):
             declared = getattr(owner, "port_limitations", ())
             limitations.update([declared] if isinstance(declared, str) else declared)
@@ -227,8 +331,10 @@ def run(args: argparse.Namespace) -> dict:
         host_launch_cpu_seconds += launch_cpu
         runtime += elapsed
         stage = time.perf_counter()
-        candidate = _candidate_json(values)
+        candidate = _candidate_json(values, depth=depth, snakes=sim.S)
         host["download_seconds"] += time.perf_counter() - stage
+        label_score = rescore_label(world, candidate["action_trace"][candidate["action"]], depth)
+        host["label_cpu_rescoring_seconds"] += label_score["wall_seconds"]
         comparison = compare_decision(reference, candidate)
         rows.append(
             {
@@ -237,6 +343,7 @@ def run(args: argparse.Namespace) -> dict:
                 "reference": reference,
                 "candidate": candidate,
                 "comparison": comparison,
+                "cpu_rescored_label": label_score,
                 "device_loop_seconds": elapsed,
                 "host_launch_cpu_seconds": launch_cpu,
                 "warmup_seconds": warm_seconds,
@@ -244,6 +351,7 @@ def run(args: argparse.Namespace) -> dict:
                 "policy_timing": dict(getattr(policy, "host_stages", {})),
             }
         )
+        write_receipt(args.output.parent / f"decision-{index:04d}.json", rows[-1])
         print(
             json.dumps(
                 {
@@ -257,19 +365,26 @@ def run(args: argparse.Namespace) -> dict:
             flush=True,
         )
     elapsed = time.perf_counter() - started
+    candidate_pipeline_seconds = time.perf_counter() - candidate_pipeline_started
     baseline = json.loads((PACKAGE / "BASELINE.json").read_text())
     parity = summarize([row["comparison"] for row in rows])
     host_stages = sorted({stage for row in rows for stage in row["host_stages"]})
-    complete = not host_stages and not limitations
-    units_per_decision = elapsed * args.rate_units_per_hour / 3600 / max(1, len(rows))
+    complete = not host_stages
+    units_per_decision = (
+        candidate_pipeline_seconds * args.rate_units_per_hour / 3600 / max(1, len(rows))
+    )
     return {
         "schema": "gpu-sim-spike-benchmark/v1",
         "device": args.device,
-        "status": "PREFLIGHT" if args.horizon != 300 else "MEASURED_PENDING_PROVIDER_RECEIPT",
+        "status": (
+            "PREFLIGHT"
+            if args.horizon != 300 or args.fixtures == "tiny"
+            else "MEASURED_PENDING_PROVIDER_RECEIPT"
+        ),
         "verdict": "PENDING_OPERATOR_GPU_DATA" if args.device == "cpu" else "STOP_OR_PENDING_AUDIT",
         "full_device_loop": complete,
         "interpretation": (
-            "end-to-end candidate"
+            "whole rollout resident; parity/provider qualification pending"
             if complete
             else "device-portion speed upper bound; incomplete port"
         ),
@@ -277,6 +392,10 @@ def run(args: argparse.Namespace) -> dict:
         "port_limitations": sorted(limitations),
         "host_time_seconds": host,
         "elapsed_seconds": elapsed,
+        "candidate_pipeline_seconds": candidate_pipeline_seconds,
+        "study_units_at_planning_rate": (
+            elapsed * args.rate_units_per_hour / 3600 if args.device == "cuda" else None
+        ),
         "device_loop_seconds": runtime,
         "host_launch_cpu_seconds": host_launch_cpu_seconds,
         "host_launch_time_scope": (
@@ -284,19 +403,34 @@ def run(args: argparse.Namespace) -> dict:
             "(CPU fallback includes tensor compute)"
         ),
         "device_seconds_per_dense_decision": runtime / max(1, len(rows)),
-        "pipeline_units_per_dense_decision_at_planning_rate": units_per_decision,
+        "pipeline_units_per_dense_decision_at_planning_rate": (
+            units_per_decision if args.device == "cuda" else None
+        ),
         "provider_rate_units_per_hour": args.rate_units_per_hour,
         "provider_rate_status": "planning ceiling; replace with measured rate in operator RESULT",
         "cost_scope": (
-            "CPU rescoring + fixture creation + setup/transfer + warmup + rollout + readback; "
+            "selected-label CPU action replay + fixture creation + setup/transfer + warmup "
+            "+ rollout + readback; exhaustive CPU parity search is study overhead; "
             "supervisor bootstrap/export/debit pending"
         ),
         "cpu_reference": {
             "workers": args.cpu_workers,
             "wall_seconds": reference_seconds,
             "decisions": len(refs),
-            "units_per_decision": reference_seconds * 2 / 3600 / max(1, len(refs)),
-            "twelve_process_measured": args.cpu_workers == 12,
+            "units_per_decision_at_session_planning_rate": (
+                reference_seconds
+                * args.rate_units_per_hour
+                / 3600
+                / max(1, sum(case["executed_decisions"] for case in cpu_case_baselines.values()))
+                if args.device == "cuda"
+                else None
+            ),
+            "actual_workers": max(case["workers"] for case in cpu_case_baselines.values()),
+            "rate_scope": "same allocated runtime; A100 CPU timings are not L4 CPU data",
+            "per_case": cpu_case_baselines,
+            "twelve_process_measured": all(
+                case["workers"] == 12 for case in cpu_case_baselines.values()
+            ),
         },
         "frozen_baseline_sha256": hashlib.sha256(
             (PACKAGE / "BASELINE.json").read_bytes()
@@ -309,7 +443,7 @@ def run(args: argparse.Namespace) -> dict:
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
         "gpu": torch.cuda.get_device_name(0) if args.device == "cuda" else None,
-        "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+        "source_commit": source_commit(),
         "source_sha256": {
             str(p.relative_to(PACKAGE)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(PACKAGE.glob("*.py"))
@@ -321,6 +455,7 @@ def run(args: argparse.Namespace) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--policy-backend", choices=("device", "reference"), default="device")
     parser.add_argument("--device", choices=("cpu", "cuda"), required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -334,9 +469,44 @@ def main() -> None:
     args = parser.parse_args()
     if min(args.horizon, args.decisions_per_case, args.cpu_workers, args.seconds) <= 0:
         parser.error("horizon/decisions/workers/seconds must be positive")
+    if args.decisions_per_case > 1000:
+        parser.error("dense sample offsets must remain inside H5000")
     if args.output.exists():
         parser.error("output already exists; immutable receipts cannot be overwritten")
-    write_receipt(args.output, run(args))
+    entrypoint_started = time.perf_counter()
+    try:
+        receipt = run(args)
+    except TimeoutError as exc:
+        receipt = {
+            "schema": "gpu-sim-spike-benchmark/v1",
+            "status": "INCOMPLETE",
+            "verdict": "NO_CONTINUE",
+            "reason": str(exc),
+            "device": args.device,
+            "source_commit": source_commit(),
+            "note": (
+                "budget timeout, no automatic retry; inspect immutable "
+                "completed decision receipts"
+            ),
+        }
+    receipt["entrypoint_run_wall_seconds"] = time.perf_counter() - entrypoint_started
+    persist_started = time.perf_counter()
+    write_receipt(args.output, receipt)
+    persist_seconds = time.perf_counter() - persist_started
+    write_receipt(
+        args.output.with_name("host-export.json"),
+        {
+            "schema": "gpu-sim-spike-host-export/v1",
+            "benchmark_sha256": hashlib.sha256(args.output.read_bytes()).hexdigest(),
+            "benchmark_json_bytes": args.output.stat().st_size,
+            "json_serialization_hash_and_local_write_seconds": persist_seconds,
+            "entrypoint_run_wall_seconds": receipt["entrypoint_run_wall_seconds"],
+            "note": (
+                "Local benchmark JSON, SHA and completion writes; "
+                "remote transfer/bootstrap/stop are measured by the supervisor receipt"
+            ),
+        },
+    )
 
 
 if __name__ == "__main__":

@@ -109,11 +109,21 @@ def preflight_binding(path: Path) -> dict[str, Any]:
     elapsed = receipt.get("elapsed_seconds")
     if not isinstance(elapsed, (int, float)) or elapsed <= 0:
         raise ManifestRefused("preflight must record positive elapsed_seconds")
+    if receipt.get("parity", {}).get("decisions", 0) < 3:
+        raise ManifestRefused("preflight must exercise at least three searched decisions")
+    if not receipt_path.with_name(receipt_path.name + ".complete").is_file():
+        raise ManifestRefused("preflight completion marker is missing")
+    sidecar = receipt_path.with_name(receipt_path.name + ".sha256")
+    if not sidecar.is_file() or sidecar.read_text().split()[0] != sha256_file(receipt_path):
+        raise ManifestRefused("preflight SHA256 sidecar differs")
     return {
         "path": str(receipt_path),
         "sha256": sha256_file(receipt_path),
         "elapsed_seconds": elapsed,
         "status": receipt["status"],
+        "decisions": receipt["parity"]["decisions"],
+        "device_loop_seconds": receipt["device_loop_seconds"],
+        "source_sha256": receipt["source_sha256"],
     }
 
 
@@ -126,13 +136,19 @@ def make_manifest(
     if not output.is_absolute():
         raise ManifestRefused("output_dir must be an absolute fresh Mac directory")
     if kind == "l4":
-        gpu, rate, estimate, timeout, seconds = "L4", 2.0, 82, 165, 7800
+        gpu, rate, estimate, timeout, seconds = "L4", 2.0, 82, 165, 4800
     elif kind == "a100":
         # 48 min * 6.8 u/h = 5.44 u.  The operator replaces neither cap nor
         # rate from a provider display; its measured rate belongs in the receipt.
         gpu, rate, estimate, timeout, seconds = "A100", 6.8, 24, 48, 1380
     else:
         raise ManifestRefused("kind must be l4 or a100")
+    for name, expected in preflight.get("source_sha256", {}).items():
+        if name.startswith("test_") or name == "make_manifests.py":
+            continue
+        payload = subprocess.check_output(["git", "show", f"{commit}:{PACKAGE}/{name}"], cwd=ROOT)
+        if hashlib.sha256(payload).hexdigest() != expected:
+            raise ManifestRefused(f"runtime source differs from measured preflight: {name}")
     return {
         "job_id": f"gpu-sim-spike-{kind}-{commit[:8]}",
         "commit": commit,
@@ -142,6 +158,7 @@ def make_manifest(
         "env": {
             "PYTHONUNBUFFERED": "1",
             "GPU_SIM_SPIKE_DEVICE": "cuda",
+            "GPU_SIM_SPIKE_COMMIT": commit,
             "GPU_SIM_SPIKE_HORIZON": "300",
             "GPU_SIM_SPIKE_SECONDS": str(seconds),
             "GPU_SIM_SPIKE_THREADS": "1",
@@ -218,7 +235,7 @@ def dispatch_text(manifests: dict[str, Path]) -> str:
 
 These are **drafts only**.  Do not dispatch them until Round 0, Claim A D0,
 and O1 have a free account assignment; the account cap is three.  No automatic
-retry or GPU substitution is permitted.  This partial port cannot satisfy the
+retry or GPU substitution is permitted.  This development port cannot satisfy the
 CONTINUE rule until CPU-rescored disagreements classify zero bugs.
 
 Before each individual dispatch, Claude must:

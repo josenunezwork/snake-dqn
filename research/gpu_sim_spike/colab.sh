@@ -8,7 +8,7 @@ set -euo pipefail
 : "${GPU_SIM_SPIKE_DEVICE:=cuda}"
 : "${GPU_SIM_SPIKE_HORIZON:=300}"
 : "${GPU_SIM_SPIKE_SECONDS:?manifest must bound benchmark wall time}"
-: "${GPU_SIM_SPIKE_THREADS:=12}"
+: "${GPU_SIM_SPIKE_THREADS:=1}"
 : "${GPU_SIM_SPIKE_CPU_WORKERS:=12}"
 : "${GPU_SIM_SPIKE_RATE_UNITS_PER_HOUR:?manifest must bind the provider rate ceiling}"
 
