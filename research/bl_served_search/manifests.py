@@ -26,12 +26,25 @@ def source_paths(repo: Path = ROOT) -> list[str]:
         if path in visited:
             continue
         visited.add(path)
+        for ancestor in path.parents:
+            if ancestor == repo:
+                break
+            initializer = ancestor / "__init__.py"
+            if initializer.is_file() and initializer not in visited:
+                pending.append(initializer)
         for node in ast.walk(ast.parse(path.read_text())):
             names = []
             if isinstance(node, ast.Import):
                 names = [item.name for item in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-                names = [node.module, *(f"{node.module}.{item.name}" for item in node.names)]
+            elif isinstance(node, ast.ImportFrom):
+                prefix = node.module or ""
+                if node.level:
+                    package = list(path.relative_to(repo).parts[:-1])
+                    prefix = ".".join(
+                        package[: len(package) - node.level + 1] + ([prefix] if prefix else [])
+                    )
+                if prefix:
+                    names = [prefix, *(f"{prefix}.{item.name}" for item in node.names)]
             for name in names:
                 base = repo.joinpath(*name.split("."))
                 for candidate in (base.with_suffix(".py"), base / "__init__.py"):
@@ -161,6 +174,7 @@ def build(commit: str, allocation: Path, out: Path, *, repo: Path = ROOT) -> dic
     plan = {
         "schema": "bl-served-search-plan/v1",
         "dispatchable": False,
+        "runtime_parity_admitted": False,
         "development_only": True,
         "excluded_from_registered_verdicts": True,
         "commit": commit,
@@ -195,6 +209,9 @@ def build(commit: str, allocation: Path, out: Path, *, repo: Path = ROOT) -> dic
             "other_assignments": [],
         },
         "env": {
+            "BL_L2_SHARD_INDEX": "0",
+            "BL_L2_SHARD_COUNT": "1",
+            "BL_L2_WORKERS": "12",
             "SNAKE_DQN_DEVICE": "cpu",
             "OMP_NUM_THREADS": "1",
             "OPENBLAS_NUM_THREADS": "1",
