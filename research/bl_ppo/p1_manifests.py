@@ -152,17 +152,31 @@ def bundle_inputs(root: Path, rows: list[dict[str, str]]) -> list[dict[str, str]
     """Keep Contents staging at two inputs, including actual receipt sidecars."""
     public = [row for row in rows if row["dest"] == "public-inputs.json"]
     packed = [row for row in rows if row["dest"] != "public-inputs.json"]
+    payloads = {}
+    for row in packed:
+        if Path(row["dest"]).name != row["dest"]:
+            raise ValueError("P1 input bundle permits only flat regular files")
+        path = Path(row["path"])
+        if digest(path) != row["sha256"]:
+            raise ValueError("P1 input changed while preparing bundle")
+        payloads[row["dest"]] = path.read_bytes()
+        if row["dest"].endswith(".complete"):
+            verify_export(Path(str(path).removesuffix(".complete")))
+    import hashlib
+
+    for name in list(payloads):
+        if name.endswith(".sha256"):
+            target = name.removesuffix(".sha256")
+            if target not in payloads:
+                raise ValueError("P1 bundle sidecar lacks its payload")
+            # Renamed admission/audit inputs need transport-name sidecars.
+            checksum = hashlib.sha256(payloads[target]).hexdigest()
+            payloads[name] = f"{checksum}  {target}\n".encode()
     buffer = io.BytesIO()
     with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0) as compressed:
         with tarfile.open(fileobj=compressed, mode="w") as archive:
-            for row in sorted(packed, key=lambda item: item["dest"]):
-                if Path(row["dest"]).name != row["dest"]:
-                    raise ValueError("P1 input bundle permits only flat regular files")
-                path = Path(row["path"])
-                if digest(path) != row["sha256"]:
-                    raise ValueError("P1 input changed while preparing bundle")
-                body = path.read_bytes()
-                header = tarfile.TarInfo(row["dest"])
+            for name, body in sorted(payloads.items()):
+                header = tarfile.TarInfo(name)
                 header.size = len(body)
                 archive.addfile(header, io.BytesIO(body))
     payload = buffer.getvalue()

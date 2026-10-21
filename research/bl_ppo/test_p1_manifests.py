@@ -142,6 +142,25 @@ def test_small_input_bundle_preserves_complete_receipts(tmp_path: Path) -> None:
     assert verify_export(receipt) == verify_export(destination / receipt.name)
 
 
+def test_bundled_receipt_sidecars_use_transport_basename(tmp_path: Path) -> None:
+    from research.bl_ppo.exports import export_json, verify_export
+    from research.bl_ppo.manifests import input_row
+    from research.bl_ppo.p1_inputs import unpack_bundle
+    from research.bl_ppo.p1_manifests import bundle_inputs
+
+    source = tmp_path / "source"
+    source.mkdir()
+    original = source / "seed_audit.json"
+    export_json(original, {"status": "CLEAR"})
+    rows = [
+        input_row(Path(str(original) + suffix), "bank-audit.json" + suffix)
+        for suffix in ("", ".sha256", ".complete")
+    ]
+    bundle_inputs(source, rows)
+    unpack_bundle(source / "p1-inputs.tar.gz", tmp_path / "runtime")
+    assert verify_export(original) == verify_export(tmp_path / "runtime/bank-audit.json")
+
+
 @pytest.mark.parametrize("unsafe", ["../secret", "/secret"])
 def test_bundle_rejects_directory_escapes(tmp_path: Path, unsafe: str) -> None:
     import io
