@@ -146,7 +146,10 @@ def simulate(
         raise ValueError("at least 1000 Monte Carlo replicates required")
     rng = np.random.default_rng(seed)
     n = np.array([counts[m] for m in MIXES], dtype=float)
-    v = lambda key: np.array([inputs["mixes"][m][key] for m in MIXES])
+
+    def v(key: str) -> np.ndarray:
+        return np.array([inputs["mixes"][m][key] for m in MIXES])
+
     mass_var, alive_var, episode_var = map(
         v, ("paired_mass_variance", "paired_alive_variance", "paired_episode_variance")
     )
@@ -281,7 +284,10 @@ def run(path: Path, *, reps: int, seed: int) -> dict[str, Any]:
         "selection": {
             "counts": selected,
             "dispatch_admitted": False,
-            "reason": "Full-gate power below .60 even after allowed escalation; S1 measured variances unavailable. No further unregistered escalation.",
+            "reason": (
+                "Full-gate power below .60 even after allowed escalation; S1 measured "
+                "variances unavailable. No further unregistered escalation."
+            ),
         },
         "summaries": summaries,
         "scenarios": records,
@@ -305,13 +311,31 @@ def run(path: Path, *, reps: int, seed: int) -> dict[str, Any]:
             "LB90": wilson_lower(26, 128),
         },
         "assumptions": [
-            "Normal paired-world marginal mean model, estimated variances chi-square; not empirical policy dynamics.",
-            "Shared -B8 Gaussian component rho=0/.5/.9; variance-estimate and cross-metric covariance unknown.",
-            "E6 early/ordinary variances use measured T23 full-world proxies; not measured E6 precision.",
+            (
+                "Normal paired-world marginal mean model, estimated variances chi-square; "
+                "not empirical policy dynamics."
+            ),
+            (
+                "Shared -B8 Gaussian component rho=0/.5/.9; variance-estimate and "
+                "cross-metric covariance unknown."
+            ),
+            (
+                "E6 early/ordinary variances use measured T23 full-world proxies; not "
+                "measured E6 precision."
+            ),
             "True early dividend equals nominated mass scenario; ordinary true effect=0.",
-            "Critic gates, integrity, limits and parity assumed pass; failure makes funding impossible.",
-            "S1 final variance artifact unavailable in approved explicit roots; no substituted invented SD.",
-            "Continuation rescue, retention, collateral and forecast skill not identified; round05 future-trajectory OC remains explicitly incomplete.",
+            (
+                "Critic gates, integrity, limits and parity assumed pass; failure makes "
+                "funding impossible."
+            ),
+            (
+                "S1 final variance artifact unavailable in approved explicit roots; no "
+                "substituted invented SD."
+            ),
+            (
+                "Continuation rescue, retention, collateral and forecast skill not "
+                "identified; round05 future-trajectory OC remains explicitly incomplete."
+            ),
         ],
     }
 

@@ -14,9 +14,226 @@ from statistics import mean, variance
 from typing import Any
 
 from research.bl_ppo import bank as banks
+from research.bl_ppo.rule import E2_ALPHA, RULE, holm_rejections, mass_pvalue
 
 ARMS = ("R", "F", "B8")
 B8_SHA256 = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+
+
+def _number(value: Any) -> float:
+    """Return a finite scalar while rejecting bool's accidental numeric coercion."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError("ledger requires finite numeric values")
+    return float(value)
+
+
+def _trace_ledger(trace: list[dict[str, Any]], horizon: int) -> dict[str, Any]:
+    """Validate a terminal trace and expose the information E8 must retain."""
+    if not isinstance(trace, list) or not trace or len(trace) > horizon:
+        raise ValueError("missing or oversized endpoint trace")
+    if [step.get("frame") for step in trace] != list(range(len(trace))):
+        raise ValueError("endpoint trace frame sequence is not contiguous")
+    alive, masses = [], []
+    for step in trace:
+        if not isinstance(step, dict) or type(step.get("alive")) is not bool:
+            raise ValueError("endpoint trace lacks a boolean alive state")
+        mass = _number(step.get("mass"))
+        if mass < 0 or (not step["alive"] and mass != 0):
+            raise ValueError("endpoint trace has invalid dead-frame mass")
+        alive.append(step["alive"])
+        masses.append(mass)
+    if len(trace) < horizon and alive[-1]:
+        raise ValueError("endpoint trace ended before terminal death")
+    death = next((frame for frame, value in enumerate(alive) if not value), None)
+    if death is not None and any(alive[death:]):
+        raise ValueError("terminal-hero trace resurrected after death")
+    return {
+        "alive": alive,
+        "mass": masses,
+        "death_frame": death,
+        "last_alive_mass": masses[death - 1] if death else (masses[-1] if alive[-1] else 0.0),
+    }
+
+
+def _length_bin(length: float) -> str:
+    if length < 400:
+        return "lt400"
+    if length < 800:
+        return "400_799"
+    if length < 1200:
+        return "800_1199"
+    return "ge1200"
+
+
+def _frame_bin(frame: int) -> str:
+    if frame < 2000:
+        return "lt2000"
+    if frame < 3500:
+        return "2000_3499"
+    return "ge3500"
+
+
+def _world_ledger(controllers: dict[str, dict[str, Any]], horizon: int) -> dict[str, Any]:
+    """Derive lossless mass and endpoint accounting from all three controller traces."""
+    if "B8" not in controllers:
+        raise ValueError("mass ledger needs B8 trace")
+    traces = {
+        arm: _trace_ledger(metrics.get("trace"), horizon) for arm, metrics in controllers.items()
+    }
+    output: dict[str, Any] = {}
+    baseline = traces["B8"]
+    for arm, candidate in traces.items():
+        if arm == "B8":
+            continue
+        both = candidate_only = b8_only = 0.0
+        occupancy: dict[str, int] = {}
+        long_body_deltas = [
+            candidate["mass"][frame] - candidate["mass"][frame - 1]
+            for frame in range(1, len(candidate["mass"]))
+            if candidate["alive"][frame]
+            and candidate["alive"][frame - 1]
+            and candidate["mass"][frame] >= 800
+            and candidate["mass"][frame - 1] >= 800
+        ]
+        for frame in range(horizon):
+            ca = frame < len(candidate["alive"]) and candidate["alive"][frame]
+            ba = frame < len(baseline["alive"]) and baseline["alive"][frame]
+            cm = candidate["mass"][frame] if ca else 0.0
+            bm = baseline["mass"][frame] if ba else 0.0
+            if ca and ba:
+                both += cm - bm
+            elif ca:
+                candidate_only += cm
+            elif ba:
+                b8_only += bm
+            if ca:
+                key = f"{_frame_bin(frame)}:{_length_bin(cm)}"
+                occupancy[key] = occupancy.get(key, 0) + 1
+        total = both + candidate_only - b8_only
+        expected = _number(controllers[arm]["mass_integral"]) - _number(
+            controllers["B8"]["mass_integral"]
+        )
+        if not math.isclose(total / horizon, expected, rel_tol=0.0, abs_tol=1e-10):
+            raise ValueError("mass ledger does not reconcile with full-horizon mass integral")
+        death = baseline["death_frame"]
+        endpoint = None
+        if death is not None:
+            rescued = death < len(candidate["alive"]) and candidate["alive"][death]
+            re_death = bool(rescued and candidate["death_frame"] is not None)
+            endpoint = {
+                "b8_death_frame_bin": _frame_bin(death),
+                "b8_death_length_bin": _length_bin(baseline["last_alive_mass"]),
+                "rescued": int(rescued),
+                "full_horizon_rescues": int(rescued and candidate["death_frame"] is None),
+                "re_death": int(re_death),
+            }
+        else:
+            endpoint = {
+                "b8_death_frame_bin": "H5000_survivor",
+                "b8_death_length_bin": _length_bin(baseline["last_alive_mass"]),
+                "rescued": 0,
+                "full_horizon_rescues": 0,
+                "re_death": 0,
+            }
+        output[arm] = {
+            "mass": {
+                "both_alive_growth": both,
+                "candidate_only": candidate_only,
+                "b8_only": b8_only,
+                "total": total,
+                "per_frame": total / horizon,
+            },
+            "occupancy_by_frame_length": occupancy,
+            "endpoint": endpoint,
+            "candidate_growth_slope_l_ge_800": (
+                sum(long_body_deltas) / len(long_body_deltas) if long_body_deltas else None
+            ),
+        }
+    return output
+
+
+def _validate_trace_metrics(controllers: dict[str, dict[str, Any]], horizon: int) -> None:
+    """Bind compact endpoint metrics to the retained, immutable full traces."""
+    for metrics in controllers.values():
+        trace = metrics.get("trace")
+        parsed = _trace_ledger(trace, horizon)
+        if metrics.get("trace_sha256") != banks.canonical_sha(trace):
+            raise ValueError("endpoint trace hash does not bind retained trace bytes")
+        mass = sum(parsed["mass"]) / horizon
+        alive_fraction = sum(parsed["alive"]) / horizon
+        if (
+            metrics.get("active_frames") != len(trace)
+            or not math.isclose(
+                _number(metrics.get("mass_integral")), mass, rel_tol=0.0, abs_tol=1e-10
+            )
+            or not math.isclose(
+                _number(metrics.get("alive_frame_fraction")),
+                alive_fraction,
+                rel_tol=0.0,
+                abs_tol=1e-10,
+            )
+            or metrics.get("no_death_episode")
+            is not (len(trace) == horizon and all(parsed["alive"]))
+        ):
+            raise ValueError("endpoint metrics do not reconcile with retained full trace")
+
+
+def _empty_e8_ledgers() -> dict[str, Any]:
+    return {
+        "mass_by_arm_mix": {
+            arm: {
+                mix: {
+                    "both_alive_growth": 0.0,
+                    "candidate_only": 0.0,
+                    "b8_only": 0.0,
+                    "total": 0.0,
+                    "worlds": 0,
+                    "growth_slope_l_ge_800_sum": 0.0,
+                    "growth_slope_l_ge_800_count": 0,
+                }
+                for mix in banks.MIX_COUNTS
+            }
+            for arm in ("R", "F")
+        },
+        "occupancy_by_arm_mix": {arm: {mix: {} for mix in banks.MIX_COUNTS} for arm in ("R", "F")},
+        "endpoint_by_arm_mix": {arm: {mix: {} for mix in banks.MIX_COUNTS} for arm in ("R", "F")},
+    }
+
+
+def _add_e8_ledger(ledgers: dict[str, Any], mix: str, world: dict[str, Any]) -> None:
+    for arm, value in world.items():
+        mass = ledgers["mass_by_arm_mix"][arm][mix]
+        for key in ("both_alive_growth", "candidate_only", "b8_only", "total"):
+            mass[key] += value["mass"][key]
+        mass["worlds"] += 1
+        slope = value["candidate_growth_slope_l_ge_800"]
+        if slope is not None:
+            mass["growth_slope_l_ge_800_sum"] += slope
+            mass["growth_slope_l_ge_800_count"] += 1
+        occupancy = ledgers["occupancy_by_arm_mix"][arm][mix]
+        for key, count in value["occupancy_by_frame_length"].items():
+            occupancy[key] = occupancy.get(key, 0) + count
+        endpoint = value["endpoint"]
+        if endpoint is not None:
+            key = f"{endpoint['b8_death_frame_bin']}:{endpoint['b8_death_length_bin']}"
+            bucket = ledgers["endpoint_by_arm_mix"][arm][mix].setdefault(
+                key,
+                {
+                    "exposure": 0,
+                    "rescues": 0,
+                    "full_horizon_rescues": 0,
+                    "re_deaths": 0,
+                    "both_alive_growth": 0.0,
+                    "candidate_only": 0.0,
+                    "b8_only": 0.0,
+                },
+            )
+            bucket["exposure"] += 1
+            bucket["rescues"] += endpoint["rescued"]
+            bucket["full_horizon_rescues"] += endpoint["full_horizon_rescues"]
+            bucket["re_deaths"] += endpoint["re_death"]
+            for name in ("both_alive_growth", "candidate_only", "b8_only"):
+                bucket[name] += value["mass"][name]
 
 
 def _valid_sha(value: Any) -> bool:
@@ -27,14 +244,60 @@ def _validate_training_status(item: dict[str, Any]) -> None:
     """Check operational counters and actual window evidence for scientific stops."""
     if not _valid_sha(item.get("receipt_sha256")):
         raise ValueError("training status lacks immutable stopped/endpoint receipt hash")
-    transitions = item.get("counters", {}).get("hero_transitions")
-    if type(transitions) is not int or transitions < 0:
-        raise ValueError("invalid training hero-transition counter")
+    if item.get("e9_rule_sha256") != banks.canonical_sha(RULE) or not _valid_sha(
+        item.get("e9_receipt_sha256")
+    ):
+        raise ValueError("training status is not bound to the frozen admitted E9 rule and receipt")
+    counters = item.get("counters", {})
+    transitions = counters.get("hero_transitions")
+    actor_transitions = counters.get("actor_transitions")
+    critic_transitions = counters.get("critic_refit_transitions")
+    critic_fit_transitions = counters.get("critic_refit_fit_transitions")
+    if (
+        type(transitions) is not int
+        or type(actor_transitions) is not int
+        or type(critic_transitions) is not int
+        or type(critic_fit_transitions) is not int
+        or min(transitions, actor_transitions, critic_transitions, critic_fit_transitions) < 0
+        or transitions != actor_transitions + critic_transitions
+        or critic_fit_transitions > critic_transitions
+    ):
+        raise ValueError("training counters must reconcile actor and critic-refit transitions")
     target = item.get("target_transitions")
     if type(target) is not int or target not in {4_000_000, 8_000_000, 20_000_000}:
         raise ValueError("training status lacks the E4-selected registered transition target")
-    if transitions > target or (item.get("complete") is True and transitions != target):
-        raise ValueError("training endpoint transition count does not reconcile with its target")
+    if actor_transitions > target or (item.get("complete") is True and actor_transitions != target):
+        raise ValueError("training actor-transition endpoint does not reconcile with its E4 target")
+    if item.get("stop_reason") != "tripwire":
+        critic = item.get("critic_refit", {})
+        heldout = critic.get("heldout_late_body", {})
+        if (
+            critic.get("required_transitions") != 2_000_000
+            or critic.get("observed_transitions") != critic_transitions
+            or critic.get("observed_fit_transitions") != critic_fit_transitions
+            or critic_transitions < 2_000_000
+            or critic_fit_transitions < 2_000_000
+            or critic.get("popart") is not True
+            or type(heldout.get("count")) is not int
+            or heldout["count"] < 1
+            or _number(heldout.get("explained_variance")) < 0.1
+            or heldout.get("beats_baseline") is not True
+            or not _number(heldout.get("mse")) < _number(heldout.get("baseline_mse"))
+            or critic.get("qualified") is not True
+            or item.get("critic_qualified") is not True
+        ):
+            raise ValueError(
+                "critic must pass PopArt late-body held-out qualification before actor screening"
+            )
+        boost_floor = item.get("boost_contract_floor", {})
+        if (
+            boost_floor.get("floor") != 0.005
+            or type(boost_floor.get("below_floor")) is not bool
+            or _number(boost_floor.get("candidate_rate")) < 0
+            or _number(boost_floor.get("b8_rate")) < 0
+            or boost_floor["below_floor"] != (boost_floor["candidate_rate"] < boost_floor["floor"])
+        ):
+            raise ValueError("missing or inconsistent 0.5% boost-contract floor evidence")
     if not isinstance(item.get("tripwires"), list):
         raise ValueError("tripwire evidence must be a list")
     for tripwire in item["tripwires"]:
@@ -123,7 +386,7 @@ def _single_bounds(values: list[float], alpha: float = 0.05) -> dict[str, float]
 
 def _validate_results(bank: dict[str, Any], audit: dict[str, Any], result: dict[str, Any]) -> None:
     banks.check_audit(bank, audit)
-    if result.get("schema") != "bl-ppo-screen-results/v1":
+    if result.get("schema") != "bl-ppo-screen-results/v2":
         raise ValueError("unrecognized screen result")
     if result.get("bank_semantic_sha256") != bank["allocation_sha256"]:
         raise ValueError("results do not bind the audited bank")
@@ -167,6 +430,59 @@ def _validate_results(bank: dict[str, Any], audit: dict[str, Any], result: dict[
                     raise ValueError("invalid numerical metric")
             if metrics["alive_frame_fraction"] > 1:
                 raise ValueError("alive fraction exceeds horizon")
+        ledger = row.get("e8_ledger")
+        if not isinstance(ledger, dict) or set(ledger) != active - {"B8"}:
+            raise ValueError("every paired world requires E8 mass, occupancy and endpoint ledgers")
+        for arm, item in ledger.items():
+            mass = item.get("mass", {})
+            if set(mass) != {
+                "both_alive_growth",
+                "candidate_only",
+                "b8_only",
+                "total",
+                "per_frame",
+            }:
+                raise ValueError("incomplete E8 three-term mass ledger")
+            for value in mass.values():
+                _number(value)
+            if (
+                not math.isclose(
+                    mass["both_alive_growth"] + mass["candidate_only"] - mass["b8_only"],
+                    mass["total"],
+                    rel_tol=0.0,
+                    abs_tol=1e-10,
+                )
+                or not math.isclose(
+                    mass["total"] / row["horizon"], mass["per_frame"], rel_tol=0.0, abs_tol=1e-10
+                )
+                or not math.isclose(
+                    mass["per_frame"],
+                    row["controllers"][arm]["mass_integral"]
+                    - row["controllers"]["B8"]["mass_integral"],
+                    rel_tol=0.0,
+                    abs_tol=1e-10,
+                )
+            ):
+                raise ValueError("E8 mass ledger does not reconcile to endpoint metric")
+            if not isinstance(item.get("occupancy_by_frame_length"), dict):
+                raise ValueError("E8 occupancy ledger is missing")
+            endpoint = item.get("endpoint")
+            if endpoint is not None and (
+                set(endpoint)
+                != {
+                    "b8_death_frame_bin",
+                    "b8_death_length_bin",
+                    "rescued",
+                    "full_horizon_rescues",
+                    "re_death",
+                }
+                or endpoint["rescued"] not in (0, 1)
+                or endpoint["full_horizon_rescues"] not in (0, 1)
+                or endpoint["re_death"] not in (0, 1)
+                or endpoint["full_horizon_rescues"] > endpoint["rescued"]
+                or endpoint["re_death"] > endpoint["rescued"]
+            ):
+                raise ValueError("E8 endpoint rescue/re-death ledger is invalid")
     status = result.get("training_status", {})
     for arm in ("R", "F"):
         item = status.get(arm, {})
@@ -177,6 +493,42 @@ def _validate_results(bank: dict[str, Any], audit: dict[str, Any], result: dict[
             raise ValueError("training endpoint incomplete without a scientific tripwire")
         if item.get("checkpoint_sha256") != checkpoints[arm]:
             raise ValueError("training status does not bind final endpoint")
+
+    ledgers = result.get("e8_ledgers")
+    if not isinstance(ledgers, dict) or set(ledgers) != {
+        "mass_by_arm_mix",
+        "occupancy_by_arm_mix",
+        "endpoint_by_arm_mix",
+    }:
+        raise ValueError("missing aggregate E8 ledgers")
+    for arm in active - {"B8"}:
+        for mix in banks.MIX_COUNTS:
+            aggregate = ledgers["mass_by_arm_mix"].get(arm, {}).get(mix, {})
+            matching = [row["e8_ledger"][arm] for row in rows if row["mix"] == mix]
+            if aggregate.get("worlds") != len(matching):
+                raise ValueError("E8 aggregate ledger world count does not reconcile")
+            for term in ("both_alive_growth", "candidate_only", "b8_only", "total"):
+                if not math.isclose(
+                    _number(aggregate.get(term)),
+                    sum(item["mass"][term] for item in matching),
+                    rel_tol=0.0,
+                    abs_tol=1e-10,
+                ):
+                    raise ValueError("E8 aggregate mass ledger differs from paired world ledgers")
+            if not math.isclose(
+                _number(aggregate.get("both_alive_growth"))
+                + _number(aggregate.get("candidate_only"))
+                - _number(aggregate.get("b8_only")),
+                _number(aggregate.get("total")),
+                rel_tol=0.0,
+                abs_tol=1e-10,
+            ):
+                raise ValueError("E8 aggregate three-term mass ledger does not reconcile")
+    recomputed = _empty_e8_ledgers()
+    for row in rows:
+        _add_e8_ledger(recomputed, row["mix"], row["e8_ledger"])
+    if banks.canonical_sha(recomputed) != banks.canonical_sha(ledgers):
+        raise ValueError("E8 occupancy or endpoint aggregates differ from paired world ledgers")
 
 
 def analyze(bank: dict[str, Any], audit: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -205,6 +557,7 @@ def analyze(bank: dict[str, Any], audit: dict[str, Any], result: dict[str, Any])
         }
 
     arms = {}
+    mass_by_arm: dict[str, dict[str, Any]] = {}
     for arm in ("R", "F"):
         if arm in _tripwired_arms(result):
             arms[arm] = {
@@ -215,6 +568,8 @@ def analyze(bank: dict[str, Any], audit: dict[str, Any], result: dict[str, Any])
             }
             continue
         mass = paired_bounds(deltas(arm, "B8", "mass_integral"))
+        mass["pvalue"] = mass_pvalue(mass)
+        mass_by_arm[arm] = mass
         survival_groups = deltas(arm, "B8", "alive_frame_fraction")
         survival = paired_bounds(survival_groups, alpha=0.05)
         per_mix = {mix: _single_bounds(values) for mix, values in survival_groups.items()}
@@ -238,7 +593,9 @@ def analyze(bank: dict[str, Any], audit: dict[str, Any], result: dict[str, Any])
             "KILL"
             if reasons
             else (
-                "GO" if mass["estimate"] >= 10 and no_death >= 0 and band_pass else "INCONCLUSIVE"
+                "PENDING_HOLM"
+                if mass["estimate"] >= 10 and mass["lower"] > 0 and no_death >= 0 and band_pass
+                else "INCONCLUSIVE"
             )
         )
         arms[arm] = {
@@ -253,8 +610,26 @@ def analyze(bank: dict[str, Any], audit: dict[str, Any], result: dict[str, Any])
                 "candidate_alive_fraction": absolute,
             },
         }
+    pvalues = {arm: mass_by_arm.get(arm, {}).get("pvalue", 1.0) for arm in ("R", "F")}
+    holm = holm_rejections(pvalues, alpha=E2_ALPHA)
+    for arm, item in arms.items():
+        if item["status"] == "PENDING_HOLM":
+            item["status"] = "GO" if holm[arm] else "INCONCLUSIVE"
+        item["holm_e2_alpha_005"] = {"pvalue": pvalues[arm], "rejected": holm[arm]}
+        if (
+            arm in result["training_status"]
+            and "boost_contract_floor" in result["training_status"][arm]
+        ):
+            item["boost_contract_floor"] = result["training_status"][arm]["boost_contract_floor"]
     contrast = None if _tripwired_arms(result) else paired_bounds(deltas("R", "F", "mass_integral"))
-    return {**output, "status": "COMPLETE", "arms": arms, "R_minus_F": contrast}
+    return {
+        **output,
+        "status": "COMPLETE",
+        "arms": arms,
+        "holm_e2": {"alpha": E2_ALPHA, "pvalues": pvalues, "rejections": holm},
+        "R_minus_F": contrast,
+        "e8_ledgers": result["e8_ledgers"],
+    }
 
 
 def evaluate_world(
@@ -452,7 +827,7 @@ def _source_hashes() -> dict[str, str]:
 
     return {
         name: digest(Path(__file__).with_name(name))
-        for name in ("collector.py", "model.py", "screen.py", "bank.py")
+        for name in ("collector.py", "model.py", "screen.py", "bank.py", "rule.py")
     }
 
 
@@ -506,7 +881,7 @@ def execute_screen(
     ):
         raise ValueError("actual bound Mac/runtime parity evidence required before screen")
     result = {
-        "schema": "bl-ppo-screen-results/v1",
+        "schema": "bl-ppo-screen-results/v2",
         "complete": True,
         "cap_expired": False,
         "bank_semantic_sha256": bank["allocation_sha256"],
@@ -518,6 +893,7 @@ def execute_screen(
         "runtime_semantic_sha256": banks.canonical_sha(runtime),
         "source_sha256": _source_hashes(),
         "rows": [],
+        "e8_ledgers": _empty_e8_ledgers(),
     }
     for index, world in enumerate(bank["rows"] if len(killed) < 2 else []):
         path = out / "worlds" / f"world-{index:04d}.json"
@@ -543,7 +919,16 @@ def execute_screen(
             for arm in ARMS:
                 if arm in active:
                     row["controllers"][arm] = evaluate_world(world, checkpoints[arm], arm)
+            row["e8_ledger"] = _world_ledger(row["controllers"], int(world["horizon"]))
             export_json(path, {"binding": binding, "row": row})
+        if "e8_ledger" not in row:
+            # v2 world exports are the sole resumable format; a v1 partial lacks
+            # trace-derived accounting and cannot be silently promoted.
+            raise ValueError("partial paired-world export predates mandatory E8 ledger")
+        _validate_trace_metrics(row["controllers"], int(world["horizon"]))
+        derived_ledger = _world_ledger(row["controllers"], int(world["horizon"]))
+        if banks.canonical_sha(row["e8_ledger"]) != banks.canonical_sha(derived_ledger):
+            raise ValueError("cached paired-world E8 ledger differs from retained full trace")
         # Keep full traces in bounded immutable world exports; the aggregate
         # contains only statistics and their trace identities.
         compact = {
@@ -554,6 +939,7 @@ def execute_screen(
             },
         }
         result["rows"].append(compact)
+        _add_e8_ledger(result["e8_ledgers"], row["mix"], row["e8_ledger"])
         print(
             json.dumps({"paired_worlds_complete": index + 1, "paired_worlds_total": 160}),
             flush=True,

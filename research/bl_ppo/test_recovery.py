@@ -97,3 +97,45 @@ def test_policy_temperature_is_part_of_resume_identity(tmp_path: Path) -> None:
         restore_full_snapshot(path, policy, learner, collector, adapter, identity)
     policy.temperature = 0.7
     assert restore_full_snapshot(path, policy, learner, collector, adapter, identity) == {}
+
+
+def test_frozen_banks_export_once_and_resume_requires_verified_siblings(tmp_path: Path) -> None:
+    policy = Policy(2, 1)
+    learner, collector = Learner(policy), Collector()
+    adapter = SimpleNamespace(
+        policy=policy,
+        device=torch.device("cpu"),
+        records=[],
+        critic_refit_receipt={"qualified": True, "observed_fit_transitions": 2_000_000},
+        refit_bank={"exact_suffix": torch.tensor([1.0, 2.0])},
+        ordinary_bank=SimpleNamespace(frozen=True, sha256="a" * 64, rows=[1, 2, 3]),
+    )
+    first = capture_full_snapshot(
+        policy,
+        learner,
+        collector,
+        adapter,
+        {"actor_enabled": True},
+        {"arm": "F"},
+        immutable_dir=tmp_path,
+    )
+    second = capture_full_snapshot(
+        policy,
+        learner,
+        collector,
+        adapter,
+        {"actor_enabled": True},
+        {"arm": "F"},
+        immutable_dir=tmp_path,
+    )
+    assert len(list(tmp_path.glob("immutable-*.pt"))) == 2
+    assert first["adapter"]["ordinary_bank"] == second["adapter"]["ordinary_bank"]
+    path = tmp_path / "snapshot.pt"
+    export_torch(path, first)
+    restore_full_snapshot(path, policy, learner, collector, adapter, {"arm": "F"})
+    assert adapter.ordinary_bank.rows == [1, 2, 3]
+    assert torch.equal(adapter.refit_bank["exact_suffix"], torch.tensor([1.0, 2.0]))
+    immutable = next(tmp_path.glob("immutable-ordinary_bank-*.pt"))
+    immutable.write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="mismatch"):
+        restore_full_snapshot(path, policy, learner, collector, adapter, {"arm": "F"})

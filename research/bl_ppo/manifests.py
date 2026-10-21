@@ -20,8 +20,13 @@ PACKAGE = "research/bl_ppo"
 SCRIPT = f"{PACKAGE}/colab.sh"
 DEFAULT_ARTIFACTS = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-e2")
 L4_RATE = 2.0
+CRITIC_REFIT_TRANSITIONS = 2_000_000
+# 128 worlds, 26 held out: ceil(2M/(102*128))*128*128 + 128*5000
+# is 3,163,136 collected rows. Round up; refit and holdout are charged.
+CRITIC_COLLECTION_FORECAST = 3_170_000
+ORDINARY_BANK_TRANSITIONS = 10_000
 E4_EXPORT_BYTES = 64 * 1024**2
-E2_EXPORT_BYTES = 512 * 1024**2
+E2_EXPORT_BYTES = 2 * 1024**3
 ROSTER_DESTINATIONS = (
     "checkpoints/champion_a5_freespace_20260621.pth",
     "checkpoints/best_apex_fs.pth",
@@ -297,9 +302,19 @@ def make_e2_manifests(
     e4_receipt: Path,
     roster_checkpoints: tuple[Path, ...] = (),
     request_scale: bool = False,
+    e9_receipt: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Create R/F training drafts only after immutable E4 evidence is supplied."""
     transitions = e2_transitions(e4_receipt, request_scale=request_scale)
+    if e9_receipt is None:
+        raise ManifestRefused("E2 materialization requires an admitted immutable E9 receipt")
+    from research.bl_ppo.oc import validate_admission
+
+    try:
+        e9_report = _complete_payload(e9_receipt)
+        validate_admission(e9_report)
+    except ValueError as exc:
+        raise ManifestRefused(f"E9 blocks E2 materialization: {exc}") from exc
     # Both arms are independently bounded at 4.5 L4 hours/9 units.  The
     # separately reserved one-hour/two-unit screen makes the combined envelope
     # exactly 10 L4 h/20 units before the 20% per-job reserve.
@@ -312,7 +327,16 @@ def make_e2_manifests(
     # into a 135-minute estimate is a pre-data refusal, not a quiet overrun.
     # Price 25% learner/checkpoint overhead and 15 minutes of allocation/setup.
     # This is a prospective estimate, not a measurement of CUDA learning speed.
-    estimate = math.ceil(1.25 * transitions / rate / 60.0 + 15)
+    monitor_reports = math.ceil((transitions + CRITIC_COLLECTION_FORECAST) / 1_000_000)
+    monitor_steps = monitor_reports * 3 * 2 * 5000
+    # Probes run serially, unlike the ruler. Until measured, charge a 12x
+    # slowdown against the aggregate ruler rate, then reprice before admission.
+    monitor_minutes = 12 * monitor_steps / rate / 60
+    estimate = math.ceil(
+        1.25 * (transitions + CRITIC_COLLECTION_FORECAST + ORDINARY_BANK_TRANSITIONS) / rate / 60.0
+        + 15
+        + monitor_minutes
+    )
     if estimate > 135:
         raise ManifestRefused(
             "E4 rate cannot fit the selected E2 length within the per-arm 9-unit cap"
@@ -321,6 +345,10 @@ def make_e2_manifests(
         input_row(Path(str(e4_receipt) + suffix), e4_receipt.name + suffix)
         for suffix in ("", ".sha256", ".complete")
     ]
+    receipt_inputs.extend(
+        input_row(Path(str(e9_receipt) + suffix), e9_receipt.name + suffix)
+        for suffix in ("", ".sha256", ".complete")
+    )
     b8_input = input_row(b8_checkpoint, "B8_s3_final.pth")
     roster_inputs = _roster_inputs(roster_checkpoints)
     result: list[dict[str, Any]] = []
@@ -348,7 +376,8 @@ def make_e2_manifests(
                     # run.py interprets this as seconds, keeping a dropped L4 from
                     # losing more than about two minutes of completed rollouts.
                     "BL_PPO_E4_BASENAME": e4_receipt.name,
-                    "BL_PPO_CHECKPOINT_EVERY": "120",
+                    "BL_PPO_E9_BASENAME": e9_receipt.name,
+                    "BL_PPO_CHECKPOINT_EVERY": "1800",
                     "BL_PPO_HORIZON": "5000",
                     "BL_PPO_PROCESSES": str(selected_processes),
                     "BL_PPO_COMMIT": commit,
@@ -363,9 +392,19 @@ def make_e2_manifests(
                     "e4_rate_gate": rate,
                     "transitions": transitions,
                     "forecast_minutes": estimate,
+                    "monitor_reports_max": monitor_reports,
+                    "monitor_simulator_steps_max": monitor_steps,
+                    "monitor_minutes_assumed": monitor_minutes,
+                    "critic_refit_transitions_min": CRITIC_REFIT_TRANSITIONS,
+                    "critic_collection_forecast": CRITIC_COLLECTION_FORECAST,
+                    "ordinary_bank_decisions": ORDINARY_BANK_TRANSITIONS,
+                    "target_scope": "actor transitions; critic refit charged separately",
+                    "e8_amendment_sha256": sha256_file(ROOT / PACKAGE / "E8_AMENDMENT.md"),
                     "forecast_assumption": (
-                        "E4 collection rate; 25% learner/export overhead "
-                        "plus 15min setup; unmeasured CUDA learner"
+                        "E4 collection rate including 3.17M refit/holdout/finish + 10k bank; "
+                        "25% learner/export overhead "
+                        "plus 15min setup; serial probes charged12x aggregate E4 rate; "
+                        "CUDA learner and probe rates unmeasured"
                     ),
                     "screen_reservation": {"allocation_hours": 1, "unit_cap": 2},
                 },
@@ -395,7 +434,7 @@ def make_e2_templates(
             job_id=f"bl-e2-template-{arm}-{commit[:8]}",
             commit=commit,
             output=output_root / f"e2-{arm}",
-            estimate=120,
+            estimate=135,
             timeout=270,
             cap=9.0,
         )
@@ -411,7 +450,7 @@ def make_e2_templates(
                     "BL_PPO_DEVICE": "cuda",
                     "BL_PPO_ARM": arm.upper(),
                     "BL_PPO_TRANSITIONS": "8000000",
-                    "BL_PPO_CHECKPOINT_EVERY": "120",
+                    "BL_PPO_CHECKPOINT_EVERY": "1800",
                     "BL_PPO_HORIZON": "5000",
                     "BL_PPO_PROCESSES": "12",
                     "BL_PPO_COMMIT": commit,
@@ -426,12 +465,17 @@ def make_e2_templates(
                 "bl_ppo": {
                     "experiment": "E2",
                     "template_only": True,
+                    "e9_admission_required": True,
                     "dispatch_block": (
-                        "materialize with E4 payload + .sha256 + .complete; "
+                        "materialize with admitted E9 and E4 payload + .sha256 + .complete; "
                         "choose 4M/8M/20M from frozen E4 rule"
                     ),
                     "arm": arm.upper(),
                     "default_transitions": 8_000_000,
+                    "critic_refit_transitions_min": CRITIC_REFIT_TRANSITIONS,
+                    "critic_collection_forecast": CRITIC_COLLECTION_FORECAST,
+                    "ordinary_bank_decisions": ORDINARY_BANK_TRANSITIONS,
+                    "e8_amendment_sha256": sha256_file(ROOT / PACKAGE / "E8_AMENDMENT.md"),
                     "screen_reservation": {"allocation_hours": 1, "unit_cap": 2},
                 },
             }
@@ -474,6 +518,7 @@ def main() -> None:
     parser.add_argument("--b8", type=Path, required=True)
     parser.add_argument("--roster-checkpoint", type=Path, action="append", default=[])
     parser.add_argument("--e4-receipt", type=Path)
+    parser.add_argument("--e9-receipt", type=Path)
     parser.add_argument("--scale-20m", action="store_true")
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
@@ -491,7 +536,9 @@ def main() -> None:
     )
     if args.validate:
         validate_manifest(e4)
-    e4_path.write_text(json.dumps(e4, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    from research.bl_ppo.exports import export_json
+
+    export_json(e4_path, e4)
     paths: list[Path] = []
     if args.e4_receipt:
         for manifest in make_e2_manifests(
@@ -501,13 +548,12 @@ def main() -> None:
             e4_receipt=args.e4_receipt,
             roster_checkpoints=roster,
             request_scale=args.scale_20m,
+            e9_receipt=args.e9_receipt,
         ):
             target = artifacts / f"{manifest['job_id']}.json"
             if args.validate:
                 validate_manifest(manifest)
-            target.write_text(
-                json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-            )
+            export_json(target, manifest)
             paths.append(target)
     else:
         for manifest in make_e2_templates(
@@ -516,9 +562,7 @@ def main() -> None:
             target = artifacts / f"{manifest['job_id']}.json"
             if args.validate:
                 validate_manifest(manifest)
-            target.write_text(
-                json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-            )
+            export_json(target, manifest)
             paths.append(target)
     (artifacts / "DISPATCH.txt").write_text(dispatch_text(e4_path, paths), encoding="utf-8")
 
