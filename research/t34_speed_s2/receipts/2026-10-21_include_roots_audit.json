@@ -1,0 +1,560 @@
+{
+  "all_identical": true,
+  "fixtures": [
+    {
+      "audit": {
+        "audited_rows": 2995,
+        "boost_base_rows": 307,
+        "calls": 2995,
+        "fallback_rows": 0,
+        "head_changes": 4,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 8,
+        "python_calls": 0,
+        "replayed_rows": 2995,
+        "rows": 2995,
+        "tail_release_rows": 2,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 2,
+        "v7_changes": 2,
+        "world_contested_food_envs": 2,
+        "world_opponent_deaths": 0,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 0,
+        "world_ticks": 599
+      },
+      "body": "long",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267845,
+        "invalid_reason": null,
+        "mixes": {
+          "frozen": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "5f69c1ff91d2506955d7c3b29e2b928604f454f42bde0774e18c55fa7744c0ea",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "3cdaa2ec220e8245d463052b2fd7970279dcece160df91b33a010c16e7622e05"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "long-frozen",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.07572150000487454,
+          "export_s": 0.01424237500759773,
+          "root_policy_s": 0.17362912616226822,
+          "root_step_s": 0.5876605349185411,
+          "shadow_s": 2.3447514899016824
+        },
+        "stock": {
+          "build_s": 0.08033583298674785,
+          "export_s": 0.014406667003640905,
+          "root_policy_s": 0.18730629689525813,
+          "root_step_s": 1.6876013748988044,
+          "shadow_s": 5.6074441280798055
+        }
+      },
+      "identical": true,
+      "mix": "frozen",
+      "ms_per_row_step": {
+        "native": 5.087838689468176,
+        "stock": 12.500480313856118
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 307,
+        "calls": 2995,
+        "fallback_rows": 0,
+        "head_changes": 4,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 8,
+        "python_calls": 0,
+        "replayed_rows": 2995,
+        "rows": 2995,
+        "tail_release_rows": 2,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 2,
+        "v7_changes": 2
+      },
+      "process_cpu_seconds": {
+        "native": [
+          3.2159840000000006,
+          3.0305870000000006
+        ],
+        "stock": [
+          7.570641,
+          7.449345000000001
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 2.4569333024909197,
+      "wall_seconds": {
+        "native": [
+          3.232440082996618,
+          3.0476153749914374
+        ],
+        "stock": [
+          7.615876124997158,
+          7.487787707999814
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 1797,
+        "boost_base_rows": 30,
+        "calls": 1797,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1797,
+        "rows": 1797,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0,
+        "world_contested_food_envs": 2,
+        "world_opponent_deaths": 5,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 0,
+        "world_ticks": 599
+      },
+      "body": "long",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267837,
+        "invalid_reason": null,
+        "mixes": {
+          "mixed": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "b750bfc0e625415125b197771c7ace10244fd83148f1cd707c85bbc2451c1dd6",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "1a99e7360efe5124d41a859c581a6b79761ed9858f81cfb64c6dcf41750226ae"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "long-mixed",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.05721645898302086,
+          "export_s": 0.013850542018190026,
+          "root_policy_s": 0.18421512399800122,
+          "root_step_s": 0.6705339963082224,
+          "shadow_s": 2.636826412199298
+        },
+        "stock": {
+          "build_s": 0.05748579200007953,
+          "export_s": 0.013135084009263664,
+          "root_policy_s": 0.18957237430731766,
+          "root_step_s": 1.2348669501079712,
+          "shadow_s": 4.2563888271397445
+        }
+      },
+      "identical": true,
+      "mix": "mixed",
+      "ms_per_row_step": {
+        "native": 5.990800500819413,
+        "stock": 9.66668454254822
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 30,
+        "calls": 1797,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1797,
+        "rows": 1797,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          3.585827000000002,
+          3.5723309999999984
+        ],
+        "stock": [
+          5.761575000000001,
+          5.8232870000000005
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 1.6135881241957606,
+      "wall_seconds": {
+        "native": [
+          3.6013565410103183,
+          3.5884894999908283
+        ],
+        "stock": [
+          5.790344040986383,
+          5.8496158749912865
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 2995,
+        "boost_base_rows": 446,
+        "calls": 2995,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 1732,
+        "no_spacious": 0,
+        "overrides": 6,
+        "python_calls": 0,
+        "replayed_rows": 2995,
+        "rows": 2995,
+        "tail_release_rows": 2,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 4,
+        "v7_changes": 2,
+        "world_contested_food_envs": 0,
+        "world_opponent_deaths": 0,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 599,
+        "world_ticks": 599
+      },
+      "body": "xlong",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267871,
+        "invalid_reason": null,
+        "mixes": {
+          "frozen": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "a43110d68ce6c6a116f577f80e44060986e4059ca21c5051b37a97cbda72a413",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "f2ab1d6c3ef5fdbf47ea5ffe332946771846598b34249e6da55735dbe8f258e1"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "xlong-frozen",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.0805550420191139,
+          "export_s": 0.015301917010219768,
+          "root_policy_s": 0.17502703698119149,
+          "root_step_s": 0.61019175578258,
+          "shadow_s": 2.427253749105148
+        },
+        "stock": {
+          "build_s": 0.08001479197992012,
+          "export_s": 0.01338191598188132,
+          "root_policy_s": 0.19183225301094353,
+          "root_step_s": 2.1568426673766226,
+          "shadow_s": 7.510775210976135
+        }
+      },
+      "identical": true,
+      "mix": "frozen",
+      "ms_per_row_step": {
+        "native": 5.583235530846617,
+        "stock": 16.624220297137395
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 446,
+        "calls": 2995,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 1732,
+        "no_spacious": 0,
+        "overrides": 6,
+        "python_calls": 0,
+        "replayed_rows": 2995,
+        "rows": 2995,
+        "tail_release_rows": 2,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 4,
+        "v7_changes": 2
+      },
+      "process_cpu_seconds": {
+        "native": [
+          3.3234589999999997,
+          3.3327719999999914
+        ],
+        "stock": [
+          9.94589700000001,
+          9.818922
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 2.9775244489133295,
+      "wall_seconds": {
+        "native": [
+          3.3443580829771236,
+          3.3490855419950094
+        ],
+        "stock": [
+          9.990788374998374,
+          9.957907957985299
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 1797,
+        "boost_base_rows": 39,
+        "calls": 1797,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 987,
+        "no_spacious": 110,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1797,
+        "rows": 1797,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0,
+        "world_contested_food_envs": 2,
+        "world_opponent_deaths": 8,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 599,
+        "world_ticks": 599
+      },
+      "body": "xlong",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267832,
+        "invalid_reason": null,
+        "mixes": {
+          "mixed": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "50f42eb5546dc7ca8d7a653692f93775c6ba2761dafac9d070d30064d1cc4dd4",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "f351f3265d8e5bb63b2fd756b7a4d82a4f676f754d8361a5adabc204004106b8"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "xlong-mixed",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.05743533399072476,
+          "export_s": 0.014117915998212993,
+          "root_policy_s": 0.19278046701219864,
+          "root_step_s": 0.6760638700507116,
+          "shadow_s": 2.5930720820615534
+        },
+        "stock": {
+          "build_s": 0.05844845899264328,
+          "export_s": 0.01409374998183921,
+          "root_policy_s": 0.19020333426306024,
+          "root_step_s": 1.3393097149091773,
+          "shadow_s": 4.458843876898754
+        }
+      },
+      "identical": true,
+      "mix": "mixed",
+      "ms_per_row_step": {
+        "native": 5.964774207007187,
+        "stock": 10.183778310521896
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 39,
+        "calls": 1797,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 987,
+        "no_spacious": 110,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1797,
+        "rows": 1797,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          3.549921999999995,
+          3.7933379999999914
+        ],
+        "stock": [
+          6.060044000000005,
+          6.446709999999996
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 1.7073200019136325,
+      "wall_seconds": {
+        "native": [
+          3.5728997499973048,
+          3.8237052090116777
+        ],
+        "stock": [
+          6.100083208002616,
+          6.497582915995736
+        ]
+      }
+    }
+  ],
+  "pooled_speedup": 2.1644903591159648,
+  "provenance": {
+    "argv": [
+      "/Users/josenunez/Projects/ml/snake-dqn/.claude/worktrees/agent-aeace3a450c90f2a2/research/t34_speed_s2/identity.py",
+      "--checkpoint",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-a5-20261020/inputs/B8_s3_final.pth",
+      "--output-dir",
+      "/private/tmp/claude-501/-Users-josenunez-Projects-ml-snake-dqn/74a3b23b-bf7f-40f3-b57b-1db45b4d93fe/scratchpad/id5",
+      "--frames",
+      "150",
+      "--warmup-frames",
+      "5",
+      "--repeats",
+      "2",
+      "--audit",
+      "--native-mode",
+      "all",
+      "--mixes",
+      "frozen,mixed",
+      "--bodies",
+      "long,xlong"
+    ],
+    "authority": "excluded diagnostic (speed program S2); not A5/Round 0/gate evidence",
+    "load_average_end": [
+      11.2666015625,
+      11.9462890625,
+      11.7861328125
+    ],
+    "load_average_start": [
+      11.2666015625,
+      11.9462890625,
+      11.7861328125
+    ],
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]",
+    "source_revision": "743749776fccc8dcb924746533b0f94e8ddcb6de"
+  },
+  "recipe": {
+    "audit": true,
+    "device": "cpu",
+    "frames": 150,
+    "namespace": "t34-exit-cpu-profile-diagnostic/v1",
+    "native_mode": "all",
+    "q_ties": false,
+    "repeats": 2,
+    "threads": 1,
+    "warmup_frames": 5,
+    "warmup_seconds": 6.4715938750014175
+  },
+  "schema": "t34-speed-s2-identity/v1",
+  "total_min_wall_seconds": {
+    "native": 13.553362707956694,
+    "stock": 29.336122914974112
+  },
+  "total_row_steps": 2396
+}

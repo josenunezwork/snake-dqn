@@ -1,0 +1,1142 @@
+{
+  "all_identical": true,
+  "fixtures": [
+    {
+      "audit": {
+        "audited_rows": 0,
+        "boost_base_rows": 0,
+        "calls": 0,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 0,
+        "rows": 0,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0,
+        "world_contested_food_envs": 4,
+        "world_opponent_deaths": 7,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 0,
+        "world_ticks": 599
+      },
+      "body": "short",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267093,
+        "invalid_reason": null,
+        "mixes": {
+          "scripted": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "087281051aed7debac7bea07a90f6bacd2be2d82d993a612d38341fd0fb3e1e8",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "e6e94b1a36bdd3f32ce0b0e8141be13a68659862a50b9102e966da207e44d458"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "short-scripted",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.03248129101120867,
+          "export_s": 0.013953457993920892,
+          "root_policy_s": 0.16906987302354537,
+          "root_step_s": 0.24327825612272136,
+          "shadow_s": 1.569201044010697
+        },
+        "stock": {
+          "build_s": 0.03335629100911319,
+          "export_s": 0.014876625005854294,
+          "root_policy_s": 0.16276004022802226,
+          "root_step_s": 0.24220804299693555,
+          "shadow_s": 1.547671786887804
+        }
+      },
+      "identical": true,
+      "mix": "scripted",
+      "ms_per_row_step": {
+        "native": 3.443477671140205,
+        "stock": 3.3964447679370484
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 0,
+        "calls": 0,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 0,
+        "rows": 0,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          2.0553539999999995
+        ],
+        "stock": [
+          2.0243420000000008
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 0.9863414525387114,
+      "wall_seconds": {
+        "native": [
+          2.0626431250129826
+        ],
+        "stock": [
+          2.034470415994292
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 2245,
+        "boost_base_rows": 44,
+        "calls": 2245,
+        "fallback_rows": 0,
+        "head_changes": 2,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 6,
+        "python_calls": 0,
+        "replayed_rows": 2245,
+        "rows": 2245,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 4,
+        "v7_changes": 0,
+        "world_contested_food_envs": 3,
+        "world_opponent_deaths": 0,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 0,
+        "world_ticks": 599
+      },
+      "body": "short",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267382,
+        "invalid_reason": null,
+        "mixes": {
+          "frozen": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "2f2a205981994cc28dcfbe5bf7e096f5cfa4270ff7ee690bdece3880f8e54778",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "fcc688564c1c21a7b07dd33a5e8c39fdca09de05f9c8a9aab581b88081b1debf"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "short-frozen",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.07750937499804422,
+          "export_s": 0.013865041983081028,
+          "root_policy_s": 0.1696079149551224,
+          "root_step_s": 0.5623929173743818,
+          "shadow_s": 2.135181702848058
+        },
+        "stock": {
+          "build_s": 0.0758692919916939,
+          "export_s": 0.013491416990291327,
+          "root_policy_s": 0.16771716906805523,
+          "root_step_s": 0.5507981712871697,
+          "shadow_s": 2.4130705050192773
+        }
+      },
+      "identical": true,
+      "mix": "frozen",
+      "ms_per_row_step": {
+        "native": 4.999899762901843,
+        "stock": 5.436852811357607
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 44,
+        "calls": 2245,
+        "fallback_rows": 0,
+        "head_changes": 2,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 6,
+        "python_calls": 0,
+        "replayed_rows": 2245,
+        "rows": 2245,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 4,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          2.9812709999999996
+        ],
+        "stock": [
+          3.2411069999999995
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 1.0873923616824999,
+      "wall_seconds": {
+        "native": [
+          2.994939957978204
+        ],
+        "stock": [
+          3.2566748340032063
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 1347,
+        "boost_base_rows": 3,
+        "calls": 1347,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1347,
+        "rows": 1347,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0,
+        "world_contested_food_envs": 6,
+        "world_opponent_deaths": 0,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 0,
+        "world_ticks": 599
+      },
+      "body": "short",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267213,
+        "invalid_reason": null,
+        "mixes": {
+          "mixed": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "4aae3e5661d197eb4de269a086b707799ffab37ffd934b407725a6940268ca15",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "eac5b4f959f801806e39f61a47f72002f1865059f499d50edcc1936a513a1f64"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "short-mixed",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.0521175830217544,
+          "export_s": 0.01437900000018999,
+          "root_policy_s": 0.1784542070236057,
+          "root_step_s": 0.4916010477754753,
+          "shadow_s": 1.8940443617175333
+        },
+        "stock": {
+          "build_s": 0.0539593749854248,
+          "export_s": 0.012866791017586365,
+          "root_policy_s": 0.16658261872362345,
+          "root_step_s": 0.45450899709248915,
+          "shadow_s": 1.9905725827557035
+        }
+      },
+      "identical": true,
+      "mix": "mixed",
+      "ms_per_row_step": {
+        "native": 4.454135155227138,
+        "stock": 4.528096202014244
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 3,
+        "calls": 1347,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1347,
+        "rows": 1347,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          2.6598279999999974
+        ],
+        "stock": [
+          2.7028040000000004
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 1.016605029755397,
+      "wall_seconds": {
+        "native": [
+          2.6680269579810556
+        ],
+        "stock": [
+          2.7123296250065323
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 0,
+        "boost_base_rows": 0,
+        "calls": 0,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 0,
+        "rows": 0,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0,
+        "world_contested_food_envs": 0,
+        "world_opponent_deaths": 14,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 0,
+        "world_ticks": 599
+      },
+      "body": "long",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267594,
+        "invalid_reason": null,
+        "mixes": {
+          "scripted": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "e70273ad21a0f21c3f856201b1ad9066606e973db3fa5284e4c73b6c195eb41a",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "529ef278dd36fb8cac2d5433db7ed82aad6e12b17d858226fac7473c26f2a841"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "long-scripted",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.034138542017899454,
+          "export_s": 0.012361457978840917,
+          "root_policy_s": 0.17544483323581517,
+          "root_step_s": 0.4100242170097772,
+          "shadow_s": 1.8501275741436984
+        },
+        "stock": {
+          "build_s": 0.03271929098991677,
+          "export_s": 0.01505679200636223,
+          "root_policy_s": 0.17682604875881225,
+          "root_step_s": 0.41173516877461225,
+          "shadow_s": 1.8546586239535827
+        }
+      },
+      "identical": true,
+      "mix": "scripted",
+      "ms_per_row_step": {
+        "native": 4.200736504146839,
+        "stock": 4.217946577645397
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 0,
+        "calls": 0,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 0,
+        "rows": 0,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          2.5067260000000005
+        ],
+        "stock": [
+          2.517243999999998
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 1.0040969181193748,
+      "wall_seconds": {
+        "native": [
+          2.5162411659839563
+        ],
+        "stock": [
+          2.5265500000095926
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 2245,
+        "boost_base_rows": 253,
+        "calls": 2245,
+        "fallback_rows": 0,
+        "head_changes": 4,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 8,
+        "python_calls": 0,
+        "replayed_rows": 2245,
+        "rows": 2245,
+        "tail_release_rows": 2,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 2,
+        "v7_changes": 2,
+        "world_contested_food_envs": 2,
+        "world_opponent_deaths": 0,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 0,
+        "world_ticks": 599
+      },
+      "body": "long",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267845,
+        "invalid_reason": null,
+        "mixes": {
+          "frozen": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "5f69c1ff91d2506955d7c3b29e2b928604f454f42bde0774e18c55fa7744c0ea",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "3cdaa2ec220e8245d463052b2fd7970279dcece160df91b33a010c16e7622e05"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "long-frozen",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.08431379098328762,
+          "export_s": 0.013092375011183321,
+          "root_policy_s": 0.18756465887418017,
+          "root_step_s": 1.6657221624918748,
+          "shadow_s": 2.4577182961220387
+        },
+        "stock": {
+          "build_s": 0.07501583301927894,
+          "export_s": 0.01542874998995103,
+          "root_policy_s": 0.189251630945364,
+          "root_step_s": 1.6936832900391892,
+          "shadow_s": 5.532702708092984
+        }
+      },
+      "identical": true,
+      "mix": "frozen",
+      "ms_per_row_step": {
+        "native": 7.423755355592886,
+        "stock": 12.593744644403102
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 253,
+        "calls": 2245,
+        "fallback_rows": 0,
+        "head_changes": 4,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 8,
+        "python_calls": 0,
+        "replayed_rows": 2245,
+        "rows": 2245,
+        "tail_release_rows": 2,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 2,
+        "v7_changes": 2
+      },
+      "process_cpu_seconds": {
+        "native": [
+          4.430608999999997
+        ],
+        "stock": [
+          7.5160510000000045
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 1.696411592404546,
+      "wall_seconds": {
+        "native": [
+          4.446829458000138
+        ],
+        "stock": [
+          7.543653041997459
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 1347,
+        "boost_base_rows": 24,
+        "calls": 1347,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1347,
+        "rows": 1347,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0,
+        "world_contested_food_envs": 2,
+        "world_opponent_deaths": 5,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 0,
+        "world_ticks": 599
+      },
+      "body": "long",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267837,
+        "invalid_reason": null,
+        "mixes": {
+          "mixed": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "b750bfc0e625415125b197771c7ace10244fd83148f1cd707c85bbc2451c1dd6",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "1a99e7360efe5124d41a859c581a6b79761ed9858f81cfb64c6dcf41750226ae"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "long-mixed",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.05584524999721907,
+          "export_s": 0.013860250008292496,
+          "root_policy_s": 0.18836029808153398,
+          "root_step_s": 1.2220015481580049,
+          "shadow_s": 2.572050122806104
+        },
+        "stock": {
+          "build_s": 0.06104712499654852,
+          "export_s": 0.014379458007169887,
+          "root_policy_s": 0.20010308304335922,
+          "root_step_s": 1.1971887961262837,
+          "shadow_s": 4.512761249177856
+        }
+      },
+      "identical": true,
+      "mix": "mixed",
+      "ms_per_row_step": {
+        "native": 6.829278797994932,
+        "stock": 10.059823804668683
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 24,
+        "calls": 1347,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1347,
+        "rows": 1347,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          4.075779000000011
+        ],
+        "stock": [
+          6.006164999999996
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 1.4730433625908252,
+      "wall_seconds": {
+        "native": [
+          4.090737999998964
+        ],
+        "stock": [
+          6.025834458996542
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 0,
+        "boost_base_rows": 0,
+        "calls": 0,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 0,
+        "rows": 0,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0,
+        "world_contested_food_envs": 19,
+        "world_opponent_deaths": 12,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 507,
+        "world_ticks": 599
+      },
+      "body": "xlong",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267585,
+        "invalid_reason": null,
+        "mixes": {
+          "scripted": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "fb18f22e25e620829b53be094d58f00e0088128e46baa8d06b962b065d120533",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "65bc4e2112846ad72a1a15058613ba521b869b162862bc492bedb153c814e3ff"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "xlong-scripted",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.032660833006957546,
+          "export_s": 0.015737749985419214,
+          "root_policy_s": 0.1762353361118585,
+          "root_step_s": 0.3624097420251928,
+          "shadow_s": 1.8099211270164233
+        },
+        "stock": {
+          "build_s": 0.031895833992166445,
+          "export_s": 0.015557667007669806,
+          "root_policy_s": 0.20243457923061214,
+          "root_step_s": 0.4205647030903492,
+          "shadow_s": 1.9048193817434367
+        }
+      },
+      "identical": true,
+      "mix": "scripted",
+      "ms_per_row_step": {
+        "native": 4.058478782979619,
+        "stock": 4.362495617730347
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 0,
+        "calls": 0,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 0,
+        "no_spacious": 0,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 0,
+        "rows": 0,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          2.4222369999999955
+        ],
+        "stock": [
+          2.5297750000000008
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 1.0749090610072198,
+      "wall_seconds": {
+        "native": [
+          2.431028791004792
+        ],
+        "stock": [
+          2.613134875020478
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 2245,
+        "boost_base_rows": 361,
+        "calls": 2245,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 1294,
+        "no_spacious": 0,
+        "overrides": 5,
+        "python_calls": 0,
+        "replayed_rows": 2245,
+        "rows": 2245,
+        "tail_release_rows": 2,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 3,
+        "v7_changes": 2,
+        "world_contested_food_envs": 0,
+        "world_opponent_deaths": 0,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 599,
+        "world_ticks": 599
+      },
+      "body": "xlong",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267871,
+        "invalid_reason": null,
+        "mixes": {
+          "frozen": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "a43110d68ce6c6a116f577f80e44060986e4059ca21c5051b37a97cbda72a413",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "f2ab1d6c3ef5fdbf47ea5ffe332946771846598b34249e6da55735dbe8f258e1"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "xlong-frozen",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.0781097500002943,
+          "export_s": 0.01407933299196884,
+          "root_policy_s": 0.19910857686772943,
+          "root_step_s": 2.336750748247141,
+          "shadow_s": 2.6068939562828746
+        },
+        "stock": {
+          "build_s": 0.07690424998872913,
+          "export_s": 0.014036624983418733,
+          "root_policy_s": 0.19662395704654045,
+          "root_step_s": 2.28366720592021,
+          "shadow_s": 7.53134408799815
+        }
+      },
+      "identical": true,
+      "mix": "frozen",
+      "ms_per_row_step": {
+        "native": 8.804320602717409,
+        "stock": 16.92931573456682
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 361,
+        "calls": 2245,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 1294,
+        "no_spacious": 0,
+        "overrides": 5,
+        "python_calls": 0,
+        "replayed_rows": 2245,
+        "rows": 2245,
+        "tail_release_rows": 2,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 3,
+        "v7_changes": 2
+      },
+      "process_cpu_seconds": {
+        "native": [
+          5.255496999999991
+        ],
+        "stock": [
+          10.101275999999999
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 1.9228418067081372,
+      "wall_seconds": {
+        "native": [
+          5.2737880410277285
+        ],
+        "stock": [
+          10.140660125005525
+        ]
+      }
+    },
+    {
+      "audit": {
+        "audited_rows": 1347,
+        "boost_base_rows": 27,
+        "calls": 1347,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 687,
+        "no_spacious": 99,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1347,
+        "rows": 1347,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0,
+        "world_contested_food_envs": 2,
+        "world_opponent_deaths": 8,
+        "world_opponent_respawns": 0,
+        "world_rows_opponent_len_ge_800": 599,
+        "world_ticks": 599
+      },
+      "body": "xlong",
+      "deterministic": {
+        "complete": true,
+        "completed_world_row_steps": 599,
+        "decisions": 150,
+        "executed_row_steps": 599,
+        "export_bytes": 267832,
+        "invalid_reason": null,
+        "mixes": {
+          "mixed": {
+            "expanded": 0,
+            "searched": 0,
+            "worlds": 1
+          }
+        },
+        "requested_worlds": 1,
+        "teacher_profile": {
+          "active_row_steps": 599,
+          "compactions": null,
+          "nominal_row_steps": 0,
+          "peak_active_rows": null,
+          "reconstruction_row_steps": 0,
+          "root_row_steps": 150,
+          "search_row_steps": 0,
+          "shadow_row_steps": 449
+        },
+        "worlds": 1
+      },
+      "export_sha256": {
+        "world-000000.json": "50f42eb5546dc7ca8d7a653692f93775c6ba2761dafac9d070d30064d1cc4dd4",
+        "world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "world-000000.json.sha256": "f351f3265d8e5bb63b2fd756b7a4d82a4f676f754d8361a5adabc204004106b8"
+      },
+      "exports": 3,
+      "failures": [],
+      "fixture": "xlong-mixed",
+      "frames": 150,
+      "host_stage_seconds_first": {
+        "native": {
+          "build_s": 0.060853457980556414,
+          "export_s": 0.015231124998535961,
+          "root_policy_s": 0.20767271009390242,
+          "root_step_s": 1.5183599128795322,
+          "shadow_s": 2.8032000931852963
+        },
+        "stock": {
+          "build_s": 0.058671458973549306,
+          "export_s": 0.05499654199229553,
+          "root_policy_s": 0.2047841327439528,
+          "root_step_s": 1.5036147987120785,
+          "shadow_s": 4.528501621913165
+        }
+      },
+      "identical": true,
+      "mix": "mixed",
+      "ms_per_row_step": {
+        "native": 7.756814831430139,
+        "stock": 10.670216540877517
+      },
+      "native_stats": {
+        "audited_rows": 0,
+        "boost_base_rows": 27,
+        "calls": 1347,
+        "fallback_rows": 0,
+        "head_changes": 0,
+        "long_rows": 687,
+        "no_spacious": 99,
+        "overrides": 0,
+        "python_calls": 0,
+        "replayed_rows": 1347,
+        "rows": 1347,
+        "tail_release_rows": 0,
+        "tie_overrides": 0,
+        "tie_rows": 0,
+        "v5_changes": 0,
+        "v7_changes": 0
+      },
+      "process_cpu_seconds": {
+        "native": [
+          4.629312999999996
+        ],
+        "stock": [
+          6.367401000000001
+        ]
+      },
+      "q_ties": false,
+      "row_steps": 599,
+      "speedup_min_wall": 1.3755925302796261,
+      "wall_seconds": {
+        "native": [
+          4.646332084026653
+        ],
+        "stock": [
+          6.391459707985632
+        ]
+      }
+    }
+  ],
+  "pooled_speedup": 1.389141620096668,
+  "provenance": {
+    "argv": [
+      "/Users/josenunez/Projects/ml/snake-dqn/.claude/worktrees/agent-aeace3a450c90f2a2/research/t34_speed_s2/identity.py",
+      "--checkpoint",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-a5-20261020/inputs/B8_s3_final.pth",
+      "--output-dir",
+      "/private/tmp/claude-501/-Users-josenunez-Projects-ml-snake-dqn/74a3b23b-bf7f-40f3-b57b-1db45b4d93fe/scratchpad/id3",
+      "--frames",
+      "150",
+      "--warmup-frames",
+      "10",
+      "--repeats",
+      "1",
+      "--audit"
+    ],
+    "authority": "excluded diagnostic (speed program S2); not A5/Round 0/gate evidence",
+    "load_average_end": [
+      12.81884765625,
+      12.39697265625,
+      11.87451171875
+    ],
+    "load_average_start": [
+      12.81884765625,
+      12.39697265625,
+      11.87451171875
+    ],
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]",
+    "source_revision": "a0bd92eaf797143c6ea610e4f26649f1a9e84062"
+  },
+  "recipe": {
+    "audit": true,
+    "device": "cpu",
+    "frames": 150,
+    "namespace": "t34-exit-cpu-profile-diagnostic/v1",
+    "q_ties": false,
+    "repeats": 1,
+    "threads": 1,
+    "warmup_frames": 10,
+    "warmup_seconds": 6.338149625022197
+  },
+  "schema": "t34-speed-s2-identity/v1",
+  "total_min_wall_seconds": {
+    "native": 31.130567581014475,
+    "stock": 43.24476708401926
+  },
+  "total_row_steps": 5391
+}
