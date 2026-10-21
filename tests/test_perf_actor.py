@@ -19,6 +19,10 @@ import numpy as np
 import pytest
 
 from research.redesign_m3c_20261008 import train_m3c as T
+from tests.actor_telemetry import (
+    WALL_CLOCK_ACTOR_FIELDS,
+    assert_post_baseline_actor_telemetry,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_v8_nb import HAVE_CKPT  # noqa: E402
@@ -251,9 +255,11 @@ def test_actor_messages_identical_across_impls(tmp_path, monkeypatch, extra):
     ref_msgs, ref_ring = runs[("reference", "python")]
     assert len(ref_msgs) == frames
     assert sum(len(m["s"]) for m in ref_msgs) > 300 and sum(m["deaths"] for m in ref_msgs) >= 0
-    skip = {"env_s", "timing", "j"}
+    # Q0b production stamps measure wall time, independently of trajectory parity.
+    skip = WALL_CLOCK_ACTOR_FIELDS | {"j"}
     for key, (msgs, ring) in runs.items():
         assert len(msgs) == len(ref_msgs), key
+        assert_post_baseline_actor_telemetry(msgs, key)
         for f, (a, b) in enumerate(zip(ref_msgs, msgs)):
             assert a.keys() == b.keys(), (key, f)
             for k in a:

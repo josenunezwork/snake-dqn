@@ -23,6 +23,10 @@ import pytest
 from research.perf_profile_20261013 import analyze_profiles as A
 from research.redesign_m3c_20261008 import profile_m3c as P
 from research.redesign_m3c_20261008 import train_m3c as T
+from tests.actor_telemetry import (
+    WALL_CLOCK_ACTOR_FIELDS,
+    assert_post_baseline_actor_telemetry,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_perf_actor import _run_actor  # noqa: E402
@@ -182,7 +186,10 @@ def test_actor_messages_unchanged_by_profiling(tmp_path, monkeypatch, mode):
     on_msgs, on_ring = _run_actor(tmp_path / "on", init, "vectorized", "numba", frames, B8_ACTOR)
     assert len(off_msgs) == len(on_msgs) == frames
     assert sum(m["decisions"] for m in off_msgs) > 200
-    skip = {"env_s", "timing", "j"}
+    # Q0b production stamps measure wall time, independently of trajectory parity.
+    skip = WALL_CLOCK_ACTOR_FIELDS | {"j"}
+    assert_post_baseline_actor_telemetry(off_msgs, "off")
+    assert_post_baseline_actor_telemetry(on_msgs, mode)
     for f, (a, b) in enumerate(zip(off_msgs, on_msgs)):
         assert a.keys() == b.keys(), f
         for k in a.keys() - skip:

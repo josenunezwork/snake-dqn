@@ -66,15 +66,26 @@ def prechange_v8_module():
 def use_prechange_v8(module):
     """Route dynamic v8 imports in the independent legacy oracle to its frozen kernel."""
     import src.simd_env as simd_env
+    import src.simd_env.ego_raster_bv8 as bv8
 
     name = "src.simd_env.v8_nb"
     current = sys.modules.get(name)
     current_attr = getattr(simd_env, "v8_nb", None)
+    current_scalars = bv8.v8_scalars
+
+    def prechange_scalars(*args, **kwargs):
+        return frozen_v8_scalars(module, *args, **kwargs)
+
     sys.modules[name] = module
     setattr(simd_env, "v8_nb", module)
+    # The frozen pool imports this wrapper dynamically during dispatch.  Its
+    # current ``membership=`` call is newer than the pinned v8 API, so replace
+    # it with the 99e632351 adapter for the full legacy callback.
+    bv8.v8_scalars = prechange_scalars
     try:
         yield
     finally:
+        bv8.v8_scalars = current_scalars
         if current is None:
             sys.modules.pop(name, None)
         else:
@@ -94,6 +105,88 @@ def assert_v8_result_bytes_equal(expected, actual, frame: int) -> None:
         left, right = getattr(expected, field.name), getattr(actual, field.name)
         assert left.dtype == right.dtype and left.shape == right.shape, (frame, field.name)
         assert left.tobytes() == right.tobytes(), (frame, field.name)
+
+
+def frozen_v8_scalars(baseline, sim, rows, mask=None, lam=8.0):
+    """Evaluate the frozen v8 feature oracle through its pre-membership API.
+
+    This reproduces ``ego_raster_bv8.v8_scalars`` at 99e632351, before ffa256751
+    added its membership argument.
+    """
+    # The fixture predates ``membership``; call its pinned kernel directly so the
+    # oracle remains independent of the working-tree feature adapter.
+    if not hasattr(sim, "bodies"):
+        raise TypeError("ego2s-bv8 features need a GridBatchSim / BatchSim, not an EgoGridView")
+    whole = rows is None
+    if whole:
+        envs, slots = sim.alive.shape
+        rows = np.stack(np.meshgrid(np.arange(envs), np.arange(slots), indexing="ij"), -1).reshape(
+            -1, 2
+        )
+        mask = None
+    rows = np.ascontiguousarray(np.asarray(rows, dtype=np.int64).reshape(-1, 2))
+    if mask is None:
+        mask = sim.get_advisory_action_mask()[rows[:, 0], rows[:, 1]]
+    mask = np.asarray(mask, dtype=bool).reshape(-1, 6)
+    alive = np.asarray(sim.alive[rows[:, 0], rows[:, 1]], dtype=bool)
+    out = np.zeros((len(rows), 30), dtype=np.float32)
+    live = np.flatnonzero(alive)
+    result = None
+    if len(live):
+        result = baseline.v8_decide(
+            sim,
+            rows[live],
+            np.zeros((len(live), 6), dtype=np.float32),
+            mask[live],
+            lam,
+            features=True,
+        )
+        out[live] = baseline.v8_feature_planes(result).reshape(len(live), 30)
+    if whole or len(live) != len(rows):
+        result = None
+    return out, result
+
+
+def test_frozen_v8_scalars_uses_pre_membership_kernel_for_live_and_dead_rows() -> None:
+    """The test adapter must retain frozen-kernel calls when the wrapper API grows."""
+    from types import SimpleNamespace
+
+    reference = prechange_v8_module()
+    calls = []
+
+    def decide(*args, **kwargs):
+        assert "membership" not in kwargs
+        calls.append((args, kwargs))
+        return reference.v8_decide(*args, **kwargs)
+
+    baseline = SimpleNamespace(v8_decide=decide, v8_feature_planes=reference.v8_feature_planes)
+    sim = SimpleNamespace(
+        cfg=SimpleNamespace(
+            arena_type="rectangular",
+            min_boost_length=3,
+            boost_length_cost_frames=3,
+            mechanics_version=2,
+        ),
+        grid_w=9,
+        grid_h=9,
+        bodies=np.array([[[[4, 4], [3, 4], [0, 0], [0, 0]], [[6, 6], [0, 0], [0, 0], [0, 0]]]]),
+        head_ptr=np.zeros((1, 2), dtype=np.int64),
+        seg_count=np.array([[2, 1]], dtype=np.int64),
+        length=np.array([[2, 1]], dtype=np.int64),
+        boost_frames=np.zeros((1, 2), dtype=np.int64),
+        direction=np.array([[1, 1]], dtype=np.int64),
+        alive=np.array([[True, False]]),
+    )
+    extras, result = frozen_v8_scalars(
+        baseline,
+        sim,
+        np.array([[0, 0], [0, 1]], dtype=np.int64),
+        np.ones((2, 6), dtype=bool),
+    )
+    assert len(calls) == 1
+    assert calls[0][0][1].tolist() == [[0, 0]]
+    assert extras.shape == (2, 30) and extras.dtype == np.float32
+    assert not extras[1].any() and result is None
 
 
 def test_reference_is_unedited_pre_t22_source():
@@ -325,7 +418,6 @@ def run_recorded_pair(
     from research.redesign_m3c_20261008 import train_m3c as trainer
     from research.redesign_scope_20261007 import grid_h5000_identity as gid
     from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
-    from src.simd_env.ego_raster_bv8 import v8_scalars
 
     torch.set_num_threads(1)
     checkpoint_dir = checkpoint_dir or CHECKPOINTS
@@ -429,8 +521,8 @@ def run_recorded_pair(
                     # kernel with the optimized side.  Its dynamic imports resolve to the
                     # byte-pinned pre-change v8 source for this entire prepared callback.
                     with use_prechange_v8(baseline_v8):
-                        extras, v8res = v8_scalars(
-                            prepared, hero, trainer.hero_selection_mask(prepared, hero)
+                        extras, v8res = frozen_v8_scalars(
+                            baseline_v8, prepared, hero, trainer.hero_selection_mask(prepared, hero)
                         )
                 if obs is None:
                     obs = build_ego_raster(

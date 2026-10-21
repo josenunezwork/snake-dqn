@@ -24,6 +24,10 @@ from research.redesign_m3c_20261008 import compile_m3c as cm  # noqa: E402
 from research.redesign_m3c_20261008 import learner_m3c as lm  # noqa: E402
 from research.redesign_m3c_20261008 import train_m3c as m3c  # noqa: E402
 from src.model.ego2s_network import Ego2sNet  # noqa: E402
+from tests.actor_telemetry import (  # noqa: E402
+    WALL_CLOCK_ACTOR_FIELDS,
+    assert_post_baseline_actor_telemetry,
+)
 from tests.test_perf_learner import _args, _assert_same, _ingest  # noqa: E402
 from tests.test_perf_learner import _run as _run_reference  # noqa: E402
 from tests.test_perf_learner import _st, _world  # noqa: E402
@@ -552,9 +556,13 @@ def test_actor_compiled_hero_forward_end_to_end(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     status = [json.loads(x)["compile_actor"] for x in out.splitlines() if "compile_actor" in x]
     assert len(status) == 1 and status[0]["compiled"] and status[0]["fallback"] is None
+    assert_post_baseline_actor_telemetry(ref_msgs, "eager")
+    assert_post_baseline_actor_telemetry(msgs, "compiled")
+    # Q0b production stamps measure wall time, independently of trajectory parity.
     for f, (a, b) in enumerate(zip(ref_msgs, msgs)):
+        assert a.keys() == b.keys(), f
         for k in a:
-            if k in ("env_s", "timing", "j"):
+            if k in WALL_CLOCK_ACTOR_FIELDS | {"j"}:
                 continue
             x, y = a[k], b[k]
             if isinstance(x, np.ndarray):
