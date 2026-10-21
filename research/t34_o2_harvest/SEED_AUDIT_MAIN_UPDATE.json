@@ -1,0 +1,285 @@
+{
+  "bank_sha256": "b6796a6f6400f6c3ae74c820468fbcbb09a4b3468da18d0eaed4dfd0b16c40a2",
+  "base_commit": "6e05c52f",
+  "changed_files": [
+    {
+      "candidate_collisions": 0,
+      "path": "research/bl_served_search/AMENDMENT_08.md",
+      "sha256": "85d0746669511aa73e886e87e3326db9721bcc55ca1e33806977c1b284aaaf3b"
+    },
+    {
+      "candidate_collisions": 0,
+      "path": "research/gpu_sim_spike/E1B_CUDA_DTYPE_FIX.md",
+      "sha256": "3e0d7bd49e4367c60d5b9ba64475d13fce5bcb0a041e67fd364e9e3572192a1c"
+    },
+    {
+      "candidate_collisions": 0,
+      "path": "research/gpu_sim_spike/conftest.py",
+      "sha256": "537dfd1ec4ff455df837dd519a53586a33c3ef8ae11ec593242517e5c953bfe3"
+    },
+    {
+      "candidate_collisions": 0,
+      "path": "research/gpu_sim_spike/test_cuda_dtypes.py",
+      "sha256": "4cb0df7f7d169668882b11decbe9739a315afbde5fb85f6432d2e1d62470241a"
+    },
+    {
+      "candidate_collisions": 0,
+      "path": "research/gpu_sim_spike/test_cuda_shape.py",
+      "sha256": "b9cb06405cbd33ae88af01e742037927e2b5964d49e250aef2fc69e350f0f3c4"
+    },
+    {
+      "candidate_collisions": 0,
+      "path": "research/gpu_sim_spike/v8_device.py",
+      "sha256": "c1c36328d93032afcfd9fd213f267b526d454a7cc23c4e06cf5a62544e6f6bb2"
+    },
+    {
+      "candidate_collisions": 0,
+      "path": "research/gpu_sim_spike/vector_device.py",
+      "sha256": "6d32148935b9cccd3d2d2e7bdf1093a2abf9a88349d3e46e48907bb738a4d69d"
+    }
+  ],
+  "current_main_commit": "c976fbbb97c929aadce844cd6e0fb9a6529765e2",
+  "published_inventories": [
+    {
+      "collisions": 0,
+      "concrete_seed_values": 300,
+      "path": "research/bl_e16/BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "1a184227c8d312e6e00db53d71c994a3eddc51fd87115c40d039dc29cf7d6366"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/bl_e16/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "4b52ef8fd43965927c94893a71ff9112fb5d0509e0d735b050f248fb128dbca4"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 166,
+      "path": "research/bl_ppo/BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "dec04505c932d47e127c925299f0f491984996663dfaf4a9558bf96624897e19"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 167,
+      "path": "research/bl_ppo/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "5b1a9d29a983c61879461705d38de4ba1bc9cc912c6d373ff3baa94fe6082d66"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 11224,
+      "path": "research/bl_prefix/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "69d6a44a982e3884f431ccd14d2137bf62e610fa52b30b9d13798bf70f9d1a31"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 163,
+      "path": "research/bl_served_search/BANK_L2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "0a8d3059e1feb7f9c954171093e0c21258b6cf89ea43e1c20f8e035776fcb8d3"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/bl_served_search/SEED_AUDIT_L2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "58a0f084180cab8dc9a03c33ffe69cd6ebcf28b3faafdf560ff92e1630967a20"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/phase0_search_20261019/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "c7a461fbb78adba56cded523b0b0a767a4328b687394d4c5cd99baaa15ba3fe2"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 172,
+      "path": "research/phase0_search_20261019/WORLD_BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 1,
+      "path": "research/q0q1_20261017/Q1_SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "694a0717ca5627b07a1a4070c27cf6c31519d0d2cf686a826f30ea96c3b083d0"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 649,
+      "path": "research/q0q1_20261017/Q1_WORLD_BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "d637a0610c0dfbbcc52f3800dd39255975bdb9728a92811b6ece9342fd82dc40"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 961,
+      "path": "research/redesign_t7_phase_r_20261016/SEED_AUDIT_T7.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "0d1cee86786fe9f8b6cc3134722c95e09c73aa416ff90398717371163f41f3c5"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 11,
+      "path": "research/s1_mature_20261018/S1_SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "e1585e2f64debcbd1704964e7199a644f958439bea3786cf132ab52412221191"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 11,
+      "path": "research/s1_mature_20261018/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "e1585e2f64debcbd1704964e7199a644f958439bea3786cf132ab52412221191"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 5,
+      "path": "research/s1_mature_20261018/SEED_BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "8e9c1352c1961a7436858038f09d988bca6e247257ff5d0b82a5520bb4bbdcb6"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 655,
+      "path": "research/s1_mature_20261018/WORLD_BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "e067141405940a530b162972eb685990ad78fc973543dd7805776d8de5ff2386"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 73,
+      "path": "research/t12_b8_serving_20261017/SEED_AUDIT_T12.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "b4847c1048e232d8702a27e9f87196816b1feddf9e31a258c871cdd8062706b7"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 73,
+      "path": "research/t12_b8_serving_20261017/SEED_AUDIT_T12_V2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "798402fbe40986047d2a69e5d45547b55c412ae2bb964c2d66d4e923d4de5015"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 26,
+      "path": "research/t13_product_roster_20261017/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "d9dee9d9b07a956bf0ebbb1661e4380e0167d7795bcadb8d06a89ec1cf5a1824"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 26,
+      "path": "research/t13b_six_snake_20261017/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "ceda3c4b26609cb2e77089291de66b41ffa039a1d25c2fd032ac404364c0269b"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/t23_r0_screen_20261017/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "4b2030627380c856fe10f5e65ccdae5b8b0f6fe571c16881777f9c6e38e93a3f"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 1289,
+      "path": "research/t23_r0_screen_20261017/WORLD_BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "4682750aa0abaa2c4cc5be7d96e3e5cb489e4e8e076ed6a87e2d5852515bc72e"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 3,
+      "path": "research/t34_claim_a/SEED_AUDIT_CLAIM_A.json",
+      "reconstructed_hash_only_seeds": 856,
+      "sha256": "3a8a1fe85a41c31e3e095effcf40c83918a64fac2bbed69dddf8fe32d4754d6e"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 3,
+      "path": "research/t34_claim_a_r1/SEED_AUDIT_R1.json",
+      "reconstructed_hash_only_seeds": 2000,
+      "sha256": "d8387544fb62ae949502e95038e795ef8650c17b84e260f0c82262f2bd9cebe5"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 55,
+      "path": "research/t34_o1_harvest/BANK_O1.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "37ffffe24ec00b6f13c9249f1272efe04d75a0ff3789699c1762154e63e41c2a"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 12,
+      "path": "research/t34_o1_harvest/SEED_AUDIT_MAIN_UPDATE.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "ed3dcca94467118677288195aaf035cf6219b0a33d1b64516a859ba7a78332cb"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 55,
+      "path": "research/t34_o1_harvest/SEED_AUDIT_O1.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "88a46cd0e019c43d24e7f31ea909436f56304782fb8d068c6990d6f45ea29245"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 177,
+      "path": "research/t34_pathb/RETENTION_BANK_V2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "af54fd499e99575bcc960c78fc3c52d756f8e1c1a52ca65edb95bb5b013f6d95"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 178,
+      "path": "research/t34_pathb/SEED_AUDIT_RETENTION_V2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "7d895340b742d2011fde9e2731c3e73c1b58484023b3e4afbf66e769704f3b51"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 242,
+      "path": "research/t34_round0/BANK_ROUND0.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "76863477c4e47bee40c19980ca0dd01983f1bf49ea473c8b2fd4018958d0c2ae"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 242,
+      "path": "research/t34_round0/SEED_AUDIT_ROUND0.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "8cd2d43f3c19ed51c74b9ee0a2bf328eaad463095c8032dc0e8b5653e4eeee08"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/t34_round0/TABULAR_SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "9fbaa8aeecf9358e8bff5936fb150a79bc77990298015d2b698fbf0268f7cd8b"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 272,
+      "path": "research/t34_round0d/BANK_ROUND0D.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "1d8ec23e1613047c46d28334f2a0762117f696c0ed9e79555baea9eaf3dfdff0"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 272,
+      "path": "research/t34_round0d/SEED_AUDIT_ROUND0D.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "508166eaae66da6e93abbcf99966f7b914af3f88cb39be708ec493e641ee208d"
+    }
+  ],
+  "schema": "t34-o2-main-update-audit/v1",
+  "scope": "Prospective supplement after origin/main update; initial full historical scan retained unchanged. Only changed repository files and current repository bank/audit inventories read; sealed artifact root never opened.",
+  "status": "CLEAR"
+}

@@ -1,0 +1,467 @@
+{
+  "bank_collisions": {
+    "pathb_retention_v2": [],
+    "phase0": [],
+    "round0": [],
+    "t3_dense_census": []
+  },
+  "bank_sha256": "b6796a6f6400f6c3ae74c820468fbcbb09a4b3468da18d0eaed4dfd0b16c40a2",
+  "candidate_count": 105,
+  "collisions": [],
+  "concrete_hits": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts": [],
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/docs": [],
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/research": [],
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/scripts": [],
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/src": []
+  },
+  "coverage": "visible text source/docs/artifacts incl. CSV/TSV + historical exclusions",
+  "excluded_a5d_count": 6,
+  "excluded_live_study_roots": [
+    "t34-round0-study-01"
+  ],
+  "excluded_parity_count": 3,
+  "excluded_preflight_count": 3,
+  "excluded_timing_count": 3,
+  "explicit_banks": {
+    "pathb_retention_v2": {
+      "count": 177,
+      "path": "research/t34_pathb/RETENTION_BANK_V2.json",
+      "sha256": "af54fd499e99575bcc960c78fc3c52d756f8e1c1a52ca65edb95bb5b013f6d95"
+    },
+    "phase0": {
+      "count": 172,
+      "path": "research/phase0_search_20261019/WORLD_BANK.json",
+      "sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291"
+    },
+    "round0": {
+      "count": 242,
+      "path": "research/t34_round0/BANK_ROUND0.json",
+      "sha256": "76863477c4e47bee40c19980ca0dd01983f1bf49ea473c8b2fd4018958d0c2ae"
+    }
+  },
+  "historical_frp_exclusions": [
+    {
+      "collisions": [],
+      "count": 425901,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v2-20261004/namespaces/training_exclusions.json",
+      "sha256": "09e4cb22e569ceea6b8af7d3fb335f2e59e791a749b07d0151108c28548d3b72"
+    },
+    {
+      "collisions": [],
+      "count": 586062,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005/namespaces/training_exclusions.json",
+      "sha256": "4b0f33775544e36e2ccbe6a5d8ab35b81de40565c4328dc8abddd3cea4bc1edf"
+    },
+    {
+      "collisions": [],
+      "count": 714256,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v4-20261007/namespaces/training_exclusions.json",
+      "sha256": "d6223bf5c0bd03cb30bdbc2c455208800e30e880ba395bf0cb5d2f6c433f6d2a"
+    },
+    {
+      "collisions": [],
+      "count": 872512,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/namespaces/training_exclusions.json",
+      "sha256": "8a06d278ae51a71c3f71eff8afa120b1b9fc57f22ff2cac138302be29cf68cd4"
+    },
+    {
+      "collisions": [],
+      "count": 872513,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/namespaces-r2/training_exclusions.json",
+      "sha256": "04dc76fc95458e212a595772de86c8a8addfa0499ec480b83a0f8ac80e5ecf96"
+    },
+    {
+      "collisions": [],
+      "count": 1002787,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5s-20261009/namespaces/training_exclusions.json",
+      "sha256": "76b3b1fbb601115056d42e7198048b650ed7350ff8042a266cc830d97b9ddd88"
+    },
+    {
+      "collisions": [],
+      "count": 1135019,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5s2-20261009/namespaces/training_exclusions.json",
+      "sha256": "30726df2c26da9eb26a37659c3f525ec63bf3618495de5b380bc8e426edbd885"
+    }
+  ],
+  "limits": "opaque binaries, unrecorded external runs, inaccessible history, and the live Round 0 study root (identities checked via BANK_ROUND0.json) excluded",
+  "method": "deterministic-all-at-once-sha256-v1 (Round 0 _rows)",
+  "namespace": "t34-o2-harvest-20261021/v1",
+  "positive_controls": {
+    "pathb_retention_v2": 44043378,
+    "phase0": 6468802,
+    "round0": 2822540
+  },
+  "published_inventories": [
+    {
+      "collisions": 0,
+      "concrete_seed_values": 300,
+      "path": "research/bl_e16/BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "1a184227c8d312e6e00db53d71c994a3eddc51fd87115c40d039dc29cf7d6366"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/bl_e16/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "4b52ef8fd43965927c94893a71ff9112fb5d0509e0d735b050f248fb128dbca4"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 166,
+      "path": "research/bl_ppo/BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "dec04505c932d47e127c925299f0f491984996663dfaf4a9558bf96624897e19"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 167,
+      "path": "research/bl_ppo/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "5b1a9d29a983c61879461705d38de4ba1bc9cc912c6d373ff3baa94fe6082d66"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 11224,
+      "path": "research/bl_prefix/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "69d6a44a982e3884f431ccd14d2137bf62e610fa52b30b9d13798bf70f9d1a31"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 163,
+      "path": "research/bl_served_search/BANK_L2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "0a8d3059e1feb7f9c954171093e0c21258b6cf89ea43e1c20f8e035776fcb8d3"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/bl_served_search/SEED_AUDIT_L2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "58a0f084180cab8dc9a03c33ffe69cd6ebcf28b3faafdf560ff92e1630967a20"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/phase0_search_20261019/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "c7a461fbb78adba56cded523b0b0a767a4328b687394d4c5cd99baaa15ba3fe2"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 172,
+      "path": "research/phase0_search_20261019/WORLD_BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "2702b05df0e6a02de0788bc92d8d17112d55f48b00f333a1644233d3b7da7291"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 1,
+      "path": "research/q0q1_20261017/Q1_SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "694a0717ca5627b07a1a4070c27cf6c31519d0d2cf686a826f30ea96c3b083d0"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 649,
+      "path": "research/q0q1_20261017/Q1_WORLD_BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "d637a0610c0dfbbcc52f3800dd39255975bdb9728a92811b6ece9342fd82dc40"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 961,
+      "path": "research/redesign_t7_phase_r_20261016/SEED_AUDIT_T7.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "0d1cee86786fe9f8b6cc3134722c95e09c73aa416ff90398717371163f41f3c5"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 11,
+      "path": "research/s1_mature_20261018/S1_SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "e1585e2f64debcbd1704964e7199a644f958439bea3786cf132ab52412221191"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 11,
+      "path": "research/s1_mature_20261018/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "e1585e2f64debcbd1704964e7199a644f958439bea3786cf132ab52412221191"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 5,
+      "path": "research/s1_mature_20261018/SEED_BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "8e9c1352c1961a7436858038f09d988bca6e247257ff5d0b82a5520bb4bbdcb6"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 655,
+      "path": "research/s1_mature_20261018/WORLD_BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "e067141405940a530b162972eb685990ad78fc973543dd7805776d8de5ff2386"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 73,
+      "path": "research/t12_b8_serving_20261017/SEED_AUDIT_T12.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "b4847c1048e232d8702a27e9f87196816b1feddf9e31a258c871cdd8062706b7"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 73,
+      "path": "research/t12_b8_serving_20261017/SEED_AUDIT_T12_V2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "798402fbe40986047d2a69e5d45547b55c412ae2bb964c2d66d4e923d4de5015"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 26,
+      "path": "research/t13_product_roster_20261017/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "d9dee9d9b07a956bf0ebbb1661e4380e0167d7795bcadb8d06a89ec1cf5a1824"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 26,
+      "path": "research/t13b_six_snake_20261017/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "ceda3c4b26609cb2e77089291de66b41ffa039a1d25c2fd032ac404364c0269b"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/t23_r0_screen_20261017/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "4b2030627380c856fe10f5e65ccdae5b8b0f6fe571c16881777f9c6e38e93a3f"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 1289,
+      "path": "research/t23_r0_screen_20261017/WORLD_BANK.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "4682750aa0abaa2c4cc5be7d96e3e5cb489e4e8e076ed6a87e2d5852515bc72e"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 3,
+      "path": "research/t34_claim_a/SEED_AUDIT_CLAIM_A.json",
+      "reconstructed_hash_only_seeds": 856,
+      "sha256": "3a8a1fe85a41c31e3e095effcf40c83918a64fac2bbed69dddf8fe32d4754d6e"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 3,
+      "path": "research/t34_claim_a_r1/SEED_AUDIT_R1.json",
+      "reconstructed_hash_only_seeds": 2000,
+      "sha256": "d8387544fb62ae949502e95038e795ef8650c17b84e260f0c82262f2bd9cebe5"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 55,
+      "path": "research/t34_o1_harvest/BANK_O1.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "37ffffe24ec00b6f13c9249f1272efe04d75a0ff3789699c1762154e63e41c2a"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 12,
+      "path": "research/t34_o1_harvest/SEED_AUDIT_MAIN_UPDATE.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "ed3dcca94467118677288195aaf035cf6219b0a33d1b64516a859ba7a78332cb"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 55,
+      "path": "research/t34_o1_harvest/SEED_AUDIT_O1.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "88a46cd0e019c43d24e7f31ea909436f56304782fb8d068c6990d6f45ea29245"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 177,
+      "path": "research/t34_pathb/RETENTION_BANK_V2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "af54fd499e99575bcc960c78fc3c52d756f8e1c1a52ca65edb95bb5b013f6d95"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 178,
+      "path": "research/t34_pathb/SEED_AUDIT_RETENTION_V2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "7d895340b742d2011fde9e2731c3e73c1b58484023b3e4afbf66e769704f3b51"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 242,
+      "path": "research/t34_round0/BANK_ROUND0.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "76863477c4e47bee40c19980ca0dd01983f1bf49ea473c8b2fd4018958d0c2ae"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 242,
+      "path": "research/t34_round0/SEED_AUDIT_ROUND0.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "8cd2d43f3c19ed51c74b9ee0a2bf328eaad463095c8032dc0e8b5653e4eeee08"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/t34_round0/TABULAR_SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "9fbaa8aeecf9358e8bff5936fb150a79bc77990298015d2b698fbf0268f7cd8b"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 272,
+      "path": "research/t34_round0d/BANK_ROUND0D.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "1d8ec23e1613047c46d28334f2a0762117f696c0ed9e79555baea9eaf3dfdff0"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 272,
+      "path": "research/t34_round0d/SEED_AUDIT_ROUND0D.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "508166eaae66da6e93abbcf99966f7b914af3f88cb39be708ec493e641ee208d"
+    }
+  ],
+  "scan_globs": [
+    "*.json",
+    "*.jsonl",
+    "*.md",
+    "*.py",
+    "*.yaml",
+    "*.yml",
+    "*.sh",
+    "*.csv",
+    "*.tsv"
+  ],
+  "scan_roots": [
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/docs",
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/research",
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/src",
+    "/Users/josenunez/Projects/ml/snake-dqn-o1/scripts",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts"
+  ],
+  "schema": "t34-o2-seed-audit/v1",
+  "seeds": [
+    705413040,
+    803482318,
+    1709867715,
+    756385932,
+    1639116588,
+    2313241457,
+    1241900904,
+    2302318507,
+    4025174395,
+    1801236715,
+    2216102244,
+    3541742089,
+    2939041142,
+    2386405647,
+    886287621,
+    537069496,
+    2214348913,
+    642640077,
+    3355796424,
+    803015537,
+    381107285,
+    2963681321,
+    3534294680,
+    3654658913,
+    2919646374,
+    862320719,
+    1440183676,
+    3176292146,
+    1322905841,
+    720697804,
+    2345430965,
+    883477382,
+    2719183955,
+    3059121881,
+    3633409716,
+    1829339435,
+    2106881595,
+    2065906618,
+    377248066,
+    3180932288,
+    1642232693,
+    846730689,
+    3685398071,
+    781311357,
+    3992814388,
+    892977497,
+    4202802297,
+    306123200,
+    3952796555,
+    1074870982,
+    2555595718,
+    265574535,
+    3102510714,
+    859899797,
+    1916664210,
+    676348388,
+    2729792466,
+    3743217580,
+    1876743294,
+    2369131988,
+    2026236293,
+    3916266446,
+    2723413948,
+    741608207,
+    805158661,
+    202520374,
+    2167992830,
+    1806420625,
+    1373376249,
+    108129340,
+    2768054420,
+    3649975308,
+    2233762174,
+    3740796569,
+    3310554314,
+    2912818921,
+    4265233656,
+    3258033537,
+    800885368,
+    3332934851,
+    699621153,
+    3942114017,
+    2772603930,
+    4049060130,
+    371996587,
+    2821486151,
+    3347051610,
+    2316057871,
+    2423586292,
+    544138088,
+    747859919,
+    4037586236,
+    2253917006,
+    720115347,
+    12015305,
+    3368170803,
+    585388602,
+    2694835410,
+    2694639396,
+    774842310,
+    3812658982,
+    3153345347,
+    1058967619,
+    2927654560,
+    2166883143
+  ],
+  "selection_count": 96,
+  "status": "CLEAR",
+  "t3_dense_census": {
+    "available": true,
+    "count": 32
+  }
+}
