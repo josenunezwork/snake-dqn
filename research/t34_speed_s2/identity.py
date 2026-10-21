@@ -37,9 +37,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+import numpy as np
+
 DIAGNOSTIC_NAMESPACE = "t34-exit-cpu-profile-diagnostic/v1"
 MIXES = ("scripted", "frozen", "mixed")
-BODIES = ("short", "long")
+BODIES = ("short", "long", "xlong")
 DETERMINISTIC_KEYS = (
     "worlds",
     "requested_worlds",
@@ -81,13 +83,17 @@ def _single_thread() -> None:
 def _config(checkpoint: Path, output: Path, mix: str, body: str, frames: int) -> dict[str, Any]:
     from research.t34_exit_b8 import profile_cpu
 
-    config = profile_cpu._case_config(checkpoint, output, 3600.0, mix, body)
+    config = profile_cpu._case_config(
+        checkpoint, output, 3600.0, mix, "long" if body == "xlong" else body
+    )
+    if body == "xlong":
+        config["world_builder"] = _xlong_world_builder
     config.update(frames=int(frames), seconds=3600.0, steady_state_seconds=0.0)
     return config
 
 
 def _floor_q_install(policy: Any) -> None:
-    """Fixture only: integer-floored opponent Q (exact ties) on a private clone."""
+    """Fixture only: integer-floored opponent Q (many exact float32 ties)."""
     import torch
 
     if getattr(policy, "_t34_s2_floor_q", False) or not hasattr(policy, "q_values"):
@@ -101,37 +107,46 @@ def _floor_q_install(policy: Any) -> None:
     policy._t34_s2_floor_q = True
 
 
-def _tie_teacher(base: type) -> type:
-    class TieTeacher(base):  # type: ignore[misc, valid-type]
-        def _dispatch_merged(self, merged: Any, grid: Any, active: Any) -> None:
-            for row in merged.opponents:
-                for policy in row:
-                    _floor_q_install(policy)
-            super()._dispatch_merged(merged, grid, active)
+def _tie_builder(builder: Callable[..., Any]) -> Callable[..., Any]:
+    """Floor every frozen opponent's Q in the root world (clones inherit it)."""
 
-    TieTeacher.__name__ = f"Tie{base.__name__}"
-    return TieTeacher
+    def build(row: Mapping[str, Any], checkpoint: Any) -> Any:
+        world = builder(row, checkpoint)
+        for policy in world.opponents:
+            if getattr(policy, "veto_slots", frozenset()):
+                _floor_q_install(policy)
+        return world
 
-
-def _teacher(kind: str, config: Mapping[str, Any], *, q_ties: bool, audit: bool) -> Any:
-    from research.t34_exit_b8.engine import ExitTeacher, ExitTeacherConfig
-    from research.t34_speed_s2.native_v8 import NativeV8ExitTeacher
-
-    cfg = ExitTeacherConfig(horizon=int(config.get("horizon", 300)), beta=1.0)
-    base = ExitTeacher if kind == "stock" else NativeV8ExitTeacher
-    cls = _tie_teacher(base) if q_ties else base
-    kwargs: dict[str, Any] = {"device": "cpu"}
-    if kind != "stock":
-        kwargs["audit"] = audit
-    return cls(cfg, **kwargs)
+    return build
 
 
 class _Events:
-    """Branch-only physical event coverage (opponent deaths, long rows)."""
+    """Physical event coverage on every stepped world (root, shadow, doom, branch)."""
 
     def __init__(self) -> None:
         self.counts: dict[str, int] = defaultdict(int)
         self._inside = 0
+
+    def _observe(self, sim: Any, before: Any, prefix: str) -> None:
+        after = sim.alive[:, 1:]
+        self.counts[f"{prefix}_ticks"] += 1
+        self.counts[f"{prefix}_opponent_deaths"] += int((before & ~after).sum())
+        self.counts[f"{prefix}_opponent_respawns"] += int((~before & after).sum())
+        self.counts[f"{prefix}_rows_opponent_len_ge_800"] += int(
+            ((sim.length[:, 1:] >= 800) & after).any(axis=1).sum()
+        )
+
+    def _contested(self, sim: Any, prefix: str) -> None:
+        """Envs where >= 2 live heads are within Manhattan 2 of one food cell."""
+        heads = sim.heads()
+        alive = np.asarray(sim.alive, dtype=bool)
+        for env in range(int(sim.E)):
+            live = heads[env][alive[env]]
+            if len(live) < 2 or not sim.food_cells[env]:
+                continue
+            food = np.asarray(sim.food_cells[env], dtype=np.int64).reshape(-1, 2)
+            near = (np.abs(food[:, None, :] - live[None, :, :]).sum(axis=2) <= 2).sum(axis=1)
+            self.counts[f"{prefix}_contested_food_envs"] += int((near >= 2).any())
 
     def install(self) -> Callable[[], None]:
         from research.t34_exit_b8.engine import ExitTeacher
@@ -147,18 +162,11 @@ class _Events:
                 events._inside -= 1
 
         def step(sim: Any, *args: Any, **kwargs: Any) -> Any:
-            if not events._inside:
-                return original_step(sim, *args, **kwargs)
+            prefix = "branch" if events._inside else "world"
             before = sim.alive[:, 1:].copy()
+            events._contested(sim, prefix)
             result = original_step(sim, *args, **kwargs)
-            after = sim.alive[:, 1:]
-            events.counts["branch_ticks"] += 1
-            events.counts["branch_opponent_deaths"] += int((before & ~after).sum())
-            events.counts["branch_opponent_respawns"] += int((~before & after).sum())
-            events.counts["branch_hero_deaths"] += int((~sim.alive[:, 0]).sum())
-            events.counts["branch_rows_opponent_len_ge_600"] += int(
-                (sim.length[:, 1:] >= 600).any(axis=1).sum()
-            )
+            events._observe(sim, before, prefix)
             return result
 
         ExitTeacher._rollout_merged = rollout
@@ -169,6 +177,24 @@ class _Events:
             BatchSim.step = original_step
 
         return restore
+
+
+def _xlong_world_builder(row: Mapping[str, Any], checkpoint: Path) -> Any:
+    """``profile_cpu`` long bodies, but with three opponents at >= 800 cells."""
+    from research.t34_exit_b8 import profile_cpu
+    from research.t34_exit_b8.trajectory import prepare_world
+    from src.simd_env.grid_scenarios import inject_serpentines
+
+    world = profile_cpu._reset_world_builder(row, checkpoint)
+    lengths = [400, 900, 850, 800, 300, 150]
+    if int(world.sim.S) != len(lengths) or int(world.sim.cap) <= max(lengths) + 3:
+        raise ValueError("xlong fixture requires six slots and ring capacity above 903")
+    inject_serpentines([world.sim], lengths, box_height=8)
+    controlled = world.runtime.controlled.copy()
+    world.runtime.bind(world.sim, controlled)
+    world.sim._policy_phase_prepared = False
+    prepare_world(world)
+    return world
 
 
 def _exports(directory: Path) -> dict[str, str]:
@@ -198,11 +224,21 @@ def _run(
     audit: bool = False,
     events: _Events | None = None,
 ) -> dict[str, Any]:
+    from research.t34_exit_b8.engine import ExitTeacher, ExitTeacherConfig
     from research.t34_exit_b8.teacher_v2 import run_worlds
+    from research.t34_speed_s2.native_v8 import make_native_teacher, native_config
 
     config = _config(checkpoint, output, mix, body, frames)
-    teacher = _teacher(kind, config, q_ties=q_ties, audit=audit)
-    config["teacher"] = teacher
+    if q_ties:
+        config["world_builder"] = _tie_builder(config["world_builder"])
+    if kind == "stock":
+        teacher = ExitTeacher(
+            ExitTeacherConfig(horizon=int(config.get("horizon", 300)), beta=1.0), device="cpu"
+        )
+        config["teacher"] = teacher
+    else:
+        teacher = make_native_teacher(config, audit=audit, branch_only=kind == "branch")
+        config = native_config(config, teacher)
     restore = events.install() if events is not None else None
     started_wall, started_cpu = time.perf_counter(), time.process_time()
     try:
@@ -221,9 +257,8 @@ def _run(
         "exports": _exports(output),
     }
     if kind != "stock":
-        result["native_installs"] = teacher.native_installs
-        if teacher.native_audit is not None:
-            result["audit"] = teacher.native_audit.as_dict()
+        result["native_stats"] = teacher.native_stats.as_dict()
+        teacher.release_roots()
     return result
 
 
@@ -244,7 +279,7 @@ def run_fixture(
     cpu: dict[str, list[float]] = {"stock": [], "native": []}
     reference: dict[str, Any] | None = None
     failures: list[str] = []
-    native_installs = 0
+    native_stats: dict[str, int] = {}
     stages: dict[str, Any] = {}
     for repeat in range(repeats):
         order = ("stock", "native") if repeat % 2 == 0 else ("native", "stock")
@@ -261,7 +296,8 @@ def run_fixture(
             timings[kind].append(result["wall_seconds"])
             cpu[kind].append(result["process_cpu_seconds"])
             stages.setdefault(kind, result["host_stage_seconds"])
-            native_installs = max(native_installs, int(result.get("native_installs", 0)))
+            if kind == "native":
+                native_stats = result["native_stats"]
             observed = {"deterministic": result["deterministic"], "exports": result["exports"]}
             if reference is None:
                 reference = observed
@@ -284,7 +320,7 @@ def run_fixture(
         observed = {"deterministic": result["deterministic"], "exports": result["exports"]}
         if observed != reference:
             failures.append("audited native run differs from the stock run")
-        audit_result = {**result.get("audit", {}), **dict(events.counts)}
+        audit_result = {**result["native_stats"], **dict(events.counts)}
     assert reference is not None
     stock = min(timings["stock"])
     native = min(timings["native"])
@@ -300,7 +336,7 @@ def run_fixture(
         "exports": len(reference["exports"]),
         "export_sha256": reference["exports"],
         "deterministic": reference["deterministic"],
-        "native_installs": native_installs,
+        "native_stats": native_stats,
         "audit": audit_result,
         "wall_seconds": timings,
         "process_cpu_seconds": cpu,
