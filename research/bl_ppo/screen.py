@@ -620,7 +620,33 @@ def analyze(bank: dict[str, Any], audit: dict[str, Any], result: dict[str, Any])
             arm in result["training_status"]
             and "boost_contract_floor" in result["training_status"][arm]
         ):
-            item["boost_contract_floor"] = result["training_status"][arm]["boost_contract_floor"]
+            item["training_boost_contract_floor"] = result["training_status"][arm][
+                "boost_contract_floor"
+            ]
+        rates = {}
+        for mix in banks.MIX_COUNTS:
+            metrics = [row["controllers"].get(arm) for row in rows if row["mix"] == mix]
+            if not metrics or any(
+                m is None
+                or type(m.get("boost_decisions")) is not int
+                or type(m.get("hero_decisions")) is not int
+                or not 0 <= m["boost_decisions"] <= m["hero_decisions"]
+                or m["hero_decisions"] < 1
+                for m in metrics
+            ):
+                continue
+            rates[mix] = sum(m["boost_decisions"] for m in metrics) / sum(
+                m["hero_decisions"] for m in metrics
+            )
+        pooled_boost = mean(rates.values()) if len(rates) == 3 else None
+        item["boost_contract_floor"] = {
+            "scope": "greedy final endpoint; equal mix mean of observed action shares",
+            "by_mix": rates,
+            "candidate_rate": pooled_boost,
+            "floor": 0.005,
+            "below_floor": pooled_boost < 0.005 if pooled_boost is not None else None,
+            "affects_status": False,
+        }
     contrast = None if _tripwired_arms(result) else paired_bounds(deltas("R", "F", "mass_integral"))
     return {
         **output,
@@ -711,6 +737,8 @@ def evaluate_world(
         "no_death_episode": alive_frames == horizon,
         "frames_stepped": horizon,
         "active_frames": len(trace),
+        "hero_decisions": len(trace),
+        "boost_decisions": sum(step["action"] >= 3 for step in trace),
         "trace_sha256": banks.canonical_sha(trace),
         "trace": trace,
         "wall_seconds": time.monotonic() - started,

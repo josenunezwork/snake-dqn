@@ -72,6 +72,8 @@ def fixture() -> tuple[dict, dict, dict]:
                         "alive_frame_fraction": 1.0,
                         "no_death_episode": True,
                         "frames_stepped": 5000,
+                        "hero_decisions": 5000,
+                        "boost_decisions": 0,
                         "checkpoint_sha256": hashes[arm],
                     }
                     for arm, mass in (("R", 120), ("F", 105), ("B8", 100))
@@ -452,3 +454,11 @@ def test_parity_compares_actions_observations_not_cpu_logit_bits() -> None:
     changed[0]["action"] = 2
     right["rows"][0]["controllers"]["B8"] = metrics(changed)
     assert not screen.compare_parity(left, right)["pass"]
+
+
+def test_final_endpoint_low_boost_is_flag_only(fixture: tuple) -> None:
+    decision = screen.analyze(*fixture)
+    assert decision["arms"]["R"]["status"] == "GO"
+    flag = decision["arms"]["R"]["boost_contract_floor"]
+    assert flag["candidate_rate"] == 0 and flag["below_floor"]
+    assert flag["affects_status"] is False

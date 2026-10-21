@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from research.bl_e16.admission import forecast
+from research.bl_e16.admission import RESERVE_UNITS, UNIT_CAP, forecast
 from research.colab_cli.supervisor import Refused, validate
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,7 +56,10 @@ def _admission(parent: Path | None, bank: Path | None, audit: Path | None) -> di
         "status": "NOT_DISPATCHABLE",
         "available": available,
         "missing": missing
-        + ["hash-bound E8/E12/E3/E14/E4/episode-rate evidence and execution plan"],
+        + [
+            "hash-bound E8/E12/E3/E14/E4/episode-rate evidence and execution plan",
+            "independent funding-judge receipt for round-07 X3",
+        ],
         "required_preconditions": [
             "E2 nominated F endpoint and E12 critic PASS",
             "fresh collision-audited 96-world-per-mix evaluation bank",
@@ -110,9 +113,9 @@ def make_manifest(
         "timeout_minutes": 6,
         "output_dir": str(output_dir.expanduser().resolve()),
         "budget": {
-            "unit_cap": 20.0,
+            "unit_cap": UNIT_CAP,
             "rate_units_per_hour": RATE,
-            "reserve_units": 4.0,
+            "reserve_units": RESERVE_UNITS,
             "other_assignments": {},
         },
         "lease_seconds": 180,
@@ -147,6 +150,9 @@ def make_manifest(
             "forecast_rate_status": "planning assumptions, not E16 L4 measurements",
             "input_admission": admission,
             "forecast": forecast(2000.0, 800.0),
+            "registration_amendment": "research/bl_e16/REGISTRATION_AMENDMENT_02.md",
+            "final_family_registration": "research/bl_e16/FINAL_FAMILY_REGISTRATION.md",
+            "budget_scope": "40u/20h shared across all arms and evaluation, never per arm",
             "arm_precondition": {
                 "A": "E2 F + E12 PASS",
                 "G": "E2 F + E12 PASS + E3 GO + E14 pass",
@@ -159,10 +165,15 @@ def make_manifest(
     from research.bl_ppo.manifests import _base, _bounded_source_paths
 
     closure = _base(
-        job_id="closure", commit=commit, output=output_dir, estimate=3, timeout=6, cap=20
+        job_id="closure", commit=commit, output=output_dir, estimate=3, timeout=6, cap=UNIT_CAP
     )["source_paths"]
     manifest["source_paths"] = sorted(set(closure + manifest["source_paths"]))
     manifest["source_paths"] = _bounded_source_paths(manifest)
+    # The borrowed limiter retains Python but omits E16's registration Markdown.
+    manifest["source_paths"] = sorted(
+        set(manifest["source_paths"])
+        | {str(path.relative_to(ROOT)) for path in (ROOT / "research/bl_e16").glob("*.md")}
+    )
     return manifest
 
 
