@@ -95,6 +95,43 @@ def _metric(
     return means, sampled, df
 
 
+def joint_outcomes(
+    success: np.ndarray,
+    failure: np.ndarray,
+    *,
+    success_name: str = "GO",
+    failure_name: str = "KILL",
+) -> dict[str, Any]:
+    """Report both arms and the complete disjoint nine-cell outcome distribution."""
+    success, failure = np.asarray(success, dtype=bool), np.asarray(failure, dtype=bool)
+    if (
+        success.shape != failure.shape
+        or success.ndim != 2
+        or success.shape[1] != 2
+        or not len(success)
+    ):
+        raise ValueError("joint outcomes require nonempty replicate-by-two-arm masks")
+    if (success & failure).any():
+        raise ValueError("success and failure must be disjoint after decision precedence")
+    masks = {success_name: success, failure_name: failure, "INCONCLUSIVE": ~success & ~failure}
+    return {
+        "arms": {
+            arm: {label: float(mask[:, index].mean()) for label, mask in masks.items()}
+            for index, arm in enumerate(("R", "F"))
+        },
+        "joint_patterns": {
+            f"R:{left}|F:{right}": float((lm[:, 0] & rm[:, 1]).mean())
+            for left, lm in masks.items()
+            for right, rm in masks.items()
+        },
+        "both_success": float(success.all(axis=1).mean()),
+        "either_success": float(success.any(axis=1).mean()),
+        "both_failure": float(failure.all(axis=1).mean()),
+        "either_failure": float(failure.any(axis=1).mean()),
+        "both_inconclusive": float((~success & ~failure).all(axis=1).mean()),
+    }
+
+
 def simulate(
     inputs: dict[str, Any], counts: dict[str, int], *, reps: int = 20000, seed: int = 20261021
 ) -> list[dict[str, Any]]:
@@ -154,7 +191,13 @@ def simulate(
                     & (early - t.isf(0.1, e6_df) * e6_se > 0)
                     & ordinary
                 )
-                family = e2_go.any(axis=1) | e6_pass.any(axis=1)
+                e6_kill = early + t.isf(0.1, e6_df) * e6_se <= 0
+                e2_outcomes = joint_outcomes(e2_go, e2_kill)
+                e6_outcomes = joint_outcomes(
+                    e6_pass, e6_kill, success_name="NEEDS_SCALE", failure_name="WRONG_MECHANISM"
+                )
+                e2_funds, e6_funds = e2_go.any(axis=1), e6_pass.any(axis=1)
+                family = e2_funds | e6_funds
                 p_family = float(family.mean())
                 records.append(
                     {
@@ -167,10 +210,17 @@ def simulate(
                         "MC95_interval": wilson_interval(int(family.sum()), reps),
                         "E2_any_GO": float(e2_go.any(axis=1).mean()),
                         "E6_any_NEEDS_SCALE": float(e6_pass.any(axis=1).mean()),
-                        "E2_R": {
-                            "GO": float(e2_go[:, 0].mean()),
-                            "KILL": float(e2_kill[:, 0].mean()),
-                            "INCONCLUSIVE": float((~e2_go[:, 0] & ~e2_kill[:, 0]).mean()),
+                        "E2_R": e2_outcomes["arms"]["R"],
+                        "E2_F": e2_outcomes["arms"]["F"],
+                        "E2_joint": e2_outcomes,
+                        "E6_R": e6_outcomes["arms"]["R"],
+                        "E6_F": e6_outcomes["arms"]["F"],
+                        "E6_joint": e6_outcomes,
+                        "funding_routes_joint": {
+                            "E2_and_E6": float((e2_funds & e6_funds).mean()),
+                            "E2_only": float((e2_funds & ~e6_funds).mean()),
+                            "E6_only": float((~e2_funds & e6_funds).mean()),
+                            "neither": float((~e2_funds & ~e6_funds).mean()),
                         },
                         "efficacy_only_any_E2": float(_holm(p).any(axis=1).mean()),
                     }

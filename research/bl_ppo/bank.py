@@ -217,7 +217,18 @@ def audit(bank: dict[str, Any], repo: Path = ROOT, artifacts: Path = ARTIFACTS) 
     for path in sorted((repo / "research").rglob("*SEED_AUDIT*.json")):
         if path.parent == Path(__file__).parent:
             continue
-        if path.is_symlink() or SEALED_DIRECTORY in path.resolve().parts:
+        if path.is_symlink():
+            # S1 publishes a same-directory alias to its regular SEED_AUDIT.json.
+            # The target is independently enumerated below; never follow an
+            # arbitrary link into an artifact tree or sealed study.
+            if (
+                os.readlink(path) == "SEED_AUDIT.json"
+                and not path.with_name("SEED_AUDIT.json").is_symlink()
+                and path.with_name("SEED_AUDIT.json").is_file()
+            ):
+                continue
+            raise ValueError("unsafe published inventory path")
+        if SEALED_DIRECTORY in path.resolve().parts:
             raise ValueError("unsafe published inventory path")
         value = json.loads(path.read_text())
         known = _bank_seeds(value)
