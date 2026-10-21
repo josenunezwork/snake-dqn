@@ -20,7 +20,9 @@ promotion or serving.
   `_forward`, so B8Policy's observation building, batching and tie rules stay as they are. A
   `exit-fit-tower/1` student (S1a) also paints full-sight planes from the same simulator rows.
   `full_fp32()` turns CUDA TF32 off around Q forwards, because the L4's cuDNN TF32 would move Q by
-  about 1e-3.
+  about 1e-3. `pipeline.main --device cuda` also turns TF32 off globally (matmul and cuDNN, cuDNN
+  deterministic, benchmark off), so the ratified fit and held-out forwards run in full fp32 too. The flags
+  are stamped in `pipeline.json` under `cuda_numerics`.
 - **Identity.** `tests/test_t34_claim_a.py::test_student_fanout_with_b8_student_reproduces_b8_labels_and_replays`
   runs the ratified B8 fan-out and the student fan-out with B8 as the student. The fixture is 2 worlds,
   500 frames and `nproc=2`, and its namespace reaches a real searched doom. Every `world-*.json`,
@@ -42,24 +44,71 @@ promotion or serving.
   - The proof hash is sha256 of the world id plus the final-frame state hash, exported versus
     regenerated.
   - `training_row_counts` gives the exact bank-wide 1:1 sampler counts. These are required: most worlds
-    have no searched row.
+    have no searched row. On the production (cached) path the ratified cache asks only after its full
+    training replay, so the drift check holds by construction; the guard against silently dropped worlds
+    there is the ratified >2%-per-chunk rule, not this inventory.
   - Held-out worlds stream through `replay_heldout`.
+  - `build_payload` refuses a split whose held-out worlds carry fewer than `min_heldout_decisive_rows`
+    decisive rows (`PreconditionFailed`, before any cache or fit work). The pipeline reports this as
+    `PRECONDITION_FAILED`, never as a tripwire. It also reclassifies the ratified runner's "held-out
+    decisive stream is empty" stop the same way.
+  - `source_factory` refuses a binding without `claim_a.previous_sha256`, so the label-Q identity check
+    can no longer be silently disabled.
 - **`probe.py`**: `DevProbe` plays fresh development worlds (namespace must contain `/probe`; never gate
-  data) in lockstep with the current student against the v8 frozen opponents. At each decision it records
-  the student's action, the previous student's action on the same observation, and the hero length. It
+  data) with the current student against the v8 frozen opponents. At each decision it records the
+  student's action, the previous student's action on the same observation, and the hero length. It
   returns the ratified `ProbeResult`. The production shape is 32 × H5000, validated by the ratified
   `validate_probe`.
+  - Each world is played independently on CPU with batch-one fp32 forwards, under its own Python and
+    NumPy RNG streams seeded from the world seed. With `workers=K` the worlds are split round-robin over K
+    spawned processes, and the result is identical to the serial one (tested).
+  - The runtime default is K = nproc − 1; the Mac default is 2.
+  - Progress lines are printed at least every 110 s. Replay prints one line per world.
 - **`pipeline.py`** is one entrypoint for label → payload → cache → fit → probe. It calls the ratified
-  `runner.run(mode="fit")` with the two factories and writes `pipeline.json` (create-only, with sidecars),
-  which holds phase timings, cache statistics, per-epoch probe calls, the previous student's held-out
-  decisive agreement, and the fit outcome. Two local-only switches are both stamped in the receipt:
+  `runner.run(mode="fit")` with the two factories. It keeps `pipeline.json` (with `.sha256` and
+  `.complete`) current in `--receipt-dir`, rewriting it atomically:
+  - after every phase and every probe epoch;
+  - on SIGUSR1 and SIGTERM (the runtime's wall-cap stop);
+  - with `status: FAILED`, the error and the traceback if any exception escapes.
+
+  `final: true` marks the last write, so a run killed at its wall cap still returns its timings. The label
+  phase is wall-bounded by `--label-seconds` (default 2400 s). If it is cut short, the run continues with
+  the worlds that completed, as long as there are at least two. Two local switches are both stamped in the
+  receipt:
   - `--probe-worlds/--probe-horizon` smaller than 32 × 5000 is refused on a runtime.
   - `--timing-only-no-tripwires` runs the ratified tripwires every epoch but records the verdicts instead
-    of stopping. The selected checkpoint from such a run is never eligible.
+    of stopping, and **exports no weights**. The selected `.pth` files are hashed, deleted, and replaced by
+    a `fit-output/TIMING_ONLY_NOT_A_CANDIDATE` marker.
+- **`seed_audit.py`** recomputes the exact seeds of each Claim A namespace (the ratified world
+  generator) and refuses any collision. It checks two things:
+  - the registered Round 0, Round 0-D and retention-v2 banks, including their excluded fixture rows;
+  - the ratified full-history freshness scan (`t34_pathb.bank._audit_candidates`) over
+    docs/research/src/scripts, the whole artifacts tree (all strict-gate, serving and screen banks) and the
+    FRP exclusions.
+
+  `SEED_AUDIT_CLAIM_A.json` is the PASS receipt (raw seeds omitted, digests only). It covers:
+  - `t34-claim-a/qualification/{label×24, probe×32}`;
+  - `t34-claim-a/v2/{r1,r2,r3}/s0/a0×256`;
+  - `t34-claim-a/r1/probe×32`.
+
+  Both manifest builders refuse a namespace and count that the receipt does not cover.
 - **`label.sh`** and **`pipeline.sh`** are the supervisor entrypoints. **`make_manifest.py`** builds the
   `label` and `pipeline` manifests and runs only local validation.
 
 ## Mac smoke (2026-10-20, 1 CPU thread per process, Mac running a 6-worker study)
+
+The latest run, after the panel fixes, is `smoke-06-panel-fixes` (S1b, timing-only, probe workers 2):
+
+| Phase | label | payload | cache build | fit + held-out | probe (4 calls) | total |
+|---|---|---|---|---|---|---|
+| Seconds | 15.1 | 0.08 | 17.2 | 1.8 | 8.6 | 43.0 |
+
+- The cache build includes 9.9 s of replay and 6.7 s of q_prev.
+- Status was `TIMING_ONLY_FIT_COMPLETED`, with weights withheld and the marker written.
+- At this tiny shape the probe time is mostly spawn overhead.
+- The parallel probe measured 4.0 ms per decision per worker on the Mac (4 worlds × H1000, 2 workers).
+
+The runs before the panel fixes:
 
 Input: 2 newly student-labelled worlds (500 frames, `nproc=2`), one A5 export (`s0/scripted/000012`, 13
 searched rows) for training, and one held-out A5 export (`s0/mixed/000002`, 10 decisive rows). The probe
@@ -80,10 +129,8 @@ Other measurements:
 - Cache size is 12,777 bytes per row for S1b and 66,281 for S1a. Peak RSS was 1.39 GB (S1b) and
   2.9 GB (S1a).
 - `smoke-01` stopped with `FIT_STOPPED: held-out decisive agreement below 70%` (see the first risk below).
-- `smoke-04` ran the real `pipeline.sh` in local mode and exported only the receipts and the selected
-  weights.
-- The probe at production shape measured 3.6 ms per decision on one Mac core (4 worlds × H1000 with
-  mixed opponents). At 32 × H5000 that is about 9–10 minutes per epoch.
+- `smoke-04` ran the real `pipeline.sh` in local mode before the panel fixes. It exported weights then;
+  it no longer does.
 
 ## Risks found here (not changed: the loss, tripwires and sampling are frozen)
 
@@ -99,26 +146,57 @@ Other measurements:
    A5 worlds have 296 searched rows, so about 600 rows train per epoch, against 190,000 rows regenerated
    and cached (about 2.4 GB for S1b and 12.6 GB for S1a). GPU fit time is negligible. Time goes to replay,
    the cache and the probe.
-3. **The probe dominates the fit phase.** At 32 × H5000, about 160,000 serial decisions per epoch, CPU-bound
-   by the simulator and opponents. That is about 40–60 minutes for 4–6 epochs. Running probe worlds across
-   processes is the obvious next lever.
+3. **The probe was the dominant fit-phase cost. It is now parallel.** At 32 × H5000 there are about
+   160,000 decisions per epoch, CPU-bound by the simulator and opponents.
+   - Serial on an L4 that would be about 19–27 minutes per epoch.
+   - With K = 11 workers (at most 3 worlds each, about 15,000 decisions per worker at 8–12 ms on an L4
+     vCPU) it is about 2–3 minutes per epoch.
+   - Cache regeneration is still serial, about 7–9 minutes on an L4 for 24 worlds. It is the next lever.
 4. **CUDA has not been run here.** The device flag, pinned prefetch and TF32 guard are exercised only on
    CPU. The L4 job below is the qualification.
 5. **The probe namespace and held-out split must be preregistered.** `--heldout-decisive K` (hold out K
    worlds that carry decisive rows) is a qualification convenience, not a design.
+6. **The same bugs exist in protected files, so they are noted here and not fixed:**
+   - `research/t34_exit_b8_fit/make_manifest.py:232` defaults `budget.other_assignments` to `[]`.
+     `research/colab_cli/accounting.py:_manifest_rates` refuses that at admission. This package emits `{}`,
+     and a test runs the real `admit_account` on both generated manifests.
+   - `research/colab_cli/admission.py:98` re-runs the transport-qualification fence only for
+     `t34_exit_b8*/` scripts. For `t34_claim_a/*.sh` the fence is in this package's manifest builder and
+     validator, so a hand-edited manifest would bypass it.
+7. **The A100 reopen rule cannot fire from this receipt.** The GPU leg of the qualification is seconds out
+   of about an hour of host work, and `gpu_busy_percent` is `None` by design in the ratified fit. "Fit ≥ 60
+   min with GPU leg ≥ 40%" therefore reads NO by construction.
 
 ## Colab L4 qualification run (prepared, NOT run)
 
 This is a timing-only qualification. On the L4 runtime it:
-- labels 24 worlds × H5000 with B8 as the student (12 CPU processes);
-- holds out 2 worlds that carry decisive rows;
+- labels 24 worlds × H5000 with B8 as the student (12 CPU processes; wall bound 2400 s);
+- holds out 2 decisive-bearing worlds, the two with the lowest sha256 split token, and requires at least 5
+  held-out decisive rows (otherwise `PRECONDITION_FAILED`);
 - builds the cache;
-- fits 4 epochs on CUDA;
-- runs the production 32 × H5000 probe each epoch.
+- fits 4 epochs on CUDA in full fp32;
+- runs the production 32 × H5000 probe each epoch on K = nproc − 1 workers.
 
-Tripwires are recorded, not enforced, and the run makes no candidate claim. Estimated wall time is 75–90
-minutes, with a 180-minute timeout and a cap of 6.0 units at 2.0 units/hour. Inputs are only the pinned
-public B8 and league release.
+Tripwires are recorded, not enforced, no weights are exported, and the run makes no candidate claim. Inputs
+are only the pinned public B8 and league release. Seeds are covered by `SEED_AUDIT_CLAIM_A.json`.
+
+**Pricing from L4 rates.** An L4 vCPU is about 2–3× slower than a Mac core: A5 measured 31 row-steps/s
+per process on the L4 against 95 on the Mac.
+
+| Phase | Typical (min) | Bound (min) | Basis |
+|---|---|---|---|
+| bootstrap | 5–8 | 8 | uv venv, torch cu126, requirements |
+| label | 26–30 | 45 | 57 worlds/h steady (A5 GO receipt), 2 waves; bound is 2400 s plus 300 s fan-out grace |
+| cache | 7–9 | 10 | about 120,000 rows at about 4 ms/row, serial |
+| probe, 4 epochs | 8–12 | 16 | K = 11, at most 15,000 decisions per worker at 8–12 ms |
+| fit + held-out | 1–2 | 2 | about 2 × searched rows per epoch |
+| **Total** | **47–61** | **81** | |
+
+The manifest sets an estimate of 75 minutes and a timeout of 150 minutes. That timeout is at least 2 × the
+estimate and at least the 81-minute bound plus 25 minutes. The cap is **5.0 units** at 2.0 units/hour, with
+a 1.0-unit reserve and `other_assignments: {}`. Before dispatch, list the account's sessions with the Colab
+CLI and declare any notebook runtime in `budget.other_assignments` with a reviewed rate; broker lanes are
+picked up automatically.
 
 ```bash
 cd /Users/josenunez/Projects/ml/snake-dqn          # on main at the commit that contains this package
@@ -135,7 +213,8 @@ mkdir -p "$OUT"
 Read `$OUT/run/` (receipt, telemetry) and the exported `pipeline.json`, especially
 `timings.{label,cache_build,fit_and_heldout,probe}_seconds`, `fit.fit_timing`
 (`peak_vram_bytes`, `epoch_minutes`) and `tripwires.per_epoch`. A CLI exit code alone does not mean
-success. The A100 reopen rule in the SYNTHESIS uses this receipt: fit ≥ 60 minutes with the GPU leg ≥ 40%.
+success. `pipeline.json` is current after every phase and epoch even if the run is stopped at its wall cap.
+See risk 7 for the A100 reopen rule.
 
 A student-label chunk for a later round (student uploaded and SHA-bound; `measured_export_bytes_per_world`
 from the A5 receipts, about 8.9 MB):
@@ -151,7 +230,10 @@ from the A5 receipts, about 8.9 MB):
 
 ```bash
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1
-./venv/bin/python -m pytest -q -n 2 tests/test_t34_claim_a.py      # 23 tests, about 35 s
+nice -n 10 ./venv/bin/python -m pytest -q -n 2 tests/test_t34_claim_a.py      # 33 tests, about 35 s
+# Seed audit (from the main checkout: the history scan needs ../snake-dqn-artifacts; about 1.5 min)
+nice -n 10 ./venv/bin/python -m research.t34_claim_a.seed_audit --out /tmp/SEED_AUDIT.json \
+  --namespace t34-claim-a/qualification/label=24 --namespace t34-claim-a/qualification/probe=32
 # End-to-end smoke (worktrees: export SNAKE_CKPT_DIR=<main>/saved_snakes for frozen opponents)
 A5=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-engine-fanout-20261020/manifests-final-3ebf3991/a5-l4-s0-output/exports/worlds
 ./venv/bin/python -m research.t34_claim_a.pipeline --out /tmp/claim-a-smoke \
@@ -161,5 +243,5 @@ A5=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-engine-fanout-20261020/m
   --extra-export "$A5/process-000/worlds/world-000012.json:0:a5-s0" \
   --extra-export "$A5/process-002/worlds/world-000002.json:0:a5-s0" \
   --heldout-world-id t34-exit-a5/v2/s0/a3/mixed/000002 \
-  --probe-worlds 2 --probe-horizon 300 --timing-only-no-tripwires
+  --probe-worlds 2 --probe-horizon 300 --probe-workers 2 --timing-only-no-tripwires
 ```

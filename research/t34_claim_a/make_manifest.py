@@ -30,6 +30,12 @@ PACKAGE = "research/t34_claim_a"
 FACTORY = "research.t34_claim_a.student:student_policy"
 SOURCE_PATHS = sorted(set(ratified.V2_SOURCE_PATHS) | {PACKAGE, "research/t34_exit_b8_fit"})
 L4_RATE_UNITS_PER_HOUR = 2.0
+DEFAULT_SEED_AUDIT = Path(__file__).with_name("SEED_AUDIT_CLAIM_A.json")
+# Worst-case qualification workload on an L4 host (vCPU ~2-3x slower than a Mac
+# core; see README): bootstrap 8 + label <=45 (2400 s bound + 300 s fan-out
+# grace) + cache ~10 + probe 4 epochs x ~4 (K=11 workers) + fit/held-out ~2.
+QUALIFICATION_WORKLOAD_BOUND_MINUTES = 81
+SETUP_EXPORT_MARGIN_MINUTES = 25
 
 
 class ManifestRefused(ValueError):
@@ -68,6 +74,17 @@ def student_input(
     return {"path": str(source), "sha256": sha256, "dest": dest}
 
 
+def _seed_audit(path: Path, namespace: str, count: int) -> dict[str, str]:
+    from research.t34_claim_a.seed_audit import SeedAuditFailed, verify_receipt
+
+    try:
+        receipt = json.loads(Path(path).read_text())
+        verify_receipt(receipt, namespace, count)
+    except (OSError, ValueError, SeedAuditFailed) as exc:
+        raise ManifestRefused(f"seed audit does not cover {namespace} x{count}: {exc}") from exc
+    return {"path": str(Path(path).resolve()), "sha256": ratified.sha256_file(Path(path))}
+
+
 def make_label_manifest(
     *,
     commit: str,
@@ -79,8 +96,11 @@ def make_label_manifest(
     worlds: int,
     measured_export_bytes_per_world: int,
     triggers: dict[str, Any] | None = None,
+    seed_audit: Path = DEFAULT_SEED_AUDIT,
 ) -> dict[str, Any]:
     """A v2 CPU fan-out label job whose rollout policy is an explicit student."""
+    namespace = f"t34-claim-a/v2/{round_id}/s{shard}/a{attempt}"
+    audit = _seed_audit(seed_audit, namespace, worlds)
     base = ratified.make_manifest(
         kind="label",
         kernel="v2",
@@ -108,10 +128,11 @@ def make_label_manifest(
             "T34_POLICY_FACTORY": FACTORY,
             "T34_STUDENT_CHECKPOINT": row["dest"],
             "T34_STUDENT_SHA256": row["sha256"],
-            "T34_NAMESPACE": f"t34-claim-a/v2/{round_id}/s{shard}/a{attempt}",
+            "T34_NAMESPACE": namespace,
         }
     )
     manifest["source_paths"] = SOURCE_PATHS
+    manifest["seed_audit"] = audit
     manifest["student"] = {
         "sha256": row["sha256"],
         "size_bytes": student["size_bytes"],
@@ -128,8 +149,12 @@ def make_pipeline_manifest(
     label_worlds: int = 24,
     heldout_decisive: int = 2,
     epochs: int = 4,
-    est_minutes: int = 90,
+    est_minutes: int = 75,
+    timeout_minutes: int = 150,
     unit_cap: float | None = None,
+    label_seconds: int = 2400,
+    min_heldout_decisive_rows: int = 5,
+    seed_audit: Path = DEFAULT_SEED_AUDIT,
 ) -> dict[str, Any]:
     """The Claim A L4 qualification: CPU fan-out labels, CUDA cached fit, 32xH5000 probe."""
     if len(commit) != 40 or any(char not in "0123456789abcdef" for char in commit):
@@ -141,7 +166,17 @@ def make_pipeline_manifest(
         raise ManifestRefused("qualification label worlds must lie in [2, 64]")
     if not 4 <= epochs <= 6:
         raise ManifestRefused("fit epochs must lie in [4, 6]")
-    timeout = 2 * int(est_minutes)
+    if not 300 <= label_seconds <= 2400:
+        raise ManifestRefused("qualification label wall must lie in [300, 2400] s")
+    timeout = int(timeout_minutes)
+    if timeout < 2 * int(est_minutes):
+        raise ManifestRefused("timeout must be at least twice the estimate")
+    if timeout < QUALIFICATION_WORKLOAD_BOUND_MINUTES + SETUP_EXPORT_MARGIN_MINUTES:
+        raise ManifestRefused("timeout must cover the bounded workload plus 25 minutes")
+    audits = [
+        _seed_audit(seed_audit, "t34-claim-a/qualification/label", label_worlds),
+        _seed_audit(seed_audit, "t34-claim-a/qualification/probe", 32),
+    ]
     cap = float(unit_cap) if unit_cap is not None else timeout * L4_RATE_UNITS_PER_HOUR / 60
     if timeout * L4_RATE_UNITS_PER_HOUR / 60 > cap:
         raise ManifestRefused("whole-session timeout priced above the unit cap")
@@ -161,6 +196,8 @@ def make_pipeline_manifest(
             "T34_CA_LABEL_WORLDS": str(label_worlds),
             "T34_CA_HELDOUT_DECISIVE": str(heldout_decisive),
             "T34_CA_EPOCHS": str(epochs),
+            "T34_CA_LABEL_SECONDS": str(label_seconds),
+            "T34_CA_MIN_HELDOUT_DECISIVE_ROWS": str(min_heldout_decisive_rows),
             "T34_CA_DEVICE": "cuda",
             "OMP_NUM_THREADS": "1",
             "MKL_NUM_THREADS": "1",
@@ -186,8 +223,16 @@ def make_pipeline_manifest(
             "unit_cap": cap,
             "rate_units_per_hour": L4_RATE_UNITS_PER_HOUR,
             "reserve_units": round(cap * 0.2, 3),
-            "other_assignments": [],
+            # accounting._manifest_rates requires a mapping (or absence); a list is
+            # refused at admission.  Declare notebook runtimes here before dispatch.
+            "other_assignments": {},
         },
+        "split": {
+            "rule": f"{heldout_decisive} decisive-bearing worlds by lowest sha256 split token",
+            "min_heldout_decisive_rows": min_heldout_decisive_rows,
+        },
+        "workload_bound_minutes": QUALIFICATION_WORKLOAD_BOUND_MINUTES,
+        "seed_audit": audits[0],
         "lease_seconds": 600,
         "max_export_bytes": 256 * 1024**2,
         "source_paths": SOURCE_PATHS,
@@ -230,7 +275,9 @@ def main() -> None:
     parser.add_argument("--label-worlds", type=int, default=24)
     parser.add_argument("--heldout-decisive", type=int, default=2)
     parser.add_argument("--epochs", type=int, default=4)
-    parser.add_argument("--est-minutes", type=int, default=90)
+    parser.add_argument("--est-minutes", type=int, default=75)
+    parser.add_argument("--timeout-minutes", type=int, default=150)
+    parser.add_argument("--seed-audit", type=Path, default=DEFAULT_SEED_AUDIT)
     parser.add_argument("--unit-cap", type=float)
     args = parser.parse_args()
     commit = args.commit or ratified.git_head()
@@ -261,6 +308,7 @@ def main() -> None:
             worlds=args.worlds,
             measured_export_bytes_per_world=args.measured_export_bytes_per_world,
             triggers=args.triggers,
+            seed_audit=args.seed_audit,
         )
     else:
         manifest = make_pipeline_manifest(
@@ -270,7 +318,9 @@ def main() -> None:
             heldout_decisive=args.heldout_decisive,
             epochs=args.epochs,
             est_minutes=args.est_minutes,
+            timeout_minutes=args.timeout_minutes,
             unit_cap=args.unit_cap,
+            seed_audit=args.seed_audit,
         )
     if args.validate:
         validate_manifest(manifest)

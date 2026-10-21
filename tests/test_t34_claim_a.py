@@ -104,7 +104,10 @@ def test_student_fanout_with_b8_student_reproduces_b8_labels_and_replays(
 
     exports = tmp_path / "payload"
     replay_source.build_payload(
-        [(tmp_path / "student", 0, "r1-s0-a0")], exports, heldout_fraction=0.0
+        [(tmp_path / "student", 0, "r1-s0-a0")],
+        exports,
+        heldout_fraction=0.0,
+        min_heldout_decisive_rows=0,
     )
     previous = load_student_model(b8)
     source = replay_source.ExportReplaySource(
@@ -464,12 +467,18 @@ def test_source_factory_reads_the_claim_a_binding(payload) -> None:
         replay_source.source_factory(
             exports=payload.exports, binding={"claim_a": {}}, previous_model=_ConstantQ()
         )
+    with pytest.raises(ValueError, match="previous_sha256"):
+        replay_source.source_factory(
+            exports=payload.exports,
+            binding={"claim_a": {"carrier_checkpoint": str(payload.carrier)}},
+            previous_model=_ConstantQ(),
+        )
     other = payload.tmp / "other.pth"
     other.write_bytes(b"not the carrier")
     with pytest.raises(ValueError, match="carrier checkpoint differs"):
         replay_source.source_factory(
             exports=payload.exports,
-            binding={"claim_a": {"carrier_checkpoint": str(other)}},
+            binding={"claim_a": {"carrier_checkpoint": str(other), "previous_sha256": "f" * 64}},
             previous_model=_ConstantQ(),
         )
 
@@ -496,6 +505,28 @@ def test_dev_probe_records_complete_aligned_traces(frozen_dir) -> None:
     assert probe.calls[0]["decisions"] == sum(len(t["actions"]) for t in result.trajectories)
     with pytest.raises(ValueError, match="probe namespace"):
         probe_rows("t34-claim-a/test/label", 2)
+
+
+def test_parallel_probe_is_identical_to_serial(frozen_dir) -> None:
+    """K spawned workers (round-robin shards) reproduce the serial traces exactly."""
+    from research.t34_claim_a.student import load_student_model
+
+    b8 = _b8()
+    rows = probe_rows("t34-claim-a/test/probe-parallel", 3)
+    traces = []
+    for workers in (1, 2):
+        probe = DevProbe(
+            carrier_checkpoint=b8,
+            previous_model=load_student_model(b8),
+            rows=rows,
+            horizon=40,
+            workers=workers,
+        )
+        result = probe(load_student_model(b8), 1)
+        traces.append((result.survival, result.trajectories))
+        assert probe.calls[0]["workers"] == workers
+    assert traces[0] == traces[1]
+    assert [t["world_id"] for t in traces[1][1]] == [r["world_id"] for r in rows]
 
 
 def test_smoke_shape_and_tripwire_recording_restore_the_ratified_functions() -> None:
@@ -543,13 +574,13 @@ def test_label_manifest_binds_a_nondefault_student(tmp_path: Path, qualified) ->
         output_dir=tmp_path / "out",
         student={"path": student, "sha256": sha, "size_bytes": 15, "name": "student_r1.pth"},
         round_id="r2",
-        shard=3,
-        attempt=1,
+        shard=0,
+        attempt=0,
         worlds=24,
         measured_export_bytes_per_world=9_000_000,
     )
     assert manifest["script"] == "research/t34_claim_a/label.sh"
-    assert manifest["job_id"] == f"t34-claim-a-r2-s3-a1-{sha[:8]}"
+    assert manifest["job_id"] == f"t34-claim-a-r2-s0-a0-{sha[:8]}"
     assert manifest["env"]["T34_STUDENT_SHA256"] == sha
     assert manifest["env"]["T34_STUDENT_CHECKPOINT"] == "student/student_r1.pth"
     assert manifest["env"]["T34_POLICY_FACTORY"] == FACTORY
@@ -564,8 +595,8 @@ def test_label_manifest_binds_a_nondefault_student(tmp_path: Path, qualified) ->
             output_dir=tmp_path / "out",
             student={"path": student, "sha256": "0" * 64, "size_bytes": 15, "name": "s.pth"},
             round_id="r2",
-            shard=3,
-            attempt=1,
+            shard=0,
+            attempt=0,
             worlds=24,
             measured_export_bytes_per_world=9_000_000,
         )
@@ -595,15 +626,102 @@ def test_pipeline_manifest_is_l4_public_only_and_priced(tmp_path: Path, qualifie
     manifest = claim_manifest.make_pipeline_manifest(commit="c" * 40, output_dir=tmp_path / "o")
     assert manifest["script"] == "research/t34_claim_a/pipeline.sh"
     assert manifest["requirements"]["allowed_gpus"] == ["L4"]
-    assert manifest["timeout_minutes"] == 2 * manifest["requirements"]["est_minutes"]
+    assert manifest["timeout_minutes"] >= 2 * manifest["requirements"]["est_minutes"]
+    assert manifest["timeout_minutes"] >= manifest["workload_bound_minutes"] + 25
     budget = manifest["budget"]
     assert manifest["timeout_minutes"] * budget["rate_units_per_hour"] / 60 <= budget["unit_cap"]
     assert [item["dest"] for item in manifest["inputs"]] == ["public-inputs.json"]
     assert manifest["env"]["T34_CA_DEVICE"] == "cuda"
+    assert manifest["env"]["T34_CA_LABEL_SECONDS"] == "2400"
+    assert manifest["seed_audit"]["sha256"] == replay_source.sha256_file(
+        claim_manifest.DEFAULT_SEED_AUDIT
+    )
     with pytest.raises(claim_manifest.ManifestRefused, match="unit cap"):
         claim_manifest.make_pipeline_manifest(
             commit="c" * 40, output_dir=tmp_path / "o", unit_cap=1.0
         )
+    with pytest.raises(claim_manifest.ManifestRefused, match="workload plus 25"):
+        claim_manifest.make_pipeline_manifest(
+            commit="c" * 40, output_dir=tmp_path / "o", est_minutes=50, timeout_minutes=100
+        )
+    with pytest.raises(claim_manifest.ManifestRefused, match="seed audit"):
+        claim_manifest.make_pipeline_manifest(
+            commit="c" * 40, output_dir=tmp_path / "o", label_worlds=64
+        )
+
+
+def _student_row(tmp_path: Path) -> dict:
+    student = tmp_path / "s.pth"
+    student.write_bytes(b"student")
+    return {
+        "path": student,
+        "sha256": replay_source.sha256_file(student),
+        "size_bytes": 7,
+        "name": "s.pth",
+    }
+
+
+@pytest.mark.parametrize("kind", ["pipeline", "label"])
+def test_generated_manifests_pass_the_real_accounting_admission(
+    tmp_path: Path, qualified, kind: str
+) -> None:
+    from research.colab_cli import accounting
+
+    if kind == "pipeline":
+        manifest = claim_manifest.make_pipeline_manifest(commit="c" * 40, output_dir=tmp_path / "o")
+    else:
+        manifest = claim_manifest.make_label_manifest(
+            commit="a" * 40,
+            output_dir=tmp_path / "out",
+            student=_student_row(tmp_path),
+            round_id="r1",
+            shard=0,
+            attempt=0,
+            worlds=24,
+            measured_export_bytes_per_world=9_000_000,
+        )
+    budget = manifest["budget"]
+    assert accounting._manifest_rates(budget.get("other_assignments")) == {}
+    tracker = accounting.admit_account(
+        {}, {"balance": 500.0, "rate": 0.0, "assignments": 0}, budget, now=0.0
+    )
+    assert tracker.unit_cap == pytest.approx(budget["unit_cap"])
+    with pytest.raises(accounting.AccountingError):
+        accounting._manifest_rates([])  # the previous shape is refused, as the panel found
+
+
+def test_label_manifest_requires_a_covering_seed_audit(tmp_path: Path, qualified) -> None:
+    with pytest.raises(claim_manifest.ManifestRefused, match="seed audit"):
+        claim_manifest.make_label_manifest(
+            commit="a" * 40,
+            output_dir=tmp_path / "out",
+            student=_student_row(tmp_path),
+            round_id="r1",
+            shard=7,
+            attempt=0,
+            worlds=24,
+            measured_export_bytes_per_world=9_000_000,
+        )
+
+
+def test_seed_audit_receipt_recomputes_and_explicit_banks_parse() -> None:
+    from research.t34_claim_a import seed_audit
+
+    receipt = json.loads(claim_manifest.DEFAULT_SEED_AUDIT.read_text())
+    assert receipt["status"] == "PASS" and receipt["history_scan"]["candidate_count"] > 0
+    assert set(receipt["registered_banks"]) == {"round0", "round0d", "retention_v2"}
+    seed_audit.verify_receipt(receipt, "t34-claim-a/qualification/label", 24)
+    with pytest.raises(seed_audit.SeedAuditFailed):
+        seed_audit.verify_receipt(receipt, "t34-claim-a/qualification/label", 25)
+    tampered = json.loads(json.dumps(receipt))
+    tampered["namespaces"]["t34-claim-a/qualification/probe"]["sha256"] = "0" * 64
+    with pytest.raises(seed_audit.SeedAuditFailed, match="recompute"):
+        seed_audit.verify_receipt(tampered, "t34-claim-a/qualification/probe", 32)
+    quick = seed_audit.audit({"t34-claim-a/test/audit": 8}, repo=Path("."), scan=False)
+    banks = quick["registered_banks"].values()
+    assert all(bank["collisions"] == 0 and bank["bank_seeds"] > 100 for bank in banks)
+    with pytest.raises(seed_audit.SeedAuditFailed, match="not a Claim A"):
+        seed_audit.audit({"t34-round0/v1/x": 2}, repo=Path("."), scan=False)
 
 
 @pytest.mark.parametrize("script", ["label.sh", "pipeline.sh"])
@@ -622,3 +740,98 @@ def test_full_fp32_restores_tf32_switches() -> None:
         assert torch.backends.cudnn.allow_tf32 is False
     assert torch.backends.cuda.matmul.allow_tf32 == matmul
     assert torch.backends.cudnn.allow_tf32 == cudnn
+
+
+def test_heldout_split_below_the_decisive_minimum_is_a_precondition_failure(
+    tmp_path: Path,
+) -> None:
+    raw = tmp_path / "raw"
+    for index in range(3):
+        _write_export(raw, index, rollout="r" * 64, carrier="c" * 64, decisive=index > 0)
+    with pytest.raises(replay_source.PreconditionFailed, match="decisive rows"):
+        replay_source.build_payload(
+            [(raw, 0, "c")], tmp_path / "p1", heldout_decisive=1, min_heldout_decisive_rows=2
+        )
+    replay_source.build_payload(
+        [(raw, 0, "c")], tmp_path / "p2", heldout_decisive=1, min_heldout_decisive_rows=1
+    )
+    value = replay_source.load_payload(tmp_path / "p2")
+    assert value["heldout_decisive_rows"] == 1 and value["min_heldout_decisive_rows"] == 1
+
+
+def _pipeline_args(root: Path, carrier: Path, raw: Path, *extra: str) -> list[str]:
+    return [
+        "--out",
+        str(root / "run"),
+        "--receipt-dir",
+        str(root / "receipts"),
+        "--carrier",
+        str(carrier),
+        "--extra-export",
+        f"{raw}:0:c",
+        *extra,
+    ]
+
+
+def test_pipeline_receipt_on_precondition_failure_and_on_exception(tmp_path: Path) -> None:
+    carrier = tmp_path / "carrier.pth"
+    carrier.write_bytes(b"carrier")
+    raw = tmp_path / "raw"
+    carrier_sha = replay_source.sha256_file(carrier)
+    for index in range(3):
+        _write_export(raw, index, rollout="r" * 64, carrier=carrier_sha, decisive=index > 0)
+    code = pipeline.main(
+        _pipeline_args(
+            tmp_path, carrier, raw, "--heldout-decisive", "1", "--min-heldout-decisive-rows", "5"
+        )
+    )
+    path = tmp_path / "receipts" / "pipeline.json"
+    receipt = json.loads(path.read_text())
+    assert code == 2 and receipt["status"] == "PRECONDITION_FAILED" and receipt["final"]
+    assert "payload_seconds" in receipt["timings"] and "decisive rows" in receipt["precondition"]
+    sidecar = path.with_name("pipeline.json.sha256").read_text().split()[0]
+    assert sidecar == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert receipt["cuda_numerics"]["device"] == "cpu"
+
+    second = tmp_path / "second"
+    second.mkdir()
+    code = pipeline.main(_pipeline_args(second, tmp_path / "missing.pth", raw))
+    receipt = json.loads((second / "receipts" / "pipeline.json").read_text())
+    assert code == 2 and receipt["status"] == "FAILED" and "missing.pth" in receipt["error"]
+
+
+def test_receipt_is_rewritten_atomically_and_stop_signals_persist_it(tmp_path: Path) -> None:
+    import os
+    import signal
+
+    receipt = pipeline.Receipt(tmp_path, {"timings": {}, "status": "RUNNING"})
+    receipt.write(phase="label")
+    first = json.loads((tmp_path / "pipeline.json").read_text())
+    assert first["phase"] == "label" and first["final"] is False
+    with pipeline.stop_signals(receipt):
+        os.kill(os.getpid(), signal.SIGUSR1)
+        assert json.loads((tmp_path / "pipeline.json").read_text())["signals"] == ["SIGUSR1"]
+        with pytest.raises(SystemExit):
+            os.kill(os.getpid(), signal.SIGTERM)
+    final = json.loads((tmp_path / "pipeline.json").read_text())
+    assert final["status"] == "TERMINATED" and final["final"] is True
+    assert not list(tmp_path.glob(".pipeline.json.tmp-*"))
+
+
+def test_timing_only_withholds_weights(tmp_path: Path) -> None:
+    out = tmp_path / "fit-output"
+    out.mkdir()
+    for name in ("selected_fit.pth", "selected_training_state.pth"):
+        (out / name).write_bytes(name.encode())
+        (out / f"{name}.sha256").write_text("x")
+        (out / f"{name}.complete").write_text("complete")
+    marker = pipeline.withhold_weights(out)
+    assert not list(out.glob("*.pth*"))
+    assert set(marker["withheld_sha256"]) == {"selected_fit.pth", "selected_training_state.pth"}
+    stored = json.loads((out / "TIMING_ONLY_NOT_A_CANDIDATE").read_text())
+    assert stored["status"] == "TIMING_ONLY_NOT_A_CANDIDATE"
+
+
+def test_cuda_numerics_stamp_reports_flags() -> None:
+    stamp = pipeline.cuda_numerics("cpu")
+    assert stamp["device"] == "cpu" and "cudnn_allow_tf32" in stamp

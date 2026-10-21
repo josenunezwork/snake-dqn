@@ -60,6 +60,10 @@ def sha256_file(path: Path) -> str:
 # ---------------------------------------------------------------------------
 # payload construction (Mac or runtime, pure file work)
 # ---------------------------------------------------------------------------
+class PreconditionFailed(ValueError):
+    """The payload cannot support the registered fit (not a ratified tripwire)."""
+
+
 def _split_token(world_id: str) -> int:
     token = hashlib.sha256(f"t34-claim-a-split/v1:{world_id}".encode()).digest()
     return int.from_bytes(token[:8], "big")
@@ -101,6 +105,7 @@ def build_payload(
     heldout_fraction: float = 0.1,
     heldout_ids: Iterable[str] = (),
     heldout_decisive: int = 0,
+    min_heldout_decisive_rows: int = 1,
 ) -> Path:
     """Write ``out_dir/payload.json`` indexing complete world exports.
 
@@ -113,6 +118,11 @@ def build_payload(
     ``horizon_rescue`` label, so held-out decisive agreement is never vacuous
     (a qualification convenience; production splits are preregistered); else a
     deterministic sha256 world-id split at ``heldout_fraction``.
+
+    A split whose held-out worlds carry fewer than ``min_heldout_decisive_rows``
+    decisive labels raises :class:`PreconditionFailed` before any cache or fit
+    work (``0`` disables the check).  Without it the ratified held-out scorer
+    raises "stream is empty", which the ratified runner reports as a tripwire.
     """
     from research.t34_exit_b8.exports import load_world
 
@@ -140,7 +150,8 @@ def build_payload(
             seen.add(world_id)
             if exported.get("teacher_v2", {}).get("kernel") != TEACHER_KERNEL:
                 raise ValueError(f"{path}: Claim A fits require v2 shadow-LAD exports")
-            if any(label.get("decisive") for label in exported["labels"]):
+            decisive_rows = sum(bool(label.get("decisive")) for label in exported["labels"])
+            if decisive_rows:
                 decisive_ids.add(world_id)
             carriers.add(str(exported["checkpoint_sha256"]))
             rollouts.add(str(exported["rollout_policy_sha256"]))
@@ -155,6 +166,7 @@ def build_payload(
                     "round_age": round_age,
                     "chunk_id": str(chunk_id),
                     "rollout_policy_sha256": str(exported["rollout_policy_sha256"]),
+                    "decisive_rows": decisive_rows,
                 }
             )
     if len(carriers) != 1:
@@ -173,12 +185,20 @@ def build_payload(
         rule = f"{heldout_decisive} decisive-bearing worlds by sha256 split token"
         for world in worlds:
             world["split"] = "heldout" if world["world_id"] in heldout else "train"
+    held_rows = sum(w["decisive_rows"] for w in worlds if w["split"] == "heldout")
+    if held_rows < int(min_heldout_decisive_rows):
+        raise PreconditionFailed(
+            f"held-out split carries {held_rows} decisive rows; the registered minimum is "
+            f"{min_heldout_decisive_rows} (split rule: {rule})"
+        )
     payload = {
         "schema": PAYLOAD_SCHEMA,
         "carrier_checkpoint_sha256": carriers.pop(),
         "rollout_policy_sha256s": sorted(rollouts),
         "worlds": worlds,
         "split_rule": rule,
+        "heldout_decisive_rows": held_rows,
+        "min_heldout_decisive_rows": int(min_heldout_decisive_rows),
     }
     encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode()
     with target.open("xb") as stream:
@@ -311,10 +331,13 @@ class ExportReplaySource:
     def training_row_counts(self, epoch: int) -> tuple[int, int]:
         """Searched/unsearched counts of the verified retained training stream.
 
-        After one complete training replay the counts describe exactly the
-        verified worlds.  Before it (the uncached reference loader asks first)
-        they are derived from the exports; a later hash rejection then raises
-        the loader's count-drift error, which invalidates the fit as specified.
+        Production (cached) path: the ratified ``build_cache`` asks only *after*
+        its complete training replay, so these are exactly the verified worlds'
+        counts and its drift check is satisfied by construction; the protection
+        against silently dropped worlds there is the ratified >2%-per-chunk
+        drop rule, not this inventory.  Uncached reference path: the loader asks
+        first, so counts come from the exports and a later hash rejection raises
+        the loader's count-drift error (the whole fit is invalid).
         """
         del epoch
         if self._verified_counts is not None:
@@ -401,6 +424,18 @@ class ExportReplaySource:
         for entry in self._entries(split):
             started = perf_counter()
             self.timings.worlds[split] = self.timings.worlds.get(split, 0) + 1
+            print(
+                json.dumps(
+                    {
+                        "phase": "replay",
+                        "split": split,
+                        "world": self.timings.worlds[split],
+                        "of": len(self._entries(split)),
+                        "replay_seconds": round(self.timings.replay_seconds, 1),
+                    }
+                ),
+                flush=True,
+            )
             captured: list[Any] = []
 
             def build(row: Mapping[str, Any], checkpoint: Any) -> Any:
@@ -499,11 +534,15 @@ def source_factory(
 ) -> ExportReplaySource:
     """``module:function`` named by ``binding['source_factory']``."""
     settings = claim_a_settings(binding, Path(exports))
+    previous_sha = settings.get("previous_sha256")
+    if not isinstance(previous_sha, str) or len(previous_sha) != 64:
+        # Without it the recorded-label Q identity check would be silently skipped.
+        raise ValueError("binding.claim_a.previous_sha256 (64 hex) is required")
     source = ExportReplaySource(
         Path(exports),
         carrier_checkpoint=settings["carrier_checkpoint"],
         previous_model=previous_model,
-        previous_sha256=settings.get("previous_sha256"),
+        previous_sha256=previous_sha,
         include_full_sight=binding.get("arm") == "S1a",
         q_atol=float(settings.get("q_atol", 1e-3)),
         q_rtol=float(settings.get("q_rtol", 1e-4)),

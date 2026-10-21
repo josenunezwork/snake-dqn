@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Claim A pipeline qualification entrypoint (L4): CPU fan-out student labels ->
-# payload -> observation cache -> CUDA fit -> production 32 x H5000 probe.
+# payload -> observation cache -> CUDA fit -> production 32 x H5000 probe
+# (K = nproc - 1 probe worker processes).
 # Timing-only: the ratified tripwires are evaluated and recorded, not enforced,
-# and the selected checkpoint is never a candidate.  Only small receipts and the
-# selected weights are copied to the exported output directory.  Extra arguments
-# (local Mac exercise only; the supervisor passes none) are forwarded to the
-# pipeline, and the Python driver refuses a non-production probe on a runtime.
+# and NO weights are exported.  pipeline.json (+ sidecars) and label.json are
+# written straight into the exported output directory and rewritten after every
+# phase/epoch and on SIGUSR1/SIGTERM, so a wall-cap stop still returns timings.
+# The work tree (label worlds, payload, cache, withheld fit output) stays on the
+# runtime.  Extra arguments (local Mac exercise only; the supervisor passes none)
+# are forwarded; the Python driver refuses a non-production probe on a runtime.
 set -euo pipefail
 
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
@@ -17,6 +20,7 @@ if [[ -n "${COLAB_CLI_ROOT:-}" ]]; then
   work="${COLAB_CLI_ROOT}/claim-a-work"
   output_root="${COLAB_CLI_ROOT}/output"
   nproc="${T34_CA_NPROC:-$(getconf _NPROCESSORS_ONLN)}"
+  probe_workers="${T34_CA_PROBE_WORKERS:-$(( nproc > 1 ? nproc - 1 : 1 ))}"
   device="${T34_CA_DEVICE:-cuda}"
   [[ "${device}" == cuda ]] || { echo "L4 qualification requires CUDA" >&2; exit 2; }
 else
@@ -24,36 +28,23 @@ else
   work="${T34_WORK_DIR:?T34_WORK_DIR is required}"
   output_root="${T34_OUTPUT_DIR:?T34_OUTPUT_DIR is required}"
   nproc="${T34_CA_NPROC:-2}"
+  probe_workers="${T34_CA_PROBE_WORKERS:-2}"
   device="cpu"
 fi
 export SNAKE_CKPT_DIR="${input_root}/checkpoints"
 mkdir -p "${output_root}"
 
-python -m research.t34_claim_a.pipeline \
-  --out "${work}/pipeline" --cache-dir "${work}/observation-cache" \
+exec python -m research.t34_claim_a.pipeline \
+  --out "${work}/pipeline" --receipt-dir "${output_root}" --cache-dir "${work}/observation-cache" \
   --carrier "${input_root}/B8_s3_final.pth" --device "${device}" --arm "${T34_CA_ARM:-S1b}" \
   --epochs "${T34_CA_EPOCHS:-4}" \
   --label-worlds "${T34_CA_LABEL_WORLDS:-24}" --label-frames "${T34_CA_LABEL_FRAMES:-5000}" \
-  --label-seconds 10200 \
+  --label-seconds "${T34_CA_LABEL_SECONDS:-2400}" \
   --label-nproc "${nproc}" --label-namespace "${T34_CA_LABEL_NAMESPACE:-t34-claim-a/qualification/label}" \
   --round "${T34_CA_ROUND:-r1}" \
   --heldout-decisive "${T34_CA_HELDOUT_DECISIVE:-2}" \
+  --min-heldout-decisive-rows "${T34_CA_MIN_HELDOUT_DECISIVE_ROWS:-5}" \
   --probe-namespace "${T34_CA_PROBE_NAMESPACE:-t34-claim-a/qualification/probe}" \
   --probe-worlds "${T34_CA_PROBE_WORLDS:-32}" --probe-horizon "${T34_CA_PROBE_HORIZON:-5000}" \
+  --probe-workers "${probe_workers}" \
   --timing-only-no-tripwires "$@"
-
-status=0
-for file in pipeline.json pipeline.json.sha256 pipeline.json.complete \
-  label/label.json label/label.json.sha256 label/label.json.complete; do
-  if [[ -f "${work}/pipeline/${file}" ]]; then
-    mkdir -p "$(dirname "${output_root}/${file}")"
-    cp "${work}/pipeline/${file}" "${output_root}/${file}"
-  else
-    status=1
-  fi
-done
-if [[ -d "${work}/pipeline/fit-output" ]]; then
-  mkdir -p "${output_root}/fit-output"
-  cp "${work}/pipeline/fit-output/"* "${output_root}/fit-output/"
-fi
-exit "${status}"
