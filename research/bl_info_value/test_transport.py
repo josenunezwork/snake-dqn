@@ -1,5 +1,6 @@
 """Targeted tests for E3 source allocation and immutable supervisor exports."""
 
+import argparse
 import hashlib
 import json
 import os
@@ -12,7 +13,8 @@ import pytest
 from research.bl_info_value.catalog import check_path, choose_roots
 from research.bl_info_value.io import export_bytes, verify_export, write_json, write_npz
 from research.bl_info_value.manifests import forecast
-from research.bl_info_value.run import merge
+from research.bl_info_value.resources import available_cpus, worker_count
+from research.bl_info_value.run import execute, merge
 from research.bl_info_value.upload_readiness import require_upload_readiness
 from research.colab_cli.runtime import _exports
 
@@ -105,6 +107,101 @@ def test_real_shell_uses_fresh_child_of_supervisor_output(tmp_path):
     assert arguments[arguments.index("--out") + 1] == str(tmp_path / "output" / "e3")
     assert not (tmp_path / "output" / "e3").exists()
     assert arguments[arguments.index("--device") + 1] == "cuda"
+    assert arguments[arguments.index("--expected-workers") + 1] == "6"
+
+
+@pytest.mark.parametrize("cpus,requested,expected", [(6, 6, 4), (8, 6, 6), (12, 12, 10), (4, 1, 1)])
+def test_worker_headroom(cpus, requested, expected):
+    assert worker_count(requested, cpus) == expected
+
+
+@pytest.mark.parametrize("cpus,requested", [(2, 1), (1, 1), (8, 0), (8, 13)])
+def test_worker_headroom_refuses_invalid_capacity(cpus, requested):
+    with pytest.raises(ValueError, match="usable CPUs"):
+        worker_count(requested, cpus)
+
+
+def test_cpu_capacity_respects_affinity(monkeypatch):
+    monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {2, 3, 4, 5}, raising=False)
+    monkeypatch.setattr(os, "cpu_count", lambda: 128)
+    assert available_cpus() == 4
+
+
+def test_priced_worker_count_refuses_affinity_shortfall(monkeypatch, tmp_path):
+    """Host os.cpu_count may pass hardware admission while affinity is narrower."""
+    monkeypatch.setattr("research.bl_info_value.run.available_cpus", lambda: 6)
+    args = argparse.Namespace(
+        work=tmp_path / "work", out=tmp_path / "output", workers=6, expected_workers=6
+    )
+    with pytest.raises(ValueError, match="priced worker count"):
+        execute(args)
+    assert not args.out.exists()
+    assert not args.work.exists()
+
+
+def test_fast_worlds_batch_progress_and_keep_scratch_out_of_exports(monkeypatch, tmp_path, capsys):
+    """A completed backlog produces bounded control traffic and intact final arrays."""
+    tasks = [dict(checkpoint="ckpt", source_npz="rows", plan=dict(specs=[])) for _ in range(8)]
+    monkeypatch.setattr("research.bl_info_value.run.threads", lambda: None)
+    monkeypatch.setattr("research.bl_info_value.run.lower_priority", lambda: 10)
+    monkeypatch.setattr("research.bl_info_value.run.available_cpus", lambda: 8)
+    monkeypatch.setattr("research.bl_info_value.run.time.perf_counter", lambda: 1.0)
+    monkeypatch.setattr(
+        "research.bl_info_value.run.unpack",
+        lambda *args: dict(schema="bl-e3-input/v1", smoke=True, tasks=tasks),
+    )
+    for task in tasks:
+        task["indices"] = [0]
+    monkeypatch.setattr(
+        "research.bl_info_value.run._reconstruct",
+        lambda task: ({"action": np.array([2])}, {"elapsed_seconds": 1.0}),
+    )
+    monkeypatch.setattr("research.bl_info_value.fit.fit_students", lambda *args, **kwargs: {})
+    output = tmp_path / "output"
+    args = argparse.Namespace(
+        work=tmp_path / "work",
+        out=output / "e3",
+        workers=1,
+        expected_workers=None,
+        archive=tmp_path / "unused",
+        archive_sha256="a" * 64,
+        smoke=True,
+        epochs=2,
+        device="cpu",
+        check_parallel=False,
+    )
+    execute(args)
+    progress = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [row["done"] for row in progress] == [1, 8]
+    assert progress[-1]["eta_seconds"] == 0
+    records = _exports(tmp_path, 1024**2)
+    assert not any("worlds/" in row["path"] for row in records)
+    assert len(list((args.work / "worlds").glob("*.npz"))) == 8
+    with np.load(args.out / "dataset.npz") as dataset:
+        assert dataset["action"].tolist() == [2] * 8
+    assert len(json.loads((args.out / "timing.json").read_text())["world_metrics"]) == 8
+
+
+def test_priority_inheritance_in_spawned_process():
+    """Direct Python invocation also lowers both parent and spawn children."""
+    result = subprocess.run(
+        [
+            __import__("sys").executable,
+            "-c",
+            "from concurrent.futures import ProcessPoolExecutor; "
+            "import multiprocessing, os; "
+            "from research.bl_info_value.resources import lower_priority; "
+            "lower_priority(); "
+            "pool=ProcessPoolExecutor(1, mp_context=multiprocessing.get_context('spawn')); "
+            "print(os.nice(0), pool.submit(os.nice, 0).result()); pool.shutdown()",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    parent, child = map(int, result.stdout.split())
+    assert parent >= 10 and child >= 10
 
 
 def test_forecast_prices_real_batch_cost_and_reserve():

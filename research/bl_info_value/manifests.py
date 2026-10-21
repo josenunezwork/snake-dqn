@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from research.bl_info_value.io import sha256, verify_export, write_json
+from research.bl_info_value.resources import RESERVED_CPUS, worker_count
 from research.colab_cli.supervisor import validate
 
 MAX_LOCAL_INPUT_BYTES = 1024**2
@@ -96,7 +97,12 @@ def build(
         raise ValueError("recovery requires a fresh attempt identifier >= 02")
     if not timing["smoke"] or timing["parity_seconds"] <= 0:
         raise ValueError("real Mac preflight with serial/parallel proof required")
-    plan = forecast(timing)
+    # Guarantee the forecast's six workers *after* reserving two CPUs.
+    # A smaller host is refused by hardware admission, never underpriced.
+    min_vcpu = 8
+    workers = worker_count(6, min_vcpu)
+    plan = forecast(timing, workers=workers)
+    plan.update(min_vcpu=min_vcpu, reserved_cpus=RESERVED_CPUS, minimum_nice=10)
     plan.update(prior_attempt_units=prior_units, usable_hours=(12.8 - prior_units) / 2)
     plan["dispatch_within_forecast"] = plan["total_hours"] <= plan["usable_hours"]
     estimate = 60 * plan["total_hours"]
@@ -140,9 +146,9 @@ def build(
         env={
             "COLAB_CLI_REQUIREMENTS": "research/bl_info_value/requirements.txt",
             "E3_INPUT_SHA256": sha256(inputs),
-            "E3_WORKERS": "6",
+            "E3_WORKERS": str(workers),
         },
-        requirements=dict(gpu="L4", allowed_gpus=["L4"], min_vcpu=6, est_minutes=estimate),
+        requirements=dict(gpu="L4", allowed_gpus=["L4"], min_vcpu=min_vcpu, est_minutes=estimate),
         timeout_minutes=timeout,
         lease_seconds=300,
         output_dir=str(destination.parent / f"colab-output-{attempt}"),

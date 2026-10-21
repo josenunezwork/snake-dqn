@@ -215,7 +215,7 @@ def reconstruct_world(task: dict[str, Any]) -> tuple[dict[str, np.ndarray], dict
         # bank is terminal-hero, so death ends every outstanding comparison.
         while bool(world.sim.alive[0, 0]) and (decision <= max_decision or active_controls):
             now = time.perf_counter()
-            if now - last_progress >= 60.0:
+            if now - last_progress >= 300.0:
                 print(
                     f"E3 reconstruct key={task.get('key', '')} decision={decision} "
                     f"roots={len(records)}/{len(indices)} elapsed_s={now - started:.1f}",

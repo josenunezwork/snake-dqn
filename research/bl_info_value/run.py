@@ -16,6 +16,12 @@ import numpy as np
 
 from research.bl_info_value.catalog import PROTOCOL, check_path, prepare, unpack
 from research.bl_info_value.io import sha256, write_json, write_npz
+from research.bl_info_value.resources import (
+    PROGRESS_SECONDS,
+    available_cpus,
+    lower_priority,
+    worker_count,
+)
 
 
 def threads() -> None:
@@ -30,10 +36,12 @@ def threads() -> None:
 
 
 def _reconstruct(task: dict[str, Any]) -> tuple[dict, dict]:
+    lower_priority()
     threads()
     from research.bl_info_value.reconstruct import reconstruct_world
 
-    return reconstruct_world(task)
+    arrays, metrics = reconstruct_world(task)
+    return arrays, {**metrics, "worker_nice": os.nice(0)}
 
 
 def merge(results: list[tuple[dict, dict]]) -> dict[str, np.ndarray]:
@@ -52,6 +60,12 @@ def execute(args: argparse.Namespace) -> dict:
     work, out = check_path(args.work), check_path(args.out)
     if work.exists() or out.exists():
         raise FileExistsError("work and output directories must both be fresh")
+    requested_workers = args.workers
+    cpus = available_cpus()
+    args.workers = worker_count(requested_workers, cpus)
+    if args.expected_workers is not None and args.workers != args.expected_workers:
+        raise ValueError("usable CPU headroom cannot supply the manifest's priced worker count")
+    nice = lower_priority()
     threads()
     catalog = unpack(args.archive, work / "inputs", args.archive_sha256)
     if catalog["smoke"] != args.smoke or not 1 <= args.workers <= 12:
@@ -88,6 +102,9 @@ def execute(args: argparse.Namespace) -> dict:
             input_schema=catalog["schema"],
             smoke=args.smoke,
             workers=args.workers,
+            requested_workers=requested_workers,
+            available_cpus=cpus,
+            nice=nice,
             worlds=len(tasks),
             roots=sum(len(t["indices"]) for t in tasks),
             authority="development only; excluded from every registered verdict",
@@ -95,6 +112,7 @@ def execute(args: argparse.Namespace) -> dict:
     )
     try:
         reconstruction_start = time.perf_counter()
+        last_progress = reconstruction_start
         results = []
         if args.workers == 1:
             iterator = map(_reconstruct, tasks)
@@ -108,19 +126,27 @@ def execute(args: argparse.Namespace) -> dict:
             for index, result in enumerate(iterator):
                 arrays, metrics = result
                 results.append(result)
-                write_npz(out / "worlds" / f"{index:03d}.npz", arrays)
-                write_json(out / "worlds" / f"{index:03d}.json", metrics)
-                print(
-                    json.dumps(
-                        dict(
-                            phase="reconstruction",
-                            done=index + 1,
-                            total=len(tasks),
-                            elapsed_seconds=time.perf_counter() - reconstruction_start,
-                        )
-                    ),
-                    flush=True,
-                )
+                # Keep incremental scratch out of the supervisor inventory:
+                # hundreds of exports cause repeated transfer/renewal RPCs.
+                # dataset.npz and timing.json retain all arrays and metrics.
+                write_npz(work / "worlds" / f"{index:03d}.npz", arrays)
+                write_json(work / "worlds" / f"{index:03d}.json", metrics)
+                now = time.perf_counter()
+                if index == 0 or index + 1 == len(tasks) or now - last_progress >= PROGRESS_SECONDS:
+                    elapsed = now - reconstruction_start
+                    print(
+                        json.dumps(
+                            dict(
+                                phase="reconstruction",
+                                done=index + 1,
+                                total=len(tasks),
+                                elapsed_seconds=elapsed,
+                                eta_seconds=elapsed / (index + 1) * (len(tasks) - index - 1),
+                            )
+                        ),
+                        flush=True,
+                    )
+                    last_progress = now
         finally:
             if pool:
                 pool.shutdown(wait=True, cancel_futures=True)
@@ -132,6 +158,8 @@ def execute(args: argparse.Namespace) -> dict:
                 raise ValueError("serial/parallel qualification is smoke-only")
             parity_start = time.perf_counter()
             other_workers = 2 if args.workers == 1 else 1
+            if worker_count(other_workers, cpus) != other_workers:
+                raise ValueError("parallel qualification requires four usable CPUs")
             if other_workers == 1:
                 repeated = list(map(_reconstruct, tasks))
             else:
@@ -160,6 +188,9 @@ def execute(args: argparse.Namespace) -> dict:
             schema="bl-e3-timing/v1",
             smoke=args.smoke,
             workers=args.workers,
+            requested_workers=requested_workers,
+            available_cpus=cpus,
+            nice=nice,
             worlds=len(tasks),
             roots=len(arrays["action"]),
             reconstruction_seconds=reconstruction_seconds,
@@ -212,6 +243,7 @@ def main() -> None:
     run.add_argument("--work", type=Path, required=True)
     run.add_argument("--out", type=Path, required=True)
     run.add_argument("--workers", type=int, default=1)
+    run.add_argument("--expected-workers", type=int, help="refuse fewer than the priced workers")
     run.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     run.add_argument("--epochs", type=int, default=60)
     run.add_argument("--smoke", action="store_true")

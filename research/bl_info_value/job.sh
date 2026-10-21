@@ -4,16 +4,16 @@ export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu
 export PYTHONUNBUFFERED=1
 if [[ -n "${COLAB_CLI_ROOT:-}" ]]; then
-  exec python -m research.bl_info_value.run run \
+  exec nice -n 10 python -m research.bl_info_value.run run \
     --archive "${COLAB_INPUT_DIR:?}/inputs.tar.gz" \
     --archive-sha256 "${E3_INPUT_SHA256:?}" \
     --checkpoint-archive "${COLAB_INPUT_DIR:?}/checkpoints.tar.gz" \
     --work "${COLAB_CLI_ROOT}/e3-work" \
     --out "${COLAB_CLI_ROOT}/output/e3" \
-    --workers "${E3_WORKERS:-6}" --device cuda --epochs 60
+    --workers "${E3_WORKERS:-6}" --expected-workers "${E3_WORKERS:-6}" --device cuda --epochs 60
 else
   [[ "${E3_SMOKE:-}" == 1 ]] || { echo 'Mac entrypoint is smoke-only' >&2; exit 2; }
-  exec python -m research.bl_info_value.run run \
+  exec nice -n 10 python -m research.bl_info_value.run run \
     --archive "${E3_ARCHIVE:?}" --archive-sha256 "${E3_INPUT_SHA256:?}" \
     --checkpoint-archive "${E3_CHECKPOINT_ARCHIVE:?}" \
     --work "${E3_WORK:?}" --out "${E3_OUT:?}" \
