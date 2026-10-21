@@ -52,18 +52,31 @@ uploads. The supervisor's `validate` subcommand is local only. No dispatch,
 allocation, status, usage or other Colab calls are part of this task. The operator
 must preserve higher-priority lanes and obtain a free account slot before dispatch.
 `RESULT.md` is the operator result template; no GPU cost verdict is claimed here.
-E1 artifacts/manifests live under `snake-dqn-artifacts/big-lever/exp/bl-e1/`.
+Round 02 E1b artifacts/manifests live under `snake-dqn-artifacts/big-lever/exp/bl-e1b/`.
 The earlier `PREFLIGHT.md` remains historical evidence for the pre-E1 implementation.
 
-Ego region sizes use uncapped min-label component propagation with pointer
-jumping, computed once per world. V8 uses newly discovered cardinal wavefronts,
-capped at the CPU's 160/4096 limits and stopped when all lanes are saturated or
-exhausted. Release-rejected cells are not retried after the frontier empties.
-The unchanged production CPU implementations remain the oracle.
+The [Round 02 brief](ROUND02_BRIEF.md) replaces CUDA min-label propagation with
+tiled connected-component union-find and CUDA v8 wavefront sweeps with per-lane
+sparse-frontier BFS. Native CUDA kernels require nvcc, a compatible compiler and
+ninja; a failed native load is an error, never a silent CUDA fallback. The Torch
+CPU/shape paths and unchanged production CPU implementations remain oracles.
+Reach-time retains its 24 synchronous tail-aware rounds.
 
-Throughput is `6 branch worlds × depth / synchronized rollout wall seconds`;
+Dense diagnostic throughput is `6 branch worlds × depth / synchronized rollout wall seconds`;
 each world includes the hero and all five real opponents. Dead/illegal branch
 lanes remain scheduled and are disclosed. Pipeline rates also include setup,
 warmup, readback and selected-label CPU replay. Neither rate substitutes isolated
 simulator throughput or multiplies by six snakes. CUDA numerical parity and L4
 speed remain unmeasured until Claude dispatches.
+
+`--mode all` runs the dense cost/agreement/decisive-root audit and the REALISTIC
+throughput workload. `--mode realistic` runs only the latter and cannot qualify
+the frozen cost/agreement rule. Defaults are 256/1,024/4,096 concurrent worlds,
+six body lengths spanning 800–1,500, all three mixes, five actual opponents,
+three warmed repeats, and p95 full tick timing including resets and collection
+writes. Full six-snake world-steps are counted once. The production-shape floor
+is evaluated from this workload; serial dense rates cannot establish it. CPU
+REALISTIC runs are explicitly bounded prechecks and cannot decide the L4 floor.
+
+See `E1B_PREFLIGHT.md` for this revision's measured Mac evidence and undispatched
+manifest forecast; `E1_PREFLIGHT.md` retains the prior implementation's evidence.

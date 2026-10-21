@@ -159,11 +159,11 @@ def test_full_world_throughput_uses_six_branches_not_six_snake_rows(monkeypatch)
     assert report["world_steps"] == 5400
     assert report["full_world_steps_per_second"] == pytest.approx(20000)
     assert report["pipeline_world_steps_per_second"] == 5400
-    assert report["l4_floor_status"] == "FLOOR_MET_PENDING_COST_AND_PARITY_AUDIT"
+    assert report["l4_floor_status"] == "DIAGNOSTIC_ONLY_REQUIRES_REALISTIC_PRODUCTION_SHAPE"
     rows[0]["device_loop_seconds"] = 0.1
     assert (
         throughput_report(rows, device="cuda", pipeline_seconds=1)["l4_floor_status"]
-        == "STOP_ENGINE_THESIS_THIS_WEEK"
+        == "DIAGNOSTIC_ONLY_REQUIRES_REALISTIC_PRODUCTION_SHAPE"
     )
     assert (
         throughput_report(rows, device="cpu", pipeline_seconds=1)["l4_floor_status"]
