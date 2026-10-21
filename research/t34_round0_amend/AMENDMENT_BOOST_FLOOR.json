@@ -1,0 +1,36 @@
+{
+  "schema": "t34-round0-analysis-amendment/v1",
+  "amendment_id": "t34-round0-boost-floor-relative-20261020",
+  "status": "DECLARED_PRE_LOOK",
+  "approval": "owner decision 2026-10-20 ~19:55 PT (contract boost-share floor 0.5% replaced by a relative floor; ceiling unchanged)",
+  "spec": "docs/research/specs/2026-10-20_t34_round0_boost_floor_amendment.md",
+  "study_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-round0-study-01",
+  "ratified_commit": "882b0fa2900107139a11f055ddb3cdacfc18500c",
+  "ratification_path": "research/t34_round0/REGISTRATION_ROUND0.json",
+  "ratification_file_sha256": "25c9a176b04a61d0a25b97f3aa835651030cfbe075e4d5e35b432ca56aece121",
+  "ratification_canonical_sha256": "0ae9d4d1cbba43f979be04c715094423e3d70d013aafe94a0ef58d3063b8ce0b",
+  "registered_clause": "delivered_boost_share: 0.005 <= teacher pooled boost share <= 0.10 (research/t34_round0/analyze.py summarize)",
+  "amended_clause": {
+    "name": "delivered_boost_share",
+    "rule": "0.5 * bare_share <= teacher_share <= 0.10, both inclusive; bare_share == 0 gives floor 0",
+    "share_definition": "pooled over all 240 paired worlds: sum(boost_decisions) / sum(decisions); boost = delivered hero action >= 3 (runner.py:287), one decision per trace row; bare and teacher from the same paired worlds",
+    "floor_fraction": [1, 2],
+    "floor_comparison": "exact integers: 2 * teacher_boosts * bare_decisions >= bare_boosts * teacher_decisions",
+    "ceiling": 0.1,
+    "ceiling_comparison": "registered float expression teacher_boosts / teacher_decisions <= 0.10, unchanged"
+  },
+  "unchanged": "every other clause, its threshold and tail, the fault precedence, the STOP/GO/INCONCLUSIVE order, KILL/INCONCLUSIVE evidence outcomes, and all integrity machinery",
+  "registered_analysis": "<study_root>/analysis/decision.json (produced by the frozen checkout; retained, never the reported verdict once this amendment applies)",
+  "governing_output": "<study_root>/amendment-boost-floor/decision.json",
+  "remote_claim": "refs/tags/t34-round0-amend/<study_root name>/boost-floor",
+  "ledger": "research/t34_round0_amend/ledger/<study_root name>.jsonl in the registered history_ledger repo",
+  "registered_sources": {
+    "research/t34_round0/__init__.py": "b306000a7ac6a0c9a81816f0b75d770d5ea61d7b8a69b18390a691f64afae9da",
+    "research/t34_round0/analyze.py": "03c704c02bfaf23492567c83010e52b95ef915f505e815b272b0c479ff64be30",
+    "research/t34_round0/common.py": "13a1906941ccb3f180b18a031ea19c833183b0990b6bbeef14f741cba7a40514",
+    "research/t34_round0/history.py": "56167e875bc825ca0b82d5a1f1c814d60334b6022c7d27d8482416f8ff5c761c",
+    "research/t34_pathb/retention_history_v2.py": "47c4afec2300eafb5c85dec1c7735547660d521f09e3734fa44801b3dbb043b6",
+    "src/scripts/eval_stats.py": "9329b02058dfba2852fa8fe8fdc51a378bf8766c566c3b214468cf20d0429e69"
+  },
+  "attestation": "Authored 2026-10-20 without opening, listing or computing anything from the study root; no Round 0 outcome, chunk export, replay or decision was seen. Bare boost rates cited come only from excluded A5 v2 worlds and earlier studies (boost-bar-check-20261020/REPORT.md)."
+}
