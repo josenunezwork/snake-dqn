@@ -15,7 +15,7 @@ import json
 import subprocess
 import tempfile
 import types
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -103,26 +103,38 @@ def _manifest_commit(manifest: dict[str, Any]) -> str:
     return commit
 
 
+def _safe_dest(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError("input destination must be a string")
+    path = PurePosixPath(value)
+    if not value or path.is_absolute() or ".." in path.parts or path.as_posix() == ".":
+        raise ValueError(f"unsafe input destination: {value!r}")
+    return path.as_posix()
+
+
 def _input_rows(manifest: dict[str, Any], repo: Path) -> list[dict[str, Any]]:
     rows = manifest.get("inputs", [])
     if not isinstance(rows, list):
         raise ValueError("manifest inputs must be a list")
     result: list[dict[str, Any]] = []
+    destinations: set[str] = set()
     for item in rows:
         if not isinstance(item, dict):
             raise ValueError("manifest input must be an object")
-        if "path" not in item:
-            if "url" in item:
-                if not isinstance(item.get("url"), str) or not isinstance(
-                    item.get("size_bytes"), int
-                ):
-                    raise ValueError("public input requires URL and byte size")
-                digest = item.get("sha256")
-                if not isinstance(digest, str) or len(digest) != 64:
-                    raise ValueError("public input requires SHA-256")
+        dest = _safe_dest(item.get("dest"))
+        if dest in destinations:
+            raise ValueError(f"duplicate input destination: {dest}")
+        destinations.add(dest)
+        has_path, has_url = "path" in item, "url" in item
+        if has_path == has_url:
+            raise ValueError("input requires exactly one of path or url")
+        if not has_path:
+            from research.colab_cli.inputs import validate_public_input
+
+            validate_public_input(item)
             continue
-        raw, digest, dest = item.get("path"), item.get("sha256"), item.get("dest")
-        if not isinstance(raw, str) or not isinstance(digest, str) or not isinstance(dest, str):
+        raw, digest = item.get("path"), item.get("sha256")
+        if not isinstance(raw, str) or not isinstance(digest, str):
             raise ValueError("local input requires path, sha256, and dest")
         path = Path(raw).expanduser().resolve()
         if not path.is_file():
