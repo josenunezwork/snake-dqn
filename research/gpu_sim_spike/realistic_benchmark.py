@@ -81,6 +81,7 @@ def _long_world(checkpoint: Path, case_name: str, lengths: tuple[int, ...]) -> A
     return world
 
 
+@torch.inference_mode()
 def _step(sim: Any, policy: Any, collection: dict[str, torch.Tensor], index: int) -> None:
     """One fully resident policy/simulator tick plus representative collection writes."""
     sim.prepare()
@@ -96,6 +97,7 @@ def _step(sim: Any, policy: Any, collection: dict[str, torch.Tensor], index: int
     collection["qmax"][index].copy_(hero_q.max(dim=1).values)
 
 
+@torch.inference_mode()
 def _resident_reset(destination: Any, template: Any) -> None:
     """Copy a same-shaped device template without allocating or touching host state."""
     for key, value in destination.__dict__.items():

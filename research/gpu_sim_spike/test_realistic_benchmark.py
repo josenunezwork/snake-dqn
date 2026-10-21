@@ -77,3 +77,11 @@ def test_floor_requires_actual_production_concurrency_and_all_mixes() -> None:
     cases[-1]["actual_concurrent_worlds"] = 4096
     cases[-1]["median_full_world_steps_per_second"] = 19999.99
     assert realistic.floor_status(cases, l4=True) == "STOP_ENGINE_THESIS_THIS_WEEK"
+
+
+def test_reset_accepts_inference_tensor_caches_created_by_real_policy() -> None:
+    with torch.inference_mode():
+        destination = SimpleNamespace(carry=torch.tensor([[1.0, 2.0]]))
+        template = SimpleNamespace(carry=torch.tensor([[3.0, 4.0]]))
+    realistic._resident_reset(destination, template)
+    assert destination.carry.tolist() == [[3.0, 4.0]]
