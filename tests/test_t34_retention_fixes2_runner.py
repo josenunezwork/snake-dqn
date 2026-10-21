@@ -130,7 +130,8 @@ def test_registered_phase_does_not_debit_precheck_from_forty_hour_budget(
     )
 
     assert result == {"verdict": "INCONCLUSIVE"}
-    assert opened == [(24, "bare"), (24, "paced")] * 2
+    # Pre-data bare-unpaced amendment: bare runs free, paced stays at 24 fps.
+    assert opened == [(0, "bare"), (24, "paced")] * 2
     record = json.loads((tmp_path / "efficacy/records/terminal-000.json").read_text())
     assert set(record["arms"]) == {"bare", "paced"}
     assert captured_starts

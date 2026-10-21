@@ -52,6 +52,7 @@ def test_runtime_validator_rejects_missing_or_changed_timing_cap(monkeypatch, ba
         "mac_arms": list(retention_v2.MAC_ARMS),
         "unpaced_colab": retention_v2.unpaced_colab_policy(),
         "paced_fps": 24,
+        "bare_fps": 0,
         "terminal_per_mix": 48,
         "product_sessions": 32,
         "horizon": 5000,

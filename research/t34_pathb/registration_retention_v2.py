@@ -346,6 +346,8 @@ def _check_common(registration: Mapping[str, Any], *, root: Path) -> None:
         raise RegistrationError("missing T34 retention registration schema")
     if registration.get("arms") != list(ARMS) or registration.get("paced_fps") != 24:
         raise RegistrationError("arms or 24 fps paced design differs from protocol")
+    if registration.get("bare_fps") != 0:
+        raise RegistrationError("bare arm must run unpaced under the pre-data amendment")
     expected = {
         "mac_arms": list(MAC_ARMS),
         "unpaced_colab": unpaced_colab_policy(),
@@ -602,6 +604,7 @@ def build_draft(
         "mac_arms": list(MAC_ARMS),
         "unpaced_colab": unpaced_colab_policy(),
         "paced_fps": 24,
+        "bare_fps": 0,
         "terminal_per_mix": TERMINAL_PER_MIX,
         "product_sessions": PRODUCT_SESSIONS,
         "horizon": 5000,

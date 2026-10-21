@@ -62,6 +62,13 @@ from research.t34_pathb.retention_history_v2 import (  # noqa: E402
 
 ARMS = ("bare", "paced", "unpaced")
 MAC_ARMS = ("bare", "paced")
+# Pre-data bare-unpaced amendment (docs/research/specs/
+# 2026-10-20_t34_retention_amendment_bare_unpaced.md): the bare comparator has
+# no controller and no clock dependence, so it runs free (fps 0, no sleep and no
+# held clock).  Only the assisted arm is paced at the registered 24 fps.
+BARE_FPS = 0
+PACED_FPS = 24
+ARM_FPS = {"bare": BARE_FPS, "paced": PACED_FPS}
 PRECHECK_WORLDS = 64
 PRECHECK_MIN_SURVIVORS = 50
 TERMINAL_PER_MIX = 48
@@ -486,8 +493,10 @@ def require_registration(
     from research.t34_pathb.source_binding_v2 import verify_frozen_worktree
 
     verify_frozen_worktree(Path(__file__).resolve().parents[2], source_commit)
-    if registration.get("arms") != list(ARMS) or registration.get("paced_fps") != 24:
+    if registration.get("arms") != list(ARMS) or registration.get("paced_fps") != PACED_FPS:
         raise RegistrationError("registration arms/pacing differ from Amendment 2")
+    if registration.get("bare_fps") != BARE_FPS:
+        raise RegistrationError("registration predates the pre-data bare-unpaced amendment")
     if (
         registration.get("mac_arms") != list(MAC_ARMS)
         or registration.get("unpaced_colab") != unpaced_colab_policy()
@@ -1228,6 +1237,9 @@ def _collect(
     check_cap: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     check_cap = check_cap or (lambda: _cap(started, cpu_started))
+    free_running = fps == 0 and getattr(session, "arm", None) == "bare"
+    if fps == 0 and getattr(session, "arm", None) == "paced":
+        raise RegistrationError("the paced arm must run at its registered real-time rate")
     if hasattr(session, "enable_bare_prefix_trace"):
         session.enable_bare_prefix_trace()
     contention_ticks: list[bool] = []
@@ -1237,7 +1249,8 @@ def _collect(
     for index in range(horizon):
         check_cap()
         contention_ticks.append(bool(host_guard and host_guard.check()["contended"]))
-        if fps == 0 and hasattr(session, "settle_between_ticks"):
+        # The bare arm has no assistance worker, so there is no clock to hold.
+        if fps == 0 and not free_running and hasattr(session, "settle_between_ticks"):
             session.settle_between_ticks(lambda: (check_cap(), host_guard and host_guard.check()))
             settled = session.controller_state()
             faults = settled.get("unconditional_faults") if isinstance(settled, Mapping) else None
@@ -1333,7 +1346,15 @@ def _collect(
         "late_deaths": late,
         "late_large_overlap": overlap,
         "host_contended_ticks": contention_ticks,
-        "unpaced_clock": "held_between_ticks_until_worker_completes" if fps == 0 else None,
+        "unpaced_clock": (
+            None
+            if fps
+            else (
+                "bare_free_running_no_controller"
+                if free_running
+                else "held_between_ticks_until_worker_completes"
+            )
+        ),
         "identity_status": (
             "NOT_VERIFIED"
             if invalid_controller
@@ -1408,12 +1429,12 @@ def _precheck_rows(
             _precheck_cap(started, cpu_started)
             _between_rows(host_guard)
             _precheck_cap(started, cpu_started)
-            session = open_terminal(row, 24, arm)
+            session = open_terminal(row, ARM_FPS[arm], arm)
             try:
                 result = _collect(
                     session,
                     horizon=5000,
-                    fps=24,
+                    fps=ARM_FPS[arm],
                     started=started,
                     cpu_started=cpu_started,
                     host_guard=host_guard,
@@ -1592,7 +1613,7 @@ def run_registered(
                 for arm in MAC_ARMS:
                     _cap(started, cpu_started)
                     _between_rows(guard)
-                    arm_fps = 24
+                    arm_fps = ARM_FPS[arm]
                     session = opener(row, arm_fps, arm)
                     try:
                         arms[arm] = _collect(
@@ -1802,7 +1823,7 @@ def main() -> int:
             ("watch", adapter.open_watch, rows[0]),
         ):
             for arm in ("bare", "paced"):
-                session = opener(row, 24, arm)
+                session = opener(row, ARM_FPS[arm], arm)
                 try:
                     artifacts["runs"].append(
                         {
@@ -1811,7 +1832,7 @@ def main() -> int:
                             "metrics": _collect(
                                 session,
                                 horizon=args.frames,
-                                fps=24,
+                                fps=ARM_FPS[arm],
                                 started=started,
                                 cpu_started=cpu_started,
                                 host_guard=guard,
