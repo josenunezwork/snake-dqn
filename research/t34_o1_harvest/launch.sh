@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # O1 harvest census entrypoint.  The supervisor invokes this only after its
-# local admission checks; local execution is restricted to the tiny preflight.
+# local admission checks; local execution is restricted to the excluded preflight.
 set -euo pipefail
 
 export SNAKE_DQN_DEVICE=cpu
@@ -46,5 +46,5 @@ fi
 }
 exec "${python_bin}" -m research.t34_o1_harvest.runner \
   --registration "${T34_O1_REGISTRATION}" --checkpoint "${T34_O1_CHECKPOINT}" \
-  --out "${T34_O1_OUTPUT_ROOT}" --mode preflight --frames "${T34_O1_FRAMES:-40}" \
-  --horizon "${T34_O1_HORIZON:-8}" --workers 1
+  --out "${T34_O1_OUTPUT_ROOT}" --mode preflight --frames "${T34_O1_FRAMES:-5000}" \
+  --horizon "${T34_O1_HORIZON:-500}" --workers 1

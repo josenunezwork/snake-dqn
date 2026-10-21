@@ -24,6 +24,7 @@ from research.t34_o1_harvest.registration import (
     sha256,
     write_once,
 )
+from research.t34_o1_harvest.timing import TIMING_FIXTURE, validate_timing
 
 
 class CapExceeded(TimeoutError):
@@ -389,6 +390,35 @@ def fixture_forecast(worlds: list[dict[str, Any]], workers: int) -> dict[str, An
     }
 
 
+def collect_timing_fixture(
+    bank: dict[str, Any],
+    checkpoint: str,
+    workers: int,
+    payload_dir: Path,
+    deadline: float,
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
+    """Run the identical excluded fixture on Mac and L4, without event roots."""
+    worlds = collect_many(
+        bank[TIMING_FIXTURE["rows"]],
+        checkpoint,
+        workers,
+        payload_dir=payload_dir,
+        prefix="timing-world",
+        frames=TIMING_FIXTURE["frames"],
+        horizon=TIMING_FIXTURE["horizon"],
+        time_roots=tuple(TIMING_FIXTURE["time_roots"]),
+        event_limit=TIMING_FIXTURE["event_limit"],
+        deadline=deadline,
+        **kwargs,
+    )
+    try:
+        validate_timing(worlds, bank[TIMING_FIXTURE["rows"]])
+    except ValueError as exc:
+        raise CapExceeded(str(exc)) from exc
+    return worlds
+
+
 def ordinary_remaining(runtime_root: Path, now: float | None = None) -> float:
     """Deduct all already charged setup and the 20% reserve from broker time."""
     current = time.time() if now is None else now
@@ -419,8 +449,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         not os.environ.get("COLAB_CLI_ROOT") or not args.catalog or args.workers != CAPS["workers"]
     ):
         raise ValueError("study execution requires supervised L4/public inputs/fixed worker count")
-    if args.mode == "preflight" and (args.workers != 1 or args.frames != 40 or args.horizon != 8):
-        raise ValueError("Mac preflight is fixed at 2 worlds,40 frames,H8,one worker")
+    if args.mode == "preflight" and (
+        args.workers != 1
+        or args.frames != TIMING_FIXTURE["frames"]
+        or args.horizon != TIMING_FIXTURE["horizon"]
+    ):
+        raise ValueError("Mac preflight requires the exact L4 timing fixture and one worker")
     args.out.mkdir(parents=True)
     write_once(
         args.out / "start.json",
@@ -461,15 +495,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         deadline = started + allowed
         check_cap(deadline)
         if args.mode == "preflight":
-            worlds = collect_many(
-                bank["excluded_preflight_rows"],
+            worlds = collect_timing_fixture(
+                bank,
                 str(args.checkpoint),
                 1,
                 payload_dir=args.out,
-                frames=40,
-                horizon=8,
-                time_roots=(10, 20),
-                event_limit=0,
                 deadline=deadline,
                 **kwargs,
             )
@@ -480,21 +510,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             charged_setup = CAPS["ordinary_seconds"] - 60 - ordinary_remaining(runtime_root)
             fixture_remaining = CAPS["timing_seconds"] - charged_setup
             check_cap(timing_start + fixture_remaining)
-            timing = collect_many(
-                bank["excluded_timing_rows"],
+            timing = collect_timing_fixture(
+                bank,
                 str(args.checkpoint),
                 args.workers,
                 payload_dir=args.out,
-                prefix="timing-world",
-                frames=5000,
-                horizon=500,
-                time_roots=(1000, 3000),
-                event_limit=0,
                 deadline=min(deadline, timing_start + fixture_remaining),
                 **kwargs,
             )
-            if any(len(w["roots"]) != 2 for w in timing):
-                raise CapExceeded("excluded timing fixture did not supply two roots per world")
             forecast = fixture_forecast(timing, args.workers)
             admission = {
                 "timing_seconds": charged_setup + time.monotonic() - timing_start,
@@ -547,6 +570,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "parity_pass": len(parity_worlds) == 3
             and all(w["parity"]["pass"] for w in parity_worlds),
             "timing_admitted": admission is not None,
+            "timing_fixture": TIMING_FIXTURE,
             "elapsed_seconds": time.monotonic() - started,
             "forecast": (
                 fixture_forecast(worlds, CAPS["workers"])
@@ -577,8 +601,8 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--mode", choices=("campaign", "preflight"), required=True)
-    parser.add_argument("--frames", type=int, default=40)
-    parser.add_argument("--horizon", type=int, default=8)
+    parser.add_argument("--frames", type=int, default=TIMING_FIXTURE["frames"])
+    parser.add_argument("--horizon", type=int, default=TIMING_FIXTURE["horizon"])
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--catalog", type=Path)
     parser.add_argument("--input-root", type=Path)

@@ -14,6 +14,7 @@ from typing import Any
 from research.t34_exit_b8.public_inputs import _load as load_public_catalog
 from research.t34_exit_b8.qualification import QualificationRefused, require_qualified_transport
 from research.t34_o1_harvest.registration import require_registration
+from research.t34_o1_harvest.timing import TIMING_FIXTURE, validate_timing
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = "research/t34_o1_harvest/launch.sh"
@@ -51,7 +52,9 @@ def _require_catalog(catalog: Path) -> None:
         raise ManifestRefused(f"invalid public-input catalog: {catalog}") from exc
 
 
-def _preflight_sizing(receipt_path: Path, registration: Path) -> dict[str, Any]:
+def _preflight_sizing(
+    receipt_path: Path, registration: Path, bank: dict[str, Any]
+) -> dict[str, Any]:
     """Bind the production estimate to the excluded real-entrypoint fixture."""
     if not receipt_path.is_absolute() or not receipt_path.is_file():
         raise ManifestRefused("preflight receipt must be an existing absolute file")
@@ -66,11 +69,31 @@ def _preflight_sizing(receipt_path: Path, registration: Path) -> dict[str, Any]:
         or receipt.get("status") != "COMPLETE"
         or receipt.get("mode") != "preflight"
         or receipt.get("registration_sha256") != _sha(registration)
+        or receipt.get("timing_fixture") != TIMING_FIXTURE
     ):
         raise ManifestRefused("preflight receipt is not the completed registered O1 fixture")
+    try:
+        entries = receipt["worlds"]
+        if len(entries) != 2:
+            raise ValueError("expected two timing worlds")
+        worlds = []
+        for i, entry in enumerate(entries):
+            if entry["path"] != f"world-{i:03d}.json":
+                raise ValueError("preflight payload name differs")
+            path = receipt_path.parent / entry["path"]
+            if _sha(path) != entry["sha256"]:
+                raise ValueError("preflight payload digest differs")
+            worlds.append(json.loads(path.read_text()))
+        validate_timing(worlds, bank[TIMING_FIXTURE["rows"]])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ManifestRefused(f"preflight timing payloads differ: {exc}") from exc
     forecast = receipt.get("forecast")
     if not isinstance(forecast, dict):
         raise ManifestRefused("preflight receipt lacks its L4 forecast")
+    from research.t34_o1_harvest.runner import fixture_forecast
+
+    if forecast != fixture_forecast(worlds, WORKERS):
+        raise ManifestRefused("preflight forecast differs from verified timing payloads")
     seconds = forecast.get("l4_forecast_seconds_including_setup_export")
     units = forecast.get("l4_forecast_units_at_2_per_hour")
     if (
@@ -126,7 +149,7 @@ def make_manifest(
     # production path requires this receipt, so no manifest published through
     # this module can retain the provisional ceiling-only estimate.
     preflight = (
-        _preflight_sizing(preflight_receipt, registration)
+        _preflight_sizing(preflight_receipt, registration, frozen["bank"])
         if preflight_receipt is not None
         else None
     )
