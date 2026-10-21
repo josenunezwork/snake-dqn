@@ -10,7 +10,7 @@ a reward, optimizer, or behavioral cause.
 ## Frozen intervention
 
 The probe uses frozen source `e083116182eb03888f5e82b7ea8f14cbb3f3bed1`, the
-fresh worlds from the preceding [solo ambient replication](</Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_ambient_replication_2026-09-13/README.md>),
+fresh worlds from the preceding [solo ambient replication](<../solo_ambient_replication_2026-09-13/README.md>),
 and its six native checkpoints. It captured the first prepared native Watch state
 at frame 1, before movement. Seven worlds met all physical eligibility rules; world
 2026091714 was retained but excluded because food was already on an adjacent target

@@ -2,7 +2,7 @@
 
 Doubling the selected training population from eight to sixteen worlds did not establish a reliable improvement in the body/wall-only residual correction under the predeclared comparison. The expanded arm met the intervention, retention, absolute-task, and strict H128 survival point gates in all three fresh seeds, but it failed the held-out teacher-veto requirement in every seed. The eight-world control also produced a strict H128 survival point gain in all three seeds, and every paired eight-world expanded-minus-control interval for H128 food, time alive, and mass integral includes zero. These intervals do not establish a reliable advantage or equivalence between the arms. No model is promoted.
 
-AYr1 follows [AW](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_policy_preservation_2026-09-19/README.md), which preserved ordinary food-policy actions but did not make the body correction reliable. It tests one bounded coverage question: with the same frozen food parent, body/wall residual observation, six relative actions, external masks, preservation loss, optimizer, and 500 updates, does adding eight predetermined training worlds improve held-out escape fit without sacrificing actual greedy gameplay?
+AYr1 follows [AW](../solo_food_policy_preservation_2026-09-19/README.md), which preserved ordinary food-policy actions but did not make the body correction reliable. It tests one bounded coverage question: with the same frozen food parent, body/wall residual observation, six relative actions, external masks, preservation loss, optimizer, and 500 updates, does adding eight predetermined training worlds improve held-out escape fit without sacrificing actual greedy gameplay?
 
 ## Frozen comparison and data boundaries
 

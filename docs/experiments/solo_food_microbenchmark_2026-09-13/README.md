@@ -7,7 +7,7 @@ neither promotes a checkpoint nor establishes survival, longer solo play, or pla
 against opponents. Apex `vector61` remains the incumbent.
 
 This experiment isolates a short food-seeking action loop after the completed
-[solo exploration-floor screen](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_exploration_floor_2026-09-13/README.md)
+[solo exploration-floor screen](../solo_exploration_floor_2026-09-13/README.md)
 failed to establish a reliable exploration-floor remedy. The frozen source was
 `56e0e92434ae510a84ebaf6f58cf41c3e4421b04`; no source change occurred during
 this wave.

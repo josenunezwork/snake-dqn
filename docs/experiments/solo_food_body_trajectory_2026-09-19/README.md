@@ -9,7 +9,7 @@ claim. This identifies ordinary-action interference as the next bounded learning
 it does not show that any individual changed action caused a lower return.
 
 This is a diagnostic of the completed failed confirmation in
-[AU](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_body_confirmation_2026-09-19/README.md),
+[AU](../solo_food_body_confirmation_2026-09-19/README.md),
 not a new training or gameplay comparison. The earlier AT correction fitted its selected
 training examples but did not reproduce a reliable improvement on fresh AU worlds. AV asks
 where that correction changes decisions on those already-recorded worlds before adding longer
@@ -99,8 +99,8 @@ produce a new learning curve.
 - [Complete per-seed analysis](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-body-trajectory-diagnostic/analysis/report.json)
 - [Agreement by frame](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-body-trajectory-diagnostic/analysis/agreement-by-frame.png)
 - [Representative saved trajectories](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-body-trajectory-diagnostic/analysis/representative-trajectories.png)
-- [AT fit and gameplay curves](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_body_residual_2026-09-19/README.md)
-- [AU independent confirmation](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_body_confirmation_2026-09-19/README.md)
+- [AT fit and gameplay curves](../solo_food_body_residual_2026-09-19/README.md)
+- [AU independent confirmation](../solo_food_body_confirmation_2026-09-19/README.md)
 - [Qualification completion](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-body-trajectory-diagnostic/qualification-complete.json)
 
 Science used **96.06712 / 195 seconds**; qualification used **7.72998 / 120 seconds**.

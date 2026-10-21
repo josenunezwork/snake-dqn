@@ -2,7 +2,7 @@
 
 Appending three teacher-derived reachable-space values did not make the residual correction reliable. The candidate fails the frozen mechanism gate in all three seeds because held-out veto-teacher accuracy is below 75% and below the required control-plus-five-point margin. It retains the parent task thresholds and has a strict H128 survival point gain in 3/3, but the matched zero-reachability control also improves mean H128 food and time in every seed. Every paired candidate-minus-control food, time, and mass-integral interval includes zero. These findings do not establish a candidate benefit or equivalence, and they do not promote a checkpoint.
 
-BA r1 follows [AZ](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_residual_context_2026-09-19/README.md): full native context still left a large held-out teacher-fit gap. BA tests a more specific representation change. The candidate appends three normalized values from the authoritative teacher reachability helper to the qualified body/wall residual input. The control receives three zeros at the same model input, including in gameplay. The frozen food parent continues to receive its unmodified native raster and 26 scalars.
+BA r1 follows [AZ](../solo_food_residual_context_2026-09-19/README.md): full native context still left a large held-out teacher-fit gap. BA tests a more specific representation change. The candidate appends three normalized values from the authoritative teacher reachability helper to the qualified body/wall residual input. The control receives three zeros at the same model input, including in gameplay. The frozen food parent continues to receive its unmodified native raster and 26 scalars.
 
 ## Frozen matched intervention
 

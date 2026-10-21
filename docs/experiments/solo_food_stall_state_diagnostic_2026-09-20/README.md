@@ -12,9 +12,9 @@ investigation, not a learned repair or a causal claim about escape.
 BQ is a diagnostic reuse of BO records, not a fresh score. It makes no optimizer
 update, changes no archived policy action, and creates no rollout, promotion, or
 opponent result. The preserved behavioral and learning evidence remains in the
-[BP stall census](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_stall_census_2026-09-20/README.md),
-[BO H512 confirmation](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_h512_confirmation_2026-09-20/README.md),
-and [BM fresh-initialization report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_shared_head_fresh_init_confirmation_2026-09-19/README.md).
+[BP stall census](../solo_food_stall_census_2026-09-20/README.md),
+[BO H512 confirmation](../solo_food_h512_confirmation_2026-09-20/README.md),
+and [BM fresh-initialization report](../solo_food_shared_head_fresh_init_confirmation_2026-09-19/README.md).
 
 ## Fixed panel and replay parity
 

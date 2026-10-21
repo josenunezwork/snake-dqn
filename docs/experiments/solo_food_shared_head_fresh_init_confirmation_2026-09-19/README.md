@@ -177,4 +177,4 @@ the fixed learned package survives and retains food at H256 on fresh solo worlds
 - [BM passing independent review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-shared-head-fresh-init-confirmation/independent-review.json)
 - [BM passing visual QA](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-shared-head-fresh-init-confirmation/visual-qa.json)
 - [BM completed closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-shared-head-fresh-init-confirmation/closeout.json)
-- [BM reused BL report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_ranking_budget_generalization_2026-09-19/README.md)
+- [BM reused BL report](../solo_food_ranking_budget_generalization_2026-09-19/README.md)

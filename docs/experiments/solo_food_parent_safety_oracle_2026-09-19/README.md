@@ -51,6 +51,6 @@ Apex remains the operational incumbent pending the shared tournament gate. Its m
 - [BA fit learning curve](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-reachability-r1/analysis/fit-learning-curve.png)
 - [BA greedy gameplay learning curve](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-reachability-r1/analysis/gameplay-learning-curve.png)
 - [BA representative gameplay](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-reachability-r1/analysis/representative-gameplay.png)
-- [BC label-geometry diagnostic](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_label_geometry_2026-09-19/README.md)
+- [BC label-geometry diagnostic](../solo_food_label_geometry_2026-09-19/README.md)
 
 The heuristic screen is motivated by [Safe Reinforcement Learning via Shielding](https://ojs.aaai.org/index.php/AAAI/article/download/11797/11656) and [Policy Decorator](https://proceedings.iclr.cc/paper_files/paper/2025/file/45c361d4117d598d4bb6568b407e9ac9-Paper-Conference.pdf). Neither paper supplies a guarantee for this capped flood-fill rule or evidence that it will improve the learned Slither-style policy.

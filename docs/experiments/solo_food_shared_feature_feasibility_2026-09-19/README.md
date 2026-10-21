@@ -120,4 +120,4 @@ attempt with no failed attempt.
 - [BI completed closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-shared-feature-feasibility/closeout.json)
 - [BI passing ledger review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-shared-feature-feasibility/ledger-review.json)
 - [BI passing independent review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-shared-feature-feasibility/independent-review.json)
-- [BH report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_shared_safety_head_2026-09-19/README.md)
+- [BH report](../solo_food_shared_safety_head_2026-09-19/README.md)

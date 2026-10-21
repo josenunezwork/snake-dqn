@@ -8,7 +8,7 @@ about 2.2 percentage points in the two available food-view seeds. That partial p
 establishes a three-seed result nor explains native-game survival.
 
 This report is for readers assessing the next diagnostic after the failed
-[AL food-view study](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_native_food_view_2026-09-14/README.md).
+[AL food-view study](../solo_native_food_view_2026-09-14/README.md).
 It uses completed step-500 checkpoints and saved states only. It ran no training, teacher
 labelling, new gameplay, or closed-loop policy evaluation. Apex remains the incumbent and this diagnostic
 cannot promote a policy.
@@ -120,7 +120,7 @@ the incomplete AM three-seed gate or establish the cause of longer-game deaths.
 · [v1 audit correction](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-cross-view/independent-partial-q-audit-correction.json)
 
 The behavior evidence remains the real native-gameplay table and fixed figures in the
-[AL report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_native_food_view_2026-09-14/README.md):
+[AL report](../solo_native_food_view_2026-09-14/README.md):
 [learning curve](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-native-food-view/analysis/learning-curve.png)
 and [representative gameplay](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-native-food-view/analysis/representative-gameplay.png).
 AM generated no gameplay figure and makes no new behavioral claim.

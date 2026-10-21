@@ -9,7 +9,7 @@ seed; its time and endpoint non-regression floors pass. Independent study review
 `CLOSED_COMPLETE_COMPARISON_FAIL`; it settles this study's learning decision, without a promotion.
 
 This report is for researchers continuing the solo food-seeking line after the incomplete
-[AM saved cross-view diagnostic](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_cross_view_2026-09-14/README.md).
+[AM saved cross-view diagnostic](../solo_food_cross_view_2026-09-14/README.md).
 AM did not establish a cause of AL survival failures, so AN makes no causal claim from it. AN is
 an H64 food-skill study, not an H256 survival study or a promotion experiment. Every one of the
 18 H64 evaluations each survived 96/96 lanes, so this horizon has a short-survival ceiling and

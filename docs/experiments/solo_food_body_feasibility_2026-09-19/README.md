@@ -2,7 +2,7 @@
 
 AX found no negative-cycle contradiction in the saved training or held-out body-visible input groups. Every group is feasible for both frozen target systems at both margin 0 and margin 0.001. This rules out one narrow explanation for AW's incomplete result: an exact, observed group of rows does not demand mutually impossible additive six-action corrections. It does not show that the residual network can represent or learn a feasible correction, that it will generalize beyond these rows, or that it will behave well on states induced by its own greedy actions.
 
-This is a static feasibility audit, not new learning or gameplay. It reuses the three original AT cohorts and AW parent mark-zero Q arrays; it performs no checkpoint inference, optimizer update, policy action selection, collection, or checkpoint selection. The behavioral context remains [AW](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_policy_preservation_2026-09-19/README.md), where preservation improved ordinary-action retention but failed the complete three-seed mechanism gate.
+This is a static feasibility audit, not new learning or gameplay. It reuses the three original AT cohorts and AW parent mark-zero Q arrays; it performs no checkpoint inference, optimizer update, policy action selection, collection, or checkpoint selection. The behavioral context remains [AW](../solo_food_policy_preservation_2026-09-19/README.md), where preservation improved ordinary-action retention but failed the complete three-seed mechanism gate.
 
 ## Fixed constraint question
 

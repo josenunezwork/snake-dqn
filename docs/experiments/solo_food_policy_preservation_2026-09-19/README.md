@@ -2,7 +2,7 @@
 
 Replacing ordinary-state teacher imitation with parent-policy preservation sharply improved ordinary parent-action agreement in all three fresh residual seeds. It also retained adequate food seeking and survival in all three on fresh worlds. The comparison nevertheless fails its predeclared mechanism criterion: seed 2026093803 loses 5.77 percentage points of held-out veto teacher agreement relative to the matched control, slightly beyond the allowed five-point loss. Only one of three preserved models improved both H128 survival measures over its parent. This is a useful behavioral direction, not a reliable improvement and not a promotion.
 
-AW follows the own-trajectory finding in [AV](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_body_trajectory_2026-09-19/README.md): the earlier body correction often overrode ordinary food-policy actions. The experiment asks a single bounded question: can a loss that preserves the frozen food policy on ordinary states prevent those overrides without losing the teacher's escape/veto behavior?
+AW follows the own-trajectory finding in [AV](../solo_food_body_trajectory_2026-09-19/README.md): the earlier body correction often overrode ordinary food-policy actions. The experiment asks a single bounded question: can a loss that preserves the frozen food policy on ordinary states prevent those overrides without losing the teacher's escape/veto behavior?
 
 ## Matched and frozen comparison
 

@@ -55,7 +55,7 @@ The next bounded experiment is a learned feature-generalization comparison: a sh
 - [BG closeout receipt](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-ranking-audit/closeout.json)
 - [BG qualification amendment](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-ranking-audit/qualification-amendment.json)
 - [BG qualification receipt](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-ranking-audit/qualification-complete.json)
-- [BF final learning report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_parent_safety_learning_2026-09-19/README.md)
+- [BF final learning report](../solo_food_parent_safety_learning_2026-09-19/README.md)
 - [BF learning curves](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-learning-r2/analysis/learning-curves.png)
 - [BF greedy-gameplay curves](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-learning-r2/analysis/gameplay-curves.png)
 - [BF representative gameplay](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-parent-safety-learning-r2/analysis/representative-gameplay.png)

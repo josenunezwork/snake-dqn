@@ -1,6 +1,6 @@
 # Food retention with a learned body correction (AT)
 
-**Subsequent independent confirmation failed:** [AU's complete three-seed result](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_body_confirmation_2026-09-19/README.md)
+**Subsequent independent confirmation failed:** [AU's complete three-seed result](../solo_food_body_confirmation_2026-09-19/README.md)
 retained food in two seeds and improved both survival measures in one. The original AT
 results and criteria below are preserved; the later evidence limits their generality.
 
