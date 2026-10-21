@@ -559,9 +559,13 @@ class NativeV8ExitTeacher(ExitTeacher):
         *,
         audit: bool = False,
         branch_only: bool = False,
+        include_roots: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(config, **kwargs)
+        if branch_only and include_roots:
+            raise ValueError("branch_only and include_roots are exclusive")
+        self.include_roots = bool(include_roots)
         self.native_stats = NativeV8Stats()
         self.native_audit = bool(audit)
         self.branch_only = bool(branch_only)
@@ -579,7 +583,7 @@ class NativeV8ExitTeacher(ExitTeacher):
         self._roots.clear()
 
     def actions(self, world: Any, hero_action: int) -> np.ndarray:
-        if self.branch_only or id(world) in self._root_ids:
+        if self.branch_only or (id(world) in self._root_ids and not self.include_roots):
             with python_scope():
                 return super().actions(world, hero_action)
         with native_scope(self.native_stats, audit=self.native_audit):
@@ -591,7 +595,11 @@ class NativeV8ExitTeacher(ExitTeacher):
 
 
 def make_native_teacher(
-    config: Mapping[str, Any], *, audit: bool = False, branch_only: bool = False
+    config: Mapping[str, Any],
+    *,
+    audit: bool = False,
+    branch_only: bool = False,
+    include_roots: bool = False,
 ) -> NativeV8ExitTeacher:
     """The teacher ``teacher_v2.run_worlds`` would build, with native non-root v8."""
     return NativeV8ExitTeacher(
@@ -602,6 +610,7 @@ def make_native_teacher(
         policy=config.get("policy"),
         audit=audit,
         branch_only=branch_only,
+        include_roots=include_roots,
     )
 
 
@@ -620,7 +629,11 @@ def native_config(config: Mapping[str, Any], teacher: NativeV8ExitTeacher) -> di
 
 
 def run_worlds_native(
-    config: Mapping[str, Any], *, audit: bool = False, branch_only: bool = False
+    config: Mapping[str, Any],
+    *,
+    audit: bool = False,
+    branch_only: bool = False,
+    include_roots: bool = False,
 ) -> dict[str, Any]:
     """``teacher_v2.run_worlds`` with the opt-in native teacher.
 
@@ -631,14 +644,20 @@ def run_worlds_native(
 
     if config.get("teacher") is not None:
         raise ValueError("run_worlds_native builds its own teacher")
-    teacher = make_native_teacher(config, audit=audit, branch_only=branch_only)
+    teacher = make_native_teacher(
+        config, audit=audit, branch_only=branch_only, include_roots=include_roots
+    )
     try:
         receipt = run_worlds(native_config(config, teacher))
     finally:
         teacher.release_roots()
     receipt["native_v8"] = {
         "recipe": NATIVE_V8_RECIPE,
-        "scope": "branch rows only" if branch_only else "all non-root rows",
+        "scope": (
+            "branch rows only"
+            if branch_only
+            else "all rows incl. roots" if include_roots else "all non-root rows"
+        ),
         "audit": bool(audit),
         "stats": teacher.native_stats.as_dict(),
     }

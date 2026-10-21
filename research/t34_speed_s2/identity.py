@@ -42,6 +42,8 @@ import numpy as np
 DIAGNOSTIC_NAMESPACE = "t34-exit-cpu-profile-diagnostic/v1"
 MIXES = ("scripted", "frozen", "mixed")
 BODIES = ("short", "long", "xlong")
+NATIVE_MODES = ("non_root", "all", "branch")
+NATIVE_MODE = "non_root"  # set by --native-mode
 DETERMINISTIC_KEYS = (
     "worlds",
     "requested_worlds",
@@ -237,7 +239,12 @@ def _run(
         )
         config["teacher"] = teacher
     else:
-        teacher = make_native_teacher(config, audit=audit, branch_only=kind == "branch")
+        teacher = make_native_teacher(
+            config,
+            audit=audit,
+            branch_only=NATIVE_MODE == "branch",
+            include_roots=NATIVE_MODE == "all",
+        )
         config = native_config(config, teacher)
     restore = events.install() if events is not None else None
     started_wall, started_cpu = time.perf_counter(), time.process_time()
@@ -379,7 +386,10 @@ def main() -> None:
     parser.add_argument("--warmup-frames", type=int, default=40)
     parser.add_argument("--q-ties", action="store_true")
     parser.add_argument("--audit", action="store_true")
+    parser.add_argument("--native-mode", choices=NATIVE_MODES, default="non_root")
     args = parser.parse_args()
+    global NATIVE_MODE
+    NATIVE_MODE = args.native_mode
     _single_thread()
     if args.output_dir.exists() and any(args.output_dir.iterdir()):
         raise SystemExit(f"output directory must be fresh: {args.output_dir}")
@@ -443,6 +453,7 @@ def main() -> None:
             "warmup_seconds": warmup_seconds,
             "q_ties": args.q_ties,
             "audit": args.audit,
+            "native_mode": args.native_mode,
             "namespace": DIAGNOSTIC_NAMESPACE,
         },
         "all_identical": all(f["identical"] for f in fixtures),
