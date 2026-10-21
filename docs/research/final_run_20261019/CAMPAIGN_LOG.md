@@ -24,6 +24,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
   the next-step calls (owner delegated, 2026-10-20 00:15); releases/serving changes still need the owner.
 - **Compute:** Colab credits are fine when they speed up a lane (owner, 2026-10-20 12:15); L4 by default, priced
   per useful result. Path B timing/paced tests, the strict gate and serving qualification stay on the Mac.
+- **Fable unavailable → Opus stand-ins (owner, 2026-10-20 ~19:05 PT):** Fable hit its usage limit; until it returns,
+  advisor panels and approval judges run as Opus agents under the same independence rules. Revert when Fable is back.
 
 ## Decisions (chronological)
 
@@ -61,6 +63,15 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 10-20 ~16:45 | Round 0 re-review: all FIX-FIRST #1 rulings verified in code; A6 binds 842 files. FIX-FIRST #2: timeout prose = code (supervisor timeout INCONCLUSIVE; over-time PASS = KILL); pending mechanical rerun before deadline = incomplete (analysis + replay refuse, no KILL); move faults module to research/t34_exit_b8; fresh A6 a6-fixes2-01 | `docs/research/specs/2026-10-20_t34_round0_fixes2.md` |
 | 10-20 ~16:55 | **Round 0 RATIFIED** (652f2b1e; reviewer RATIFY 882b0fa2 after 3 rounds; Fable approval judge APPROVE; T34_OPERATOR = `fable-approval-judge-20261020 (Claude operator)`). 3 chunks 100/100/40 pairs, expected ~13.5 u, worst 32.64 u (65.28 u with reruns), serial 1 lane, 48 h dispatch deadline. **Chunk 000 dispatched** ~16:55 (tmux `t34-round0-c000`) | `research/t34_round0/REGISTRATION_ROUND0.json`, study root `snake-dqn-artifacts/t34-round0-study-01` |
 | 10-20 ~18:20 | **§5 label-ordering amendment** (Fable judge APPROVE WITH CONDITIONS): R1 label collection only (Colab) may start after a published Round 0 GO, in parallel with Path B retention; fits/screens/R2/Mac work wait for the Path B disposition; R1 needs its own registration + Fable approval; owner veto. Release approval stays the owner's (STATUS.md/AGENTS.md corrected). **No-peek attestation (operator):** committed before Round 0 analysis (`analysis/decision.json` absent) and before retention timing attempt-01; no Round 0 outcome value inspected by anyone in this session — only operational progress lines. Round 0 state at commit: chunk 000 attempt-01 running (elapsed 4111 s, status running, completed_pairs": 44); chunks 001/002 not dispatched | `docs/research/advice/2026-10-20_a100/RULING_label_ordering.md` |
+| 10-20 ~17:50 | **A100 advice rounds: no A100 this campaign** (10 Astra answers via 5 Fable prompters, 3 independent Fable reviewers, then 3 Fable GPU experts; unanimous). The teacher and Round 0 are bound by the 12-vCPU host, not the GPU (B8 forward ~8–13 % of worker time → ≤ ~1.15× at ~3.2× the units). Reopen only if the first phase-timed L4 cached fit takes ≥ 60 min with GPU leg ≥ 40 % (then one matched L4 vs A100-40 packet, cap 12 u; adopt ≥ 1.25× and ≥ 1 h saved). Device-resident sim (GPU expert 1) pays only at dense-search scale; ~0.7 u kill/prove kernel probe only off the critical path. Levers that do move the date: build the Claim A pipeline, unpace the Path B bare arm, §5 ordering ruling, NO-GO branch plan | `docs/research/advice/2026-10-20_a100/SYNTHESIS.md`, `REVIEW_{A,B,C}_*.md`, `gpu_expert_{1,2,3}.md`, `GPU_EXPERT_PROMPTS.md` |
+| 10-20 ~18:20 | **NO-GO branch plan** (pre-data; operator planning doc, no registration amended): Phase 0 negative + Round 0 GO → no change; Round 0 NO-GO/INCONCLUSIVE → Path B continues, run **Round 0-D** (same 240-pair premise test, exact T3-dense teacher) on Colab; both negative → Round 0-D is the last premise test of the search-teacher family. Scheduling rule: **Round 0 Mac replay right after Phase 0, before the Path B timing gate** | `docs/research/specs/2026-10-20_t34_nogo_branch_plan.md` (59e932c2) |
+| 10-20 ~18:40 | **Claim A pipeline built** (9230b150: student fan-out labels, payload ReplaySource, probe, CUDA-capable fit driver; 23 tests). Fable panel (correctness / design / ops) → all CONCERNS; package-level fixes in e301cfeb (accounting `{}`, parallel probe, atomic receipts, TF32 off on CUDA, timing-only exports no weights, seed audit PASS, L4 qualification re-priced 75 min / cap 5 u). **Two frozen-design BLOCKERS remain and need a prospective ruling** (design.md): (1) the frozen `exit_fit_loss` cannot flip a decisive row — free-Q probe on the 39 A5 worlds: argmax = a* on **0.4 %** of 225 decisive rows (bare 97.8 %), so the ≥ 70 % held-out tripwire is unreachable; (2) the 1:1 searched:unsearched rule was priced for ~600 searched rows/world, v2 gives ~7.6 → ~1 optimizer step/epoch. **No production fit until a ruling**; protected fit package untouched | `research/t34_claim_a/`, `snake-dqn-artifacts/fable-panel-claima/{correctness,design,ops}.md` |
+| 10-20 ~18:50 | **Round 0-D package DRAFT** (8729a1db + verification 8fc8e00e; A6 Mac preflight PASS, pre-data engine checks). Re-priced: expected **26.7–39.3 u** (r = 23–15 pairs/lane-h); a dense R1 at 560 fresh worlds would be **49–75 u**, not the plan's ≤ 30 u. Not ratified; independent panel in progress. Must be on main before any Round 0 analysis | `research/t34_round0d/PREREGISTRATION_ROUND0D.md`, `VERIFICATION_ROUND0D.md` |
+| 10-20 ~18:59 | **T35 outcome-head probe: registered KILL.** Teacher-arm per-action survival AUC **0.747** (CI 0.705–0.792; KILL ≤ 0.77) and outcome-argmax = a* **46.2 %** (KILL < 70 %), on 225 held-out decisive rows / 21 worlds; integrity all pass. Caveat: data-starved (296 outcome rows, ~235 per fold). Lever earns no R1 slot. Mac, **0 Colab units** | `research/t35_outcome_head/RESULT.md` (182d85e2) |
+| 10-20 ~19:05 | **Fable usage limit hit.** Owner chose **Opus stand-ins** for advisor panels and approval judges until Fable returns (same independence rules: a judge wrote none of what it judges; verdict logged here and reported). Release/serving changes still need the owner | this log, `docs/STATUS.md` approvals sentence |
+| 10-20 ~19:10 | Round 0 chunk 000: runtime status `succeeded` (elapsed 7,859 s); supervisor finalizing (no `EXIT=` yet). Operational state only — no outcome opened. Next: publish its ledger, dispatch chunk 001 | `snake-dqn-artifacts/t34-round0-study-01/chunk-000-attempt-01.log` |
+| 10-20 ~19:11 | **T35 two-deviation probe primary: registered EXTEND (W = 2/7, U = 0).** Rescued `b8_s3_19@4693` (ranks 1–4) and `b8_s3_9@4188` (rank 3); 5 worlds NOT_RESCUED with 0 layer-2 candidates at t2+300; no cap expiry. Caveat: both rescues are the two worlds where T3's history already showed a multi-deviation escape (Amendment 1 §A1.7); `b8_s3_9` is exactly the known path. Provenance: 7/7 receipts at 321ba7c7, dirty "". Mac ~12 min, 0 units. **EXTEND run (26 events, ≤ 2 h Mac) not launched — needs its own approval (C6)** | `research/t35_two_deviation/RESULT_PRIMARY.md`, `snake-dqn-artifacts/t35-two-deviation-20261020/primary/summary-primary.json`, approval `snake-dqn-artifacts/fable-panel-2dev/APPROVAL.md` |
+| 10-20 ~19:15 | Path B bare-unpaced amendment: FIX-FIRST round done on branch `t34-retention-bare-unpaced-20261020` @52dec74f (spec: bare arm unpaced, paced arm 24 fps, saves ~8.7–10 Mac h); re-review in progress. Lands in **one push** only after a trace-receipt PASS, before Phase 0 ends (~Wed 10:00 PT); otherwise run the ratified 97232d51 design unchanged | `docs/research/specs/2026-10-20_t34_retention_amendment_bare_unpaced.md` (branch) |
 
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
@@ -76,7 +87,7 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 Not funded: 4,096-root runs (~900 u at measured engine), H20000 product sessions, self-play/league/PPO, T5-family search,
 distill lane C at 6,400 worlds, A100/G4/H100 for host-bound work, Colab "strict" evidence, idle allocations.
-**Units spent tracker:** start 1,174.37 (10-18); 1,159.1 (10-20 13:45); 1,157.6 (10-20 15:33).
+**Units spent tracker:** start 1,174.37 (10-18); 1,159.1 (10-20 13:45); 1,157.6 (10-20 15:33); 1,153.84 (10-20 ~19:20, `colab usage`; 1 active L4 = Round 0 chunk 000, 1.54 u/h).
 
 ## Measured results so far
 
@@ -92,11 +103,27 @@ distill lane C at 6,400 worlds, A100/G4/H100 for host-bound work, Colab "strict"
 
 ## Current status (update in place)
 
-_As of 2026-10-20 ~14:00:_
-- **Phase 0** (Mac, 6 workers): ~80/160 worlds; done ≈ Wed 10-21 ~13:00. Holds the Mac until then.
-- **Sol running:** teacher shadow batching (`t34-shadow-batch-20261020`); unpaced arm → Colab
-  (`t34-unpaced-colab-20261020`); Round 0 pre-registration on Colab (`t34-round0-prereg-20261020`).
-- **Next, in order:** re-review retention → RATIFY; merge shadow batching → rerun A5 on L4 (~2 u) → ratify and
-  dispatch Round 0 on Colab lanes; after Phase 0: quiet-Mac timing gate → T3-bank pre-check (≥ 50/64, 8 h cap) →
-  registered paced retention study (≤ 40 h).
-- **Colab:** qualified on `dab00823`; ~1,160.6 units; nothing running.
+_As of 2026-10-20 ~19:25 PT:_
+- **Round 0** (ratified 652f2b1e; study root `snake-dqn-artifacts/t34-round0-study-01`): chunk 000 runtime
+  `succeeded` ~19:10, supervisor finalizing (tmux `t34-round0-c000`). Chunks 001/002 not dispatched. **48 h dispatch
+  deadline ~Thu 10-22 16:45 PT** (missing chunk = KILL). No outcome opened by anyone.
+- **Phase 0** (Mac, 6 workers, tmux `phase0-selection`): ~105/160 worlds; ETA Wed 10-21 ~10:00–13:00 PT.
+- **Label ordering:** SUCCESS_CONTRACT §5 as amended (d5b11e3a, RULING_label_ordering.md): R1 label collection
+  (Colab only) may start after a *published* Round 0 GO, in parallel with Path B; fits/screens/R2/Mac work wait for
+  the Path B disposition; R1 needs its own registration + approval; owner veto; release approval stays the owner's.
+- **Path B retention:** ratified at 97232d51 (study operator-01). Bare-unpaced amendment on branch
+  `t34-retention-bare-unpaced-20261020` @52dec74f (FIX-FIRST round done; re-review in progress; saves ~8.7–10 Mac h).
+  Lands in one push only after trace-receipt PASS and before Phase 0 ends; fallback = the 97232d51 design unchanged.
+- **Mac order after Phase 0:** Round 0 Mac replay (10 %) first, **then** Path B timing gate → T3-bank pre-check →
+  efficacy (NO-GO branch plan, 59e932c2).
+- **Claim A:** pipeline built (9230b150 + fixes e301cfeb). Two frozen-design BLOCKERS (loss cannot flip decisive
+  rows, 0.4 %; 1:1 rule starves the fit) await a prospective ruling — **no production fit until then**. L4 timing
+  qualification (cap 5 u) is allowed; it exports no weights.
+- **Round 0-D:** DRAFT (8fc8e00e), 26.7–39.3 u expected; panel in progress; runs only on a Round 0 NO-GO/INCONCLUSIVE.
+- **T35 probes:** outcome-head KILL (182d85e2). Two-deviation primary EXTEND 2/7 (both known paths); EXTEND run
+  (26 events, ≤ 2 h Mac) awaits its own approval and must not overlap the Path B quiet window.
+- **A100:** not used this campaign (SYNTHESIS.md); reopen only on the fit-timing trigger.
+- **Approvals:** Fable at its usage limit since ~19:05 → Opus stand-ins for panels and approval judges until it returns.
+- **Sol running:** test-suite hygiene (worktree `../snake-dqn-test-hygiene`, log `t34-sol/test-hygiene.log`); verify
+  protected paths untouched after merge.
+- **Colab:** qualified on `dab00823`; 1,153.84 u at ~19:20 (`colab usage`); 1 L4 active (Round 0 chunk 000).
