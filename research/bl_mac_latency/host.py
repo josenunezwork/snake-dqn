@@ -50,7 +50,7 @@ def snapshot() -> dict[str, Any]:
     heavy = []
     for line in processes.splitlines()[1:]:
         fields = line.strip().split(None, 3)
-        if len(fields) == 4 and float(fields[2]) >= 50.0:
+        if len(fields) == 4 and int(fields[0]) != os.getpid() and float(fields[2]) >= 50.0:
             heavy.append(
                 {
                     "pid": int(fields[0]),
