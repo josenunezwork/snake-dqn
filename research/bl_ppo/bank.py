@@ -16,10 +16,12 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS = ROOT.parent / "snake-dqn-artifacts"
-NAMESPACE = "bl-ppo-e2-screen-20261021/v1"
+NAMESPACE = "bl-ppo-e2-screen-20261021/v2"
+LEGACY_NAMESPACE = "bl-ppo-e2-screen-20261021/v1"
 TRAINING_NAMESPACE = "bl-ppo-e2-training-20261021/v1"
-MIX_COUNTS = {"scripted": 96, "frozen": 32, "mixed": 32}
-SCHEMA = "bl-ppo-screen-bank/v1"
+MIX_COUNTS = {"scripted": 128, "frozen": 48, "mixed": 48}
+LEGACY_COUNTS = {"scripted": 96, "frozen": 32, "mixed": 32}
+SCHEMA = "bl-ppo-screen-bank/v2"
 SEALED_DIRECTORY = "t34-round0-study-01"
 
 
@@ -133,18 +135,21 @@ def canonical_sha(value: Any) -> str:
     ).hexdigest()
 
 
-def materialize(round_index: int = 0) -> dict[str, Any]:
+def materialize(round_index: int = 0, *, allocation_version: int = 2) -> dict[str, Any]:
     """Allocate all decision, timing and parity rows without sampling outcomes."""
     from research.t34_round0.bank import _rows
 
     if type(round_index) is not int or round_index < 0:
         raise ValueError("round_index must be a nonnegative integer")
-    namespace = f"{NAMESPACE}/round-{round_index}"
+    if allocation_version not in (1, 2):
+        raise ValueError("unknown prospective allocation version")
+    counts = LEGACY_COUNTS if allocation_version == 1 else MIX_COUNTS
+    namespace = f"{LEGACY_NAMESPACE if allocation_version == 1 else NAMESPACE}/round-{round_index}"
     value = {
-        "schema": SCHEMA,
+        "schema": "bl-ppo-screen-bank/v1" if allocation_version == 1 else SCHEMA,
         "namespace": namespace,
         "round_index": round_index,
-        "counts": MIX_COUNTS,
+        "counts": counts,
         "training_namespaces": {
             arm: f"{TRAINING_NAMESPACE}/{arm}" for arm in ("R", "F", "calibration")
         },
@@ -158,14 +163,12 @@ def materialize(round_index: int = 0) -> dict[str, Any]:
             "engine": "GridBatchSim",
             "roster_source": "research.t34_round0.bank._rows (read-only)",
         },
-        "rows": _rows(namespace + "/screen", MIX_COUNTS, 5000),
-        "excluded_preflight_rows": _rows(
-            namespace + "/preflight", dict.fromkeys(MIX_COUNTS, 1), 40
-        ),
-        "excluded_parity_rows": _rows(namespace + "/parity", dict.fromkeys(MIX_COUNTS, 1), 5000),
+        "rows": _rows(namespace + "/screen", counts, 5000),
+        "excluded_preflight_rows": _rows(namespace + "/preflight", dict.fromkeys(counts, 1), 40),
+        "excluded_parity_rows": _rows(namespace + "/parity", dict.fromkeys(counts, 1), 5000),
     }
     seeds = all_seeds(value)
-    if len(seeds) != 166:
+    if len(seeds) != sum(counts.values()) + 6:
         raise ValueError("whole allocation rejected: internal seed collision")
     value["allocation_sha256"] = canonical_sha(value)
     return value
@@ -182,7 +185,10 @@ def all_seeds(bank: dict[str, Any]) -> set[int]:
 
 def validate_bank(value: dict[str, Any]) -> None:
     """Require the complete deterministic bank, including every ordered roster."""
-    if value.get("schema") != SCHEMA or value != materialize(value.get("round_index")):
+    version = {"bl-ppo-screen-bank/v1": 1, SCHEMA: 2}.get(value.get("schema"))
+    if version is None or value != materialize(
+        value.get("round_index"), allocation_version=version
+    ):
         raise ValueError("bank differs from frozen deterministic allocation")
 
 
@@ -288,7 +294,11 @@ def main(argv: list[str] | None = None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     for name, item in (("bank.json", value), ("seed_audit.json", receipt)):
         export_json(args.out / name, item)
-    print(json.dumps({"bank": str(args.out / "bank.json"), "worlds": 160, "audit": "CLEAR"}))
+    print(
+        json.dumps(
+            {"bank": str(args.out / "bank.json"), "worlds": len(value["rows"]), "audit": "CLEAR"}
+        )
+    )
     return 0
 
 
