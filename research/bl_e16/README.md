@@ -1,8 +1,12 @@
 # E16 common execution-ranking harness
 
 Build-only development experiment, not dispatched. Authority is big-lever round04
-JUDGMENT body and §f. Read REGISTRATION.md, REGISTRATION_ERRATUM_01.md and SEED_RECIPE.md
-as one frozen protocol. E13's PARITY_RULE.md lives here because this task explicitly
+JUDGMENT body and §f, amended prospectively by round-07 X3/X6. Read
+REGISTRATION.md, REGISTRATION_ERRATUM_01.md, REGISTRATION_AMENDMENT_02.md and
+SEED_RECIPE.md as one frozen protocol. FINAL_FAMILY_REGISTRATION.md, BURN_MANIFEST.md
+and LOOK_LEDGER.md register future family, lineage exclusions and permitted looks.
+Funding-judge approval is still required before affected execution; no approval is
+claimed by this preparation. Historical PREFLIGHT.md and exports retain their old caps. E13's PARITY_RULE.md lives here because this task explicitly
 prohibits modifying research/bl_ppo (the judgment requested that location).
 
 ## Implemented
@@ -43,7 +47,7 @@ binds original receipt exports under `sources`; it is an explicit operator-audit
 schema bridge, not a replacement or inference from another experiment's GO.
 
 A plan has schema `bl-e16-plan/v1`, statusADMITTED, scientifictrue, arms[A,G], commit,
-source_hashes, parent/b8/bank/audit bindings(path+sha256), G_architecture/use_history,
+source_hashes, funding_approval, parent/b8/bank/audit bindings(path+sha256), G_architecture/use_history,
 critic_transitions2000000, actor_transitions4000000, receipts keyed E2_F/E12_parent/E4/
 episode_rate/E3/E14 and an exact forecast(). Recognized architectures are the constants
 G_HISTORY/G_NO_HISTORY in admission.py. All required receipt adapters and their source
@@ -75,16 +79,26 @@ estimate or admission is claimed from that structural validation.
 A/G literal preparation is12M transitions, not the judgment's shorthand14M for3arms.
 At assumed2000hero/s and800full-policyworldsteps/s: training1.667h, evaluation5.76Msteps
 =2h, setup/export2h, total5.667h/11.334u, plus4u reserve. The required2×estimate timeout
-is680min and exceeds the10h/20u envelope. Therefore NOT_DISPATCHABLE even at those
-central assumptions; the bank must not shrink. At4000hero/s and2000episodeworldsteps/s
+is680min, liability22.667u+4reserve, and fits the amended40u/20h envelope
+and explicit forecast<=8h ceiling. This is FORECAST_FITS under planning assumptions,
+while scientific admission remains NOT_DISPATCHABLE for missing qualified inputs.
+The bank must not shrink. At4000hero/s and2000episodeworldsteps/s
 forecast is3.633h, timeout436min, liability14.533u+4reserve, which fits if measured.
 The measured E4 ruler and separate disjoint full-policyH5000 ruler must establish the
 actual E16 workload rate; tiny Mac prefixes do not qualify either rate. Per-arm
-manifests must not independently claim the20u total envelope; production dispatch also
+manifests must not independently claim the40u total envelope; production dispatch also
 requires plan.study_budget, a hash-bound bl-e16-budget/v1 receipt validated by budget.py.
 Its unique per-arm/evaluation jobs include setup/export, measured estimates, 2x timeouts
-and positive rates; all liabilities plus4u reserve fit20u and600allocationminutes.
-Runtime caps use the corresponding lane reservation.
+and positive rates; all estimates total<=480minutes, all liabilities plus4u reserve fit40u, and
+all timeouts total<=1200allocationminutes.
+Runtime caps use the corresponding lane reservation. One treatment is allowed below
+2000hero/s, at most two at or above it; full-policy episode rate must be>=800/s.
+E2 may screen on L4 if no Mac CPU night window exists, only with a measured
+reservation inside E2's own20u/10h cap; no hidden Mac job or extra allocation.
+Final family freezes immediately before first strict-bank opening; three nominees
+use Holm .05/3,.05/2,.05. Burn/look receipts must be populated before claims; the
+new Markdown files are registration text, not completed campaign inventories.
+Legacy ADMIT_100M labels authorize only32M preparation under a separate registration.
 
 Open inputs: efficacy-unread nominated E2F, E8 objective receipt, parentE12PASS,
 E3GO+matchingE14PASS, measured E4 and disjoint episode ruler, per-arm new-criticE12,

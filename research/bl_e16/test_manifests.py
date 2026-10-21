@@ -45,7 +45,11 @@ def test_geometry_records_full_forecast(tmp_path):
     )
     assert m["e16"]["forecast"]["training_transitions"] == 12000000
     assert m["e16"]["forecast"]["evaluation_world_steps"] == 5760000
-    assert m["e16"]["forecast"]["unit_cap"] == 20.0
+    assert m["e16"]["forecast"]["unit_cap"] == 40.0
+    assert m["budget"]["unit_cap"] == 40.0
+    assert m["e16"]["forecast"]["status"] == "FORECAST_FITS"
+    assert "research/bl_e16/REGISTRATION_AMENDMENT_02.md" in m["source_paths"]
+    assert "research/bl_e16/FINAL_FAMILY_REGISTRATION.md" in m["source_paths"]
     assert m["e16"]["arm_precondition"].endswith("E14 pass")
 
 

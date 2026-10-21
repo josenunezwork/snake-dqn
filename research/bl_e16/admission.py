@@ -14,6 +14,11 @@ IMPLEMENTED = {"A", "G"}
 B8_SHA256 = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 G_HISTORY = "e3-geometry7-tower7x16x64-grid6x10-gru43x64-window128/v1"
 G_NO_HISTORY = "e3-geometry7-tower7x16x64-grid6x10-no-history/v1"
+UNIT_CAP = 40.0
+ALLOCATION_HOUR_CAP = 20.0
+RESERVE_UNITS = 4.0
+MAX_FORECAST_HOURS = 8.0
+L4_UNITS_PER_HOUR = 2.0
 
 
 class AdmissionRefused(ValueError):
@@ -37,10 +42,13 @@ def forecast(actor_rate: float, episode_rate: float, treatments: int = 1) -> dic
         reasons.append("E4 allows only one treatment below 2000 hero transitions/s")
     if episode_rate < 800:
         reasons.append("disjoint full-policy H5000 episode rate below 800 world-steps/s")
-    if hours > 10 or hours * 2 + 4 > 20:
-        reasons.append("forecast exceeds total allocation/unit cap or reserve")
-    if timeout > 600 or timeout / 60 * 2 + 4 > 20:
-        reasons.append("required 2x-estimate timeout cannot fit 10h/20u with 4u reserve")
+    if hours > MAX_FORECAST_HOURS:
+        reasons.append("forecast exceeds prospective 8h admission ceiling")
+    if (
+        timeout > ALLOCATION_HOUR_CAP * 60
+        or timeout / 60 * L4_UNITS_PER_HOUR + RESERVE_UNITS > UNIT_CAP
+    ):
+        reasons.append("required 2x-estimate timeout cannot fit 20h/40u with 4u reserve")
     return {
         "training_transitions": training,
         "evaluation_world_steps": evaluation,
@@ -48,11 +56,13 @@ def forecast(actor_rate: float, episode_rate: float, treatments: int = 1) -> dic
         "setup_export_hours": 2.0,
         "allocation_hours": hours,
         "units_at_2_per_hour": hours * 2,
-        "reserve_units": 4.0,
+        "reserve_units": RESERVE_UNITS,
         "estimate_minutes": estimate,
         "timeout_minutes": timeout,
         "timeout_liability_units": timeout / 60 * 2,
-        "unit_cap": 20.0,
+        "unit_cap": UNIT_CAP,
+        "allocation_hour_cap": ALLOCATION_HOUR_CAP,
+        "max_forecast_hours": MAX_FORECAST_HOURS,
         "status": "NOT_DISPATCHABLE" if reasons else "FORECAST_FITS",
         "reasons": reasons,
     }
@@ -110,6 +120,31 @@ def bound_json(binding: Mapping[str, str], base: Path) -> dict[str, Any]:
     return value
 
 
+def require_funding_approval(binding: Any, base: Path) -> None:
+    """Require a source-backed judge approval of the exact X3 amendment bytes."""
+    if not isinstance(binding, dict) or not {"path", "sha256"}.issubset(binding):
+        raise AdmissionRefused("hash-bound X3 funding-judge approval required")
+    receipt = bound_json(binding, base)
+    amendment = Path(__file__).with_name("REGISTRATION_AMENDMENT_02.md")
+    if (
+        receipt.get("schema") != "bl-e16-amendment-approval/v1"
+        or receipt.get("decision") != "APPROVED"
+        or receipt.get("scope") != "round-07-X3"
+        or receipt.get("amendment_sha256") != digest(amendment)
+        or not isinstance(receipt.get("judge"), str)
+        or not receipt["judge"].strip()
+    ):
+        raise AdmissionRefused("X3 approval must bind the exact amendment and named judge")
+    evidence = receipt.get("approval_evidence")
+    if not isinstance(evidence, dict) or not {"path", "sha256"}.issubset(evidence):
+        raise AdmissionRefused("X3 approval needs the original judge evidence export")
+    evidence_path = Path(evidence["path"])
+    if not evidence_path.is_absolute():
+        evidence_path = base / evidence_path
+    if verify_export(evidence_path) != evidence["sha256"]:
+        raise AdmissionRefused("X3 judge evidence digest mismatch")
+
+
 def require_execution_plan(path: str | Path, arm: str | None = None) -> dict[str, Any]:
     """Verify a frozen plan before loading worlds or touching an optimizer.
 
@@ -126,6 +161,7 @@ def require_execution_plan(path: str | Path, arm: str | None = None) -> dict[str
         or plan.get("scientific") is not True
     ):
         raise AdmissionRefused("E16 plan is not admitted for scientific execution")
+    require_funding_approval(plan.get("funding_approval"), path.parent)
     arms = plan.get("arms")
     if not isinstance(arms, list) or not arms or arms[0] != "A" or len(set(arms)) != len(arms):
         raise AdmissionRefused("plan needs unique A control followed by treatments")
@@ -152,6 +188,10 @@ def require_execution_plan(path: str | Path, arm: str | None = None) -> dict[str
         for name in (
             "REGISTRATION.md",
             "REGISTRATION_ERRATUM_01.md",
+            "REGISTRATION_AMENDMENT_02.md",
+            "FINAL_FAMILY_REGISTRATION.md",
+            "BURN_MANIFEST.md",
+            "LOOK_LEDGER.md",
             "SEED_RECIPE.md",
             "PARITY_RULE.md",
             "admission.py",

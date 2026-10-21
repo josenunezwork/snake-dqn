@@ -30,8 +30,19 @@ def _inputs(time: int = 2, batch: int = 2):
 def _batch(policy: E16Policy, time: int = 2, batch: int = 2) -> E16Batch:
     local, global_, scalars, frame, geometry, history = _inputs(time, batch)
     with torch.no_grad():
-        logits = policy.actor_logits(
-            local[0], global_[0], scalars[0], geometry=geometry[0], history=history[0]
+        # Each old log probability belongs to its own collected observation.
+        # Repeating step-zero logits can trip PPO's KL guard before any update.
+        logits = torch.stack(
+            [
+                policy.actor_logits(
+                    local[step],
+                    global_[step],
+                    scalars[step],
+                    geometry=geometry[step],
+                    history=history[step],
+                )
+                for step in range(time)
+            ]
         )
         values = policy.value(
             local.reshape(time * batch, *local.shape[2:]),
@@ -41,14 +52,14 @@ def _batch(policy: E16Policy, time: int = 2, batch: int = 2) -> E16Batch:
             geometry=geometry.reshape(time * batch, *geometry.shape[2:]),
             history=history.reshape(time * batch, 128, 43),
         ).reshape(time, batch)
-    actions = Categorical(logits=logits).sample().repeat(time, 1)
+    actions = Categorical(logits=logits).sample()
     return E16Batch(
         local,
         global_,
         scalars,
         frame,
         actions,
-        Categorical(logits=logits).log_prob(actions[0]).repeat(time, 1),
+        Categorical(logits=logits).log_prob(actions),
         torch.ones(time, batch),
         torch.zeros(time, batch, dtype=torch.bool),
         values,
