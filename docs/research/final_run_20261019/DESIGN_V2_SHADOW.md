@@ -117,3 +117,7 @@ teacher needs ~13–31k row-steps/world (M2; Mac 32-world profile), so A5 v2 is 
 the registered 1,200 s steady window excluding cold fill; < 50 → STOP and report. Row-steps/s stays reported.
 Evidence: A5 #1 (serial shadow fill, ~50 row-steps/s/lane, 0 decisions), batching profile
 (`research/t34_exit_b8` VERIFICATION_SHADOW_BATCHING.md: byte-identical, Mac −19%, L4 untested).
+
+### Amendment 2 addendum — label ordering (2026-10-20 ~18:20 PT, prospective, pre-data)
+Replaces item 4's "Teacher label rounds (R1+) wait for (b) or Round 0" with the SUCCESS_CONTRACT §5 Amendment
+(2026-10-20) rule: *R1 teacher-label collection (Colab only, bare B8 s3 + teacher, β=1) may be registered and, once its registration is approved, dispatched after a published Round 0 GO, in parallel with the Path B retention phases. R1/R2 fits, R1/R2 screens, R2 labels and any Mac work for Claim A wait for the Path B disposition (GO/KILL/INCONCLUSIVE decision.json). Round 0 GO authorizes nothing by itself.* Ruling: `docs/research/advice/2026-10-20_a100/RULING_label_ordering.md`.
