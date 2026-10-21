@@ -282,6 +282,7 @@ def test_run_report_wires_cache_free_q_and_cells(tmp_path: Path, monkeypatch) ->
 
 
 def test_d0_runner_writes_refusal_for_a_two_world_fixture(tmp_path: Path, monkeypatch) -> None:
+    from research.colab_cli.runtime import _exports
     from research.t34_claim_a_loss import run_d0 as runner
     from tests.test_t34_claim_a_loss import tiny_bank
 
@@ -307,7 +308,18 @@ def test_d0_runner_writes_refusal_for_a_two_world_fixture(tmp_path: Path, monkey
     monkeypatch.setattr(runner, "build_cache", build_cache)
     monkeypatch.setattr(H, "run_cell", unexpected)
     monkeypatch.setattr(H, "free_q_probe", unexpected)
-    out = tmp_path / "out"
+    out = tmp_path / "output"
+    export_cache = {}
+    progress_write = runner._write
+
+    def observe_progress(path, payload):
+        progress_write(path, payload)
+        # Poll just as the runtime does between phases. Published receipts must
+        # remain unchanged, and mutable timing must not become an export yet.
+        records = _exports(tmp_path, 1024**2, export_cache)
+        assert "d0_timing.json" not in {record["path"] for record in records}
+
+    monkeypatch.setattr(runner, "_write", observe_progress)
     timing = runner.run(
         tarball=tmp_path / "tiny.tar.gz",
         tarball_sha256="a" * 64,
@@ -332,6 +344,63 @@ def test_d0_runner_writes_refusal_for_a_two_world_fixture(tmp_path: Path, monkey
     assert decision["decision"] == "REFUSED"
     assert decision["report_sha256"] == dinputs.sha256_file(out / "d0_report.json")
     assert decision["registered_run"] is True
+    expected = {"cache_manifest.json", "d0_report.json", "D0_DECISION.json", "d0_timing.json"}
+    assert {path.name for path in out.glob("*.json")} == expected
+    records = _exports(tmp_path, 1024**2, export_cache)
+    assert {record["path"] for record in records} == expected
+    for record in records:
+        path = out / record["path"]
+        assert Path(str(path) + ".complete").read_text() == "complete\n"
+        assert (
+            Path(str(path) + ".sha256").read_text().split()[0]
+            == hashlib.sha256(path.read_bytes()).hexdigest()
+        )
+        assert record["size"] == path.stat().st_size
+    assert _exports(tmp_path, 1024**2, export_cache) == records
+
+
+@pytest.mark.parametrize("failure", ["unpack", "rejected"])
+def test_d0_terminal_failure_receipts_are_exportable(tmp_path: Path, monkeypatch, failure) -> None:
+    from research.colab_cli.runtime import _exports
+    from research.t34_claim_a_loss import run_d0 as runner
+
+    def unpack(*_args):
+        if failure == "unpack":
+            raise dinputs.InputsRefused("fixture unpack failure")
+        return [Path("world0")]
+
+    def build_cache(_roots, _ckpt, out, **_kwargs):
+        out.mkdir()
+        manifest = {"accepted": 0, "rejected": ["world0"], "totals": {"rows": 0}}
+        (out / "manifest.json").write_text(json.dumps(manifest))
+        return manifest
+
+    monkeypatch.setattr(runner.inputs, "unpack", unpack)
+    monkeypatch.setattr(runner, "build_cache", build_cache)
+    kwargs = dict(
+        tarball=tmp_path / "tiny.tar.gz",
+        tarball_sha256="a" * 64,
+        checkpoint=tmp_path / "b8.pth",
+        work=tmp_path / "work",
+        out_dir=tmp_path / "output",
+        workers=1,
+        device="cpu",
+        expect_worlds=1,
+    )
+    if failure == "unpack":
+        with pytest.raises(dinputs.InputsRefused, match="fixture unpack failure"):
+            runner.run(**kwargs)
+        expected = {"d0_timing.json"}
+        status = "FAILED"
+    else:
+        assert runner.run(**kwargs)["status"] == "PRECONDITION_FAILED"
+        expected = {"d0_timing.json", "cache_manifest.json"}
+        status = "PRECONDITION_FAILED"
+    cache = {}
+    records = _exports(tmp_path, 1024**2, cache)
+    assert {record["path"] for record in records} == expected
+    assert json.loads((kwargs["out_dir"] / "d0_timing.json").read_text())["status"] == status
+    assert _exports(tmp_path, 1024**2, cache) == records
 
 
 # ---------------------------------------------------------------------------

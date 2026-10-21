@@ -1,0 +1,231 @@
+{
+  "continue_ceiling_units_per_dense_decision": 6e-05,
+  "cpu_12proc_status": "NOT MEASURED in existing receipt (phases 1 and 5 processes); benchmark must collect matched 12-process CPU cost before end-to-end CONTINUE can be asserted",
+  "decision_guard": "No CONTINUE from projected or device-portion numbers; report upper bound if any rollout stage stays on host. Matched measured CPU12 and both GPU receipts required.",
+  "dense_shape": {
+    "actions": "every advisory-legal action, boosts included; normal-only fallback",
+    "continuation": "B8 greedy eps=0 no hero veto",
+    "depth": 300,
+    "rank": "alive transitions, then prefer current B8 argmax, then highest Q, then lowest index",
+    "reported_value": "mass integral = sum post-step alive length / full D",
+    "trigger": "every fifth decision beginning at length >=600; six S0 root fixtures force one search each for coverage"
+  },
+  "frozen_cost_comparator_units_per_dense_decision": 0.0006,
+  "frozen_utc": "2026-10-21T05:42:00.963437+00:00",
+  "gpu_data_observed": false,
+  "kill_rule_verbatim": "CONTINUE (recommend a full port) only if **both**:\n- end-to-end GPU cost per dense-search decision \u2264 **1/10** of the L4 CPU baseline on the long-body mixes, **and**\n- first-action agreement \u2265 **99 %** of searched decisions on the S0 fixtures, with 0 unexplained (bug) disagreements.\nOtherwise STOP: write `RESULT.md` with the numbers and the reason; no second attempt without a new brief.\n",
+  "l4_cpu_teacher": {
+    "completed_worlds_per_lane_hour_approx": 55,
+    "decisions_per_S0_world": 300,
+    "dense_batches_per_300_eligible_decisions": 60,
+    "dense_interval": 5,
+    "qualification": "amortized conversion assumes all 300 decisions eligible; S0 short cases are forced diagnostic searches; this is not measured dense-only cost",
+    "source": "owner-approved spike spec (A5 GO, CAMPAIGN_LOG)",
+    "units_per_dense_decision_amortized_approx": 0.0006,
+    "units_per_world_approx": 0.036
+  },
+  "l4_s0_receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/speed-s0-20261021/l4-a1-output/exports/s0/s0-baseline.json",
+  "l4_s0_receipt_sha256": "a947d891a3f0c236beee425ba4291a985fc4e3b2552f79b050630a90b562172f",
+  "per_case": {
+    "long-frozen": {
+      "measured_s0_plain_wall_seconds": 37.804791469000065,
+      "measured_s0_seconds_per_active_row_step": 0.042052048352614085,
+      "measured_s0_stage_seconds": {
+        "audit_hash": 0.003034552000030999,
+        "build": 0.3504849885000567,
+        "clone": 0.0036203535000254305,
+        "digest": 9.51405591949964,
+        "export": 0.07791424049997886,
+        "hero_evaluate": 0.1840469084987717,
+        "inference": 4.37162609049966,
+        "opponent_actions": 1.4062374115025023,
+        "other": 1.0327783699997326,
+        "raster": 1.4957798394999031,
+        "sim": 1.0088423954993573,
+        "v8": 18.81215672850027,
+        "v8_hero_features": 0.360096968500045
+      },
+      "projected_full_six_branch_D300_seconds_serial": 75.69368703470535,
+      "projected_units_per_dense_decision_12proc": 0.00350433736271784,
+      "projection_assumptions": "6 legal actions, D300, no early termination; linear 12-process scaling; includes S0 digest overhead; NOT a matched dense measurement"
+    },
+    "long-mixed": {
+      "measured_s0_plain_wall_seconds": 219.4468072809999,
+      "measured_s0_seconds_per_active_row_step": 0.019039285726271032,
+      "measured_s0_stage_seconds": {
+        "audit_hash": 0.0026629839999259275,
+        "build": 0.27674184549999836,
+        "clone": 1.115822754499618,
+        "digest": 15.97778916550061,
+        "export": 0.08516363649994219,
+        "hero_evaluate": 0.23162421749952955,
+        "inference": 29.764470730507526,
+        "opponent_actions": 2.190688628494115,
+        "other": 14.026979031489077,
+        "raster": 8.936519431500813,
+        "sim": 6.9462152275040125,
+        "v8": 142.0133642795043,
+        "v8_hero_features": 2.7824212620004687
+      },
+      "projected_full_six_branch_D300_seconds_serial": 34.27071430728786,
+      "projected_units_per_dense_decision_12proc": 0.0015866071438559194,
+      "projection_assumptions": "6 legal actions, D300, no early termination; linear 12-process scaling; includes S0 digest overhead; NOT a matched dense measurement"
+    },
+    "long-scripted": {
+      "measured_s0_plain_wall_seconds": 14.970421147000025,
+      "measured_s0_seconds_per_active_row_step": 0.016652303834260317,
+      "measured_s0_stage_seconds": {
+        "audit_hash": 0.0026682640000785796,
+        "build": 0.1770101084999851,
+        "clone": 0.003870124999991731,
+        "digest": 9.147988064000913,
+        "export": 0.07575315799999771,
+        "hero_evaluate": 0.17835056100074098,
+        "inference": 2.0043025485002204,
+        "opponent_actions": 0.25387640650086496,
+        "other": 0.5909710204965108,
+        "raster": 1.4491451925010779,
+        "sim": 1.0289109285009204,
+        "v8": 0.0,
+        "v8_hero_features": 0.3613651294987221
+      },
+      "projected_full_six_branch_D300_seconds_serial": 29.974146901668572,
+      "projected_units_per_dense_decision_12proc": 0.0013876919861883598,
+      "projection_assumptions": "6 legal actions, D300, no early termination; linear 12-process scaling; includes S0 digest overhead; NOT a matched dense measurement"
+    },
+    "short-frozen": {
+      "measured_s0_plain_wall_seconds": 21.581411685000035,
+      "measured_s0_seconds_per_active_row_step": 0.02400601967185766,
+      "measured_s0_stage_seconds": {
+        "audit_hash": 0.002178888000059942,
+        "build": 0.3524715519999404,
+        "clone": 0.0037093665000043075,
+        "digest": 7.760023694502479,
+        "export": 0.07559195499999305,
+        "hero_evaluate": 0.18230921849828974,
+        "inference": 4.253265241000747,
+        "opponent_actions": 1.2775512260042206,
+        "other": 0.8758205564953414,
+        "raster": 1.447311096499675,
+        "sim": 0.9776559085016174,
+        "v8": 4.735443887997235,
+        "v8_hero_features": 0.1697780430004059
+      },
+      "projected_full_six_branch_D300_seconds_serial": 43.21083540934379,
+      "projected_units_per_dense_decision_12proc": 0.0020005016393214716,
+      "projection_assumptions": "6 legal actions, D300, no early termination; linear 12-process scaling; includes S0 digest overhead; NOT a matched dense measurement"
+    },
+    "short-mixed": {
+      "measured_s0_plain_wall_seconds": 18.121706983999957,
+      "measured_s0_seconds_per_active_row_step": 0.020157627345939885,
+      "measured_s0_stage_seconds": {
+        "audit_hash": 0.0021352094999542715,
+        "build": 0.2724403390000134,
+        "clone": 0.003610240499995143,
+        "digest": 7.480391010498806,
+        "export": 0.07611270200004583,
+        "hero_evaluate": 0.1794594864995247,
+        "inference": 3.336065994000762,
+        "opponent_actions": 1.2972593814991455,
+        "other": 0.8046465425031215,
+        "raster": 1.4360792519989332,
+        "sim": 0.9215680294998947,
+        "v8": 2.59847383699946,
+        "v8_hero_features": 0.16597728200036954
+      },
+      "projected_full_six_branch_D300_seconds_serial": 36.2837292226918,
+      "projected_units_per_dense_decision_12proc": 0.001679802278828324,
+      "projection_assumptions": "6 legal actions, D300, no early termination; linear 12-process scaling; includes S0 digest overhead; NOT a matched dense measurement"
+    },
+    "short-scripted": {
+      "measured_s0_plain_wall_seconds": 13.869631096000035,
+      "measured_s0_seconds_per_active_row_step": 0.015427843265850984,
+      "measured_s0_stage_seconds": {
+        "audit_hash": 0.0022575080001274728,
+        "build": 0.17177036099997167,
+        "clone": 0.0038303569999698084,
+        "digest": 8.322264416999076,
+        "export": 0.07821498100003055,
+        "hero_evaluate": 0.17729567199859275,
+        "inference": 1.9785716260004165,
+        "opponent_actions": 0.2543980794986851,
+        "other": 0.5839877410019199,
+        "raster": 1.4237770070025704,
+        "sim": 0.9943017414995552,
+        "v8": 0.0,
+        "v8_hero_features": 0.17328151399914304
+      },
+      "projected_full_six_branch_D300_seconds_serial": 27.77011787853177,
+      "projected_units_per_dense_decision_12proc": 0.001285653605487582,
+      "projection_assumptions": "6 legal actions, D300, no early termination; linear 12-process scaling; includes S0 digest overhead; NOT a matched dense measurement"
+    }
+  },
+  "s0_checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "s0_fixture": {
+    "beta": 1.0,
+    "bodies": [
+      "short",
+      "long"
+    ],
+    "frames": 300,
+    "horizon": 300,
+    "long_lengths": [
+      900,
+      600,
+      400,
+      300,
+      150,
+      150
+    ],
+    "mixes": [
+      "scripted",
+      "frozen",
+      "mixed"
+    ],
+    "namespace": "t34-speed-s0-baseline/v1",
+    "shadow_depth": 300,
+    "world_ids": [
+      "t34-speed-s0-baseline/v1/scripted/000000",
+      "t34-speed-s0-baseline/v1/frozen/000001",
+      "t34-speed-s0-baseline/v1/mixed/000002",
+      "t34-speed-s0-baseline/v1/scripted/000003",
+      "t34-speed-s0-baseline/v1/frozen/000004",
+      "t34-speed-s0-baseline/v1/mixed/000005"
+    ]
+  },
+  "s0_recipe": {
+    "device": "cpu",
+    "nice": 0,
+    "plan": [
+      [
+        [
+          "coverage"
+        ]
+      ],
+      [
+        [
+          "plain"
+        ],
+        [
+          "instrumented"
+        ],
+        [
+          "plain"
+        ],
+        [
+          "instrumented"
+        ],
+        [
+          "plain"
+        ]
+      ]
+    ],
+    "processes": 5,
+    "resident_worlds_per_process": 1,
+    "threads_per_process": 1,
+    "warmup_excluded": true
+  },
+  "schema": "gpu-sim-spike-baseline/v1",
+  "source_commit": "6c75defb",
+  "spec_sha256": "195072284780d654247f69e966e894832ffc10e6a3682b57d26edfdaf0652d5c"
+}
