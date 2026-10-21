@@ -1,19 +1,22 @@
 """A5-D: dense-engine fidelity and throughput on one L4 lane (excluded worlds only).
 
-Two parts in one supervised job (<= 60 min, <= 3 u), K=12 single-thread processes:
+May run before the Round 0 verdict: it touches no Round 0 byte and no selection
+world. One supervised job, K=12 single-thread processes, timeout 5 h, cap 10 u.
 
-1. Fidelity. The first 8 work items are T3's dense census worlds (b8_s3, envs
-   0..7 in bank order). Each must reproduce its historical per-world endpoints
-   (survival, death decision, alive fraction, mass integral, decisions) and the
-   exact set of batch decisions and changed actions (decision, greedy, chosen).
-   Any difference is reported and HOLDS sizing until the operator explains it
-   with the revalidated M2 queries; there is no automatic pass.
-2. Throughput. The queue continues with the 30 excluded A5-D worlds (4:3:3).
-   Completed dense worlds in the 1,200 s window after a 1,200 s cold fill,
-   times three, is the lane rate r. KILL if r < 8 worlds/h/lane.
+1. Fidelity. 8 T3 dense census worlds (b8_s3, envs 0..7) start at t=0 on 8 of the
+   12 processes. Each must reproduce its historical endpoints (survival, death
+   decision, alive fraction, mass integral, decisions), batch schedule and every
+   changed action. Status per world: PASS; EXPLAINED_TIE (pre-registered: the first
+   divergence is at a decision where this run batched and either the B8 top-2
+   advisory Q gap or the Q gap among the tied-longest candidates is <= 1e-4, the
+   known Mac<->x86 float32 BLAS-order flip); DIFFERENCE or INCOMPLETE -> HOLD.
+2. Throughput. The other 4 processes start at t=0 on the 30 excluded A5-D worlds
+   (4:3:3 order) and every freed process continues with them. Each throughput item
+   runs the full paired worker recipe (bare + dense + metric replay), so bare and
+   metric costs are measured on L4. The rate is computed by ``sizing.rate_estimates``
+   from completed process-seconds and row-steps, never from a completion window.
 
-``prepare-fidelity`` runs on the Mac (it reads historical T3 receipts, not any
-Round 0 output) and writes a portable, hash-bound fixture for upload.
+``prepare-fidelity`` runs on the Mac (reads historical T3 receipts only).
 """
 
 from __future__ import annotations
@@ -29,18 +32,25 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
-from research.t34_round0.runner import _load_export, _metrics_from_trace, _write_new
+import numpy as np
+
+from research.t34_round0.runner import (
+    _bare_trace,
+    _load_export,
+    _metrics_from_trace,
+    _write_export,
+    _write_new,
+)
 from research.t34_round0d.common import B8_SHA, read_json, sha256, write_once
 from research.t34_round0d.runner import dense_trace, public_trace
 
 FIXTURE_SCHEMA = "t34-round0d-fidelity-fixture/v1"
-BENCHMARK_SCHEMA = "t34-round0d-a5d-benchmark/v1"
+BENCHMARK_SCHEMA = "t34-round0d-a5d-benchmark/v2"
 T3_DENSE = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/dense")
 FIDELITY_WORLDS = 8
 PROCESSES = 12
-COLD_FILL_SECONDS = 1200
-WINDOW_SECONDS = 1200
 HORIZON = 5000
+TIE_EPSILON = 1e-4
 
 
 def _expected(receipt: Mapping[str, Any]) -> dict[str, Any]:
@@ -120,37 +130,46 @@ def compare(expected: Mapping[str, Any], observed: Mapping[str, Any]) -> list[st
     return differences
 
 
-def _work(request: Mapping[str, Any]) -> dict[str, Any]:
-    """One dense world in a single-threaded spawned process."""
-    from research.t34_exit_b8.label import _cpu_ceiling
+def first_divergence(expected: Mapping[str, Any], observed: Mapping[str, Any]) -> int | None:
+    """Earliest decision at which the batch schedule or the changed actions differ."""
+    candidates = []
+    exp_b, obs_b = list(expected["batch_decisions"]), list(observed["batch_decisions"])
+    for a, b in zip(exp_b, obs_b):
+        if a != b:
+            candidates.append(min(a, b))
+            break
+    else:
+        if len(exp_b) != len(obs_b):
+            longer = exp_b if len(exp_b) > len(obs_b) else obs_b
+            candidates.append(longer[min(len(exp_b), len(obs_b))])
+    exp_c = {int(c[0]): c for c in expected["changes"]}
+    obs_c = {int(c[0]): c for c in observed["changes"]}
+    candidates.extend(d for d in set(exp_c) | set(obs_c) if exp_c.get(d) != obs_c.get(d))
+    return min(candidates) if candidates else None
 
-    _cpu_ceiling(1)
-    os.environ["SNAKE_DQN_DEVICE"] = "cpu"
-    import torch
 
-    torch.set_num_threads(1)
-    row = dict(request["row"])
-    checkpoint = Path(str(request["checkpoint"]))
-    started = time.time()
-    full = dense_trace(row, checkpoint, frames=int(row["horizon"]), device="cpu")
-    finished = time.time()
-    with tempfile.TemporaryDirectory(prefix="t34-round0d-a5d-") as temporary:
-        public = Path(temporary) / "teacher.json"
-        sealed = Path(temporary) / "teacher_labels.json"
-        from research.t34_round0.runner import _write_export
+def tie_explained(decision: int | None, labels: list[Mapping[str, Any]]) -> bool:
+    """Pre-registered tie rule: the divergent decision batched here and was a float32 near-tie."""
+    if decision is None:
+        return False
+    label = next((x for x in labels if int(x["decision"]) == decision), None)
+    if label is None:
+        return False
+    q = np.asarray(label["q"], dtype=np.float64)
+    legal = [a for a in range(6) if label["legal"][a]]
+    top = sorted((q[a] for a in legal), reverse=True)
+    if len(top) >= 2 and top[0] - top[1] <= TIE_EPSILON:
+        return True
+    steps = {int(a): int(v["alive_steps"]) for a, v in label["outcomes"].items()}
+    best = max(steps.values())
+    tied = sorted((q[a] for a, s in steps.items() if s == best), reverse=True)
+    return len(tied) >= 2 and tied[0] - tied[1] <= TIE_EPSILON
 
-        _write_export(public, public_trace(full))
-        _write_export(sealed, full)
-        metrics = _metrics_from_trace(_load_export(public), checkpoint)
-        bytes_public, bytes_sealed = public.stat().st_size, sealed.stat().st_size
-        if request["kind"] == "fidelity":
-            target = Path(str(request["export_dir"])) / f"fidelity-{request['index']:02d}.json"
-            target.parent.mkdir(parents=True, exist_ok=True)
-            _write_export(target, full)
-    death = None if metrics["no_death"] else len(full["actions"]) - 1
-    observed = {
+
+def _observed(full: Mapping[str, Any], metrics: Mapping[str, Any]) -> dict[str, Any]:
+    return {
         "episode_survival": bool(metrics["no_death"]),
-        "death_t": death,
+        "death_t": None if metrics["no_death"] else len(full["actions"]) - 1,
         "alive_frame_fraction": float(metrics["survival_fraction"]),
         "mass_integral": float(metrics["mass_integral"]),
         "decisions": int(metrics["decisions"]),
@@ -161,19 +180,104 @@ def _work(request: Mapping[str, Any]) -> dict[str, Any]:
             if int(x["action"]) != int(x["student_action"])
         ],
     }
-    return {
+
+
+def _work(request: Mapping[str, Any]) -> dict[str, Any]:
+    """One A5-D item in a single-threaded spawned process."""
+    from research.t34_exit_b8.label import _cpu_ceiling
+
+    _cpu_ceiling(1)
+    os.environ["SNAKE_DQN_DEVICE"] = "cpu"
+    import torch
+
+    torch.set_num_threads(1)
+    row = dict(request["row"])
+    checkpoint = Path(str(request["checkpoint"]))
+    result: dict[str, Any] = {
         "kind": request["kind"],
         "index": int(request["index"]),
         "world_id": row["world_id"],
         "mix": row["mix"],
-        "started_at": started,
-        "finished_at": finished,
-        "seconds": finished - started,
-        "observed": observed,
-        "dense": {k: v for k, v in full["teacher_v2"].items() if isinstance(v, int)},
-        "bytes_public": bytes_public,
-        "bytes_sealed": bytes_sealed,
+        "started_at": time.time(),
     }
+    with tempfile.TemporaryDirectory(prefix="t34-round0d-a5d-") as temporary:
+        base = Path(temporary)
+        bare_bytes = 0
+        if request["kind"] == "throughput":
+            started = time.monotonic()
+            bare = _bare_trace(row, checkpoint, frames=int(row["horizon"]), device="cpu")
+            result["bare_seconds"] = time.monotonic() - started
+            _write_export(base / "bare.json", bare)
+            bare_bytes = (base / "bare.json").stat().st_size
+            started = time.monotonic()
+            _metrics_from_trace(_load_export(base / "bare.json"), checkpoint)
+            bare_metric = time.monotonic() - started
+        started = time.monotonic()
+        full = dense_trace(row, checkpoint, frames=int(row["horizon"]), device="cpu")
+        result["teacher_seconds"] = time.monotonic() - started
+        _write_export(base / "teacher.json", public_trace(full))
+        _write_export(base / "teacher_labels.json", full)
+        started = time.monotonic()
+        metrics = _metrics_from_trace(_load_export(base / "teacher.json"), checkpoint)
+        if request["kind"] == "throughput":
+            result["metric_seconds"] = bare_metric + time.monotonic() - started
+        result["bytes_per_pair"] = (
+            bare_bytes
+            + (base / "teacher.json").stat().st_size
+            + (base / "teacher_labels.json").stat().st_size
+            + 128 * 1024  # pair JSON incl. run identity, Round 0 measured order
+        )
+        if request["kind"] == "fidelity":
+            target = Path(str(request["export_dir"])) / f"fidelity-{request['index']:02d}.json"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _write_export(target, full)
+    stats = full["teacher_v2"]
+    result.update(
+        finished_at=time.time(),
+        rollout_row_steps=int(stats["rollout_row_steps"]),
+        decisions=int(stats["decisions"]),
+        batches=int(stats["batches"]),
+        observed=_observed(full, metrics),
+        labels_for_tie_rule=(
+            [{k: x[k] for k in ("decision", "q", "legal", "outcomes")} for x in full["labels"]]
+            if request["kind"] == "fidelity"
+            else []
+        ),
+    )
+    return result
+
+
+def fidelity_status(fixture: Mapping[str, Any], results: list[dict[str, Any]]) -> dict[str, Any]:
+    worlds = []
+    for i, world in enumerate(fixture["worlds"]):
+        result = next((r for r in results if r["kind"] == "fidelity" and r["index"] == i), None)
+        if result is None:
+            worlds.append({"world_id": world["row"]["world_id"], "status": "INCOMPLETE"})
+            continue
+        differences = compare(world["expected"], result["observed"])
+        status = "PASS"
+        divergence = None
+        if differences:
+            divergence = first_divergence(world["expected"], result["observed"])
+            explained = tie_explained(divergence, result["labels_for_tie_rule"])
+            status = "EXPLAINED_TIE" if explained else "DIFFERENCE"
+        worlds.append(
+            {
+                "world_id": world["row"]["world_id"],
+                "status": status,
+                "differences": differences,
+                "first_divergence": divergence,
+                "teacher_seconds": result["teacher_seconds"],
+            }
+        )
+    statuses = {w["status"] for w in worlds}
+    if statuses <= {"PASS"}:
+        overall = "PASS"
+    elif statuses <= {"PASS", "EXPLAINED_TIE"}:
+        overall = "EXPLAINED_TIE"
+    else:
+        overall = "HOLD"
+    return {"status": overall, "worlds": worlds, "tie_epsilon": TIE_EPSILON}
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
@@ -190,17 +294,24 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     if not args.local_smoke:
         validate_bank(bank)
-    a5d_rows = ordered_rows(bank["excluded_a5d_rows"])
+    throughput_rows = ordered_rows(bank["excluded_a5d_rows"])
     out = Path(args.output_dir)
     if out.exists():
         raise RuntimeError("output directory must be fresh")
     out.mkdir(parents=True)
-    items = [
+    fidelity_items = [
         {"kind": "fidelity", "index": i, "row": world["row"]}
         for i, world in enumerate(fixture["worlds"])
-    ] + [{"kind": "throughput", "index": i, "row": row} for i, row in enumerate(a5d_rows)]
+    ]
+    throughput_items = [
+        {"kind": "throughput", "index": i, "row": row} for i, row in enumerate(throughput_rows)
+    ]
     if args.limit:
-        items = items[: args.limit]
+        fidelity_items = fidelity_items[: args.limit]
+        throughput_items = throughput_items[: args.limit]
+    # Fidelity occupies 8 processes from t=0; throughput starts at t=0 on the rest
+    # and takes every freed process thereafter.
+    items = fidelity_items + throughput_items
     started = time.time()
     deadline = started + args.seconds
     processes = args.processes
@@ -245,52 +356,28 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         for process in list(getattr(pool, "_processes", {}).values()):
             process.terminate()
         pool.shutdown(wait=False, cancel_futures=True)
-    elapsed = time.time() - started
-    window_start, window_end = (
-        started + COLD_FILL_SECONDS,
-        started + COLD_FILL_SECONDS + WINDOW_SECONDS,
-    )
-    in_window = [r for r in results if window_start <= r["finished_at"] < window_end]
-    window_complete = elapsed >= COLD_FILL_SECONDS + WINDOW_SECONDS
-    fidelity = []
-    for i, world in enumerate(fixture["worlds"]):
-        result = next((r for r in results if r["kind"] == "fidelity" and r["index"] == i), None)
-        if result is None:
-            fidelity.append({"world_id": world["row"]["world_id"], "status": "INCOMPLETE"})
-            continue
-        differences = compare(world["expected"], result["observed"])
-        fidelity.append(
-            {
-                "world_id": world["row"]["world_id"],
-                "status": "PASS" if not differences else "DIFFERENCE",
-                "differences": differences,
-                "seconds": result["seconds"],
-            }
-        )
-    status = "PASS" if all(item["status"] == "PASS" for item in fidelity) else "HOLD"
-    sizes = [2 * r["bytes_public"] + r["bytes_sealed"] + 8192 for r in results]
-    rate = len(in_window) * 3600.0 / WINDOW_SECONDS if window_complete else None
+    from research.t34_round0d.sizing import SizingRefused, rate_estimates
+
+    worlds = [
+        {k: v for k, v in r.items() if k not in ("observed", "labels_for_tie_rule")}
+        for r in results
+    ]
+    try:
+        rates: dict[str, Any] = rate_estimates(worlds, processes)
+    except SizingRefused as exc:
+        rates = {"error": str(exc)}
+    sizes = [r["bytes_per_pair"] for r in results if r["kind"] == "throughput"]
     benchmark = {
         "schema": BENCHMARK_SCHEMA,
         "processes": processes,
         "platform": {"system": platform.system(), "machine": platform.machine()},
-        "elapsed_seconds": elapsed,
-        "window": {
-            "cold_fill_seconds": COLD_FILL_SECONDS,
-            "steady_window_seconds": WINDOW_SECONDS,
-            "complete": window_complete,
-            "completed_in_window": len(in_window),
-            "completed_in_window_by_mix": {
-                mix: sum(r["mix"] == mix for r in in_window)
-                for mix in ("scripted", "frozen", "mixed")
-            },
-            "completed_worlds_per_hour": rate,
-            "kill_below_worlds_per_hour": 8.0,
-            "kill": rate is None or rate < 8.0,
-        },
-        "fidelity": {"status": status, "worlds": fidelity},
+        "elapsed_seconds": time.time() - started,
+        "rates": rates,
+        "kill_below_worlds_per_hour": 5.0,
+        "fidelity": fidelity_status(fixture, results),
         "export_bytes_per_pair_upper": max(sizes) if sizes else None,
-        "worlds": [{k: v for k, v in r.items() if k != "observed"} for r in results],
+        "worlds": worlds,
+        "in_progress_at_stop": [item["row"]["world_id"] for item in pending.values()],
         "errors": errors,
         "local_smoke": bool(args.local_smoke),
     }
@@ -308,7 +395,7 @@ def main() -> None:
     bench.add_argument("--bank", required=True)
     bench.add_argument("--checkpoint", required=True)
     bench.add_argument("--output-dir", required=True)
-    bench.add_argument("--seconds", type=float, default=3000.0)
+    bench.add_argument("--seconds", type=float, default=16200.0)
     bench.add_argument("--processes", type=int, default=PROCESSES)
     bench.add_argument("--limit", type=int, default=0)
     bench.add_argument("--local-smoke", action="store_true")
@@ -319,7 +406,7 @@ def main() -> None:
     else:
         if not args.local_smoke and args.processes != PROCESSES:
             parser.error("A5-D requires K=12 processes")
-        print(json.dumps(run(args)["window"], sort_keys=True))
+        print(json.dumps(run(args)["rates"], sort_keys=True))
 
 
 if __name__ == "__main__":

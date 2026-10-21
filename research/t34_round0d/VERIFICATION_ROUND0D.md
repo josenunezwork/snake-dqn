@@ -112,3 +112,42 @@ Both findings are in the reviewer questions.
 - Dense R1 at 560 fresh worlds is 24–37 lane-h, or **49–75 u**, against the plan's "15–25 u, ≤ 30 u". The plan
   appears to have priced wall hours instead of lane-hours, missing a factor of three. As registered, R1 is
   fundable only at ≤ 30 u, so a larger R1 needs a new approval.
+
+## Re-scope verification (2026-10-20 ~21:30 PT, branch `t34-round0d-rescope-20261021`, pre-data)
+
+At the time of writing, `t34-round0-study-01/analysis/` did not exist. No Round 0 study file was opened. The
+inputs were the Opus stand-in panels (integrity, science, ops), JUDGMENT §5 action 3 and §7e/§7f, the
+RULING on the Round 0 GO file, and the boost-floor amendment (`research/t34_round0_amend/rule.py`, REPORT).
+
+Tests: `tests/test_t34_round0d.py` has **29 passed** (1 thread, `-n 2`, nice 10). Together with
+`test_t34_round0_analysis.py` and `test_t34_round0_fixes1_history.py`, 78 passed. New tests cover:
+
+- **Relative boost floor.** `analyze.amend` is `rule.amend`. At B8-like rates (about 0.1%) the registered floor
+  gives STOP and the amended floor gives GO. A teacher share below half the bare share gives STOP.
+- **Rate-to-action table:**
+  - KILL when r < 5;
+  - wall-time KILL;
+  - HOLD on a fidelity DIFFERENCE, with EXPLAINED_TIE accepted;
+  - ceiling equal to 1.2 × expected + headroom;
+  - replay timeout at least max(estimate + 25, 2 × estimate).
+- **Derived ceiling** never strands the last chunk while one lane is in flight. Breaching it on settled charges
+  alone is detected.
+- **A5-D rate** comes from process-seconds and row-steps (ρ, R = max(T3, measured), min(r_rows, r_completed)),
+  never from a time window. Nothing measured gives HOLD.
+- **Dense R1 yield rule:** N = ceil(300/y), capped at 200 u and 24 h on 3 lanes. An unreachable held-out target
+  or zero yield is not fundable.
+- **Fidelity tie rule** is narrow: a near-tie at the first divergent batched decision only.
+- **Ceiling seal:** a settled-charge breach seals `ceiling` INCONCLUSIVE, and `require_chunks` then raises
+  `CapExpiredHistory`, not KILL. This closes the integrity BLOCKER.
+- **In-flight limit:** 2 live attempts are counted. A concurrent shared probe does not make a dead attempt look
+  alive.
+- **Round 0 routing** of the governing verdict follows RULING §3 for GO, scientific STOP and INCONCLUSIVE, fault
+  STOP, integrity INCONCLUSIVE, KILL, and non-governing verdicts.
+- **Import pins** match the current bytes and agree with the amendment's `registered_sources`.
+- **Sealed labels:** no module except `labels.py` reads `round0d` `sealed/` paths.
+
+Protected packages are still untouched: `research/t34_round0`, `t34_round0_amend`, `t34_pathb`, `t34_exit_b8`,
+`t34_exit_b8_fit`, `t3_rollout_labels_20261015` and `colab_cli`.
+
+The A6 and the earlier engine checks above predate this re-scope. Activation requires a fresh, source-current A6
+on the final approved commit, followed by A5-D.

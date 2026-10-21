@@ -27,11 +27,9 @@ from research.t34_round0d.common import BINDING_DOCS, PACKAGE, ROOT, read_json, 
 
 PACKAGE_REL = "research/t34_round0d"
 PUBLIC_INPUTS = ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json"
-A5D_TIMEOUT_MINUTES = 90
-A5D_ESTIMATE_MINUTES = 45
-A5D_WORK_SECONDS = 4800
-REPLAY_ESTIMATE_MINUTES = 30
-REPLAY_TIMEOUT_MINUTES = 60
+A5D_TIMEOUT_MINUTES = 300
+A5D_ESTIMATE_MINUTES = 150
+A5D_WORK_SECONDS = 16200
 
 
 class ManifestRefused(ValueError):
@@ -149,7 +147,7 @@ def make_chunk_manifests(
     if not 1 <= lanes <= 2 or lanes + len(other_assignments) > 3:
         raise ManifestRefused("Round 0-D uses at most two lanes within the account cap of three")
     registration = read_json(ratification)
-    require_registration(registration, BANK, AUDIT, repo=ROOT)
+    require_registration(registration, BANK, AUDIT, repo=ROOT, mac_side=True)
     require_qualified_transport(ROOT, registration["commit"])
     study_root = Path(registration["study_root"])
     if out_dir.resolve() != study_root / "manifests" or out_dir.exists():
@@ -199,7 +197,7 @@ def qualify_source(manifest: dict[str, Any]) -> None:
 
 
 def a5d_manifest(*, commit: str, fidelity: Path, output_dir: Path) -> dict[str, Any]:
-    """The single excluded A5-D lane job (<= 90 min priced, <= 3 u cap, K=12)."""
+    """The single excluded A5-D lane job (5 h timeout, 10 u cap, K=12; may run pre-verdict)."""
     from research.t34_round0d.common import source_hashes
 
     hashes = source_hashes()
@@ -242,8 +240,8 @@ def a5d_manifest(*, commit: str, fidelity: Path, output_dir: Path) -> dict[str, 
         "max_export_bytes": 512 * 1024**2,
         "source_paths": sorted({*hashes, *BINDING_DOCS}),
     }
-    if not math.isclose(unit_cap, 3.0):
-        raise ManifestRefused("A5-D must stay within its 3 u cap")
+    if not math.isclose(unit_cap, 10.0):
+        raise ManifestRefused("A5-D must stay within its 10 u cap")
     return manifest
 
 
