@@ -89,6 +89,7 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
   (5) governance cut: review loop + judge only for evidence-producing registrations or changes to a bar/bank/look/candidate identity; 48 h dispatch-deadline=KILL dropped; advice = Astra advisors → one Fable judge; docs-reorg agents stopped.
   Kept: freeze-before-data, sealed outcomes, fresh disjoint paired banks, Mac-only strict gate + serving qualification, paced evaluation of any served assistant, one look, never relabel, owner release OK.
   Roles (owner, token efficiency): Sol implements; Astra advises; one Fable judge rules.
+- **2026-10-21 ~00:55 PT — Claim A L4 timing qualification (bfe18981) INCOMPLETE:** Colab dropped the assignment at 2,651 s (`AccountingError: supervised assignment disappeared`), stop verified, only the start-phase export (no timings), ~1.5 u. **Not rerun:** the old fit pipeline is being replaced by the L3 amendment; the D0 diagnostics L4 run (8 u cap) times the corrected loss instead. S2 native v8 built (4708b4fa): identical on all fixtures, 1.4–2.2× hook-level contended; D3 waits on S0 whole-workload + Sol review.
 
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
