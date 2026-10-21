@@ -9,6 +9,7 @@ of smaller batches.
 from __future__ import annotations
 
 import gc
+import json
 import statistics
 import time
 from pathlib import Path
@@ -81,6 +82,7 @@ def _long_world(checkpoint: Path, case_name: str, lengths: tuple[int, ...]) -> A
     return world
 
 
+@torch.inference_mode()
 def _step(sim: Any, policy: Any, collection: dict[str, torch.Tensor], index: int) -> None:
     """One fully resident policy/simulator tick plus representative collection writes."""
     sim.prepare()
@@ -96,6 +98,7 @@ def _step(sim: Any, policy: Any, collection: dict[str, torch.Tensor], index: int
     collection["qmax"][index].copy_(hero_q.max(dim=1).values)
 
 
+@torch.inference_mode()
 def _resident_reset(destination: Any, template: Any) -> None:
     """Copy a same-shaped device template without allocating or touching host state."""
     for key, value in destination.__dict__.items():
@@ -213,6 +216,8 @@ def run_realistic(args: Any) -> dict[str, Any]:
                     _step(sim, policy, {key: value[:1] for key, value in collection.items()}, 0)
                     if warm + 1 == args.realistic_warmup_ticks:
                         _sync(args.device)
+                        if time.perf_counter() >= deadline:
+                            raise TimeoutError("realistic warmup exceeded wall budget; no retry")
                 tick_seconds: list[float] = []
                 measured_started = time.perf_counter()
                 for tick in range(args.realistic_ticks):
@@ -227,6 +232,8 @@ def run_realistic(args: Any) -> dict[str, Any]:
                     policy.vector_prepared = policy_template.vector_prepared
                     _step(sim, policy, collection, tick)
                     _sync(args.device)
+                    if time.perf_counter() >= deadline:
+                        raise TimeoutError("realistic tick exceeded wall budget; no retry")
                     tick_seconds.append(time.perf_counter() - tick_started)
                 measured_seconds = time.perf_counter() - measured_started
                 # Materialize only a tiny checksum scalar after timing.  This
@@ -261,6 +268,21 @@ def run_realistic(args: Any) -> dict[str, Any]:
                 write_receipt(
                     args.output.parent / f"realistic-{case_name}-{requested}-{repeat:02d}.json",
                     repeat_row,
+                )
+                print(
+                    json.dumps(
+                        {
+                            "event": "realistic_repeat_complete",
+                            "case": case_name,
+                            "requested_worlds": requested,
+                            "actual_concurrent_worlds": actual,
+                            "repeat": repeat,
+                            "full_world_steps_per_second": repeat_row[
+                                "full_world_steps_per_second"
+                            ],
+                        }
+                    ),
+                    flush=True,
                 )
                 del (
                     collection,

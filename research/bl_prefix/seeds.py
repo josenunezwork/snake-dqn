@@ -19,7 +19,8 @@ from research.apex_safety_20260926 import dev_screen
 from research.bl_ppo.exports import export_json
 from research.t4e_return_20261016 import seed_audit as t4e_audit
 
-DOMAIN = "bl-prefix-e6e7-development/20261021/v1"
+DOMAIN = "bl-prefix-e6e7-development/20261021/v2"
+SEED_OFFSET = 1 << 40
 NAMESPACES = {
     "source": "source-world",
     "future": "future-rng",
@@ -58,7 +59,7 @@ def namespace_seeds(kind: str, count: int, *, round_index: int = 0) -> list[int]
     if type(round_index) is not int or round_index < 0:
         raise ValueError("round_index must be a nonnegative integer")
     namespace = NAMESPACES[kind] if round_index == 0 else f"{NAMESPACES[kind]}/round{round_index}"
-    return [int(seed) for seed in dev_screen.screen_seeds(count, DOMAIN, namespace)]
+    return [SEED_OFFSET + int(seed) for seed in dev_screen.screen_seeds(count, DOMAIN, namespace)]
 
 
 def frozen_allocation(*, round_index: int = 0) -> dict[str, list[int]]:
@@ -179,9 +180,10 @@ def _registered_history(repo: Path) -> tuple[dict[str, Any], set[int]]:
 
     published = []
     for path in sorted((repo / "research").rglob("*SEED_AUDIT*.json")):
-        if path.is_symlink():
+        resolved = path.resolve(strict=True)
+        if not resolved.is_relative_to(repo / "research") or SEALED_REL.name in resolved.parts:
             raise SeedAuditFailed(f"unsafe published inventory path: {path}")
-        value = json.loads(path.read_text())
+        value = json.loads(resolved.read_text())
         derived = set()
         if value.get("domain") == "t34-exit-b8-20261019/v1":
             for namespace, entry in value.get("namespaces", {}).items():
@@ -194,6 +196,7 @@ def _registered_history(repo: Path) -> tuple[dict[str, Any], set[int]]:
         published.append(
             {
                 "path": str(path.relative_to(repo)),
+                "resolved_path": str(resolved.relative_to(repo)),
                 "sha256": sha256(path),
                 "derived_count": len(derived),
             }
@@ -282,8 +285,10 @@ def audit(
         (Path(out).resolve(),) if out is not None else ()
     )
     history, registered = _registered_history(repo)
-    scan = _visible_text_scan(repo, artifacts, candidates, exclusions)
     registered_hits = sorted(candidates & registered)
+    if registered_hits:
+        raise SeedAuditFailed(f"whole allocation rejected: registered={registered_hits}")
+    scan = _visible_text_scan(repo, artifacts, candidates, exclusions)
     visible_hits = sorted({seed for values in scan["hits"].values() for seed in values})
     if registered_hits or visible_hits:
         raise SeedAuditFailed(
