@@ -308,3 +308,77 @@ def test_opt_in_shadow_uses_v4_without_changing_registered_module_globals() -> N
     source.runtime.memory.prev_id[0, 0] += 1
     assert not continuation.confirm(source)
     assert continuation.invalid_reason == "full_digest_mismatch"
+
+
+@pytest.mark.parametrize("boundary", ["object", "sim", "policy-runtime"])
+def test_stored_fields_cannot_be_hidden_by_attribute_interception(boundary) -> None:
+    class HiddenValue(SimpleNamespace):
+        def __getattribute__(self, name):
+            return 0 if name == "value" else super().__getattribute__(name)
+
+    class HiddenRuntime(SimpleNamespace):
+        def __getattribute__(self, name):
+            return None if name == "runtime" else super().__getattribute__(name)
+
+    world = legacy._world()
+    if boundary == "object":
+        target = HiddenValue(value=1)
+        world.runtime.extension = target
+    elif boundary == "sim":
+        world.sim = HiddenValue(**vars(world.sim), value=1)
+        target = world.sim
+    else:
+        target = SimpleNamespace(value=1)
+        world.hero = HiddenRuntime(runtime=target)
+    digest = DigestV4()
+    before, old = digest(world), oracle.full_digest(world)
+    target.value = 2
+    assert digest(world) != before
+    assert oracle.full_digest(world) != old
+
+
+@pytest.mark.parametrize("boundary", ["stored-rng", "observed-rng", "stored-rng-list"])
+def test_rng_deduplication_preserves_stored_and_observed_rng_streams(boundary) -> None:
+    class HiddenRng(SimpleNamespace):
+        observed = random.Random(919)
+
+        def __getattribute__(self, name):
+            return type(self).observed if name == "_rng" else super().__getattribute__(name)
+
+    class HiddenRngList(SimpleNamespace):
+        observed = [SimpleNamespace(_rng=random.Random(929))]
+
+        def __getattribute__(self, name):
+            return type(self).observed if name == "_rngs" else super().__getattribute__(name)
+
+    world = legacy._world()
+    if boundary == "stored-rng-list":
+        world.sim = HiddenRngList(**vars(world.sim))
+        target = vars(world.sim)["_rngs"][0]._rng
+    else:
+        wrapper = HiddenRng(_rng=random.Random(17))
+        world.sim._rngs = [wrapper]
+        target = vars(wrapper)["_rng"] if boundary == "stored-rng" else wrapper._rng
+    digest = DigestV4()
+    before, old = digest(world), oracle.full_digest(world)
+    target.random()
+    assert digest(world) != before
+    assert oracle.full_digest(world) != old
+
+
+def test_shared_environment_mt_is_read_once_per_digest_call() -> None:
+    class CountingRandom(random.Random):
+        calls = 0
+
+        def getstate(self):
+            self.calls += 1
+            return super().getstate()
+
+    world = legacy._world()
+    rng = CountingRandom(17)
+    world.sim._rngs[0]._rng = rng
+    digest = DigestV4()
+    first = digest(world)
+    assert rng.calls == 1
+    assert digest(world) == first
+    assert rng.calls == 2

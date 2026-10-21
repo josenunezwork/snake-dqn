@@ -37,7 +37,7 @@ _EXCLUDED = frozenset(
         "_rule_config_checked",
     }
 )
-_SIM_EXCLUDED = frozenset({"bodies", "food_cells", "corpse_cells", "_kernels", "_det", "_rngs"})
+_SIM_EXCLUDED = frozenset({"bodies", "food_cells", "corpse_cells", "_kernels", "_det"})
 _UNSET = object()
 
 
@@ -77,8 +77,9 @@ class DigestV4:
         self._array_headers: dict[tuple[Any, ...], bytes] = {}
         self._field_names: dict[tuple[str, ...], tuple[str, ...]] = {}
         self._checkpoints: dict[int, tuple[Any, bytes]] = {}
-        self._object_memo: dict[tuple[int, frozenset[int]], bytes] = {}
+        self._object_memo: dict[tuple[int, frozenset[int]], tuple[Any, bytes]] = {}
         self._array_memo: dict[int, tuple[np.ndarray, bytes]] = {}
+        self._rng_memo: dict[int, tuple[Any, bytes]] = {}
         self._sim_names: dict[tuple[str, ...], tuple[str, ...]] = {}
         self._checkpoint = self._fragment(checkpoint)
 
@@ -111,8 +112,8 @@ class DigestV4:
         """Stream bulk sim arrays without joining/copying a multi-MB state blob."""
         digest.update(self._array(value))
 
-    def _names(self, value: Any) -> tuple[str, ...]:
-        keys = tuple(vars(value))
+    def _names(self, fields: dict[str, Any]) -> tuple[str, ...]:
+        keys = tuple(fields)
         names = self._field_names.get(keys)
         if names is None:
             names = tuple(
@@ -122,13 +123,14 @@ class DigestV4:
         return names
 
     def _object(self, value: Any, seen: set[int], omit: frozenset[str] = frozenset()) -> bytes:
-        names = tuple(name for name in self._names(value) if name not in omit)
+        fields = vars(value)
+        names = tuple(name for name in self._names(fields) if name not in omit)
         parts = [
             _blob(b"o", f"{type(value).__module__}.{type(value).__qualname__}".encode()),
             _U64(len(names)),
         ]
         for name in names:
-            parts.extend((_blob(b"k", name.encode()), self._encode(getattr(value, name), seen)))
+            parts.extend((_blob(b"k", name.encode()), self._encode(fields[name], seen)))
         return b"".join(parts)
 
     def _mt(self, state: Any) -> bytes:
@@ -144,6 +146,15 @@ class DigestV4:
 
     def _fragment(self, value: Any) -> bytes:
         return hashlib.sha256(self._encode(value)).digest()
+
+    def _rng_fragment(self, rng: Any) -> bytes:
+        """Encode MT once per call; stored and observed streams use content refs."""
+        cached = self._rng_memo.get(id(rng))
+        if cached is not None and cached[0] is rng:
+            return cached[1]
+        fragment = b"r" + hashlib.sha256(self._mt(rng.getstate())).digest()
+        self._rng_memo[id(rng)] = (rng, fragment)
+        return fragment
 
     def _checkpoint_fragment(self, value: Any) -> bytes:
         cached = self._checkpoints.get(id(value))
@@ -176,7 +187,7 @@ class DigestV4:
         if isinstance(value, np.generic):
             return self._encode(value.item(), seen)
         if isinstance(value, random.Random):
-            return self._mt(value.getstate())
+            return self._rng_fragment(value)
         if isinstance(value, np.random.Generator):
             return b"G" + self._encode(value.bit_generator.state, seen)
         if isinstance(value, types.ModuleType):
@@ -195,8 +206,9 @@ class DigestV4:
         if identity in seen:
             return b"Q"
         memo_key = (identity, frozenset(seen))
-        if memo_key in self._object_memo:
-            return self._object_memo[memo_key]
+        cached = self._object_memo.get(memo_key)
+        if cached is not None and cached[0] is value:
+            return cached[1]
         seen.add(identity)
         try:
             if isinstance(value, (tuple, list, set, frozenset)):
@@ -254,7 +266,7 @@ class DigestV4:
             self._static[identity] = (value, fragment)
             return b"H" + fragment
         if hasattr(value, "__dict__"):
-            self._object_memo[memo_key] = result
+            self._object_memo[memo_key] = (value, result)
         return result
 
     def __call__(
@@ -264,6 +276,7 @@ class DigestV4:
         sim = world.sim
         self._object_memo = {}
         self._array_memo = {}
+        self._rng_memo = {}
         result = hashlib.sha256(_VERSION)
         parts = []
         # Explicit fixed ordering, with lengths framing every live body.
@@ -278,7 +291,8 @@ class DigestV4:
             for row in cells:
                 ordered = sorted(row) if isinstance(row, (set, frozenset)) else row
                 self._write_array(result, np.asarray(ordered, dtype="<i8").reshape(-1, 2))
-        keys = tuple(vars(sim))
+        sim_fields = vars(sim)
+        keys = tuple(sim_fields)
         names = self._sim_names.get(keys)
         if names is None:
             names = tuple(sorted(name for name in keys if name not in _SIM_EXCLUDED))
@@ -286,20 +300,19 @@ class DigestV4:
         result.update(_U64(len(names)))
         for name in names:
             result.update(_blob(b"k", name.encode()))
-            value = getattr(sim, name)
+            value = sim_fields[name]
             if isinstance(value, np.ndarray):
                 self._write_array(result, value)
             else:
                 result.update(self._encode(value))
         rngs = getattr(sim, "_rngs", ())
-        parts.append((b"L" if isinstance(rngs, list) else b"T") + _U64(len(rngs)))
+        parts.append(_U64(len(rngs)))
         for rng in rngs:
             generator = getattr(rng, "_rng", rng)
-            parts.append(self._mt(generator.getstate()))
-            # Preserve any wrapper metadata that v3 also saw, without its second MT.
-            parts.append(
-                self._object(rng, set(), frozenset({"_rng"})) if rng is not generator else b"N"
-            )
+            # Stored wrapper metadata was encoded in sim._rngs above. Keep v3's
+            # explicit observed stream too, even when a getter hides stored state.
+            # The same Random instance packs/hashes MT only once per digest call.
+            parts.append(self._rng_fragment(generator))
         memo: dict[int, bytes] = {}
 
         def runtime_fragment(runtime: Any) -> bytes:
@@ -319,8 +332,11 @@ class DigestV4:
                 parts.append(self._encode(policy))
                 continue
             parts.append(self._object(policy, {id(policy)}, frozenset({"runtime"})))
+            policy_fields = vars(policy)
             parts.append(
-                b"R" + runtime_fragment(policy.runtime) if hasattr(policy, "runtime") else b"N"
+                b"R" + runtime_fragment(policy_fields["runtime"])
+                if "runtime" in policy_fields
+                else b"N"
             )
         parts.append(b"L" if isinstance(opponents, list) else self._encode(opponents))
         parts.append(
@@ -330,6 +346,7 @@ class DigestV4:
         result.update(b"".join(parts))
         self._object_memo.clear()
         self._array_memo.clear()
+        self._rng_memo.clear()
         return result.hexdigest()
 
 
