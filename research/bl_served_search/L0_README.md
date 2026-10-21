@@ -1,26 +1,38 @@
-# L0 saved-timeline replay
+# L0′ saved-smoke bookkeeping
 
-`l0.py` is the 0-unit development-only replay specified by Round 5 judgment
-section (f). It reads only the smoke's retained `lad-*.json` controller records
-for the counterfactual timeline. It may inspect paired `n1-*.json` records to
-establish the fixed 34 rescue-capable / 41 delay-only T3 denominator and to
-describe why they cannot replace the LAD timeline.
+`l0.py` implements the Round 6 L0′ / Round 7 X8 bookkeeping replacement. It
+reads only the authorized immutable `t34-pathb-smoke-20261021` source and makes
+no game replay, controller change, dispatch, or serving claim.
 
-The frozen grid is `k={1,2,3,5,10,20}`. LAD-first prioritizes candidate frames
-that are 16–21, then 88–100, then 248–254 decisions before doom. The replay is
-valid only if every LAD record supplies every evaluation's completion seconds
-and candidate frame. Missing either field publishes `INCOMPLETE`; it must never
-be guessed from a first-improvement summary or a linked N=1 row.
+The receipt publishes four separate components:
 
-Run only under low priority with one numeric thread per process:
+- The own-deadline table compares each retained first fully-evaluated improving
+  frame with its detection frame and measured completion time. A row without
+  every field is explicitly invalid, never estimated.
+- LAD reachability reports the exact-H500 LAD for all 75 T3 records and the
+  D300 LAD for the fixed 34 rescue-capable records, including a LAD exactly at
+  `detection + S*24` for `S={1,2,3,5,8,12,18}` seconds.
+- The per-doom table reports each rescue-capable half-open window
+  `[live + ceil(S*24), D300 LAD]`. Its
+  `max(0, floor((D300_LAD - start) / 5) + 1)` count is a cadence-phase upper
+  bound because the historical first periodic-root phase was not retained. It
+  is not an observed dense-demand count or an admission bar.
+- The dense-demand census requires a retained `bare_dies_within_h300` flag and
+  `surviving_alternative` for every batch. Aggregate controller summaries and
+  truncated event lists are insufficient. Missing batch fields produce an
+  `INCOMPLETE` receipt while the available bookkeeping remains visible.
+
+Run only after the governing amendment has been committed and published, under
+low priority with one numerical thread. The output directory must be new.
 
 ```bash
 nice -n 10 env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
   MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
-  /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_served_search.l0
+  ./venv/bin/python -m research.bl_served_search.l0 \
+  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-l2/amendment08-l0
 ```
 
-The runner uses no more than four processes and writes create-only exports at
-`snake-dqn-artifacts/big-lever/exp/bl-l2/`: `l0/input_audit.json`,
-`RESULT_L0.md`, and `l0_receipt.json`, each with `.sha256` and `.complete`
-sidecars. This result is development-only and excluded from registered verdicts.
+`RESULT_L0_PRIME.md` and `l0_prime_receipt.json` each receive the repository's
+create-only `.sha256` and `.complete` sidecars. The output is development-only,
+excluded from registered verdicts, and cannot authorize a latency bar, L2′
+dispatch, a paced study, serving, or release.

@@ -20,6 +20,12 @@ from research.bl_served_search.ceiling import (
     digest_value,
     validate_bank,
 )
+from research.bl_served_search.chunks import (
+    CHUNK_COUNT,
+    chunk_rows,
+    validate_chunk_rows,
+    world_ids_sha256,
+)
 from research.bl_served_search.exports import export_json, verify_export
 from src.scripts.eval_stats import student_t_isf
 
@@ -82,6 +88,33 @@ def pooled_equivalent(per_mix: dict[str, dict[str, float | int]]) -> dict[str, f
     }
 
 
+def transfer_status(per_mix: dict[str, dict[str, float | int]]) -> dict[str, Any]:
+    """Report the prospective L4 transfer budget clause without relabelling L2.
+
+    This is intentionally a placement/funding status.  It cannot change the
+    scientific L2 decision, and L2 exports mark it non-authoritative because
+    the clause applies to a future paced L4 study.
+    """
+    missing = set(MIX_COUNTS) - set(per_mix)
+    if missing:
+        raise ValueError(f"missing transfer mixes: {sorted(missing)}")
+    points = {mix: _finite(per_mix[mix].get("estimate")) for mix in MIX_COUNTS}
+    upper90 = {mix: _finite(per_mix[mix].get("upper90")) for mix in MIX_COUNTS}
+    passed = (
+        points["frozen"] > 0.0
+        and points["mixed"] > 0.0
+        and all(value >= 0.0 for value in upper90.values())
+    )
+    return {
+        "label": "TRANSFER_READY" if passed else "TRANSFER_UNRESOLVED",
+        "frozen_point_positive": points["frozen"] > 0.0,
+        "mixed_point_positive": points["mixed"] > 0.0,
+        "no_per_mix_upper90_below_zero": all(value >= 0.0 for value in upper90.values()),
+        "points": points,
+        "upper90": upper90,
+    }
+
+
 def _row_error(row: dict[str, Any], expected: dict[str, Any]) -> str | None:
     if row.get("schema") != ROW_SCHEMA:
         return "invalid row schema"
@@ -138,6 +171,179 @@ def _row_error(row: dict[str, Any], expected: dict[str, Any]) -> str | None:
         return "mass ledger does not sum"
     if not math.isclose(ledger_total, _finite(paired["mass_integral"]), abs_tol=1e-12):
         return "mass ledger does not reconcile"
+    trajectories = row.get("trajectories")
+    if not isinstance(trajectories, dict):
+        return "missing trajectories"
+    baseline_trace, dense_trace = trajectories.get("baseline_mass"), trajectories.get("dense_mass")
+    if not isinstance(baseline_trace, list) or not isinstance(dense_trace, list):
+        return "malformed trajectories"
+    if len(baseline_trace) != HORIZON or len(dense_trace) != HORIZON:
+        return "incomplete trajectories"
+    try:
+        for trace in (baseline_trace, dense_trace):
+            if any(type(value) is not int or value < 0 for value in trace):
+                return "invalid trajectory mass"
+            first_dead = next((index for index, value in enumerate(trace) if value == 0), HORIZON)
+            if any(value != 0 for value in trace[first_dead:]):
+                return "nonterminal trajectory death"
+        baseline_mass = sum(baseline_trace) / HORIZON
+        dense_mass = sum(dense_trace) / HORIZON
+        trace_delta = dense_mass - baseline_mass
+    except ValueError:
+        return "invalid trajectory mass"
+    if not math.isclose(baseline_mass, _finite(row["baseline"]["mass_integral"]), abs_tol=1e-12):
+        return "baseline trajectory does not reconcile"
+    if not math.isclose(dense_mass, _finite(row["dense"]["mass_integral"]), abs_tol=1e-12):
+        return "dense trajectory does not reconcile"
+    for arm, trace in (("baseline", baseline_trace), ("dense", dense_trace)):
+        trace_alive_fraction = sum(value > 0 for value in trace) / HORIZON
+        trace_no_death = not any(value == 0 for value in trace)
+        try:
+            reported_alive_fraction = _finite(row[arm]["alive_frame_fraction"])
+            reported_no_death = _finite(row[arm]["no_death_episode"], boolean=True)
+        except ValueError:
+            return f"invalid {arm} survival endpoint"
+        if not math.isclose(trace_alive_fraction, reported_alive_fraction, abs_tol=1e-12):
+            return f"{arm} alive fraction does not reconcile to trajectory"
+        if trace_no_death != bool(reported_no_death):
+            return f"{arm} no-death endpoint does not reconcile to trajectory"
+    if not math.isclose(trace_delta, _finite(paired["mass_integral"]), abs_tol=1e-12):
+        return "trajectory mass does not reconcile"
+    trace_components = {
+        "common_alive_productivity_delta": sum(
+            dense - baseline
+            for baseline, dense in zip(baseline_trace, dense_trace)
+            if baseline and dense
+        )
+        / HORIZON,
+        "dense_only_survival_mass": sum(
+            dense for baseline, dense in zip(baseline_trace, dense_trace) if not baseline and dense
+        )
+        / HORIZON,
+        "baseline_only_survival_mass": -sum(
+            baseline
+            for baseline, dense in zip(baseline_trace, dense_trace)
+            if baseline and not dense
+        )
+        / HORIZON,
+    }
+    if any(
+        not math.isclose(_finite(ledger[name]), value, abs_tol=1e-12)
+        for name, value in trace_components.items()
+    ):
+        return "mass ledger components do not reconcile to trajectories"
+    world_ledger = row.get("world_ledger")
+    if not isinstance(world_ledger, dict):
+        return "missing world ledger"
+    required = (
+        "productive_rescue",
+        "d300_only_escape",
+        "re_death",
+        "delay_only_changes",
+        "newly_caused_death",
+        "common_alive_growth_loss",
+        "natural_world_denominator",
+        "baseline_died",
+        "b8_death_frame",
+        "b8_death_length",
+        "b8_death_cause",
+        "baseline_sealer",
+        "dense_sealer",
+        "interventions",
+    )
+    if any(name not in world_ledger for name in required):
+        return "incomplete world ledger"
+    if world_ledger["natural_world_denominator"] != 1:
+        return "wrong natural-world denominator"
+    if world_ledger["baseline_sealer"] not in {"hero", "opponent", "none", "unresolved"}:
+        return "invalid baseline sealer"
+    if world_ledger["dense_sealer"] not in {"hero", "opponent", "none", "unresolved"}:
+        return "invalid dense sealer"
+    interventions = world_ledger["interventions"]
+    if not isinstance(interventions, dict):
+        return "missing interventions ledger"
+    try:
+        proposed, completed = (interventions[name] for name in ("proposed", "completed"))
+        consumed = interventions["consumed_before_deadline"]
+    except (KeyError, TypeError, ValueError):
+        return "invalid interventions ledger"
+    if (
+        type(proposed) is not int
+        or type(completed) is not int
+        or min(proposed, completed) < 0
+        or not completed <= proposed
+    ):
+        return "unreconciled interventions ledger"
+    if consumed is not None and (type(consumed) is not int or consumed < 0 or consumed > completed):
+        return "unreconciled consumed-before-deadline ledger"
+    if (
+        consumed is None
+        and interventions.get("consumed_before_deadline_availability") != "UNAVAILABLE_UNPACED_L2"
+    ):
+        return "missing consumed-before-deadline availability"
+    baseline_died = bool(world_ledger["baseline_died"])
+    if type(world_ledger["baseline_died"]) is not bool:
+        return "invalid baseline death indicator"
+    observed_baseline_death = any(value == 0 for value in baseline_trace)
+    if baseline_died != observed_baseline_death:
+        return "baseline death ledger disagrees with trajectory"
+    first_baseline_death = next(
+        (index for index, value in enumerate(baseline_trace) if value == 0), None
+    )
+    if baseline_died:
+        if (
+            type(world_ledger["b8_death_frame"]) is not int
+            or world_ledger["b8_death_frame"] != first_baseline_death
+            or type(world_ledger["b8_death_length"]) is not int
+            or world_ledger["b8_death_length"] <= 0
+        ):
+            return "B8 death frame/length ledger disagrees with trajectory"
+        if (
+            first_baseline_death > 0
+            and world_ledger["b8_death_length"] != baseline_trace[first_baseline_death - 1]
+        ):
+            return "B8 death length does not match the last living baseline frame"
+    elif any(
+        world_ledger[name] is not None
+        for name in ("b8_death_frame", "b8_death_length", "b8_death_cause")
+    ):
+        return "surviving B8 row has death ledger"
+    dense_survived = not any(value == 0 for value in dense_trace)
+    tail = dense_trace[first_baseline_death:] if first_baseline_death is not None else []
+    expected_productive = bool(
+        baseline_died
+        and dense_survived
+        and tail
+        and sum(tail) / len(tail) >= 0.9 * int(world_ledger["b8_death_length"])
+    )
+    if type(world_ledger["productive_rescue"]) is not bool or (
+        world_ledger["productive_rescue"] != expected_productive
+    ):
+        return "productive rescue ledger disagrees with trajectories"
+    if bool(world_ledger["newly_caused_death"]) != (
+        not observed_baseline_death and any(value == 0 for value in dense_trace)
+    ):
+        return "new-death ledger disagrees with trajectories"
+    expected_growth_loss = (
+        sum(
+            max(0, base - dense)
+            for base, dense in zip(baseline_trace, dense_trace)
+            if base and dense
+        )
+        / HORIZON
+    )
+    try:
+        growth_loss = _finite(world_ledger["common_alive_growth_loss"])
+    except ValueError:
+        return "invalid common-alive growth loss"
+    if not math.isclose(growth_loss, expected_growth_loss, abs_tol=1e-12):
+        return "common-alive growth loss does not reconcile"
+    if int(world_ledger["delay_only_changes"]) != int(row["dense"].get("delay_only_changes", -1)):
+        return "delay-only ledger disagrees with dense receipt"
+    if proposed != int(row["dense"].get("proposed_interventions", -1)) or completed != int(
+        row["dense"].get("completed_interventions", -1)
+    ):
+        return "interventions ledger disagrees with dense receipt"
     return None
 
 
@@ -146,7 +352,7 @@ def load_rows(bank_path: Path, shard_paths: list[Path]) -> tuple[list[dict[str, 
     bank = json.loads(bank_path.read_text())
     expected_rows = validate_bank(bank)
     expected = {str(row["world_id"]): row for row in expected_rows}
-    errors, rows, seen = [], [], set()
+    errors, rows, seen, seen_chunks = [], [], set(), set()
     bank_sha = digest_file(bank_path)
     for path in shard_paths:
         try:
@@ -167,6 +373,15 @@ def load_rows(bank_path: Path, shard_paths: list[Path]) -> tuple[list[dict[str, 
                 ).source_manifest()
             ):
                 raise ValueError("shard is not bound to this complete bank")
+            chunk_index = identity.get("chunk_index")
+            if type(chunk_index) is not int or identity.get("chunk_count") != CHUNK_COUNT:
+                raise ValueError("missing immutable L2' chunk identity")
+            if chunk_index in seen_chunks or not 0 <= chunk_index < CHUNK_COUNT:
+                raise ValueError("duplicate or invalid chunk receipt")
+            expected_chunk = chunk_rows(expected_rows, chunk_index)
+            validate_chunk_rows(expected_chunk)
+            if identity.get("chunk_world_ids_sha256") != world_ids_sha256(expected_chunk):
+                raise ValueError("chunk world identity disagrees with bank")
             from research.bl_served_search.ceiling import validate_runtime_parity
 
             validate_runtime_parity(
@@ -180,6 +395,10 @@ def load_rows(bank_path: Path, shard_paths: list[Path]) -> tuple[list[dict[str, 
                 shard_rows
             ):
                 raise ValueError("row digest mismatch")
+            if [str(row.get("world_id")) for row in shard_rows] != [
+                str(row["world_id"]) for row in expected_chunk
+            ]:
+                raise ValueError("chunk rows are not the registered ordered chunk")
             for row in shard_rows:
                 world_id = str(row.get("world_id"))
                 if world_id in seen or world_id not in expected:
@@ -189,11 +408,15 @@ def load_rows(bank_path: Path, shard_paths: list[Path]) -> tuple[list[dict[str, 
                     raise ValueError(f"{world_id}: {error}")
                 seen.add(world_id)
                 rows.append(row)
+            seen_chunks.add(chunk_index)
         except (OSError, ValueError, TypeError, KeyError) as exc:
             errors.append(f"{path}: {exc}")
     missing = sorted(set(expected) - seen)
     if missing:
         errors.append(f"missing selection worlds: {len(missing)}")
+    missing_chunks = sorted(set(range(CHUNK_COUNT)) - seen_chunks)
+    if missing_chunks:
+        errors.append(f"missing terminal L2' chunks: {missing_chunks}")
     return rows, errors
 
 
@@ -213,8 +436,9 @@ def analyze(rows: list[dict[str, Any]]) -> dict[str, Any]:
     frozen_mix = mass["per_mix"]["frozen"]
     mixed_mix = mass["per_mix"]["mixed"]
     pooled = mass["pooled_equivalent"]
+    prospective_l4_transfer = transfer_status(mass["per_mix"])
     if float(pooled["upper90"]) < 40.0:
-        verdict = "KILL_SERVED_SEARCH_PUSH"
+        verdict = "PACKAGE_KILL"
     elif (
         float(frozen_mix["lower90"]) > 0.0
         and float(mixed_mix["lower90"]) > 0.0
@@ -225,6 +449,7 @@ def analyze(rows: list[dict[str, Any]]) -> dict[str, Any]:
         verdict = "INCONCLUSIVE"
     ledger = {}
     changes = {}
+    world_ledger = {}
     for mix in MIX_COUNTS:
         values = by_mix[mix]
         ledger[mix] = {
@@ -254,6 +479,42 @@ def analyze(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "delay_only_changes": sum(int(row["dense"]["delay_only_changes"]) for row in values),
             "residual_changes": sum(int(row["dense"]["residual_changes"]) for row in values),
         }
+        sealers = {name: 0 for name in ("hero", "opponent", "none", "unresolved")}
+        for row in values:
+            sealers[str(row["world_ledger"]["baseline_sealer"])] += 1
+        world_ledger[mix] = {
+            "productive_rescues": sum(
+                bool(row["world_ledger"]["productive_rescue"]) for row in values
+            ),
+            "d300_only_escapes": sum(
+                bool(row["world_ledger"]["d300_only_escape"]) for row in values
+            ),
+            "re_deaths": sum(bool(row["world_ledger"]["re_death"]) for row in values),
+            "delay_only_changes": sum(
+                int(row["world_ledger"]["delay_only_changes"]) for row in values
+            ),
+            "newly_caused_deaths": sum(
+                bool(row["world_ledger"]["newly_caused_death"]) for row in values
+            ),
+            "common_alive_growth_loss": sum(
+                float(row["world_ledger"]["common_alive_growth_loss"]) for row in values
+            ),
+            "natural_world_denominator": sum(
+                int(row["world_ledger"]["natural_world_denominator"]) for row in values
+            ),
+            "baseline_deaths": sum(bool(row["world_ledger"]["baseline_died"]) for row in values),
+            "baseline_sealer_strata": sealers,
+            "interventions": {
+                "proposed": sum(
+                    int(row["world_ledger"]["interventions"]["proposed"]) for row in values
+                ),
+                "completed": sum(
+                    int(row["world_ledger"]["interventions"]["completed"]) for row in values
+                ),
+                "consumed_before_deadline": None,
+                "consumed_before_deadline_availability": "UNAVAILABLE_UNPACED_L2",
+            },
+        }
     return {
         "status": "completed",
         "development_only": True,
@@ -261,6 +522,12 @@ def analyze(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "metrics": metrics,
         "mass_ledger": ledger,
         "changes": changes,
+        "world_ledger": world_ledger,
+        "prospective_l4_transfer": {
+            **prospective_l4_transfer,
+            "authoritative_for_l2": False,
+            "scope": "future L4 budget status; does not alter L2 scientific label",
+        },
         "decision": {"label": verdict, "frozen_kill_ub90": pooled["upper90"]},
     }
 
@@ -279,7 +546,10 @@ def main() -> None:
     if errors:
         payload = {
             "schema": "bl-served-search-l2-analysis/v1",
-            "status": "INCOMPLETE",
+            # Receipt failure, timeout, fault or an absent chunk means the
+            # registered one-look bank never opened.  Emit no partial metrics.
+            "status": "INCONCLUSIVE",
+            "decision": {"label": "INCONCLUSIVE", "reason": "terminal chunk set incomplete"},
             "errors": errors,
         }
     else:
