@@ -1,0 +1,13 @@
+{
+ "automatic_retry": false,
+ "episodes_started": 0,
+ "next_action": "wait for exclusive Mac window; independently prepare fresh root after admission passes",
+ "observed_foreign_lane": "research.bl_k1 audit followed by pytest tests/test_t34_speed_s2.py tests/test_v8_nb.py",
+ "pids": [
+  63618,
+  63620
+ ],
+ "reason": "foreign_python_cpu_lane at launch",
+ "status": "NOT_READY",
+ "time_pt": "2026-10-21T14:53:58.316466-07:00"
+}
