@@ -70,6 +70,7 @@ STAGES = (
 )
 EXPORT_SUFFIXES = ("", ".sha256", ".complete")
 ROUND_KINDS = ("coverage", "plain", "instrumented")
+ENGINES = ("stock", "native-v8")
 PACKAGE = Path(__file__).resolve().parent
 REPO = PACKAGE.parents[1]
 DEFAULT_REFERENCE = PACKAGE / "REFERENCE_MAC.json"
@@ -337,9 +338,22 @@ def _cpu_ceiling() -> None:
     torch.set_num_interop_threads(1)
 
 
-def warm_up(checkpoint: Path, output_dir: Path) -> float:
+def engine_runner(engine: str = "stock") -> Any:
+    """Select the collector; native v8 keeps scored roots on the Python hook."""
+    if engine == "stock":
+        from research.t34_exit_b8.teacher_v2 import run_worlds
+
+        return run_worlds
+    if engine == "native-v8":
+        from research.t34_speed_s2.native_v8 import run_worlds_native
+
+        return run_worlds_native
+    raise ValueError(f"unknown S0 engine {engine}")
+
+
+def warm_up(checkpoint: Path, output_dir: Path, *, engine: str = "stock") -> float:
     """Load models and compile kernels for every case outside timed rounds."""
-    from research.t34_exit_b8.teacher_v2 import run_worlds
+    run_worlds = engine_runner(engine)
 
     started = time.perf_counter()
     for case in fixture_cases():
@@ -351,9 +365,11 @@ def warm_up(checkpoint: Path, output_dir: Path) -> float:
     return time.perf_counter() - started
 
 
-def run_round(checkpoint: Path, output_dir: Path, kind: str) -> dict[str, Any]:
+def run_round(
+    checkpoint: Path, output_dir: Path, kind: str, *, engine: str = "stock"
+) -> dict[str, Any]:
     """Run all six cases once; returns per-case timings, work, counters and hashes."""
-    from research.t34_exit_b8.teacher_v2 import run_worlds
+    run_worlds = engine_runner(engine)
 
     if kind not in ROUND_KINDS:
         raise ValueError(f"unknown round kind {kind}")
@@ -399,6 +415,8 @@ def run_round(checkpoint: Path, output_dir: Path, kind: str) -> dict[str, Any]:
             "host_stage_seconds": dict(receipt["host_stage_seconds"]),
             "export_bytes": int(receipt["export_bytes"]),
         }
+        if "native_v8" in receipt:
+            entry["native_v8"] = receipt["native_v8"]
         if kind == "coverage":
             entry["events"] = {k: int(v) for k, v in counters.items() if not k.startswith("_")}
         if kind == "instrumented":
@@ -416,15 +434,22 @@ def run_round(checkpoint: Path, output_dir: Path, kind: str) -> dict[str, Any]:
 
 
 def _worker(
-    rank: int, checkpoint: str, output_dir: str, kinds: list[str], result_queue: Any
+    rank: int,
+    checkpoint: str,
+    output_dir: str,
+    kinds: list[str],
+    result_queue: Any,
+    engine: str = "stock",
 ) -> None:
     try:
         _cpu_ceiling()
         root = Path(output_dir)
-        warm = warm_up(Path(checkpoint), root / "warmup")
+        warm = warm_up(Path(checkpoint), root / "warmup", engine=engine)
         rounds = []
         for index, kind in enumerate(kinds):
-            rounds.append(run_round(Path(checkpoint), root / f"round-{index:02d}-{kind}", kind))
+            rounds.append(
+                run_round(Path(checkpoint), root / f"round-{index:02d}-{kind}", kind, engine=engine)
+            )
         rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
         result_queue.put(
             (
@@ -466,14 +491,26 @@ def schedule(processes: int, plain: int, instrumented: int) -> list[list[list[st
 
 
 def run_processes(
-    checkpoint: Path, output_dir: Path, plan: list[list[str]], *, deadline_seconds: float
+    checkpoint: Path,
+    output_dir: Path,
+    plan: list[list[str]],
+    *,
+    deadline_seconds: float,
+    engine: str = "stock",
 ) -> list[dict[str, Any]]:
     context = mp.get_context("spawn")
     results = context.Queue()
     children = [
         context.Process(
             target=_worker,
-            args=(rank, str(checkpoint), str(output_dir / f"proc-{rank:02d}"), kinds, results),
+            args=(
+                rank,
+                str(checkpoint),
+                str(output_dir / f"proc-{rank:02d}"),
+                kinds,
+                results,
+                engine,
+            ),
         )
         for rank, kinds in enumerate(plan)
     ]
@@ -515,16 +552,17 @@ def run_processes(
 # --------------------------------------------------------------------------- report
 
 
-def engine_source_digest(repo: Path = REPO) -> dict[str, Any]:
+def engine_source_digest(repo: Path = REPO, *, engine: str = "stock") -> dict[str, Any]:
     """Per-file SHA-256 of the engine import closure plus one combined digest."""
     files: dict[str, str] = {}
-    for relative in ENGINE_SOURCES:
+    roots = ENGINE_SOURCES + (("research/t34_speed_s2",) if engine == "native-v8" else ())
+    for relative in roots:
         for path in sorted((repo / relative).rglob("*.py")):
             files[str(path.relative_to(repo))] = _sha256(path)
     combined = hashlib.sha256(
         "".join(f"{k}\0{v}\n" for k, v in sorted(files.items())).encode()
     ).hexdigest()
-    return {"combined_sha256": combined, "files": len(files), "roots": list(ENGINE_SOURCES)}
+    return {"combined_sha256": combined, "files": len(files), "roots": list(roots)}
 
 
 def compare_hashes(observed: Mapping[str, str], reference: Mapping[str, str]) -> dict[str, Any]:
@@ -767,6 +805,12 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--host-label", required=True, help="e.g. mac-contended-phase0, colab-l4")
+    parser.add_argument(
+        "--engine",
+        choices=ENGINES,
+        default="stock",
+        help="opt-in native-v8 for non-root rows; roots stay on Python",
+    )
     parser.add_argument("--processes", type=int, default=1)
     parser.add_argument("--plain-rounds", type=int, default=3)
     parser.add_argument("--instrumented-rounds", type=int, default=2)
@@ -778,6 +822,8 @@ def main() -> None:
     args = parser.parse_args()
     if sys.platform == "darwin" and args.processes > 2:  # Mac rule: <= 2 threads
         parser.error("Mac runs are capped at two single-thread processes")
+    if args.engine != "stock" and args.write_reference is not None:
+        parser.error("only the stock engine may write a frozen reference")
     output = args.output_dir
     if output.exists() and any(output.iterdir()):
         parser.error(f"output directory must be fresh: {output}")
@@ -795,7 +841,11 @@ def main() -> None:
     for phase, processes in enumerate(plan):
         remaining = args.deadline_seconds - (time.time() - started)
         for report in run_processes(
-            checkpoint, work / f"phase-{phase}", processes, deadline_seconds=remaining
+            checkpoint,
+            work / f"phase-{phase}",
+            processes,
+            deadline_seconds=remaining,
+            engine=args.engine,
         ):
             reports.append({"phase": phase, "concurrent_processes": len(processes), **report})
     summary = summarize(reports, None if reference_doc is None else reference_doc["files"])
@@ -807,10 +857,11 @@ def main() -> None:
         "started_unix": started,
         "elapsed_seconds": time.time() - started,
         "source_commit": _git_revision(),
-        "engine_source": engine_source_digest(),
+        "engine_source": engine_source_digest(engine=args.engine),
         "checkpoint_sha256": _sha256(checkpoint),
         "hardware": runtime_hardware(),
         "recipe": {
+            "engine": args.engine,
             "device": "cpu",
             "threads_per_process": 1,
             "processes": args.processes,
