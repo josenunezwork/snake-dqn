@@ -1,0 +1,120 @@
+{
+  "bank_sha256": "37ffffe24ec00b6f13c9249f1272efe04d75a0ff3789699c1762154e63e41c2a",
+  "inventories": [
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/phase0_search_20261019/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "c7a461fbb78adba56cded523b0b0a767a4328b687394d4c5cd99baaa15ba3fe2"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 1,
+      "path": "research/q0q1_20261017/Q1_SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "694a0717ca5627b07a1a4070c27cf6c31519d0d2cf686a826f30ea96c3b083d0"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 961,
+      "path": "research/redesign_t7_phase_r_20261016/SEED_AUDIT_T7.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "0d1cee86786fe9f8b6cc3134722c95e09c73aa416ff90398717371163f41f3c5"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 11,
+      "path": "research/s1_mature_20261018/S1_SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "e1585e2f64debcbd1704964e7199a644f958439bea3786cf132ab52412221191"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 11,
+      "path": "research/s1_mature_20261018/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "e1585e2f64debcbd1704964e7199a644f958439bea3786cf132ab52412221191"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 73,
+      "path": "research/t12_b8_serving_20261017/SEED_AUDIT_T12.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "b4847c1048e232d8702a27e9f87196816b1feddf9e31a258c871cdd8062706b7"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 73,
+      "path": "research/t12_b8_serving_20261017/SEED_AUDIT_T12_V2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "798402fbe40986047d2a69e5d45547b55c412ae2bb964c2d66d4e923d4de5015"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 26,
+      "path": "research/t13_product_roster_20261017/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "d9dee9d9b07a956bf0ebbb1661e4380e0167d7795bcadb8d06a89ec1cf5a1824"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 26,
+      "path": "research/t13b_six_snake_20261017/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "ceda3c4b26609cb2e77089291de66b41ffa039a1d25c2fd032ac404364c0269b"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/t23_r0_screen_20261017/SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "4b2030627380c856fe10f5e65ccdae5b8b0f6fe571c16881777f9c6e38e93a3f"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 3,
+      "path": "research/t34_claim_a/SEED_AUDIT_CLAIM_A.json",
+      "reconstructed_hash_only_seeds": 856,
+      "sha256": "3a8a1fe85a41c31e3e095effcf40c83918a64fac2bbed69dddf8fe32d4754d6e"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 3,
+      "path": "research/t34_claim_a_r1/SEED_AUDIT_R1.json",
+      "reconstructed_hash_only_seeds": 2000,
+      "sha256": "d8387544fb62ae949502e95038e795ef8650c17b84e260f0c82262f2bd9cebe5"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 178,
+      "path": "research/t34_pathb/SEED_AUDIT_RETENTION_V2.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "7d895340b742d2011fde9e2731c3e73c1b58484023b3e4afbf66e769704f3b51"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 242,
+      "path": "research/t34_round0/SEED_AUDIT_ROUND0.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "8cd2d43f3c19ed51c74b9ee0a2bf328eaad463095c8032dc0e8b5653e4eeee08"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 0,
+      "path": "research/t34_round0/TABULAR_SEED_AUDIT.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "9fbaa8aeecf9358e8bff5936fb150a79bc77990298015d2b698fbf0268f7cd8b"
+    },
+    {
+      "collisions": 0,
+      "concrete_seed_values": 272,
+      "path": "research/t34_round0d/SEED_AUDIT_ROUND0D.json",
+      "reconstructed_hash_only_seeds": 0,
+      "sha256": "508166eaae66da6e93abbcf99966f7b914af3f88cb39be708ec493e641ee208d"
+    }
+  ],
+  "note": "supplements original full-history audit after merging concurrent main",
+  "schema": "t34-o1-main-update-audit/v1",
+  "status": "CLEAR"
+}
