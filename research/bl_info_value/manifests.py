@@ -109,6 +109,12 @@ def build(
         "research/bl_info_value",
     ]
     source_paths += timing["research_sources"]
+    # Generic supervisor validation does not automatically apply the T34
+    # transport qualification fence to a new development package. Reuse its
+    # read-only verifier so both local and pinned executable bytes are checked.
+    from research.t34_exit_b8.qualification import require_qualified_transport
+
+    qualification = require_qualified_transport(repo, commit)
     manifest = dict(
         job_id="bl-e3-info-value-01",
         commit=commit,
@@ -146,6 +152,7 @@ def build(
             forecast_within_usable_budget=plan["dispatch_within_forecast"],
             input_sha256=sha256(inputs),
             timing_sha256=sha256(timing_path),
+            transport_qualification=qualification,
         ),
     )
     return dict(manifest=str(destination / "job.json"), forecast=plan, commit=commit)
