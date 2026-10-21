@@ -101,6 +101,10 @@ def seal(
 ) -> dict[str, Any]:
     if not attest_no_retention_phase:
         raise SealRefused("sealing is Mac work: attest that no retention phase runs or is admitted")
+    from .make_manifest import BINDING_KEYS
+
+    if round0.get("decision") != "GO" or any(not round0.get(k) for k in BINDING_KEYS):
+        raise SealRefused("R1 labels seal only under the bound governing Round 0 GO")
     inventories = [
         inventory_chunk(c, p, b8_sha256=b8_sha256)
         for c, p in sorted(

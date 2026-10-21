@@ -6,7 +6,7 @@ an L4 runtime, beta 1, confirm interval 8) with four changes made here, not in
 the ratified package:
 
 * ``T34_NAMESPACE`` is the seed-audited Claim A R1 namespace of the chunk
-  (``t34-claim-a/r1/{train|heldout}/s{k}/a{attempt}``), checked against
+  (``t34-claim-a/r1-labels-v4/{train|heldout}/s{k}/a{attempt}``), checked against
   ``SEED_AUDIT_R1.json`` (fresh, disjoint from Round 0 / 0-D / retention and the
   visible strict/serving/screen history);
 * the job binds the **governing** Round 0 verdict (RULING_round0_go_file.md):
@@ -34,7 +34,7 @@ from typing import Any, Callable, Mapping
 
 from research.t34_exit_b8 import make_manifest as ratified
 
-from .plan import CHUNK_WORLDS, LANE_CAP_UNITS, Chunk
+from .plan import CHUNK_WORLDS, LANE_CAP_UNITS, Chunk, plan
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "research/t34_claim_a_r1"
@@ -43,6 +43,10 @@ DEFAULT_SEED_AUDIT = Path(__file__).with_name("SEED_AUDIT_R1.json")
 MEASURED_EXPORT_BYTES_PER_WORLD = 9_000_000
 CLAIM = "R1_LABEL_DATA_ONLY_NOT_EVIDENCE"
 AMEND_LEDGER = "research/t34_round0_amend/ledger/{root}.jsonl"
+AMEND_PHASE = "amendment-boost-floor"
+AMEND_SCHEMA = "t34-round0-decision-amended/v1"
+AMEND_TERMINAL_SCHEMA = "t34-round0-amend-terminal/v1"
+BINDING_KEYS = ("decision", "decision_sha256", "phase_terminal_sha256", "amendment_ledger")
 
 
 class ManifestRefused(ValueError):
@@ -84,6 +88,8 @@ def governing_round0(
             "(RULING_round0_go_file.md); the registered analysis/decision.json never governs"
         )
     decision = json.loads(decision_path.read_text())
+    if decision.get("schema") != AMEND_SCHEMA:
+        raise ManifestRefused(f"decision.json is not a {AMEND_SCHEMA} governing verdict")
     if decision.get("governing") is not True:
         raise ManifestRefused("decision.json is not the governing verdict (governing != true)")
     if decision.get("decision") != "GO":
@@ -94,14 +100,20 @@ def governing_round0(
     if not terminal_path.is_file():
         raise ManifestRefused("governing verdict has no sealed phase_terminal.json")
     terminal = json.loads(terminal_path.read_text())
+    if terminal.get("schema") != AMEND_TERMINAL_SCHEMA or terminal.get("status") != "COMPLETE":
+        raise ManifestRefused("phase_terminal.json is not a COMPLETE amendment seal")
     decision_sha = sha256_file(decision_path)
     if (terminal.get("files") or {}).get("decision.json") != decision_sha:
         raise ManifestRefused("phase_terminal.json does not seal this decision.json")
     terminal_sha = sha256_file(terminal_path)
     relative = AMEND_LEDGER.format(root=decision_path.parent.parent.name)
-    if not any(e.get("terminal_sha256") == terminal_sha for e in ledger(repo, relative)):
+    if not any(
+        e.get("terminal_sha256") == terminal_sha and e.get("phase", AMEND_PHASE) == AMEND_PHASE
+        for e in ledger(repo, relative)
+    ):
         raise ManifestRefused("governing terminal is not in the published amendment ledger")
     return {
+        "decision": "GO",
         "decision_path": str(decision_path),
         "decision_sha256": decision_sha,
         "phase_terminal_sha256": terminal_sha,
@@ -128,7 +140,16 @@ def make_chunk_manifest(
     round0: Mapping[str, Any],
     seed_audit: Path = DEFAULT_SEED_AUDIT,
 ) -> dict[str, Any]:
-    """One 100-world R1 chunk as the ratified v2 label job, retargeted to its namespace."""
+    """One 100-world R1 chunk as the ratified v2 label job, retargeted to its namespace.
+
+    ``round0`` must be the binding returned by :func:`governing_round0` (a GO); any
+    other mapping is refused, so no code path builds an R1 job without a governing GO.
+    """
+    missing = [key for key in BINDING_KEYS if not round0.get(key)]
+    if missing or round0.get("decision") != "GO":
+        raise ManifestRefused(
+            f"R1 needs the published governing Round 0 GO binding (missing {missing or 'GO'})"
+        )
     audit = _seed_audit(seed_audit, chunk.namespace, chunk.worlds)
     base = ratified.make_manifest(
         kind="label",
@@ -176,8 +197,11 @@ def validate_manifest(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[st
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--split", choices=("train", "heldout"), required=True)
-    parser.add_argument("--shard", type=int, required=True)
+    parser.add_argument("--split", choices=("train", "heldout"))
+    parser.add_argument("--shard", type=int)
+    parser.add_argument(
+        "--all", action="store_true", help="write every chunk of the frozen plan into --out (dir)"
+    )
     parser.add_argument("--attempt", type=int, default=0)
     parser.add_argument("--round0-decision", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -186,21 +210,32 @@ def main() -> None:
     parser.add_argument("--seed-audit", type=Path, default=DEFAULT_SEED_AUDIT)
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
-    chunk = Chunk(args.split, args.shard, args.attempt)
-    manifest = make_chunk_manifest(
-        commit=args.commit or ratified.git_head(),
-        output_dir=args.output_dir,
-        chunk=chunk,
-        round0=governing_round0(args.round0_decision),
-        seed_audit=args.seed_audit,
-    )
-    if args.validate:
-        validate_manifest(manifest)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("x", encoding="utf-8") as stream:
-        json.dump(manifest, stream, indent=2, sort_keys=True)
-        stream.write("\n")
-    print(json.dumps({"manifest": str(args.out), "job_id": chunk.job_id}, sort_keys=True))
+    # The governing GO is checked first: nothing is built on any other verdict.
+    round0 = governing_round0(args.round0_decision)
+    commit = args.commit or ratified.git_head()
+    if args.all:
+        chunks = plan(args.attempt)
+        targets = [(c, args.output_dir / c.job_id, args.out / f"{c.job_id}.json") for c in chunks]
+    else:
+        if args.split is None or args.shard is None:
+            raise SystemExit("--split and --shard are required without --all")
+        chunk = Chunk(args.split, args.shard, args.attempt)
+        targets = [(chunk, args.output_dir, args.out)]
+    for chunk, output_dir, out in targets:
+        manifest = make_chunk_manifest(
+            commit=commit,
+            output_dir=output_dir,
+            chunk=chunk,
+            round0=round0,
+            seed_audit=args.seed_audit,
+        )
+        if args.validate:
+            validate_manifest(manifest)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("x", encoding="utf-8") as stream:
+            json.dump(manifest, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+        print(json.dumps({"manifest": str(out), "job_id": chunk.job_id}, sort_keys=True))
 
 
 if __name__ == "__main__":

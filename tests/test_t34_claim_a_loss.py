@@ -247,12 +247,17 @@ def _governing(tmp_path: Path, **override) -> Path:
     out = root / "amendment-boost-floor"
     out.mkdir(parents=True)
     decision = {
+        "schema": r1m.AMEND_SCHEMA,
         "governing": True,
         "decision": "GO",
         "evidence_authority": "TIER_1_DEVELOPMENT",
     } | override
     (out / "decision.json").write_text(json.dumps(decision))
-    terminal = {"files": {"decision.json": r1m.sha256_file(out / "decision.json")}}
+    terminal = {
+        "schema": r1m.AMEND_TERMINAL_SCHEMA,
+        "status": "COMPLETE",
+        "files": {"decision.json": r1m.sha256_file(out / "decision.json")},
+    }
     (out / "phase_terminal.json").write_text(json.dumps(terminal))
     return out / "decision.json"
 
@@ -260,7 +265,7 @@ def _governing(tmp_path: Path, **override) -> Path:
 def _ledger_for(path: Path):
     sha = r1m.sha256_file(path.parent / "phase_terminal.json")
     return lambda _repo, rel: (
-        [{"phase": "x", "terminal_sha256": sha}]
+        [{"phase": "amendment-boost-floor", "terminal_sha256": sha}]
         if rel.endswith("t34-round0-study-01.jsonl")
         else []
     )
@@ -288,9 +293,35 @@ def test_r1_binds_only_the_published_governing_round0_go(tmp_path: Path) -> None
     (registered / "decision.json").write_text(json.dumps({"decision": "GO"}))
     with pytest.raises(r1m.ManifestRefused, match="never governs"):
         r1m.governing_round0(registered / "decision.json", ledger=lambda *_: [])
-    (path.parent / "phase_terminal.json").write_text(json.dumps({"files": {}}))
+    assert bound["decision"] == "GO"
+    wrong_phase = lambda _r, _rel: [  # noqa: E731
+        {
+            "phase": "analysis",
+            "terminal_sha256": r1m.sha256_file(path.parent / "phase_terminal.json"),
+        }
+    ]
+    with pytest.raises(r1m.ManifestRefused, match="published amendment ledger"):
+        r1m.governing_round0(path, ledger=wrong_phase)
+    sub = tmp_path / "noschema"
+    sub.mkdir()
+    p = _governing(sub, schema="t34-round0-decision/v1")
+    with pytest.raises(r1m.ManifestRefused, match="governing verdict"):
+        r1m.governing_round0(p, ledger=_ledger_for(p))
+    terminal = json.loads((path.parent / "phase_terminal.json").read_text())
+    (path.parent / "phase_terminal.json").write_text(json.dumps(terminal | {"status": "KILL"}))
+    with pytest.raises(r1m.ManifestRefused, match="COMPLETE"):
+        r1m.governing_round0(path, ledger=_ledger_for(path))
+    (path.parent / "phase_terminal.json").write_text(json.dumps(terminal | {"files": {}}))
     with pytest.raises(r1m.ManifestRefused, match="does not seal"):
         r1m.governing_round0(path, ledger=_ledger_for(path))
+
+
+GO_BINDING = {
+    "decision": "GO",
+    "decision_sha256": "d" * 64,
+    "phase_terminal_sha256": "e" * 64,
+    "amendment_ledger": "research/t34_round0_amend/ledger/t34-round0-study-01.jsonl",
+}
 
 
 @pytest.fixture
@@ -304,7 +335,12 @@ def test_r1_chunk_manifest_is_the_ratified_label_job_retargeted(tmp_path: Path, 
     from research.colab_cli import accounting
 
     chunk = r1p.Chunk("heldout", 1)
-    round0 = {"decision_sha256": "d" * 64, "phase_terminal_sha256": "e" * 64}
+    round0 = GO_BINDING
+    for bad in ({}, dict(GO_BINDING, decision="STOP"), dict(GO_BINDING, decision_sha256="")):
+        with pytest.raises(r1m.ManifestRefused, match="governing Round 0 GO"):
+            r1m.make_chunk_manifest(
+                commit="a" * 40, output_dir=tmp_path / "o", chunk=chunk, round0=bad
+            )
     manifest = r1m.make_chunk_manifest(
         commit="a" * 40, output_dir=tmp_path / "o", chunk=chunk, round0=round0
     )
@@ -363,11 +399,15 @@ def test_seal_inventories_label_data_and_applies_support_minimum(tmp_path: Path)
         r1s.seal(
             chunks, tmp_path / "s0.json", b8_sha256=b8, round0={}, attest_no_retention_phase=False
         )
+    with pytest.raises(r1s.SealRefused, match="governing Round 0 GO"):
+        r1s.seal(
+            chunks, tmp_path / "s1.json", b8_sha256=b8, round0={}, attest_no_retention_phase=True
+        )
     sealed = r1s.seal(
         chunks,
         tmp_path / "sealed.json",
         b8_sha256=b8,
-        round0={"x": 1},
+        round0=GO_BINDING,
         attest_no_retention_phase=True,
     )
     assert sealed["worlds"] == {"train": 16, "heldout": 62}
@@ -378,7 +418,7 @@ def test_seal_inventories_label_data_and_applies_support_minimum(tmp_path: Path)
             chunks,
             tmp_path / "sealed.json",
             b8_sha256=b8,
-            round0={},
+            round0=GO_BINDING,
             attest_no_retention_phase=True,
         )
     stray = tmp_path / "stray"
