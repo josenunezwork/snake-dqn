@@ -9,12 +9,13 @@ import pytest
 from research.bl_ppo.manifests import (
     ManifestRefused,
     e2_transitions,
+    git_head,
     make_e2_manifests,
     make_e2_templates,
     make_e4_manifest,
 )
 
-COMMIT = "a" * 40
+COMMIT = git_head()
 
 
 def _roster(tmp_path: Path) -> tuple[Path, ...]:
