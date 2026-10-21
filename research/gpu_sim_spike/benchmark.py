@@ -545,6 +545,8 @@ def main() -> None:
     try:
         dense = run(args) if args.mode in ("dense", "all") else None
         realistic = run_realistic(args) if args.mode in ("realistic", "all") else None
+        if time.perf_counter() >= args._absolute_deadline:
+            raise TimeoutError("final benchmark unit exceeded shared wall budget; no retry")
         if args.mode == "dense":
             receipt = dense
         elif args.mode == "realistic":
