@@ -1,0 +1,84 @@
+{
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "engine_source": {
+    "combined_sha256": "3b9f156400d07562cc623d0b02711f66259c7e04c9f869bc0e949f9745a40f2d",
+    "files": 108,
+    "roots": [
+      "research/t34_exit_b8",
+      "research/t34_shadow",
+      "research/t33_batched_teacher",
+      "research/phase0_search_20261019",
+      "research/t3_rollout_labels_20261015",
+      "src/simd_env",
+      "src/model"
+    ]
+  },
+  "files": {
+    "long-frozen/world-000000.json": "deb897d143e2b44d7b426d738a6d49d8f56534d29f623cf0bc28db6b0b6d6ddb",
+    "long-frozen/world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "long-frozen/world-000000.json.sha256": "874a5e225eb5ea79a9c1eaa4ccaad3eaa3708ec16d142043525643c2f9b2d68d",
+    "long-mixed/world-000000.json": "4c0a474be253b9c8257dcbedcebc86e0798a99f1c2622e97bc18a2f79bdcef80",
+    "long-mixed/world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "long-mixed/world-000000.json.sha256": "b3d4f8c5cca2035224c7138d4ee10fc03214748e16b5c190d4deda1873a1c9cc",
+    "long-scripted/world-000000.json": "15fd6842904e4c5d679f1ef2169832edf11fe70dd744f24103774a77a026df9a",
+    "long-scripted/world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "long-scripted/world-000000.json.sha256": "1697678227885ba1e92edb432ab6657636a95e16f62f251c4747a920045a69b9",
+    "short-frozen/world-000000.json": "b6fa95c5422f80aecec4a3e3e25bddf979d96a7753b2fac517923af1d6eb0eb2",
+    "short-frozen/world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "short-frozen/world-000000.json.sha256": "a9b9cdf72829e5d12eb0a3a5406fe7f07c059b44e7e532a1f250262462589e08",
+    "short-mixed/world-000000.json": "b1f037caf6d9e5d021b32de5154aece939f2a913204b18973c6006737f95d366",
+    "short-mixed/world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "short-mixed/world-000000.json.sha256": "4cce5d313f6d0de4a411ce47e973c260561a668534cb917d9007d3d34ddaf870",
+    "short-scripted/world-000000.json": "d71c10206c9e6bc3522be632471c2c205cb7f553000f9dd52bdb7f2bdc662e0f",
+    "short-scripted/world-000000.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "short-scripted/world-000000.json.sha256": "68c1d68aea3613446e042ed006402c62d9f4e3161fa1dc24f0e4d14023837ec0"
+  },
+  "fixture": {
+    "beta": 1.0,
+    "bodies": [
+      "short",
+      "long"
+    ],
+    "frames": 300,
+    "horizon": 300,
+    "long_lengths": [
+      900,
+      600,
+      400,
+      300,
+      150,
+      150
+    ],
+    "mixes": [
+      "scripted",
+      "frozen",
+      "mixed"
+    ],
+    "namespace": "t34-speed-s0-baseline/v1",
+    "shadow_depth": 300,
+    "world_ids": [
+      "t34-speed-s0-baseline/v1/scripted/000000",
+      "t34-speed-s0-baseline/v1/frozen/000001",
+      "t34-speed-s0-baseline/v1/mixed/000002",
+      "t34-speed-s0-baseline/v1/scripted/000003",
+      "t34-speed-s0-baseline/v1/frozen/000004",
+      "t34-speed-s0-baseline/v1/mixed/000005"
+    ]
+  },
+  "hardware": {
+    "cpu_brand": "Apple M5 Pro",
+    "load_average": [
+      12.2236328125,
+      12.2861328125,
+      11.86962890625
+    ],
+    "machine": "arm64",
+    "nproc": 18,
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "processor": "arm",
+    "python": "3.12.3"
+  },
+  "host_label": "mac-contended-phase0-nice10-1proc",
+  "schema": "t34-speed-s0-reference/v1",
+  "source_commit": "1692d5c3ff8eb1d0882e717b741586e14cbf2226"
+}

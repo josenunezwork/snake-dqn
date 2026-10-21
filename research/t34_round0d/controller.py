@@ -69,6 +69,7 @@ class DenseT3Controller:
         self.trigger = DenseTrigger(min_length=self.min_length, interval=INTERVAL)
         self.last_batch = -INTERVAL
         self.base_config = teacher.config
+        self.last: dict[str, Any] = {}
         self.stats = {
             "decisions": 0,
             "trigger_eligible": 0,
@@ -87,6 +88,8 @@ class DenseT3Controller:
         evaluation = self.teacher.evaluate(world)
         q = np.asarray(evaluation.q, dtype=np.float32)
         greedy = int(evaluation.greedy_action())
+        advisory_now = np.asarray(world.sim.get_advisory_action_mask()[0, 0], dtype=bool)
+        self.last = {"q": q.copy(), "advisory": advisory_now.copy(), "greedy": greedy}
         alive = bool(sim.alive[0, 0])
         length = int(sim.length[0, 0]) if alive else 0
         advisory = np.asarray(sim.get_advisory_action_mask()[0, 0], dtype=bool)

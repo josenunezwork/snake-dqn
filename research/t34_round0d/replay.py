@@ -177,10 +177,17 @@ def job(args: argparse.Namespace) -> dict[str, Any]:
 def replay_manifest(
     registration: Mapping[str, Any], replay_plan_path: Path, admission: Path, out: Path
 ) -> dict[str, Any]:
-    """The single replay job: second L4 runtime, 60 min timeout, 2.0 u cap."""
+    """The single replay job on a second L4 runtime, sized from A5-D at ratification.
+
+    Timeout, estimate and cap come from ``registration["sizing"]["replay"]``
+    (``sizing.replay_sizing``: timeout >= max(estimate + 25, 2 x estimate, 60)).
+    """
     replay_plan = read_json(replay_plan_path)
-    timeout = 60
-    unit_cap = timeout * RATE_UNITS_PER_HOUR / 60.0
+    sized = registration["sizing"]["replay"]
+    timeout = int(sized["timeout_minutes"])
+    unit_cap = float(sized["unit_cap"])
+    if unit_cap != timeout * RATE_UNITS_PER_HOUR / 60.0:
+        raise ValueError("replay cap must price its registered timeout at 2.0 u/h")
     return {
         "job_id": "t34-round0d-replay-01",
         "commit": registration["commit"],
@@ -193,7 +200,12 @@ def replay_manifest(
             "T34_ROUND0D_RUNTIME_ID": "t34-round0d-replay-01",
             "T34_ROUND0D_COMMIT": registration["commit"],
         },
-        "requirements": {"gpu": "L4", "allowed_gpus": ["L4"], "min_vcpu": 12, "est_minutes": 30},
+        "requirements": {
+            "gpu": "L4",
+            "allowed_gpus": ["L4"],
+            "min_vcpu": 12,
+            "est_minutes": sized["estimate_minutes"],
+        },
         "timeout_minutes": timeout,
         "output_dir": str(out / "job"),
         "inputs": [
