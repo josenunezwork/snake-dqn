@@ -67,11 +67,56 @@ def validate_bank(bank: dict[str, Any]) -> None:
         raise ValueError("O1 bank differs from the deterministic pre-data allocation")
 
 
+def supplement() -> None:
+    """Check main's published audit inventories, including hash-only namespaces."""
+    from research.t34_claim_a.seed_audit import _bank_seeds, namespace_seeds, seed_digest
+
+    own = read_json(PACKAGE / "BANK_O1.json")
+    candidates = _bank_seeds(own)
+    inventories = []
+    for path in sorted((ROOT / "research").rglob("*SEED_AUDIT*.json")):
+        if path.parent == PACKAGE:
+            continue
+        value = read_json(path)
+        concrete = _bank_seeds(value)
+        derived = set()
+        if value.get("domain") == "t34-exit-b8-20261019/v1":
+            for namespace, entry in value.get("namespaces", {}).items():
+                seeds = namespace_seeds(namespace, int(entry["count"]))
+                if seed_digest(seeds) != entry["sha256"]:
+                    raise ValueError(f"published namespace digest differs: {path}")
+                derived.update(seeds)
+        if candidates.intersection(concrete | derived):
+            raise ValueError(f"whole O1 allocation collides with published inventory: {path}")
+        inventories.append(
+            {
+                "path": str(path.relative_to(ROOT)),
+                "sha256": sha256(path),
+                "concrete_seed_values": len(concrete),
+                "reconstructed_hash_only_seeds": len(derived),
+                "collisions": 0,
+            }
+        )
+    write_once(
+        PACKAGE / "SEED_AUDIT_MAIN_UPDATE.json",
+        {
+            "schema": "t34-o1-main-update-audit/v1",
+            "status": "CLEAR",
+            "bank_sha256": sha256(PACKAGE / "BANK_O1.json"),
+            "note": "supplements original full-history audit after merging concurrent main",
+            "inventories": inventories,
+        },
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--allocate", action="store_true")
+    parser.add_argument("--supplement", action="store_true")
     args = parser.parse_args()
-    if args.allocate:
+    if args.supplement:
+        supplement()
+    elif args.allocate:
         allocate()
     else:
         validate_bank(read_json(PACKAGE / "BANK_O1.json"))
