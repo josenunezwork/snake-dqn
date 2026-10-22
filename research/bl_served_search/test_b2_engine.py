@@ -244,3 +244,47 @@ def test_branch_worker_uses_shared_absolute_deadline(monkeypatch) -> None:
     assert engine._branch_task((b"mock", 1, 1440, 10060.0))["action"] == 1
     with pytest.raises(RuntimeError, match="branch wall cap"):
         engine._branch_task((b"mock", 1, 1440, 9999.0))
+
+
+def test_restore_replaces_spawn_defaults_with_snapshot_game_config() -> None:
+    from dataclasses import replace
+
+    from src.core.game_config import AppConfig, GameConfig, get_config, initialize_config
+    from src.simd_env.vector61_policy import check_live_rule_config
+
+    previous = get_config()
+    defaults = AppConfig.from_defaults()
+    deployed = replace(defaults, game=replace(defaults.game, mechanics_version=2))
+    try:
+        initialize_config(deployed)
+        driver = engine.WatchDriver.__new__(engine.WatchDriver)
+        sim = SimpleNamespace(
+            _grid_pad=1,
+            grid_h=2,
+            grid_w=2,
+            _kernels=None,
+            cfg=SimpleNamespace(
+                min_boost_length=deployed.game.min_boost_length,
+                boost_length_cost_frames=deployed.game.boost_length_cost_frames,
+                mechanics_version=2,
+                arena_type=deployed.game.arena_type,
+            ),
+        )
+        for name in ("_owner", "_slot", "_food"):
+            padded = np.zeros((1, 4, 4), dtype=np.int64)
+            setattr(sim, name + "_pad", padded)
+            setattr(sim, name, padded[:, 1:3, 1:3])
+        driver.sim, driver.frozen, driver.hero = sim, SimpleNamespace(), SimpleNamespace()
+        driver.decision, driver.life, driver.awaiting_respawn = 7, 2, False
+        payload = driver.snapshot()
+        # This is the initial configuration state of a fresh spawn worker.
+        initialize_config(defaults)
+        assert GameConfig.MECHANICS_VERSION == 1
+        with pytest.raises(ValueError, match="differs from GameConfig"):
+            check_live_rule_config(sim)
+        restored = engine.WatchDriver.restore(payload)
+        assert GameConfig.MECHANICS_VERSION == 2
+        check_live_rule_config(restored.sim)
+        assert np.shares_memory(restored.sim._owner, restored.sim._owner_pad)
+    finally:
+        initialize_config(previous)

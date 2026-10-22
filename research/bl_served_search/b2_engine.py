@@ -115,13 +115,16 @@ class WatchDriver:
         """Complete sim/RNG/veto/runtime state, including padded-grid alias metadata."""
         import torch
 
+        from src.core.game_config import get_config
+
         sim = copy.copy(self.sim)
         kernel = getattr(sim, "_kernels", None)
         sim._kernels = None
         # No module handles or checkpoint lookup paths are needed on restore.
         return pickle.dumps(
             {
-                "schema": "bl-b2-state/v1",
+                "schema": "bl-b2-state/v2",
+                "game_config": get_config(),
                 "sim": sim,
                 "kernel_module": getattr(kernel, "__name__", None),
                 "frozen": self.frozen,
@@ -141,9 +144,16 @@ class WatchDriver:
         """Restore only trusted, SHA-verified B2 state; no file/path resolution."""
         import torch
 
+        from src.core.game_config import AppConfig, initialize_config
+
         state = pickle.loads(payload)
-        if state.get("schema") != "bl-b2-state/v1":
+        if state.get("schema") != "bl-b2-state/v2":
             raise ValueError("foreign B2 snapshot schema")
+        if not isinstance(state.get("game_config"), AppConfig):
+            raise ValueError("B2 snapshot is missing its immutable process game configuration")
+        # Spawned workers begin with defaults; the live v8 rule guard reads
+        # GameConfig as well as sim.cfg. Restore both before any branch action.
+        initialize_config(state["game_config"])
         driver = cls.__new__(cls)
         for name in ("sim", "frozen", "hero", "decision", "life", "awaiting_respawn"):
             setattr(driver, name, state[name])
