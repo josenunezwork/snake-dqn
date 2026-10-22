@@ -248,11 +248,100 @@ def test_cold_first_call_is_warmed_before_any_upload_and_staging_clock(
     assert min(uploads_at) >= 135  # Includes the private credential and lease PUTs.
     assert receipt["elapsed_seconds"] >= receipt["warmup_seconds"] + measurement["elapsed_seconds"]
     if slow_staging:
-        assert measurement["elapsed_seconds"] > 150
-        with pytest.raises(canary.CanaryError, match="real staging must complete within 150"):
+        assert measurement["transfer_seconds"] > 150
+        with pytest.raises(canary.CanaryError, match="transfers must complete within 150"):
             canary.evidence(manifest, receipt, output, REPO)
     else:
-        assert 0 < measurement["elapsed_seconds"] < 150
+        assert 0 < measurement["transfer_seconds"] < 150
+
+
+@pytest.mark.parametrize("mode", ["normal", "github_unreachable"])
+def test_staging_separates_verified_transfers_from_source_delivery(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str
+) -> None:
+    """Source installation may exceed 150s without charging it to uploads."""
+    binary = _fake_env(monkeypatch, tmp_path, mode=mode)
+    now = [0.0]
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
+    original_call = supervisor.CLI._call_once
+    original_rpc = supervisor.CLI.recoverable_rpc
+    source_calls = []
+
+    def timed_call(self, *args: str, timeout: float) -> str:
+        if args[0] == "upload":
+            now[0] += 7
+        return original_call(self, *args, timeout=timeout)
+
+    def timed_source(self, code: str, timeout: float = 120) -> object:
+        if "SNAKE_SOURCE_DELIVERY" in code:
+            source_calls.append(self.deadline)
+            now[0] += 156.8 if mode == "normal" else 78.4
+        return original_rpc(self, code, timeout=timeout)
+
+    monkeypatch.setattr(supervisor.CLI, "_call_once", timed_call)
+    monkeypatch.setattr(supervisor.CLI, "recoverable_rpc", timed_source)
+    manifest = _manifest(tmp_path)
+    manifest["timeout_minutes"] = 10
+    manifest["budget"]["unit_cap"] = 2
+    supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    output = Path(manifest["output_dir"])
+    measured = json.loads((output / "upload-measurement.json").read_text())
+    receipt = json.loads((output / "receipt.json").read_text())
+    transfers = 21 if mode == "normal" else 28
+    assert measured["transfer_seconds"] == pytest.approx(transfers)
+    assert measured["source_delivery_seconds"] == pytest.approx(156.8)
+    assert measured["elapsed_seconds"] == pytest.approx(transfers + 156.8)
+    assert len(source_calls) == (1 if mode == "normal" else 2)
+    staged = [
+        row
+        for row in receipt["transfers"]
+        if row["direction"] == "upload"
+        and row["remote"].rsplit("/", 1)[-1]
+        in {"bootstrap.sh", "source.py", "input.bin", "source.tar.gz"}
+    ]
+    assert sum(row["elapsed_seconds"] for row in staged) == pytest.approx(transfers)
+    assert receipt["status"] == "PASS"
+    assert receipt["stop_verified"] is True
+
+
+def test_whole_staging_over_300_seconds_cannot_qualify(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.colab_cli import canary
+
+    binary = _fake_env(monkeypatch, tmp_path)
+    now = [0.0]
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
+    original_rpc = supervisor.CLI.recoverable_rpc
+    original_call = supervisor.CLI._call_once
+
+    def timed_call(self, *args: str, timeout: float) -> str:
+        if args[0] == "upload":
+            now[0] += 1
+        return original_call(self, *args, timeout=timeout)
+
+    def slow_source(self, code: str, timeout: float = 120) -> object:
+        if "SNAKE_SOURCE_DELIVERY" in code:
+            now[0] += 301
+        return original_rpc(self, code, timeout=timeout)
+
+    monkeypatch.setattr(supervisor.CLI, "recoverable_rpc", slow_source)
+    monkeypatch.setattr(supervisor.CLI, "_call_once", timed_call)
+    manifest = _manifest(tmp_path)
+    manifest["timeout_minutes"] = 10
+    manifest["budget"]["unit_cap"] = 2
+    supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    output = Path(manifest["output_dir"])
+    receipt = json.loads((output / "receipt.json").read_text())
+    measured = json.loads((output / "upload-measurement.json").read_text())
+    assert measured["elapsed_seconds"] == 304
+    assert measured["transfer_seconds"] == 3
+    assert measured["source_delivery_seconds"] == 301
+    assert receipt["stop_verified"] is True
+    with pytest.raises(canary.CanaryError, match="staging must complete within 300"):
+        canary.evidence(manifest, receipt, output, REPO)
 
 
 def test_warmup_failure_stops_runtime_without_uploading_or_launching(
