@@ -142,6 +142,8 @@ def _source_identity(commit: str) -> dict[str, str]:
         "p1_contract.py",
         "p1_eval.py",
         "p1_manifests.py",
+        "p1_admission.py",
+        "P1_Y3_ADMISSION_ERRATUM_03.md",
         "p1_qualification.py",
         "p1_inputs.py",
         "p1_colab.sh",
@@ -149,8 +151,9 @@ def _source_identity(commit: str) -> dict[str, str]:
     import hashlib
 
     result = {}
-    for name in paths:
-        relative = f"research/bl_ppo/{name}"
+    for relative in [f"research/bl_ppo/{name}" for name in paths] + [
+        "research/colab_cli/accounting.py"
+    ]:
         body = subprocess.check_output(["git", "show", f"{commit}:{relative}"], cwd=ROOT)
         if (ROOT / relative).read_bytes() != body:
             raise ValueError(f"working source differs from executable pin: {relative}")
@@ -213,6 +216,8 @@ def prepare(
     endpoint_receipt: Path | None = None,
     previous_receipt: Path | None = None,
     hold_reason: str | None = None,
+    review: Path | None = None,
+    y3_debit: Path | None = None,
 ) -> dict[str, Any]:
     """Write a fresh attempt, immutable manifest and real source/upload receipt."""
     if phase not in PHASES or not 1 <= chunk <= 5:
@@ -225,6 +230,8 @@ def prepare(
     if hold_reason:
         blockers.append(f"HOLD: {hold_reason}")
     prerequisites: dict[str, Any] = {}
+    admission_inputs: list[tuple[Path, str]] = []
+    source_price = None
     if phase == "y3-source":
         # Round-14: source-02 consumed 1.6u of the shared Y3 8u envelope.
         # Prior L4 source took 49min; reserve ~25min for the single support
@@ -276,6 +283,23 @@ def prepare(
             blockers.append("E13 per-runtime parity receipt")
         if endpoint_receipt is None:
             blockers.append("100M endpoint receipt + checkpoint digest")
+    if phase == "y3-source" and (review is not None or y3_debit is not None):
+        from research.bl_ppo.p1_admission import LIVE_BLOCKER, verify_source_admission
+
+        if review is None or y3_debit is None or hold_reason:
+            raise ValueError("source admission needs review + debit and no preparation HOLD")
+        source_price = verify_source_admission(
+            complete_json(review), complete_json(y3_debit), identity
+        )
+        estimate = source_price["estimate_minutes"]
+        timeout = source_price["timeout_minutes"]
+        cap = source_price["unit_cap"]
+        blockers = [LIVE_BLOCKER]
+        admission_inputs = [(review, "codex-v-review.json"), (y3_debit, "y3-debit.json")]
+        prerequisites.update(
+            codex_v_review=input_row(review, "codex-v-review.json"),
+            y3_debit=input_row(y3_debit, "y3-debit.json"),
+        )
     control: dict[str, Any] = {
         "schema": "bl-p1-control/v1",
         "phase": phase,
@@ -363,9 +387,14 @@ def prepare(
             complete_json(path)
             for suffix in ("", ".sha256", ".complete"):
                 inputs.append(input_row(Path(str(path) + suffix), name + suffix))
+    for path, name in admission_inputs:
+        for suffix in ("", ".sha256", ".complete"):
+            inputs.append(input_row(Path(str(path) + suffix), name + suffix))
     control["dispatch_blockers"] = blockers
-    control["scientific_admission"] = not any(
-        not b.startswith(("Claude:", "independent")) for b in blockers
+    # A review/debit TODO is a real blocker, even when addressed to Claude.
+    control["scientific_admission"] = all(
+        b.startswith(("Claude: fresh usage/inventory", "Claude: fresh usage + sessions"))
+        for b in blockers
     )
     export_json(root / "p1-control.json", control)
     for suffix in ("", ".sha256", ".complete"):
@@ -395,6 +424,14 @@ def prepare(
         max_export_bytes=2 * 1024**3,
     )
     manifest["budget"]["other_assignments"] = inventory or {}
+    if source_price is not None:
+        if inventory:
+            raise ValueError("repriced source requires an empty inventory; prepare a new price")
+        manifest["budget"].update(
+            rate_units_per_hour=1.54,
+            rate_tolerance_units_per_hour=0.0,
+            reserve_units=source_price["reserve_units"],
+        )
     manifest["source_paths"] = _bounded_source_paths(manifest)
     manifest["source_paths"] += [
         "research/bl_upload",
@@ -420,7 +457,7 @@ def prepare(
         "estimate_minutes": estimate,
         "timeout_minutes": timeout,
         "unit_cap": cap,
-        "reserve_units": cap * 0.2,
+        "reserve_units": manifest["budget"]["reserve_units"],
         "blockers": blockers,
         "dispatch_ready": False,
         "colab_calls": 0,
@@ -433,7 +470,8 @@ def prepare(
         + "\nNo automatic retry or unregistered recovery. One P1 L4 at a time.\n"
         + f"Executable pin: {commit}\n"
         + f"cd {ROOT}\n"
-        + f"Estimate {estimate} min; timeout {timeout} min; cap {cap}u; reserve {cap*.2}u.\n"
+        + f"Estimate {estimate} min; timeout {timeout} min; cap {cap}u; "
+        + f"reserve {manifest['budget']['reserve_units']}u.\n"
         + f"{python} -m research.bl_ppo.upload_readiness --manifest {root}/manifest.json "
         + f"--receipt {root}/upload-preflight.json --verify\n"
         + f"{ROOT}/research/colab_cli/launch.sh --check --state-dir {root}/state "
@@ -467,6 +505,8 @@ def main() -> None:
     parser.add_argument("--previous-receipt", type=Path)
     parser.add_argument("--hold-reason", help="Explicit unresolved blocker; never admits dispatch")
     parser.add_argument("--inventory", type=Path)
+    parser.add_argument("--review", type=Path)
+    parser.add_argument("--y3-debit", type=Path)
     args = parser.parse_args()
     inventory = json.loads(args.inventory.read_text()) if args.inventory else None
     print(
@@ -487,6 +527,8 @@ def main() -> None:
                 endpoint_receipt=args.endpoint_receipt,
                 previous_receipt=args.previous_receipt,
                 hold_reason=args.hold_reason,
+                review=args.review,
+                y3_debit=args.y3_debit,
             ),
             sort_keys=True,
         )

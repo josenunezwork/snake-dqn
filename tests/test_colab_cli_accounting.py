@@ -260,3 +260,31 @@ def test_batched_balance_debit_becomes_a_loud_crosscheck_warning_not_raw_cap() -
     assert (
         crosscheck["balance_discrepancy_units"] > crosscheck["balance_discrepancy_tolerance_units"]
     )
+
+
+def test_manifest_can_require_exact_priced_ceiling_but_cannot_loosen_tolerance():
+    from research.colab_cli.accounting import AccountingError, admit_account
+
+    budget = {
+        "rate_units_per_hour": 1.54,
+        "unit_cap": 4.81,
+        "other_assignments": {},
+        "rate_tolerance_units_per_hour": 0.0,
+    }
+    tracker = admit_account({}, {"assignments": 0, "balance": 100, "rate": 0}, budget)
+    assert (
+        tracker.calibration_read(
+            {"new": "test"}, {"assignments": 1, "balance": 100, "rate": 1.54}, "new"
+        )
+        == 1.54
+    )
+    with pytest.raises(AccountingError, match="exceeds priced"):
+        tracker.calibration_read(
+            {"new": "test"}, {"assignments": 1, "balance": 100, "rate": 1.55}, "new"
+        )
+    with pytest.raises(AccountingError, match="only tighten"):
+        admit_account(
+            {},
+            {"assignments": 0, "balance": 100, "rate": 0},
+            budget | {"rate_tolerance_units_per_hour": 0.06},
+        )

@@ -552,6 +552,11 @@ def admit_account(
     tolerance = _number(rate_tolerance_units_per_hour, "rate tolerance")
     if not isinstance(budget, Mapping):
         raise AccountingError("budget must be a mapping")
+    if "rate_tolerance_units_per_hour" in budget:
+        requested = _number(budget["rate_tolerance_units_per_hour"], "manifest rate tolerance")
+        if requested > tolerance:
+            raise AccountingError("manifest may only tighten rate tolerance")
+        tolerance = requested
     own_rate = _rate(budget.get("rate_units_per_hour"), "budget.rate_units_per_hour")
     unit_cap = _number(budget.get("unit_cap"), "budget.unit_cap", positive=True)
     known = _merge_rates(
