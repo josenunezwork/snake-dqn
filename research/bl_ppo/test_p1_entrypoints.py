@@ -1,7 +1,8 @@
 """Mac preflight of the exact P1 phase entrypoints, never scientific evidence.
 
-Only fixture dimensions, calibration cost and held-out critic *inputs* are
-substituted. The phase parser/executor, control admission, production training
+Only fixture dimensions, calibration cost and critic predictions at the gate are
+substituted. Real serpentine states and complete-life targets enter the bank.
+The phase parser/executor, control admission, production training
 loop, real B8 CNN/PPO updates, spawned native-v8 worlds, E8 threshold function,
 transitive snapshots/restore, action tapes and fingerprints all execute.
 There is no production tiny-mode switch or environment-based gate bypass.
@@ -19,15 +20,17 @@ import torch
 
 from research.bl_ppo import p1_contract, p1_runtime, run
 from research.bl_ppo.exports import digest, export_json, verify_export
+from research.bl_ppo.learner import PPOLearner
 from research.bl_ppo.recovery import read_snapshot
 from research.bl_ppo.test_p1_runtime import _control
+
+CRITIC_QUALITY = PPOLearner.critic_quality
 
 
 @pytest.fixture
 def tiny_p1(monkeypatch):
     """Scale execution only inside pytest; preserve every production boundary."""
-    from research.bl_ppo import collector, diagnostics, learner, monitor
-    from research.bl_ppo.refit import CompleteLifeRefitBank
+    from research.bl_ppo import collector, diagnostics, late_body, learner, monitor
 
     shape = p1_contract.ExecutionShape(
         target=1280,
@@ -40,6 +43,7 @@ def tiny_p1(monkeypatch):
     monkeypatch.setattr(p1_contract, "SHAPE", shape)
     monkeypatch.setattr(run, "HORIZON", 16)
     monkeypatch.setattr(run, "CRITIC_REFIT_TRANSITIONS", 64)
+    monkeypatch.setattr(late_body, "FIXED_LATE_BODY_WORLDS", 2)
     monkeypatch.setattr(run, "_calibrated_temperature", lambda args: 0.7)
     # Keep class identities intact for actual spawn and snapshot pickling.
     config_post_init = collector.CollectorConfig.__post_init__
@@ -67,19 +71,16 @@ def tiny_p1(monkeypatch):
 
     monkeypatch.setattr(diagnostics.E8Diagnostics, "configure_length_deciles", tiny_deciles)
 
-    def synthetic_heldout(self, trainer):
-        # The tiny natural lives cannot supply L>=800. Supply known held-out
-        # vectors to the REAL unchanged EV/MSE gate, with no invented PASS flag.
-        metrics = trainer.qualify_critic(
-            predictions=torch.tensor([1.0, 2.0, 4.0]),
-            returns=torch.tensor([1.0, 2.0, 4.0]),
-            lengths=torch.tensor([800.0, 900.0, 1000.0]),
-            remaining_horizon=torch.tensor([1.0, 0.5, 0.2]),
-            baseline_coefficients=torch.zeros(3),
-        )
-        return metrics | {"fit_support": 3, "holdout_support": 3}
+    def controlled_predictions(**inputs):
+        # Test-only perfect predictions exercise PASS through the real bank and
+        # unchanged EV/MSE rule. Lengths, worlds, suffix returns and baseline all
+        # come from actual collection; none are replaced by fabricated vectors.
+        assert (inputs["lengths"] >= 800).any()
+        return CRITIC_QUALITY(**(inputs | {"predictions": inputs["returns"].clone()}))
 
-    monkeypatch.setattr(CompleteLifeRefitBank, "qualification", synthetic_heldout)
+    monkeypatch.setattr(
+        learner.PPOLearner.func, "critic_quality", staticmethod(controlled_predictions)
+    )
     for name in (
         "OMP_NUM_THREADS",
         "OPENBLAS_NUM_THREADS",
@@ -175,7 +176,16 @@ def test_exact_y3_entrypoints_and_every_pause_resume(tmp_path, monkeypatch, tiny
     assert origin_state["counters"]["actor_transitions"] == 0
     assert origin_state["counters"]["actor_updates"] == 0
     assert origin_state["counters"]["actor_enabled"] is True
-    assert _status(source, "origin")["critic_qualified"] is True
+    origin_status = _status(source, "origin")
+    assert origin_status["critic_qualified"] is True
+    support = origin_status["critic_refit"]["late_body_support"]
+    assert support["fixed_holdout"]["worlds_complete"] == 2
+    assert support["holdout_late_by_source"]["fixed_injected_long_body"] >= 2
+    assert support["refit_support_supplement"]["used"] is True
+    assert support["fit_late_by_source"]["refit_long_body_support_supplement"] > 0
+    assert origin_status["critic_refit"]["heldout_late_body"]["count"] > 0
+    # The primary worlds continue naturally after support-only collection.
+    assert all((shard["sim"].length[:, 0] < 800).all() for shard in origin_state["collector"])
     assert origin_state["boundary"] == {
         "requested_pause_at": 0,
         "pause_at": 0,
@@ -281,20 +291,15 @@ def test_exact_y3_entrypoints_and_every_pause_resume(tmp_path, monkeypatch, tiny
 
 
 def test_exact_source_refuses_failed_e8_at_zero(tmp_path, monkeypatch, tiny_p1):
-    from research.bl_ppo.refit import CompleteLifeRefitBank
+    from research.bl_ppo import learner
+
+    def refused_predictions(**inputs):
+        assert (inputs["lengths"] >= 800).any()
+        error = 1000.0 * torch.arange(len(inputs["returns"]), dtype=torch.float32)
+        return CRITIC_QUALITY(**(inputs | {"predictions": -inputs["returns"] - 100.0 - error}))
 
     monkeypatch.setattr(
-        CompleteLifeRefitBank,
-        "qualification",
-        lambda self, learner: {
-            "passed": False,
-            "late_body_rows": 3,
-            "explained_variance": -1.0,
-            "mse": 10.0,
-            "baseline_mse": 1.0,
-            "fit_support": 3,
-            "holdout_support": 3,
-        },
+        learner.PPOLearner.func, "critic_quality", staticmethod(refused_predictions)
     )
     _, output, argv = _entrypoint(tmp_path / "failure", monkeypatch, tiny_p1, "y3-source")
     with pytest.raises(ValueError, match="NOT_READY: E8 held-out critic gate"):
@@ -303,5 +308,7 @@ def test_exact_source_refuses_failed_e8_at_zero(tmp_path, monkeypatch, tiny_p1):
     assert value["status"] == "INCOMPLETE" and value["pause_at"] == 0
     assert value["counters"]["actor_transitions"] == 0
     assert value["counters"]["actor_updates"] == 0
-    assert value["critic_refit"]["heldout_late_body"]["count"] == 3
+    heldout = value["critic_refit"]["heldout_late_body"]
+    assert heldout["count"] > 0
+    assert heldout["explained_variance"] < 0.1 and heldout["mse"] >= heldout["baseline_mse"]
     assert "snapshot" not in value and not (output / "receipt.json").exists()

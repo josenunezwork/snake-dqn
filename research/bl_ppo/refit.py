@@ -18,6 +18,7 @@ class _Sample:
     length: float
     horizon: float
     prefix: float
+    source: str = "natural"
 
 
 @dataclass
@@ -26,6 +27,7 @@ class _Life:
     total: float = 0.0
     rows: int = 0
     samples: list[_Sample] = field(default_factory=list)
+    pinned_late: _Sample | None = None
 
 
 class CompleteLifeRefitBank:
@@ -54,6 +56,7 @@ class CompleteLifeRefitBank:
         self._ordinals: dict[int, int] = {}
         self._rows_complete = {"fit": 0, "holdout": 0}
         self._reservoir: dict[str, list[tuple[int, _Sample, float]]] = {"fit": [], "holdout": []}
+        self._sources = {"fit": {}, "holdout": {}}
 
     def _split(self, world: int) -> str:
         return "holdout" if world % self.holdout_modulus == self.holdout_remainder else "fit"
@@ -81,6 +84,10 @@ class CompleteLifeRefitBank:
         remaining_horizon: torch.Tensor,
         rewards: torch.Tensor,
         terminals: torch.Tensor,
+        *,
+        split_override: str | None = None,
+        pin_first_late: bool = False,
+        source: str = "natural",
     ) -> int:
         vectors = (world_ids, lengths, remaining_horizon, rewards, terminals)
         if any(x.ndim != 1 for x in vectors) or len({x.numel() for x in vectors}) != 1:
@@ -99,6 +106,10 @@ class CompleteLifeRefitBank:
             raise ValueError("refit evidence must be finite")
         if not ((remaining_horizon >= 0).all() and (remaining_horizon <= 1).all()):
             raise ValueError("remaining_horizon must lie in [0, 1]")
+        if split_override not in {None, "fit", "holdout"}:
+            raise ValueError("split_override must be fit, holdout, or None")
+        if not source:
+            raise ValueError("refit evidence source must be non-empty")
         completed = 0
         for i in range(world_ids.numel()):
             world = int(world_ids[i])
@@ -109,6 +120,7 @@ class CompleteLifeRefitBank:
                 float(lengths[i]),
                 float(remaining_horizon[i]),
                 life.total,
+                source,
             )
             life.total += float(rewards[i])
             life.rows += 1
@@ -118,12 +130,27 @@ class CompleteLifeRefitBank:
                 worst = max(range(len(life.samples)), key=lambda j: life.samples[j].priority)
                 if sample.priority < life.samples[worst].priority:
                     life.samples[worst] = sample
+            if pin_first_late and life.pinned_late is None and sample.length >= 800.0:
+                # The fixed support bank has an explicit initial long-body row.
+                # Keep it outside random reservoir replacement so qualification
+                # cannot lose all L>=800 support through sampling.
+                life.pinned_late = sample
             if bool(terminals[i]):
-                split = self._split(world)
+                split = split_override or self._split(world)
                 self._rows_complete[split] += life.rows
                 for kept in life.samples:
+                    if life.pinned_late is not None and kept.priority == life.pinned_late.priority:
+                        continue
                     self._offer(split, (kept.priority, kept, life.total - kept.prefix))
                     completed += 1
+                if life.pinned_late is not None:
+                    # Negative priority dominates ordinary reservoir entries;
+                    # the fixed bank is bounded far below the 10k capacity.
+                    pinned = life.pinned_late
+                    self._offer(split, (-1 - pinned.priority, pinned, life.total - pinned.prefix))
+                    completed += 1
+                by_source = self._sources[split]
+                by_source[source] = int(by_source.get(source, 0)) + life.rows
                 self._ordinals[world] = life.ordinal + 1
                 del self._open[world]
         return completed
@@ -133,6 +160,20 @@ class CompleteLifeRefitBank:
 
     def support_counts(self) -> dict[str, int]:
         return {key: len(value) for key, value in self._reservoir.items()}
+
+    def source_counts(self) -> dict[str, dict[str, int]]:
+        """Completed-row provenance retained with the immutable qualification state."""
+        return {split: dict(rows) for split, rows in self._sources.items()}
+
+    def late_support_by_source(self, split: str = "holdout") -> dict[str, int]:
+        """Retained L>=800 reservoir rows, grouped by immutable provenance."""
+        if split not in self._reservoir:
+            raise ValueError("unknown split")
+        result: dict[str, int] = {}
+        for _priority, sample, _target in self._reservoir[split]:
+            if sample.length >= 800.0:
+                result[sample.source] = result.get(sample.source, 0) + 1
+        return result
 
     def _columns(self, split: str) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         rows = self._reservoir[split]

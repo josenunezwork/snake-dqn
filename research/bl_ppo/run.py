@@ -8,6 +8,7 @@ published results are create-only exports with the supervisor sidecars.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -307,9 +308,13 @@ def _calibrated_temperature(args: argparse.Namespace) -> float:
 
     from research.bl_ppo.bank import all_seeds, materialize
     from research.bl_ppo.collector import CollectorConfig, PersistentCollector
+    from research.bl_ppo.late_body import fixed_holdout_seeds
     from research.bl_ppo.model import PPOPolicy, calibrate_temperature
 
     processes = args.processes if isinstance(args.processes, int) else min(args.processes)
+    excluded = set(all_seeds(materialize())) | set(getattr(args, "p1_excluded_seeds", ()))
+    if getattr(args, "p1_runtime", False):
+        excluded.update(fixed_holdout_seeds(frozenset(excluded), horizon=HORIZON))
     config = CollectorConfig(
         worlds=args.worlds,
         processes=processes,
@@ -320,7 +325,7 @@ def _calibrated_temperature(args: argparse.Namespace) -> float:
         long_bodies=args.long_bodies,
         native_v8=args.native_v8,
         preflight=args.preflight,
-        excluded_seeds=frozenset(all_seeds(materialize())),
+        excluded_seeds=frozenset(excluded),
     )
     collector = PersistentCollector(config)
     try:
@@ -452,10 +457,18 @@ def _identity(args: argparse.Namespace, temperature: float) -> dict[str, Any]:
         ),
     }
     if getattr(args, "p1_runtime", False):
+        from research.bl_ppo.bank import all_seeds, materialize
+        from research.bl_ppo.late_body import support_identity
+
+        excluded = set(all_seeds(materialize())) | set(getattr(args, "p1_excluded_seeds", ()))
         value.update(
             p1_runtime=True,
             p1_registration_sha256=args.p1_registration_sha256,
             p1_evaluation_bank_sha256=args.p1_evaluation_bank_sha256,
+            e8_late_body_amendment_sha256=digest(
+                Path(__file__).with_name("E8_LATE_BODY_AMENDMENT.md")
+            ),
+            late_body_support=support_identity(excluded, horizon=HORIZON),
         )
     return value
 
@@ -607,7 +620,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             torch.backends.cudnn.deterministic = True
 
     from research.bl_ppo.bank import all_seeds, materialize
-    from research.bl_ppo.collector import CollectorConfig, PersistentCollector
+    from research.bl_ppo.collector import CollectorConfig, PersistentCollector, _world_seed
     from research.bl_ppo.learner import PPOLearner
     from research.bl_ppo.model import PPOPolicy
 
@@ -638,6 +651,17 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     adapter.ordinary_bank = FixedOrdinaryBank(seed=args.seed)
     adapter.next_monitor_transition = 1_000_000
     adapter.fixed_bank_reports = []
+    base_excluded_seeds = set(all_seeds(materialize())) | set(
+        getattr(args, "p1_excluded_seeds", ())
+    )
+    fixture_exclusions = frozenset(base_excluded_seeds)
+    fixed_late_support = None
+    if p1_runtime:
+        from research.bl_ppo.late_body import fixed_holdout_seeds
+
+        # Calibration independently reserves these same roots before its peek.
+        # The P1 fresh-evaluation seeds are already in ``p1_excluded_seeds``.
+        base_excluded_seeds.update(fixed_holdout_seeds(fixture_exclusions, horizon=HORIZON))
     config = CollectorConfig(
         worlds=args.worlds,
         processes=args.processes,
@@ -646,11 +670,10 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         seed=args.seed,
         roster=args.roster,
         long_bodies=args.long_bodies,
+        long_body_fraction=0.0,
         native_v8=args.native_v8,
         preflight=args.preflight,
-        excluded_seeds=frozenset(
-            set(all_seeds(materialize())) | set(getattr(args, "p1_excluded_seeds", ()))
-        ),
+        excluded_seeds=frozenset(base_excluded_seeds),
     )
     collector = PersistentCollector(config)
     counters: dict[str, Any] = {
@@ -673,6 +696,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         refit_bank = getattr(adapter, "refit_bank", None)
         if not isinstance(refit_bank, CompleteLifeRefitBank):
             raise ValueError("E8 resume lacks complete-life critic qualification state")
+        fixed_late_support = getattr(adapter, "fixed_late_support", fixed_late_support)
     counters.setdefault("actor_updates", 0)
     counters.setdefault("actor_episode_boundaries", 0)
     actor_updates_at_start = int(counters.get("actor_updates", 0))
@@ -683,9 +707,14 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     trace_actions_total = 0
     durability_mode = bool(getattr(args, "p1_durability", False))
     requested_stop = {"value": False}
+    refit_seen_seeds: set[int] = set()
 
     def mark_stop(_signum: int, _frame: Any) -> None:
         requested_stop["value"] = True
+
+    def support_progress(counter: str, count: int) -> None:
+        counters[counter] = count
+        print(json.dumps({"progress": counters, "phase": counter}), flush=True)
 
     old_term, old_usr1 = signal.signal(signal.SIGTERM, mark_stop), signal.signal(
         signal.SIGUSR1, mark_stop
@@ -695,6 +724,29 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     tripwires: list[dict[str, Any]] = []
     snapshot_export: Path | None = None
     try:
+        if p1_runtime and args.resume is None:
+            from research.bl_ppo.late_body import collect_fixed_late_body_holdout
+
+            # Isolate fixture sampling from the primary stochastic actor stream.
+            # Signal handling and the normal failure/status export cover this
+            # phase as well as the subsequent refit and actor phases.
+            support_started = time.monotonic()
+            devices = [torch.cuda.current_device()] if torch.cuda.is_available() else []
+            with torch.random.fork_rng(devices=devices):
+                torch.manual_seed(2026102111)
+                support_adapter = PersistentPolicyAdapter(copy.deepcopy(policy), args.device)
+                fixed_late_support = collect_fixed_late_body_holdout(
+                    support_adapter,
+                    refit_bank,
+                    excluded_seeds=fixture_exclusions,
+                    horizon=HORIZON,
+                    should_stop=lambda: requested_stop["value"],
+                    on_progress=lambda count: support_progress(
+                        "critic_fixed_holdout_transitions", count
+                    ),
+                )
+            counters["critic_fixed_holdout_seconds"] = time.monotonic() - support_started
+            adapter.fixed_late_support = fixed_late_support
         # Critic-only refit must complete on at least 2M *stochastic initial
         # actor* transitions before any residual actor / encoder update.
         while (
@@ -703,6 +755,11 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             else counters["critic_refit_fit_transitions"] < CRITIC_REFIT_TRANSITIONS
         ) and not requested_stop["value"]:
             raw = collector.collect(adapter)
+            if p1_runtime:
+                roots = np.unique(np.column_stack((raw.world_id, raw.episode)), axis=0)
+                refit_seen_seeds.update(
+                    _world_seed(config, int(world), int(episode)) for world, episode in roots
+                )
             counters["collection_seconds"] += raw.wall_seconds
             learning_started = time.monotonic()
             if not adapter.ordinary_bank.frozen:
@@ -784,6 +841,52 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             adapter.diagnostics.configure_length_deciles(
                 [int(row["length"]) for row in adapter.ordinary_bank.rows()]
             )
+        supplement = {"used": False, "transitions": 0, "late_fit_support": 0}
+        if (
+            p1_runtime
+            and not args.preflight
+            and status == "RUNNING"
+            and not requested_stop["value"]
+            and counters["critic_refit_fit_transitions"] >= CRITIC_REFIT_TRANSITIONS
+            and not counters.get("actor_enabled")
+        ):
+            natural_late = sum(refit_bank.late_support_by_source("fit").values())
+            if natural_late == 0:
+                from research.bl_ppo.late_body import collect_refit_late_supplement
+
+                supplement_config = CollectorConfig(
+                    worlds=args.worlds,
+                    processes=args.processes,
+                    rollout_steps=args.rollout_steps,
+                    horizon=HORIZON,
+                    seed=args.seed,
+                    roster=args.roster,
+                    native_v8=args.native_v8,
+                    preflight=args.preflight,
+                    long_body_fraction=0.25,
+                    excluded_seeds=frozenset(base_excluded_seeds | refit_seen_seeds),
+                )
+                devices = [torch.cuda.current_device()] if torch.cuda.is_available() else []
+                supplement_started = time.monotonic()
+                with torch.random.fork_rng(devices=devices):
+                    torch.manual_seed(2026102112)
+                    supplement_adapter = PersistentPolicyAdapter(copy.deepcopy(policy), args.device)
+                    result = collect_refit_late_supplement(
+                        supplement_adapter,
+                        refit_bank,
+                        supplement_config,
+                        should_stop=lambda: requested_stop["value"],
+                        on_progress=lambda count: support_progress(
+                            "critic_refit_supplement_transitions", count
+                        ),
+                    )
+                supplement = {"used": True, **result}
+                counters["critic_refit_supplement_seconds"] = time.monotonic() - supplement_started
+                counters["critic_refit_supplement_transitions"] = result["transitions"]
+                if sum(refit_bank.late_support_by_source("fit").values()) == 0:
+                    raise ValueError(
+                        "bounded P1 refit support supplement retained no L>=800 fit row"
+                    )
         critic_refit = getattr(adapter, "critic_refit_receipt", None)
         if args.preflight:
             critic_refit = {
@@ -819,6 +922,13 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 "qualified": bool(critic_metrics.get("passed", False)),
                 "fit_support": critic_metrics.get("fit_support"),
                 "holdout_support": critic_metrics.get("holdout_support"),
+                "late_body_support": {
+                    "fixed_holdout": fixed_late_support,
+                    "fit_late_by_source": refit_bank.late_support_by_source("fit"),
+                    "holdout_late_by_source": refit_bank.late_support_by_source("holdout"),
+                    "completed_rows_by_source": refit_bank.source_counts(),
+                    "refit_support_supplement": supplement,
+                },
                 **({"error": critic_metrics["error"]} if "error" in critic_metrics else {}),
             }
             adapter.critic_refit_receipt = critic_refit

@@ -314,8 +314,9 @@ def _train_args(
         worlds=p1_contract.SHAPE.worlds,
         seed=20261021,
         roster="frozen-equal-mixes",
-        # Long-body injection belongs solely to the E4 ruler.  P1's registered
-        # F recipe uses ordinary natural resets at every life boundary.
+        # Actor worlds retain natural resets. The prospective P1 E8 amendment
+        # adds a separate held-out bank and a refit-only long-start mixture in
+        # run_train; this flag must never enable all-long actor worlds.
         long_bodies=False,
         native_v8=True,
         rollout_steps=int(control["rollout_steps"]),

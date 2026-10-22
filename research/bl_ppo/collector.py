@@ -34,6 +34,8 @@ class CollectorConfig:
     roster: str | tuple[tuple[str, str], ...] = "frozen-equal-mixes"
     excluded_seeds: frozenset[int] = field(default_factory=frozenset)
     long_bodies: bool = False
+    long_body_fraction: float = 0.0
+    world_id_offset: int = 0
     native_v8: bool = True
     preflight: bool = False
 
@@ -44,6 +46,8 @@ class CollectorConfig:
             raise ValueError("processes must be in [1, worlds]")
         if self.rollout_steps < 1 or self.horizon < 1:
             raise ValueError("rollout_steps and horizon must be positive")
+        if not 0.0 <= self.long_body_fraction <= 1.0:
+            raise ValueError("long_body_fraction must lie in [0, 1]")
 
 
 @dataclass
@@ -179,6 +183,38 @@ def _inject_long(sim: Any, selected: np.ndarray | None = None) -> None:
                 current[int(env)] = old[int(env)]
 
 
+def _long_body_start_mask(
+    config: CollectorConfig, world_ids: np.ndarray, episodes: np.ndarray
+) -> np.ndarray:
+    """Choose refit-only synthetic roots without depending on worker scheduling."""
+    if config.long_bodies:
+        return np.ones(len(world_ids), dtype=bool)
+    if config.long_body_fraction == 0.0:
+        return np.zeros(len(world_ids), dtype=bool)
+    if config.long_body_fraction != 0.25:
+        # General fractions remain deterministic threshold assignments.  The
+        # registered P1 value below has a stronger exact root-cycle contract.
+        values = np.fromiter(
+            (
+                int(
+                    np.random.SeedSequence(
+                        [config.seed, 0xE8, int(world), int(episode)]
+                    ).generate_state(1)[0]
+                )
+                for world, episode in zip(world_ids, episodes)
+            ),
+            dtype=np.uint32,
+            count=len(world_ids),
+        )
+        return values.astype(np.float64) < config.long_body_fraction * (2**32)
+    # P1's registered mixture is exactly one injection per four roots.  This
+    # fixed schedule makes a first-life long root available in the tiny two
+    # world operational preflight and remains independent of worker scheduling.
+    return (
+        np.asarray(world_ids, dtype=np.int64) + np.asarray(episodes, dtype=np.int64) + 3
+    ) % 4 == 0
+
+
 def _roster_rows(
     config: CollectorConfig, world_ids: np.ndarray
 ) -> list[tuple[tuple[str, str], ...]]:
@@ -192,7 +228,8 @@ def _roster_rows(
         # preflight, so its global identities are a true prefix of E4/E2.
         counts = {"scripted": 43, "frozen": 43, "mixed": 42}
         rows = _rows("bl-ppo-e2-training-20261021/v1/collector", counts, config.horizon)
-        if max(world_ids, default=-1) >= len(rows):
+        roster_ids = np.asarray(world_ids, dtype=np.int64) - config.world_id_offset
+        if min(roster_ids, default=0) < 0 or max(roster_ids, default=-1) >= len(rows):
             raise ValueError("global world id exceeds fixed roster allocation")
         groups = {mix: [r for r in rows if r["mix"] == mix] for mix in counts}
         ordered = []
@@ -202,7 +239,7 @@ def _roster_rows(
                     ordered.append(groups[mix][index])
         return [
             tuple((str(kind), str(ref)) for kind, ref in ordered[int(world)]["opponents"])
-            for world in world_ids
+            for world in roster_ids
         ]
     roster = tuple((str(kind), str(ref)) for kind, ref in config.roster)
     if len(roster) != 5:
@@ -386,8 +423,9 @@ class _GridShard:
         self.frozen = _FrozenRoster(
             self.sim, self.episode_seeds, self.rosters, native_v8=config.native_v8
         )
-        if config.long_bodies:
-            _inject_long(self.sim)
+        initial_long = _long_body_start_mask(config, self.world_ids, self.episode_number)
+        if initial_long.any():
+            _inject_long(self.sim, initial_long)
         self.reset_next = np.ones(len(world_ids), dtype=bool)
         self.episode_frame = np.zeros(len(world_ids), dtype=np.int32)
 
@@ -456,8 +494,11 @@ class _GridShard:
             # reset_envs intentionally leaves all non-terminal environments and
             # their vector61 carries/v8 hook state untouched.
             self.frozen.reset_envs(terminal, self.episode_seeds)
-            if self.config.long_bodies:
-                _inject_long(self.sim, terminal)
+            long_reset = terminal & _long_body_start_mask(
+                self.config, self.world_ids, self.episode_number
+            )
+            if long_reset.any():
+                _inject_long(self.sim, long_reset)
             self.episode_frame[terminal] = 0
         self.reset_next = terminal
         return result
@@ -597,7 +638,9 @@ class PersistentCollector:
     def __init__(self, config: CollectorConfig) -> None:
         self.config = config
         self._ctx = mp.get_context("spawn")
-        groups = np.array_split(np.arange(config.worlds, dtype=np.int64), config.processes)
+        groups = np.array_split(
+            np.arange(config.worlds, dtype=np.int64) + config.world_id_offset, config.processes
+        )
         self._parents: list[Any] = []
         self._children: list[mp.Process] = []
         for worker, ids in enumerate(groups):

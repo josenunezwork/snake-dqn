@@ -74,3 +74,20 @@ def test_bank_excludes_open_life_from_counts() -> None:
     )
     assert bank.counts() == {"fit": 0, "holdout": 0}
     assert bank.support_counts() == {"fit": 0, "holdout": 0}
+
+
+def test_pinned_late_fixture_survives_a_full_reservoir() -> None:
+    """The prospective fixed/supplemental root cannot be sampled away."""
+    bank = CompleteLifeRefitBank(reservoir_size=1)
+    bank.add_batch(
+        torch.tensor([0, 0]),
+        torch.zeros((2, 257)),
+        torch.tensor([900, 900]),
+        torch.tensor([1.0, 0.9]),
+        torch.tensor([1.0, 1.0]),
+        torch.tensor([False, True]),
+        split_override="holdout",
+        pin_first_late=True,
+        source="fixed_injected_long_body",
+    )
+    assert bank.late_support_by_source() == {"fixed_injected_long_body": 1}
