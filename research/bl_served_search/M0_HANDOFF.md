@@ -11,8 +11,8 @@ are read-only dependencies. No frozen/registered package was edited.
 
 SHA-256: `f3e366453f07c018bda28a70cfadb3b4a4458f28fd2b3ea57f787b1967729dd4`.
 Both `.sha256` and `.complete` verify. Produced from `871bd6c6` before any Part B
-file was built, under `nice -n 10`, 0 units, approximately 0.4 s including process
-startup. The payload retains the precise extraction elapsed time.
+file was built, under `nice -n 10`, 0 units, 0.48638337501324713 s of extraction
+as recorded in the payload.
 
 All eight completed shards and the unchanged bank are verified: 160 worlds,
 28 productive rescues (13 frozen, 5 mixed, 10 scripted). Of the 18 frozen/mixed
