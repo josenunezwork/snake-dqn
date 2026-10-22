@@ -23,6 +23,15 @@ EXPORTS = ["ruler-receipt.json", "cuda-action-audit.json"]
 RATE = 2.0
 
 
+def runtime_source_paths(repo: Path = ROOT) -> list[str]:
+    """Include files read for identity, beyond Python's static import closure."""
+    return sorted(
+        set(source_paths(repo))
+        | set(native_ruler.source_identity())
+        | {SCRIPT, "research/bl_upload"}
+    )
+
+
 def validate_pending(manifest: dict, *, repo: Path = ROOT) -> dict:
     """Exercise every broker check up to its last, necessarily live canary gate.
 
@@ -55,7 +64,7 @@ def _published(commit: str, repo: Path) -> None:
     if "origin/main" not in refs:
         raise ValueError("full source pin must already be published on origin/main")
     changed = subprocess.check_output(
-        ["git", "diff", commit, "--name-only", "--", *source_paths(repo), SCRIPT],
+        ["git", "diff", commit, "--name-only", "--", *runtime_source_paths(repo)],
         cwd=repo,
         text=True,
         timeout=20,
@@ -104,7 +113,7 @@ def prepare(
     catalog = repo / "research/t34_exit_b8/PUBLIC_INPUTS.json"
     inputs = [_input(bundle), _input(catalog, "public-inputs.json")]
     inputs += [_input(Path(str(portable_k1) + suffix)) for suffix in ("", ".sha256", ".complete")]
-    paths = sorted(set(source_paths(repo)) | {SCRIPT, "research/bl_upload"})
+    paths = runtime_source_paths(repo)
     env = {
         "BL_RULER_FIXTURES_SHA256": digest(bundle),
         "BL_NATIVE_CANARY": "0",
@@ -159,6 +168,7 @@ def prepare(
         timeout_minutes=18,
     )
     probe["requirements"]["est_minutes"] = 9
+    probe["bl_native_ruler"]["repeats_per_fixture"] = 1
     probe["budget"].update(unit_cap=1, reserve_units=0.2)
     probe["env"].update(
         BL_NATIVE_CANARY="1",

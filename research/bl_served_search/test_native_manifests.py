@@ -17,6 +17,15 @@ from research.colab_cli.supervisor import Refused
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_sparse_source_includes_every_file_read_by_native_identity() -> None:
+    paths = native_manifests.runtime_source_paths()
+    assert set(native_ruler.source_identity()) <= set(paths)
+    assert "research/bl_served_search/AMENDMENT_STOP.md" in paths
+    assert "research/bl_served_search/run_native_ruler.sh" in paths
+    assert "research/bl_served_search/run_stop_mac.sh" in paths
+    assert "research/bl_upload" in paths
+
+
 def _functions(raw: str) -> dict[str, str]:
     return {
         node.name: ast.dump(node, include_attributes=False)
