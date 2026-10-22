@@ -39,6 +39,103 @@ of the original manifest with a new job ID (bounded to 64 characters) and fresh
 output directory; the original
 manifest, output, and log remain evidence. Review both attempts when computing spend.
 This narrowly authorized retry is in the ops wrapper; transport code is unchanged.
+The `resume` declaration does not expand this automatic retry or launch completion
+jobs. The package/operator owns the separately registered outcome-blind completion
+attempts and accounts for every attempt against the registered series envelope.
+
+## Resume-by-default
+
+[Resume policy ruling (2)](../../docs/research/advice/2026-10-21_big_lever/JUDGMENT_RESUME_POLICY.md#2-standing-requirement--idempotent-completed-units--verified-ledger-resume-skip)
+applies to every future Sol Colab package, including development jobs. Each manifest
+must declare this top-level block:
+
+```json
+{
+  "resume": {
+    "unit_kind": "episode",
+    "ledger_path": "inputs/verified-ledger.json",
+    "skip_verified": true,
+    "max_outcome_blind_retries": 2
+  }
+}
+```
+
+`unit_kind` names the completed unit (for example, episode or full snapshot).
+`ledger_path` identifies the ledger consumed by the job, including an empty ledger
+on the original attempt. Both must be nonempty strings; `skip_verified` must be the
+JSON boolean `true`, and the retry maximum must be the JSON integer `2`. Ship the
+ledger through hash-bound manifest inputs and wire its runtime path into the job's
+entrypoint; a Mac path in metadata alone does not make it available remotely.
+This block is an admission declaration, not an automatic CLI argument or proof of
+resume behavior. Dispatch checks it before qualification, validation, name
+reservation, locks, watchers, or submission, and preserves it in the immutable
+manifest snapshot and the existing accounting retry.
+
+Every package must pass offline tests before Mac preflight:
+
+- Derive deterministic unit IDs from namespace and frozen allocation index. Export
+  immutable units atomically as completed, with `.sha256` and `.complete` published
+  last; partial work never counts as a complete unit.
+- Consume a Mac-verified ledger of IDs, sizes, and hashes. Skip exactly those units;
+  refuse foreign namespaces or allocations and never recompute verified units into
+  the result set. Build ledgers from path/size/hash only, without opening outcomes.
+- Aggregate the union of verified exports from all attempts on the Mac through a
+  registered entrypoint that refuses duplicate IDs and foreign namespaces. Remote
+  attempt summaries stay sealed diagnostics. The original one-look or registered
+  sequential pause points remain the only scoring looks; completion never changes N.
+- Freeze mechanical failure triggers, `stop_verified`, missing-unit checks, at most
+  two outcome-blind completion retries (one original plus two completions), and each
+  attempt's envelope before data. Use a fresh manifest, output directory, and receipt
+  for every attempt; retain prior receipts and verified-export records unchanged.
+  Resume full-state trajectories only from the latest verified eligible snapshot.
+
+**Owner's 2× rule:** set all Colab unit caps, reserves, and timeouts to twice the
+ruling/forecast values when preparing a new package, before data. Record both base
+and effective envelopes. For example, a ruling's 2.5-unit cap, 0.5-unit reserve,
+and 90-minute timeout become 5.0 units, 1.0 unit, and 180 minutes. Do not double
+measured estimates, rates, N, checkpoint cadence, or the two-completion retry maximum.
+Do not edit immutable historical manifests or raise caps mid-series. Dispatch does
+not infer a forecast or resize a submitted manifest.
+
+Only explicitly declared short operational canaries or acceptance jobs may omit
+`resume`. Instead declare, for example:
+
+```json
+{
+  "resume_exemption": {
+    "kind": "short-canary",
+    "reason": "Synthetic skip-ledger transport proof; no scoring look"
+  },
+  "timeout_minutes": 40
+}
+```
+
+`kind` must be `short-canary` or `acceptance`, with a nonempty reason and a finite
+positive numeric timeout. Short canaries are bounded at 40 minutes (the ruling's
+20 minutes ×2); acceptance at 60 minutes (the existing 30-minute maximum ×2).
+The supervisor still enforces its other admission, budget, and timeout checks.
+Never declare both blocks. Names, scripts, and environment flags do not imply an
+exemption. A resume canary should itself use `resume` when testing that contract;
+an exemption only waives the declaration, not proof of the path under test.
+
+For an already prepared and reviewed package, dispatch its tiny canary first and
+wait for a passing terminal receipt, verified exports, and backend release. Its
+proof must match current code and the manifest pin before dispatching the main job.
+Set `CANARY_MANIFEST`, `MAIN_MANIFEST`, `PACKAGE_CWD`, and `DISPATCH_TXT` to the
+reviewed package's absolute paths and `ATTEMPT` to a fresh name:
+
+```bash
+REPO=/Users/josenunez/Projects/ml/snake-dqn-ops2
+"$REPO/tools/ops/dispatch.sh" "$ATTEMPT-canary" "$CANARY_MANIFEST" \
+  --broker "$REPO" --cwd "$PACKAGE_CWD" \
+  --state-dir "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/state/$ATTEMPT-canary" \
+  --dispatch-txt "$DISPATCH_TXT"
+# Wait for and verify the canary before running this command:
+"$REPO/tools/ops/dispatch.sh" "$ATTEMPT-main" "$MAIN_MANIFEST" \
+  --broker "$REPO" --cwd "$PACKAGE_CWD" \
+  --state-dir "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/state/$ATTEMPT-main" \
+  --dispatch-txt "$DISPATCH_TXT"
+```
 
 ## Qualification registry and watcher
 
@@ -74,8 +171,10 @@ An approved idle gap can suppress underuse until the epoch in
 
 Planning is offline. Execution spends Colab units and must be an explicit operator
 step after reviewing the generated plan and current endpoint-to-positive-rate map.
-Use a clean broker checkout. The wrapper always chooses `final-only`, retaining the
-existing 4.0-unit envelope and 0.8 reserve. It does not run full-state acceptance.
+Use a clean broker checkout. The wrapper always chooses `final-only` using the
+broker's pinned acceptance envelope. Review the generated plan against the owner's
+2× caps/reserves/timeouts rule above before execution; this dispatch-policy change
+does not resize the broker's acceptance generator. It does not run full-state acceptance.
 
 ```bash
 "$REPO/tools/ops/requalify.sh" plan --broker /absolute/clean-broker \

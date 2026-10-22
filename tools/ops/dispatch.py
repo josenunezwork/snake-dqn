@@ -146,6 +146,48 @@ def read_json(path: Path) -> dict:
     return value
 
 
+def require_resume_policy(manifest: dict[str, Any]) -> None:
+    """Require a resume contract or a declared, bounded operational exemption."""
+    if "resume" in manifest and "resume_exemption" in manifest:
+        raise Refused("declare resume or resume_exemption, never both")
+    if "resume_exemption" in manifest:
+        exemption = manifest["resume_exemption"]
+        if not isinstance(exemption, dict) or exemption.get("kind") not in (
+            "short-canary",
+            "acceptance",
+        ):
+            raise Refused("resume_exemption.kind must be short-canary or acceptance")
+        reason = exemption.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise Refused("resume_exemption.reason must be nonempty")
+        timeout = manifest.get("timeout_minutes")
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            raise Refused("resume exemption requires a finite positive timeout_minutes")
+        # Owner's 2x rule: ruling's 20-minute canary; acceptance's 30-minute maximum.
+        limit = 40 if exemption["kind"] == "short-canary" else 60
+        if timeout > limit:
+            raise Refused(
+                f"{exemption['kind']} resume exemption requires timeout_minutes <= {limit}"
+            )
+        return
+    resume = manifest.get("resume")
+    if not isinstance(resume, dict):
+        raise Refused("manifest requires a resume block (or declared resume_exemption)")
+    for field in ("unit_kind", "ledger_path"):
+        if not isinstance(resume.get(field), str) or not resume[field].strip():
+            raise Refused(f"resume.{field} must be nonempty")
+    if resume.get("skip_verified") is not True:
+        raise Refused("resume.skip_verified must be true")
+    retries = resume.get("max_outcome_blind_retries")
+    if type(retries) is not int or retries != 2:
+        raise Refused("resume.max_outcome_blind_retries must be the integer 2")
+
+
 def wait_allocation(output: Path, log: Path, deadline: float, poll: float) -> str:
     """An assignment record is too early: accounting calibration must finish."""
     while time.monotonic() < deadline:
@@ -221,6 +263,7 @@ def dispatch(args: argparse.Namespace) -> str:
     value = json.loads(original_bytes)
     if not isinstance(value, dict):
         raise Refused("manifest must be an object")
+    require_resume_policy(value)
     if value.get("scientific_admission") is False:
         raise Refused("manifest scientific_admission=false")
     if not isinstance(value.get("budget", {}).get("other_assignments", {}), dict):

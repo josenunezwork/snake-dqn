@@ -113,6 +113,12 @@ raise SystemExit(1)
                 "commit": git("rev-parse", "HEAD"),
                 "output_dir": str(tmp_path / "output"),
                 "budget": {"other_assignments": {}},
+                "resume": {
+                    "unit_kind": "episode",
+                    "ledger_path": "inputs/verified-ledger.json",
+                    "skip_verified": True,
+                    "max_outcome_blind_retries": 2,
+                },
             }
         )
     )
@@ -195,6 +201,7 @@ def test_one_exact_retry_fresh_outputs_preserves_original_evidence(fixture):
     assert [r["job"] for r in runs(f)] == ["job", "job-retry-1"]
     retry = json.loads((f["ops"] / "manifests/lane-retry-1.json").read_text())
     assert retry["output_dir"] == str(f["tmp"] / "output-retry-1")
+    assert retry["resume"] == json.loads(before)["resume"]
     assert f["manifest"].read_bytes() == before
     first = (f["ops"] / "logs/lane.log").read_text()
     assert "original failure evidence" in first and "EXIT=1" in first
@@ -353,3 +360,136 @@ def test_retry_directory_is_sibling_when_original_has_trailing_slash(fixture):
         str(f["tmp"] / "output-retry-1"),
     ]
     assert not (f["tmp"] / "output/-retry-1").exists()
+
+
+@pytest.mark.parametrize(
+    "resume",
+    [
+        None,
+        False,
+        [],
+        "episode",
+        {},
+        {"unit_kind": "episode", "ledger_path": "ledger.json", "skip_verified": True},
+        {
+            "unit_kind": "episode",
+            "ledger_path": "ledger.json",
+            "max_outcome_blind_retries": 2,
+        },
+    ],
+)
+def test_resume_contract_required_before_any_operational_side_effect(fixture, resume):
+    f = fixture
+    f["change"](resume=resume)
+    result = f["invoke"]()
+    assert result.returncode == 1 and "resume" in result.stderr
+    assert not (f["tmp"] / "trace").exists()
+    assert not (f["ops"] / "dispatch").exists()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("unit_kind", ""),
+        ("unit_kind", "  "),
+        ("unit_kind", ["episode"]),
+        ("ledger_path", None),
+        ("ledger_path", "\t"),
+        ("skip_verified", False),
+        ("skip_verified", "true"),
+        ("skip_verified", 1),
+        ("max_outcome_blind_retries", True),
+        ("max_outcome_blind_retries", 2.0),
+        ("max_outcome_blind_retries", "2"),
+        ("max_outcome_blind_retries", 0),
+        ("max_outcome_blind_retries", 1),
+        ("max_outcome_blind_retries", 3),
+    ],
+)
+def test_refuses_invalid_resume_fields(fixture, field, value):
+    f = fixture
+    resume = json.loads(f["manifest"].read_text())["resume"]
+    resume[field] = value
+    f["change"](resume=resume)
+    result = f["invoke"]()
+    assert result.returncode == 1 and f"resume.{field}" in result.stderr
+    assert not (f["tmp"] / "trace").exists()
+
+
+@pytest.mark.parametrize("field", ["unit_kind", "ledger_path"])
+def test_refuses_missing_resume_identity_fields(fixture, field):
+    f = fixture
+    resume = json.loads(f["manifest"].read_text())["resume"]
+    del resume[field]
+    f["change"](resume=resume)
+    result = f["invoke"]()
+    assert result.returncode == 1 and f"resume.{field}" in result.stderr
+    assert not runs(f)
+
+
+def without_resume(f):
+    value = json.loads(f["manifest"].read_text())
+    del value["resume"]
+    f["manifest"].write_text(json.dumps(value))
+
+
+@pytest.mark.parametrize("kind,minutes", [("short-canary", 40), ("acceptance", 60)])
+def test_explicit_operational_exemptions_pass_and_are_preserved(fixture, kind, minutes):
+    f = fixture
+    without_resume(f)
+    exemption = {"kind": kind, "reason": "Bounded transport check; no scoring look"}
+    f["change"](resume_exemption=exemption, timeout_minutes=minutes)
+    result = f["invoke"]()
+    assert result.returncode == 0, result.stderr
+    assert "allocation=success" in result.stdout
+    saved = json.loads((f["ops"] / "manifests/lane.json").read_text())
+    assert saved["resume_exemption"] == exemption
+    assert "resume" not in saved
+
+
+@pytest.mark.parametrize(
+    "exemption,timeout",
+    [
+        (None, 10),
+        ({"kind": "production", "reason": "test"}, 10),
+        ({"kind": "short-canary"}, 10),
+        ({"kind": "acceptance", "reason": " "}, 10),
+        ({"kind": "short-canary", "reason": "test"}, 40.01),
+        ({"kind": "acceptance", "reason": "test"}, 60.01),
+        ({"kind": "short-canary", "reason": "test"}, None),
+        ({"kind": "acceptance", "reason": "test"}, True),
+        ({"kind": "acceptance", "reason": "test"}, "20"),
+        ({"kind": "acceptance", "reason": "test"}, -1),
+        ({"kind": "acceptance", "reason": "test"}, 0),
+        ({"kind": "acceptance", "reason": "test"}, float("inf")),
+        ({"kind": "acceptance", "reason": "test"}, float("nan")),
+    ],
+)
+def test_invalid_exemption_cannot_bypass_resume_gate(fixture, exemption, timeout):
+    f = fixture
+    without_resume(f)
+    f["change"](resume_exemption=exemption, timeout_minutes=timeout)
+    result = f["invoke"]()
+    assert result.returncode == 1 and "resume" in result.stderr
+    assert not (f["tmp"] / "trace").exists()
+
+
+def test_exemption_cannot_hide_malformed_resume_contract(fixture):
+    f = fixture
+    f["change"](
+        resume=None,
+        resume_exemption={"kind": "short-canary", "reason": "test"},
+        timeout_minutes=10,
+    )
+    result = f["invoke"]()
+    assert result.returncode == 1 and "never both" in result.stderr
+    assert not runs(f)
+
+
+def test_canary_name_and_env_do_not_implicitly_exempt_manifest(fixture):
+    f = fixture
+    without_resume(f)
+    f["change"](job_id="acceptance-canary", env={"COLAB_ACCEPTANCE": "1"}, timeout_minutes=10)
+    result = f["invoke"]("short-canary")
+    assert result.returncode == 1 and "requires a resume block" in result.stderr
+    assert not runs(f)

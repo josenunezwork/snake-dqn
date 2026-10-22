@@ -71,6 +71,55 @@ existing jobs under the old protocol; do not create a non-Q1 job, migrate an exi
 legacy worker. Its old Drive-mount, shared-directory, heartbeat, and blocking-cell instructions remain relevant
 solely when operating that existing work.
 
+## Operations — Resume-by-default
+
+[Ruling (2)](docs/research/advice/2026-10-21_big_lever/JUDGMENT_RESUME_POLICY.md#2-standing-requirement--idempotent-completed-units--verified-ledger-resume-skip)
+is binding for every future Sol Colab package, development and registered. Before
+Mac preflight, provide and offline-test deterministic idempotent exported units
+(namespace + frozen allocation index), atomic immutable payloads with SHA sidecars
+and completion markers published last, and a Mac-verified ledger that skips exactly
+verified units and refuses foreign namespaces/allocations. Include an empty ledger
+on the first attempt. Bind and upload the ledger as an input; never recompute a
+verified unit into the result set.
+
+Every manifest dispatched through `tools/ops/dispatch.sh` must declare:
+
+```json
+{
+  "resume": {
+    "unit_kind": "episode",
+    "ledger_path": "inputs/verified-ledger.json",
+    "skip_verified": true,
+    "max_outcome_blind_retries": 2
+  }
+}
+```
+
+The strings must be nonempty, `skip_verified` must be boolean true, and the retry
+maximum must be integer 2. The wrapper refuses absent/malformed declarations before
+operational side effects. Only an explicit `resume_exemption` object with `kind`
+`short-canary` or `acceptance`, a nonempty `reason`, and a finite positive timeout
+may replace it (at most 40 or 60 minutes respectively). Never declare both. See
+[tools/ops/README.md](tools/ops/README.md#resume-by-default) for the full contract.
+
+Pre-register mechanical, outcome-blind retry triggers and per-attempt envelopes:
+one original plus at most two completion attempts, after verified mechanical
+failure, verified stop, and missing units. Each attempt uses a fresh manifest,
+output directory, and receipt; prior evidence remains immutable. Build ledgers
+from path/size/hash only. The registered Mac-side aggregator alone takes the look
+over all verified units, refusing duplicate IDs and foreign namespaces; remote
+attempt summaries remain sealed diagnostics. Preserve N and registered one-look
+or sequential pause points. For trajectories, resume only the latest verified
+eligible full-state snapshot. The declaration does not launch automatic completion
+retries or prove package behavior; the existing single exact accounting allocation
+retry remains unchanged. Canary proof must match current code and manifest pin
+before main dispatch. Claude/operator dispatches; Sol prepares and tests.
+
+**Owner's 2× rule:** all new Colab unit caps, reserves, and timeouts are twice the
+ruling/forecast values, frozen before data. Record base and effective envelopes;
+do not double measured estimates, rates, N, snapshot cadence, or the two-completion
+retry maximum, and do not raise caps mid-series or edit immutable past manifests.
+
 ## Project Overview
 
 Multi-agent reinforcement learning platform for training AI snakes. Built with
