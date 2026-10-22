@@ -65,6 +65,57 @@ def _ks_statistic(reference: np.ndarray, candidate: np.ndarray) -> float:
     return float(np.max(np.abs(reference_cdf - candidate_cdf)))
 
 
+def ks_compare(
+    reference_rows: Sequence[Dict[str, Any]],
+    candidate_rows: Sequence[Dict[str, Any]],
+    names: Sequence[str],
+) -> Dict[str, Any]:
+    """Return KS-only diagnostics for fields deliberately excluded from AUC.
+
+    Geometry is a separate realism signal.  In particular, it must never be
+    appended to the frozen 35-feature classifier after data collection has
+    started.  Like :func:`compare`, malformed or missing values fail closed.
+    """
+    fields = list(names)
+    if not fields or len(set(fields)) != len(fields):
+        return {"status": "INSUFFICIENT", "reason": "invalid_geometry_names"}
+
+    def matrix(rows: Sequence[Dict[str, Any]]) -> tuple[np.ndarray, str]:
+        values: list[list[float]] = []
+        for row in rows:
+            try:
+                vector = [float(row[name]) for name in fields]
+            except (KeyError, TypeError, ValueError):
+                return np.empty((0, len(fields))), "missing_or_nonnumeric_geometry"
+            if not np.isfinite(vector).all():
+                return np.empty((0, len(fields))), "nonfinite_geometry"
+            values.append(vector)
+        if not values:
+            return np.empty((0, len(fields))), "empty_rows"
+        return np.asarray(values, dtype=float), ""
+
+    reference, reference_error = matrix(reference_rows)
+    candidate, candidate_error = matrix(candidate_rows)
+    if reference_error or candidate_error:
+        return {
+            "status": "INSUFFICIENT",
+            "reason": reference_error or candidate_error,
+            "n_reference_rows": int(reference.shape[0]),
+            "n_candidate_rows": int(candidate.shape[0]),
+        }
+    return {
+        "status": "OK",
+        "fields": {
+            name: {
+                "statistic": _ks_statistic(reference[:, index], candidate[:, index]),
+                "n_reference": int(reference.shape[0]),
+                "n_candidate": int(candidate.shape[0]),
+            }
+            for index, name in enumerate(fields)
+        },
+    }
+
+
 def _rows(rows: Sequence[Dict[str, Any]], width: int) -> Tuple[np.ndarray, np.ndarray, str]:
     """Validate and convert public feature-row shape without dropping rows."""
     features: List[List[float]] = []

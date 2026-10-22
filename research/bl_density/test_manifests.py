@@ -17,8 +17,8 @@ def test_manifest_has_one_tiny_catalog_and_bounded_cpu_lane(monkeypatch, tmp_pat
     monkeypatch.setattr(manifests, "validate", lambda value, **_kw: value)
     value = manifests.build("a" * 40, tmp_path / "fresh")
     assert value["budget"]["other_assignments"] == {}
-    assert value["budget"]["unit_cap"] <= 3
-    assert value["timeout_minutes"] <= 90
+    assert value["budget"]["unit_cap"] <= 5
+    assert value["timeout_minutes"] <= 150
     assert value["timeout_minutes"] >= 2 * value["requirements"]["est_minutes"]
     assert len(value["inputs"]) == 1
     assert value["inputs"][0]["dest"] == "public-inputs.json"
@@ -27,7 +27,10 @@ def test_manifest_has_one_tiny_catalog_and_bounded_cpu_lane(monkeypatch, tmp_pat
     assert value["env"]["BL_DENSITY_METRICS_SHA256"]
     assert value["env"]["BL_DENSITY_AMENDMENT_SHA256"]
     assert value["env"]["BL_DENSITY_CAPACITY_AMENDMENT_SHA256"]
-    assert value["density"]["total_episodes"] == 72
+    assert value["env"]["BL_DENSITY_ROUND14_AMENDMENT_SHA256"]
+    assert value["density"]["production_gate"] == "BLOCKED_PENDING_L4_CANARY"
+    assert value["budget"]["reserve_units"] == 1.0
+    assert value["density"]["total_episodes"] == 90
     assert value["max_export_bytes"] == 64 * 1024**2
 
 
@@ -45,3 +48,18 @@ def test_source_drift_refuses(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(manifests.subprocess, "check_output", lambda *_a, **_kw: next(calls))
     with pytest.raises(ValueError, match="differs"):
         manifests.build("a" * 40, tmp_path / "fresh")
+
+
+def test_canary_is_separate_bounded_manifest(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(manifests, "qualified_transport", lambda *_args: {})
+    monkeypatch.setattr(manifests, "source_paths", lambda *_args: ["research/bl_density"])
+    calls = iter(["origin/main", ""])
+    monkeypatch.setattr(manifests.subprocess, "check_output", lambda *a, **kw: next(calls))
+    monkeypatch.setattr(manifests, "assert_upload_budget", lambda *_a, **_kw: {})
+    monkeypatch.setattr(manifests, "validate", lambda value, **_kw: value)
+    value = manifests.build("a" * 40, tmp_path / "fresh", phase="canary")
+    assert value["budget"]["unit_cap"] == 1
+    assert value["budget"]["reserve_units"] == 0.2
+    assert value["timeout_minutes"] == 20
+    assert value["density"]["total_episodes"] == 12
+    assert value["env"]["BL_DENSITY_PHASE"] == "canary"

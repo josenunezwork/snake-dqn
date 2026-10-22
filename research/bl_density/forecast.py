@@ -14,9 +14,12 @@ def forecast(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Price fixed work ceilings; do not turn tiny timings into a throughput claim."""
     branch_rows = [row for record in records for row in record["sampled"] if row.get("prefilter")]
     timed = [
-        (float(row["h300_cpu_seconds"]), int(row["h300_frames_executed"]))
+        (
+            float(row["h300_cpu_seconds"]),
+            int(row.get("continuation_branch_decisions", row["h300_frames_executed"])),
+        )
         for row in branch_rows
-        if row.get("h300_frames_executed", 0) > 0
+        if row.get("continuation_branch_decisions", row.get("h300_frames_executed", 0)) > 0
     ]
     if len(timed) < 3:
         raise ValueError("forecast needs at least three real timed continuation units")
@@ -33,8 +36,8 @@ def forecast(records: list[dict[str, Any]]) -> dict[str, Any]:
         + float(record.get("first_step_cpu_seconds", 0))
         for record in records
     )
-    episodes, workers, roots, horizon, depth = 72, 6, 24, 5000, 300
-    decision_bound = episodes * (horizon + roots * depth)
+    episodes, workers, roots, horizon, depth = 90, 6, 24, 5000, 300
+    decision_bound = episodes * (horizon + roots * depth + 4 * 5 * depth)
     cpu_bound = seconds_per_frame * decision_bound + episodes * setup_seconds
     cases = []
     for multiplier in (2, 3, 5):
@@ -44,8 +47,8 @@ def forecast(records: list[dict[str, Any]]) -> dict[str, Any]:
                 "cloud_cpu_slowdown_assumption": multiplier,
                 "session_minutes": minutes,
                 "units_at_2_per_hour": minutes * 2 / 60,
-                "within_45_minute_plan": minutes <= 45,
-                "within_60_minute_work_plus_15_minute_overhead": minutes <= 75,
+                "within_60_minute_plan": minutes <= 60,
+                "within_120_minute_priced_wall": minutes <= 120,
             }
         )
     return {
@@ -60,15 +63,18 @@ def forecast(records: list[dict[str, Any]]) -> dict[str, Any]:
         "production_episodes": episodes,
         "workers": workers,
         "max_sampled_roots_per_episode": roots,
+        "max_avoidability_roots_per_episode": 4,
+        "max_alternative_actions_per_root": 5,
         "world_decision_upper_bound": decision_bound,
         "mac_cpu_seconds_projected_at_max_observed_rate": cpu_bound,
         "bootstrap_public_download_export_allowance_minutes": 10,
         "analysis_allowance_minutes": 5,
         "sensitivity": cases,
-        "manifest_session_plan_minutes": 45,
-        "whole_session_wall_cap_minutes": 90,
-        "unit_cap": 3,
-        "reserve_units": 0.3,
+        "manifest_session_plan_minutes": 60,
+        "whole_session_wall_cap_minutes": 120,
+        "registered_outer_wall_cap_minutes": 150,
+        "unit_cap": 5,
+        "reserve_units": 1.0,
         "rate_units_per_hour_planning_ceiling": 2,
         "limits": [
             "tiny warm/compile/cache state differs from fresh Colab",
