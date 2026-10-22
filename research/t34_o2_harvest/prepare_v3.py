@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,30 @@ from research.colab_cli.supervisor import validate
 from research.t34_o2_harvest.bootstrap_preflight_v3 import run_bootstrap
 from research.t34_o2_harvest.frozen_sources_v3 import PIN, require_registration
 from research.t34_o2_harvest.make_manifest_v3 import ROOT, make_manifest
+
+
+def prepare_broker(artifacts: Path) -> Path:
+    """Keep dispatch on the exact qualified broker despite concurrent main edits."""
+    from research.t34_exit_b8.qualification import require_qualified_transport
+
+    broker = artifacts / "v3-qualified-broker"
+    if not broker.exists():
+        subprocess.run(
+            ["git", "worktree", "add", "--detach", str(broker), PIN],
+            cwd=ROOT,
+            check=True,
+            timeout=60,
+        )
+    head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=broker, text=True, timeout=10
+    ).strip()
+    dirty = subprocess.check_output(
+        ["git", "status", "--porcelain"], cwd=broker, text=True, timeout=10
+    ).strip()
+    if head != PIN or dirty:
+        raise ValueError("O2 V3 broker must be clean at the exact qualified runtime pin")
+    require_qualified_transport(broker, PIN)
+    return broker
 
 
 def sha(path: Path) -> str:
@@ -48,6 +73,7 @@ def prepare(artifacts: Path) -> None:
     planned += [artifacts / f"v3-supervisor-chunk-{i:02d}" for i in range(10)]
     if any(path.exists() for path in planned):
         raise FileExistsError("V3 publication/output/state paths must all be fresh")
+    broker = prepare_broker(artifacts)
     manifests.mkdir()
     results = []
     public = None
@@ -55,6 +81,7 @@ def prepare(artifacts: Path) -> None:
         "O2 V3 — PREPARED / VALIDATED / NOT DISPATCHED",
         "Mechanical transport recovery only; registration and all rules remain V2.",
         f"Runtime commit: {PIN}",
+        f"Qualified local broker checkout: {broker}",
         f"Registration: {registration}",
         f"Registration SHA-256: {sha(registration)}",
         "The V2 registration, bank, caps, scientific launcher and one look are unchanged.",
@@ -68,7 +95,7 @@ def prepare(artifacts: Path) -> None:
         "",
         "LOCAL VALIDATION (no allocation):",
     ]
-    launch = ROOT / "research/colab_cli/launch.sh"
+    launch = broker / "research/colab_cli/launch.sh"
     colab = Path.home() / ".local/bin/colab"
     run_commands = []
     for index in range(10):

@@ -69,7 +69,8 @@ qualified transport bytes or disabling assertions.
 | Registration SHA-256 | `82c1986ff42c7a98161b1f6ab657db0a61f82ab527cdd8bba4620410b698ce88` |
 | Catalog SHA-256 | `736f7b4e7730f760b8b81db00772d14abcf84c74b261a8dc7630732fdd383a10` |
 | V3 validation SHA-256 | `33534ed3bd17670ad72a96fdb9aa89b43c8fa59b78d77f8cbc3b2d5a88626ad3` |
-| Updated DISPATCH SHA-256 | `2d3bb0d6955490f95df96ebd66fef85813a743c5274903fbaf9e5e14ddc3d1f8` |
+| Updated DISPATCH SHA-256 | `be0ca05d1addbfbea627791cae37c61384247cffcf7a826cb270061c2b8b4f94` |
+| Qualified-broker validation SHA-256 | `442a7a257d1dc08bc2a0263e422e537f845bb7f83f8aff1aeb8a14f980c3d2d1` |
 
 ## Prepared publications
 
@@ -84,6 +85,18 @@ Artifact root:
   local validation, future dispatch, and V3 analysis commands.
 - Prior V2 `DISPATCH.txt` and its original sidecars are preserved under
   `v2-dispatch-preserved/`; V1 and V2 execution evidence is retained.
+
+Final integration fetched concurrent main `92e9e266`, including an unrelated
+`colab_cli/accounting.py` change outside the frozen transport qualification.
+It was merged without reverting or authoring any transport edits. Dispatch
+therefore uses a separate clean, detached, qualified broker checkout at
+`v3-qualified-broker/`, pinned to `f19d3f39050adfedc6eaef001a3364318fbb28bc`.
+The broker's complete transport inventory passed qualification and all ten
+unchanged manifests passed its local validator. No provider call was made.
+`v3-qualified-broker-validation.json` binds this integration evidence; the
+earlier V3 dispatch and sidecars are preserved in
+`v3-dispatch-before-integration/`. `prepare_v3.py` now provisions and verifies
+that pinned broker for future preparation rather than trusting changing main.
 
 All ten manifests pass the supervisor's local validator and exact source
 preparation/full upload qualification. Normal initial upload falls from
@@ -126,7 +139,9 @@ Broader O2/shared-upload/source/supervisor regression: **169 passed in
 flake8 and diff whitespace checks pass. The real local bootstrap-preflight CLI
 also passes using the generated chunk-00 manifest, reaching the CPU worker
 probe and original export path.
+Post-merge accounting regression: **13 passed in 0.54 seconds**. All ten
+manifests also pass local validation with the exact qualified broker checkout.
 
-No protected package, registration, bank, checkpoint, serving pin or active
-tmux session was changed. The prohibited sealed artifact directory was never
+No authored edit touched a protected package, registration, bank, checkpoint,
+serving pin or active tmux session. The prohibited sealed artifact directory was never
 opened. Release and serving remain owner-only.
