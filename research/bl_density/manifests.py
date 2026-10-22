@@ -93,13 +93,18 @@ def source_paths(repo: Path = ROOT) -> list[str]:
     )
 
 
-def _published_and_clean(commit: str, paths: list[str], repo: Path) -> None:
-    """Require a published source pin; qualification is reported separately."""
+def _published_and_clean(
+    commit: str, paths: list[str], repo: Path, *, require_main: bool = True
+) -> None:
+    """Require a clean pin on origin/main, or a published branch for pending preparation."""
     published = subprocess.check_output(
         ["git", "branch", "-r", "--contains", commit], cwd=repo, text=True
     )
-    if "origin/main" not in published:
+    branches = {line.strip() for line in published.splitlines()}
+    if require_main and "origin/main" not in branches:
         raise ValueError("source pin must already be published on origin/main")
+    if not require_main and not any(branch.startswith("origin/") for branch in branches):
+        raise ValueError("source pin must already be published on an origin branch")
     changed = subprocess.check_output(
         ["git", "diff", "--name-only", commit, "--", *paths], cwd=repo, text=True
     )
@@ -111,37 +116,47 @@ def _input(path: Path, dest: str) -> dict[str, str]:
     return {"path": str(path.resolve()), "dest": dest, "sha256": digest(path)}
 
 
-def source_bound_transport_receipt(repo: Path = ROOT) -> dict[str, str]:
+def source_bound_transport_receipt(
+    repo: Path = ROOT, receipt_path: Path = ACCEPTANCE_RESULT
+) -> dict[str, str]:
     """Verify the current final-only acceptance without uploading its receipt."""
     from research.colab_cli.acceptance import verify_plan_sources
     from research.colab_cli.admission import require_final_only
 
-    result = json.loads(ACCEPTANCE_RESULT.read_text())
+    receipt_path = receipt_path.resolve()
+    result = json.loads(receipt_path.read_text())
     require_final_only(result, repo)
     verify_plan_sources(
         {"source_manifest": result["source_manifest"], "commit": result["final_plan"]["commit"]},
         repo,
     )
     return {
-        "path": str(ACCEPTANCE_RESULT),
-        "sha256": digest(ACCEPTANCE_RESULT),
+        "path": str(receipt_path),
+        "sha256": digest(receipt_path),
         "status": "PASS_FINAL_ONLY",
     }
 
 
 def build(
-    commit: str, output_dir: Path, *, phase: str = "production", repo: Path = ROOT
+    commit: str,
+    output_dir: Path,
+    *,
+    phase: str = "production",
+    repo: Path = ROOT,
+    pending_requalification: bool = False,
+    source_qualification_receipt: Path = ACCEPTANCE_RESULT,
 ) -> dict[str, Any]:
     """Create a source-pinned, explicitly non-admitted DENSITY-2 template.
 
-    Current transport qualification is verified from the accepted final-only
-    receipt. Family execution remains a separate, unresolved live gate.
+    Default preparation requires the current accepted final-only receipt. The
+    explicit pending mode is limited to a published branch pin, is never
+    scientifically admitted, and records that live requalification remains due.
     """
     if phase not in {"canary", "production"}:
         raise ValueError("phase must be canary or production")
     is_probe = phase == "canary"
     paths = source_paths(repo)
-    _published_and_clean(commit, paths, repo)
+    _published_and_clean(commit, paths, repo, require_main=not pending_requalification)
     catalog = repo / "research/t34_exit_b8/PUBLIC_INPUTS.json"
     metric_sha = digest(repo / PACKAGE / "METRICS.md")
     amendment_sha = digest(repo / PACKAGE / "METRICS_AMENDMENT_01.md")
@@ -228,14 +243,23 @@ def build(
     }
     if is_probe:
         # FAMILIES is only a helper registry. Do not mutate it; unchanged broker
-        # checks evaluate this real script, family, inputs, exports and CUDA evidence.
+        # checks evaluate this real script, family, inputs, exports and device evidence.
         manifest["env"].update(SNAKE_COLAB_CANARY="1", SNAKE_COLAB_CANARY_PACKAGE=PACKAGE)
         manifest["canary"] = {
             "schema": family_canary.SCHEMA,
             "mode": "probe",
             "family": family_canary.family(manifest),
         }
-    manifest["source_bound_transport_receipt"] = source_bound_transport_receipt(repo)
+    manifest["source_qualification"] = (
+        {
+            "status": "PENDING_REQUALIFICATION",
+            "receipt_path": str(source_qualification_receipt.resolve()),
+            "reason": "current source requires a fresh final-only acceptance",
+        }
+        if pending_requalification
+        else source_bound_transport_receipt(repo, source_qualification_receipt)
+    )
+    manifest["density"]["source_qualification_status"] = manifest["source_qualification"]["status"]
     assert_upload_budget(manifest, repo=repo)
     validate_manifest(manifest)
     return manifest
@@ -246,8 +270,8 @@ def validation_report(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[st
     report: dict[str, Any] = {
         "schema": "bl-density-validation-report/v2",
         "job_id": manifest.get("job_id"),
-        "scientific_admission": False,
-        "status": "NOT_READY",
+        "scientific_admission": manifest.get("scientific_admission") is True,
+        "status": manifest.get("density", {}).get("status", "NOT_READY"),
     }
     try:
         validate_manifest(manifest)
@@ -256,10 +280,19 @@ def validation_report(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[st
         report["schema_and_upload"] = {"status": "REFUSED", "reason": str(exc)}
     else:
         report["schema_and_upload"] = {"status": "PASS"}
-    try:
-        report["source_qualification"] = {"status": "PASS", **source_bound_transport_receipt(repo)}
-    except Exception as exc:
-        report["source_qualification"] = {"status": "REFUSED", "reason": str(exc)}
+    qualification = manifest.get("source_qualification", {})
+    if qualification.get("status") == "PENDING_REQUALIFICATION":
+        report["source_qualification"] = dict(qualification)
+    else:
+        try:
+            report["source_qualification"] = {
+                "status": "PASS",
+                **source_bound_transport_receipt(
+                    repo, Path(qualification.get("path", ACCEPTANCE_RESULT))
+                ),
+            }
+        except Exception as exc:
+            report["source_qualification"] = {"status": "REFUSED", "reason": str(exc)}
     try:
         validate(copy.deepcopy(manifest), repo=repo)
     except (Refused, ValueError) as exc:
@@ -331,20 +364,100 @@ def finalize_production(
     return value
 
 
+def admit(
+    template: dict[str, Any],
+    *,
+    source_qualification_receipt: Path = ACCEPTANCE_RESULT,
+    repo: Path = ROOT,
+    canary_proof: Path | None = None,
+    canary_receipt: Path | None = None,
+    prior_spend_units: float | None = None,
+) -> dict[str, Any]:
+    """Admit a previously prepared template only after current real evidence.
+
+    This is deliberately offline: it checks receipts and the supervisor's
+    preflight validator but never allocates a runtime. A production template
+    must first be finalized against recovered canary evidence and its remaining
+    budget before the same source and supervisor checks can admit it.
+    """
+    if template.get("scientific_admission") is not False:
+        raise ValueError("only a non-admitted template may be admitted")
+    phase = template.get("env", {}).get("BL_DENSITY_PHASE")
+    if phase not in {"canary", "production"}:
+        raise ValueError("DENSITY-2 canary or production template required")
+    if template.get("env", {}).get("BL_DENSITY_SCIENTIFIC_ADMISSION") != "0":
+        raise ValueError("template must retain the disabled scientific admission guard")
+    paths = list(template.get("source_paths", []))
+    _published_and_clean(str(template.get("commit", "")), paths, repo, require_main=True)
+    value = copy.deepcopy(template)
+    if phase == "production":
+        if canary_proof is None or canary_receipt is None or prior_spend_units is None:
+            raise ValueError(
+                "production admission requires recovered canary proof, receipt and charge"
+            )
+        value = finalize_production(
+            value,
+            canary_proof=canary_proof,
+            canary_receipt=canary_receipt,
+            prior_spend_units=prior_spend_units,
+        )
+    elif any(item is not None for item in (canary_proof, canary_receipt, prior_spend_units)):
+        raise ValueError("canary admission does not accept production canary evidence")
+    qualification = source_bound_transport_receipt(repo, source_qualification_receipt)
+    value["source_qualification"] = qualification
+    value["density"]["source_qualification_status"] = qualification["status"]
+    value["scientific_admission"] = True
+    value["density"]["scientific_admission"] = True
+    value["density"]["status"] = "ADMITTED_OFFLINE_PENDING_DISPATCH"
+    value["density"]["production_gate"] = (
+        "FAMILY_CANARY_RUN_REQUIRED" if phase == "canary" else "ADMITTED_OFFLINE_PENDING_DISPATCH"
+    )
+    value["env"]["BL_DENSITY_SCIENTIFIC_ADMISSION"] = "1"
+    assert_upload_budget(value, repo=repo)
+    validate_manifest(value)
+    validate(value, repo=repo)
+    return value
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--commit", required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--commit")
+    parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--validation-report", type=Path)
     parser.add_argument("--phase", choices=("canary", "production"), default="production")
+    parser.add_argument("--pending-requalification", action="store_true")
+    parser.add_argument("--source-qualification-receipt", type=Path, default=ACCEPTANCE_RESULT)
+    parser.add_argument("--admit-template", type=Path)
+    parser.add_argument("--canary-proof", type=Path)
+    parser.add_argument("--canary-receipt", type=Path)
+    parser.add_argument("--prior-spend-units", type=float)
     args = parser.parse_args()
-    manifest = build(args.commit, args.output_dir, phase=args.phase)
-    args.manifest.parent.mkdir(parents=True, exist_ok=True)
+    if args.admit_template:
+        if args.pending_requalification:
+            parser.error("--pending-requalification cannot admit a template")
+        template = json.loads(args.admit_template.read_text())
+        manifest = admit(
+            template,
+            source_qualification_receipt=args.source_qualification_receipt,
+            canary_proof=args.canary_proof,
+            canary_receipt=args.canary_receipt,
+            prior_spend_units=args.prior_spend_units,
+        )
+    else:
+        if not args.commit or args.output_dir is None:
+            parser.error("--commit and --output-dir are required when preparing a template")
+        manifest = build(
+            args.commit,
+            args.output_dir,
+            phase=args.phase,
+            pending_requalification=args.pending_requalification,
+            source_qualification_receipt=args.source_qualification_receipt,
+        )
     export_json(args.manifest, manifest)
     if args.validation_report:
         export_json(args.validation_report, validation_report(manifest))
-    print(json.dumps({"manifest": str(args.manifest), "status": "NOT_READY"}))
+    print(json.dumps({"manifest": str(args.manifest), "status": manifest["density"]["status"]}))
 
 
 if __name__ == "__main__":
