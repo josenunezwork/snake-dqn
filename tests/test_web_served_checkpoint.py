@@ -44,6 +44,9 @@ def _isolate(monkeypatch):
 
     for key in (ENV_WATCH_HERO, ENV_PLAY_AI, ENV_VARIANT, ENV_CHECKPOINT):
         monkeypatch.delenv(key, raising=False)
+    # This resolver matrix uses tiny checkpoint/pin stand-ins. The actual file-backed
+    # reader and its public validator integration are exercised in test_bl_evidence.py.
+    monkeypatch.setattr(registry, "strict_evidence_problems", lambda *args, **kwargs: [])
     prev = game_config._current_config
     yield
     game_config._current_config = prev

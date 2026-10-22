@@ -87,7 +87,7 @@ def _valid_runs(candidate: str) -> tuple[list[dict[str, object]], list[str]]:
     return rows, ids
 
 
-def test_full_audited_metadata_corpus_can_pass_receipt_gate() -> None:
+def test_field_only_clock_metadata_cannot_pass_receipt_gate() -> None:
     identity = asdict(fixture_identity())
     candidate = sha256(identity)
     runs, ids = _valid_runs(candidate)
@@ -141,8 +141,9 @@ def test_full_audited_metadata_corpus_can_pass_receipt_gate() -> None:
         journal_seals=[_seal()],
         forecast={"scope": "audited reference metadata"},
     )
-    assert receipt["verdict"] == "PASS"
-    assert receipt["efficacy_unblinding"] == "IDENTITY_CHECKED"
+    assert receipt["verdict"] == "INCOMPLETE"
+    assert receipt["l3_identity_prerequisites"] == "BLOCKED"
+    assert "clock_seam_not_verified" in receipt["evidence_problems"]
     l3_admission = make_receipt(
         identity=identity,
         semantic=semantic,
@@ -170,7 +171,8 @@ def test_full_audited_metadata_corpus_can_pass_receipt_gate() -> None:
         forecast={"scope": "before first paced run"},
     )
     assert l3_admission["verdict"] == "INCOMPLETE"
-    assert l3_admission["l3_identity_prerequisites"] == "PASS"
+    assert l3_admission["l3_identity_prerequisites"] == "BLOCKED"
+    assert "clock_seam_not_verified" in l3_admission["evidence_problems"]
     proof_kwargs = {
         key: l3_admission[key]
         for key in ("identity", "commands", "journal_seals", "forecast", "clock_seam")

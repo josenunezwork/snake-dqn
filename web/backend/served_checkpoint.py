@@ -59,6 +59,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
+from research.bl_evidence.strict_pins import strict_evidence_problems
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SAVED_DIR = os.path.join(REPO_ROOT, "saved_snakes")
 PINS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "served_checkpoint_pins.json")
@@ -169,22 +171,31 @@ def load_pins(path: Optional[str] = None) -> Dict[str, Any]:
     return doc
 
 
-def strict_pin_problems(name: str, pins: Optional[Mapping[str, Any]] = None) -> List[str]:
+def strict_pin_problems(
+    name: str,
+    pins: Optional[Mapping[str, Any]] = None,
+    *,
+    candidate_sha256: Optional[str] = None,
+) -> List[str]:
     """Why ``name``'s strict-receipt pin does not authorize serving it ([] = filled and valid).
 
     A valid pin: the pins document has the expected schema; the entry names the registry
     checkpoint's sha256 and that checkpoint's registered veto binding; ``strict_receipt`` is
     a mapping with a ``verdict`` of ``STRICT_PASS``, an absolute ``root`` and, for the entry's
     evidence files, a relative ``path`` and a 64-hex ``sha256``. ``null`` (the shipped
-    placeholder) is refused.
+    placeholder) is refused. Evidence files are opened and checked against the immutable
+    owner-approved release anchors. Legacy pins never qualify an assisted candidate C.
     """
     entry = REGISTRY.get(name)
     if entry is None:
         return [f"unknown checkpoint name {name!r}"]
     doc = load_pins() if pins is None else pins
-    if doc.get("schema") != PINS_SCHEMA:
+    if not isinstance(doc, Mapping) or doc.get("schema") != PINS_SCHEMA:
         return [f"pins file schema is not {PINS_SCHEMA!r}"]
-    pin = (doc.get("checkpoints") or {}).get(name)
+    checkpoints = doc.get("checkpoints")
+    if not isinstance(checkpoints, Mapping):
+        return ["pins checkpoints is not a mapping"]
+    pin = checkpoints.get(name)
     if not isinstance(pin, Mapping):
         return [f"no pin entry for {name!r}"]
     out = []
@@ -214,6 +225,8 @@ def strict_pin_problems(name: str, pins: Optional[Mapping[str, Any]] = None) -> 
             and _HEX64.match(item["sha256"])
         ):
             out.append(f"strict_receipt.{key} needs a relative path and a 64-hex sha256")
+    if not out:
+        out.extend(strict_evidence_problems(name, pin, candidate_sha256=candidate_sha256))
     return out
 
 
