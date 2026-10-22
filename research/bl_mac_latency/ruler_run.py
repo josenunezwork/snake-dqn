@@ -13,6 +13,7 @@ from research.bl_mac_latency.host import GuardError, check_guard, process_screen
 from research.bl_served_search import ruler
 from research.bl_served_search.exports import digest, export_json, verify_export
 from research.bl_served_search.ruler_operator import ExactT3Operator
+from research.mac_lease import DEFAULT_LEASE_PATH, held
 
 
 def distribution(samples: list[float]) -> dict[str, Any]:
@@ -70,13 +71,7 @@ class GuardedOperator(ExactT3Operator):
         return result
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fixtures", required=True, type=Path)
-    parser.add_argument("--out", required=True, type=Path)
-    parser.add_argument("--budget-seconds", type=float, default=7200)
-    parser.add_argument("--require-quiet", action="store_true")
-    args = parser.parse_args()
+def _run(args: argparse.Namespace, lease: dict[str, object]) -> None:
     args.out.mkdir(parents=True, exist_ok=False)
     verify_export(args.fixtures)
     fixtures = json.loads(args.fixtures.read_text())
@@ -99,10 +94,12 @@ def main() -> None:
                 "completed": operator.completed,
                 "guards": operator.guards,
                 "failed_observation": getattr(exc, "observation", None),
+                "mac_lease": lease,
             },
         )
         raise
     receipt.update(
+        mac_lease=lease,
         operator_spec="research.bl_served_search.ruler_operator:create_operator",
         guard_wrapper="research.bl_mac_latency.ruler_run:GuardedOperator",
         guard_source_sha256=digest(Path(__file__)),
@@ -139,6 +136,24 @@ def main() -> None:
         ),
         flush=True,
     )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--fixtures", required=True, type=Path)
+    parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--budget-seconds", type=float, default=7200)
+    parser.add_argument("--require-quiet", action="store_true")
+    parser.add_argument("--lease-owner", default="bl-mac-latency-ruler")
+    parser.add_argument("--lease-path", type=Path, default=DEFAULT_LEASE_PATH)
+    args = parser.parse_args()
+    with held(
+        args.lease_owner,
+        "bl-mac-latency ruler timing",
+        seconds=args.budget_seconds,
+        path=args.lease_path,
+    ) as lease:
+        _run(args, lease.receipt)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ import numpy as np
 
 from research.bl_served_search.exports import export_json, verify_export
 from research.bl_served_search.ruler_operator import ExactT3Operator
+from research.mac_lease import DEFAULT_LEASE_PATH, held
 
 DIAGNOSTIC_EXCLUSIONS = ["live_vetoes (probe/v5/v7/v8 bookkeeping only)"]
 
@@ -348,6 +349,8 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--lease-owner", default="bl-k1-identity")
+    parser.add_argument("--lease-path", type=Path, default=DEFAULT_LEASE_PATH)
     args = parser.parse_args()
     from research.bl_k1.prepare import verify_manifest
 
@@ -357,34 +360,41 @@ def main() -> None:
         if (args.out / name).exists():
             raise FileExistsError(f"fresh identity attempt required: {args.out / name}")
     (args.out / "cases").mkdir()
-    try:
-        receipt = run(manifest, args.out, smoke=args.smoke)
-    except Exception as exc:
-        export_json(args.out / "stopped.json", {"status": "STOPPED", "error": str(exc)})
-        raise
-    receipt["manifest_sha256"] = verify_export(args.manifest)
-    receipt["platform"] = {
-        "system": platform.system(),
-        "machine": platform.machine(),
-        "node": platform.node(),
-        "python": platform.python_version(),
-    }
-    receipt["threads"] = {
-        name: os.environ.get(name)
-        for name in (
-            "OMP_NUM_THREADS",
-            "OPENBLAS_NUM_THREADS",
-            "MKL_NUM_THREADS",
-            "NUMBA_NUM_THREADS",
-            "VECLIB_MAXIMUM_THREADS",
-        )
-    }
-    receipt["diagnostic_only"] = True
-    receipt["argv"] = sys.argv
-    receipt["source_closure"] = manifest["sources"]
-    export_json(args.out / "identity.json", receipt)
-    if receipt["status"] == "INVALID":
-        raise SystemExit(1)
+    with held(
+        args.lease_owner, "bl-k1 identity audit", seconds=14400, path=args.lease_path
+    ) as lease:
+        try:
+            receipt = run(manifest, args.out, smoke=args.smoke)
+        except Exception as exc:
+            export_json(
+                args.out / "stopped.json",
+                {"status": "STOPPED", "error": str(exc), "mac_lease": lease.receipt},
+            )
+            raise
+        receipt["manifest_sha256"] = verify_export(args.manifest)
+        receipt["platform"] = {
+            "system": platform.system(),
+            "machine": platform.machine(),
+            "node": platform.node(),
+            "python": platform.python_version(),
+        }
+        receipt["threads"] = {
+            name: os.environ.get(name)
+            for name in (
+                "OMP_NUM_THREADS",
+                "OPENBLAS_NUM_THREADS",
+                "MKL_NUM_THREADS",
+                "NUMBA_NUM_THREADS",
+                "VECLIB_MAXIMUM_THREADS",
+            )
+        }
+        receipt["diagnostic_only"] = True
+        receipt["argv"] = sys.argv
+        receipt["source_closure"] = manifest["sources"]
+        receipt["mac_lease"] = lease.receipt
+        export_json(args.out / "identity.json", receipt)
+        if receipt["status"] == "INVALID":
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

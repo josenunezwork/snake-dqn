@@ -80,7 +80,7 @@ def test_partial_launch_drains_before_releasing_slots(tmp_path, monkeypatch):
     monkeypatch.setattr(timing, "command", lambda argv: "tmux inventory")
     monkeypatch.setattr(timing.subprocess, "Popen", launch)
     with pytest.raises(OSError, match="second launch"):
-        timing.run(tmp_path)
+        timing.run(tmp_path, lease_path=tmp_path / "mac-lease.json")
     assert events == ["launch", "wait", "release"]
     assert timing.read_sealed(tmp_path / "x5-coordinator-error.json")["status"] == "INCOMPLETE"
 
