@@ -29,6 +29,14 @@ def reconcile_y3_05(receipts: list[Path]) -> dict[str, Any]:
         "source-latebody-03-canary-01/canary-output/receipt.json",
         "source-latebody-03-canary-01/source-output/receipt.json",
     )
+    snapshot_retry = len(receipts) == 6
+    if snapshot_retry:
+        expected += ("canary-05", "source-05")
+        prefix = "source-latebody-05-kernel-watchdog-repin-20261022/family-canary/"
+        expected_locations += (
+            prefix + "canary-output/receipt.json",
+            prefix + "source-output/receipt.json",
+        )
     if len(receipts) != len(expected):
         raise ValueError("Y3-05 requires exactly the four known real receipts")
     spend = subprocess.run(
@@ -47,7 +55,7 @@ def reconcile_y3_05(receipts: list[Path]) -> dict[str, Any]:
         if not str(path.resolve()).endswith(location):
             raise ValueError("Y3-05 predecessor receipt identity/order differs")
         value = json.loads(path.read_text())
-        expected_status = "PASS" if name == "canary-03" else "INCOMPLETE"
+        expected_status = "PASS" if name.startswith("canary-") else "INCOMPLETE"
         if (
             value.get("status") != expected_status
             or value.get("stop_verified") is not True
@@ -79,10 +87,14 @@ def reconcile_y3_05(receipts: list[Path]) -> dict[str, Any]:
             }
         )
     spent = round(sum(row["legacy_conservative_charge_units"] for row in rows), 2)
-    if spent != 4.67:
+    if round(sum(row["legacy_conservative_charge_units"] for row in rows[:4]), 2) != 4.67:
         raise ValueError("known Y3-05 predecessor debit differs from frozen 4.67u")
     result = {
-        "schema": "bl-p1-y3-debit/v2-source-latebody-05",
+        "schema": (
+            "bl-p1-y3-debit/v3-snapshot-bound-retry"
+            if snapshot_retry
+            else "bl-p1-y3-debit/v2-source-latebody-05"
+        ),
         "status": "RECONCILED_NOT_DISPATCHED",
         "envelope_units": Y3_05_ENVELOPE,
         "base_envelope_units": 12.75,
@@ -242,7 +254,10 @@ def verify_source_admission(
         raise ValueError("Codex-V review does not cover this exact executable source")
     if review.get("no_new_cuda_path") is not True:
         raise ValueError("round-14 requires no-new-CUDA-path review")
-    if debit.get("schema") == "bl-p1-y3-debit/v2-source-latebody-05":
+    if debit.get("schema") in {
+        "bl-p1-y3-debit/v2-source-latebody-05",
+        "bl-p1-y3-debit/v3-snapshot-bound-retry",
+    }:
         actual = reconcile_y3_05([Path(row["path"]) for row in debit.get("attempts", [])])
         if debit != actual:
             raise ValueError("Y3 debit differs from immutable terminal receipts")

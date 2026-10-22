@@ -139,3 +139,53 @@ def test_frozen_banks_export_once_and_resume_requires_verified_siblings(tmp_path
     immutable.write_bytes(b"tampered")
     with pytest.raises(ValueError, match="mismatch"):
         restore_full_snapshot(path, policy, learner, collector, adapter, {"arm": "F"})
+
+
+def test_snapshot_bounds_externalize_fixture_bank_and_reject_oversize_existing_sidecar(
+    tmp_path: Path,
+) -> None:
+    from research.bl_ppo.byte_bounds import derive_snapshot_byte_bounds
+
+    policy = Policy(2, 1)
+    learner, collector = Learner(policy), Collector()
+    adapter = SimpleNamespace(
+        policy=policy,
+        device=torch.device("cpu"),
+        records=[],
+        refit_bank={"rows": torch.ones(2)},
+        ordinary_bank={"rows": torch.ones(2)},
+        fixture_late_body_bank={"rows": torch.ones(2)},
+    )
+    bounds = derive_snapshot_byte_bounds(
+        worlds=1,
+        processes=1,
+        rollout_steps=1,
+        max_refit_transitions=1,
+        max_actor_transitions=1,
+    )
+    snapshot = capture_full_snapshot(
+        policy,
+        learner,
+        collector,
+        adapter,
+        {},
+        {"arm": "F"},
+        immutable_dir=tmp_path,
+        byte_bounds=bounds,
+    )
+    assert "__bl_ppo_immutable_state_ref__" in snapshot["adapter"]["fixture_late_body_bank"]
+    fixture = next(tmp_path.glob("immutable-partial-fixture_late_body_bank-*.pt"))
+    fixture.write_bytes(
+        b"x" * (bounds["components"]["fixture_late_body_bank"]["effective_bytes"] + 1)
+    )
+    with pytest.raises(ValueError, match="predeclared export byte bound"):
+        capture_full_snapshot(
+            policy,
+            learner,
+            collector,
+            adapter,
+            {},
+            {"arm": "F"},
+            immutable_dir=tmp_path,
+            byte_bounds=bounds,
+        )

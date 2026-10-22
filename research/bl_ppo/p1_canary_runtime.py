@@ -155,6 +155,7 @@ def execute(
                 identity,
                 boundary={"kind": "exact", "pause_at": 32, "actual_pause_at": 32},
             ),
+            max_payload_bytes=control.get("max_snapshot_bytes"),
         )
         restored = restore_full_snapshot(snapshot, policy, learner, collector, adapter, identity)
     if restored != counters:
