@@ -22,8 +22,11 @@ if [[ "${1:-}" != "--run" ]]; then
   exit 2
 fi
 shift
-pmset -g batt | grep -q 'AC Power' || { printf '%s\n' 'refusing: on battery' >&2; exit 2; }
-ioreg -r -k AppleClamshellState | grep -q '"AppleClamshellState" = No' || {
+# Capture first: with pipefail, `cmd | grep -q` fails on SIGPIPE even when the pattern matches.
+power_state="$(pmset -g batt)"
+[[ "$power_state" == *'AC Power'* ]] || { printf '%s\n' 'refusing: on battery' >&2; exit 2; }
+lid_state="$(ioreg -r -k AppleClamshellState)"
+[[ "$lid_state" == *'"AppleClamshellState" = No'* ]] || {
   printf '%s\n' 'refusing: lid closed' >&2
   exit 2
 }
