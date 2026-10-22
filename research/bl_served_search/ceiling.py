@@ -99,6 +99,7 @@ def source_manifest() -> dict[str, str]:
     root = Path(__file__).resolve().parents[2]
     paths = (
         Path(__file__),
+        root / "research/bl_served_search/exact_stop.py",
         root / "research/bl_served_search/chunks.py",
         root / "research/t3_rollout_labels_20261015/trigger.py",
         root / "research/t3_rollout_labels_20261015/bank_engine.py",
@@ -147,7 +148,13 @@ def _choose(outcomes: dict[int, dict[str, Any]], bare: int, q: np.ndarray) -> in
 
 
 def _step(
-    world: Any, decision: int, trigger: DenseTrigger | None, *, dense: bool, horizon: int
+    world: Any,
+    decision: int,
+    trigger: DenseTrigger | None,
+    *,
+    dense: bool,
+    horizon: int,
+    search_mode: str = "all",
 ) -> dict[str, Any]:
     """Advance one live world at the evaluator's Watch selector seam.
 
@@ -162,6 +169,8 @@ def _step(
     from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
     from src.simd_env.eval_engine import _dispatch_actions
 
+    if search_mode not in ("all", "exact_stop"):
+        raise ValueError(f"unknown dense search mode: {search_mode}")
     selected: dict[str, Any] = {}
 
     def choose(prepared: Any) -> np.ndarray:
@@ -176,6 +185,8 @@ def _step(
         q = np.asarray(prepared_q(world, obs), dtype=np.float32)
         legal, bare = _legal(q, advisory)
         chosen, outcomes, batch_wall = bare, None, 0.0
+        evaluation_order: list[int] = []
+        branches_evaluated = branches_skipped = 0
         # Dense T3 does not expand the B8 fallback mask: an empty advisory mask
         # permits B8's normal-action fallback but is explicitly not searchable.
         eligible = bool(dense and trigger is not None and trigger.fires(decision, length, alive))
@@ -191,9 +202,29 @@ def _step(
             branch = world.clone()
             actions = [int(action) for action in np.flatnonzero(legal)]
             remaining = min(DEPTH, horizon - decision)
-            outcomes = rollout_all(branch, actions, remaining, decision, record_outcomes=True)
+            if search_mode == "all":
+                outcomes = rollout_all(branch, actions, remaining, decision, record_outcomes=True)
+                chosen = _choose(outcomes, bare, q)
+                evaluation_order = actions
+                branches_evaluated = len(actions)
+            else:
+                from research.bl_served_search.exact_stop import run as run_exact_stop
+
+                result = run_exact_stop(
+                    actions,
+                    bare,
+                    q,
+                    lambda action: rollout_all(
+                        branch.clone(), [action], remaining, decision, record_outcomes=True
+                    )[action],
+                    _choose,
+                )
+                outcomes = result["outcomes"]
+                chosen = int(result["chosen"])
+                evaluation_order = list(result["evaluation_order"])
+                branches_evaluated = int(result["branches_evaluated"])
+                branches_skipped = int(result["branches_skipped"])
             batch_wall = time.perf_counter() - started
-            chosen = _choose(outcomes, bare, q)
         actions = np.ones((1, prepared.S), dtype=np.int64)
         _dispatch_actions(prepared, masks, actions, [world.hero], [world.opponents])
         # Dispatch produces B8's ordinary choice.  Assert it before replacing
@@ -209,6 +240,10 @@ def _step(
             chosen=chosen,
             outcomes=outcomes,
             batch_wall_seconds=batch_wall,
+            search_mode=search_mode,
+            evaluation_order=evaluation_order,
+            branches_evaluated=branches_evaluated,
+            branches_skipped=branches_skipped,
         )
         return actions
 

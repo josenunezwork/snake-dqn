@@ -112,8 +112,13 @@ def _fixture_plan(plan: dict[str, Any]) -> dict[str, Any]:
 class ExactT3Operator:
     """Use the same dense operator on both hosts; timing fixtures stay separate."""
 
-    def __init__(self, native_mode: str = "stock") -> None:
+    def __init__(self, native_mode: str = "stock", search_mode: str = "all") -> None:
+        if native_mode not in ("stock", "replay", "kernel"):
+            raise ValueError(f"unknown native mode: {native_mode}")
+        if search_mode not in ("all", "exact_stop"):
+            raise ValueError(f"unknown search mode: {search_mode}")
         self.native_mode = native_mode
+        self.search_mode = search_mode
         self._roots: dict[str, Any] = {}
 
     def _world(self, row: dict[str, Any]) -> Any:
@@ -187,19 +192,29 @@ class ExactT3Operator:
                 DenseTrigger(min_length=600, interval=5),
                 dense=True,
                 horizon=int(fixture["root_frame"]) + ruler.HORIZON,
+                search_mode=self.search_mode,
             )
         if not result.get("fired"):
             raise RuntimeError("ruler root did not fire the unchanged dense trigger")
         outcomes = result["outcomes"]
+        evaluated = int(result["branches_evaluated"])
+        skipped = int(result["branches_skipped"])
+        if evaluated + skipped != len(fixture["legal_actions"]):
+            raise RuntimeError("exact-stop branch counters do not reconcile to legal actions")
         semantic = {
             "fixture_id": fixture["fixture_id"],
             "bare": int(result["bare"]),
             "chosen": int(result["chosen"]),
             "fired": True,
+            "search_mode": self.search_mode,
             "outcomes": {str(key): value for key, value in sorted(outcomes.items())},
+            "evaluation_order": list(result["evaluation_order"]),
+            "branches_evaluated": evaluated,
+            "branches_skipped": skipped,
             "rollout_branch_frames": sum(
                 int(value.get("frames_executed", value.get("frames_survived", 300)))
                 for value in outcomes.values()
+                if value.get("status") != "NOT_EVALUATED"
             ),
         }
         stages = {key: float(timer.seconds[key]) for key in STAGES}
@@ -214,3 +229,13 @@ class ExactT3Operator:
 def create_operator() -> ExactT3Operator:
     """Factory shared by the Mac and qualified L4 runtime."""
     return ExactT3Operator()
+
+
+def create_native_operator() -> ExactT3Operator:
+    """Native-kernel full evaluation cell for the prospective Friday ruler."""
+    return ExactT3Operator(native_mode="kernel", search_mode="all")
+
+
+def create_stop_operator() -> ExactT3Operator:
+    """Native-kernel exact-stop cell for the prospective Friday ruler."""
+    return ExactT3Operator(native_mode="kernel", search_mode="exact_stop")
