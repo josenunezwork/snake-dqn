@@ -1334,6 +1334,9 @@ class Broker:
         """Warm the transport, then arm the watchdog before dependency work."""
         root = "/content/snake-cli/" + generation
         cli.wait_runtime_ready(output)
+        startup_context = {"cli": cli, "manifest": m, "output": output}
+        if self.observer:
+            self.observer("runtime_ready", startup_context)
         with contextlib.nullcontext():
             staging = output / "staging"
             # Runtime code comes from the same pinned commit as the job, never
@@ -1383,6 +1386,8 @@ class Broker:
                     upload_contents(cli, Path(handle.name), credential_remote, deadline=deadline)
 
             upload_credential()
+            if self.observer:
+                self.observer("first_upload", startup_context)
             lease = {"generation": generation, "renewed_at": time.time()}
             initial = (
                 "import base64,json,subprocess,sys,time\nfrom pathlib import Path\n"

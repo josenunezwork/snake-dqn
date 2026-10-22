@@ -86,7 +86,10 @@ def test_run8_l4_pre_download_exec_stall_recovers_and_finishes_final_only_path(
 
     def idle(*args: Any, **kwargs: Any) -> bool:
         value = original_idle(*args, **kwargs)
-        order.append("idle" if value else "busy")
+        # Ignore the independent pre-upload metadata acceptance probe. The
+        # trace starts with the L4 verification RPC whose timeout is injected.
+        if order:
+            order.append("idle" if value else "busy")
         return value
 
     def rpc(cli: supervisor.CLI, code: str, *args: Any, **kwargs: Any) -> Any:

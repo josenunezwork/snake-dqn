@@ -47,7 +47,7 @@ def test_plan_defaults_to_conservative_cpu_price_and_keeps_job_output_fresh(tmp_
     plan = record["plan"]
     assert plan["status"] == "NOT_RUN"
     assert plan["limits"]["usable_units"] == 3.2
-    assert len(plan["gates"]) == 13
+    assert len(plan["gates"]) == 14
     assert plan["profile"] == "final-only"
     assert {
         g["id"] for g in plan["gates"] if g["status"] == "NOT_REQUIRED"
@@ -137,6 +137,157 @@ def test_launch_check_routes_acceptance_through_guarded_launcher() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "research.colab_cli.acceptance" in result.stdout
+
+
+def test_cold_kernel_recovery_gate_requires_both_arms_and_first_upload(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The observer clears only local metadata, then uses the real guard boundary."""
+    from research.colab_cli import acceptance_faults, cli_guard
+    from research.colab_cli.acceptance_faults import AcceptanceObserver
+
+    calls: list[list[str]] = []
+    guard_calls: list[tuple[object, ...]] = []
+    metadata = {
+        "kernel_id": "known-kernel",
+        "endpoint": "assigned-endpoint",
+        "url": "https://runtime.example/",
+        "token_sha256": "a" * 64,
+    }
+
+    def run(argv: list[str], **_kwargs: object) -> object:
+        calls.append(argv)
+        marker = argv[2]
+        if "SNAKE_ACCEPTANCE_KERNEL_METADATA_CLEAR" in marker:
+            return type("Result", (), {"returncode": 0, "stdout": json.dumps(metadata)})()
+        assert "SNAKE_ACCEPTANCE_KERNEL_METADATA_SNAPSHOT" in marker
+        return type("Result", (), {"returncode": 0, "stdout": json.dumps(metadata)})()
+
+    def idle(*args: object, **_kwargs: object) -> bool:
+        guard_calls.append(args)
+        return True
+
+    class CLI:
+        config = tmp_path / "sessions.json"
+        session = "acceptance-session"
+        contents_transfers = [
+            {
+                "direction": "upload",
+                "remote": "/content/release-credential.json",
+                "size_bytes": 128,
+                "elapsed_seconds": 0.5,
+                "status": "completed",
+            }
+        ]
+
+        @staticmethod
+        def remaining_seconds(allowance: float) -> float:
+            assert allowance == 150
+            return 47
+
+    monkeypatch.setattr(acceptance_faults.subprocess, "run", run)
+    monkeypatch.setattr(cli_guard, "kernel_idle", idle)
+    observer = AcceptanceObserver("fake-oauth-python")
+    for arm in ("cpu", "L4"):
+        context = {"cli": CLI(), "manifest": {"requirements": {"gpu": arm}}, "output": tmp_path}
+        observer("runtime_ready", context)
+        assert observer.records["cold-kernel-metadata-recovery"]["status"] == "INCOMPLETE"
+        observer("first_upload", context)
+    record = observer.records["cold-kernel-metadata-recovery"]
+    assert record["status"] == "PASS"
+    assert [arm["arm"] for arm in record["arms"]] == ["cpu", "L4"]
+    assert all(arm["metadata_recovery"]["same_kernel_id"] for arm in record["arms"])
+    assert len(calls) == 4
+    assert len(guard_calls) == 2
+    assert all(call[0] == "fake-oauth-python" and call[1] == "-c" for call in calls)
+    assert all(
+        args[0] == "fake-oauth-python" and args[2] == "acceptance-session" for args in guard_calls
+    )
+
+
+def test_cold_kernel_recovery_refuses_metadata_identity_change(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.colab_cli import acceptance_faults, cli_guard
+    from research.colab_cli.acceptance_faults import AcceptanceObserver
+
+    responses = iter(
+        [
+            {
+                "kernel_id": "known",
+                "endpoint": "endpoint",
+                "url": "https://one/",
+                "token_sha256": "a" * 64,
+            },
+            {
+                "kernel_id": "known",
+                "endpoint": "endpoint",
+                "url": "https://two/",
+                "token_sha256": "a" * 64,
+            },
+        ]
+    )
+
+    def run(_argv: list[str], **_kwargs: object) -> object:
+        return type("Result", (), {"returncode": 0, "stdout": json.dumps(next(responses))})()
+
+    class CLI:
+        config = tmp_path / "sessions.json"
+        session = "acceptance-session"
+
+        @staticmethod
+        def remaining_seconds(_allowance: float) -> float:
+            return 47
+
+    monkeypatch.setattr(acceptance_faults.subprocess, "run", run)
+    monkeypatch.setattr(cli_guard, "kernel_idle", lambda *_args, **_kwargs: True)
+    with pytest.raises(supervisor.Refused, match="changed tracked identity"):
+        AcceptanceObserver("fake-oauth-python")._recover_cleared_kernel_metadata(CLI(), "cpu")
+
+
+def test_first_upload_accepts_only_retry_attempts_for_its_one_remote(tmp_path: Path) -> None:
+    from research.colab_cli.acceptance_faults import AcceptanceObserver
+
+    observer = AcceptanceObserver("unused")
+    observer.records["cold-kernel-metadata-recovery"] = {
+        "status": "INCOMPLETE",
+        "arms": [{"arm": "cpu", "metadata_recovery": {}}],
+    }
+
+    class CLI:
+        contents_transfers = [
+            {
+                "direction": "upload",
+                "remote": "/content/release-credential.json",
+                "size_bytes": None,
+                "elapsed_seconds": 0.1,
+                "status": "failed",
+            },
+            {
+                "direction": "upload",
+                "remote": "/content/release-credential.json",
+                "size_bytes": 128,
+                "elapsed_seconds": 0.5,
+                "status": "completed",
+            },
+        ]
+
+    observer._verify_first_upload(CLI(), "cpu")
+    evidence = observer.records["cold-kernel-metadata-recovery"]["arms"][0]["first_upload_transfer"]
+    assert evidence["attempts"] == 2
+
+    observer = AcceptanceObserver("unused")
+    observer.records["cold-kernel-metadata-recovery"] = {
+        "status": "INCOMPLETE",
+        "arms": [{"arm": "cpu", "metadata_recovery": {}}],
+    }
+    CLI.contents_transfers[0]["remote"] = "/content/another-upload.json"
+    with pytest.raises(supervisor.Refused, match="first upload ledger is incomplete"):
+        observer._verify_first_upload(CLI(), "cpu")
+    CLI.contents_transfers[0]["remote"] = CLI.contents_transfers[-1]["remote"]
+    CLI.contents_transfers = [CLI.contents_transfers[0]] * 3 + [CLI.contents_transfers[-1]]
+    with pytest.raises(supervisor.Refused, match="contents transfer ledger"):
+        observer._verify_first_upload(CLI(), "cpu")
 
 
 def test_l4_watchdog_requires_backend_disappearance_within_bound(

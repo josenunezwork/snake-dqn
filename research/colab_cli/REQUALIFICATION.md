@@ -2,10 +2,73 @@
 
 The final published commit on **`supervisor-warmup-20261022`** requires a new
 source-bound `final-only` CPU + L4 acceptance before merge or production use.
-The handoff names the exact SHA. Earlier qualified transport bytes do not cover
-the new pre-upload Contents/kernel readiness phase. No Colab operation was run
+The handoff names the exact SHA. The PASS at `82fb9376`, merged as `96e9b776`,
+does not qualify this correction to cold-kernel identity recovery. No Colab operation was run
 while implementing this correction. The earlier telemetry incident record is
 [TELEMETRY_STALL_20261022.md](TELEMETRY_STALL_20261022.md).
+
+## Production readiness failure at 96e9b776
+
+The real `tools/ops/dispatch.sh` attempt recorded in
+`snake-dqn-artifacts/ops/logs/density2-skip-canary-02-96e9b776.log` and
+`snake-dqn-artifacts/big-lever/exp/bl-density/density2-completion-20261022-02/canary-output/receipt.json`
+failed with `tracked session lacks kernel probe metadata`. The receipt shows
+one allocation, a **30.006 s** failed readiness exec, no uploads, and verified
+cleanup. It is an incomplete canary, not an authorized retry.
+
+Root cause: CLI 0.7.4's `exec_command.on_started` persists `kernel_id` only
+after `ColabRuntime.kernel_client` completes `start()` and websocket setup.
+The supervisor's 30-second outer readiness deadline can terminate that process
+before the callback writes `sessions.json`. The next independent idle helper
+previously required an already-saved kernel ID and refused. Contents readiness
+proves neither kernel identity nor idleness. Acceptance already shares the
+broker and hook, but normal successful startup did not force this race; earlier
+offline readiness tests replaced the helper with booleans.
+
+When the ID is missing, the helper now GETs `/api/kernels` on the already
+tracked runtime URL with its existing proxy token. Only one well-formed,
+explicitly idle kernel can restore identity through the CLI's `StateStore`.
+The saved ID makes the next exec reconnect to that kernel. An empty inventory
+or busy/starting kernel remains unready; multiple kernels, malformed identities,
+unknown states and missing runtime metadata refuse. No new kernel is created by
+the recovery helper, and Contents readiness alone never clears an uncertain exec.
+Existing warmup, whole-session, unit and allocation limits still apply.
+
+The new offline production regression runs `dispatch.sh`, launcher, supervisor,
+generated `sitecustomize.py` and real guard helpers against isolated fake
+provider modules. It forces missing metadata after an ambiguous first readiness
+exec and verifies allocation → readiness → idle discovery → persisted identity
+→ first upload, with exactly one allocation. Negative cases retain the exec
+fence and prohibit uploads. These are offline transport assertions, not a live
+qualification.
+
+Both acceptance profiles now require `cold-kernel-metadata-recovery`. Before
+the first upload, the observer deliberately removes the known local kernel ID,
+uses the real idle helper, and requires restoration of that exact ID while
+preserving runtime identity. The gate also requires the subsequent first upload
+to complete, separately for CPU and L4. A missing arm or failed recovery cannot
+qualify. This deterministic local metadata fault supplements normal live startup;
+the offline dispatch regression supplies the interrupted-first-exec race proof.
+
+Local red/green check: the new dispatch regression passes with the correction.
+Replacing only `cli_guard.py` with the pre-fix version in its isolated,
+commit-pinned fixture reproduces the exact `tracked session lacks kernel probe
+metadata` error, with zero uploads and verified stop. The production checkout
+and incident receipts remain unchanged by that comparison. The regression ends
+after proving first upload and cleanup; its sparse source fixture is not a
+successful science job. The existing run-7/run-8 telemetry tests scope their
+idle/exec traces to the injected recovery phase, excluding the newly required
+startup acceptance probes.
+
+Offline verification: the broad CLI + ops dispatch/qualification run completed
+with 477 passes and four old run-7/run-8 trace expectations failing because they
+counted the new startup idle probes. After scoping those traces to their injected
+telemetry phase, the final focused run passed **85/85**, including all four
+cases, the production dispatch regression, guard/warmup, acceptance and admission.
+Black, isort, flake8 and diff checks passed for the changed files. These results
+do not replace the pending live source-bound qualification.
+
+## Readiness and staging contract
 
 The DENSITY-2 completion canary at
 `snake-dqn-artifacts/big-lever/exp/bl-density/density2-completion-20261022-01/canary-output/receipt.json`
@@ -43,8 +106,9 @@ Claude runs **`tools/ops/requalify.sh`**, which saves a review plan, consumes on
 execution attempt, checks exact source/manifests, and updates the ops qualification
 registry only after the existing final-only checks pass. These steps replace
 the earlier direct acceptance commands; use this wrapper workflow. Keep the
-existing **4.0-unit envelope / 0.8 reserve**, wall/unit caps and all ten required
-acceptance gates from [ACCEPTANCE.md](ACCEPTANCE.md). Do not run the full-state
+existing **4.0-unit envelope / 0.8 reserve**, wall/unit caps and the ten original
+required acceptance gates from [ACCEPTANCE.md](ACCEPTANCE.md), plus the new
+required cold-kernel gate (eleven required gates in final-only). Do not run the full-state
 extension or a production retry as part of this correction.
 
 1. Fetch this branch into the clean worktree below. Confirm `HEAD` and the remote
@@ -55,6 +119,8 @@ extension or a production retry as part of this correction.
    integrity, caps and verified cleanup), plus cold-first-call readiness,
    missing initial kernel, independent idle proof, permanent refusals,
    wall/unit clipping and failed-warmup cleanup, with the project interpreter.
+   Include `tests/test_colab_cli_dispatch_warmup.py`: this must use real guard
+   helpers and the production dispatch entrypoint, not mocked readiness booleans.
 3. Prepare a reviewed, current endpoint-to-positive-rate map. `{}` is valid only
    for an actually empty account. Plan offline, inspect the printed
    `ops-review.json`, its exact manifests, source inventory and budget. Execute
@@ -81,7 +147,7 @@ PLAN=/absolute/path/from/plan/ops-review.json
 ```
 
 4. Independently review `acceptance-result.json`, CPU/L4 broker receipts and all
-   ten observations. Require exact generation/source identity, positive rate
+   eleven required observations. Require exact generation/source identity, positive rate
    calibration, the 67,108,864-byte verified artifact, original scanner and
    checksum/marker evidence, bounded telemetry recovery, and independent backend
    disappearance. `require_final_only` and `verify_plan_sources` must pass for
@@ -97,6 +163,8 @@ PLAN=/absolute/path/from/plan/ops-review.json
    verified-upload versus raw Contents timings. Confirm actual staging remains
    measured independently and exercise a fresh family canary at this exact pin
    before science dispatch. Generic readiness cannot waive a later staging stall.
+   Require both CPU and L4 records for `cold-kernel-metadata-recovery`, exact
+   original/recovered kernel identity, and a completed first Contents upload.
 5. Confirm the new registry's qualified commit/tree/result hash match the final
    commit and reviewed receipt. This handoff is branch-only: do not merge as part
    of the fix. Any subsequent executable transport change requires another acceptance.
@@ -253,4 +321,7 @@ final-only acceptance on e9ce99f2: **PASS, qualified=true** — receipt
 `snake-dqn-artifacts/colab-cli-process-gates-acceptance/acceptance-1792660644/acceptance-result.json`
 (CPU + L4 jobs; final artifact 67,108,864 bytes, Mac-verified, ≥1.58 MB/s). Merged to main.
 That historical PASS does not qualify this branch's telemetry/export correction.
-Current result: **PENDING — no Colab operations performed for this correction.**
+The later `82fb9376` warmup PASS (merged as `96e9b776`) also predates this
+kernel-metadata recovery gate. Current result for this correction:
+**PENDING — no Colab operations performed.** Requalify the final branch SHA
+named in the handoff before merge or production use.

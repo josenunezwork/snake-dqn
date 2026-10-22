@@ -214,6 +214,97 @@ def test_kernel_idle_accepts_only_known_idle_or_busy(
     assert calls[0]["url"] == "https://runtime.example/api/kernels/kid"
 
 
+@pytest.mark.parametrize(
+    ("inventory", "expected", "error"),
+    [
+        ([], False, None),
+        ([{"id": "cold/id", "execution_state": "idle"}], True, None),
+        ([{"id": "cold/id", "execution_state": "busy"}], False, None),
+        ([{"id": "cold/id", "execution_state": "starting"}], False, None),
+        ([{"id": "cold/id", "execution_state": "unknown"}], None, "execution_state"),
+        ([{"id": "", "execution_state": "idle"}], None, "malformed kernel identity"),
+        ([{"id": 123, "execution_state": "idle"}], None, "malformed kernel identity"),
+        ([{"execution_state": "idle"}], None, "malformed kernel identity"),
+        ([None], None, "malformed kernel identity"),
+        ({"execution_state": "idle"}, None, "kernel inventory"),
+        (
+            [{"id": "a", "execution_state": "idle"}, {"id": "b", "execution_state": "idle"}],
+            None,
+            "ambiguous",
+        ),
+    ],
+)
+def test_cold_kernel_discovery_saves_only_unique_explicit_idle_identity(
+    monkeypatch: pytest.MonkeyPatch, inventory: object, expected: bool | None, error: str | None
+) -> None:
+    guard = _load("guard_cold_kernel_test")
+    state = types.SimpleNamespace(
+        kernel_id=None, url="https://tracked.example/", token="private", endpoint="owned-endpoint"
+    )
+    saved = []
+    calls = []
+
+    class Store:
+        def __init__(self, path: str) -> None:
+            assert path == "sessions.json"
+
+        def get(self, session: str) -> object:
+            assert session == "cold"
+            return state
+
+        def add(self, value: object) -> None:
+            saved.append(vars(value).copy())
+
+    def get(url: str, **kwargs: object) -> object:
+        calls.append((url, kwargs))
+        body = {"execution_state": "idle"} if len(calls) > 1 else inventory
+        return types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: body)
+
+    monkeypatch.setitem(sys.modules, "colab_cli", types.ModuleType("colab_cli"))
+    monkeypatch.setitem(sys.modules, "colab_cli.state", types.SimpleNamespace(StateStore=Store))
+    monkeypatch.setitem(sys.modules, "requests", types.SimpleNamespace(get=get))
+    if error:
+        with pytest.raises(guard.GuardError, match=error):
+            guard._kernel_idle_once("sessions.json", "cold")
+    else:
+        assert guard._kernel_idle_once("sessions.json", "cold") == {"idle": expected}
+    assert calls[0][0] == "https://tracked.example/api/kernels"
+    assert calls[0][1]["timeout"] == (30, 120)
+    assert saved == (
+        [dict(kernel_id="cold/id", url=state.url, token=state.token, endpoint=state.endpoint)]
+        if expected is True
+        else []
+    )
+    # A recovered ID is subsequently addressed exactly, including URL quoting.
+    if expected is True:
+        assert guard._kernel_idle_once("sessions.json", "cold") == {"idle": True}
+        assert calls[1][0] == "https://tracked.example/api/kernels/cold%2Fid"
+
+
+@pytest.mark.parametrize("missing", ["session", "url", "token"])
+def test_kernel_discovery_refuses_missing_runtime_identity_without_network(
+    monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    guard = _load("guard_missing_runtime_test")
+    state = types.SimpleNamespace(kernel_id=None, url="https://tracked.example", token="secret")
+    if missing != "session":
+        setattr(state, missing, "")
+    monkeypatch.setitem(sys.modules, "colab_cli", types.ModuleType("colab_cli"))
+    monkeypatch.setitem(
+        sys.modules,
+        "colab_cli.state",
+        types.SimpleNamespace(
+            StateStore=lambda _config: types.SimpleNamespace(
+                get=lambda _session: None if missing == "session" else state
+            )
+        ),
+    )
+    # No get() exists: accidental discovery would fail this test.
+    monkeypatch.setitem(sys.modules, "requests", types.SimpleNamespace())
+    with pytest.raises(guard.GuardError, match="lacks kernel probe metadata"):
+        guard._kernel_idle_once("config.json", "cold")
+
+
 @pytest.mark.parametrize("outcome", ["ready", "404", "403", "malformed"])
 def test_contents_readiness_is_metadata_only_and_does_not_require_a_kernel(
     monkeypatch: pytest.MonkeyPatch, outcome: str

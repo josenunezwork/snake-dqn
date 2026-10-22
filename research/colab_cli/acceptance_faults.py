@@ -9,6 +9,7 @@ raises so the broker retains its normal cleanup and writes an INCOMPLETE receipt
 from __future__ import annotations
 
 import json
+import math
 import os
 import signal
 import subprocess
@@ -19,11 +20,56 @@ from pathlib import Path
 from typing import Any
 
 from research.colab_cli import policy, supervisor
-from research.colab_cli.transfers import _contents_call, upload_contents, upload_file
+from research.colab_cli.transfers import (
+    CONTENTS_ATTEMPTS,
+    _contents_call,
+    upload_contents,
+    upload_file,
+)
 
 WATCHDOG_DISAPPEARANCE_BOUND_SECONDS = 300
 WATCHDOG_DISAPPEARANCE_POLL_SECONDS = 10
 WATCHDOG_CHECKPOINT_GRACE_SECONDS = 15
+
+# These snippets intentionally run in the installed CLI interpreter.  The Mac
+# environment does not import ``colab_cli.state``: that would turn a missing
+# local CLI package into an acceptance-path dependency.  The marker literals
+# also make the offline fake OAuth interpreter emulate this exact bounded
+# StateStore mutation without importing the real client.
+_CLEAR_KERNEL_METADATA = """\
+# SNAKE_ACCEPTANCE_KERNEL_METADATA_CLEAR
+import hashlib,json,sys
+from colab_cli.state import StateStore
+store=StateStore(sys.argv[1])
+state=store.get(sys.argv[2])
+if state is None:
+    raise RuntimeError('tracked acceptance session is absent')
+fields=('kernel_id','endpoint','url','token')
+if any(not isinstance(getattr(state,name,None),str) or not getattr(state,name) for name in fields):
+    raise RuntimeError('tracked acceptance session lacks acknowledged kernel metadata')
+before={name:getattr(state,name) for name in fields}
+state.kernel_id=None
+store.add(state)
+after=store.get(sys.argv[2])
+if after is None or after.kernel_id is not None:
+    raise RuntimeError('kernel ID did not clear locally')
+if any(getattr(after,name,None)!=before[name] for name in ('endpoint','url','token')):
+    raise RuntimeError('clearing kernel ID changed tracked metadata')
+print(json.dumps({'kernel_id':before['kernel_id'],'endpoint':before['endpoint'],'url':before['url'],'token_sha256':hashlib.sha256(before['token'].encode()).hexdigest()},sort_keys=True))
+"""
+
+_SNAPSHOT_KERNEL_METADATA = """\
+# SNAKE_ACCEPTANCE_KERNEL_METADATA_SNAPSHOT
+import hashlib,json,sys
+from colab_cli.state import StateStore
+state=StateStore(sys.argv[1]).get(sys.argv[2])
+if state is None:
+    raise RuntimeError('tracked acceptance session is absent')
+fields=('kernel_id','endpoint','url','token')
+if any(not isinstance(getattr(state,name,None),str) or not getattr(state,name) for name in fields):
+    raise RuntimeError('tracked acceptance session lacks recovered kernel metadata')
+print(json.dumps({'kernel_id':state.kernel_id,'endpoint':state.endpoint,'url':state.url,'token_sha256':hashlib.sha256(state.token.encode()).hexdigest()},sort_keys=True))
+"""
 
 
 class AcceptanceObserver:
@@ -50,6 +96,12 @@ class AcceptanceObserver:
                 self._refresh_oauth_then_query(cli)
             self._accounted_assignments(cli, manifest["requirements"]["gpu"])
             return
+        if stage == "runtime_ready":
+            self._recover_cleared_kernel_metadata(cli, manifest["requirements"]["gpu"])
+            return
+        if stage == "first_upload":
+            self._verify_first_upload(cli, manifest["requirements"]["gpu"])
+            return
         if stage == "ready" and manifest["requirements"]["gpu"] == "L4":
             probe = self._wait_phase(context, "transfer_ready")
             if self.profile == "final-only":
@@ -70,6 +122,161 @@ class AcceptanceObserver:
             self._verify_terminal_exports(exports, output)
             if self.profile == "full-state":
                 self._resume_import(context)
+
+    @staticmethod
+    def _arm_name(arm: str) -> str:
+        if arm not in {"cpu", "L4"}:
+            raise supervisor.Refused(f"acceptance has unknown hardware arm: {arm}")
+        return arm
+
+    def _cold_kernel_arm(self, arm: str, *, create: bool) -> dict[str, Any]:
+        """Return the single per-arm record for the combined cold-start gate."""
+        gate = "cold-kernel-metadata-recovery"
+        record = self.records.get(gate)
+        if record is None:
+            if not create:
+                raise supervisor.Refused("acceptance first upload lacks metadata recovery evidence")
+            record = {"status": "INCOMPLETE", "arms": []}
+            self._record(gate, **record)
+        arms = record.get("arms")
+        if not isinstance(arms, list):
+            raise supervisor.Refused("acceptance cold-kernel gate has malformed arm evidence")
+        matches = [item for item in arms if isinstance(item, dict) and item.get("arm") == arm]
+        if len(matches) > 1:
+            raise supervisor.Refused("acceptance cold-kernel gate repeated an arm")
+        if matches:
+            return matches[0]
+        if not create:
+            raise supervisor.Refused(
+                "acceptance first upload has no matching metadata recovery evidence"
+            )
+        evidence: dict[str, Any] = {"arm": arm}
+        arms.append(evidence)
+        return evidence
+
+    def _refresh_cold_kernel_gate_status(self) -> None:
+        record = self.records["cold-kernel-metadata-recovery"]
+        arms = record["arms"]
+        complete = (
+            isinstance(arms, list)
+            and {arm.get("arm") for arm in arms if isinstance(arm, dict)} == {"cpu", "L4"}
+            and len(arms) == 2
+            and all(
+                isinstance(arm.get("metadata_recovery"), dict)
+                and isinstance(arm.get("first_upload_transfer"), dict)
+                and arm["first_upload_transfer"].get("status") == "completed"
+                for arm in arms
+            )
+        )
+        record["status"] = "PASS" if complete else "INCOMPLETE"
+
+    def _kernel_metadata(self, cli: supervisor.CLI, code: str) -> dict[str, str]:
+        """Run a StateStore-only operation in the bounded installed CLI interpreter."""
+        try:
+            result = subprocess.run(
+                [self.oauth_python, "-c", code, str(cli.config), cli.session],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=cli.remaining_seconds(150),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise supervisor.Refused("acceptance kernel metadata helper failed") from exc
+        if result.returncode:
+            raise supervisor.Refused("acceptance kernel metadata helper refused")
+        try:
+            value = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise supervisor.Refused(
+                "acceptance kernel metadata helper returned invalid JSON"
+            ) from exc
+        required = {"kernel_id", "endpoint", "url", "token_sha256"}
+        if (
+            not isinstance(value, dict)
+            or set(value) != required
+            or any(not isinstance(value[key], str) or not value[key] for key in required)
+        ):
+            raise supervisor.Refused("acceptance kernel metadata helper returned malformed state")
+        return {key: value[key] for key in required}
+
+    def _recover_cleared_kernel_metadata(self, cli: supervisor.CLI, arm: str) -> None:
+        """Prove the real guard can recover a deliberately lost session kernel ID.
+
+        This is deliberately positioned after Contents readiness and before the
+        first upload.  It mutates only the local StateStore's ``kernel_id`` and
+        then uses the guard's GET-only recovery helper; it never allocates or
+        submits an execution.
+        """
+        from research.colab_cli import cli_guard
+
+        arm = self._arm_name(arm)
+        before = self._kernel_metadata(cli, _CLEAR_KERNEL_METADATA)
+        try:
+            idle = cli_guard.kernel_idle(
+                self.oauth_python,
+                cli.config,
+                cli.session,
+                timeout=cli.remaining_seconds(150),
+            )
+        except cli_guard.GuardError as exc:
+            raise supervisor.Refused("acceptance kernel metadata recovery was refused") from exc
+        if not idle:
+            raise supervisor.Refused("acceptance kernel metadata recovery did not prove idle")
+        after = self._kernel_metadata(cli, _SNAPSHOT_KERNEL_METADATA)
+        if after != before:
+            raise supervisor.Refused("acceptance kernel metadata recovery changed tracked identity")
+        evidence = self._cold_kernel_arm(arm, create=True)
+        if "metadata_recovery" in evidence:
+            raise supervisor.Refused("acceptance cold-kernel recovery repeated an arm")
+        evidence["metadata_recovery"] = {
+            "original_kernel_id": before["kernel_id"],
+            "recovered_kernel_id": after["kernel_id"],
+            "same_kernel_id": True,
+            "tracked_metadata_unchanged": True,
+            "idle_proven_by": "cli_guard.kernel_idle GET-only helper",
+        }
+        self._refresh_cold_kernel_gate_status()
+
+    def _verify_first_upload(self, cli: supervisor.CLI, arm: str) -> None:
+        """Require the just-completed credential upload in the supervisor ledger."""
+        arm = self._arm_name(arm)
+        ledger = cli.contents_transfers
+        if (
+            not isinstance(ledger, list)
+            or not ledger
+            or len(ledger) > CONTENTS_ATTEMPTS
+            or any(not isinstance(row, dict) for row in ledger)
+        ):
+            raise supervisor.Refused("acceptance first upload has no contents transfer ledger")
+        entry = ledger[-1]
+        if (
+            any(row.get("direction") != "upload" for row in ledger)
+            or any(row.get("remote") != entry.get("remote") for row in ledger)
+            or any(row.get("status") != "failed" for row in ledger[:-1])
+            or entry.get("direction") != "upload"
+            or entry.get("status") != "completed"
+            or not isinstance(entry.get("remote"), str)
+            or not entry["remote"]
+            or isinstance(entry.get("size_bytes"), bool)
+            or not isinstance(entry.get("size_bytes"), int)
+            or entry["size_bytes"] <= 0
+            or isinstance(entry.get("elapsed_seconds"), bool)
+            or not isinstance(entry.get("elapsed_seconds"), (int, float))
+            or not math.isfinite(float(entry["elapsed_seconds"]))
+            or entry["elapsed_seconds"] <= 0
+        ):
+            raise supervisor.Refused("acceptance first upload ledger is incomplete")
+        evidence = self._cold_kernel_arm(arm, create=False)
+        if "first_upload_transfer" in evidence:
+            raise supervisor.Refused("acceptance first upload repeated an arm")
+        evidence["first_upload_transfer"] = {
+            "remote": entry["remote"],
+            "attempts": len(ledger),
+            "size_bytes": entry["size_bytes"],
+            "elapsed_seconds": entry["elapsed_seconds"],
+            "status": "completed",
+        }
+        self._refresh_cold_kernel_gate_status()
 
     def _refresh_oauth_then_query(self, cli: supervisor.CLI) -> None:
         """Refresh in memory without modifying or printing the credential file."""

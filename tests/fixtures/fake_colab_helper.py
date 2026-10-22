@@ -2,6 +2,7 @@
 """Offline identity, credential and idle helper; never contacts a provider."""
 
 import fcntl
+import hashlib
 import json
 import os
 import sys
@@ -9,7 +10,18 @@ import time
 from pathlib import Path
 
 if "-c" in sys.argv:
-    if "REFRESH_OK" in sys.argv[sys.argv.index("-c") + 1]:
+    code = sys.argv[sys.argv.index("-c") + 1]
+    if "SNAKE_ACCEPTANCE_KERNEL_METADATA_" in code:
+        path, session = Path(sys.argv[-2]), sys.argv[-1]
+        sessions = json.loads(path.read_text())
+        saved = sessions[session]
+        result = {key: saved[key] for key in ("kernel_id", "endpoint", "url")}
+        result["token_sha256"] = hashlib.sha256(saved["token"].encode()).hexdigest()
+        if "SNAKE_ACCEPTANCE_KERNEL_METADATA_CLEAR" in code:
+            saved["kernel_id"] = None
+            path.write_text(json.dumps(sessions, sort_keys=True))
+        print(json.dumps(result))
+    elif "REFRESH_OK" in code:
         print("REFRESH_OK")
     else:
         print(
@@ -22,7 +34,15 @@ if "-c" in sys.argv:
             )
         )
 elif "--kernel-idle" in sys.argv:
-    print(json.dumps({"idle": os.environ.get("FAKE_COLAB_MODE") != "busy_exec"}))
+    idle = os.environ.get("FAKE_COLAB_MODE") != "busy_exec"
+    if idle:
+        path, session = Path(sys.argv[-2]), sys.argv[-1]
+        if path.exists():
+            sessions = json.loads(path.read_text())
+            if session in sessions and not sessions[session].get("kernel_id"):
+                sessions[session]["kernel_id"] = "fake-kernel-id"
+                path.write_text(json.dumps(sessions, sort_keys=True))
+    print(json.dumps({"idle": idle}))
 elif "--runtime-ready" in sys.argv:
     print(json.dumps({"ready": True}))
 elif "--recover-assignment" in sys.argv:

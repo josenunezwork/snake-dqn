@@ -140,6 +140,15 @@ def review_gates(profile: str = "final-only") -> list[dict[str, Any]]:
             "owner": "Mac supervisor",
         },
         {
+            "id": "cold-kernel-metadata-recovery",
+            "evidence": (
+                "for CPU and L4: known kernel ID deliberately cleared locally, guard recovered the "
+                "same unique idle kernel without changing tracked metadata, then the first upload "
+                "completed in the supervisor transfer ledger"
+            ),
+            "owner": "Mac supervisor + cli guard",
+        },
+        {
             "id": "busy-full-snapshot",
             "evidence": "remote snapshot.complete.json, downloaded hash, atomic local file",
             "owner": "probe + supervisor",

@@ -261,7 +261,13 @@ def _new_session(state: dict[str, Any], name: str, gpu: str) -> None:
         config_path = Path(config)
         config_path.parent.mkdir(parents=True, exist_ok=True)
         existing = json.loads(config_path.read_text()) if config_path.exists() else {}
-        existing[name] = {"endpoint": endpoint}
+        existing[name] = {
+            "name": name,
+            "endpoint": endpoint,
+            "url": "https://fake-runtime.invalid/",
+            "token": "fake-proxy-token",
+            "kernel_id": None,
+        }
         config_path.write_text(json.dumps(existing, sort_keys=True))
     print(f"Created session {name}")
 
@@ -323,6 +329,12 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         _save(state)
         return
     if "SNAKE_RUNTIME_READINESS" in code:
+        # Model the official CLI callback after acknowledged kernel startup.
+        # The separate dispatch regression forces loss before this callback.
+        config_path = Path(os.environ["FAKE_COLAB_ACTIVE_CONFIG"])
+        sessions = json.loads(config_path.read_text())
+        sessions[session]["kernel_id"] = sessions[session].get("kernel_id") or "fake-kernel-id"
+        config_path.write_text(json.dumps(sessions, sort_keys=True))
         _reply(code, {"ready": True})
         _save(state)
         return

@@ -556,7 +556,10 @@ def test_run7_l4_heartbeat_stall_then_exec_timeout_has_bounded_idle_recovery(
 
     def idle(*args: Any, **kwargs: Any) -> bool:
         result = original_idle(*args, **kwargs)
-        order.append("idle" if result else "busy")
+        # The cold-start acceptance gate also proves idle before upload. This
+        # trace is specifically the later injected telemetry recovery window.
+        if recovery_started and not recovery_finished and not recovered[0]:
+            order.append("idle" if result else "busy")
         return result
 
     def rpc(cli: supervisor.CLI, *args: Any, **kwargs: Any) -> Any:
