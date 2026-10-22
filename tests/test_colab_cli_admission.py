@@ -37,6 +37,29 @@ def passing_result(tmp_path: Path) -> dict[str, Any]:
     for gate in gates:
         if gate["id"] == "final-artifact-download":
             gate["evidence_record"] = transfer
+        if gate["id"] == "cold-kernel-metadata-recovery":
+            gate["evidence_record"] = {
+                "status": "PASS",
+                "arms": [
+                    {
+                        "arm": arm,
+                        "metadata_recovery": {
+                            "original_kernel_id": f"{arm}-kernel",
+                            "recovered_kernel_id": f"{arm}-kernel",
+                            "same_kernel_id": True,
+                            "tracked_metadata_unchanged": True,
+                        },
+                        "first_upload_transfer": {
+                            "remote": f"/content/{arm}-credential.json",
+                            "attempts": 1,
+                            "size_bytes": 128,
+                            "elapsed_seconds": 1.0,
+                            "status": "completed",
+                        },
+                    }
+                    for arm in ("cpu", "L4")
+                ],
+            }
     execution = []
     for arm in ("cpu", "l4"):
         receipt = tmp_path / (arm + ".json")
@@ -85,6 +108,10 @@ def test_final_only_requires_verified_artifact_and_clean_release(passing_result:
         "pass-omitted-gate",
         "missing-arm",
         "changed-receipt",
+        "cold-kernel-upload",
+        "cold-kernel-missing-arm",
+        "cold-kernel-changed-id",
+        "cold-kernel-missing-evidence",
         "wrong-size",
         "inflated-throughput",
         "nan-throughput",
@@ -106,6 +133,34 @@ def test_final_only_refuses_unqualified_evidence(passing_result: dict, fault: st
         result["final_plan"]["execution"].pop()
     elif fault == "changed-receipt":
         Path(result["final_plan"]["execution"][0]["receipt"]).write_text("{}")
+    elif fault == "cold-kernel-upload":
+        cold = next(
+            gate
+            for gate in result["final_plan"]["gates"]
+            if gate["id"] == "cold-kernel-metadata-recovery"
+        )
+        cold["evidence_record"]["arms"][1]["first_upload_transfer"]["status"] = "failed"
+    elif fault == "cold-kernel-missing-arm":
+        cold = next(
+            gate
+            for gate in result["final_plan"]["gates"]
+            if gate["id"] == "cold-kernel-metadata-recovery"
+        )
+        cold["evidence_record"]["arms"].pop()
+    elif fault == "cold-kernel-changed-id":
+        cold = next(
+            gate
+            for gate in result["final_plan"]["gates"]
+            if gate["id"] == "cold-kernel-metadata-recovery"
+        )
+        cold["evidence_record"]["arms"][0]["metadata_recovery"]["recovered_kernel_id"] = "other"
+    elif fault == "cold-kernel-missing-evidence":
+        cold = next(
+            gate
+            for gate in result["final_plan"]["gates"]
+            if gate["id"] == "cold-kernel-metadata-recovery"
+        )
+        cold.pop("evidence_record")
     elif fault == "wrong-size":
         result["final_artifact_transfer"]["exported_bytes"] -= 1
     elif fault == "inflated-throughput":

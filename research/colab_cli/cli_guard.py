@@ -242,8 +242,10 @@ def kernel_idle(
 ) -> bool:
     """Return ``True`` only for an explicitly idle tracked kernel.
 
-    A busy kernel returns ``False``.  Missing metadata, transport errors, and
-    malformed state are unknown facts and therefore raise :class:`GuardError`.
+    A busy or not-yet-visible kernel returns ``False``. A missing cold-start
+    kernel ID can be recovered from a unique idle kernel on the tracked runtime.
+    Missing runtime metadata, transport errors, and malformed state raise
+    :class:`GuardError`.
     """
     result = _run_read_helper(oauth_python, "--kernel-idle", str(config), session, timeout=timeout)
     if set(result) != {"idle"} or not isinstance(result["idle"], bool):
@@ -345,13 +347,25 @@ def _unassign_endpoint_once(endpoint: str) -> dict[str, bool]:
 
 
 def _kernel_idle_once(config: str, session: str) -> dict[str, bool]:
+    """Prove idle, recovering a cold-start ID only from the tracked runtime.
+
+    CLI 0.7.4 saves a new kernel ID after websocket startup. An outer exec
+    timeout can kill that client before its callback saves the ID. Contents
+    readiness alone cannot clear this ambiguity: discover the sole kernel by
+    GET, require explicit idle, and save its ID before any subsequent exec so
+    the CLI reconnects instead of creating another kernel.
+    """
     import requests
     from colab_cli.state import StateStore
 
-    state = StateStore(config).get(session)
-    if state is None or not state.kernel_id or not state.url or not state.token:
+    store = StateStore(config)
+    state = store.get(session)
+    if state is None or not state.url or not state.token:
         raise GuardError("tracked session lacks kernel probe metadata")
-    url = state.url.rstrip("/") + "/api/kernels/" + quote(state.kernel_id, safe="")
+    recovering = not state.kernel_id
+    url = state.url.rstrip("/") + "/api/kernels"
+    if not recovering:
+        url += "/" + quote(state.kernel_id, safe="")
     response = requests.get(
         url,
         headers={
@@ -363,8 +377,27 @@ def _kernel_idle_once(config: str, session: str) -> dict[str, bool]:
     )
     response.raise_for_status()
     body = response.json()
+    if recovering:
+        if not isinstance(body, list):
+            raise GuardError("kernel discovery returned no recognized kernel inventory")
+        if not body:
+            # A timed-out creation may still be in flight. An empty list does
+            # not prove that submitting another exec is safe.
+            return {"idle": False}
+        if len(body) != 1:
+            raise GuardError("kernel discovery is ambiguous; expected one tracked runtime kernel")
+        body = body[0]
+        if (
+            not isinstance(body, dict)
+            or not isinstance(body.get("id"), str)
+            or not body["id"].strip()
+        ):
+            raise GuardError("kernel discovery returned malformed kernel identity")
     execution_state = body.get("execution_state") if isinstance(body, dict) else None
     if execution_state == "idle":
+        if recovering:
+            state.kernel_id = body["id"]
+            store.add(state)
         return {"idle": True}
     if execution_state in {"busy", "starting"}:
         return {"idle": False}

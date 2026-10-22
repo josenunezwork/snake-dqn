@@ -41,6 +41,40 @@ def require_final_only(result: dict[str, Any], repo: Path) -> dict[str, Any]:
             "OBSERVED" if gate["required"] else "NOT_REQUIRED"
         ):
             raise Refused(f"final-only acceptance gate incomplete: {gate['id']}")
+    cold = by_id["cold-kernel-metadata-recovery"].get("evidence_record")
+    if not isinstance(cold, dict) or cold.get("status") != "PASS":
+        raise Refused("final-only acceptance lacks cold-kernel recovery evidence")
+    cold_arms = cold.get("arms")
+    if not isinstance(cold_arms, list) or len(cold_arms) != 2:
+        raise Refused("final-only acceptance cold-kernel evidence lacks both arms")
+    by_arm = {arm.get("arm"): arm for arm in cold_arms if isinstance(arm, dict)}
+    if set(by_arm) != {"cpu", "L4"}:
+        raise Refused("final-only acceptance cold-kernel evidence has malformed arm identity")
+    for arm in by_arm.values():
+        recovery, upload = arm.get("metadata_recovery"), arm.get("first_upload_transfer")
+        if (
+            not isinstance(recovery, dict)
+            or not isinstance(recovery.get("original_kernel_id"), str)
+            or not recovery["original_kernel_id"]
+            or recovery.get("recovered_kernel_id") != recovery["original_kernel_id"]
+            or recovery.get("same_kernel_id") is not True
+            or recovery.get("tracked_metadata_unchanged") is not True
+            or not isinstance(upload, dict)
+            or upload.get("status") != "completed"
+            or isinstance(upload.get("attempts"), bool)
+            or not isinstance(upload.get("attempts"), int)
+            or not 1 <= upload["attempts"] <= 3
+            or not isinstance(upload.get("remote"), str)
+            or not upload["remote"]
+            or isinstance(upload.get("size_bytes"), bool)
+            or not isinstance(upload.get("size_bytes"), int)
+            or upload["size_bytes"] <= 0
+            or isinstance(upload.get("elapsed_seconds"), bool)
+            or not isinstance(upload.get("elapsed_seconds"), (int, float))
+            or not math.isfinite(float(upload["elapsed_seconds"]))
+            or upload["elapsed_seconds"] <= 0
+        ):
+            raise Refused("final-only acceptance cold-kernel evidence is incomplete")
     execution = plan.get("execution")
     if (
         not isinstance(execution, list)
