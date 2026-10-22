@@ -1,0 +1,71 @@
+Native L4 paired ruler — PREPARED, NOT DISPATCHED
+Source commit: 70dfc1ec0ec8fa1749c04c8648b3d105f4fb3ac9 (published on origin/main)
+Canary manifest SHA256: 5e5a773339bb7d295517c3b38b7cea711feed78266487bcb78ab1c4ca2bfb1d2
+Main template SHA256: d16108ca264513d1bd11521d84bca6f6e9ae5185d7352b631066d8178105b908
+
+Same nine burned Mac fixtures; all/exact_stop; native kernel; H300;
+main 30 repeats per fixture per cell, 12 one-thread workers.
+Canary 1 repeat per fixture per cell, same workers/inputs/source family.
+Canary <=1u, 18min; main <=3u, 72min; combined <=4u.
+Combined whole-wall liability 3u, reserve 0.8u. First cap wins.
+Prospective estimates 9/36min are envelopes, not measured L4 throughput.
+BL_NATIVE_MAX_SECONDS: canary600; main1800 including its internal canary.
+Required real producer exports: ruler-receipt.json and cuda-action-audit.json;
+scanner verifies their payload/SHA256/completion triplets.
+CUDA B8 audit is separate from native CPU cells; no CUDA/CPU parity claim.
+
+Local canary supervisor validation: PASS.
+Local main validation: PASS_PRECANARY_STRUCTURE; all checks reach the exact
+missing-live-family-receipt gate. Full admission is deliberately conditional
+on the following canary completing with clean PASS and verified release.
+The bind command independently re-derives broker canary proof; no placeholder
+receipt, override, fabricated proof or retry is supplied.
+Z-9: identical five-file inventories; original 30-component fixtures archive;
+public checkpoint catalog; K1 payload plus correctly named sidecars.
+Normal upload forecast89.034223s; fallback119.689952s; including bounded fetch
+239.689952s, within150s/300s gates. Actual LOCAL emulator staging ~0.014s;
+provider latency was not measured. local-validation.json binds all25 source
+identity files selected in the sparse source plan and the immutable Mac digest.
+No Colab calls, runtime assignments, scientific worlds, new timing, tmux changes,
+serving changes or forbidden artifact access occurred during preparation.
+Older family native-l4-prepared-20261022-01 is superseded and not dispatchable;
+its original bytes remain intact and its sibling SUPERSEDED.txt explains why.
+
+BLOCK live inventory: before EACH admission refresh sessions/usage and review
+all existing endpoint rates against budget.other_assignments (currently {}).
+Unknown endpoints/rates or account count >=3 refuse. If a map changes, make
+fresh manifest copies, revalidate, and use their paths; preserve old evidence.
+
+ORDERED OPERATOR COMMANDS — no automatic retry, do not skip canary/bind:
+cd /Users/josenunez/Projects/ml/snake-dqn-wp1
+PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+EXP=/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-l2
+JOB="$EXP/native-l4-prepared-20261022-02"
+LAUNCH=/Users/josenunez/Projects/ml/snake-dqn-wp1/research/colab_cli/launch.sh
+COLAB=/Users/josenunez/.local/bin/colab
+
+# Operator only: refresh live inventory, then price any existing endpoints.
+"$COLAB" --auth oauth2 sessions
+"$COLAB" --auth oauth2 usage
+
+# 1. Canary first; launch.sh applies the Mac power/lid/caffeinate guards.
+"$LAUNCH" --state-dir "$JOB/canary-state" --colab "$COLAB" validate "$JOB/canary.json"
+"$LAUNCH" --state-dir "$JOB/canary-state" --colab "$COLAB" run "$JOB/canary.json"
+
+# 2. Only a real clean canary PASS with verified disappearance can bind main.
+"$PY" -m research.bl_served_search.native_manifests bind --template "$JOB/main.json" --receipt "$JOB/canary-runtime/receipt.json" --out "$JOB/main-admitted.json"
+
+# 3. Refresh inventory again before admitting main. Never rerun a used output.
+"$COLAB" --auth oauth2 sessions
+"$COLAB" --auth oauth2 usage
+"$LAUNCH" --state-dir "$JOB/main-state" --colab "$COLAB" validate "$JOB/main-admitted.json"
+"$LAUNCH" --state-dir "$JOB/main-state" --colab "$COLAB" run "$JOB/main-admitted.json"
+
+# 4. After broker PASS/release, verify and publish exact recovered receipt bytes.
+"$PY" -m research.bl_served_search.native_manifests publish --output "$JOB/main-runtime" --mac "$EXP/y1-native-mac/ruler-receipt.json" --target "$EXP/y1-native-l4/ruler-receipt.json"
+"$PY" -m research.bl_served_search.placement_stop --mac-receipt "$EXP/y1-native-mac/ruler-receipt.json" --l4-receipt "$EXP/y1-native-l4/ruler-receipt.json" --out "$EXP/placement-stop-paired-native-l4-20261022-02.json"
+
+These are prospective placement measurements only. Preserve both all/stop
+cells, any failure, and the terminal broker receipt. No automatic selection
+bank run or release follows. Native source compatibility is restricted to
+explicit historical hashes; original Mac/L4 provenance remains in reports.
