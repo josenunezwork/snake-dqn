@@ -34,8 +34,8 @@ conservative 2,526,188 raw-transition maximum by the same formula. Tests evaluat
 | One complete closure | 1,172,585,576 | 2,345,171,152 |
 
 The existing qualified supervisor interprets `max_export_bytes` **per file**.
-That field remains 2,147,483,648 bytes, and every component fits. Its transport
-source and qualification are unchanged. An additional manifest field,
+That field remains 2,147,483,648 bytes, and every component fits. The repair preserves the qualified per-file ceiling; the current transport
+qualification is identified below. An additional manifest field,
 `max_total_export_bytes`, is required to express an aggregate bound without
 changing the qualified supervisor's field semantics. The P1 runtime exporter
 enforces it before publication, including payloads, SHA sidecars and markers.
@@ -93,10 +93,10 @@ rate before each dispatch. Claude/operator alone runs the following commands:
 
 ```bash
 REPO=/Users/josenunez/Projects/ml/snake-dqn-p1snap
-PACK=/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-latebody-05-snapshot-bounds-20261022
-ACCEPTANCE=/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/warmup3-requalification-20261022/requalify-80auhwsd/acceptance-1792707441/acceptance-result.json
+PACK=/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-latebody-05-snapshot-bounds-staging-repin-20261022
+ACCEPTANCE=/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/canary-staging-requalification-20261022-b/requalify-gljfvzqa/acceptance-1792710644/acceptance-result.json
 cd "$REPO"
-"$REPO/tools/ops/dispatch.sh" p1-y3-05-snapshot-bounds-canary-20261022 \
+"$REPO/tools/ops/dispatch.sh" p1-y3-05-snapbound-staging-canary-20261022 \
   "$PACK/family-canary/canary-manifest.json" --broker "$REPO" --cwd "$REPO" \
   --dispatch-txt "$PACK/DISPATCH-snapshot-bounds.txt"
 
@@ -104,7 +104,7 @@ cd "$REPO"
 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_ppo.p1_family_canary admit \
   --root "$PACK/family-canary" --receipt "$PACK/family-canary/canary-output/receipt.json" \
   --acceptance "$ACCEPTANCE" --review "$PACK/independent-artifact-review.json"
-"$REPO/tools/ops/dispatch.sh" p1-y3-05-snapshot-bounds-source-20261022 \
+"$REPO/tools/ops/dispatch.sh" p1-y3-05-snapbound-staging-source-20261022 \
   "$PACK/family-canary/source-admitted.json" --broker "$REPO" --cwd "$REPO" \
   --dispatch-txt "$PACK/DISPATCH-snapshot-bounds.txt"
 ```
@@ -119,6 +119,20 @@ Black with line length 100, isort with the Black profile, flake8 on all 18 chang
 Python files, shell syntax and diff whitespace checks passed. The independent
 Codex-V receipt records separate heavy replay, final arithmetic and lint evidence.
 
-Prepared executable pin: `7b83e3be80db763bc5101e87684773c0039a8716`.
+Prepared executable pin: `2a207aba5356d7aee79b2e6ce94a9f01d410b328`.
 Both templates pin that published commit; subsequent handoff/index publication
 changes no reviewed executable source.
+
+A concurrent staging-accounting transport fix was merged from `origin/main`
+and was already requalified by its operator. The staging-repin sibling uses
+acceptance `acceptance-1792710644` and transport tree
+`553af3f692515b2bf66173356fe4d099acc96942`. The earlier snapshot-bound pack and
+preparation index remain immutable historical preparation. The new sibling
+index ending `_02.json` supersedes only dispatch pointers and transport binding;
+all 33 reviewed study source identities, byte bounds, ledger and debit match.
+
+Post-merge staging checks: **6 passed, 72 deselected**; both warmup cases
+**2 passed** after replacing a brittle exact duration comparison with
+`pytest.approx(135)` (observed difference 2.84e-14 seconds). This test-only fix
+does not alter executable source or transport qualification. Fresh normal
+upload forecast is 67.736836s; fallback + fetch is 249.061567s < 300s.

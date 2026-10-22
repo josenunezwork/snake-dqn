@@ -244,7 +244,7 @@ def test_cold_first_call_is_warmed_before_any_upload_and_staging_clock(
     measurement = json.loads((output / "upload-measurement.json").read_text())
     assert receipt["status"] == "PASS"
     assert receipt["stop_verified"]
-    assert receipt["warmup_seconds"] == 135
+    assert receipt["warmup_seconds"] == pytest.approx(135)
     assert min(uploads_at) >= 135  # Includes the private credential and lease PUTs.
     assert receipt["elapsed_seconds"] >= receipt["warmup_seconds"] + measurement["elapsed_seconds"]
     if slow_staging:
