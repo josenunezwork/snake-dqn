@@ -173,6 +173,8 @@ def check(manifest: dict[str, Any], repo: Path) -> None:
     actual = evidence(probe, receipt, path.parent, repo)
     if actual != proof:
         raise CanaryError("family canary evidence differs from broker observations")
+    if manifest["requirements"]["gpu"] != proof["hardware"]:
+        raise CanaryError("requested allocation target lacks a family canary")
     if proof["hardware"] not in manifest["requirements"].get(
         "allowed_gpus", [manifest["requirements"]["gpu"]]
     ):

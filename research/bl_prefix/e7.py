@@ -315,6 +315,7 @@ def run(
             "status": "PREFLIGHT_ONLY" if preflight else "COMPLETE",
             "workers": workers,
             "selection": selection,
+            "expected_sources": [str(x["source_world"]) for x in bank],
             "training_outcomes": [
                 row for selection_row in selection for row in selection_row["training_outcomes"]
             ],

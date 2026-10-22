@@ -119,3 +119,52 @@ def test_mac_claim_wrappers_bind_the_publication_proof(tmp_path: Path) -> None:
     )
     prefix = publish_prefix(prefix_result, tmp_path / "prefix-decision.json", proof)
     assert prefix["published_ledger_check_sha256"] == proof["proof_sha256"]
+
+
+def test_e7_claim_uses_unique_audited_roster_with_three_ancestors(tmp_path: Path) -> None:
+    from research.bl_ppo.exports import export_json
+    from research.bl_prefix.decide import publish
+
+    repo = _repo(tmp_path)
+    proof = require_published_ledger(repo, "research/example/LOOK_LEDGER.md")
+    sources = ["world-1", "world-2"]
+    confirmations = [
+        {
+            "source_world": source,
+            "ancestor": ancestor,
+            "stream": stream,
+            "candidate_score": 50.0,
+            "b8_score": 0.0,
+            "candidate_survival": True,
+            "b8_survival": True,
+            "fallback_count": 0,
+        }
+        for source in sources
+        for ancestor in (100, 150, 200)
+        for stream in (0, 1)
+    ]
+    raw = {
+        "schema": "bl-prefix-e7-results/v1",
+        "preflight": False,
+        "status": "COMPLETE",
+        "expected_sources": sources,
+        "selection": [
+            {"source_world": source, "ancestor": ancestor}
+            for source in sources
+            for ancestor in (100, 150, 200)
+        ],
+        "confirmations": confirmations,
+    }
+    result = tmp_path / "e7.json"
+    export_json(result, raw)
+    claim = publish(result, tmp_path / "claim.json", proof)
+    assert claim["analysis"]["sources"] == 2
+    assert claim["analysis"]["confirmed_fraction"] == 1.0
+    assert claim["published_ledger_check_sha256"] == proof["proof_sha256"]
+    # A missing world remains in the audited roster and must cause refusal.
+    raw["confirmations"] = [row for row in confirmations if row["source_world"] == "world-1"]
+    incomplete = tmp_path / "incomplete.json"
+    export_json(incomplete, raw)
+    with pytest.raises(ValueError, match="two confirmation rows"):
+        publish(incomplete, tmp_path / "invalid-claim.json", proof)
+    assert not (tmp_path / "invalid-claim.json").exists()

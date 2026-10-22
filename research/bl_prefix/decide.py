@@ -29,11 +29,20 @@ def publish(result_path: Path, out: Path, ledger_proof: dict[str, str]) -> dict[
     ):
         raise ValueError("prefix claim requires a completed non-preflight result")
     if schema == "bl-prefix-e6-results/v1":
-        computed = {arm: e6_summary(result["rows"], arm) for arm in ("R", "F")}
+        computed = {
+            arm: e6_summary(
+                result["rows"],
+                arm,
+                expected_early=result["expected_early"],
+                expected_ordinary=result["expected_ordinary"],
+            )
+            for arm in ("R", "F")
+        }
     elif schema == "bl-prefix-e7-results/v1":
-        computed = e7_summary(
-            result["confirmations"], [str(row["source_world"]) for row in result["selection"]]
-        )
+        # Selection has one row per ancestor, while the audited bank has one
+        # row per world. Preserve the producer's exact bank roster so missing
+        # worlds cannot disappear from the completeness check.
+        computed = e7_summary(result["confirmations"], result["expected_sources"])
     else:
         computed = result.get("envelope")
     claim = {

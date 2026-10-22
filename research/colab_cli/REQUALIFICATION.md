@@ -169,3 +169,8 @@ checkout. Worker computation remains separate: P1 evaluation exports pairs for
 Mac analysis, and compute-only E3/prefix reports need their `decide` wrapper to
 publish a claim. Frozen `t34_round0*`, `t34_pathb`, `t34_exit_b8*` and
 `t34_round0d` analysis code is excluded from this change.
+
+E6/E7 raw production exports retain the exact expected world rosters from the
+audited bank. The fenced wrapper uses those rosters for the original completeness
+checks; E7 selection rows contain three ancestors per world and cannot substitute
+for that roster. Older exports lacking the roster fields refuse the new wrapper.

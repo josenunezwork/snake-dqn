@@ -281,6 +281,16 @@ def run(
             "status": "PREFLIGHT_ONLY" if preflight else "COMPLETE",
             "workers": workers,
             "rows": rows,
+            "expected_early": [
+                str(x.get("source_world", i))
+                for i, x in enumerate(roots)
+                if x["stratum"] == "early"
+            ],
+            "expected_ordinary": [
+                str(x.get("source_world", i))
+                for i, x in enumerate(roots)
+                if x["stratum"] == "ordinary"
+            ],
             "analysis": analyses,
             "bank_sha256": _digest(bank_path),
             "audit_sha256": _digest(audit_path),

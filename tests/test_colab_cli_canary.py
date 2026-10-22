@@ -104,6 +104,7 @@ def test_actual_scanner_transport_release_admits(tmp_path, monkeypatch):
         "retained",
         "substitute",
         "foreign",
+        "allocation_target",
     ],
 )
 def test_receipt_cannot_admit_an_uncovered_dispatch(tmp_path, monkeypatch, change):
@@ -121,6 +122,8 @@ def test_receipt_cannot_admit_an_uncovered_dispatch(tmp_path, monkeypatch, chang
         Path(template["inputs"][0]["path"]).write_bytes(b"x" * 100)
     elif change == "count":
         template["inputs"].append({**template["inputs"][0], "dest": "extra"})
+    elif change == "allocation_target":
+        template["requirements"]["gpu"] = "H100"
     elif change == "hardware":
         template["requirements"]["allowed_gpus"] = ["L4"]
     elif change == "export":
