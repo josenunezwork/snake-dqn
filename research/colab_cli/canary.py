@@ -21,6 +21,7 @@ from typing import Any
 SCHEMA = "colab-family-canary/v1"
 ACCEPTANCE_SCRIPT = "research/colab_cli/acceptance_probe.sh"
 MAX_UPLOAD_SECONDS = 150.0  # half of the shared 300 second staging cap
+MAX_STAGING_SECONDS = 2 * MAX_UPLOAD_SECONDS
 MAX_CANARY_MINUTES = 30.0
 FAMILIES = {
     "gpu_sim_spike": ("research/gpu_sim_spike/colab.sh",),
@@ -287,14 +288,38 @@ def evidence(
 ) -> dict[str, Any]:
     """Construct proof only from measured transfers, scanner output and CUDA calls."""
     measured = json.loads((output / "upload-measurement.json").read_text())
-    elapsed = measured.get("elapsed_seconds")
+
+    def duration(name: str) -> float:
+        value = measured.get(name)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (float, int))
+            or not math.isfinite(value)
+        ):
+            raise CanaryError(f"invalid {name} staging measurement")
+        return float(value)
+
+    elapsed = duration("elapsed_seconds")
+    transfer_seconds = duration("transfer_seconds")
+    source_delivery_seconds = duration("source_delivery_seconds")
+    if elapsed <= 0:
+        raise CanaryError("staging elapsed_seconds must be positive")
+    if elapsed > MAX_STAGING_SECONDS:
+        raise CanaryError("staging must complete within 300 seconds")
+    if transfer_seconds <= 0:
+        raise CanaryError("transfer_seconds must be positive")
+    if transfer_seconds > MAX_UPLOAD_SECONDS:
+        raise CanaryError("transfers must complete within 150 seconds")
+    if source_delivery_seconds < 0:
+        raise CanaryError("source_delivery_seconds must be nonnegative")
+    # The total includes setup/renewals as well as both measured portions.
+    # Permit only rounding noise from independent monotonic-clock reads.
     if (
-        isinstance(elapsed, bool)
-        or not isinstance(elapsed, (float, int))
-        or not math.isfinite(elapsed)
-        or not 0 < elapsed <= MAX_UPLOAD_SECONDS
+        transfer_seconds > elapsed
+        or source_delivery_seconds > elapsed
+        or transfer_seconds + source_delivery_seconds > elapsed + 1e-6
     ):
-        raise CanaryError("real staging must complete within 150 seconds (half the upload cap)")
+        raise CanaryError("staging timing components exceed elapsed_seconds")
     terminal = receipt.get("terminal") or {}
     if (
         receipt.get("commit") != manifest["commit"]
@@ -366,6 +391,8 @@ def evidence(
         "transport_identity": executable_identity(repo),
         "inputs": inputs,
         "upload_elapsed_seconds": elapsed,
+        "transfer_seconds": transfer_seconds,
+        "source_delivery_seconds": source_delivery_seconds,
         "exports": sorted(exports),
         "hardware": hardware,
         "device": device,
