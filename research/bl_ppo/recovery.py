@@ -9,11 +9,12 @@ import io
 import random
 from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 import torch
 
+from research.bl_ppo.byte_bounds import component_limit
 from research.bl_ppo.exports import export_bytes, export_torch, verify_export
 
 SCHEMA = "bl-ppo-full-snapshot/v1"
@@ -40,7 +41,19 @@ def _move(value: Any, device: str | torch.device) -> Any:
 _IMMUTABLE_REF = "__bl_ppo_immutable_state_ref__"
 
 
-def _adapter_snapshot_state(adapter: Any, immutable_dir: Path | None) -> dict[str, Any]:
+def _verify_immutable_within_bound(path: Path, checksum: str | None, cap: int) -> str:
+    """Verify an existing immutable sidecar before reusing it in a snapshot."""
+    if path.stat().st_size > cap:
+        raise ValueError("immutable component exceeds its predeclared export byte bound")
+    observed = verify_export(path)
+    if checksum is not None and observed != checksum:
+        raise ValueError("immutable component digest differs")
+    return observed
+
+
+def _adapter_snapshot_state(
+    adapter: Any, immutable_dir: Path | None, byte_bounds: Mapping[str, Any] | None
+) -> dict[str, Any]:
     state = {k: v for k, v in vars(adapter).items() if k not in {"policy", "device"}}
     if immutable_dir is None:
         return state
@@ -48,18 +61,25 @@ def _adapter_snapshot_state(adapter: Any, immutable_dir: Path | None) -> dict[st
         # Before qualification these banks are mutable. Each cadence capture
         # gets a distinct content-addressed immutable copy; an old copy is never
         # reused merely because its role/name is unchanged.
-        for key, cap in (("refit_bank", 64 * 1024**2), ("ordinary_bank", 192 * 1024**2)):
+        for key, bound_name in (
+            ("refit_bank", "refit_bank"),
+            ("ordinary_bank", "ordinary_bank"),
+            ("fixture_late_body_bank", "fixture_late_body_bank"),
+        ):
             if key not in state:
                 continue
+            cap = component_limit(byte_bounds, bound_name) if byte_bounds is not None else None
             buffer = io.BytesIO()
             torch.save(_move(state[key], "cpu"), buffer)
             payload = buffer.getvalue()
-            if len(payload) > cap:
+            if cap is not None and len(payload) > cap:
                 raise ValueError(f"pre-actor {key} exceeds frozen immutable component bound")
             checksum = hashlib.sha256(payload).hexdigest()
             target = Path(immutable_dir) / f"immutable-partial-{key}-{checksum[:16]}.pt"
             if target.exists():
-                if verify_export(target) != checksum:
+                if cap is not None:
+                    _verify_immutable_within_bound(target, checksum, cap)
+                elif verify_export(target) != checksum:
                     raise ValueError("pre-actor immutable bank digest differs")
             else:
                 export_bytes(target, payload)
@@ -67,20 +87,35 @@ def _adapter_snapshot_state(adapter: Any, immutable_dir: Path | None) -> dict[st
         return state
     from research.bl_ppo.bank import canonical_sha
 
-    static = {"refit_bank": (canonical_sha(state["critic_refit_receipt"]), 64 * 1024**2)}
+    static: dict[str, tuple[str, str]] = {
+        "refit_bank": (canonical_sha(state["critic_refit_receipt"]), "refit_bank")
+    }
     ordinary = state.get("ordinary_bank")
     if getattr(ordinary, "frozen", False):
-        static["ordinary_bank"] = (ordinary.sha256, 192 * 1024**2)
-    for key, (identity, cap) in static.items():
+        static["ordinary_bank"] = (ordinary.sha256, "ordinary_bank")
+    if "fixture_late_body_bank" in state:
+        fixture_identity = hashlib.sha256()
+        fixture_buffer = io.BytesIO()
+        torch.save(_move(state["fixture_late_body_bank"], "cpu"), fixture_buffer)
+        fixture_identity.update(fixture_buffer.getvalue())
+        static["fixture_late_body_bank"] = (
+            fixture_identity.hexdigest(),
+            "fixture_late_body_bank",
+        )
+    for key, (identity, bound_name) in static.items():
         if key not in state:
             continue
+        cap = component_limit(byte_bounds, bound_name) if byte_bounds is not None else None
         target = Path(immutable_dir) / f"immutable-{key}-{identity[:16]}.pt"
         if target.exists():
-            checksum = verify_export(target)
+            checksum = (
+                _verify_immutable_within_bound(target, None, cap)
+                if cap is not None
+                else verify_export(target)
+            )
         else:
-            checksum = export_torch(target, _move(state[key], "cpu"), max_payload_bytes=cap)[
-                "sha256"
-            ]
+            exported = export_torch(target, _move(state[key], "cpu"), max_payload_bytes=cap)
+            checksum = exported["sha256"]
         state[key] = {_IMMUTABLE_REF: {"name": target.name, "sha256": checksum}}
     return state
 
@@ -173,11 +208,12 @@ def capture_full_snapshot(
     boundary: dict[str, Any] | None = None,
     operational: dict[str, Any] | None = None,
     execution: dict[str, Any] | None = None,
+    byte_bounds: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Capture only between complete rollouts, including the actual burn-in history."""
     if getattr(adapter, "records", []):
         raise ValueError("checkpoint requires a completed rollout boundary")
-    adapter_state = _adapter_snapshot_state(adapter, immutable_dir)
+    adapter_state = _adapter_snapshot_state(adapter, immutable_dir, byte_bounds)
     return {
         "schema": SCHEMA,
         **({"boundary": copy.deepcopy(boundary)} if boundary is not None else {}),

@@ -134,6 +134,11 @@ def _source_template(
         "y3_05_debit": input_row(debit, "y3-debit.json"),
         "verified_ledger": input_row(ledger, "verified-ledger.json"),
     }
+    from research.bl_ppo.export_budget import freeze_control_budget
+
+    byte_budget = freeze_control_budget(
+        control, timeout_minutes=300, max_export_bytes=original["max_export_bytes"]
+    )
     new_control = root / "p1-control.json"
     export_json(new_control, control)
     rows = [row for row in original["inputs"] if row["dest"] != "p1-inputs.tar.gz"]
@@ -158,6 +163,7 @@ def _source_template(
         timeout_minutes=300,
         device="cuda:0",
         resume=control["resume"],
+        max_total_export_bytes=byte_budget["max_total_export_bytes"],
     )
     template.pop("canary", None)
     template["requirements"]["est_minutes"] = 75

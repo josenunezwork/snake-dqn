@@ -72,3 +72,22 @@ def test_oversize_snapshot_refused_before_publication(tmp_path: Path) -> None:
         export_torch(target, {"state": "bounded"}, max_payload_bytes=1)
     assert not target.exists()
     assert not list(tmp_path.iterdir())
+
+
+def test_job_export_budget_counts_payloads_and_sidecars_before_publication(tmp_path: Path) -> None:
+    from research.bl_ppo.exports import export_bytes, limit_exports
+
+    root = tmp_path / "output"
+    # a.pt payload=10, SHA sidecar=71, completion marker=9 =>90 bytes.
+    with limit_exports(root, total_bytes=90, file_bytes=10):
+        export_bytes(root / "a.pt", b"0123456789")
+        with pytest.raises(ValueError, match="max_total_export_bytes"):
+            export_bytes(root / "b.pt", b"a")
+        with pytest.raises(ValueError, match="max_export_bytes"):
+            export_bytes(root / "c.pt", b"01234567890")
+        with pytest.raises(ValueError, match="escaped"):
+            export_bytes(tmp_path / "outside.pt", b"a")
+    assert sum(p.stat().st_size for p in root.iterdir()) == 90
+    assert not (root / "b.pt").exists()
+    # Context is scoped to the invocation, never process-global afterwards.
+    export_bytes(tmp_path / "outside.pt", b"a")

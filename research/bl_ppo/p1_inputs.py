@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from research.bl_ppo.exports import export_bytes, verify_export
+from research.bl_ppo.exports import digest, export_bytes, verify_export
 
 MAX_BYTES = 2 * 1024**3
+MAX_CATALOG_BYTES = 8 * 1024**3
 SCHEMA = "bl-p1-runtime-downloads/v1"
 
 
@@ -52,10 +53,20 @@ def unpack_bundle(bundle: Path, output: Path) -> dict[str, Any]:
     return {"status": "VERIFIED", "files": len(members), "bytes": total}
 
 
-def validate_catalog(value: dict[str, Any]) -> list[dict[str, Any]]:
+def validate_catalog(
+    value: dict[str, Any], *, maximum_total_bytes: int = MAX_CATALOG_BYTES
+) -> list[dict[str, Any]]:
     """Refuse unbounded, unpinned or path-escaping runtime inputs."""
     if value.get("schema") != SCHEMA or not isinstance(value.get("files"), list):
         raise ValueError("invalid P1 runtime download catalog")
+    # Preserve legacy catalogues' aggregate 2 GiB contract. New catalogues may
+    # explicitly freeze a larger total; individual files retain the qualified
+    # supervisor's 2 GiB cap. No Contents upload carries these payloads.
+    total_cap = value.get("max_total_bytes", MAX_BYTES)
+    if type(total_cap) is not int or not 0 < total_cap <= min(
+        MAX_CATALOG_BYTES, maximum_total_bytes
+    ):
+        raise ValueError("P1 download aggregate cap must be declared within 8 GiB")
     names: set[str] = set()
     total = 0
     for row in value["files"]:
@@ -80,14 +91,24 @@ def validate_catalog(value: dict[str, Any]) -> list[dict[str, Any]]:
             raise ValueError("P1 runtime download requires HTTPS without embedded credentials")
         names.add(name)
         total += size
-    if not names or total > MAX_BYTES:
-        raise ValueError("P1 transitive download set is empty or exceeds 2 GiB")
+    if not names or total > total_cap:
+        raise ValueError("P1 transitive download set is empty or exceeds declared aggregate cap")
     return value["files"]
 
 
-def materialize(catalog: Path, output: Path) -> dict[str, Any]:
+def materialize(catalog: Path, output: Path, *, control: Path | None = None) -> dict[str, Any]:
     """Download once, verify before publication, and create supervisor sidecars."""
-    rows = validate_catalog(json.loads(catalog.read_text()))
+    cap = MAX_BYTES
+    if control is not None:
+        from research.bl_ppo.export_budget import validate_control_budget
+
+        verify_export(control)
+        frozen = json.loads(control.read_text())
+        budget = validate_control_budget(frozen)
+        if digest(catalog) != frozen.get("runtime_downloads_sha256"):
+            raise ValueError("runtime catalog differs from frozen control digest")
+        cap = budget["download_closure_cap_bytes"]
+    rows = validate_catalog(json.loads(catalog.read_text()), maximum_total_bytes=cap)
     output.mkdir(parents=True, exist_ok=False)
     verified = []
     for row in rows:
@@ -117,11 +138,12 @@ def main() -> None:
     mode.add_argument("--catalog", type=Path)
     mode.add_argument("--bundle", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--control", type=Path)
     args = parser.parse_args()
     result = (
         unpack_bundle(args.bundle, args.output)
         if args.bundle
-        else materialize(args.catalog, args.output)
+        else materialize(args.catalog, args.output, control=args.control)
     )
     print(json.dumps(result, sort_keys=True))
 

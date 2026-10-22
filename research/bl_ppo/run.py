@@ -21,12 +21,17 @@ from typing import Any
 import numpy as np
 
 from research.bl_ppo import p1_contract
+from research.bl_ppo.byte_bounds import (
+    component_limit,
+    derive_snapshot_byte_bounds,
+    maximum_refit_raw_transitions,
+    validate_snapshot_byte_bounds,
+)
 from research.bl_ppo.exports import digest, export_bytes, export_json, export_torch, verify_export
 
 HORIZON = 5000
 CRITIC_REFIT_TRANSITIONS = 2_000_000
 MAX_CRITIC_REFIT_FIT_TRANSITIONS = 4_000_000
-SNAPSHOT_MAX_BYTES = 160 * 1024**2
 E4_SCHEMA = "bl-ppo-e4-ruler/v1"
 STATUS_SCHEMA = "bl-ppo-training-status/v1"
 
@@ -700,6 +705,37 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         requested_pause = pause_at
     if args.preflight and (not isinstance(transitions, int) or transitions < 1):
         raise ValueError("tiny preflight requires an explicit positive --transitions")
+    # The P1 control freezes this exact pure arithmetic before dispatch.  A
+    # generic E2 run derives the same contract locally from its declared caps.
+    max_refit_raw = (
+        4 * args.worlds * args.rollout_steps
+        if args.preflight
+        else maximum_refit_raw_transitions(args.worlds, args.rollout_steps)
+    )
+    max_actor_for_bounds = p1_contract.SHAPE.target if p1_runtime else transitions
+    trace_for_bounds = 1000 if p1_runtime else int(getattr(args, "p1_trace_actions", 0))
+    derived_snapshot_bounds = derive_snapshot_byte_bounds(
+        worlds=args.worlds,
+        processes=args.processes,
+        rollout_steps=args.rollout_steps,
+        max_refit_transitions=max_refit_raw,
+        max_actor_transitions=max_actor_for_bounds,
+        trace_actions=trace_for_bounds,
+    )
+    supplied_snapshot_bounds = getattr(args, "snapshot_byte_bounds", None)
+    if supplied_snapshot_bounds is not None:
+        snapshot_bounds = validate_snapshot_byte_bounds(
+            supplied_snapshot_bounds,
+            worlds=args.worlds,
+            processes=args.processes,
+            rollout_steps=args.rollout_steps,
+            max_refit_transitions=max_refit_raw,
+            max_actor_transitions=max_actor_for_bounds,
+            trace_actions=trace_for_bounds,
+        )
+    else:
+        snapshot_bounds = derived_snapshot_bounds
+    snapshot_primary_limit = component_limit(snapshot_bounds, "primary_snapshot")
     if args.preflight:
         if args.worlds > 2 or args.processes > 2:
             raise ValueError("preflight train is limited to <=2 worlds/processes")
@@ -932,8 +968,9 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 identity,
                 immutable_dir=args.output,
                 operational=operational,
+                byte_bounds=snapshot_bounds,
             ),
-            max_payload_bytes=SNAPSHOT_MAX_BYTES,
+            max_payload_bytes=snapshot_primary_limit,
         )
         if operational is not None:
             operational_snapshots.append(
@@ -1451,8 +1488,9 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                         "actual_pause_at": counters["actor_transitions"],
                         "kind": "durability" if durability_mode else "exact",
                     },
+                    byte_bounds=snapshot_bounds,
                 ),
-                max_payload_bytes=SNAPSHOT_MAX_BYTES,
+                max_payload_bytes=snapshot_primary_limit,
             )
             if pause_at == transitions:
                 endpoint = args.output / "endpoint.pt"
@@ -1483,8 +1521,9 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                     identity,
                     immutable_dir=args.output,
                     execution=execution_state("actor" if counters["actor_enabled"] else "refit"),
+                    byte_bounds=snapshot_bounds,
                 ),
-                max_payload_bytes=SNAPSHOT_MAX_BYTES,
+                max_payload_bytes=snapshot_primary_limit,
             )
             status = "INTERRUPTED"
     except FloatingPointError as exc:
@@ -1508,8 +1547,9 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                     counters,
                     identity,
                     immutable_dir=args.output,
+                    byte_bounds=snapshot_bounds,
                 ),
-                max_payload_bytes=SNAPSHOT_MAX_BYTES,
+                max_payload_bytes=snapshot_primary_limit,
             )
         status = "KILL"
     except ValueError as exc:

@@ -43,7 +43,8 @@ export SNAKE_CKPT_DIR="${checkpoint_root}/checkpoints"
 resume_root="${COLAB_INPUT_DIR}/resume"
 if [[ -f "${COLAB_INPUT_DIR}/runtime-downloads.json" ]]; then
   python -m research.bl_ppo.p1_inputs \
-    --catalog "${COLAB_INPUT_DIR}/runtime-downloads.json" --output "${resume_root}"
+    --catalog "${COLAB_INPUT_DIR}/runtime-downloads.json" --output "${resume_root}" \
+    --control "${control}"
 fi
 
 args=("${BL_P1_MODE}" --control "${control}" --output "${COLAB_CLI_ROOT}/output" --checkpoint "${checkpoint}")

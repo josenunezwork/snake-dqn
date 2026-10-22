@@ -22,7 +22,7 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 from research.bl_ppo import p1_contract
-from research.bl_ppo.exports import digest, export_json, verify_export
+from research.bl_ppo.exports import digest, export_json, limit_exports, verify_export
 from research.bl_ppo.recovery import _IMMUTABLE_REF, read_snapshot
 from research.bl_ppo.run import run_train
 
@@ -378,6 +378,7 @@ def _train_args(
         p1_origin_source_path=origin_source_path,
         p1_resume_source_trace=durability and control["phase"] == "y3-source",
         p1_replay_stop_at=replay_stop_at,
+        snapshot_byte_bounds=control.get("snapshot_byte_bounds"),
     )
 
 
@@ -571,6 +572,22 @@ def _validate_resume(control: dict[str, Any], resume: Path, input_dir: Path) -> 
 def execute(args: argparse.Namespace) -> dict[str, Any]:
     """Execute exactly one P1 runtime phase and publish its immutable receipt."""
     control = _load_control(args.control, args.phase)
+    budget = control.get("export_byte_budget")
+    if budget is None:
+        return _execute(args, control)
+    from research.bl_ppo.export_budget import validate_control_budget
+
+    validate_control_budget(control)
+    with limit_exports(
+        args.output,
+        total_bytes=budget["max_total_export_bytes"],
+        file_bytes=budget["max_export_bytes"],
+    ):
+        return _execute(args, control)
+
+
+def _execute(args: argparse.Namespace, control: dict[str, Any]) -> dict[str, Any]:
+    """Run the admitted phase inside its frozen export allowance."""
     output = args.output.resolve()
     started = time.monotonic()
     checkpoint = args.checkpoint.resolve()

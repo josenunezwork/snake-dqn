@@ -91,3 +91,41 @@ def test_y3_05_reconciliation_requires_released_terminal_receipts(tmp_path: Path
     receipts[0].write_text(__import__("json").dumps(value))
     with pytest.raises(ValueError, match="released terminal"):
         reconcile_y3_05(receipts)
+
+
+def test_snapshot_retry_reconciles_all_six_paid_attempts_without_raising_unit_caps(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    receipts = _receipts(tmp_path)
+    prefix = tmp_path / "source-latebody-05-kernel-watchdog-repin-20261022/family-canary"
+    for name, status, seconds, before, after in (
+        ("canary-output", "PASS", 245.20576391700888, 1120.0, 1119.89),
+        ("source-output", "INCOMPLETE", 1565.9012975829537, 1119.14, 1118.55),
+    ):
+        path = prefix / name / "receipt.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "status": status,
+                    "stop_verified": True,
+                    "cleanup_error": None,
+                    "elapsed_seconds": seconds,
+                    "usage_before": {"balance": before},
+                    "usage_after": {"balance": after},
+                    "accounting": {"own_rate_units_per_hour": 1.54},
+                }
+            )
+        )
+        receipts.append(path)
+    debit = reconcile_y3_05(receipts)
+    assert len(debit["attempts"]) == 6
+    assert debit["legacy_conservative_spend_units"] == 5.45
+    assert debit["envelope_units"] == 25.5
+    assert debit["reserved_initial_path_units"] == 20.93
+    assert debit["source"]["effective_cap_units"] == 9.62
+    assert debit["retry"]["max_outcome_blind_retries"] == 2
+    with pytest.raises(ValueError, match="identity/order"):
+        reconcile_y3_05(receipts[:4] + receipts[4:][::-1])

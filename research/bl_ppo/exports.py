@@ -7,8 +7,24 @@ import io
 import json
 import os
 import tempfile
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+_BUDGET: ContextVar[tuple[Path, int, int] | None] = ContextVar("bl_ppo_export_budget", default=None)
+
+
+@contextmanager
+def limit_exports(root: Path, *, total_bytes: int, file_bytes: int) -> Iterator[None]:
+    """Apply a frozen job-wide on-disk allowance, including export sidecars."""
+    if any(type(value) is not int or value <= 0 for value in (total_bytes, file_bytes)):
+        raise ValueError("export byte allowances must be positive integers")
+    token = _BUDGET.set((Path(root).resolve(), total_bytes, file_bytes))
+    try:
+        yield
+    finally:
+        _BUDGET.reset(token)
 
 
 def digest(path: Path) -> str:
@@ -35,6 +51,17 @@ def export_bytes(path: Path, payload: bytes) -> dict[str, Any]:
     path = Path(path)
     if any(Path(str(path) + suffix).exists() for suffix in ("", ".sha256", ".complete")):
         raise FileExistsError(f"export already exists: {path}")
+    budget = _BUDGET.get()
+    if budget is not None:
+        root, total_limit, file_limit = budget
+        if not path.resolve().is_relative_to(root):
+            raise ValueError("export escaped its frozen job output root")
+        if len(payload) > file_limit:
+            raise ValueError("export exceeds manifest max_export_bytes per-file allowance")
+        existing = sum(item.stat().st_size for item in root.rglob("*") if item.is_file())
+        added = len(payload) + 64 + 2 + len(path.name.encode()) + 1 + len(b"complete\n")
+        if existing + added > total_limit:
+            raise ValueError("exports exceed manifest max_total_export_bytes allowance")
     _publish(path, payload)
     checksum = hashlib.sha256(payload).hexdigest()
     _publish(Path(str(path) + ".sha256"), f"{checksum}  {path.name}\n".encode())

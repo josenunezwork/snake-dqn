@@ -100,6 +100,21 @@ def test_runtime_catalog_deduplicates_transitive_names() -> None:
         validate_catalog(value)
 
 
+def test_new_catalogue_must_declare_larger_aggregate_but_keeps_per_file_cap() -> None:
+    value = catalog()
+    value["files"][0]["size_bytes"] = 2 * 1024**3
+    value["files"].append(dict(value["files"][0], name="origin.pt"))
+    with pytest.raises(ValueError, match="aggregate cap"):
+        validate_catalog(value)
+    value["max_total_bytes"] = 8 * 1024**3
+    assert len(validate_catalog(value)) == 2
+    with pytest.raises(ValueError, match="aggregate cap"):
+        validate_catalog(value, maximum_total_bytes=2 * 1024**3)
+    value["files"][1]["size_bytes"] += 1
+    with pytest.raises(ValueError, match="bounded positive byte size"):
+        validate_catalog(value)
+
+
 def test_runtime_download_verifies_bytes_before_creating_sidecars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

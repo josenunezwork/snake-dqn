@@ -134,6 +134,8 @@ def _source_identity(commit: str) -> dict[str, str]:
         "learner.py",
         "run.py",
         "recovery.py",
+        "byte_bounds.py",
+        "export_budget.py",
         "refit.py",
         "diagnostics.py",
         "offline_critic_diagnostic.py",
@@ -330,7 +332,6 @@ def prepare(
         "durability_min_actor_updates": 3,
         "durability_require_episode_boundary": True,
         "checkpoint_every_seconds": 1800,
-        "max_snapshot_bytes": 167772160,
         "source_commit": commit,
         "registration_sha256": identity["research/bl_ppo/REGISTRATION_P1.md"],
         "late_body_amendment_sha256": identity["research/bl_ppo/E8_LATE_BODY_AMENDMENT_02.md"],
@@ -372,6 +373,11 @@ def prepare(
         )
     elif phase != "eval":
         blockers.append("pre-data frozen fresh evaluation bank and collision audit")
+    from research.bl_ppo.export_budget import freeze_control_budget
+
+    byte_budget = freeze_control_budget(
+        control, timeout_minutes=timeout, max_export_bytes=2 * 1024**3
+    )
     inputs = [input_row(ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json", "public-inputs.json")]
     if downloads is not None:
         download_rows = validate_catalog(json.loads(downloads.read_text()))
@@ -468,6 +474,7 @@ def prepare(
             "PYTHONUNBUFFERED": "1",
         },
         max_export_bytes=2 * 1024**3,
+        max_total_export_bytes=byte_budget["max_total_export_bytes"],
         device="cuda:0",
         resume=control["resume"],
     )

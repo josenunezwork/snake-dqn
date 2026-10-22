@@ -70,6 +70,13 @@ def prepare(source: Path, output: Path, commit: str, acceptance: Path) -> dict[s
     verify_export(control_path)
     control = json.loads(control_path.read_text())
     control["source_commit"] = commit
+    from research.bl_ppo.export_budget import freeze_control_budget, validate_manifest_budget
+
+    byte_budget = freeze_control_budget(
+        control,
+        timeout_minutes=original["timeout_minutes"],
+        max_export_bytes=original["max_export_bytes"],
+    )
     # New control bytes get new sidecars in a sibling; nothing frozen is edited.
     new_control = output / "p1-control.json"
     export_json(new_control, control)
@@ -88,6 +95,7 @@ def prepare(source: Path, output: Path, commit: str, acceptance: Path) -> dict[s
         output_dir=str(output / "source-output"),
         required_exports=EXPORTS,
         inputs=bundle_inputs(output, rows),
+        max_total_export_bytes=byte_budget["max_total_export_bytes"],
     )
     template["env"]["BL_PPO_COMMIT"] = commit
     template["bl_p1"]["control"] = control
@@ -101,6 +109,7 @@ def prepare(source: Path, output: Path, commit: str, acceptance: Path) -> dict[s
         )
     )
     template.pop("canary", None)
+    validate_manifest_budget(template)
     export_json(output / "source-template.json", template)
     canary = probe_manifest(
         template,
@@ -179,6 +188,9 @@ def preflight(root: Path, acceptance: Path, review: Path) -> dict[str, Any]:
     from research.bl_ppo.p1_manifests import _source_identity
 
     template = json.loads((root / "source-template.json").read_text())
+    from research.bl_ppo.export_budget import validate_manifest_budget
+
+    validate_manifest_budget(template)
     identity = _source_identity(template["commit"])
     from research.colab_cli.canary import executable_identity
 
