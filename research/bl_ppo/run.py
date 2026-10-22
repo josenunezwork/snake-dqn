@@ -630,6 +630,22 @@ def _export_late_body_rows(output: Path, bank: Any) -> dict[str, Any]:
     return {"index": Path(metadata["path"]).name, "sha256": metadata["sha256"], **index}
 
 
+def _action_tape_chain(previous: str, raw: Any) -> str:
+    """Hash all rollout actions with persistable ordering and type/shape framing."""
+    import numpy as np
+
+    chain = hashlib.sha256(bytes.fromhex(previous))
+    for name in ("action", "done", "world_id", "episode"):
+        part = np.ascontiguousarray(getattr(raw, name))
+        frame = json.dumps(
+            [name, str(part.dtype), list(part.shape)], separators=(",", ":")
+        ).encode()
+        chain.update(len(frame).to_bytes(8, "big"))
+        chain.update(frame)
+        chain.update(part.tobytes())
+    return chain.hexdigest()
+
+
 def run_train(args: argparse.Namespace) -> dict[str, Any]:
     """Run one fixed E2 arm or the separately registered P1 endpoint.
 
@@ -642,6 +658,11 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     p1_runtime = bool(getattr(args, "p1_runtime", False))
     if args.output.exists() and (not args.output.is_dir() or any(args.output.iterdir())):
         raise ValueError("training and explicit recovery require a fresh output directory")
+    origin_source_path = getattr(args, "p1_origin_source_path", None)
+    if origin_source_path is not None:
+        from research.bl_ppo.recovery import copy_snapshot_closure
+
+        copy_snapshot_closure(Path(origin_source_path), args.output)
     if p1_runtime:
         if args.preflight or args.arm != "F" or args.seed != 20261021:
             raise ValueError("P1 is fixed to the production F recipe and seed 20261021")
@@ -800,13 +821,50 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     counters.setdefault("actor_episode_boundaries", 0)
     actor_updates_at_start = int(counters.get("actor_updates", 0))
     actor_episodes_at_start = int(counters.get("actor_episode_boundaries", 0))
-    action_trace: list[dict[str, Any]] = []
+    resume_execution: dict[str, Any] = {}
+    if p1_runtime and args.resume is not None:
+        from research.bl_ppo.recovery import read_snapshot
+
+        resume_execution = (
+            read_snapshot(args.resume)
+            .get("operational", {})
+            .get("execution", read_snapshot(args.resume).get("execution", {}))
+        )
     trace_limit = int(getattr(args, "p1_trace_actions", 0))
-    trace_hasher = hashlib.sha256() if trace_limit else None
-    trace_actions_total = 0
+    trace_state = (
+        resume_execution.get("trace_state", {})
+        if getattr(args, "p1_resume_source_trace", False)
+        else {}
+    )
+    action_trace: list[dict[str, Any]] = list(trace_state.get("rows", []))
+    trace_digest = trace_state.get("full_tape_sha256", "00" * 32)
+    trace_actions_total = int(trace_state.get("count", 0))
+    actor_updates_at_start = int(trace_state.get("actor_updates_at_start", actor_updates_at_start))
+    actor_episodes_at_start = int(
+        trace_state.get("actor_episodes_at_start", actor_episodes_at_start)
+    )
     durability_mode = bool(getattr(args, "p1_durability", False))
+    operational_namespace = getattr(args, "p1_operational_namespace", None)
+    operational_allocation = getattr(args, "p1_operational_allocation", None)
+    require_operational = bool(getattr(args, "p1_require_operational_snapshot", False))
+    operational_snapshots: list[dict[str, Any]] = []
+    operational_trace: dict[str, Any] | None = None
+    if (operational_namespace is None) != (operational_allocation is None):
+        raise ValueError("P1 operational snapshot namespace/allocation must be declared together")
     requested_stop = {"value": False}
-    refit_seen_seeds: set[int] = set()
+    refit_seen_seeds: set[int] = set(resume_execution.get("refit_seen_seeds", []))
+    supplement = resume_execution.get(
+        "supplement", {"used": False, "transitions": 0, "late_fit_support": 0}
+    )
+    support_continuation = resume_execution.get("support_continuation")
+    supplement_complete = bool(resume_execution.get("supplement_complete", False))
+    replay_stop_at = getattr(args, "p1_replay_stop_at", None)
+    if replay_stop_at is not None and (
+        type(replay_stop_at) is not int
+        or replay_stop_at < counters["actor_transitions"]
+        or replay_stop_at % args.worlds
+    ):
+        raise ValueError("invalid frozen Y3 replay stop")
 
     def mark_stop(_signum: int, _frame: Any) -> None:
         requested_stop["value"] = True
@@ -822,6 +880,90 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     status = "RUNNING"
     tripwires: list[dict[str, Any]] = []
     snapshot_export: Path | None = None
+
+    def execution_state(phase: str) -> dict[str, Any]:
+        return {
+            "phase": phase,
+            "refit_seen_seeds": sorted(refit_seen_seeds),
+            "supplement": supplement,
+            "supplement_complete": supplement_complete,
+            "support_continuation": support_continuation,
+            "origin_snapshot": getattr(args, "p1_origin_snapshot", None),
+            "trace_state": {
+                "rows": action_trace,
+                "count": trace_actions_total,
+                "full_tape_sha256": trace_digest,
+                "actor_updates_at_start": actor_updates_at_start,
+                "actor_episodes_at_start": actor_episodes_at_start,
+            },
+        }
+
+    def periodic_snapshot(phase: str) -> None:
+        nonlocal last_checkpoint, operational_trace
+        if time.monotonic() - last_checkpoint < args.checkpoint_every:
+            return
+        from research.bl_ppo.recovery import capture_full_snapshot
+
+        if operational_namespace is not None:
+            from research.bl_ppo.p1_resume import unit_id, unit_name
+
+            # A progress index is stable across invocations and cannot reset on retry.
+            index = int(counters["hero_transitions"])
+            path = args.output / unit_name(operational_namespace, operational_allocation, index)
+            operational = {
+                "label": "OPERATIONAL",
+                "namespace": operational_namespace,
+                "allocation": operational_allocation,
+                "index": index,
+                "unit_id": unit_id(operational_namespace, operational_allocation, index),
+                "trace_offset": counters["actor_transitions"],
+                "execution": execution_state(phase),
+            }
+        else:
+            path, operational = _unique_path(args.output, "snapshot", ".pt"), None
+        exported = export_torch(
+            path,
+            capture_full_snapshot(
+                policy,
+                learner,
+                collector,
+                adapter,
+                counters,
+                identity,
+                immutable_dir=args.output,
+                operational=operational,
+            ),
+            max_payload_bytes=SNAPSHOT_MAX_BYTES,
+        )
+        if operational is not None:
+            operational_snapshots.append(
+                {key: value for key, value in operational.items() if key != "execution"}
+                | {
+                    "path": path.name,
+                    "sha256": exported["sha256"],
+                    "size": exported["size"],
+                    "phase": phase,
+                }
+            )
+            if phase == "actor" and trace_limit:
+                operational_trace = {
+                    "snapshot": path.name,
+                    "updates": counters["actor_updates"],
+                    "episodes": counters["actor_episode_boundaries"],
+                    "actions": 0,
+                    "full_tape_sha256": "00" * 32,
+                }
+        last_checkpoint = time.monotonic()
+
+    # A resumed latest actor snapshot itself is the anchor, until a later cadence tick.
+    if require_operational and resume_execution.get("phase") == "actor":
+        operational_trace = {
+            "snapshot": args.resume.name,
+            "updates": counters["actor_updates"],
+            "episodes": counters["actor_episode_boundaries"],
+            "actions": 0,
+            "full_tape_sha256": "00" * 32,
+        }
     try:
         if p1_runtime and args.resume is None:
             from research.bl_ppo.late_body import collect_fixed_late_body_holdout
@@ -934,6 +1076,8 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                     )
                 _record_fixed_bank_monitor(adapter, policy, args, counters)
             print(json.dumps({"progress": counters}), flush=True)
+            if p1_runtime:
+                periodic_snapshot("refit")
         # A resumed actor phase reuses its immutable, pre-actor qualification;
         # recalibrating after actor updates would invalidate the held-out gate.
         if not args.preflight and not adapter.ordinary_bank.frozen:
@@ -941,7 +1085,6 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             adapter.diagnostics.configure_length_deciles(
                 [int(row["length"]) for row in adapter.ordinary_bank.rows()]
             )
-        supplement = {"used": False, "transitions": 0, "late_fit_support": 0}
         if (
             p1_runtime
             and not args.preflight
@@ -949,6 +1092,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             and not requested_stop["value"]
             and counters["critic_refit_fit_transitions"] >= CRITIC_REFIT_TRANSITIONS
             and not counters.get("actor_enabled")
+            and not supplement_complete
         ):
             natural_fit_support = refit_bank.natural_support("fit")
             if not bool(natural_fit_support["meets_minimum"]):
@@ -983,12 +1127,14 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 supplement = {"used": True, **result}
                 counters["critic_refit_supplement_seconds"] = time.monotonic() - supplement_started
                 counters["critic_refit_supplement_transitions"] = result["transitions"]
-        support_continuation = {
-            "used": False,
-            "status": "NOT_NEEDED",
-            "initial_fit": refit_bank.natural_support("fit") if p1_runtime else None,
-            "initial_holdout": refit_bank.natural_support("holdout") if p1_runtime else None,
-        }
+        supplement_complete = True
+        if support_continuation is None:
+            support_continuation = {
+                "used": False,
+                "status": "NOT_NEEDED",
+                "initial_fit": refit_bank.natural_support("fit") if p1_runtime else None,
+                "initial_holdout": refit_bank.natural_support("holdout") if p1_runtime else None,
+            }
         if (
             p1_runtime
             and not args.preflight
@@ -1064,6 +1210,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                         json.dumps({"progress": counters, "phase": "late_body_continuation"}),
                         flush=True,
                     )
+                    periodic_snapshot("support-continuation")
                 support_continuation["final_fit"] = refit_bank.natural_support("fit")
                 support_continuation["final_holdout"] = refit_bank.natural_support("holdout")
                 support_continuation["status"] = (
@@ -1171,21 +1318,40 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         counters["actor_enabled"] = status == "RUNNING"
         while (
             status == "RUNNING"
+            and not requested_stop["value"]
             and (
-                counters["actor_transitions"] < pause_at
-                or (
-                    durability_mode
-                    and (
-                        counters["actor_transitions"] < 1_000
-                        or counters["actor_updates"] - actor_updates_at_start < 3
-                        or counters["actor_episode_boundaries"] - actor_episodes_at_start < 1
+                counters["actor_transitions"] < replay_stop_at
+                if replay_stop_at is not None
+                else (
+                    counters["actor_transitions"] < pause_at
+                    or (
+                        durability_mode
+                        and (
+                            trace_actions_total < 1000
+                            or counters["actor_updates"] - actor_updates_at_start < 3
+                            or counters["actor_episode_boundaries"] - actor_episodes_at_start < 1
+                            or (require_operational and operational_trace is None)
+                            or (
+                                require_operational
+                                and operational_trace is not None
+                                and (
+                                    operational_trace["actions"] < 1000
+                                    or counters["actor_updates"] - operational_trace["updates"] < 3
+                                    or counters["actor_episode_boundaries"]
+                                    - operational_trace["episodes"]
+                                    < 1
+                                )
+                            )
+                        )
                     )
                 )
             )
-            and not requested_stop["value"]
         ):
-            remaining = pause_at - counters["actor_transitions"]
-            if durability_mode:
+
+            remaining = (replay_stop_at if replay_stop_at is not None else pause_at) - counters[
+                "actor_transitions"
+            ]
+            if durability_mode and replay_stop_at is None:
                 # Durability stops only after its independently stated minimums;
                 # it may pass the nominal 1k action floor at whole-rollout
                 # boundaries, never by trimming an on-policy rollout.
@@ -1216,10 +1382,14 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                         raw.action[:take], raw.done[:take], raw.world_id[:take], raw.episode[:take]
                     )
                 )
-            if trace_hasher is not None:
-                for part in (raw.action, raw.done, raw.world_id, raw.episode):
-                    trace_hasher.update(np.ascontiguousarray(part).tobytes())
+            if trace_limit:
+                trace_digest = _action_tape_chain(trace_digest, raw)
                 trace_actions_total += len(raw.action)
+            if operational_trace is not None:
+                operational_trace["actions"] += len(raw.action)
+                operational_trace["full_tape_sha256"] = _action_tape_chain(
+                    operational_trace["full_tape_sha256"], raw
+                )
             events = adapter.action_windows.observe(adapter.last_actions, adapter.last_b8_actions)
             adapter.diagnostics.observe(
                 raw,
@@ -1242,23 +1412,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             counters["updates"] += 1
             counters["actor_updates"] += 1
             print(json.dumps({"progress": counters}), flush=True)
-            if time.monotonic() - last_checkpoint >= args.checkpoint_every:
-                from research.bl_ppo.recovery import capture_full_snapshot
-
-                export_torch(
-                    _unique_path(args.output, "snapshot", ".pt"),
-                    capture_full_snapshot(
-                        policy,
-                        learner,
-                        collector,
-                        adapter,
-                        counters,
-                        identity,
-                        immutable_dir=args.output,
-                    ),
-                    max_payload_bytes=SNAPSHOT_MAX_BYTES,
-                )
-                last_checkpoint = time.monotonic()
+            periodic_snapshot("actor")
         # The endpoint is deliberately evaluator-loadable; full recovery state
         # remains in a distinct periodic snapshot.
         if status == "RUNNING" and counters["actor_transitions"] >= pause_at:
@@ -1288,6 +1442,9 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                     counters,
                     identity,
                     immutable_dir=args.output,
+                    execution=execution_state(
+                        "actor" if counters["actor_enabled"] else "refit-complete"
+                    ),
                     boundary={
                         "requested_pause_at": requested_pause,
                         "pause_at": pause_at,
@@ -1325,6 +1482,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                     counters,
                     identity,
                     immutable_dir=args.output,
+                    execution=execution_state("actor" if counters["actor_enabled"] else "refit"),
                 ),
                 max_payload_bytes=SNAPSHOT_MAX_BYTES,
             )
@@ -1435,6 +1593,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             else False
         ),
         "target_transitions": transitions,
+        "replay_stop_at": replay_stop_at,
         "pause_at": pause_at,
         "requested_pause_at": requested_pause,
         "actual_pause_at": counters["actor_transitions"],
@@ -1475,14 +1634,31 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 "actions_requested": trace_limit,
                 "actions_recorded": len(action_trace),
                 "full_tape_actions": trace_actions_total,
-                "full_tape_sha256": trace_hasher.hexdigest() if trace_hasher else None,
+                "full_tape_sha256": trace_digest if trace_limit else None,
                 "rows": action_trace,
                 "actor_updates": counters["actor_updates"] - actor_updates_at_start,
                 "episode_boundaries": counters["actor_episode_boundaries"]
                 - actor_episodes_at_start,
             },
         )
-        value["action_trace"] = {"path": trace_path.name, **trace_export}
+        value["action_trace"] = {**trace_export, "path": trace_path.name}
+    if operational_snapshots:
+        value["operational_snapshots"] = operational_snapshots
+    if operational_trace is not None and operational_trace["actions"] >= 1000:
+        path = args.output / "operational-action-trace.json"
+        exported = export_json(
+            path,
+            {
+                "schema": "bl-ppo-p1-operational-trace/v1",
+                "snapshot": operational_trace["snapshot"],
+                "actions": operational_trace["actions"],
+                "full_tape_sha256": operational_trace["full_tape_sha256"],
+                "final_actor_transitions": counters["actor_transitions"],
+                "final_actor_updates": counters["actor_updates"],
+                "final_episode_boundaries": counters["actor_episode_boundaries"],
+            },
+        )
+        value["operational_trace"] = {**exported, "path": path.name}
     if status == "COMPLETE":
         value["checkpoint_sha256"] = verify_export(args.output / "endpoint.pt")
     export_json(args.output / "training-status.json", value)

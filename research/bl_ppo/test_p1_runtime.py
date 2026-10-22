@@ -166,6 +166,16 @@ def _control(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **changes) -> Path
     bank = materialize(0)
     audit = tmp_path / "bank-audit.json"
     export_json(audit, _audit(bank))
+    ledger = tmp_path / "verified-ledger.json"
+    export_json(
+        ledger,
+        {
+            "schema": "bl-p1-verified-ledger/v1",
+            "namespace": "test-y3",
+            "allocation": "source",
+            "units": [],
+        },
+    )
     control = {
         "schema": "bl-p1-control/v1",
         "phase": "y3-source",
@@ -185,6 +195,14 @@ def _control(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **changes) -> Path
         "evaluation_bank_sha256": bank["allocation_sha256"],
         "evaluation_audit_sha256": digest(audit),
         "evaluation_excluded_seeds": sorted(row["world_seed"] for row in bank["rows"]),
+        "resume": {
+            "unit_kind": "operational-snapshot",
+            "ledger_path": "inputs/verified-ledger.json",
+            "skip_verified": True,
+            "max_outcome_blind_retries": 2,
+            "namespace": "test-y3",
+            "allocation": "source",
+        },
     } | changes
     path = tmp_path / "p1-control.json"
     export_json(path, control)
@@ -286,3 +304,32 @@ def test_tranche_requires_exact_previous_snapshot(tmp_path, bad_counter, bad_dig
             _validate_resume(control, snapshot, tmp_path)["counters"]["actor_transitions"]
             == 20_000_000
         )
+
+
+def test_boundary_only_y3_is_admitted_with_exact_pause_resume(tmp_path, monkeypatch) -> None:
+    from research.bl_ppo.exports import digest, export_json
+    from research.bl_ppo.p1_runtime import _load_control
+
+    admission = tmp_path / "admission.json"
+    export_json(
+        admission,
+        {"schema": "bl-p1-y3/v1", "status": "Y3_PASS_BOUNDARY_ONLY", "source_commit": "a" * 40},
+    )
+    control = _control(
+        tmp_path, monkeypatch, phase="qual-1m", prerequisites={"y3": {"sha256": digest(admission)}}
+    )
+    assert _load_control(control, "qual-1m")["phase"] == "qual-1m"
+
+
+def test_new_y3_cannot_disable_operational_replay(tmp_path, monkeypatch) -> None:
+    from research.bl_ppo.exports import digest
+    from research.bl_ppo.p1_runtime import _load_control
+
+    control = _control(
+        tmp_path,
+        monkeypatch,
+        operational_replay_required=False,
+        resume_amendment_sha256=digest(Path(__file__).with_name("P1_Y3_RESUME_AMENDMENT_05.md")),
+    )
+    with pytest.raises(ValueError, match="both registered replays"):
+        _load_control(control, "y3-source")

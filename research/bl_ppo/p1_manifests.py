@@ -144,9 +144,14 @@ def _source_identity(commit: str) -> dict[str, str]:
         "p1_manifests.py",
         "p1_admission.py",
         "P1_Y3_ADMISSION_ERRATUM_03.md",
+        "P1_Y3_RESUME_AMENDMENT_05.md",
         "p1_qualification.py",
         "p1_inputs.py",
         "p1_colab.sh",
+        "p1_family_canary.py",
+        "p1_canary_runtime.py",
+        "p1_resume.py",
+        "p1_y3_attempt.py",
     ]
     import hashlib
 
@@ -222,6 +227,8 @@ def prepare(
     """Write a fresh attempt, immutable manifest and real source/upload receipt."""
     if phase not in PHASES or not 1 <= chunk <= 5:
         raise ValueError("unknown P1 phase/chunk")
+    if phase in {"y3-source", "y3-replacement"} and inventory:
+        raise ValueError("Y3 requires zero other account assignments")
     identity = _source_identity(commit)
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=False)
@@ -236,24 +243,27 @@ def prepare(
         # Round-14: source-02 consumed 1.6u of the shared Y3 8u envelope.
         # Prior L4 source took 49min; reserve ~25min for the single support
         # continuation. This is a forecast, never a measured complete-job rate.
-        estimate, timeout, cap, pause = 75, 150, 6.4, 0
+        estimate, timeout, cap, pause = 75, 300, 9.62, 0
         blockers.append("independent Codex-V review before dispatch")
         blockers.append(
-            "Claude: reconcile source-02 debit (1.6u) and all later Y3 attempts; "
-            "source plus replacement must stay within original 8u Y3 envelope"
+            "Claude: reconcile every charged Y3 attempt under amendment-05; "
+            "canary plus source plus replacement must fit the 25.5u total"
         )
     elif phase == "y3-replacement":
-        estimate, timeout, cap, pause = 20, 40, 2.0, 0
+        estimate, timeout, cap, pause = 30, 120, 3.86, 0
         blockers.append("Claude: source terminal receipt and distinct replacement identity")
         blockers.append(
             "Claude: reprice replacement from actual residual Y3 envelope "
-            "after source-02 and source-latebody-02, never a new 2u allowance"
+            "after the actual source debit; full 3.86u invoice within 25.5u total"
         )
     elif phase == "qual-1m":
         estimate, timeout, cap, pause = 40, 80, 4.0, QUAL_PAUSE
         if evidence:
             row = complete_json(evidence)
-            if row.get("status") != "PASS" or row.get("schema") != "bl-p1-y3/v1":
+            if (
+                row.get("status") not in {"PASS", "Y3_PASS_BOUNDARY_ONLY"}
+                or row.get("schema") != "bl-p1-y3/v1"
+            ):
                 raise ValueError("qualification requires Y3 PASS")
             prerequisites["y3"] = input_row(evidence, "admission.json")
         else:
@@ -294,6 +304,8 @@ def prepare(
         estimate = source_price["estimate_minutes"]
         timeout = source_price["timeout_minutes"]
         cap = source_price["unit_cap"]
+        if (estimate, timeout, cap, source_price["reserve_units"]) != (75, 300, 9.62, 1.92):
+            raise ValueError("new Y3 source requires amendment-05 debit, not historical admission")
         blockers = [LIVE_BLOCKER]
         admission_inputs = [(review, "codex-v-review.json"), (y3_debit, "y3-debit.json")]
         prerequisites.update(
@@ -322,10 +334,31 @@ def prepare(
         "source_commit": commit,
         "registration_sha256": identity["research/bl_ppo/REGISTRATION_P1.md"],
         "late_body_amendment_sha256": identity["research/bl_ppo/E8_LATE_BODY_AMENDMENT_02.md"],
+        "resume_amendment_sha256": identity["research/bl_ppo/P1_Y3_RESUME_AMENDMENT_05.md"],
+        "operational_replay_required": phase in {"y3-source", "y3-replacement"},
         "resume_name": resume_name,
         "expected_trace_name": expected_trace_name,
         "prerequisites": prerequisites,
     }
+    # Resume-by-default applies to every new P1 package.  The production
+    # source uses periodic operational snapshots; later phases retain their
+    # registered cadence but share the same ledger contract.
+    control["resume"] = {
+        "unit_kind": "operational-snapshot",
+        "ledger_path": "inputs/verified-ledger.json",
+        "skip_verified": True,
+        "max_outcome_blind_retries": 2,
+        "namespace": f"bl_p1_{phase.replace('-', '_')}_{root.name.replace('-', '_')}",
+        "allocation": f"{phase.replace('-', '_')}_{chunk}",
+    }
+    if phase == "y3-source":
+        control["checkpoint_every_seconds"] = 900
+        control["operational_snapshot"] = {
+            "cadence_seconds": 900,
+            "label": "OPERATIONAL",
+            "replay_min_actions": 1000,
+            "replay_min_updates": 3,
+        }
     if bank is not None and audit is not None:
         from research.bl_ppo.p1_eval import check_audit
 
@@ -396,7 +429,19 @@ def prepare(
         b.startswith(("Claude: fresh usage/inventory", "Claude: fresh usage + sessions"))
         for b in blockers
     )
+    ledger = root / "verified-ledger.json"
+    export_json(
+        ledger,
+        {
+            "schema": "bl-p1-verified-ledger/v1",
+            "namespace": control["resume"]["namespace"],
+            "allocation": control["resume"]["allocation"],
+            "units": [],
+        },
+    )
     export_json(root / "p1-control.json", control)
+    for suffix in ("", ".sha256", ".complete"):
+        inputs.append(input_row(Path(str(ledger) + suffix), "verified-ledger.json" + suffix))
     for suffix in ("", ".sha256", ".complete"):
         inputs.append(input_row(root / ("p1-control.json" + suffix), "p1-control.json" + suffix))
     manifest = _base(
@@ -413,6 +458,7 @@ def prepare(
         inputs=bundle_inputs(root, inputs),
         env={
             "BL_P1_MODE": phase,
+            "BL_PPO_DEVICE": "cuda:0",
             "BL_PPO_COMMIT": commit,
             "BL_PUBLIC_INPUTS": "1",
             "OMP_NUM_THREADS": "1",
@@ -422,6 +468,8 @@ def prepare(
             "PYTHONUNBUFFERED": "1",
         },
         max_export_bytes=2 * 1024**3,
+        device="cuda:0",
+        resume=control["resume"],
     )
     manifest["budget"]["other_assignments"] = inventory or {}
     if source_price is not None:
@@ -431,6 +479,12 @@ def prepare(
             rate_units_per_hour=1.54,
             rate_tolerance_units_per_hour=0.0,
             reserve_units=source_price["reserve_units"],
+        )
+    if phase in {"y3-source", "y3-replacement"}:
+        manifest["budget"].update(
+            rate_units_per_hour=1.54,
+            rate_tolerance_units_per_hour=0.0,
+            reserve_units=1.92 if phase == "y3-source" else 0.78,
         )
     manifest["source_paths"] = _bounded_source_paths(manifest)
     manifest["source_paths"] += [

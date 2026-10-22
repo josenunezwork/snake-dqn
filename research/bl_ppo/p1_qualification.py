@@ -52,7 +52,10 @@ def finalize(
     source = terminal(source_supervisor)
     replacement = terminal(replacement_supervisor)
     durability = complete_json(y3)
-    if durability.get("schema") != "bl-p1-y3/v1" or durability.get("status") != "PASS":
+    if durability.get("schema") != "bl-p1-y3/v1" or durability.get("status") not in {
+        "PASS",
+        "Y3_PASS_BOUNDARY_ONLY",
+    }:
         raise ValueError("P1 pricing requires Y3 PASS")
     if not source.get("endpoint") or source.get("endpoint") == replacement.get("endpoint"):
         raise ValueError("Y3 source and replacement must be distinct assignments")
@@ -101,6 +104,9 @@ def finalize(
         "schema": "bl-p1-complete-job-qualification/v1",
         "status": "PASS",
         "critic_qualified": True,
+        "y3_status": durability["status"],
+        "operational_resume_eligible": durability["status"] == "PASS"
+        and durability.get("operational_replay", {}).get("status") == "PASS",
         "seconds_per_actor_transition": actor_seconds / QUAL_PAUSE,
         "per_job_overhead_seconds": overhead,
         "prefix_seconds": sum(s["elapsed_seconds"] for s in (source, replacement, qual_session)),

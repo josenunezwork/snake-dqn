@@ -10,7 +10,9 @@ from research.bl_ppo.p1_manifests import QUAL_PAUSE
 from research.bl_ppo.p1_qualification import finalize
 
 
-def inputs(root: Path, *, stop_verified: bool = True, actor_seconds: float = 700) -> dict:
+def inputs(
+    root: Path, *, stop_verified: bool = True, actor_seconds: float = 700, y3_status: str = "PASS"
+) -> dict:
     run = root / "qualification-runtime.json"
     export_json(
         run,
@@ -31,7 +33,8 @@ def inputs(root: Path, *, stop_verified: bool = True, actor_seconds: float = 700
         y3,
         {
             "schema": "bl-p1-y3/v1",
-            "status": "PASS",
+            "status": y3_status,
+            "operational_replay": {"status": "PASS" if y3_status == "PASS" else "FAIL"},
             "source_endpoint": "source",
             "replacement_endpoint": "replacement",
             "source_commit": "a" * 40,
@@ -106,3 +109,10 @@ def test_unrelated_successful_sessions_cannot_supply_y3(tmp_path: Path, which: s
     path.write_text(json.dumps(receipt))
     with pytest.raises(ValueError, match="terminal exports"):
         finalize(**arguments)
+
+
+def test_boundary_only_y3_qualifies_only_pause_snapshot_recovery(tmp_path: Path) -> None:
+    result = finalize(**inputs(tmp_path, y3_status="Y3_PASS_BOUNDARY_ONLY"))
+    assert result["status"] == "PASS"
+    assert result["y3_status"] == "Y3_PASS_BOUNDARY_ONLY"
+    assert result["operational_resume_eligible"] is False

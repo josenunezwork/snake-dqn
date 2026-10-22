@@ -83,7 +83,7 @@ def prepare(source: Path, output: Path, commit: str, acceptance: Path) -> dict[s
     template = copy.deepcopy(original)
     template.update(
         commit=commit,
-        job_id=f"bl-p1-source03-admitted-{commit[:8]}",
+        job_id=f"bl-p1-y3-source-admitted-{commit[:8]}",
         output_dir=str(output / "source-output"),
         required_exports=EXPORTS,
         inputs=bundle_inputs(output, rows),
@@ -112,10 +112,15 @@ def prepare(source: Path, output: Path, commit: str, acceptance: Path) -> dict[s
     canary["claim"] = "TRANSPORT_ONLY_EXCLUDED_FROM_P1_Y3_AND_EVERY_SCIENTIFIC_VERDICT"
     canary["required_exports"] = CANARY_EXPORTS
     canary["lease_seconds"] = 180
-    canary["budget"].update(unit_cap=1.0, reserve_units=0.2)
+    # The prospective Y3-05 canary is a separate operational unit.  Its
+    # 15-minute forecast is unchanged; the owner rule doubles cap/reserve
+    # while the qualified transport still imposes its 30-minute hard maximum.
+    canary["budget"].update(unit_cap=2.0, reserve_units=0.4)
     canary["requirements"]["est_minutes"] = 15
-    if 30 * canary["budget"]["rate_units_per_hour"] / 60 + 0.2 > 1:
-        raise ValueError("canary worst-case liability and reserve exceed one unit")
+    canary["device"] = "cuda:0"
+    canary["resume"] = copy.deepcopy(template.get("resume", {}))
+    if 30 * canary["budget"]["rate_units_per_hour"] / 60 + 0.4 > 2:
+        raise ValueError("canary worst-case liability and reserve exceed two units")
     validated = validate(canary, ROOT)
     export_json(output / "canary-manifest.json", validated)
     upload = qualify(validated, repo=ROOT)
@@ -130,11 +135,25 @@ def prepare(source: Path, output: Path, commit: str, acceptance: Path) -> dict[s
         "inputs": input_inventory(validated),
         "required_exports": CANARY_EXPORTS,
         "acceptance": acceptance_status(acceptance),
-        "budget": {"canary_cap": 1.0, "reserve": 0.2, "separate_funding_required": True},
+        "budget": {
+            "base_cap": 1.0,
+            "base_reserve": 0.2,
+            "canary_cap": 2.0,
+            "reserve": 0.4,
+            "estimate_minutes": 15,
+            "base_timeout_minutes": 15,
+            "effective_timeout_minutes": 30,
+            "separate_funding_required": not bool(control.get("y3_05_envelope")),
+            "funding_scope": (
+                "within Y3-05 25.5u total"
+                if control.get("y3_05_envelope")
+                else "operator authorization"
+            ),
+        },
         "blockers": [
             "current-source final-only transport qualification",
             "independent review of the additive canary runtime and rebound source inventory",
-            "separate <=1u canary funding; Y3 remaining 6.10u is fully reserved",
+            "separate <=2u canary funding within the frozen Y3-05 envelope",
             "fresh empty account inventory before each dispatch",
             "genuine source-bound canary receipt before source admission",
         ],
@@ -176,7 +195,7 @@ def preflight(root: Path, acceptance: Path, review: Path) -> dict[str, Any]:
         or audit.get("source_sha256") != identity
         or audit.get("transport_identity") != executable_identity(ROOT)
         or audit.get("source_template_sha256") != prepared["source_template_sha256"]
-        or audit.get("separate_canary_funding_units") != 1.0
+        or audit.get("separate_canary_funding_units") != prepared["budget"]["canary_cap"]
     ):
         raise ValueError("independent source review/funding evidence is incomplete or differs")
     return template
@@ -191,6 +210,44 @@ def admit(root: Path, receipt: Path, acceptance: Path, review: Path) -> Path:
         raise ValueError("requires this preparation's real broker terminal receipt")
     template["canary"] = {"receipt": {"path": str(receipt.resolve()), "sha256": digest(receipt)}}
     validated = validate(template, ROOT)
+    if template.get("bl_p1", {}).get("control", {}).get("y3_05_envelope"):
+        import math
+
+        from research.bl_ppo.p1_admission import reconcile_y3_05
+        from tools.ops.spend import verify_receipts
+
+        debit_path = root.parent / "y3-debit.json"
+        verify_export(debit_path)
+        frozen_debit = json.loads(debit_path.read_text())
+        actual = reconcile_y3_05([Path(row["path"]) for row in frozen_debit["attempts"]])
+        if actual != frozen_debit:
+            raise ValueError("prior Y3 debit changed before source admission")
+        charged = verify_receipts([receipt])[0]
+        terminal = json.loads(receipt.read_text())
+        before, after = terminal.get("usage_before", {}).get("balance"), terminal.get(
+            "usage_after", {}
+        ).get("balance")
+        if any(
+            type(value) not in (int, float) or not math.isfinite(value) for value in (before, after)
+        ):
+            raise ValueError("canary debit lacks finite provider balance evidence")
+        canary_charge = math.ceil((max(charged.units, before - after, 0) - 1e-9) * 100) / 100
+        liability = actual["legacy_conservative_spend_units"] + canary_charge + 9.62 + 3.86
+        if liability > 25.5 + 1e-9:
+            raise ValueError("actual canary debit leaves insufficient shared Y3 envelope")
+        export_json(
+            root / "source-admission-debit.json",
+            {
+                "status": "RECONCILED",
+                "canary_receipt_sha256": digest(receipt),
+                "prior_debit_sha256": digest(debit_path),
+                "canary_own_units": charged.units,
+                "canary_charged_units": canary_charge,
+                "reserved_total_units": liability,
+                "envelope_units": 25.5,
+                "replacement_reserved_units": 3.86,
+            },
+        )
     target = root / "source-admitted.json"
     export_json(target, validated)
     export_json(

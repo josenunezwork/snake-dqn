@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import hashlib
+import io
 import random
 from collections import deque
 from pathlib import Path
@@ -12,7 +14,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from research.bl_ppo.exports import export_torch, verify_export
+from research.bl_ppo.exports import export_bytes, export_torch, verify_export
 
 SCHEMA = "bl-ppo-full-snapshot/v1"
 
@@ -40,7 +42,28 @@ _IMMUTABLE_REF = "__bl_ppo_immutable_state_ref__"
 
 def _adapter_snapshot_state(adapter: Any, immutable_dir: Path | None) -> dict[str, Any]:
     state = {k: v for k, v in vars(adapter).items() if k not in {"policy", "device"}}
-    if immutable_dir is None or not isinstance(state.get("critic_refit_receipt"), dict):
+    if immutable_dir is None:
+        return state
+    if not isinstance(state.get("critic_refit_receipt"), dict):
+        # Before qualification these banks are mutable. Each cadence capture
+        # gets a distinct content-addressed immutable copy; an old copy is never
+        # reused merely because its role/name is unchanged.
+        for key, cap in (("refit_bank", 64 * 1024**2), ("ordinary_bank", 192 * 1024**2)):
+            if key not in state:
+                continue
+            buffer = io.BytesIO()
+            torch.save(_move(state[key], "cpu"), buffer)
+            payload = buffer.getvalue()
+            if len(payload) > cap:
+                raise ValueError(f"pre-actor {key} exceeds frozen immutable component bound")
+            checksum = hashlib.sha256(payload).hexdigest()
+            target = Path(immutable_dir) / f"immutable-partial-{key}-{checksum[:16]}.pt"
+            if target.exists():
+                if verify_export(target) != checksum:
+                    raise ValueError("pre-actor immutable bank digest differs")
+            else:
+                export_bytes(target, payload)
+            state[key] = {_IMMUTABLE_REF: {"name": target.name, "sha256": checksum}}
         return state
     from research.bl_ppo.bank import canonical_sha
 
@@ -77,6 +100,67 @@ def _restore_adapter_value(value: Any, snapshot_path: Path) -> Any:
     return torch.load(target, map_location="cpu", weights_only=False)
 
 
+def snapshot_files(path: Path) -> list[Path]:
+    """Verify the complete flat snapshot closure, including its original Y3 origin."""
+    paths: dict[str, Path] = {}
+    visiting: set[Path] = set()
+
+    def load(payload: Path, expected: str | None = None) -> None:
+        checksum = verify_export(payload)
+        if expected is not None and checksum != expected:
+            raise ValueError("snapshot transitive reference digest differs")
+        if payload.name in paths:
+            if verify_export(paths[payload.name]) != checksum:
+                raise ValueError("conflicting flattened snapshot basename")
+            return
+        if payload.resolve() in visiting:
+            raise ValueError("cyclic snapshot reference")
+        visiting.add(payload.resolve())
+        paths[payload.name] = payload
+        value = torch.load(payload, map_location="cpu", weights_only=False)
+
+        def reference(row: Any) -> None:
+            if not isinstance(row, dict):
+                raise ValueError("invalid snapshot reference")
+            name = row.get("name")
+            if not isinstance(name, str) or Path(name).name != name or name in {".", ".."}:
+                raise ValueError("unsafe snapshot reference basename")
+            load(payload.parent / name, row.get("sha256"))
+
+        def visit(item: Any) -> None:
+            if isinstance(item, dict):
+                if set(item) == {_IMMUTABLE_REF}:
+                    reference(item[_IMMUTABLE_REF])
+                else:
+                    for child in item.values():
+                        visit(child)
+            elif isinstance(item, (list, tuple)):
+                for child in item:
+                    visit(child)
+
+        visit(value)
+        if isinstance(value, dict):
+            origin = value.get("operational", {}).get("execution", {}).get("origin_snapshot")
+            if origin is not None:
+                reference(origin)
+        visiting.remove(payload.resolve())
+
+    load(Path(path))
+    return list(paths.values())
+
+
+def copy_snapshot_closure(path: Path, target: Path) -> Path:
+    """Copy verified immutable exports to a fresh flat transport directory."""
+    for source in snapshot_files(path):
+        destination = Path(target) / source.name
+        if destination.exists():
+            if verify_export(destination) != verify_export(source):
+                raise ValueError("conflicting flattened snapshot basename")
+        else:
+            export_bytes(destination, source.read_bytes())
+    return Path(target) / path.name
+
+
 def capture_full_snapshot(
     policy: Any,
     learner: Any,
@@ -87,6 +171,8 @@ def capture_full_snapshot(
     *,
     immutable_dir: Path | None = None,
     boundary: dict[str, Any] | None = None,
+    operational: dict[str, Any] | None = None,
+    execution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Capture only between complete rollouts, including the actual burn-in history."""
     if getattr(adapter, "records", []):
@@ -95,6 +181,8 @@ def capture_full_snapshot(
     return {
         "schema": SCHEMA,
         **({"boundary": copy.deepcopy(boundary)} if boundary is not None else {}),
+        **({"operational": copy.deepcopy(operational)} if operational is not None else {}),
+        **({"execution": copy.deepcopy(execution)} if execution is not None else {}),
         "identity": copy.deepcopy(identity),
         "policy": policy.checkpoint_dict(),
         "learner": _move(learner.learner_state_dict(), "cpu"),

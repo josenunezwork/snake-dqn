@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import math
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +12,138 @@ from research.bl_ppo.exports import digest, verify_export
 
 RECEIPT_NAMES = {"source-02", "source-latebody-02"}
 LIVE_BLOCKER = "Claude: fresh usage + sessions; confirm empty inventory and rate <=1.54u/h"
+Y3_05_ENVELOPE = 25.50
+Y3_05_RATE = 1.54
+
+
+def reconcile_y3_05(receipts: list[Path]) -> dict[str, Any]:
+    """Bind the four real predecessor receipts under the prospective Y3-05 envelope.
+
+    This is deliberately a new schema: old eight-unit debit artifacts remain
+    historical evidence and their parsers/tests retain their original rules.
+    """
+    expected = ("source-02", "source-latebody-02", "canary-03", "source-03")
+    expected_locations = (
+        "source-02/colab-output/receipt.json",
+        "source-latebody-02/colab-output/receipt.json",
+        "source-latebody-03-canary-01/canary-output/receipt.json",
+        "source-latebody-03-canary-01/source-output/receipt.json",
+    )
+    if len(receipts) != len(expected):
+        raise ValueError("Y3-05 requires exactly the four known real receipts")
+    spend = subprocess.run(
+        ["python3", "tools/ops/spend.py", *map(str, receipts)],
+        cwd=Path(__file__).resolve().parents[2],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if spend.returncode:
+        raise ValueError(f"spend reconciliation refused: {spend.stderr.strip()}")
+    rows: list[dict[str, Any]] = []
+    for name, location, path in zip(expected, expected_locations, receipts):
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("missing or unsafe Y3-05 predecessor receipt")
+        if not str(path.resolve()).endswith(location):
+            raise ValueError("Y3-05 predecessor receipt identity/order differs")
+        value = json.loads(path.read_text())
+        expected_status = "PASS" if name == "canary-03" else "INCOMPLETE"
+        if (
+            value.get("status") != expected_status
+            or value.get("stop_verified") is not True
+            or value.get("cleanup_error") is not None
+        ):
+            raise ValueError("predecessor receipt is not a released terminal attempt")
+        accounting = value.get("accounting")
+        elapsed = value.get("elapsed_seconds")
+        if not isinstance(accounting, dict) or type(elapsed) not in (int, float) or elapsed <= 0:
+            raise ValueError("invalid predecessor receipt accounting")
+        rate = accounting.get("own_rate_units_per_hour")
+        if type(rate) not in (int, float) or rate <= 0:
+            raise ValueError("invalid predecessor own rate")
+        own = elapsed * rate / 3600
+        before = value.get("usage_before", {}).get("balance")
+        after = value.get("usage_after", {}).get("balance")
+        if type(before) not in (int, float) or type(after) not in (int, float):
+            raise ValueError("predecessor receipt lacks account balances")
+        gross = max(0.0, before - after)
+        charged = math.ceil((max(own, gross) - 1e-9) * 100) / 100
+        rows.append(
+            {
+                "attempt": name,
+                "path": str(path.resolve()),
+                "sha256": digest(path),
+                "own_units": own,
+                "gross_account_debit_units": gross,
+                "legacy_conservative_charge_units": charged,
+            }
+        )
+    spent = round(sum(row["legacy_conservative_charge_units"] for row in rows), 2)
+    if spent != 4.67:
+        raise ValueError("known Y3-05 predecessor debit differs from frozen 4.67u")
+    result = {
+        "schema": "bl-p1-y3-debit/v2-source-latebody-05",
+        "status": "RECONCILED_NOT_DISPATCHED",
+        "envelope_units": Y3_05_ENVELOPE,
+        "base_envelope_units": 12.75,
+        "pricing_rate_units_per_hour": Y3_05_RATE,
+        "attempts": rows,
+        "legacy_conservative_spend_units": spent,
+        "remaining_after_predecessors_units": round(Y3_05_ENVELOPE - spent, 2),
+        "canary": {
+            "base_cap_units": 1.0,
+            "effective_cap_units": 2.0,
+            "base_reserve_units": 0.2,
+            "effective_reserve_units": 0.4,
+            "forecast_minutes": 15,
+            "timeout_minutes": 30,
+            "base_timeout_minutes": 15,
+        },
+        "source": {
+            "forecast_minutes": 75,
+            "timeout_minutes": 300,
+            "base_timeout_minutes": 150,
+            "base_cap_units": 4.81,
+            "effective_cap_units": 9.62,
+            "base_reserve_units": 0.96,
+            "effective_reserve_units": 1.92,
+        },
+        "replacement": {
+            "forecast_minutes": 30,
+            "timeout_minutes": 120,
+            "base_timeout_minutes": 60,
+            "base_cap_units": 1.93,
+            "effective_cap_units": 3.86,
+            "base_reserve_units": 0.39,
+            "effective_reserve_units": 0.78,
+        },
+        "retry": {
+            "max_outcome_blind_retries": 2,
+            "attempts": "one original plus at most two completion attempts",
+            "max_additional_source_attempts": 1,
+            "source_cap_units": 9.62,
+            "source_timeout_minutes": 300,
+            "source_reserve_units": 1.92,
+            "replacement_cap_units": 3.86,
+            "replacement_timeout_minutes": 120,
+            "replacement_reserve_units": 0.78,
+            "preconditions": [
+                "verified SUPERVISOR/transport failure",
+                "verified stop with no cleanup error",
+                "missing units",
+                "no actor outcome read",
+                "full invoice fits actual residual",
+            ],
+            "second_consecutive_post_fix_failure": "STOP_FOR_ROOT_CAUSE_REVIEW",
+        },
+        "spend_report": spend.stdout,
+    }
+    reserved = spent + 2.0 + 9.62 + 3.86
+    if reserved > Y3_05_ENVELOPE + 1e-9:
+        raise ValueError("Y3-05 envelope cannot fund canary/source/replacement")
+    result["reserved_initial_path_units"] = reserved
+    result["unallocated_after_initial_path_units"] = round(Y3_05_ENVELOPE - reserved, 2)
+    return result
 
 
 def reconcile(receipts: list[Path]) -> dict[str, Any]:
@@ -108,6 +242,16 @@ def verify_source_admission(
         raise ValueError("Codex-V review does not cover this exact executable source")
     if review.get("no_new_cuda_path") is not True:
         raise ValueError("round-14 requires no-new-CUDA-path review")
+    if debit.get("schema") == "bl-p1-y3-debit/v2-source-latebody-05":
+        actual = reconcile_y3_05([Path(row["path"]) for row in debit.get("attempts", [])])
+        if debit != actual:
+            raise ValueError("Y3 debit differs from immutable terminal receipts")
+        return {
+            "estimate_minutes": 75,
+            "timeout_minutes": 300,
+            "unit_cap": 9.62,
+            "reserve_units": 1.92,
+        }
     actual = reconcile([Path(row["path"]) for row in debit.get("attempts", [])])
     if debit != actual:
         raise ValueError("Y3 debit differs from immutable terminal receipts")

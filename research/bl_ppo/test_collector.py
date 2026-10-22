@@ -57,13 +57,26 @@ def test_real_native_snapshot_replays_next_transition() -> None:
     shard.step(np.ones(2, dtype=np.int64))
     shard.observe()
     saved = pickle.dumps(shard.snapshot())
-    expected = shard.step(np.ones(2, dtype=np.int64))
-    expected_bodies = shard.sim.bodies.copy()
+    expected = []
+    for _ in range(3):
+        expected.append(
+            (
+                shard.step(np.ones(2, dtype=np.int64)),
+                shard.observe(),
+                shard.sim.bodies.copy(),
+            )
+        )
     shard.restore(pickle.loads(saved))
-    observed = shard.step(np.ones(2, dtype=np.int64))
-    for key in expected:
-        assert np.array_equal(expected[key], observed[key]), key
-    assert np.array_equal(expected_bodies, shard.sim.bodies)
+    for name in ("_owner", "_slot", "_food"):
+        assert np.shares_memory(getattr(shard.sim, name), getattr(shard.sim, name + "_pad"))
+    for transition, observation, bodies in expected:
+        observed = shard.step(np.ones(2, dtype=np.int64))
+        for key in transition:
+            assert np.array_equal(transition[key], observed[key]), key
+        current = shard.observe()
+        for key in observation:
+            assert np.array_equal(observation[key], current[key]), key
+        assert np.array_equal(bodies, shard.sim.bodies)
     assert shard.frozen.native_v8_actual == "s2-native-v8"
 
 

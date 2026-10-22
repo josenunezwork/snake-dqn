@@ -35,10 +35,32 @@ def _load_control(path: Path, phase: str) -> dict[str, Any]:
     """Load a complete control document and reject a template or wrong phase."""
     verify_export(path)
     value = json.loads(path.read_text())
-    if not isinstance(value, dict) or value.get("schema") != CONTROL_SCHEMA:
+    if not isinstance(value, dict) or value.get("schema") not in {
+        CONTROL_SCHEMA,
+        "bl-p1-control/v2-resume-y3-05",
+    }:
         raise ValueError("unrecognized P1 control document")
     if value.get("phase") != phase:
         raise ValueError("control phase does not match runtime command")
+    resume = value.get("resume")
+    if not isinstance(resume, dict):
+        raise ValueError("P1 control requires a resume declaration")
+    if (
+        resume.get("unit_kind") != "operational-snapshot"
+        or resume.get("skip_verified") is not True
+        or type(resume.get("max_outcome_blind_retries")) is not int
+        or resume.get("max_outcome_blind_retries") != 2
+        or not isinstance(resume.get("ledger_path"), str)
+        or not resume["ledger_path"].strip()
+    ):
+        raise ValueError("P1 control resume declaration is malformed")
+    namespace, allocation = resume.get("namespace"), resume.get("allocation")
+    if not isinstance(namespace, str) or not isinstance(allocation, str):
+        raise ValueError("P1 control lacks frozen resume namespace/allocation")
+    from research.bl_ppo.p1_resume import read_ledger
+
+    ledger = path.parent / Path(resume["ledger_path"]).name
+    value["_verified_ledger"] = read_ledger(ledger, namespace=namespace, allocation=allocation)
     if value.get("scientific_admission") is not True:
         raise ValueError("P1 manifest is a template or has unresolved dispatch blockers")
     fixed = {
@@ -74,6 +96,15 @@ def _load_control(path: Path, phase: str) -> dict[str, Any]:
         or digest(amendment_path) != amendment
     ):
         raise ValueError("runtime late-body amendment bytes differ from the frozen control")
+    resume_amendment = value.get("resume_amendment_sha256")
+    if resume_amendment is not None:
+        if resume_amendment != digest(Path(__file__).with_name("P1_Y3_RESUME_AMENDMENT_05.md")):
+            raise ValueError("runtime resume amendment differs from frozen control")
+        if (
+            phase in {"y3-source", "y3-replacement"}
+            and value.get("operational_replay_required") is not True
+        ):
+            raise ValueError("amendment-05 Y3 requires both registered replays")
     excluded = value.get("evaluation_excluded_seeds", ())
     bank_sha = value.get("evaluation_bank_sha256")
     if (
@@ -117,7 +148,8 @@ def _load_control(path: Path, phase: str) -> dict[str, Any]:
         verify_export(admission)
         row = json.loads(admission.read_text())
         required = "bl-p1-y3/v1" if phase == "qual-1m" else "bl-p1-complete-job-qualification/v1"
-        if row.get("schema") != required or row.get("status") != "PASS":
+        statuses = {"PASS", "Y3_PASS_BOUNDARY_ONLY"} if phase == "qual-1m" else {"PASS"}
+        if row.get("schema") != required or row.get("status") not in statuses:
             raise ValueError("P1 phase lacks its immutable PASS admission evidence")
         if (
             row.get("source_commit") != commit
@@ -265,35 +297,19 @@ def _snapshot_fingerprint(path: Path) -> str:
     semantic["counters"] = {
         key: value
         for key, value in semantic["counters"].items()
-        if key not in {"collection_seconds", "learner_seconds"}
+        if not str(key).endswith("_seconds")
     }
     put(semantic)
     return hasher.hexdigest()
 
 
 def _snapshot_catalog(path: Path) -> list[dict[str, Any]]:
-    """List the complete snapshot and every hash-verified immutable sibling."""
-    snapshot = read_snapshot(path)
-    paths = [path]
+    """List the complete snapshot, immutable siblings and original-origin closure."""
+    from research.bl_ppo.recovery import snapshot_files
 
-    def visit(value: Any) -> None:
-        if isinstance(value, dict):
-            if set(value) == {_IMMUTABLE_REF}:
-                target = path.parent / str(value[_IMMUTABLE_REF]["name"])
-                if verify_export(target) != value[_IMMUTABLE_REF]["sha256"]:
-                    raise ValueError("snapshot immutable sibling digest mismatch")
-                paths.append(target)
-            else:
-                for item in value.values():
-                    visit(item)
-        elif isinstance(value, (list, tuple)):
-            for item in value:
-                visit(item)
-
-    visit(snapshot["adapter"])
     return [
         {"name": item.name, "sha256": verify_export(item), "size_bytes": item.stat().st_size}
-        for item in paths
+        for item in snapshot_files(path)
     ]
 
 
@@ -305,6 +321,9 @@ def _train_args(
     resume: Path | None,
     durability: bool,
     snapshot_label: str,
+    origin_snapshot: dict[str, str] | None = None,
+    replay_stop_at: int | None = None,
+    origin_source_path: Path | None = None,
 ) -> SimpleNamespace:
     """Build the explicit P1-only invocation of the shared training loop."""
     pause_at = int(control["pause_at"])
@@ -349,6 +368,16 @@ def _train_args(
         p1_durability=durability,
         p1_trace_actions=1000 if durability else 0,
         p1_snapshot_label=snapshot_label,
+        p1_operational_namespace=control.get("resume", {}).get("namespace"),
+        p1_operational_allocation=control.get("resume", {}).get("allocation"),
+        p1_require_operational_snapshot=(
+            control["phase"] == "y3-source"
+            and bool(control.get("operational_replay_required", False))
+        ),
+        p1_origin_snapshot=origin_snapshot,
+        p1_origin_source_path=origin_source_path,
+        p1_resume_source_trace=durability and control["phase"] == "y3-source",
+        p1_replay_stop_at=replay_stop_at,
     )
 
 
@@ -360,6 +389,9 @@ def _run_one(
     resume: Path | None,
     durability: bool,
     snapshot_label: str,
+    origin_snapshot: dict[str, str] | None = None,
+    replay_stop_at: int | None = None,
+    origin_source_path: Path | None = None,
 ) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=False)
     return run_train(
@@ -370,6 +402,9 @@ def _run_one(
             resume=resume,
             durability=durability,
             snapshot_label=snapshot_label,
+            origin_snapshot=origin_snapshot,
+            replay_stop_at=replay_stop_at,
+            origin_source_path=origin_source_path,
         )
     )
 
@@ -552,6 +587,8 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         # The family canary reaches this point only through the exact source
         # runtime control and released B8 byte checks.  It remains operational
         # evidence, with its own tiny configuration and no scientific result.
+        if control["_verified_ledger"]:
+            raise ValueError("family canary refuses a nonempty science operational ledger")
         from research.bl_ppo.p1_canary_runtime import execute as execute_canary
 
         return execute_canary(
@@ -561,29 +598,113 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     if args.phase == "y3-source":
         # The origin is post-E8-refit and pre-actor.  Both the source and
         # replacement continuations begin from these exact bytes.
-        origin_control = dict(control, pause_at=0, requested_pause_at=0)
-        origin = _run_one(
-            origin_control,
-            output=output / "origin",
-            checkpoint=checkpoint,
-            resume=None,
-            durability=False,
-            snapshot_label="p1-y3-origin",
-        )
-        origin["_output"] = str(output / "origin")
-        origin_snapshot = _require_pause(origin, pause=0)
+        from research.bl_ppo.p1_resume import latest_verified
+
+        ledger = control["_verified_ledger"]
+        if ledger:
+            ledger_dir = args.resume.parent if args.resume is not None else args.control.parent
+            latest = latest_verified(ledger, ledger_dir)
+            if args.resume is not None and args.resume.resolve() != latest.resolve():
+                raise ValueError(
+                    "Y3 source must resume only the latest verified operational snapshot"
+                )
+            if latest is None:  # defensive; nonempty ledger is never a fresh run
+                raise ValueError("nonempty ledger has no latest verified snapshot")
+        else:
+            latest = None
+            if args.resume is not None:
+                raise ValueError("empty Y3 ledger must not supply a resume snapshot")
+        latest_state = read_snapshot(latest) if latest is not None else None
+        if latest_state is not None:
+            metadata = latest_state.get("operational", {})
+            declaration = control["resume"]
+            selected = max(ledger, key=lambda item: item["index"])
+            if (
+                metadata.get("label") != "OPERATIONAL"
+                or metadata.get("namespace") != declaration["namespace"]
+                or metadata.get("allocation") != declaration["allocation"]
+                or metadata.get("index") != selected["index"]
+                or metadata.get("unit_id") != selected["unit_id"]
+            ):
+                raise ValueError("selected snapshot has foreign operational identity")
+            _snapshot_catalog(latest)
+            expected = {
+                "p1_runtime": True,
+                "arm": "F",
+                "seed": 20261021,
+                "target_transitions": p1_contract.SHAPE.target,
+                "source_commit": control["source_commit"],
+                "p1_registration_sha256": control["registration_sha256"],
+                "p1_evaluation_bank_sha256": control["evaluation_bank_sha256"],
+            }
+            if any(latest_state["identity"].get(key) != value for key, value in expected.items()):
+                raise ValueError("operational snapshot trajectory identity differs")
+        if latest_state is None or not latest_state["counters"].get("actor_enabled"):
+            origin_control = dict(control, pause_at=0, requested_pause_at=0)
+            origin = _run_one(
+                origin_control,
+                output=output / "origin",
+                checkpoint=checkpoint,
+                resume=latest,
+                durability=False,
+                snapshot_label="p1-y3-origin",
+            )
+            origin["_output"] = str(output / "origin")
+            origin_snapshot = _require_pause(origin, pause=0)
+            continuation_start = origin_snapshot
+        else:
+            execution = latest_state.get("operational", {}).get("execution", {})
+            origin_meta = execution.get("origin_snapshot") or {}
+            origin_name, origin_sha = origin_meta.get("name"), origin_meta.get("sha256")
+            if not isinstance(origin_name, str) or Path(origin_name).name != origin_name:
+                raise ValueError("operational snapshot lacks a safe original pre-actor origin")
+            origin_snapshot = latest.parent / origin_name
+            if verify_export(origin_snapshot) != origin_sha:
+                raise ValueError("operational snapshot original pre-actor origin differs")
+            _validate_resume(control, origin_snapshot, args.control.parent)
+            origin = {"status": "RESUMED_LATEST_OPERATIONAL"}
+            continuation_start = latest
         continuation = _run_one(
             control,
             output=output / "source-continuation",
             checkpoint=checkpoint,
-            resume=origin_snapshot,
+            resume=continuation_start,
             durability=True,
             snapshot_label="p1-y3-source-continuation",
+            origin_snapshot={
+                "name": origin_snapshot.name,
+                "sha256": verify_export(origin_snapshot),
+            },
+            origin_source_path=origin_snapshot,
         )
         continuation["_output"] = str(output / "source-continuation")
         continuation_snapshot = _require_pause(continuation, pause=0, durability=True)
         trace_path = output / "source-continuation" / "action-trace.json"
         trace = _read_trace(trace_path)
+        operational = continuation.get("operational_snapshots", [])
+        if latest_state is not None and latest_state["counters"].get("actor_enabled"):
+            from research.bl_ppo.recovery import copy_snapshot_closure
+
+            copied = copy_snapshot_closure(latest, output / "source-continuation")
+            operational = [
+                {
+                    key: value
+                    for key, value in latest_state["operational"].items()
+                    if key != "execution"
+                }
+                | {
+                    "path": copied.name,
+                    "sha256": verify_export(copied),
+                    "size": copied.stat().st_size,
+                    "phase": "actor",
+                },
+                *operational,
+            ]
+        operational_trace = continuation.get("operational_trace")
+        if control.get("operational_replay_required") and (
+            not operational or not operational_trace
+        ):
+            raise ValueError("Y3 source lacks an operational snapshot and fixed suffix proof")
         result = {
             "schema": "bl-p1-y3-source/v1",
             "status": "COMPLETE_SOURCE_CONTINUATION",
@@ -591,7 +712,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "assignment_endpoint": assignment_endpoint,
             "origin_snapshot": {
                 "name": origin_snapshot.name,
-                "relative_path": str(origin_snapshot.relative_to(output)),
+                "relative_path": origin_snapshot.name,
                 "sha256": verify_export(origin_snapshot),
                 "state_fingerprint": _snapshot_fingerprint(origin_snapshot),
             },
@@ -609,6 +730,8 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 "full_tape_actions": trace["full_tape_actions"],
                 "full_tape_sha256": trace["full_tape_sha256"],
             },
+            "operational_snapshots": operational,
+            "operational_trace": operational_trace,
             "e2_status": {
                 "origin_snapshot": origin_snapshot.name,
                 "origin_status": origin["status"],
@@ -618,6 +741,11 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "critic_qualified": True,
             "transitive_snapshot_catalog": _snapshot_catalog(origin_snapshot)
             + _snapshot_catalog(continuation_snapshot),
+            "operational_snapshot_catalog": [
+                item
+                for row in operational
+                for item in _snapshot_catalog(output / "source-continuation" / row["path"])
+            ],
         }
     else:
         if args.resume is None:
@@ -639,13 +767,21 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 raise ValueError("Y3 replacement must use a different L4 assignment")
             if verify_export(resume) != proof.get("origin_snapshot", {}).get("sha256"):
                 raise ValueError("replacement resume is not the source Y3 origin snapshot")
+        replay_control = dict(control)
+        replay_stop_at = None
+        if durability:
+            # Replays stop at the source's frozen absolute counter, never at
+            # a fresh wall-clock cadence boundary.
+            replay_control["operational_replay_required"] = False
+            replay_stop_at = int(read_snapshot(expected_snapshot)["counters"]["actor_transitions"])
         value = _run_one(
-            control,
+            replay_control,
             output=output / args.phase,
             checkpoint=checkpoint,
             resume=resume,
             durability=durability,
             snapshot_label=f"p1-{args.phase}",
+            replay_stop_at=replay_stop_at,
         )
         value["_output"] = str(output / args.phase)
         snapshot = _require_pause(value, pause=int(control["pause_at"]), durability=durability)
@@ -661,9 +797,74 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 raise ValueError("Y3 replacement action trace differs from source continuation")
             if source_continuation_fingerprint != replacement_fingerprint:
                 raise ValueError("Y3 replacement full state differs after the matched continuation")
+            operational_result: dict[str, Any] = {"status": "NOT_REQUIRED"}
+            operational_rows = proof.get("operational_snapshots", [])
+            operational_trace_meta = proof.get("operational_trace")
+            if control.get("operational_replay_required"):
+                if (
+                    not isinstance(operational_rows, list)
+                    or not operational_rows
+                    or not isinstance(operational_trace_meta, dict)
+                ):
+                    raise ValueError(
+                        "Y3 source did not export required operational replay evidence"
+                    )
+                latest = max(operational_rows, key=lambda row: int(row.get("index", 0)))
+                names = (latest.get("path"), operational_trace_meta.get("path"))
+                if any(
+                    not isinstance(name, str) or Path(name).name != name or name in {".", ".."}
+                    for name in names
+                ):
+                    raise ValueError("operational replay requires safe flat artifact names")
+                operational_path = expected_path.parent / names[0]
+                trace_path = expected_path.parent / names[1]
+                if verify_export(operational_path) != latest.get("sha256") or verify_export(
+                    trace_path
+                ) != operational_trace_meta.get("sha256"):
+                    raise ValueError("operational replay input digest differs")
+                trace_value = json.loads(trace_path.read_text())
+                if trace_value.get("snapshot") != operational_path.name or not isinstance(
+                    trace_value.get("final_actor_transitions"), int
+                ):
+                    raise ValueError("operational trace does not bind the latest snapshot")
+                op_state = read_snapshot(operational_path)
+                if op_state.get("operational", {}).get("label") != "OPERATIONAL":
+                    raise ValueError("operational replay input is not labelled OPERATIONAL")
+                op_control = dict(
+                    control,
+                    pause_at=trace_value["final_actor_transitions"],
+                    requested_pause_at=trace_value["final_actor_transitions"],
+                    operational_replay_required=False,
+                )
+                op_value = _run_one(
+                    op_control,
+                    output=output / "operational-replay",
+                    checkpoint=checkpoint,
+                    resume=operational_path,
+                    durability=True,
+                    snapshot_label="p1-y3-operational-replay",
+                    replay_stop_at=trace_value["final_actor_transitions"],
+                )
+                op_value["_output"] = str(output / "operational-replay")
+                op_snapshot = _require_pause(
+                    op_value, pause=trace_value["final_actor_transitions"], durability=True
+                )
+                op_trace = _read_trace(output / "operational-replay" / "action-trace.json")
+                operational_pass = (
+                    op_trace["full_tape_actions"] == trace_value.get("actions")
+                    and op_trace["full_tape_sha256"] == trace_value.get("full_tape_sha256")
+                    and _snapshot_fingerprint(op_snapshot) == source_continuation_fingerprint
+                )
+                operational_result = {
+                    "status": "PASS" if operational_pass else "FAIL",
+                    "snapshot_sha256": verify_export(operational_path),
+                    "actions_compared": op_trace["full_tape_actions"],
+                }
             result = {
                 "schema": "bl-p1-y3/v1",
-                "status": "PASS",
+                "status": (
+                    "PASS" if operational_result["status"] != "FAIL" else "Y3_PASS_BOUNDARY_ONLY"
+                ),
                 "phase": args.phase,
                 "critic_qualified": True,
                 "origin_snapshot_sha256": verify_export(resume),
@@ -692,6 +893,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 ],
                 "origin_snapshot_files": _snapshot_catalog(resume),
                 "replacement_snapshot_files": _snapshot_catalog(snapshot),
+                "operational_replay": operational_result,
             }
         elif args.phase == "qual-1m":
             actor = int(value["counters"]["actor_transitions"])

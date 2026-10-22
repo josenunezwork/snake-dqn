@@ -524,6 +524,15 @@ class _GridShard:
 
     def restore(self, state: Mapping[str, Any]) -> None:
         self.sim = state["sim"]
+        # NumPy pickle preserves array values but not these view/base aliases.
+        # Dynamics writes the interior grids while ego observations read the
+        # padded buffers; both must continue to address the same storage.
+        pad, height, width = self.sim._grid_pad, self.sim.grid_h, self.sim.grid_w
+        for name in ("_owner", "_slot", "_food"):
+            view = getattr(self.sim, name + "_pad")[:, pad : pad + height, pad : pad + width]
+            if not np.array_equal(getattr(self.sim, name), view):
+                raise ValueError("snapshot interior grid differs from its padded backing array")
+            setattr(self.sim, name, view)
         if state.get("kernel_module"):
             import importlib
 
