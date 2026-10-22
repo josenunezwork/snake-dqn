@@ -16,6 +16,7 @@ from typing import Any
 
 from research.bl_served_search import ruler
 from research.bl_served_search.exports import digest, export_json, verify_export
+from research.bl_served_search.native_provenance import OLD_RULER, RULER_PATH, compatible
 from research.bl_served_search.provenance_v2 import CHUNKS_PATH, LEGACY_CHUNKS_SHA256
 from research.bl_served_search.ruler_timing import STAGES
 
@@ -31,6 +32,7 @@ MODES = ("all", "exact_stop")
 _OPERATORS: dict[str, Any] = {}
 # Exact pre-amendment bytes, not a blanket compatibility exemption.
 LEGACY = {
+    RULER_PATH: {OLD_RULER},
     "research/bl_served_search/ceiling.py": {
         "b617043b0ede1dc40e82e8c39262fdf73b476f665d48ad8afcd77c1642a2645e"
     },
@@ -50,6 +52,7 @@ def source_identity() -> dict[str, str]:
     root = Path(__file__).resolve().parents[2]
     names = (
         "research/bl_served_search/native_ruler.py",
+        "research/bl_served_search/native_provenance.py",
         "research/bl_served_search/mac_lease.py",
         "research/bl_served_search/AMENDMENT_STOP.md",
         "research/bl_k1/native.py",
@@ -186,7 +189,7 @@ def validate_paired_receipt(receipt: dict[str, Any], *, canary: bool = False) ->
         receipt.get("schema") != SCHEMA
         or receipt.get("status") != ("CANARY_PASS" if canary else "PAIRED_PASS")
         or receipt.get("native_mode") != "kernel"
-        or receipt.get("source_identity") != source_identity()
+        or not compatible(receipt.get("source_identity", {}), source_identity())
         or set(receipt.get("cells", {})) != set(MODES)
     ):
         raise ValueError("INVALID paired native ruler")
@@ -208,7 +211,7 @@ def validate_paired_receipt(receipt: dict[str, Any], *, canary: bool = False) ->
     for mode in MODES:
         cell = receipt["cells"][mode]
         if (
-            cell.get("source_identity") != ruler.source_identity()
+            not compatible(cell.get("source_identity", {}), ruler.source_identity())
             or cell.get("fixture_sha256") != ruler.sha256_bytes(ruler.canonical(fixtures).encode())
             or cell.get("platform") != receipt["platform"]
             or cell.get("min_batches_per_fixture") != expected

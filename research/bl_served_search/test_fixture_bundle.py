@@ -58,6 +58,23 @@ def test_l2_readiness_reads_only_hash_bound_bundled_fixtures(tmp_path: Path) -> 
         fixture_bank(tmp_path, {})
 
 
+def test_native_source_validator_is_an_explicit_archive_boundary(tmp_path: Path) -> None:
+    original = tmp_path / "original"
+    _exports(original)
+    calls: list[dict[str, str]] = []
+
+    def native_only(source: dict[str, str]) -> None:
+        calls.append(source)
+
+    bundle = fixture_bundle.pack(
+        original, tmp_path / "fixtures.tar.gz", source_validator=native_only
+    )
+    fixture_bundle.unpack(
+        bundle, tmp_path / "restored", digest(bundle), source_validator=native_only
+    )
+    assert len(calls) == 2
+
+
 def test_checksums_cannot_hide_a_root_disagreement(tmp_path: Path) -> None:
     original = tmp_path / "original"
     _exports(original)

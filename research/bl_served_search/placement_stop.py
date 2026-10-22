@@ -16,6 +16,7 @@ from typing import Any
 
 from research.bl_served_search.chunks import CHUNK_COUNT, CHUNK_MIX_COUNTS
 from research.bl_served_search.exports import digest, export_json, verify_export
+from research.bl_served_search.native_provenance import compatible
 from research.bl_served_search.ruler import canonical
 
 MODES = ("all", "exact_stop")
@@ -242,7 +243,10 @@ def forecast(
     l4 = _measure(l4_receipt, "l4") if l4_receipt is not None else None
     if l4 is not None and (
         mac["fixture_sha256"] != l4["fixture_sha256"]
-        or mac["source_identity"] != l4["source_identity"]
+        or any(
+            not compatible(mac["source_identity"][mode], l4["source_identity"][mode])
+            for mode in MODES
+        )
     ):
         raise ValueError("Mac/L4 paired receipt provenance differs")
     if l4 is not None:
@@ -270,6 +274,7 @@ def forecast(
             "platform": mac["platform"],
             "fixture_sha256": mac["fixture_sha256"],
             "source_identity": mac["source_identity"],
+            "native_source_identity": mac_receipt["source_identity"],
         },
         "l4_provenance": (
             None
@@ -278,9 +283,14 @@ def forecast(
                 "platform": l4["platform"],
                 "fixture_sha256": l4["fixture_sha256"],
                 "source_identity": l4["source_identity"],
+                "native_source_identity": l4_receipt["source_identity"],
             }
         ),
         "l4_receipt_present": l4 is not None,
+        "source_compatibility": (
+            "native_provenance: exact pre-lease ruler and pre-compatibility native hashes only; "
+            "original receipt source identities retained"
+        ),
         "timing_transfer": "FORBIDDEN: Mac timings never price L4",
         "modes": modes,
         "mac_amendment_requires": [

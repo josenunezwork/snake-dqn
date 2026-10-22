@@ -9,6 +9,7 @@ import json
 import tarfile
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from research.bl_served_search.exports import digest, export_bytes, verify_export
 from research.bl_served_search.provenance_v2 import compatible_source
@@ -19,15 +20,23 @@ MAX_COMPRESSED_BYTES = 4 * 1024**2
 MAX_UNPACKED_BYTES = 16 * 1024**2
 
 
-def validate_directory(directory: Path) -> list[Path]:
+SourceValidator = Callable[[dict[str, str]], None]
+
+
+def validate_directory(
+    directory: Path, *, source_validator: SourceValidator | None = None
+) -> list[Path]:
     """Verify all nine original roots, source identity and immutable sidecars."""
     manifest = directory / "ruler-fixtures.json"
     verify_export(manifest)
     value = json.loads(manifest.read_text())
     rows = validate_fixtures(value, full=True)
-    if value.get("mode") != "full" or not compatible_source(
-        value.get("source_identity", {}), source_identity()
-    ):
+    source = value.get("source_identity", {})
+    if value.get("mode") != "full":
+        raise ValueError("full fixtures with unchanged ruler sources required")
+    if source_validator is not None:
+        source_validator(source)
+    elif not compatible_source(source, source_identity()):
         raise ValueError("full fixtures with unchanged ruler sources required")
     files = [manifest]
     for row in rows:
@@ -47,9 +56,9 @@ def validate_directory(directory: Path) -> list[Path]:
     )
 
 
-def pack(directory: Path, target: Path) -> Path:
+def pack(directory: Path, target: Path, *, source_validator: SourceValidator | None = None) -> Path:
     """Create a deterministic archive without changing any fixture bytes."""
-    files = validate_directory(directory)
+    files = validate_directory(directory, source_validator=source_validator)
     if sum(path.stat().st_size for path in files) > MAX_UNPACKED_BYTES:
         raise ValueError("fixture bundle exceeds unpacked byte limit")
     compressed = io.BytesIO()
@@ -68,7 +77,13 @@ def pack(directory: Path, target: Path) -> Path:
     return target
 
 
-def unpack(bundle: Path, target: Path, checksum: str) -> Path:
+def unpack(
+    bundle: Path,
+    target: Path,
+    checksum: str,
+    *,
+    source_validator: SourceValidator | None = None,
+) -> Path:
     """Restore into a fresh directory only after all hashes and roots agree."""
     if target.exists():
         raise FileExistsError("fresh fixture destination required")
@@ -104,7 +119,9 @@ def unpack(bundle: Path, target: Path, checksum: str) -> Path:
                     raise ValueError("missing fixture bundle member")
                 with (stage / member.name).open("xb") as handle:
                     handle.write(source.read())
-        expected = {path.name for path in validate_directory(stage)}
+        expected = {
+            path.name for path in validate_directory(stage, source_validator=source_validator)
+        }
         if {member.name for member in members} != expected:
             raise ValueError("fixture bundle members disagree with frozen fixture bank")
         stage.rename(target)
@@ -116,8 +133,20 @@ def main() -> None:
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--native-source",
+        action="store_true",
+        help="validate the narrow historical source allowance used by native_ruler",
+    )
     args = parser.parse_args()
-    print(unpack(args.bundle, args.out, args.sha256))
+    validator = None
+    if args.native_source:
+        # Delayed to keep ordinary fixture transport independent from the
+        # prospective native-ruler compatibility boundary.
+        from research.bl_served_search.native_ruler import validate_source
+
+        validator = validate_source
+    print(unpack(args.bundle, args.out, args.sha256, source_validator=validator))
 
 
 if __name__ == "__main__":
