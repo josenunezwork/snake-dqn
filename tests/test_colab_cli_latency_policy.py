@@ -161,3 +161,72 @@ def test_watchdog_collects_during_expiry_interval_and_recovers_status_reset(
     assert evidence["observed_after_lease_seconds"] < 300
     assert reads[0] == 30  # Poll before expiry, never sleep past the remote grace.
     assert (tmp_path / "watchdog-checkpoint.pkl").read_bytes() == payload
+
+
+@pytest.mark.parametrize("failure", ["timeout", "missing"])
+@pytest.mark.parametrize("response_seconds", [1, 3])
+def test_watchdog_slow_pre_expiry_read_cannot_consume_checkpoint_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str, response_seconds: int
+) -> None:
+    """Replay warmup2's t=168 read spanning the entire t=180..195 grace."""
+    now = [0.0]
+    payload = b"checkpoint"
+    digest = hashlib.sha256(payload).hexdigest()
+    reads = []
+
+    class CLI:
+        session = "owned"
+        accounting = SimpleNamespace(endpoint="owned-endpoint")
+
+        def stop_lease(self, *, wait: bool = False) -> None:
+            assert wait
+
+        def poll_rpc(self, code: str) -> bool:
+            assert "disable_contents=True" in code
+            return True
+
+        def call(self, *args: str, timeout: float) -> str:
+            assert timeout > 0
+            # Earlier missing reads have consumed 168s. A provider request
+            # begun before publication stalls longer than the remaining grace.
+            reads.append(now[0])
+            if now[0] < 168:
+                now[0] += min(1, timeout)
+                raise supervisor.Refused("404 not found")
+            if now[0] < 180:
+                now[0] += min(40, timeout)
+                if failure == "timeout":
+                    raise subprocess.TimeoutExpired("download", timeout)
+                raise supervisor.Refused("404 not found")
+            now[0] += min(response_seconds, timeout)
+            if response_seconds > timeout:
+                raise subprocess.TimeoutExpired("download", timeout)
+            if now[0] >= 195:
+                raise supervisor.Refused("404 not found: runtime released")
+            Path(args[-1]).write_bytes(
+                (digest + "\n").encode() if args[-2].endswith("sha256") else payload
+            )
+            return "ok"
+
+        def sessions(self, *, timeout: float) -> dict[str, str]:
+            assert timeout > 0
+            return {} if now[0] >= 195 else {"owned-endpoint": self.session}
+
+    observer = AcceptanceObserver("unused")
+    monkeypatch.setattr(observer, "_state", lambda _context: {})
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(supervisor.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+    observer._watchdog(
+        {
+            "cli": CLI(),
+            "manifest": {"lease_seconds": 180},
+            "root": "/content/snake-cli/g",
+            "generation": "g",
+            "output": tmp_path,
+        }
+    )
+    evidence = observer.records["mac-loss-watchdog-unassign"]
+    assert evidence["checkpoint_exported_during_grace"] is True
+    assert evidence["assignment_disappeared_within_bound"] is True
+    assert any(180 <= started < 195 for started in reads)
+    assert (tmp_path / "watchdog-checkpoint.pkl").read_bytes() == payload

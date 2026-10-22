@@ -30,6 +30,10 @@ from research.colab_cli.transfers import (
 WATCHDOG_DISAPPEARANCE_BOUND_SECONDS = 300
 WATCHDOG_DISAPPEARANCE_POLL_SECONDS = 10
 WATCHDOG_CHECKPOINT_GRACE_SECONDS = 15
+# A read dispatched before publication must not occupy the entire short
+# checkpoint window. These tiny files need fresh reads during grace even when
+# a preceding missing-file response stalls at the provider.
+WATCHDOG_CHECKPOINT_READ_SECONDS = 3
 
 # These snippets intentionally run in the installed CLI interpreter.  The Mac
 # environment does not import ``colab_cli.state``: that would turn a missing
@@ -855,6 +859,7 @@ class AcceptanceObserver:
             latest_lease_expiry + WATCHDOG_CHECKPOINT_GRACE_SECONDS, cap_deadline
         )
         checkpoint_hash = None
+        last_checkpoint_error = None
         with tempfile.TemporaryDirectory(dir=context["output"], prefix=".watchdog-") as temp:
             marker = Path(temp) / "checkpoint.sha256"
             local = Path(temp) / "checkpoint.pkl"
@@ -867,7 +872,8 @@ class AcceptanceObserver:
                         context["root"] + "/output/lease-checkpoint.pkl.sha256",
                         str(marker),
                         timeout=min(
-                            policy.READ_SECONDS, max(0.01, checkpoint_deadline - time.monotonic())
+                            WATCHDOG_CHECKPOINT_READ_SECONDS,
+                            max(0.01, checkpoint_deadline - time.monotonic()),
                         ),
                     )
                     candidate = marker.read_text().split()[0]
@@ -878,7 +884,8 @@ class AcceptanceObserver:
                         context["root"] + "/output/lease-checkpoint.pkl",
                         str(local),
                         timeout=min(
-                            policy.READ_SECONDS, max(0.01, checkpoint_deadline - time.monotonic())
+                            WATCHDOG_CHECKPOINT_READ_SECONDS,
+                            max(0.01, checkpoint_deadline - time.monotonic()),
                         ),
                     )
                     if supervisor.sha256(local) != candidate:
@@ -889,9 +896,13 @@ class AcceptanceObserver:
                     missing = "404" in str(exc) or "not found" in str(exc).lower()
                     if not missing and not policy.transient_error(exc):
                         raise
+                    last_checkpoint_error = supervisor.redact(repr(exc))
                     time.sleep(min(1, max(0, checkpoint_deadline - time.monotonic())))
             if checkpoint_hash is None:
-                raise supervisor.Refused("watchdog checkpoint was not exported during grace")
+                raise supervisor.Refused(
+                    "watchdog checkpoint was not observed during grace; "
+                    f"last download error: {last_checkpoint_error}"
+                )
             destination = context["output"] / "watchdog-checkpoint.pkl"
             local.replace(destination)
             marker.replace(destination.with_suffix(".pkl.sha256"))
