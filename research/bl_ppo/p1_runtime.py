@@ -545,6 +545,18 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
 
     if digest(checkpoint) != B8_SHA256:
         raise ValueError("P1 requires the exact released B8 s3 checkpoint")
+    canary_enabled = os.environ.get("SNAKE_COLAB_CANARY") == "1"
+    if os.environ.get("BL_P1_CANARY_CONFIG") and not canary_enabled:
+        raise ValueError("BL_P1_CANARY_CONFIG is forbidden outside the family-canary runtime")
+    if canary_enabled:
+        # The family canary reaches this point only through the exact source
+        # runtime control and released B8 byte checks.  It remains operational
+        # evidence, with its own tiny configuration and no scientific result.
+        from research.bl_ppo.p1_canary_runtime import execute as execute_canary
+
+        return execute_canary(
+            control=control, control_path=args.control, output=output, checkpoint=checkpoint
+        )
     assignment_endpoint = _assignment_endpoint()
     if args.phase == "y3-source":
         # The origin is post-E8-refit and pre-actor.  Both the source and
