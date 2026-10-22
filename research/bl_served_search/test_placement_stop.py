@@ -47,6 +47,7 @@ def _receipt(label: str, seconds: float) -> dict[str, Any]:
         for mode in placement_stop.MODES
     }
     return {
+        "source_identity": {"source": "same"},
         "platform": {"label": label, "system": "Darwin" if label == "mac" else "Linux"},
         "fixtures": {"fixtures": fixtures},
         "cells": cells,
