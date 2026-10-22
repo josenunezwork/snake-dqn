@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from research.bl_density.statistics import compare, length_summary
+from research.bl_density.statistics import compare, ks_compare, length_summary
 
 
 def _rows(prefix, centers, repeats=2):
@@ -83,3 +83,13 @@ def test_length_distribution_has_requested_bins_and_quantiles():
     assert result["quantiles"]["p50"] == 1099.5
     assert result["quantiles"]["p10"] == 799.7
     assert result["quantiles"]["p99"] == 1499.93
+
+
+def test_geometry_ks_is_separate_from_the_frozen_classifier_features():
+    result = ks_compare(
+        [{"hero_length": 800, "wall_distance": 3}, {"hero_length": 900, "wall_distance": 4}],
+        [{"hero_length": 1200, "wall_distance": 8}, {"hero_length": 1300, "wall_distance": 9}],
+        ["hero_length", "wall_distance"],
+    )
+    assert result["status"] == "OK"
+    assert result["fields"]["hero_length"]["statistic"] == 1.0

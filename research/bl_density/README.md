@@ -1,32 +1,42 @@
-# Density development measurement
+# Density measurement — round 14 (b)
 
-This package measures the cost and feature distribution of screened long-body bare-B8
-H300 deaths. It makes zero science, efficacy, promotion or release claims. Definitions
-were committed before gameplay in METRICS.md and METRICS_AMENDMENT_01.md / METRICS_AMENDMENT_02.md.
+The active contract is the immutable METRICS.md plus amendments 01/02 and prospective
+[METRICS_AMENDMENT_03.md](METRICS_AMENDMENT_03.md). Read amendment 03 for the full
+allocation, minimum-map rule, witness endpoint, decision precedence and caps.
 
-A uses natural standard-map episodes. B50/B70 increase population to eight snakes on
-approximately half/70% map area. C reuses the served-search serpentine fixture geometry
-at L800/1200/1500; nearby opponent body bands are synthetic. The production grid samples every 200 decisions. Every mix is reported
-separately. Doom counts are sampled moments, potentially repeated views of one death.
+A has 12 natural episodes per mix. B70m/B70p have six per mix on 121x69 maps with
+five/seven opponents. C-P1 has six per mix using P1's exact long-body construction:
+hero 900/1200/1500, opponents 600/400/300/150/150. B50 is dropped. Total 90 episodes.
+Primary endpoints are witnessed-avoidable doom roots and distinct doom-bearing
+episodes per total CPU-second. No witness means unproven avoidability. AUC >=.80
+rejects; lower AUC never certifies realism. Every source must meet the map floor.
 
-`runner.py` performs bare episodes, cheap screening, exact carried-world continuations,
-retrospective A recall and immutable exports. `statistics.py` computes lengths, empirical
-KS distances and a classifier AUC with episode holdout. Small or empty natural-doom
-samples produce explicit INSUFFICIENT diagnostics. `manifests.py` pins published code,
-the frozen metrics and a tiny public-checkpoint catalog. `upload_readiness.py` exercises
-the existing Z-9 source/upload qualification without contacting Colab.
+`runner.py` records all lengths/geometry, causes, full-state carried-world branches,
+all legal alternatives on first four confirmed doom roots, stage CPU and immutable
+exports. `analysis.py` charges every attempted unit plus overhead before decisions;
+`statistics.py` retains the frozen 35-feature classifier and separate geometry KS.
+`forecast.py` prices the 1,638,000-decision worst case; tiny Mac timing is a host
+sensitivity, never a measured L4 rate.
 
-Use the project interpreter at `/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python`.
-A light Mac preflight must use `nice -n 10`, one worker, CPU and one numerical/Numba
-thread. Never run the full collection on the Mac while K-1 timing is active.
+`manifests.py --phase canary` prepares the separate 12-episode tiny L4 canary
+(<=20min, <=1u, .2u reserve). `--phase production` prepares the 90-episode production
+manifest (<=120min priced wall, below the registered 150min outer cap; <=5u including
+1u reserve; six single-thread CPU workers). `budget.other_assignments` is `{}`.
+Every preparation/validation call is offline. `upload_readiness.py` uses the real
+qualified supervisor sparse-source bytes and Z-9 archive sizing without Colab calls.
+Manifest payloads and real run exports have `.sha256` and `.complete` sidecars.
 
-The prepared manifest, upload receipt, preflight exports, forecast and DISPATCH.txt live
-outside Git at `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-density/`.
-DISPATCH.txt is the concrete operator handoff. This task prepares the job only. No Colab
-provider operation is performed by package preparation, validation or upload qualification.
+Production is runtime-blocked without `canary-proof.json` and its real sidecars.
+After the L4 canary completes and stops, `canary.py --recovered-output ...` verifies
+the supervisor receipt, terminal generation, exact inventory, twelve episode exports,
+summary hashes and stage counters. It creates a proof; rebuild a fresh production
+manifest with `--canary-proof .../canary-proof.json` and requalify those upload bytes.
+A Mac probe cannot create an accepted L4 proof. Nothing automatically dispatches.
 
-Production is 72 episodes, six single-thread CPU workers on one L4 runtime, 45-minute
-planning estimate, 60-minute internal work window, 90-minute whole-session wall ceiling,
-3-unit cap at a 2-u/hour planning rate with 0.3-unit reserve. First supervisor cap wins.
-These planning values are not measured L4 H5000 throughput. Runtime exports use the
-unchanged `.complete` plus `.sha256` protocol; partial allocation is INCOMPLETE.
+Use `/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python`. Local work is `nice -n 10`,
+CPU with one numerical/Numba thread and at most two workers; production stays on L4.
+The current manifests, validation/transport receipts, preflight, forecast and operator
+DISPATCH.txt live under
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-density/round14/`.
+The independent diff review is recorded in REVIEW_AMENDMENT_03.md. No scientific
+result, +40 claim, P1 change, release or serving authorization follows from this work.

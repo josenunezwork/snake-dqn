@@ -22,7 +22,7 @@ def semantic(value: Any) -> Any:
             for key, item in value.items()
             if not key.endswith("seconds")
             and not key.startswith("metrics_")
-            and key not in {"worker_pid"}
+            and key not in {"worker_pid", "cpu_seconds_by_stage"}
         }
     if isinstance(value, list):
         return [semantic(item) for item in value]

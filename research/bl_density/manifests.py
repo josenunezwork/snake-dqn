@@ -10,6 +10,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from research.bl_density.canary import verify_proof
+from research.bl_ppo.exports import export_json
 from research.bl_prefix.make_manifest import qualified_transport
 from research.bl_upload import assert_upload_budget
 from research.colab_cli.supervisor import validate
@@ -27,6 +29,7 @@ def source_paths(repo: Path = ROOT) -> list[str]:
     """Include the static local import closure, never an artifact directory."""
     pending = [
         repo / PACKAGE / "runner.py",
+        repo / PACKAGE / "canary.py",
         repo / "research/bl_upload/inputs.py",
     ]
     visited: set[Path] = set()
@@ -67,6 +70,7 @@ def source_paths(repo: Path = ROOT) -> list[str]:
             PACKAGE + "/METRICS.md",
             PACKAGE + "/METRICS_AMENDMENT_01.md",
             PACKAGE + "/METRICS_AMENDMENT_02.md",
+            PACKAGE + "/METRICS_AMENDMENT_03.md",
             "research/colab_cli",
             "research/t34_exit_b8/PUBLIC_INPUTS.json",
             "research/apex_safety_20260926/deployment.yaml",
@@ -77,8 +81,20 @@ def source_paths(repo: Path = ROOT) -> list[str]:
     )
 
 
-def build(commit: str, output_dir: Path, *, repo: Path = ROOT) -> dict[str, Any]:
-    """Bind published code and a tiny public-asset catalog to a <=3u envelope."""
+def build(
+    commit: str,
+    output_dir: Path,
+    *,
+    phase: str = "production",
+    canary_proof: Path | None = None,
+    repo: Path = ROOT,
+) -> dict[str, Any]:
+    """Bind exact transport bytes; unproven production remains runtime-blocked."""
+    if phase not in {"canary", "production"}:
+        raise ValueError("phase must be canary or production")
+    if phase == "canary" and canary_proof is not None:
+        raise ValueError("canary cannot consume its own proof")
+    canary = phase == "canary"
     qualified_transport(repo, commit)
     published = subprocess.check_output(
         ["git", "branch", "-r", "--contains", commit], cwd=repo, text=True
@@ -95,8 +111,9 @@ def build(commit: str, output_dir: Path, *, repo: Path = ROOT) -> dict[str, Any]
     metric_sha = digest(repo / PACKAGE / "METRICS.md")
     amendment_sha = digest(repo / PACKAGE / "METRICS_AMENDMENT_01.md")
     capacity_sha = digest(repo / PACKAGE / "METRICS_AMENDMENT_02.md")
+    round14_sha = digest(repo / PACKAGE / "METRICS_AMENDMENT_03.md")
     manifest = {
-        "job_id": "bl-density-" + commit[:12],
+        "job_id": "bl-density-r14-" + phase + "-" + commit[:12],
         "commit": commit,
         "script": PACKAGE + "/colab.sh",
         "source_paths": paths,
@@ -105,14 +122,14 @@ def build(commit: str, output_dir: Path, *, repo: Path = ROOT) -> dict[str, Any]
             "gpu": "L4",
             "allowed_gpus": ["L4"],
             "min_vcpu": 12,
-            "est_minutes": 45,
+            "est_minutes": 10 if canary else 60,
         },
-        "timeout_minutes": 90,
+        "timeout_minutes": 20 if canary else 120,
         "output_dir": str(output_dir.resolve()),
         "budget": {
-            "unit_cap": 3.0,
+            "unit_cap": 1.0 if canary else 5.0,
             "rate_units_per_hour": 2.0,
-            "reserve_units": 0.3,
+            "reserve_units": 0.2 if canary else 1.0,
             "other_assignments": {},
         },
         "lease_seconds": 600,
@@ -134,6 +151,8 @@ def build(commit: str, output_dir: Path, *, repo: Path = ROOT) -> dict[str, Any]
             "NUMBA_NUM_THREADS": "1",
             "BL_PUBLIC_INPUTS": "1",
             "BL_DENSITY_COMMIT": commit,
+            "BL_DENSITY_PHASE": phase,
+            "BL_DENSITY_ROUND14_AMENDMENT_SHA256": round14_sha,
             "BL_DENSITY_METRICS_SHA256": metric_sha,
             "BL_DENSITY_AMENDMENT_SHA256": amendment_sha,
             "BL_DENSITY_CAPACITY_AMENDMENT_SHA256": capacity_sha,
@@ -144,22 +163,41 @@ def build(commit: str, output_dir: Path, *, repo: Path = ROOT) -> dict[str, Any]
             "metric_sha256": metric_sha,
             "amendment_sha256": amendment_sha,
             "capacity_amendment_sha256": capacity_sha,
+            "round14_amendment_sha256": round14_sha,
+            "phase": phase,
+            "production_gate": "NOT_APPLICABLE" if canary else "BLOCKED_PENDING_L4_CANARY",
             "sample_stride": 200,
-            "episodes_per_cell": 6,
-            "total_episodes": 72,
-            "workers": 6,
-            "work_wall_seconds": 3600,
+            "episodes_per_mix_by_arm": {
+                "A": 1 if canary else 12,
+                "B70m": 1 if canary else 6,
+                "B70p": 1 if canary else 6,
+                "C-P1": 1 if canary else 6,
+            },
+            "total_episodes": 12 if canary else 90,
+            "workers": 1 if canary else 6,
+            "work_wall_seconds": 600 if canary else 6000,
             "forecast": {
-                "session_minutes": 45,
-                "planned_units": 1.5,
-                "reserve_units": 0.3,
-                "worst_case_units": 3.0,
+                "session_minutes": 10 if canary else 60,
+                "planned_units": 1.0 / 3 if canary else 2.0,
+                "reserve_units": 0.2 if canary else 1.0,
+                "worst_case_units": 1.0 if canary else 5.0,
                 "rate_status": "owner planning ceiling; no provider calls in preparation",
                 "qualification": "tiny Mac preflight is not a measured L4 H5000 throughput",
                 "stop": "first supervisor wall/unit limit; incomplete units never imply completion",
             },
         },
     }
+    if canary_proof is not None:
+        verify_proof(canary_proof, commit, round14_sha)
+        for suffix in ("", ".sha256", ".complete"):
+            path = Path(str(canary_proof) + suffix).resolve()
+            manifest["inputs"].append(
+                {"path": str(path), "dest": "canary-proof.json" + suffix, "sha256": digest(path)}
+            )
+        # Sidecar verifier binds the basename; require a stable transport name.
+        if canary_proof.name != "canary-proof.json":
+            raise ValueError("canary proof basename must be canary-proof.json")
+        manifest["density"]["production_gate"] = "RECOVERED_L4_CANARY_VERIFIED"
     assert_upload_budget(manifest, repo=repo)
     return validate(manifest, repo=repo)
 
@@ -169,11 +207,12 @@ def main() -> None:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--phase", choices=("canary", "production"), default="production")
+    parser.add_argument("--canary-proof", type=Path)
     args = parser.parse_args()
-    manifest = build(args.commit, args.output_dir)
+    manifest = build(args.commit, args.output_dir, phase=args.phase, canary_proof=args.canary_proof)
     args.manifest.parent.mkdir(parents=True, exist_ok=True)
-    with args.manifest.open("x") as stream:
-        stream.write(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+    export_json(args.manifest, manifest)
     print(json.dumps({"manifest": str(args.manifest), "status": "VALIDATED_OFFLINE"}))
 
 
