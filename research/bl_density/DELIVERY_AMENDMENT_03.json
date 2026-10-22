@@ -1,0 +1,27 @@
+{
+  "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-density/round14",
+  "artifacts": {
+    "DISPATCH.txt": "790ff233811fdb037319c9675b2ce8b73998e5e1d5de05b99c1e506aa61994dd",
+    "canary-manifest.json": "c0ede34df94f5dd3b5584c99e3dc7e461ebdf364c1a0a38d71fe7750a1213d64",
+    "canary-upload-readiness.json": "ca40191acd75547a512cf5f251fc6d192721979e30cfdcba4a05c387412aa3f1",
+    "canary-validation.json": "d0e8a8537f31f27cf0c73cc78fd679380f5070ff9563ef62c308bce09e3392d4",
+    "forecast.json": "a07278fb465fa3c0417e403be9e85b0aac903ce9077dc9d03a21be0370942f31",
+    "parallel-proof.json": "373c0e594dfb9dac42164c46359f10099af695bd75eb19386bc64efbea138e9c",
+    "preflight-verification.json": "36d639cc1d558fe53def1f7bbccaf8e9d82f6f0b42896bdbd169df1a492e2d34",
+    "production-manifest.json": "f3ceba8aa876be94098c6991e9137bcad65048390082bd7f3b2955a165b3430c",
+    "production-upload-readiness.json": "cc72246c343915c963b42336756c92a548c4f583a1525f0ca4081d8a107cca6c",
+    "production-validation.json": "a9bcb78d867263b25a42dca1554cf53e8339872abeb990e1178c9671c71bbce9",
+    "worker-serial-proof.json": "8e4ad4bf1f34498c7b219ec7dd176cadf3bcd6dd37eecf46a93e6247ebd782eb"
+  },
+  "no_colab_calls": true,
+  "production_gate": "BLOCKED_PENDING_L4_CANARY",
+  "schema": "bl-density-amendment03-delivery/v1",
+  "serial_parallel_episodes": 12,
+  "source_commit": "f92b7d718f1415aeebb7856d9d3f1649543ace7a",
+  "status": "VALIDATED_NOT_DISPATCHED",
+  "tests": {
+    "density_package_passed": 45,
+    "initial_combined_run": "133 passed, 1 forecast expected-value assertion failure; corrected before freeze, final package 45 passed",
+    "supervisor_source_transfer_passed": 95
+  }
+}
