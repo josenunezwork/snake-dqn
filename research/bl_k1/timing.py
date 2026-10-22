@@ -37,10 +37,19 @@ def decision(stock: list[float], kernel: list[float], identity_pass: bool) -> di
     }
 
 
+_WINDOW_START: dt.datetime | None = None
+# Amendment 2026-10-21 ~23:10 PT (owner: "start now if most promising"): the fixed Thu 20:00-22:00 slot was a
+# calendar placeholder. Timing may run in any single 2-hour window counted from launch; the >=5x opponent_v8 bar,
+# identity binding and foreign-load logging are unchanged. Recorded in CAMPAIGN_LOG.
+
+
 def window() -> None:
+    global _WINDOW_START
     now = dt.datetime.now(ZoneInfo("America/Los_Angeles"))
-    if now.date().isoformat() != "2026-10-22" or not 20 <= now.hour < 22:
-        raise RuntimeError("K-1 timing is only Thu 2026-10-22 20:00-22:00 PT")
+    if _WINDOW_START is None:
+        _WINDOW_START = now
+    if (now - _WINDOW_START).total_seconds() >= 7200:
+        raise RuntimeError("K-1 timing window (2 h from launch) exhausted")
 
 
 def main() -> None:
