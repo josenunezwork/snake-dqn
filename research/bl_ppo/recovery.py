@@ -86,6 +86,7 @@ def capture_full_snapshot(
     identity: dict[str, Any],
     *,
     immutable_dir: Path | None = None,
+    boundary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Capture only between complete rollouts, including the actual burn-in history."""
     if getattr(adapter, "records", []):
@@ -93,6 +94,7 @@ def capture_full_snapshot(
     adapter_state = _adapter_snapshot_state(adapter, immutable_dir)
     return {
         "schema": SCHEMA,
+        **({"boundary": copy.deepcopy(boundary)} if boundary is not None else {}),
         "identity": copy.deepcopy(identity),
         "policy": policy.checkpoint_dict(),
         "learner": _move(learner.learner_state_dict(), "cpu"),

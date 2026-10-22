@@ -153,13 +153,18 @@ class CompleteLifeRefitBank:
         device = next(learner.policy.critic.parameters()).device
         with torch.no_grad():
             predictions = learner.policy.value_from_critic_features(features.to(device)).cpu()
-        result = learner.qualify_critic(
+        inputs = dict(
             predictions=predictions,
             returns=hr,
             lengths=hl,
             remaining_horizon=hh,
             baseline_coefficients=coef,
         )
+        # Preserve measured failures and support in the immutable run status.
+        # qualify_critic still owns actor admission and is called only on PASS.
+        result = learner.critic_quality(**inputs)
+        if bool(result["passed"]):
+            learner.qualify_critic(**inputs)
         result.update(
             count=result["late_body_rows"],
             fit_support=float(len(self._reservoir["fit"])),

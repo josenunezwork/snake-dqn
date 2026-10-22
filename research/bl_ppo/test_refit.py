@@ -7,6 +7,39 @@ import torch
 from research.bl_ppo.refit import CompleteLifeRefitBank
 
 
+def test_failed_e8_retains_measured_metrics_and_support_without_admitting_actor() -> None:
+    from types import SimpleNamespace
+
+    from research.bl_ppo.learner import PPOLearner
+
+    bank = CompleteLifeRefitBank()
+    bank.add_batch(
+        torch.tensor([1, 0, 1, 0, 1, 0]),
+        torch.zeros(6, 257),
+        torch.tensor([800, 800, 900, 900, 1000, 1000]),
+        torch.tensor([1.0, 1.0, 0.8, 0.8, 0.6, 0.6]),
+        torch.tensor([1.0, 1.0, 2.0, 2.0, 3.0, 3.0]),
+        torch.tensor([False, False, False, False, True, True]),
+    )
+
+    def reject_admission(**kwargs):
+        raise AssertionError("failed gate must never admit actor updates")
+
+    learner = SimpleNamespace(
+        policy=SimpleNamespace(
+            critic=torch.nn.Linear(257, 1),
+            value_from_critic_features=lambda features: torch.zeros(len(features)),
+        ),
+        critic_quality=PPOLearner.critic_quality,
+        qualify_critic=reject_admission,
+    )
+    result = bank.qualification(learner)
+    assert not result["passed"]
+    assert result["late_body_rows"] == result["fit_support"] == result["holdout_support"] == 3
+    assert result["mse"] > result["baseline_mse"]
+    assert result["explained_variance"] < 0.1
+
+
 def test_bank_uses_complete_gamma_one_lives_and_world_disjoint_baseline() -> None:
     bank = CompleteLifeRefitBank()
     # World 1 is fit; its terminal suffixes are 6, 5, 3.  World 0 is held out.

@@ -12,6 +12,75 @@ from research.bl_ppo.exports import export_torch
 from research.bl_ppo.recovery import SCHEMA
 
 
+def test_production_pause_zero_and_1m_rounding_are_literal() -> None:
+    from research.bl_ppo.p1_contract import SHAPE, whole_world_pause
+    from research.bl_ppo.p1_runtime import _train_args
+
+    assert whole_world_pause(0, 128) == 0
+    assert SHAPE.qualification_pause == 1_000_064
+    assert SHAPE.qualification_pause - SHAPE.qualification_requested == 64
+    assert SHAPE.target == 100_000_000
+    args = _train_args(
+        {
+            "phase": "y3-source",
+            "pause_at": 0,
+            "processes": 12,
+            "rollout_steps": 128,
+            "registration_sha256": "a" * 64,
+            "evaluation_bank_sha256": "b" * 64,
+            "evaluation_excluded_seeds": [],
+        },
+        output=Path("unused"),
+        checkpoint=Path("unused"),
+        resume=None,
+        durability=False,
+        snapshot_label="origin",
+    )
+    assert args.pause_at == args.requested_pause_at == 0
+    assert args.transitions == SHAPE.target
+
+
+@pytest.mark.parametrize("bad_snapshot", [False, True])
+def test_pause_requires_actual_counter_and_snapshot_boundary(tmp_path, bad_snapshot) -> None:
+    from research.bl_ppo.exports import digest
+    from research.bl_ppo.p1_runtime import _require_pause
+
+    path = tmp_path / "snapshot.pt"
+    actor = 128 if not bad_snapshot else 0
+    counters = {"actor_transitions": actor, "actor_updates": 0}
+    export_torch(
+        path,
+        {
+            "schema": SCHEMA,
+            "identity": {},
+            "policy": {},
+            "learner": {},
+            "collector": {},
+            "adapter": {},
+            "rng": {},
+            "counters": counters,
+            "boundary": {
+                "requested_pause_at": 0,
+                "pause_at": 0,
+                "actual_pause_at": 128,
+                "kind": "exact",
+            },
+        },
+    )
+    status = {
+        "status": "PAUSED",
+        "critic_qualified": True,
+        "pause_at": 0,
+        "requested_pause_at": 0,
+        "actual_pause_at": actor,
+        "counters": counters,
+        "snapshot": {"path": path.name, "sha256": digest(path)},
+        "_output": str(tmp_path),
+    }
+    with pytest.raises(ValueError, match="actor counter|snapshot boundary"):
+        _require_pause(status, pause=0)
+
+
 def _snapshot(path, seed: int) -> None:
     """Write a minimal complete snapshot whose collector has worker RNG state."""
     export_torch(
@@ -41,6 +110,42 @@ def test_snapshot_fingerprint_includes_worker_random_state(tmp_path) -> None:
     _snapshot(first, 1)
     _snapshot(second, 2)
     assert _snapshot_fingerprint(first) != _snapshot_fingerprint(second)
+
+
+def test_snapshot_fingerprint_includes_ordinary_bank_numpy_rng(tmp_path) -> None:
+    import numpy as np
+
+    from research.bl_ppo.p1_runtime import _snapshot_fingerprint
+    from research.bl_ppo.recovery import read_snapshot
+
+    first, same, changed = (tmp_path / name for name in ("first.pt", "same.pt", "changed.pt"))
+    _snapshot(first, 1)
+    state = read_snapshot(first)
+    state["adapter"]["ordinary_bank_rng"] = np.random.default_rng(91)
+    export_torch(same, state)
+    before = _snapshot_fingerprint(same)
+    state["adapter"]["ordinary_bank_rng"].random()
+    export_torch(changed, state)
+    assert before == _snapshot_fingerprint(same)
+    assert before != _snapshot_fingerprint(changed)
+
+
+def test_snapshot_fingerprint_hashes_object_array_values_not_addresses(tmp_path) -> None:
+    import numpy as np
+
+    from research.bl_ppo.p1_runtime import _snapshot_fingerprint
+    from research.bl_ppo.recovery import read_snapshot
+
+    paths = [tmp_path / f"state-{index}.pt" for index in range(3)]
+    _snapshot(tmp_path / "base.pt", 1)
+    for path, kill_length in zip(paths, (700, 700, 900)):
+        state = read_snapshot(tmp_path / "base.pt")
+        state["collector"]["kill_metadata"] = np.array(
+            [{"length": kill_length}, None], dtype=object
+        )
+        export_torch(path, state)
+    assert _snapshot_fingerprint(paths[0]) == _snapshot_fingerprint(paths[1])
+    assert _snapshot_fingerprint(paths[0]) != _snapshot_fingerprint(paths[2])
 
 
 def test_assignment_endpoint_accepts_supervisor_uuid_generation(tmp_path, monkeypatch) -> None:
@@ -136,6 +241,12 @@ def test_tranche_requires_exact_previous_snapshot(tmp_path, bad_counter, bad_dig
                 "p1_evaluation_bank_sha256": "c" * 64,
             },
             "counters": {"actor_transitions": 19_999_872 if bad_counter else 20_000_000},
+            "boundary": {
+                "requested_pause_at": 20_000_000,
+                "pause_at": 20_000_000,
+                "actual_pause_at": 20_000_000,
+                "kind": "exact",
+            },
             "policy": {},
             "learner": {},
             "collector": {},

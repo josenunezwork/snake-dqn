@@ -18,6 +18,7 @@ from typing import Any
 
 import numpy as np
 
+from research.bl_ppo import p1_contract
 from research.bl_ppo.exports import digest, export_json, export_torch, verify_export
 
 HORIZON = 5000
@@ -540,18 +541,26 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     if p1_runtime:
         if args.preflight or args.arm != "F" or args.seed != 20261021:
             raise ValueError("P1 is fixed to the production F recipe and seed 20261021")
-        if args.transitions != 100_000_000 or args.worlds != 128:
+        if args.transitions != p1_contract.SHAPE.target or args.worlds != p1_contract.SHAPE.worlds:
             raise ValueError("P1 endpoint is exactly 100000000 actor transitions on 128 worlds")
         if args.long_bodies:
             raise ValueError("P1 uses natural resets; long-body ruler fixtures are prohibited")
-        if args.processes != 12 or args.rollout_steps != 128 or args.roster != "frozen-equal-mixes":
+        if (
+            args.processes != p1_contract.SHAPE.processes
+            or args.rollout_steps != p1_contract.SHAPE.rollout_steps
+            or args.roster != "frozen-equal-mixes"
+        ):
             raise ValueError(
                 "P1 collector recipe is fixed at 12 processes, 128 rollout steps and equal mixes"
             )
         if args.native_v8 is not True:
             raise ValueError("P1 requires the frozen native-v8 opponent recipe")
-        transitions = 100_000_000
+        transitions = p1_contract.SHAPE.target
+        # Zero means the qualified pre-actor origin, never the default endpoint.
         pause_at = int(getattr(args, "pause_at", transitions))
+        requested_pause = int(getattr(args, "requested_pause_at", pause_at))
+        if p1_contract.whole_world_pause(requested_pause, args.worlds) != pause_at:
+            raise ValueError("P1 requested pause does not round to its frozen boundary")
         if not 0 <= pause_at <= transitions or pause_at % args.worlds:
             raise ValueError("P1 pause_at must be a whole 128-world actor boundary")
     else:
@@ -563,6 +572,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             )
         )
         pause_at = transitions
+        requested_pause = pause_at
     if args.preflight and (not isinstance(transitions, int) or transitions < 1):
         raise ValueError("tiny preflight requires an explicit positive --transitions")
     if args.preflight:
@@ -934,6 +944,12 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                     counters,
                     identity,
                     immutable_dir=args.output,
+                    boundary={
+                        "requested_pause_at": requested_pause,
+                        "pause_at": pause_at,
+                        "actual_pause_at": counters["actor_transitions"],
+                        "kind": "durability" if durability_mode else "exact",
+                    },
                 ),
                 max_payload_bytes=SNAPSHOT_MAX_BYTES,
             )
@@ -1029,6 +1045,8 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "target_transitions": transitions,
         "pause_at": pause_at,
+        "requested_pause_at": requested_pause,
+        "actual_pause_at": counters["actor_transitions"],
         "wall_seconds": time.monotonic() - run_started,
         "e4_receipt_sha256": (
             None if args.preflight or p1_runtime else verify_export(args.e4_receipt)

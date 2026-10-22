@@ -21,6 +21,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
+from research.bl_ppo import p1_contract
 from research.bl_ppo.exports import digest, export_json, verify_export
 from research.bl_ppo.recovery import _IMMUTABLE_REF, read_snapshot
 from research.bl_ppo.run import run_train
@@ -41,17 +42,17 @@ def _load_control(path: Path, phase: str) -> dict[str, Any]:
     if value.get("scientific_admission") is not True:
         raise ValueError("P1 manifest is a template or has unresolved dispatch blockers")
     fixed = {
-        "target": TARGET,
+        "target": p1_contract.SHAPE.target,
         "seed": 20261021,
         "arm": "F",
-        "worlds": 128,
-        "rollout_steps": 128,
+        "worlds": p1_contract.SHAPE.worlds,
+        "rollout_steps": p1_contract.SHAPE.rollout_steps,
     }
     for key, expected in fixed.items():
         if value.get(key) != expected:
             raise ValueError(f"P1 control must freeze {key}={expected}")
     if (
-        value.get("processes") != 12
+        value.get("processes") != p1_contract.SHAPE.processes
         or value.get("roster", "frozen-equal-mixes") != "frozen-equal-mixes"
     ):
         raise ValueError("P1 control must freeze the 12-worker equal-mix collector")
@@ -182,7 +183,12 @@ def _snapshot_fingerprint(path: Path) -> str:
             hasher.update(b"imported-module:" + value.__name__.encode())
         elif isinstance(value, np.ndarray):
             hasher.update(b"array" + str(value.dtype).encode() + repr(value.shape).encode())
-            hasher.update(np.ascontiguousarray(value).tobytes())
+            if value.dtype.hasobject:
+                # Object-array bytes are process-local PyObject addresses,
+                # not values (the simulator's kill metadata uses this dtype).
+                put(value.tolist())
+            else:
+                hasher.update(np.ascontiguousarray(value).tobytes())
         elif isinstance(value, dict):
             hasher.update(b"dict")
             for key in sorted(value, key=lambda item: repr(item)):
@@ -199,8 +205,18 @@ def _snapshot_fingerprint(path: Path) -> str:
         elif isinstance(value, random.Random):
             hasher.update(b"random.Random")
             put(value.getstate())
+        elif isinstance(value, np.random.Generator):
+            hasher.update(b"numpy.Generator")
+            put(value.bit_generator.state)
+        elif isinstance(value, np.random.RandomState):
+            hasher.update(b"numpy.RandomState")
+            put(value.get_state())
         elif isinstance(value, np.generic):
-            hasher.update(b"numpy.scalar" + str(value.dtype).encode() + value.tobytes())
+            hasher.update(b"numpy.scalar" + str(value.dtype).encode())
+            if value.dtype.hasobject:
+                put(value.tolist())
+            else:
+                hasher.update(value.tobytes())
         elif isinstance(value, (set, frozenset)):
             hasher.update(type(value).__name__.encode())
             for item in sorted(value, key=repr):
@@ -283,14 +299,10 @@ def _train_args(
 ) -> SimpleNamespace:
     """Build the explicit P1-only invocation of the shared training loop."""
     pause_at = int(control["pause_at"])
-    if control["phase"] == "qual-1m" and pause_at != QUAL_PAUSE:
+    if control["phase"] == "qual-1m" and pause_at != p1_contract.SHAPE.qualification_pause:
         raise ValueError("qualification must stop at registered 1000064 boundary")
     if control["phase"] == "tranche" and pause_at not in {
-        20_000_000,
-        40_000_000,
-        60_000_000,
-        80_000_000,
-        TARGET,
+        index * p1_contract.SHAPE.tranche_size for index in range(1, 6)
     }:
         raise ValueError("tranche pause is not a frozen 20M boundary")
     return SimpleNamespace(
@@ -299,7 +311,7 @@ def _train_args(
         b8_checkpoint=checkpoint,
         temperature=None,
         device=os.environ.get("BL_PPO_DEVICE", "cuda"),
-        worlds=128,
+        worlds=p1_contract.SHAPE.worlds,
         seed=20261021,
         roster="frozen-equal-mixes",
         # Long-body injection belongs solely to the E4 ruler.  P1's registered
@@ -313,7 +325,7 @@ def _train_args(
         processes=int(control["processes"]),
         e4_receipt=None,
         e9_receipt=None,
-        transitions=TARGET,
+        transitions=p1_contract.SHAPE.target,
         checkpoint_every=float(control.get("checkpoint_every_seconds", 1800)),
         horizon=5000,
         resume=resume,
@@ -323,6 +335,7 @@ def _train_args(
         p1_evaluation_bank_sha256=control["evaluation_bank_sha256"],
         p1_excluded_seeds=tuple(control["evaluation_excluded_seeds"]),
         pause_at=pause_at,
+        requested_pause_at=int(control.get("requested_pause_at", pause_at)),
         p1_durability=durability,
         p1_trace_actions=1000 if durability else 0,
         p1_snapshot_label=snapshot_label,
@@ -352,17 +365,52 @@ def _run_one(
 
 
 def _require_pause(value: dict[str, Any], *, pause: int, durability: bool = False) -> Path:
-    terminal = pause == TARGET and value.get("status") == "COMPLETE"
-    if (value.get("status") != "PAUSED" and not terminal) or value.get("pause_at") != pause:
-        raise ValueError("P1 phase did not stop at its registered pause boundary")
     if value.get("critic_qualified") is not True:
-        raise ValueError("P1 E8 held-out critic gate did not pass")
+        critic = value.get("critic_refit") or {}
+        raise ValueError(
+            f"P1 NOT_READY: E8 held-out critic gate did not pass; "
+            f"status={value.get('status')}, stop_reason={value.get('stop_reason')}, "
+            f"tripwires={value.get('tripwires', [])}, actor_transitions="
+            f"{value.get('counters', {}).get('actor_transitions')}, critic_refit={critic}"
+        )
+    terminal = pause == p1_contract.SHAPE.target and value.get("status") == "COMPLETE"
+    if (value.get("status") != "PAUSED" and not terminal) or value.get("pause_at") != pause:
+        raise ValueError(
+            f"P1 phase did not stop at its registered pause boundary: "
+            f"status={value.get('status')}, expected={pause}, observed={value.get('pause_at')}"
+        )
+    actor = value.get("counters", {}).get("actor_transitions")
+    if (
+        not isinstance(actor, int)
+        or actor % p1_contract.SHAPE.worlds
+        or (actor < pause if durability else actor != pause)
+        or value.get("actual_pause_at") != actor
+    ):
+        raise ValueError("P1 actual actor counter differs from the registered pause boundary")
     snapshot = value.get("snapshot", {})
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("path"), str):
         raise ValueError("P1 pause is missing its complete recovery snapshot")
     path = Path(value["_output"]) / snapshot["path"]
     if verify_export(path) != snapshot.get("sha256"):
         raise ValueError("P1 status snapshot digest mismatch")
+    state = read_snapshot(path)
+    boundary = state.get("boundary", {})
+    requested = value.get("requested_pause_at")
+    if (
+        not isinstance(requested, int)
+        or p1_contract.whole_world_pause(requested, p1_contract.SHAPE.worlds) != pause
+        or boundary
+        != {
+            "requested_pause_at": requested,
+            "pause_at": pause,
+            "actual_pause_at": actor,
+            "kind": "durability" if durability else "exact",
+        }
+        or state["counters"] != value["counters"]
+    ):
+        raise ValueError("P1 snapshot boundary metadata differs from the run status")
+    if not durability and pause == 0 and state["counters"].get("actor_updates") != 0:
+        raise ValueError("P1 origin snapshot must be pre-actor")
     if durability:
         trace = value.get("action_trace", {})
         if not isinstance(trace, dict) or trace.get("size", 0) <= 0:
@@ -421,7 +469,7 @@ def _validate_resume(control: dict[str, Any], resume: Path, input_dir: Path) -> 
         "p1_runtime": True,
         "arm": "F",
         "seed": 20261021,
-        "target_transitions": TARGET,
+        "target_transitions": p1_contract.SHAPE.target,
         "source_commit": control["source_commit"],
         "p1_registration_sha256": control["registration_sha256"],
         "p1_evaluation_bank_sha256": control["evaluation_bank_sha256"],
@@ -432,13 +480,27 @@ def _validate_resume(control: dict[str, Any], resume: Path, input_dir: Path) -> 
     start = control.get("start_at", 0)
     if snapshot["counters"].get("actor_transitions") != start:
         raise ValueError("P1 resume is not the exact registered predecessor boundary")
+    boundary = snapshot.get("boundary", {})
+    requested = boundary.get("requested_pause_at")
+    if (
+        not isinstance(requested, int)
+        or p1_contract.whole_world_pause(requested, p1_contract.SHAPE.worlds) != start
+        or boundary.get("pause_at") != start
+        or boundary.get("actual_pause_at") != start
+        or boundary.get("kind") != "exact"
+    ):
+        raise ValueError("P1 resume metadata differs from its exact predecessor boundary")
     if phase == "qual-1m":
         admission = json.loads((input_dir / "admission.json").read_text())
         expected_sha = admission.get("origin_snapshot_sha256")
     elif phase == "tranche":
         index = control.get("chunk_index")
-        expected_start = QUAL_PAUSE if index == 1 else (index - 1) * 20_000_000
-        if start != expected_start or control["pause_at"] != index * 20_000_000:
+        expected_start = (
+            p1_contract.SHAPE.qualification_pause
+            if index == 1
+            else (index - 1) * p1_contract.SHAPE.tranche_size
+        )
+        if start != expected_start or control["pause_at"] != index * p1_contract.SHAPE.tranche_size:
             raise ValueError("P1 tranche boundary differs from the fixed chunk plan")
         receipt = input_dir / ("admission.json" if index == 1 else "previous.json")
         checksum = verify_export(receipt)
@@ -477,7 +539,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     if args.phase == "y3-source":
         # The origin is post-E8-refit and pre-actor.  Both the source and
         # replacement continuations begin from these exact bytes.
-        origin_control = dict(control, pause_at=0)
+        origin_control = dict(control, pause_at=0, requested_pause_at=0)
         origin = _run_one(
             origin_control,
             output=output / "origin",
@@ -619,11 +681,11 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 "status": "PAUSED",
                 "phase": args.phase,
                 "critic_qualified": True,
-                "target": TARGET,
-                "requested_pause_at": 1_000_000,
+                "target": p1_contract.SHAPE.target,
+                "requested_pause_at": p1_contract.SHAPE.qualification_requested,
                 "actual_pause_at": actor,
                 "actor_transitions": actor,
-                "boundary_overshoot": actor - 1_000_000,
+                "boundary_overshoot": actor - p1_contract.SHAPE.qualification_requested,
                 "actor_phase_seconds": wall,
                 "run_wall_seconds": wall,
                 "collection_seconds": value["counters"]["collection_seconds"],
@@ -644,7 +706,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 "status": "COMPLETE" if value["status"] == "COMPLETE" else "PAUSED",
                 "phase": args.phase,
                 "critic_qualified": True,
-                "target": TARGET,
+                "target": p1_contract.SHAPE.target,
                 "pause_at": control["pause_at"],
                 "actor_transitions": value["counters"]["actor_transitions"],
                 "runner_wall_seconds": value["wall_seconds"],

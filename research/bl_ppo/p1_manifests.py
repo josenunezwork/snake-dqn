@@ -14,11 +14,12 @@ from typing import Any
 
 from research.bl_ppo.exports import digest, export_bytes, export_json, verify_export
 from research.bl_ppo.manifests import ROOT, _base, _bounded_source_paths, input_row
+from research.bl_ppo.p1_contract import SHAPE
 from research.bl_ppo.p1_inputs import validate_catalog
 
 ARTIFACTS = ROOT.parent / "snake-dqn-artifacts/big-lever/exp/bl-p1"
-TARGET = 100_000_000
-QUAL_PAUSE = 1_000_064
+TARGET = SHAPE.target
+QUAL_PAUSE = SHAPE.qualification_pause
 E4_RATE = 1440.0
 RATE = 2.0
 RESERVE = 24.0
@@ -129,7 +130,9 @@ def _source_identity(commit: str) -> dict[str, str]:
         "learner.py",
         "run.py",
         "recovery.py",
+        "refit.py",
         "p1_runtime.py",
+        "p1_contract.py",
         "p1_eval.py",
         "p1_manifests.py",
         "p1_qualification.py",
@@ -202,6 +205,7 @@ def prepare(
     parity: Path | None = None,
     endpoint_receipt: Path | None = None,
     previous_receipt: Path | None = None,
+    hold_reason: str | None = None,
 ) -> dict[str, Any]:
     """Write a fresh attempt, immutable manifest and real source/upload receipt."""
     if phase not in PHASES or not 1 <= chunk <= 5:
@@ -211,6 +215,8 @@ def prepare(
     root.mkdir(parents=True, exist_ok=False)
     plan = provisional_plan()
     blockers = ["Claude: fresh usage/inventory, preceding terminal receipt and verified release"]
+    if hold_reason:
+        blockers.append(f"HOLD: {hold_reason}")
     prerequisites: dict[str, Any] = {}
     if phase == "y3-source":
         estimate, timeout, cap, pause = 65, 130, 6.0, 0
@@ -440,6 +446,7 @@ def main() -> None:
     parser.add_argument("--parity", type=Path)
     parser.add_argument("--endpoint-receipt", type=Path)
     parser.add_argument("--previous-receipt", type=Path)
+    parser.add_argument("--hold-reason", help="Explicit unresolved blocker; never admits dispatch")
     parser.add_argument("--inventory", type=Path)
     args = parser.parse_args()
     inventory = json.loads(args.inventory.read_text()) if args.inventory else None
@@ -460,6 +467,7 @@ def main() -> None:
                 parity=args.parity,
                 endpoint_receipt=args.endpoint_receipt,
                 previous_receipt=args.previous_receipt,
+                hold_reason=args.hold_reason,
             ),
             sort_keys=True,
         )
