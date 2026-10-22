@@ -1,8 +1,8 @@
 """Prepare P1's real-input canary and admit a sibling only from genuine evidence.
 
 No provider is imported or called. Existing source03 artifacts remain immutable.
-The proposed one-unit operational budget is separate from the fully reserved Y3
-eight-unit invoice; preparation does not approve spending either reservation.
+Y3-05 binds its two-unit canary to the shared owner-authorized envelope;
+preparation does not dispatch or establish a live scientific result.
 """
 
 from __future__ import annotations
@@ -81,6 +81,7 @@ def prepare(source: Path, output: Path, commit: str, acceptance: Path) -> dict[s
     for suffix in ("", ".sha256", ".complete"):
         rows.append(input_row(Path(str(new_control) + suffix), "p1-control.json" + suffix))
     template = copy.deepcopy(original)
+    attempt_tag = "source05" if control.get("y3_05_envelope") else "source03"
     template.update(
         commit=commit,
         job_id=f"bl-p1-y3-source-admitted-{commit[:8]}",
@@ -105,7 +106,7 @@ def prepare(source: Path, output: Path, commit: str, acceptance: Path) -> dict[s
         template,
         package="bl_ppo",
         output=output / "canary-output",
-        job_id=f"bl-p1-source03-canary-{commit[:8]}",
+        job_id=f"bl-p1-{attempt_tag}-canary-{commit[:8]}",
         env={"BL_P1_CANARY_CONFIG": json.dumps(TINY, sort_keys=True, separators=(",", ":"))},
         timeout_minutes=30,
     )
