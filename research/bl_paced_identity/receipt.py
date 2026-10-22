@@ -285,7 +285,9 @@ def evidence_ready(
         candidate_sha = None
         problems.append("candidate_identity_invalid")
     source = _hash_map(source_hashes, "source_hashes", problems)
-    if source is None or not clock_seam_passed(clock_seam, sha256(source)):
+    if source is None or not clock_seam_passed(
+        clock_seam, sha256(source), candidate_sha256=candidate_sha
+    ):
         problems.append("clock_seam_not_verified")
     inputs = _hash_map(input_hashes, "input_hashes", problems)
     reference = _hash_map(reference_hashes, "reference_hashes", problems)
