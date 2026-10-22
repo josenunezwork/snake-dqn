@@ -23,7 +23,12 @@ def reconcile(receipts: list[Path]) -> dict[str, Any]:
     if discovered != supplied:
         raise ValueError("Y3 terminal receipt inventory changed; reprice every spent attempt")
     for path in receipts:
-        verify_export(path)
+        # Supervisor write_once terminal receipts have no export sidecars.
+        # Preserve those bytes; the new debit receipt binds their SHA-256.
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("missing or unsafe supervisor terminal receipt")
+        if any(Path(str(path) + suffix).exists() for suffix in (".sha256", ".complete")):
+            verify_export(path)
         value = json.loads(path.read_text())
         name = path.parent.parent.name
         if name not in RECEIPT_NAMES or value.get("stop_verified") is not True:

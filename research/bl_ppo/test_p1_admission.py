@@ -96,3 +96,14 @@ def test_new_terminal_attempt_cannot_escape_shared_debit(tmp_path):
     export_json(other, {"status": "INCOMPLETE"})
     with pytest.raises(ValueError, match="inventory changed"):
         reconcile(paths)
+
+
+def test_raw_create_only_supervisor_receipts_are_hash_bound_without_modifying_them(tmp_path):
+    paths = receipts(tmp_path)
+    for path in paths:
+        Path(str(path) + ".sha256").unlink()
+        Path(str(path) + ".complete").unlink()
+    debit = reconcile(paths)
+    assert debit["spent_units"] == 1.9
+    assert all(len(row["sha256"]) == 64 for row in debit["attempts"])
+    assert not any(Path(str(path) + ".sha256").exists() for path in paths)
