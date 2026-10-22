@@ -174,3 +174,8 @@ E6/E7 raw production exports retain the exact expected world rosters from the
 audited bank. The fenced wrapper uses those rosters for the original completeness
 checks; E7 selection rows contain three ancestors per world and cannot substitute
 for that roster. Older exports lacking the roster fields refuse the new wrapper.
+
+## Result (2026-10-22 ~02:30 PT, Claude operator)
+final-only acceptance on e9ce99f2: **PASS, qualified=true** — receipt
+`snake-dqn-artifacts/colab-cli-process-gates-acceptance/acceptance-1792660644/acceptance-result.json`
+(CPU + L4 jobs; final artifact 67,108,864 bytes, Mac-verified, ≥1.58 MB/s). Merged to main.
