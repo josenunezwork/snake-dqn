@@ -5,6 +5,13 @@ before V0 target-platform data. This package leaves K-1, the shared ruler and
 all protected T34 packages unchanged. C1 is re-timed here; K-1 sample reuse is
 deliberately avoided because windows/host state differ.
 
+**Execution note:** smoke-01 did execute four real frozen-800 cells, but its
+live-job exclusion check missed the active K-1 audit because macOS truncated
+the COMM column. Its create-only INVALIDATION.json revokes admission. The
+guard now also checks the executable in ARGS and checks again after each
+batch. Use prepared-02 and a fresh smoke-02 after K-1/X5 exit. This is a
+mechanical execution proof only; smoke-01 supplies no latency qualification.
+
 `operator.py` subclasses ExactT3Operator, retaining the original dense selector.
 The scoped rollout adapter supplies C1/all, C2/stop, C3/prefix64_oracle and
 C4/prefix64_oracle_stop. Oracle decisions use each repeat's preceding C1 H300
@@ -31,10 +38,10 @@ cd /Users/josenunez/Projects/ml/snake-dqn-wp2
 git pull origin main
 /Users/josenunez/Projects/ml/snake-dqn-wp2/research/bl_v0/run_mac.sh \
   --prepare \
-  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/prepared-01
+  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/prepared-02
 /Users/josenunez/Projects/ml/snake-dqn-wp2/research/bl_v0/run_mac.sh \
   --check \
-  --manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/prepared-01/manifest.json
+  --manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/prepared-02/manifest.json
 ```
 
 Bounded target-platform canary: **only when K-1/X5 have exited and the common
@@ -45,8 +52,8 @@ The run acquires/releases the lease itself; do not wrap it in a second lease.
 ```bash
 /Users/josenunez/Projects/ml/snake-dqn-wp2/research/bl_v0/run_mac.sh \
   --smoke --operator Claude \
-  --manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/prepared-01/manifest.json \
-  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/smoke-01
+  --manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/prepared-02/manifest.json \
+  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/smoke-02
 ```
 
 Real timing: Claude only, **Fri Oct 23 22:00–23:00 PT or Sat Oct 24
@@ -59,8 +66,8 @@ required beyond a valid measured receipt; C1 is measured again here.
 ```bash
 /Users/josenunez/Projects/ml/snake-dqn-wp2/research/bl_v0/run_mac.sh \
   --operator Claude \
-  --manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/prepared-01/manifest.json \
-  --canary /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/smoke-01/smoke.json \
+  --manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/prepared-02/manifest.json \
+  --canary /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/smoke-02/smoke.json \
   --k1 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-k1/attempt-03/timing.json \
   --k1-manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-k1/prepared-03/manifest.json \
   --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-v0/attempt-01

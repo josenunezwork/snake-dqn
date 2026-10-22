@@ -31,7 +31,12 @@ def protected_jobs(raw: str | None = None) -> None:
     )
     for line in raw.splitlines()[1:]:
         fields = line.strip().split(None, 2)
-        if len(fields) != 3 or "python" not in Path(fields[1]).name.lower():
+        if len(fields) != 3:
+            continue
+        # macOS truncates COMM to 16 columns (e.g. /Library/Framewo).
+        # Inspect the executable at the start of ARGS, never arbitrary prompt text.
+        executable = fields[2].split(None, 1)[0] if fields[2].strip() else ""
+        if not any("python" in Path(name).name.lower() for name in (fields[1], executable)):
             continue
         if re.search(
             r"(?:-m\s+research\.(?:bl_k1\.(?:audit|timing)|bl_x5(?:\.timing)?)"
@@ -58,6 +63,8 @@ def thread_guard() -> None:
 
 def verify_canary(path: Path, manifest: dict[str, Any]) -> str:
     """Bind real target-platform entrypoint proof to current family/source."""
+    if (path.parent / "INVALIDATION.json").exists():
+        raise ValueError("Mac canary was invalidated; fresh operator-run canary required")
     checksum = verify_export(path)
     value = json.loads(path.read_text())
     if (
@@ -233,6 +240,11 @@ def run(args: argparse.Namespace) -> None:
                             "identity_ok": chosen == expected,
                         }
                         row["attestation_failures"] = contract.attestation(row)
+                        try:
+                            protected_jobs()
+                        except RuntimeError as exc:
+                            row["execution_failure"] = str(exc)
+                            status = "INVALID"
                         try:
                             contract.validate_execution(row, fixture)
                         except (ValueError, KeyError) as exc:

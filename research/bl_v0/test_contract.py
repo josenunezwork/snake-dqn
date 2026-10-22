@@ -162,6 +162,12 @@ def test_admission_requires_real_matching_canary_and_measured_k1(tmp_path: Path)
         verify_k1(k1, [])
 
 
+def test_invalidated_canary_is_refused_before_reading_any_success_metadata(tmp_path: Path) -> None:
+    (tmp_path / "INVALIDATION.json").write_text("{}")
+    with pytest.raises(ValueError, match="invalidated"):
+        verify_canary(tmp_path / "smoke.json", {})
+
+
 @pytest.mark.parametrize(
     "args",
     [
@@ -174,7 +180,13 @@ def test_admission_requires_real_matching_canary_and_measured_k1(tmp_path: Path)
 def test_protected_live_processes_are_never_overlapped(args: str) -> None:
     with pytest.raises(RuntimeError, match="protected"):
         protected_jobs(f"PID COMM ARGS\n100 Python {args}\n")
-    protected_jobs(f"PID COMM ARGS\n100 codex {args}\n")
+    with pytest.raises(RuntimeError, match="protected"):
+        protected_jobs(
+            "PID COMM ARGS\n100 /Library/Framewo "
+            "/Library/Frameworks/Python.framework/Versions/3.12/Resources/"
+            f"Python.app/Contents/MacOS/Python {args.removeprefix('python ')}\n"
+        )
+    protected_jobs(f"PID COMM ARGS\n100 codex codex --prompt {args}\n")
 
 
 @pytest.mark.parametrize("bad_timer", [False, True])
