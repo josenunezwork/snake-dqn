@@ -33,12 +33,30 @@ def test_allocate_rejects_whole_round_without_seed_swaps(tmp_path: Path, monkeyp
         }
 
     monkeypatch.setattr(mac_identity.bank, "audit", audit)
-    monkeypatch.setattr(mac_identity.bank, "materialize", lambda rows: rows)
+    monkeypatch.setattr(mac_identity, "materialize", lambda rows: rows)
     rows, report = mac_identity.allocate(tmp_path / "out")
     assert report["round_index"] == 1
     assert calls == [mac_identity.derive(0), mac_identity.derive(1)]
     assert rows == mac_identity.derive(1)
     assert (tmp_path / "out/seed-audit-round-00.json.complete").is_file()
+
+
+def test_p3_materializer_never_calls_roster_planner_with_an_empty_pool() -> None:
+    calls = []
+
+    def build(context, seeds, mixes):
+        assert context == "context"
+        assert seeds and len(seeds) == len(mixes) == 5
+        calls.append((seeds, mixes))
+        return [{"seed": seed, "mix": mix} for seed, mix in zip(seeds, mixes)]
+
+    rows = mac_identity.materialize(
+        mac_identity.derive(0), context_factory=lambda threads: "context", roster_builder=build
+    )
+    assert len(calls) == 1
+    assert [row["plan"] for row in rows] == [
+        {"seed": row["world_seed"], "mix": row["mix"]} for row in rows
+    ]
 
 
 def test_compare_rows_ignores_only_execution_diagnostics() -> None:

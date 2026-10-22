@@ -97,6 +97,43 @@ def derive(round_index: int) -> list[dict[str, Any]]:
     return rows
 
 
+def materialize(
+    rows: list[dict[str, Any]],
+    *,
+    context_factory: Any | None = None,
+    roster_builder: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Materialize the one non-bank P3 group without an empty-pool call.
+
+    ``bank.materialize`` deliberately visits both its registered selection and
+    preflight pools.  P3 has a single five-world development group, so calling
+    that helper would incorrectly submit an empty preflight seed vector.
+    """
+    if not rows or any(row.get("pool") != "selection" for row in rows):
+        raise ValueError("P3 materialization requires one nonempty development selection group")
+    for name in (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "NUMBA_NUM_THREADS",
+    ):
+        os.environ[name] = "1"
+    if context_factory is None or roster_builder is None:
+        from research.redesign_scope_20261007 import grid_h5000_identity as gid
+        from research.t3_rollout_labels_20261015.bank_engine import planned_rosters
+
+        context_factory = gid._context if context_factory is None else context_factory
+        roster_builder = planned_rosters if roster_builder is None else roster_builder
+    context = context_factory(1)
+    plans = roster_builder(
+        context, [row["world_seed"] for row in rows], [row["mix"] for row in rows]
+    )
+    if not isinstance(plans, list) or len(plans) != len(rows):
+        raise ValueError("P3 roster materializer returned an incomplete development group")
+    return [{**row, "plan": plan} for row, plan in zip(rows, plans)]
+
+
 def allocate(out: Path, *, max_rounds: int = 32) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Publish every whole-round audit, materializing only the first clear one."""
     out = Path(out)
@@ -114,7 +151,7 @@ def allocate(out: Path, *, max_rounds: int = 32) -> tuple[list[dict[str, Any]], 
         export_json(out / f"seed-audit-round-{round_index:02d}.json", audit)
         if audit["status"] != "CLEAR":
             continue
-        planned = bank.materialize(rows)
+        planned = materialize(rows)
         allocation = {
             "schema": "bl-served-search-mac-identity-allocation/v1",
             "namespace": NAMESPACE,
