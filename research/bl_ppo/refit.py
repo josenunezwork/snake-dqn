@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass, field
 
 import torch
@@ -163,6 +164,8 @@ class CompleteLifeRefitBank:
         # Preserve measured failures and support in the immutable run status.
         # qualify_critic still owns actor admission and is called only on PASS.
         result = learner.critic_quality(**inputs)
+        if not all(math.isfinite(value) for value in result.values()):
+            raise FloatingPointError("non-finite E8 qualification metrics")
         if bool(result["passed"]):
             learner.qualify_critic(**inputs)
         result.update(

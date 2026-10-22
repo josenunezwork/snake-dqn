@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 from research.bl_ppo.refit import CompleteLifeRefitBank
 
 
-def test_failed_e8_retains_measured_metrics_and_support_without_admitting_actor() -> None:
+@pytest.mark.parametrize("prediction", [0.0, 1e30])
+def test_failed_e8_retains_measured_metrics_and_support_without_admitting_actor(prediction) -> None:
     from types import SimpleNamespace
 
     from research.bl_ppo.learner import PPOLearner
@@ -28,11 +30,15 @@ def test_failed_e8_retains_measured_metrics_and_support_without_admitting_actor(
     learner = SimpleNamespace(
         policy=SimpleNamespace(
             critic=torch.nn.Linear(257, 1),
-            value_from_critic_features=lambda features: torch.zeros(len(features)),
+            value_from_critic_features=lambda features: torch.full((len(features),), prediction),
         ),
         critic_quality=PPOLearner.critic_quality,
         qualify_critic=reject_admission,
     )
+    if prediction == 1e30:
+        with pytest.raises(FloatingPointError, match="non-finite E8 qualification metrics"):
+            bank.qualification(learner)
+        return
     result = bank.qualification(learner)
     assert not result["passed"]
     assert result["late_body_rows"] == result["fit_support"] == result["holdout_support"] == 3
