@@ -1,42 +1,48 @@
-# Density measurement — round 14 (b)
+# DENSITY-2 — fresh natural-arm replication
 
-The active contract is the immutable METRICS.md plus amendments 01/02 and prospective
-[METRICS_AMENDMENT_03.md](METRICS_AMENDMENT_03.md). Read amendment 03 for the full
-allocation, minimum-map rule, witness endpoint, decision precedence and caps.
+Authority is [METRICS_AMENDMENT_04.md](METRICS_AMENDMENT_04.md), implementing the
+full spare-slot judgment. The original METRICS and amendments 01–03 remain
+immutable. The 90-episode pilot supplies sizing rates only and is excluded from
+all replication statistics and decisions.
 
-A has 12 natural episodes per mix. B70m/B70p have six per mix on 121x69 maps with
-five/seven opponents. C-P1 has six per mix using P1's exact long-body construction:
-hero 900/1200/1500, opponents 600/400/300/150/150. B50 is dropped. Total 90 episodes.
-Primary endpoints are witnessed-avoidable doom roots and distinct doom-bearing
-episodes per total CPU-second. No witness means unproven avoidability. AUC >=.80
-rejects; lower AUC never certifies realism. Every source must meet the map floor.
+The fixed 492-episode allocation is A frozen/mixed/scripted 96/72/72; B70m 24 per
+mix; B70p 36 per mix; C-P1 24 per mix. The namespace is
+`bl-density-round14b-20261022`; twelve excluded canary episodes use
+`bl-density-round14b-canary-20261022`. The allocator collision-checks all three
+banks before gameplay. Production uses ten single-thread CPU workers on L4,
+H5000, stride 200, max work 10,800 seconds, session <=180 min and cap <=5 units
+including the 1-unit reserve. First cap wins. The tiny canary is <=.5 units
+including .1 reserve and <=20 min. Setup and all attempts remain charged.
 
-`runner.py` records all lengths/geometry, causes, full-state carried-world branches,
-all legal alternatives on first four confirmed doom roots, stage CPU and immutable
-exports. `analysis.py` charges every attempted unit plus overhead before decisions;
-`statistics.py` retains the frozen 35-feature classifier and separate geometry KS.
-`forecast.py` prices the 1,638,000-decision worst case; tiny Mac timing is a host
-sensitivity, never a measured L4 rate.
+Scientific rule code in analysis.py and statistics.py is byte-identical to the
+pilot. B8 bytes, CPU inference, features, prefilter, arm constructions and all
+thresholds are unchanged. One terminal look. A mix with fewer than four new-A
+doom-bearing episodes after the full allocation is INSUFFICIENT and closes
+rows 9/9a for that mix this campaign. No third enlargement or pilot pooling.
+Mechanical failure permits one newly prepared attempt within remaining caps;
+no resume or automatic retry. An admission only permits registration of a
+separate A-transfer test, never training, P1 or serving changes.
 
-`manifests.py --phase canary` prepares the separate 12-episode tiny L4 canary
-(<=20min, <=1u, .2u reserve). `--phase production` prepares the 90-episode production
-manifest (<=120min priced wall, below the registered 150min outer cap; <=5u including
-1u reserve; six single-thread CPU workers). `budget.other_assignments` is `{}`.
-Every preparation/validation call is offline. `upload_readiness.py` uses the real
-qualified supervisor sparse-source bytes and Z-9 archive sizing without Colab calls.
-Manifest payloads and real run exports have `.sha256` and `.complete` sidecars.
+`manifests.py` prepares source-pinned family-canary and production templates.
+The canary retains the complete actual input inventory and real entrypoint.
+`upload_readiness.py --receipt ...` qualifies real pinned sparse source and
+fallback sizes through Z-9 without provider calls. Both phases declare the
+producer's `density/summary.json` export. Recovery additionally verifies all
+twelve canary episode sidecars, stage CPU counters and backend release.
+Production binds the genuine broker family receipt and recovered package proof;
+its upload inventory remains identical to the canary's. No receipt is invented
+by preparation. The validation report distinguishes schema/structure checks
+from live admission prerequisites.
 
-Production is runtime-blocked without `canary-proof.json` and its real sidecars.
-After the L4 canary completes and stops, `canary.py --recovered-output ...` verifies
-the supervisor receipt, terminal generation, exact inventory, twelve episode exports,
-summary hashes and stage counters. It creates a proof; rebuild a fresh production
-manifest with `--canary-proof .../canary-proof.json` and requalify those upload bytes.
-A Mac probe cannot create an accepted L4 proof. Nothing automatically dispatches.
+The inherited family gate has an unresolved prerequisite: registered density
+decisions run on CPU, while an L4 family receipt requires an actual CUDA action
+decision. The newer source-bound `colab-cli-main-acceptance-20261022` receipt
+qualifies the current transport; the older QUALIFICATION.md inventory is stale. This package preserves these gates and marks preparation
+NOT_READY for dispatch. A separately reviewed resolution of the CPU-on-L4 family requirement is needed. No Colab calls or gameplay runs occur during this
+implementation. Commands in the delivery DISPATCH.txt are conditional operator
+handoff commands, not evidence of execution.
 
-Use `/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python`. Local work is `nice -n 10`,
-CPU with one numerical/Numba thread and at most two workers; production stays on L4.
-The current manifests, validation/transport receipts, preflight, forecast and operator
-DISPATCH.txt live under
-`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-density/round14/`.
-The independent diff review is recorded in REVIEW_AMENDMENT_03.md. No scientific
-result, +40 claim, P1 change, release or serving authorization follows from this work.
+Use `/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python`. Run only targeted
+package tests with CPU and one numerical/Numba thread. Prepared artifacts live
+under `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-density/`;
+the DENSITY-2 delivery receipt identifies the fresh directory and exact hashes.
