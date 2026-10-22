@@ -84,14 +84,15 @@ PY
     --endpoint-receipt "${COLAB_INPUT_DIR}/endpoint-receipt.json" \
     --e13-parity "${COLAB_INPUT_DIR}/parity.json" \
     --workers 12 --out "${COLAB_CLI_ROOT}/output/evaluation"
-  python -m research.bl_ppo.p1_eval --analyze \
-    --bank "${COLAB_INPUT_DIR}/bank.json" --audit "${COLAB_INPUT_DIR}/bank-audit.json" \
-    --results "${COLAB_CLI_ROOT}/output/evaluation/results.json" \
-    --out "${COLAB_CLI_ROOT}/output/receipt.json"
+  # A runtime has no clean published authoring checkout.  It exports complete
+  # pair evidence only; the registered one-look decision runs later on the Mac
+  # with p1_eval --analyze --authoring-repo ... --ledger ....
+  payload="evaluation/results.json"
 else
   python -m research.bl_ppo.p1_runtime "${args[@]}"
+  payload="receipt.json"
 fi
 
-[[ -s "${COLAB_CLI_ROOT}/output/receipt.json" ]]
-[[ -s "${COLAB_CLI_ROOT}/output/receipt.json.sha256" ]]
-[[ -s "${COLAB_CLI_ROOT}/output/receipt.json.complete" ]]
+[[ -s "${COLAB_CLI_ROOT}/output/${payload}" ]]
+[[ -s "${COLAB_CLI_ROOT}/output/${payload}.sha256" ]]
+[[ -s "${COLAB_CLI_ROOT}/output/${payload}.complete" ]]

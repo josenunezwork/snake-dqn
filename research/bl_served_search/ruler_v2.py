@@ -10,6 +10,7 @@ from pathlib import Path
 from research.bl_served_search import ruler
 from research.bl_served_search.exports import export_json, verify_export
 from research.bl_served_search.provenance_v2 import compatible_source
+from research.mac_lease import DEFAULT_LEASE_PATH, held
 
 
 def run(
@@ -21,6 +22,7 @@ def run(
     batches: int,
     operator_spec: str,
     smoke: bool = False,
+    mac_lease: dict[str, object] | None = None,
 ) -> dict:
     """Preserve the original fixture object/hash and all root bytes."""
     verify_export(fixtures_path)
@@ -53,6 +55,8 @@ def run(
         "fixture_source_identity": fixtures["source_identity"],
         "executed_source_identity": ruler.source_identity(),
     }
+    if mac_lease is not None:
+        receipt["mac_lease"] = mac_lease
     export_json(out, receipt)
     heartbeat({"completed_batches": receipt["completed_batches"], "status": receipt["status"]})
     return receipt
@@ -69,16 +73,33 @@ def main() -> None:
         "--operator", default="research.bl_served_search.ruler_operator:create_operator"
     )
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--lease-owner", default="bl-served-search-ruler")
+    parser.add_argument("--lease-path", type=Path, default=DEFAULT_LEASE_PATH)
     args = parser.parse_args()
-    result = run(
-        args.fixtures,
-        args.out,
-        label=args.platform,
-        workers=args.workers,
-        batches=args.min_batches,
-        operator_spec=args.operator,
-        smoke=args.smoke,
-    )
+    if args.platform == "mac":
+        with held(
+            args.lease_owner, "bl-served-search Mac ruler", seconds=14400, path=args.lease_path
+        ) as lease:
+            result = run(
+                args.fixtures,
+                args.out,
+                label=args.platform,
+                workers=args.workers,
+                batches=args.min_batches,
+                operator_spec=args.operator,
+                smoke=args.smoke,
+                mac_lease=lease.receipt,
+            )
+    else:
+        result = run(
+            args.fixtures,
+            args.out,
+            label=args.platform,
+            workers=args.workers,
+            batches=args.min_batches,
+            operator_spec=args.operator,
+            smoke=args.smoke,
+        )
     print(
         json.dumps({"status": result["status"], "completed_batches": result["completed_batches"]})
     )

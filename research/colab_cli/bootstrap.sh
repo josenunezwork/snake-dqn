@@ -42,6 +42,18 @@ if [ "$CUDA_EXPECTED" = cpu ]; then
 else
   "$PY" -c "import torch; assert torch.cuda.is_available(); assert torch.version.cuda.startswith('$CUDA_EXPECTED'); print(torch.__version__, torch.version.cuda, torch.cuda.get_device_capability(0))"
 fi
+if [ "${SNAKE_COLAB_CANARY:-}" = "1" ]; then
+  SITE_PACKAGES=$("$PY" -c "import site; print(site.getsitepackages()[0])")
+  CANARY_PTH="$SITE_PACKAGES/snake_colab_canary.pth"
+  # The path belongs to the fetched pinned bundle.  The executable .pth line
+  # installs before the job interpreter imports torch, with no PYTHONPATH
+  # override and no dependence on the current working directory.
+  {
+    printf '%s\n' "$REPO"
+    printf '%s\n' "import importlib; importlib.import_module('research.colab_cli.canary_observer').install()"
+  } > "$CANARY_PTH"
+  "$PY" -c "import importlib.util; from pathlib import Path; spec=importlib.util.find_spec('research.colab_cli.canary_observer'); assert spec and spec.origin and Path(spec.origin).resolve().is_relative_to(Path('$REPO').resolve()), 'pinned CUDA canary observer missing'"
+fi
 cd "$REPO"
 export COLAB_CLI_ROOT="$ROOT"
 export COLAB_INPUT_DIR="${COLAB_INPUT_DIR:-$ROOT/inputs}"

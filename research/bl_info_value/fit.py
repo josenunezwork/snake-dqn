@@ -331,6 +331,7 @@ def fit_students(
     device: str = "cpu",
     epochs: int = 60,
     smoke: bool = False,
+    compute_decision: bool = True,
 ) -> dict[str, Any]:
     """Fit the three fixed E3 students and export checkpoints/report immutably."""
     if epochs <= 0:
@@ -446,16 +447,18 @@ def fit_students(
                 float(np.mean(unnecessary[~decisive])) if np.any(~decisive) else math.nan
             ),
         }
-    decision = decide_outcome(arm_report, smoke=smoke)
     report: dict[str, Any] = {
         "schema": "bl-e3-fit-v1",
         "development_only": True,
+        "claim_status": "COMPUTE_ONLY_UNCLAIMED",
         "rows": int(len(np.asarray(arrays["action"]))),
         "parameter_counts": counts,
         "arms": arm_report,
-        "decision": decision,
+        "analysis_status": "COMPUTED" if compute_decision else "UNOPENED_PENDING_PUBLISHED_LEDGER",
         "benchmark": benchmark,
         "operational_fit_seconds": time.monotonic() - started,
     }
+    if compute_decision:
+        report["decision"] = decide_outcome(arm_report, smoke=smoke)
     write_json(out / "fit_report.json", report)
     return report

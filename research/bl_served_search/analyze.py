@@ -27,6 +27,7 @@ from research.bl_served_search.chunks import (
     world_ids_sha256,
 )
 from research.bl_served_search.exports import export_json, verify_export
+from research.published_ledger import bind_published_ledger_check, require_published_ledger
 from src.scripts.eval_stats import student_t_isf
 
 LABEL_MAP_VERSION = "plan-v2-wp1/v1"
@@ -544,11 +545,14 @@ def main() -> None:
     parser.add_argument("--bank", type=Path, required=True)
     parser.add_argument("--shard", type=Path, action="append", required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--authoring-repo", type=Path, required=True)
+    parser.add_argument("--ledger", required=True)
     args = parser.parse_args()
     if args.out.exists() or any(
         Path(str(args.out) + suffix).exists() for suffix in (".sha256", ".complete")
     ):
         parser.error("analysis output is create-only and already exists")
+    proof = require_published_ledger(args.authoring_repo, args.ledger)
     rows, errors = load_rows(args.bank, args.shard)
     if errors:
         payload = {
@@ -561,7 +565,7 @@ def main() -> None:
         }
     else:
         payload = {"schema": "bl-served-search-l2-analysis/v1", **analyze(rows)}
-    export_json(args.out, payload)
+    export_json(args.out, bind_published_ledger_check(payload, proof))
 
 
 if __name__ == "__main__":

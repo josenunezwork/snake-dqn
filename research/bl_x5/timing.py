@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from research.mac_lease import DEFAULT_LEASE_PATH, held
+
 REPO = Path(__file__).resolve().parents[2]
 ARTIFACTS = REPO.parent / "snake-dqn-artifacts"
 DEFAULT_ROOT = ARTIFACTS / "big-lever/exp/week1-20261021/mac"
@@ -486,7 +488,7 @@ def drain_owned(root: Path, procs: list[tuple[Any, Any, Any]]) -> None:
         log.close()
 
 
-def run(root: Path) -> int:
+def run(root: Path, *, lease_path: Path = DEFAULT_LEASE_PATH) -> int:
     from research.apex_safety_20260926 import dev_screen as ds
 
     plan = read_sealed(root / "x5-manifest.json")
@@ -495,126 +497,130 @@ def run(root: Path) -> int:
     for p, digest in plan["checkpoints"].items():
         if sha(Path(p)) != digest:
             raise ValueError(f"checkpoint changed: {p}")
-    slots = ds.acquire_cpu_slots(ds.DEFAULT_SLOT_LOCK_ROOT, 3, 0, pool=3)
-    procs = []
-    try:
-        snapshot = host()
-        if snapshot["reasons"]:
-            raise ValueError(snapshot["reasons"])
-        seal(root / "x5-launch-host.json", snapshot)
-        started = time.monotonic()
-        seal(
-            root / "x5-start.json",
-            {
-                "time_pt": now(),
-                "deadline_epoch": time.time() + 7000,
-                "deadline_monotonic": time.monotonic() + 7000,
-                "manifest_sha256": sha(root / "x5-manifest.json"),
-                "pid": os.getpid(),
-                "slots": [s.name for s in slots],
-                "tmux_inventory": command(["tmux", "ls"]),
-            },
-        )
-        for mix in MIXES:
-            log = (root / f"x5-{mix}.log").open("x")
-            try:
-                p = subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-m",
-                        "research.bl_x5.timing",
-                        "worker",
-                        "--root",
-                        str(root),
-                        "--mix",
-                        mix,
-                    ],
-                    cwd=REPO,
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                )
-            except BaseException:
-                log.close()
-                raise
-            procs.append((mix, p, log))
-        while any(p.poll() is None for _, p, _ in procs):
-            print(
-                json.dumps(
-                    {
-                        "event": "progress",
-                        "time_pt": now(),
-                        "elapsed_seconds": time.monotonic() - started,
-                        "active": [m for m, p, _ in procs if p.poll() is None],
-                    }
-                ),
-                flush=True,
-            )
-            time.sleep(5)
-        workers, errors = [], []
-        for mix, p, log in procs:
-            log.close()
-            path = root / f"x5-worker-{mix}.json"
-            if path.exists():
-                workers.append(read_sealed(path))
-            if p.returncode != 0:
-                errors.append({"mix": mix, "exit": p.returncode})
-        complete = (
-            len(workers) == 3 and all(w["status"] == "COMPLETE" for w in workers) and not errors
-        )
-        if complete:
-            validate_units(root, plan, workers)
-        receipt = {
-            "schema": "bl-x5-timing/v1",
-            "status": "MEASURED" if complete else "INCOMPLETE",
-            "completed_pt": now(),
-            "development_only": True,
-            "strict_family_opened": False,
-            "serving_changed": False,
-            "paced": False,
-            "units": 0,
-            "manifest": {
-                "path": str(root / "x5-manifest.json"),
-                "sha256": sha(root / "x5-manifest.json"),
-            },
-            "workers": [
+    with held("bl-x5-timing", "bl-x5 Mac timing", seconds=7200, path=lease_path) as lease:
+        slots = ds.acquire_cpu_slots(ds.DEFAULT_SLOT_LOCK_ROOT, 3, 0, pool=3)
+        procs = []
+        try:
+            snapshot = host()
+            if snapshot["reasons"]:
+                raise ValueError(snapshot["reasons"])
+            seal(root / "x5-launch-host.json", snapshot)
+            started = time.monotonic()
+            seal(
+                root / "x5-start.json",
                 {
-                    "path": str(root / f"x5-worker-{w['mix']}.json"),
-                    "sha256": sha(root / f"x5-worker-{w['mix']}.json"),
-                }
-                for w in workers
-            ],
-            "errors": errors,
-            "elapsed_wall_seconds": time.monotonic() - started,
-            "children_rusage": resource.getrusage(resource.RUSAGE_CHILDREN)[:2],
-            "process_cpu_seconds": sum(w["process_cpu_seconds"] for w in workers),
-            "final_host": host(),
-            "caveat": (
-                "small development timing, no skill/promotion claim; "
-                "H5000 only; no fixed strict N is authorized"
-            ),
-        }
-        if complete:
-            receipt.update(forecasts(workers))
-            receipt["completed_episodes"] = 96
-            receipt["measured_episodes_per_elapsed_wall_hour"] = (
-                96 * 3600 / receipt["elapsed_wall_seconds"]
+                    "time_pt": now(),
+                    "deadline_epoch": time.time() + 7000,
+                    "deadline_monotonic": time.monotonic() + 7000,
+                    "manifest_sha256": sha(root / "x5-manifest.json"),
+                    "pid": os.getpid(),
+                    "mac_lease": lease.receipt,
+                    "slots": [s.name for s in slots],
+                    "tmux_inventory": command(["tmux", "ls"]),
+                },
             )
-        seal(root / "x5.json", receipt)
-        return 0 if complete else 2
-    except BaseException as exc:
-        seal(
-            root / "x5-coordinator-error.json",
-            {
-                "status": "INCOMPLETE",
-                "time_pt": now(),
-                "error": f"{type(exc).__name__}: {exc}",
-                "started_children": [{"mix": m, "pid": p.pid} for m, p, _ in procs],
-            },
-        )
-        raise
-    finally:
-        drain_owned(root, procs)
-        ds.release_cpu_slots(slots)
+            for mix in MIXES:
+                log = (root / f"x5-{mix}.log").open("x")
+                try:
+                    p = subprocess.Popen(
+                        [
+                            sys.executable,
+                            "-m",
+                            "research.bl_x5.timing",
+                            "worker",
+                            "--root",
+                            str(root),
+                            "--mix",
+                            mix,
+                        ],
+                        cwd=REPO,
+                        stdout=log,
+                        stderr=subprocess.STDOUT,
+                    )
+                except BaseException:
+                    log.close()
+                    raise
+                procs.append((mix, p, log))
+            while any(p.poll() is None for _, p, _ in procs):
+                print(
+                    json.dumps(
+                        {
+                            "event": "progress",
+                            "time_pt": now(),
+                            "elapsed_seconds": time.monotonic() - started,
+                            "active": [m for m, p, _ in procs if p.poll() is None],
+                        }
+                    ),
+                    flush=True,
+                )
+                time.sleep(5)
+            workers, errors = [], []
+            for mix, p, log in procs:
+                log.close()
+                path = root / f"x5-worker-{mix}.json"
+                if path.exists():
+                    workers.append(read_sealed(path))
+                if p.returncode != 0:
+                    errors.append({"mix": mix, "exit": p.returncode})
+            complete = (
+                len(workers) == 3 and all(w["status"] == "COMPLETE" for w in workers) and not errors
+            )
+            if complete:
+                validate_units(root, plan, workers)
+            receipt = {
+                "schema": "bl-x5-timing/v1",
+                "status": "MEASURED" if complete else "INCOMPLETE",
+                "completed_pt": now(),
+                "development_only": True,
+                "strict_family_opened": False,
+                "serving_changed": False,
+                "paced": False,
+                "units": 0,
+                "manifest": {
+                    "path": str(root / "x5-manifest.json"),
+                    "sha256": sha(root / "x5-manifest.json"),
+                },
+                "workers": [
+                    {
+                        "path": str(root / f"x5-worker-{w['mix']}.json"),
+                        "sha256": sha(root / f"x5-worker-{w['mix']}.json"),
+                    }
+                    for w in workers
+                ],
+                "errors": errors,
+                "mac_lease": lease.receipt,
+                "elapsed_wall_seconds": time.monotonic() - started,
+                "children_rusage": resource.getrusage(resource.RUSAGE_CHILDREN)[:2],
+                "process_cpu_seconds": sum(w["process_cpu_seconds"] for w in workers),
+                "final_host": host(),
+                "caveat": (
+                    "small development timing, no skill/promotion claim; "
+                    "H5000 only; no fixed strict N is authorized"
+                ),
+            }
+            if complete:
+                receipt.update(forecasts(workers))
+                receipt["completed_episodes"] = 96
+                receipt["measured_episodes_per_elapsed_wall_hour"] = (
+                    96 * 3600 / receipt["elapsed_wall_seconds"]
+                )
+            seal(root / "x5.json", receipt)
+            return 0 if complete else 2
+        except BaseException as exc:
+            seal(
+                root / "x5-coordinator-error.json",
+                {
+                    "status": "INCOMPLETE",
+                    "time_pt": now(),
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "started_children": [{"mix": m, "pid": p.pid} for m, p, _ in procs],
+                    "mac_lease": lease.receipt,
+                },
+            )
+            raise
+        finally:
+            drain_owned(root, procs)
+            ds.release_cpu_slots(slots)
 
 
 def main() -> int:
@@ -623,6 +629,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--mix", choices=MIXES)
     parser.add_argument("--allocation-key", default="attempt-01")
+    parser.add_argument("--lease-path", type=Path, default=DEFAULT_LEASE_PATH)
     args = parser.parse_args()
     for name in THREADS:
         os.environ[name] = "1"
@@ -647,7 +654,7 @@ def main() -> int:
         return 0
     if args.action == "worker":
         return worker(args.root, args.mix)
-    return run(args.root)
+    return run(args.root, lease_path=args.lease_path)
 
 
 if __name__ == "__main__":

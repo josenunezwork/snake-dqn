@@ -121,3 +121,29 @@ def test_smoke_fit_exports_supervisor_sidecars(
         assert (tmp_path / name).is_file()
         assert (tmp_path / (name + ".sha256")).is_file()
         assert (tmp_path / (name + ".complete")).is_file()
+
+
+def test_fit_can_export_raw_claim_inputs_without_opening_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Tiny(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.zeros(6))
+
+        def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+            return self.weight.unsqueeze(0).expand(batch["local"].shape[0], -1)
+
+    import research.bl_info_value.students as students
+
+    monkeypatch.setattr(
+        students, "make_students", lambda seed=0: {name: Tiny() for name in ("A", "B", "C")}
+    )
+    monkeypatch.setattr(
+        students, "ranking_loss", lambda scores, _returns, _legal: scores.square().mean()
+    )
+    report = fit.fit_students(
+        _tiny_arrays(), tmp_path, epochs=1, smoke=True, compute_decision=False
+    )
+    assert report["analysis_status"] == "UNOPENED_PENDING_PUBLISHED_LEDGER"
+    assert "decision" not in report
