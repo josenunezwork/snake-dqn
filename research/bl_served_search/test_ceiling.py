@@ -178,6 +178,24 @@ def test_bool_survival_endpoint_is_accepted_and_delta_checked() -> None:
             },
         },
     }
+    row.update(
+        search_mode="exact_stop",
+        native_mode="kernel",
+        native_v8={
+            "mode": "kernel",
+            "kernel_rows": 0,
+            "stock_rows": 0,
+            "fallback_rows": 0,
+            "noncandidate_rows": 0,
+            "calls": 0,
+        },
+        worker_threads={
+            "environment": dict.fromkeys(ceiling.THREAD_ENV, "1"),
+            "torch": 1,
+            "numba": 1,
+        },
+    )
+    row["dense"].update(batches=0, branches_evaluated=0, branches_skipped=0, batch_diagnostics=[])
     assert analyze._row_error(row, expected) is None
     redistributed = copy.deepcopy(row)
     redistributed["mass_ledger"]["common_alive_productivity_delta"] = 0.5

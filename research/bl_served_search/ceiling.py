@@ -35,6 +35,7 @@ from research.t3_rollout_labels_20261015.trigger import DenseTrigger
 SCHEMA = "bl-served-search-l2-shard/v1"
 ROW_SCHEMA = "bl-served-search-l2-row/v1"
 HORIZON = 5000
+BANK_SHA256 = "0a8d3059e1feb7f9c954171093e0c21258b6cf89ea43e1c20f8e035776fcb8d3"
 DEPTH = 300
 ARM = "b8_s3"
 B8_SHA256 = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
@@ -61,6 +62,35 @@ def _sha256(value: Any) -> bool:
     )
 
 
+THREAD_ENV = (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMBA_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+)
+
+
+def runtime_identity() -> dict[str, str]:
+    """Identify the consuming host without requiring a Colab root on the Mac."""
+    common = {"node": platform.node(), "machine": platform.machine()}
+    if os.environ.get("COLAB_CLI_ROOT"):
+        return {**common, "colab_cli_root": str(Path(os.environ["COLAB_CLI_ROOT"]).resolve())}
+    return {**common, "runtime_kind": "mac", "system": platform.system()}
+
+
+def worker_threads() -> dict[str, Any]:
+    """Observe the actual numerical thread settings in the spawned worker."""
+    import numba
+    import torch
+
+    return {
+        "environment": {name: os.environ.get(name) for name in THREAD_ENV},
+        "torch": torch.get_num_threads(),
+        "numba": numba.get_num_threads(),
+    }
+
+
 def validate_runtime_parity(
     parity: Any, *, bank_sha256: str, source: dict[str, str], require_local_runtime: bool
 ) -> dict[str, Any]:
@@ -79,18 +109,16 @@ def validate_runtime_parity(
         raise ValueError("runtime parity receipt lacks evidence hashes")
     runtime = parity.get("runtime_identity")
     if not isinstance(runtime, dict) or not all(
-        isinstance(runtime.get(key), str) and runtime[key]
-        for key in ("node", "machine", "colab_cli_root")
+        isinstance(runtime.get(key), str) and runtime[key] for key in ("node", "machine")
     ):
         raise ValueError("runtime parity receipt lacks a complete runtime identity")
-    if require_local_runtime:
-        expected = {
-            "node": platform.node(),
-            "machine": platform.machine(),
-            "colab_cli_root": str(Path(os.environ["COLAB_CLI_ROOT"]).resolve()),
-        }
-        if runtime != expected:
-            raise ValueError("runtime parity receipt belongs to a different runtime")
+    if not (
+        runtime.get("colab_cli_root")
+        or (runtime.get("runtime_kind") == "mac" and runtime.get("system") == "Darwin")
+    ):
+        raise ValueError("runtime parity receipt lacks a complete runtime identity")
+    if require_local_runtime and runtime != runtime_identity():
+        raise ValueError("runtime parity receipt belongs to a different runtime")
     return parity
 
 
@@ -101,6 +129,19 @@ def source_manifest() -> dict[str, str]:
         Path(__file__),
         root / "research/bl_served_search/exact_stop.py",
         root / "research/bl_served_search/chunks.py",
+        root / "research/bl_k1/native.py",
+        root / "research/t34_speed_s2/native_v8.py",
+        root / "src/simd_env/v8_nb.py",
+        root / "research/bl_served_search/analyze.py",
+        root / "research/bl_served_search/parity_v2.py",
+        root / "research/bl_served_search/mac_l2.py",
+        root / "research/bl_served_search/mac_lease.py",
+        root / "research/bl_served_search/exports.py",
+        root / "research/bl_served_search/bank.py",
+        root / "research/bl_mac_latency/host.py",
+        root / "research/bl_served_search/mac_identity.py",
+        root / "research/bl_served_search/run_l2_mac.sh",
+        root / "research/bl_served_search/AMENDMENT_MAC_L2.md",
         root / "research/t3_rollout_labels_20261015/trigger.py",
         root / "research/t3_rollout_labels_20261015/bank_engine.py",
         root / "research/t3_rollout_labels_20261015/engine.py",
@@ -155,6 +196,7 @@ def _step(
     dense: bool,
     horizon: int,
     search_mode: str = "all",
+    full_depth: bool = False,
 ) -> dict[str, Any]:
     """Advance one live world at the evaluator's Watch selector seam.
 
@@ -201,9 +243,22 @@ def _step(
             # Vector61 state, including v8 opponent memory, independently.
             branch = world.clone()
             actions = [int(action) for action in np.flatnonzero(legal)]
-            remaining = min(DEPTH, horizon - decision)
+            remaining = DEPTH if full_depth else min(DEPTH, horizon - decision)
+
+            def evaluate(root: Any, choices: list[int]) -> dict[int, dict[str, Any]]:
+                # The historical scripted adapter uses decision only to clip its
+                # budget and label deaths. Use a branch-local clock for full H300
+                # certificates, restoring absolute diagnostic death coordinates.
+                clock = 0 if full_depth and world.mix == "scripted" else decision
+                result = rollout_all(root, choices, remaining, clock, record_outcomes=True)
+                if clock != decision:
+                    for value in result.values():
+                        if value.get("death_decision") is not None:
+                            value["death_decision"] += decision
+                return result
+
             if search_mode == "all":
-                outcomes = rollout_all(branch, actions, remaining, decision, record_outcomes=True)
+                outcomes = evaluate(branch, actions)
                 chosen = _choose(outcomes, bare, q)
                 evaluation_order = actions
                 branches_evaluated = len(actions)
@@ -214,9 +269,7 @@ def _step(
                     actions,
                     bare,
                     q,
-                    lambda action: rollout_all(
-                        branch.clone(), [action], remaining, decision, record_outcomes=True
-                    )[action],
+                    lambda action: evaluate(branch.clone(), [action])[action],
                     _choose,
                 )
                 outcomes = result["outcomes"]
@@ -252,7 +305,15 @@ def _step(
     return selected
 
 
-def run_arm(plan: dict[str, Any], *, dense: bool, b8_path: Path, horizon: int) -> dict[str, Any]:
+def run_arm(
+    plan: dict[str, Any],
+    *,
+    dense: bool,
+    b8_path: Path,
+    horizon: int,
+    search_mode: str = "all",
+    full_depth: bool = False,
+) -> dict[str, Any]:
     """Evaluate either bare B8 s3 or the unchanged dense T3 overlay."""
     from research.t3_rollout_labels_20261015.bank_engine import build_world
 
@@ -267,12 +328,40 @@ def run_arm(plan: dict[str, Any], *, dense: bool, b8_path: Path, horizon: int) -
     death_frame = death_length = death_cause = None
     rollout_env_frames = 0
     rollout_wall_seconds = 0.0
+    batch_diagnostics = []
+    branches_evaluated = branches_skipped = 0
     started = time.perf_counter()
     for decision in range(horizon):
-        selected = _step(world, decision, trigger, dense=dense, horizon=horizon)
+        selected = _step(
+            world,
+            decision,
+            trigger,
+            dense=dense,
+            horizon=horizon,
+            search_mode=search_mode,
+            full_depth=full_depth,
+        )
         decisions += 1
         if selected["fired"]:
             batches += 1
+            branches_evaluated += selected["branches_evaluated"]
+            branches_skipped += selected["branches_skipped"]
+            batch_diagnostics.append(
+                {
+                    "decision": decision,
+                    **{
+                        key: selected[key]
+                        for key in (
+                            "bare",
+                            "chosen",
+                            "evaluation_order",
+                            "branches_evaluated",
+                            "branches_skipped",
+                            "outcomes",
+                        )
+                    },
+                }
+            )
             rollout_wall_seconds += float(selected["batch_wall_seconds"])
             outcomes = selected["outcomes"]
             assert outcomes is not None
@@ -310,6 +399,9 @@ def run_arm(plan: dict[str, Any], *, dense: bool, b8_path: Path, horizon: int) -
     # a D300-only escape/re-death rather than counted as a productive rescue.
     d300_only = d300_escape_changes if death_frame is not None else 0
     return {
+        "branches_evaluated": branches_evaluated,
+        "branches_skipped": branches_skipped,
+        "batch_diagnostics": batch_diagnostics,
         "mass_integral": mass / horizon,
         "alive_frame_fraction": alive_frames / horizon,
         "no_death_episode": bool(world.sim.alive[0, 0]),
@@ -339,16 +431,49 @@ def run_arm(plan: dict[str, Any], *, dense: bool, b8_path: Path, horizon: int) -
     }
 
 
-def run_world(row: dict[str, Any], *, b8_path: Path) -> dict[str, Any]:
+def run_world(
+    row: dict[str, Any],
+    *,
+    b8_path: Path,
+    search_mode: str = "all",
+    native_mode: str = "stock",
+    native_stats: Any = None,
+) -> dict[str, Any]:
     """Return one paired world receipt; inputs are already collision-audited."""
+    from research.bl_k1.native import RowStats, configure
+
+    if native_stats is None:
+        stats = RowStats()
+        with configure(native_mode, stats):
+            return run_world(
+                row,
+                b8_path=b8_path,
+                search_mode=search_mode,
+                native_mode=native_mode,
+                native_stats=stats,
+            )
     plan = row.get("plan")
     if not isinstance(plan, dict):
         raise ValueError("bank row lacks a materialized roster plan")
     if int(plan.get("seed", -1)) != int(row["world_seed"]) or plan.get("mix") != row["mix"]:
         raise ValueError("bank row/roster identity mismatch")
     horizon = int(row["horizon"])
-    baseline = run_arm(plan, dense=False, b8_path=b8_path, horizon=horizon)
-    dense = run_arm(plan, dense=True, b8_path=b8_path, horizon=horizon)
+    baseline = run_arm(
+        plan,
+        dense=False,
+        b8_path=b8_path,
+        horizon=horizon,
+        search_mode=search_mode,
+        full_depth=native_mode == "kernel",
+    )
+    dense = run_arm(
+        plan,
+        dense=True,
+        b8_path=b8_path,
+        horizon=horizon,
+        search_mode=search_mode,
+        full_depth=native_mode == "kernel",
+    )
     baseline_trace, dense_trace = baseline.pop("_mass_trace"), dense.pop("_mass_trace")
     baseline_alive, dense_alive = baseline.pop("_alive_trace"), dense.pop("_alive_trace")
     if len(baseline_trace) != horizon or len(dense_trace) != horizon:
@@ -423,6 +548,10 @@ def run_world(row: dict[str, Any], *, b8_path: Path) -> dict[str, Any]:
     }
     return {
         "schema": ROW_SCHEMA,
+        "search_mode": search_mode,
+        "native_mode": native_mode,
+        "native_v8": {"mode": native_mode, **native_stats.as_dict()},
+        "worker_threads": worker_threads(),
         "world_id": str(row["world_id"]),
         "world_seed": int(row["world_seed"]),
         "mix": str(row["mix"]),
@@ -435,14 +564,31 @@ def run_world(row: dict[str, Any], *, b8_path: Path) -> dict[str, Any]:
             for key in ("mass_integral", "alive_frame_fraction", "no_death_episode")
         },
         "mass_ledger": ledger,
-        "trajectories": {"baseline_mass": baseline_trace, "dense_mass": dense_trace},
+        "trajectories": {
+            "baseline_mass": baseline_trace,
+            "dense_mass": dense_trace,
+            "baseline_alive": baseline_alive,
+            "dense_alive": dense_alive,
+        },
         "world_ledger": world_ledger,
     }
 
 
-def _worker(job: tuple[dict[str, Any], str]) -> dict[str, Any]:
-    row, b8_path = job
-    return run_world(row, b8_path=Path(b8_path))
+def _worker(job: tuple) -> dict[str, Any]:
+    from research.bl_k1.native import RowStats, configure
+
+    row, b8_path, *modes = job
+    search_mode, native_mode = modes or ("all", "stock")
+    configure_cpu()
+    stats = RowStats()
+    with configure(native_mode, stats):
+        return run_world(
+            row,
+            b8_path=Path(b8_path),
+            search_mode=search_mode,
+            native_mode=native_mode,
+            native_stats=stats,
+        )
 
 
 def portable_plan(
@@ -531,6 +677,11 @@ def main() -> None:
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--search-mode", choices=("all", "exact_stop"), default="all")
+    parser.add_argument("--native-mode", choices=("stock", "replay", "kernel"), default="stock")
+    parser.add_argument("--lease-id")
+    parser.add_argument("--lease", type=Path)
+    parser.add_argument("--lease-owner")
     parser.add_argument(
         "--fixture", action="store_true", help="run three excluded preflight worlds"
     )
@@ -549,6 +700,20 @@ def main() -> None:
     args = parser.parse_args()
     if not args.fixture and not args.allow_production:
         parser.error("refusing L2 selection-world execution without --allow-production")
+    if not args.fixture and args.native_mode == "kernel":
+        from research.bl_served_search.mac_lease import require
+
+        if (
+            args.search_mode != "exact_stop"
+            or args.workers != 2
+            or not args.lease
+            or not args.lease_owner
+            or not args.lease_id
+        ):
+            parser.error("Mac amendment requires exact_stop/kernel, W2 and an owned lease")
+        require(args.lease, args.lease_owner, args.lease_id)
+        if digest_file(args.bank) != BANK_SHA256:
+            parser.error("Mac amendment requires the byte-unchanged BANK_L2.json")
     parity: dict[str, Any] | None = None
     if not args.fixture:
         if args.runtime_parity_receipt is None:
@@ -571,7 +736,7 @@ def main() -> None:
         if not 1 <= args.shard_count <= 3 or not 0 <= args.shard_index < args.shard_count:
             parser.error("fixture shard-count must be 1..3 with a valid index")
     elif args.shard_count != CHUNK_COUNT or not 0 <= args.shard_index < CHUNK_COUNT:
-        parser.error("L2' requires exactly four immutable chunk receipts (indices 0..3)")
+        parser.error("L2' requires exactly eight immutable chunk receipts (indices 0..7)")
     if args.out.exists() or any(
         Path(str(args.out) + suffix).exists() for suffix in (".sha256", ".complete")
     ):
@@ -603,7 +768,10 @@ def main() -> None:
     # world. Dense worlds can take many minutes, so completion-only logging
     # would make a live supervisor job look stalled.
     with concurrent.futures.ProcessPoolExecutor(args.workers, mp_context=context) as pool:
-        pending = {pool.submit(_worker, (row, str(args.b8_path))) for row in selected}
+        pending = {
+            pool.submit(_worker, (row, str(args.b8_path), args.search_mode, args.native_mode))
+            for row in selected
+        }
         results = []
         _write_progress(progress_path, completed=0, total=len(selected), started=started)
         while pending:
@@ -616,7 +784,26 @@ def main() -> None:
                 )
                 continue
             for future in done:
-                result = future.result()
+                try:
+                    result = future.result()
+                except BaseException:
+                    # The pool owns these children. Do not leave other worlds
+                    # running after a fault, or wait for the chunk watchdog.
+                    children = list(pool._processes.values())
+                    for child in children:
+                        child.terminate()
+                    for child in children:
+                        child.join(timeout=5)
+                        if child.is_alive():
+                            child.kill()
+                            child.join()
+                    raise
+                if not args.fixture and args.native_mode == "kernel":
+                    from research.bl_served_search.analyze import _row_error
+
+                    error = _row_error(result, result)
+                    if error:
+                        raise ValueError(f"INCONCLUSIVE execution validation: {error}")
                 export_json(args.out.parent / "worlds" / f"{result['world_id']}.json", result)
                 results.append(result)
             _write_progress(
@@ -636,13 +823,24 @@ def main() -> None:
             "chunk_count": CHUNK_COUNT if not args.fixture else None,
             "chunk_world_ids_sha256": world_ids_sha256(selected) if not args.fixture else None,
             "workers": args.workers,
+            "search_mode": args.search_mode,
+            "native_mode": args.native_mode,
+            "lease_id": args.lease_id,
+            "native_v8": {
+                key: sum(row["native_v8"][key] for row in results)
+                for key in results[0]["native_v8"]
+                if key != "mode"
+            },
+            "branches_evaluated": sum(row["dense"]["branches_evaluated"] for row in results),
+            "branches_skipped": sum(row["dense"]["branches_skipped"] for row in results),
             "arm": ARM,
             "b8_sha256": B8_SHA256,
             "horizon": HORIZON,
             "fixture": args.fixture,
             "runtime_parity": parity,
             "dense_rule": (
-                "T3 DenseTrigger(L>=600, interval=5), 6 actions x H300, " "B8 greedy eps0 no veto"
+                "T3 DenseTrigger(L>=600, interval=5), <=6 legal actions x H300; "
+                "exact_stop certifies first survivor; B8 greedy eps0 no veto"
             ),
             "source_manifest": source_manifest(),
         },
@@ -652,6 +850,23 @@ def main() -> None:
         "clean_exit": True,
     }
     export_json(args.out, payload)
+    export_json(
+        args.out.parent / "operational.json",
+        {
+            "schema": "bl-l2-mac-operational/v1",
+            "status": "completed",
+            "search_mode": args.search_mode,
+            "native_mode": args.native_mode,
+            "workers": args.workers,
+            "lease_id": args.lease_id,
+            "rows": len(results),
+            "counters_validation": "PASS",
+            "source_manifest": source_manifest(),
+            "shard_sha256": digest_file(args.out),
+            "chunk_index": args.shard_index,
+            "clean_exit": True,
+        },
+    )
 
 
 if __name__ == "__main__":

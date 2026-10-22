@@ -12,6 +12,7 @@ from typing import Any, Iterable
 from research.bl_served_search.ceiling import (
     ARM,
     B8_SHA256,
+    BANK_SHA256,
     HORIZON,
     MIX_COUNTS,
     ROW_SCHEMA,
@@ -119,7 +120,121 @@ def transfer_status(per_mix: dict[str, dict[str, float | int]]) -> dict[str, Any
     }
 
 
-def _row_error(row: dict[str, Any], expected: dict[str, Any]) -> str | None:
+def execution_error(
+    row: dict[str, Any], *, search_mode: str = "exact_stop", native_mode: str = "kernel"
+) -> str | None:
+    """Reject absent/contradictory execution evidence before any scientific look."""
+    from research.bl_served_search.ceiling import DEPTH, THREAD_ENV
+
+    if row.get("search_mode") != search_mode or row.get("native_mode") != native_mode:
+        return "wrong registered search/native mode"
+    stats = row.get("native_v8", {})
+    if not isinstance(stats, dict):
+        return "missing/invalid native execution counters"
+    keys = ("kernel_rows", "stock_rows", "fallback_rows", "noncandidate_rows", "calls")
+    if stats.get("mode") != native_mode or any(
+        type(stats.get(key)) is not int or stats[key] < 0 for key in keys
+    ):
+        return "missing/invalid native execution counters"
+    if any(stats[key] for key in ("stock_rows", "fallback_rows", "noncandidate_rows")):
+        return "native stock/fallback/noncandidate rows"
+    dense = row.get("dense", {})
+    if not isinstance(dense, dict):
+        return "missing dense result"
+    batches = dense.get("batches")
+    if type(batches) is not int or batches < 0:
+        return "missing/invalid batch count"
+    if row.get("mix") == "scripted":
+        if stats["kernel_rows"] or stats["calls"]:
+            return "scripted row made a kernel call"
+    elif batches > 0 and (stats["kernel_rows"] <= 0 or stats["calls"] <= 0):
+        return "missing native branch rows"
+    threads = row.get("worker_threads", {})
+    if not isinstance(threads, dict):
+        return "invalid worker thread attestation"
+    if (
+        threads.get("environment") != dict.fromkeys(THREAD_ENV, "1")
+        or threads.get("torch") != 1
+        or threads.get("numba") != 1
+    ):
+        return "invalid worker thread attestation"
+    diagnostics = dense.get("batch_diagnostics")
+    if not isinstance(diagnostics, list) or len(diagnostics) != batches:
+        return "missing/incomplete branch diagnostics"
+    totals = [0, 0]
+    previous = -1
+    for batch in diagnostics:
+        if not isinstance(batch, dict):
+            return "invalid branch diagnostic"
+        outcomes, order = batch.get("outcomes"), batch.get("evaluation_order")
+        if not isinstance(outcomes, dict) or not isinstance(order, list):
+            return "missing branch outcomes/order"
+        # JSON turns action keys into strings; validate either in-memory/export form.
+        try:
+            outcomes = {int(key): value for key, value in outcomes.items()}
+        except (TypeError, ValueError):
+            return "invalid branch action"
+        legal = set(outcomes)
+        decision = batch.get("decision")
+        if (
+            type(decision) is not int
+            or not previous < decision < HORIZON
+            or not order
+            or any(type(a) is not int for a in order)
+            or len(order) != len(set(order))
+            or not set(order) <= legal
+            or not legal <= set(range(6))
+            or batch.get("bare") not in legal
+            or batch.get("chosen") not in order
+            or batch.get("branches_evaluated") != len(order)
+            or batch.get("branches_skipped") != len(legal) - len(order)
+            or (search_mode == "all" and set(order) != legal)
+            or (search_mode == "exact_stop" and order[0] != batch.get("bare"))
+        ):
+            return "inconsistent branch execution counters/order"
+        previous = decision
+        survivors = []
+        for action, outcome in outcomes.items():
+            if not isinstance(outcome, dict):
+                return "invalid branch outcome"
+            if action not in order:
+                if outcome != {"status": "NOT_EVALUATED"}:
+                    return "skipped branch must be NOT_EVALUATED"
+                continue
+            frames = outcome.get("frames_executed", outcome.get("env_frames"))
+            if (
+                type(frames) is not int
+                or not 1 <= frames <= DEPTH
+                or type(outcome.get("survives")) is not bool
+            ):
+                return "invalid branch frames"
+            if outcome["survives"]:
+                if frames != DEPTH:
+                    return "survivor branch did not execute H300"
+                survivors.append(action)
+        if search_mode == "exact_stop" and survivors:
+            if survivors != [order[-1]] or batch["chosen"] != order[-1]:
+                return "exact stop did not stop at first survivor"
+        elif batch["branches_skipped"]:
+            return "branches skipped without a survivor"
+        totals[0] += len(order)
+        totals[1] += len(legal) - len(order)
+    if totals != [dense.get("branches_evaluated"), dense.get("branches_skipped")]:
+        return "branch totals do not reconcile"
+    return None
+
+
+def _row_error(
+    row: dict[str, Any],
+    expected: dict[str, Any] | None = None,
+    *,
+    search_mode: str = "exact_stop",
+    native_mode: str = "kernel",
+) -> str | None:
+    expected = row if expected is None else expected
+    error = execution_error(row, search_mode=search_mode, native_mode=native_mode)
+    if error:
+        return error
     if row.get("schema") != ROW_SCHEMA:
         return "invalid row schema"
     for key in ("world_id", "world_seed", "mix", "horizon"):
@@ -358,6 +473,9 @@ def load_rows(bank_path: Path, shard_paths: list[Path]) -> tuple[list[dict[str, 
     expected = {str(row["world_id"]): row for row in expected_rows}
     errors, rows, seen, seen_chunks = [], [], set(), set()
     bank_sha = digest_file(bank_path)
+    if bank_sha != BANK_SHA256:
+        return [], ["Mac amendment bank digest differs from registered BANK_L2.json"]
+    run_lease = run_runtime = None
     for path in shard_paths:
         try:
             verify_export(path)
@@ -377,6 +495,13 @@ def load_rows(bank_path: Path, shard_paths: list[Path]) -> tuple[list[dict[str, 
                 ).source_manifest()
             ):
                 raise ValueError("shard is not bound to this complete bank")
+            if (
+                identity.get("search_mode") != "exact_stop"
+                or identity.get("native_mode") != "kernel"
+                or identity.get("workers") != 2
+                or not identity.get("lease_id")
+            ):
+                raise ValueError("wrong Mac amendment mode/workers/lease identity")
             chunk_index = identity.get("chunk_index")
             if type(chunk_index) is not int or identity.get("chunk_count") != CHUNK_COUNT:
                 raise ValueError("missing immutable L2' chunk identity")
@@ -394,6 +519,13 @@ def load_rows(bank_path: Path, shard_paths: list[Path]) -> tuple[list[dict[str, 
                 source=identity["source_manifest"],
                 require_local_runtime=False,
             )
+            runtime = identity["runtime_parity"]["runtime_identity"]
+            if runtime.get("runtime_kind") != "mac" or runtime.get("system") != "Darwin":
+                raise ValueError("Mac amendment requires a Mac runtime")
+            if run_lease is None:
+                run_lease, run_runtime = identity["lease_id"], runtime
+            elif run_lease != identity["lease_id"] or run_runtime != runtime:
+                raise ValueError("chunks belong to different lease attempts or Macs")
             shard_rows = shard.get("rows")
             if not isinstance(shard_rows, list) or shard.get("rows_sha256") != digest_value(
                 shard_rows
@@ -412,8 +544,18 @@ def load_rows(bank_path: Path, shard_paths: list[Path]) -> tuple[list[dict[str, 
                     raise ValueError(f"{world_id}: {error}")
                 seen.add(world_id)
                 rows.append(row)
+            for name in ("branches_evaluated", "branches_skipped"):
+                if identity.get(name) != sum(row["dense"][name] for row in shard_rows):
+                    raise ValueError("chunk branch counter totals disagree")
+            native_totals = {
+                key: sum(row["native_v8"][key] for row in shard_rows)
+                for key in shard_rows[0]["native_v8"]
+                if key != "mode"
+            }
+            if identity.get("native_v8") != native_totals:
+                raise ValueError("chunk native counters disagree")
             seen_chunks.add(chunk_index)
-        except (OSError, ValueError, TypeError, KeyError) as exc:
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
             errors.append(f"{path}: {exc}")
     missing = sorted(set(expected) - seen)
     if missing:
