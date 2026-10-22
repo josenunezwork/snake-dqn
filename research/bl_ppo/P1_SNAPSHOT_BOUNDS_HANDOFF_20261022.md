@@ -136,3 +136,10 @@ Post-merge staging checks: **6 passed, 72 deselected**; both warmup cases
 `pytest.approx(135)` (observed difference 2.84e-14 seconds). This test-only fix
 does not alter executable source or transport qualification. Fresh normal
 upload forecast is 67.736836s; fallback + fetch is 249.061567s < 300s.
+
+The broader transport batch, started before that test-only correction, finished
+with **152 passed / 1 failed in 564.93s**. Its sole failure was the same exact
+float comparison; the broker receipt was PASS with verified stop. Both cases
+and all six staging checks passed after correction. The final verification
+receipt records the original run and its targeted resolution; there is no open
+runtime or artifact finding.
