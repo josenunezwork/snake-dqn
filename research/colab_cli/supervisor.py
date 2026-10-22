@@ -299,6 +299,7 @@ class CLI:
         self.contents_transfers: list[dict[str, Any]] = []
         self.call_records: list[dict[str, Any]] = []
         self.verified_exports: dict[str, dict[str, Any]] = {}
+        self.warmup_seconds = 0.0
         self._lease_stop = threading.Event()
         self._lease_thread: threading.Thread | None = None
 
@@ -539,6 +540,87 @@ class CLI:
         if not reply["ok"]:
             raise Refused(f"kernel error despite CLI exit zero: {reply.get('error')}")
         return reply["value"]
+
+    def wait_runtime_ready(self, output: Path) -> None:
+        """Bound cold-start latency before credentials, uploads or their clock.
+
+        Only read-only probes repeat. After an ambiguous tiny exec, another
+        exec requires fresh independent idle proof, just like telemetry.
+        Allocation and useful work are never retried here.
+        """
+        from research.colab_cli.cli_guard import kernel_idle, runtime_ready
+
+        started = time.monotonic()
+        evidence: dict[str, Any] = {"status": "INCOMPLETE", "attempts": 0}
+        try:
+            deadline = started + self.remaining_seconds(policy.WARMUP_SECONDS)
+            # A count bound also protects against a stalled monotonic clock.
+            for attempt in range(int(policy.WARMUP_SECONDS / policy.WARMUP_INTERVAL_SECONDS) + 1):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                evidence["attempts"] = attempt + 1
+                submitted = False
+                try:
+                    ready = runtime_ready(
+                        self.oauth_python,
+                        self.config,
+                        self.session,
+                        timeout=self.remaining_seconds(min(policy.WARMUP_PROBE_SECONDS, remaining)),
+                    )
+                    if ready and self.exec_uncertain:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            break
+                        ready = kernel_idle(
+                            self.oauth_python,
+                            self.config,
+                            self.session,
+                            timeout=self.remaining_seconds(
+                                min(policy.WARMUP_PROBE_SECONDS, remaining)
+                            ),
+                        )
+                    if ready:
+                        # A first exec creates the kernel. After uncertainty,
+                        # only the independent kernel GET permits another exec.
+                        self.exec_uncertain = False
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            break
+                        submitted = True
+                        result = self.rpc(
+                            "# SNAKE_RUNTIME_READINESS\n"
+                            "from pathlib import Path\n"
+                            "result={'ready': Path('/content').is_dir()}",
+                            timeout=self.remaining_seconds(
+                                min(policy.WARMUP_PROBE_SECONDS, remaining)
+                            ),
+                            completion_grace=0,
+                        )
+                        if result != {"ready": True}:
+                            raise Refused("runtime readiness exec returned unknown state")
+                        if time.monotonic() >= deadline:
+                            break
+                        self.remaining_seconds(1)
+                        evidence["status"] = "PASS"
+                        return
+                except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                    # An unacknowledged exec may still be busy. Poll GETs until
+                    # independent idle proof; acknowledged kernel errors fail.
+                    if (submitted and not self.exec_uncertain) or not policy.transient_error(exc):
+                        raise
+                    evidence["last_probe_error"] = redact(repr(exc))
+                delay = min(policy.WARMUP_INTERVAL_SECONDS, max(0, deadline - time.monotonic()))
+                if delay:
+                    time.sleep(delay)
+            raise Refused("runtime readiness warmup deadline reached; kernel remains busy/unknown")
+        except BaseException as exc:
+            evidence["error"] = redact(repr(exc))
+            raise
+        finally:
+            self.warmup_seconds = max(0, time.monotonic() - started)
+            evidence["elapsed_seconds"] = self.warmup_seconds
+            write_once(output / "warmup-measurement.json", evidence)
 
     def recoverable_rpc(self, code: str, timeout: float = policy.TELEMETRY_SECONDS) -> Any:
         """Recover an acknowledgement without repeating a committed mutation.
@@ -838,6 +920,7 @@ class Broker:
                             "transfers": [],
                             "contents_transfers": [],
                             "cli_calls": [],
+                            "warmup_seconds": 0.0,
                             "error": detail,
                             "failure_class": FailureClass.UPLOAD_CAP.value,
                             "cleanup_error": None,
@@ -858,6 +941,7 @@ class Broker:
                 cli.contents_transfers = []
                 cli.call_records = []
                 cli.verified_exports = {}
+                cli.warmup_seconds = 0.0
             started = time.monotonic()
             cli.deadline = min(
                 started + m["timeout_minutes"] * 60 - 45, (retained or {}).get("deadline", math.inf)
@@ -1070,6 +1154,7 @@ class Broker:
                         "usage_after": usage_after,
                         "accounting": accounting.receipt() if accounting else None,
                         "elapsed_seconds": time.monotonic() - started,
+                        "warmup_seconds": cli.warmup_seconds,
                         "terminal": terminal,
                         "exports": exports,
                         "transfers": cli.transfer_records,
@@ -1246,8 +1331,9 @@ class Broker:
         retained: dict[str, Any] | None = None,
         admission_lock: contextlib.ExitStack | None = None,
     ) -> tuple[Any, list[Any]]:
-        """Arm the runtime watchdog before starting any slow dependency work."""
+        """Warm the transport, then arm the watchdog before dependency work."""
         root = "/content/snake-cli/" + generation
+        cli.wait_runtime_ready(output)
         with contextlib.nullcontext():
             staging = output / "staging"
             # Runtime code comes from the same pinned commit as the job, never

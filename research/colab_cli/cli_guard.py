@@ -288,6 +288,50 @@ def _noninteractive_client() -> Any:
     return Client(Prod(), session)
 
 
+def runtime_ready(oauth_python: str, config: Path | str, session: str, *, timeout: float) -> bool:
+    """Read Contents readiness without creating a kernel or submitting work."""
+    # One attempt only: the supervisor owns the shared warmup deadline/backoff.
+    result = _run_helper(oauth_python, "--runtime-ready", str(config), session, timeout=timeout)
+    if set(result) != {"ready"} or not isinstance(result["ready"], bool):
+        raise GuardError("runtime readiness helper returned unknown state")
+    return result["ready"]
+
+
+def _runtime_ready_once(config: str, session: str) -> dict[str, bool]:
+    """Probe the same Contents route as PUTs without requiring an existing kernel."""
+    import requests
+    from colab_cli.contents import ContentsClient
+    from colab_cli.state import StateStore
+
+    state = StateStore(config).get(session)
+    if state is None or not state.url or not state.token:
+        raise GuardError("tracked session lacks runtime probe metadata")
+    try:
+        # Metadata only; never list/download runtime files or upload a dummy.
+        # Bound requests here as well as by the helper subprocess timeout.
+        original_request = requests.sessions.Session.request
+
+        def bounded_request(self: Any, *args: Any, **kwargs: Any) -> Any:
+            return original_request(self, *args, **_timeout_kwargs(kwargs))
+
+        requests.sessions.Session.request = bounded_request
+        try:
+            contents = ContentsClient(state)._request("GET", "/content", params={"content": "0"})
+        finally:
+            requests.sessions.Session.request = original_request
+        if not isinstance(contents, dict) or contents.get("type") != "directory":
+            raise GuardError("runtime Contents probe returned unknown state")
+        return {"ready": True}
+    except (FileNotFoundError, requests.HTTPError) as exc:
+        # A fresh server may not yet expose the Contents route. Auth,
+        # quota and other permanent failures retain their normal refusal path.
+        if isinstance(exc, FileNotFoundError) or (
+            exc.response is not None and exc.response.status_code == 404
+        ):
+            return {"ready": False}
+        raise
+
+
 def _recover_assignment_once(notebook_hash: str) -> dict[str, Any]:
     client = _noninteractive_client()
     result = client._get_assignment(uuid.UUID(notebook_hash))
@@ -333,12 +377,15 @@ def _main(argv: list[str] | None = None) -> int:
     commands.add_argument("--recover-assignment", metavar="NOTEBOOK_HASH")
     commands.add_argument("--unassign-endpoint", metavar="ENDPOINT")
     commands.add_argument("--kernel-idle", nargs=2, metavar=("CONFIG", "SESSION"))
+    commands.add_argument("--runtime-ready", nargs=2, metavar=("CONFIG", "SESSION"))
     args = parser.parse_args(argv)
     try:
         if args.recover_assignment:
             result: dict[str, Any] = _recover_assignment_once(args.recover_assignment)
         elif args.unassign_endpoint:
             result = _unassign_endpoint_once(args.unassign_endpoint)
+        elif args.runtime_ready:
+            result = _runtime_ready_once(*args.runtime_ready)
         else:
             result = _kernel_idle_once(*args.kernel_idle)
     except Exception as exc:

@@ -196,6 +196,86 @@ def test_normal_job_stops_and_verifies_backend_release(
     _assert_transport(tmp_path)
 
 
+@pytest.mark.parametrize("slow_staging", [False, True])
+def test_cold_first_call_is_warmed_before_any_upload_and_staging_clock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, slow_staging: bool
+) -> None:
+    """A 134s startup is separate; a later 120s verify still counts as staging."""
+    from research.colab_cli import canary, cli_guard
+
+    binary = _fake_env(monkeypatch, tmp_path)
+    now = [0.0]
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        supervisor.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds)
+    )
+    monkeypatch.setattr(cli_guard, "runtime_ready", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(cli_guard, "kernel_idle", lambda *_args, **_kwargs: now[0] >= 134.1)
+    original = supervisor.CLI._call_once
+    first = True
+    verify_delayed = False
+    uploads_at = []
+
+    def cold_call(self, *args: str, timeout: float) -> str:
+        nonlocal first, verify_delayed
+        if args[0] == "exec":
+            code = Path(args[args.index("-f") + 1]).read_text()
+            if first:
+                first = False
+                assert "SNAKE_RUNTIME_READINESS" in code
+                now[0] += timeout
+                raise subprocess.TimeoutExpired("cold first exec", timeout)
+            if slow_staging and "SNAKE_TRANSFER_VERIFY_FILE" in code and not verify_delayed:
+                verify_delayed = True
+                now[0] += 120  # Later acknowledgement loss must not be relabelled warmup.
+                raise subprocess.TimeoutExpired("later verification", timeout)
+        if args[0] == "upload":
+            uploads_at.append(now[0])
+            now[0] += 12 if slow_staging else 2
+        return original(self, *args, timeout=timeout)
+
+    monkeypatch.setattr(supervisor.CLI, "_call_once", cold_call)
+    manifest = _manifest(tmp_path)
+    manifest["timeout_minutes"] = 10
+    manifest["budget"]["unit_cap"] = 2
+    supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    output = tmp_path / "job-output"
+    receipt = json.loads((output / "receipt.json").read_text())
+    measurement = json.loads((output / "upload-measurement.json").read_text())
+    assert receipt["status"] == "PASS"
+    assert receipt["stop_verified"]
+    assert receipt["warmup_seconds"] == 135
+    assert min(uploads_at) >= 135  # Includes the private credential and lease PUTs.
+    assert receipt["elapsed_seconds"] >= receipt["warmup_seconds"] + measurement["elapsed_seconds"]
+    if slow_staging:
+        assert measurement["elapsed_seconds"] > 150
+        with pytest.raises(canary.CanaryError, match="real staging must complete within 150"):
+            canary.evidence(manifest, receipt, output, REPO)
+    else:
+        assert 0 < measurement["elapsed_seconds"] < 150
+
+
+def test_warmup_failure_stops_runtime_without_uploading_or_launching(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.colab_cli import cli_guard
+
+    binary = _fake_env(monkeypatch, tmp_path)
+    now = [0.0]
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        supervisor.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds)
+    )
+    monkeypatch.setattr(cli_guard, "runtime_ready", lambda *_args, **_kwargs: False)
+    with pytest.raises(supervisor.Refused, match="readiness warmup deadline"):
+        supervisor.Broker(tmp_path / "lanes", binary).run(_manifest(tmp_path))
+    receipt = json.loads((tmp_path / "job-output" / "receipt.json").read_text())
+    assert receipt["status"] == "INCOMPLETE"
+    assert receipt["stop_verified"]
+    assert receipt["warmup_seconds"] == 135  # 180s session minus existing 45s cleanup reserve.
+    assert not any(event["argv"][4] in {"upload", "exec"} for event in _events(tmp_path))
+
+
 @pytest.mark.parametrize(
     ("count", "outcome"),
     [

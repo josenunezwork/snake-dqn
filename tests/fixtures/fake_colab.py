@@ -322,6 +322,10 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         _reply(code, ok=False, error="RuntimeError('fake kernel failure')")
         _save(state)
         return
+    if "SNAKE_RUNTIME_READINESS" in code:
+        _reply(code, {"ready": True})
+        _save(state)
+        return
 
     # The acceptance observer's deliberately killed client is a plain CLI
     # exec, not an RPC wrapper. Model its durable completion markers without

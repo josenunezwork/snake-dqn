@@ -23,6 +23,8 @@ if "-c" in sys.argv:
         )
 elif "--kernel-idle" in sys.argv:
     print(json.dumps({"idle": os.environ.get("FAKE_COLAB_MODE") != "busy_exec"}))
+elif "--runtime-ready" in sys.argv:
+    print(json.dumps({"ready": True}))
 elif "--recover-assignment" in sys.argv:
     state = json.loads(Path(os.environ["FAKE_COLAB_STATE"]).read_text())
     key = sys.argv[-1].replace("-", "")

@@ -15,6 +15,11 @@ RPC_SECONDS = 120.0
 # retry. Contents heartbeats continue under the unchanged runtime lease.
 TELEMETRY_SECONDS = 300.0
 ALLOCATION_SECONDS = 180.0
+# Runtime allocation is not readiness of its Contents and kernel transports.
+# This separate startup allowance still borrows from the whole-session caps.
+WARMUP_SECONDS = 300.0
+WARMUP_PROBE_SECONDS = 30.0
+WARMUP_INTERVAL_SECONDS = 5.0
 ATTEMPTS = 3
 BACKOFF_SECONDS = (2.0, 5.0)
 READ_COMMANDS = frozenset({"version", "whoami", "sessions", "usage", "url"})
