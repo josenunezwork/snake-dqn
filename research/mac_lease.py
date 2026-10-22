@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import fcntl
 import json
+import math
 import os
 import subprocess
+import sys
 import time
 import uuid
 from contextlib import contextmanager
@@ -38,8 +40,19 @@ def _primary_repo() -> Path:
     return common_path.parent
 
 
-# Deliberately shared by every snake-dqn-* worktree on this Mac.
-DEFAULT_LEASE_PATH = _primary_repo() / "exp" / "mac-lease.json"
+# A ``None`` default deliberately defers Git discovery until a Mac lease is
+# actually acquired.  Colab/L4 runtime bundles import ruler modules without a
+# ``.git`` directory and never need a Mac lease.
+DEFAULT_LEASE_PATH: Path | None = None
+
+
+def default_lease_path() -> Path:
+    """Resolve the Mac-wide path only at the point a lease is needed."""
+    return _primary_repo() / "exp" / "mac-lease.json"
+
+
+def _resolve_path(path: Path | None) -> Path:
+    return default_lease_path() if path is None else Path(path)
 
 
 class LeaseError(RuntimeError):
@@ -80,6 +93,11 @@ def _lock_path(path: Path) -> Path:
     return path.with_name(path.name + ".lock")
 
 
+def _live_path(path: Path) -> Path:
+    """Return the advisory fence retained for an active ``held`` context."""
+    return path.with_name(path.name + ".live")
+
+
 @contextmanager
 def _serialized(path: Path) -> Iterator[None]:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,9 +116,30 @@ def _read(path: Path) -> dict[str, object]:
         raise LeaseError(f"invalid existing Mac lease: {path}") from exc
     if not isinstance(value, dict) or not isinstance(value.get("id"), str):
         raise LeaseError(f"invalid existing Mac lease: {path}")
-    if not isinstance(value.get("until_epoch"), (int, float)):
+    until = value.get("until_epoch")
+    if (
+        isinstance(until, bool)
+        or not isinstance(until, (int, float))
+        or not math.isfinite(float(until))
+    ):
         raise LeaseError(f"invalid existing Mac lease: {path}")
     return value
+
+
+def _expired_record_has_live_holder(path: Path) -> bool:
+    """Check an expired record's process-live fence without waiting.
+
+    This runs while holding the mutation lock.  A successful nonblocking lock
+    means no active ``held`` context retains the fence, so it is immediately
+    released and the expired record may be reclaimed.
+    """
+    with _live_path(path).open("a+") as stream:
+        try:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+        return False
 
 
 def acquire(
@@ -108,15 +147,28 @@ def acquire(
     purpose: str,
     *,
     seconds: float,
-    path: Path = DEFAULT_LEASE_PATH,
+    path: Path | None = DEFAULT_LEASE_PATH,
     clock: Callable[[], float] = time.time,
+    _live_fence_held: bool = False,
 ) -> MacLease:
     """Atomically acquire a lease, reclaiming only an expired immutable record."""
-    if not owner.strip() or not purpose.strip() or seconds <= 0:
+    if (
+        not isinstance(seconds, (int, float))
+        or isinstance(seconds, bool)
+        or not math.isfinite(float(seconds))
+        or seconds <= 0
+        or not owner.strip()
+        or not purpose.strip()
+    ):
         raise ValueError("lease owner, purpose, and positive duration are required")
-    path = Path(path)
+    path = _resolve_path(path)
     with _serialized(path):
-        now = float(clock())
+        clock_value = clock()
+        if isinstance(clock_value, bool) or not isinstance(clock_value, (int, float)):
+            raise ValueError("lease clock must return a finite time")
+        now = float(clock_value)
+        if not math.isfinite(now):
+            raise ValueError("lease clock must return a finite time")
         if path.exists():
             existing = _read(path)
             if float(existing["until_epoch"]) > now:
@@ -124,6 +176,10 @@ def acquire(
                     "Mac lease held by "
                     f"{existing.get('owner', 'unknown')} until {existing.get('until')} "
                     f"for {existing.get('purpose', 'unknown')} (id={existing['id']})"
+                )
+            if not _live_fence_held and _expired_record_has_live_holder(path):
+                raise LeaseHeld(
+                    "Mac lease remains live after its receipt expiry " f"(id={existing['id']})"
                 )
             # The mutation lock prevents a second helper from replacing an
             # expired record between inspection and this unlink.
@@ -164,11 +220,25 @@ def held(
     purpose: str,
     *,
     seconds: float,
-    path: Path = DEFAULT_LEASE_PATH,
+    path: Path | None = DEFAULT_LEASE_PATH,
 ) -> Iterator[MacLease]:
     """Hold one exclusive Mac lease for the complete timing operation."""
-    lease = acquire(owner, purpose, seconds=seconds, path=path)
-    try:
-        yield lease
-    finally:
-        release(lease)
+    path = _resolve_path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _live_path(path).open("a+") as stream:
+        try:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            try:
+                active_owner = _read(path).get("owner", "unknown")
+            except LeaseError:
+                active_owner = "unknown"
+            raise LeaseHeld(f"Mac lease has an active process-live holder: {active_owner}") from exc
+        try:
+            lease = acquire(owner, purpose, seconds=seconds, path=path, _live_fence_held=True)
+            try:
+                yield lease
+            finally:
+                release(lease)
+        finally:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
