@@ -1,7 +1,8 @@
 """Prospective P1-only complete-life late-body critic support.
 
-This module deliberately builds support before critic fitting.  The fixture is
-never part of actor data, ordinary-state diagnostics, or an efficacy bank.
+This module collects a quarantined, labelled fixture diagnostic.  It is never
+part of actor data, PopArt/baseline fitting, the natural gate, ordinary-state
+diagnostics, or an efficacy bank.
 """
 
 from __future__ import annotations
@@ -65,7 +66,7 @@ def support_identity(excluded_seeds: Iterable[int], *, horizon: int) -> dict[str
         "hero_initial_length": FIXED_LATE_BODY_LONG_LENGTH,
         "refit_long_body_start_fraction": REFIT_LONG_BODY_START_FRACTION,
         "refit_schedule": "(world_id + episode + 3) % 4 == 0",
-        "fallback_trigger": "zero_completed_fit_late_support_before_accuracy",
+        "fallback_trigger": "natural_fit_late_support_below_registered_minimum",
         "supplement_world_id_offset": SUPPLEMENT_WORLD_OFFSET,
         "fixed_holdout_world_id_offset": FIXED_HOLDOUT_WORLD_OFFSET,
         "supplement_max_steps_per_world": horizon,
@@ -85,7 +86,7 @@ def collect_fixed_late_body_holdout(
     should_stop: Callable[[], bool] | None = None,
     on_progress: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Collect one complete injected life per dedicated world into holdout only.
+    """Collect one complete injected life into a separate fixture bank only.
 
     The adapter is an isolated frozen-initial stochastic actor.  Its caller
     owns its torch RNG fork so this support collection cannot alter the main
@@ -119,6 +120,12 @@ def collect_fixed_late_body_holdout(
                     ),
                     rewards=torch.as_tensor(raw.reward[first_life]),
                     terminals=torch.as_tensor(raw.done[first_life]),
+                    mixes=[
+                        str(value)
+                        for value in np.asarray(
+                            getattr(raw, "mix", np.full(len(raw.world_id), "unknown"))[first_life]
+                        )
+                    ],
                     split_override="holdout",
                     pin_first_late=True,
                     source="fixed_injected_long_body",
@@ -153,7 +160,7 @@ def collect_refit_late_supplement(
     should_stop: Callable[[], bool] | None = None,
     on_progress: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Bounded, fit-only 25%-root support supplement after a zero-support check."""
+    """Bounded, fit-only 25%-root supplement after a below-minimum fit check."""
     if config.long_body_fraction != 0.25:
         raise ValueError("late-body supplement must use the registered 25% root fraction")
     supplement = replace(config, world_id_offset=SUPPLEMENT_WORLD_OFFSET)
@@ -183,6 +190,12 @@ def collect_refit_late_supplement(
                 ),
                 rewards=torch.as_tensor(raw.reward[fit_rows]),
                 terminals=torch.as_tensor(raw.done[fit_rows]),
+                mixes=[
+                    str(value)
+                    for value in np.asarray(
+                        getattr(raw, "mix", np.full(len(raw.world_id), "unknown"))[fit_rows]
+                    )
+                ],
                 split_override="fit",
                 pin_first_late=True,
                 source="refit_long_body_support_supplement",

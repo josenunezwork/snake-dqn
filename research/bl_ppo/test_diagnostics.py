@@ -10,6 +10,28 @@ import pytest
 from research.bl_ppo.diagnostics import E8Diagnostics
 
 
+def test_length_histogram_500_frame_buckets_and_recovery() -> None:
+    diagnostics = E8Diagnostics()
+    for frame, length, mix in (
+        (499, 999, "scripted"),
+        (500, 1000, "scripted"),
+        (4999, 1200, "mixed"),
+    ):
+        diagnostics.observe(
+            _raw(frame=np.array([frame]), length=np.array([length]), mix=np.array([mix])),
+            actions=[1],
+            b8_actions=[1],
+        )
+    histogram = diagnostics.snapshot()["hero_length_histogram_by_frame"]
+    assert histogram["by_mix"]["scripted"]["0"] == {"900": 1}
+    assert histogram["by_mix"]["scripted"]["500"] == {"1000": 1}
+    assert histogram["by_mix"]["mixed"]["4500"] == {"1200": 1}
+    assert sum(sum(sum(b.values()) for b in m.values()) for m in histogram["by_mix"].values()) == 3
+    restored = E8Diagnostics()
+    restored.load_state_dict(diagnostics.state_dict())
+    assert restored.snapshot() == diagnostics.snapshot()
+
+
 def _raw(**overrides):
     values = {
         "world_id": np.array([0]),

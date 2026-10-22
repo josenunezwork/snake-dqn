@@ -178,6 +178,9 @@ def _control(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **changes) -> Path
         "source_commit": "a" * 40,
         "scientific_admission": True,
         "registration_sha256": digest(Path(__file__).with_name("REGISTRATION_P1.md")),
+        "late_body_amendment_sha256": digest(
+            Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_02.md")
+        ),
         "evaluation_round": 0,
         "evaluation_bank_sha256": bank["allocation_sha256"],
         "evaluation_audit_sha256": digest(audit),
@@ -194,6 +197,15 @@ def test_real_shaped_source_control_accepts_frozen_bank(tmp_path, monkeypatch) -
 
     control = _load_control(_control(tmp_path, monkeypatch), "y3-source")
     assert control["worlds"] == 128 and len(control["evaluation_excluded_seeds"]) == 384
+
+
+def test_source_control_refuses_unbound_late_body_amendment(tmp_path, monkeypatch) -> None:
+    from research.bl_ppo.p1_runtime import _load_control
+
+    with pytest.raises(ValueError, match="late-body amendment"):
+        _load_control(
+            _control(tmp_path, monkeypatch, late_body_amendment_sha256="0" * 64), "y3-source"
+        )
 
 
 @pytest.mark.parametrize("changes", [{"processes": 6}, {"seed": 7}, {"worlds": 2}])

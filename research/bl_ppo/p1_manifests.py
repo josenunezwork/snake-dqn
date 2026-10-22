@@ -127,6 +127,7 @@ def _source_identity(commit: str) -> dict[str, str]:
         "P1_BANK_PIN.json",
         "E8_AMENDMENT.md",
         "E8_LATE_BODY_AMENDMENT.md",
+        "E8_LATE_BODY_AMENDMENT_02.md",
         "collector.py",
         "late_body.py",
         "model.py",
@@ -134,6 +135,9 @@ def _source_identity(commit: str) -> dict[str, str]:
         "run.py",
         "recovery.py",
         "refit.py",
+        "diagnostics.py",
+        "offline_critic_diagnostic.py",
+        "exports.py",
         "p1_runtime.py",
         "p1_contract.py",
         "p1_eval.py",
@@ -222,11 +226,22 @@ def prepare(
         blockers.append(f"HOLD: {hold_reason}")
     prerequisites: dict[str, Any] = {}
     if phase == "y3-source":
-        estimate, timeout, cap, pause = 65, 130, 6.0, 0
+        # Round-14: source-02 consumed 1.6u of the shared Y3 8u envelope.
+        # Prior L4 source took 49min; reserve ~25min for the single support
+        # continuation. This is a forecast, never a measured complete-job rate.
+        estimate, timeout, cap, pause = 75, 150, 6.4, 0
         blockers.append("independent Codex-V review before dispatch")
+        blockers.append(
+            "Claude: reconcile source-02 debit (1.6u) and all later Y3 attempts; "
+            "source plus replacement must stay within original 8u Y3 envelope"
+        )
     elif phase == "y3-replacement":
         estimate, timeout, cap, pause = 20, 40, 2.0, 0
         blockers.append("Claude: source terminal receipt and distinct replacement identity")
+        blockers.append(
+            "Claude: reprice replacement from actual residual Y3 envelope "
+            "after source-02 and source-latebody-02, never a new 2u allowance"
+        )
     elif phase == "qual-1m":
         estimate, timeout, cap, pause = 40, 80, 4.0, QUAL_PAUSE
         if evidence:
@@ -282,6 +297,7 @@ def prepare(
         "max_snapshot_bytes": 167772160,
         "source_commit": commit,
         "registration_sha256": identity["research/bl_ppo/REGISTRATION_P1.md"],
+        "late_body_amendment_sha256": identity["research/bl_ppo/E8_LATE_BODY_AMENDMENT_02.md"],
         "resume_name": resume_name,
         "expected_trace_name": expected_trace_name,
         "prerequisites": prerequisites,

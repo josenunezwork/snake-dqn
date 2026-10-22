@@ -65,6 +65,15 @@ def _load_control(path: Path, phase: str) -> dict[str, Any]:
     registration_path = Path(__file__).with_name("REGISTRATION_P1.md")
     if not registration_path.is_file() or digest(registration_path) != registration:
         raise ValueError("runtime registration bytes differ from the frozen control digest")
+    amendment = value.get("late_body_amendment_sha256")
+    amendment_path = Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_02.md")
+    if (
+        not isinstance(amendment, str)
+        or len(amendment) != 64
+        or not amendment_path.is_file()
+        or digest(amendment_path) != amendment
+    ):
+        raise ValueError("runtime late-body amendment bytes differ from the frozen control")
     excluded = value.get("evaluation_excluded_seeds", ())
     bank_sha = value.get("evaluation_bank_sha256")
     if (

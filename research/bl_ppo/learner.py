@@ -309,11 +309,13 @@ class PPOLearner:
         baseline_mse = (baseline - y).square().mean()
         variance = (y - y.mean()).square().mean()
         explained_variance = 1.0 - (prediction - y).var(unbiased=False) / variance.clamp_min(1e-8)
+        bias = (prediction - y).mean()
         return {
             "late_body_rows": float(y.numel()),
             "explained_variance": float(explained_variance),
             "mse": float(mse),
             "baseline_mse": float(baseline_mse),
+            "bias": float(bias),
             "passed": float(explained_variance >= 0.1 and mse < baseline_mse),
         }
 

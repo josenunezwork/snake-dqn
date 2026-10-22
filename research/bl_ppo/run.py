@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import io
 import json
 import os
 import signal
@@ -20,10 +21,11 @@ from typing import Any
 import numpy as np
 
 from research.bl_ppo import p1_contract
-from research.bl_ppo.exports import digest, export_json, export_torch, verify_export
+from research.bl_ppo.exports import digest, export_bytes, export_json, export_torch, verify_export
 
 HORIZON = 5000
 CRITIC_REFIT_TRANSITIONS = 2_000_000
+MAX_CRITIC_REFIT_FIT_TRANSITIONS = 4_000_000
 SNAPSHOT_MAX_BYTES = 160 * 1024**2
 E4_SCHEMA = "bl-ppo-e4-ruler/v1"
 STATUS_SCHEMA = "bl-ppo-training-status/v1"
@@ -466,7 +468,7 @@ def _identity(args: argparse.Namespace, temperature: float) -> dict[str, Any]:
             p1_registration_sha256=args.p1_registration_sha256,
             p1_evaluation_bank_sha256=args.p1_evaluation_bank_sha256,
             e8_late_body_amendment_sha256=digest(
-                Path(__file__).with_name("E8_LATE_BODY_AMENDMENT.md")
+                Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_02.md")
             ),
             late_body_support=support_identity(excluded, horizon=HORIZON),
         )
@@ -535,8 +537,97 @@ def _record_fixed_bank_monitor(
     }
     adapter.fixed_bank_reports.append(report)
     export_json(args.output / f"monitor-{len(adapter.fixed_bank_reports):04d}.json", report)
+    if getattr(args, "p1_runtime", False):
+        refit = getattr(adapter, "refit_bank", None)
+        if refit is None:
+            raise ValueError("P1 monitor lacks its natural late-body bank")
+        tick = {
+            "schema": STATUS_SCHEMA,
+            "status": "RUNNING",
+            "monitor_index": len(adapter.fixed_bank_reports),
+            "counters": dict(counters),
+            "e8_diagnostics": adapter.diagnostics.snapshot(),
+            "late_body_support": {
+                "fit": refit.natural_support("fit"),
+                "holdout": refit.natural_support("holdout"),
+                "fit_by_provenance_mix_length_horizon": refit.support_table("fit"),
+                "holdout_by_provenance_mix_length_horizon": refit.support_table("holdout"),
+            },
+        }
+        # Create-only tick directories retain a monitor-time status snapshot
+        # without overwriting the terminal root training-status.json receipt.
+        export_json(
+            args.output / f"monitor-{len(adapter.fixed_bank_reports):04d}" / "training-status.json",
+            tick,
+        )
     if not endpoint:
         adapter.next_monitor_transition += 1_000_000
+
+
+def _export_late_body_rows(output: Path, bank: Any) -> dict[str, Any]:
+    """Export every retained natural completed row in bounded immutable NPZ chunks.
+
+    The registered offline diagnostic needs both fit and held-out rows, but a
+    single 10k-row feature matrix can exceed the amendment's 10 MB transport
+    limit.  Chunks preserve every row and are bound by one create-only index.
+    Fixture rows cannot enter this path because ``diagnostic_rows`` is natural
+    only by contract.
+    """
+    rows = {split: bank.diagnostic_rows(split) for split in ("fit", "holdout")}
+    chunk_size = 1_500
+    counts = {split: int(rows[split]["returns"].numel()) for split in rows}
+    chunks: list[dict[str, Any]] = []
+    total = max(counts.values(), default=0)
+    for start in range(0, total or 1, chunk_size):
+        payload: dict[str, Any] = {}
+        included = 0
+        for split in ("fit", "holdout"):
+            stop = max(start, min(start + chunk_size, counts[split]))
+            selected = slice(start, stop)
+            features = rows[split]["features257"][selected].numpy()
+            prefix = "heldout" if split == "holdout" else split
+            payload[f"{prefix}_features"] = np.asarray(features, dtype=np.float32).reshape(-1, 257)
+            payload[f"{prefix}_returns"] = np.asarray(
+                rows[split]["returns"][selected], dtype=np.float32
+            )
+            payload[f"{prefix}_lengths"] = np.asarray(
+                rows[split]["lengths"][selected], dtype=np.float32
+            )
+            payload[f"{prefix}_mixes"] = np.asarray(rows[split]["mixes"][selected], dtype="U16")
+            payload[f"{prefix}_provenance"] = np.asarray(
+                rows[split]["provenance"][selected], dtype="U16"
+            )
+            payload[f"{prefix}_world_ids"] = np.asarray(
+                rows[split]["world_ids"][selected], dtype=np.int64
+            )
+            payload[f"{prefix}_life_ids"] = np.asarray(
+                rows[split]["life_ids"][selected], dtype=np.int64
+            )
+            included += stop - start
+        buffer = io.BytesIO()
+        np.savez_compressed(buffer, **payload)
+        if buffer.tell() > 10_000_000:
+            raise ValueError("late-body sidecar chunk exceeds the 10 MB amendment bound")
+        path = output / f"late-body-rows-{len(chunks):04d}.npz"
+        metadata = export_bytes(path, buffer.getvalue())
+        chunks.append(
+            {
+                "path": path.name,
+                "sha256": metadata["sha256"],
+                "size_bytes": metadata["size"],
+                "rows": included,
+            }
+        )
+    index = {
+        "schema": "bl-ppo-late-body-rows/v1",
+        "natural_only": True,
+        "feature_width": 257,
+        "fit_rows": counts["fit"],
+        "heldout_rows": counts["holdout"],
+        "chunks": chunks,
+    }
+    metadata = export_json(output / "late-body-rows-index.json", index)
+    return {"index": Path(metadata["path"]).name, "sha256": metadata["sha256"], **index}
 
 
 def run_train(args: argparse.Namespace) -> dict[str, Any]:
@@ -644,9 +735,14 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     from research.bl_ppo.refit import CompleteLifeRefitBank
 
     refit_bank = CompleteLifeRefitBank()
+    fixture_bank = CompleteLifeRefitBank() if p1_runtime else None
     # recovery captures adapter state verbatim at complete-rollout boundaries;
     # retain unfinished lives and completed held-out evidence with that state.
     adapter.refit_bank = refit_bank
+    # The 12 constructed lives are immutable diagnostic evidence only.  Keep
+    # their open-life state and retained rows out of the natural gate bank so a
+    # future caller cannot accidentally pool them into PopArt or the baseline.
+    adapter.fixture_late_body_bank = fixture_bank
     adapter.diagnostics = E8Diagnostics(require_fixed_bank=not args.preflight)
     adapter.ordinary_bank = FixedOrdinaryBank(seed=args.seed)
     adapter.next_monitor_transition = 1_000_000
@@ -697,6 +793,9 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         if not isinstance(refit_bank, CompleteLifeRefitBank):
             raise ValueError("E8 resume lacks complete-life critic qualification state")
         fixed_late_support = getattr(adapter, "fixed_late_support", fixed_late_support)
+        fixture_bank = getattr(adapter, "fixture_late_body_bank", fixture_bank)
+        if p1_runtime and not isinstance(fixture_bank, CompleteLifeRefitBank):
+            raise ValueError("P1 resume lacks quarantined fixture diagnostic state")
     counters.setdefault("actor_updates", 0)
     counters.setdefault("actor_episode_boundaries", 0)
     actor_updates_at_start = int(counters.get("actor_updates", 0))
@@ -737,7 +836,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 support_adapter = PersistentPolicyAdapter(copy.deepcopy(policy), args.device)
                 fixed_late_support = collect_fixed_late_body_holdout(
                     support_adapter,
-                    refit_bank,
+                    fixture_bank,
                     excluded_seeds=fixture_exclusions,
                     horizon=HORIZON,
                     should_stop=lambda: requested_stop["value"],
@@ -805,6 +904,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 ),
                 rewards=torch.as_tensor(raw.reward),
                 terminals=torch.as_tensor(raw.done),
+                mixes=[str(value) for value in np.asarray(raw.mix)],
             )
             counters["hero_transitions"] += int(raw.active_transitions)
             counters["critic_refit_transitions"] += int(raw.active_transitions)
@@ -850,8 +950,8 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             and counters["critic_refit_fit_transitions"] >= CRITIC_REFIT_TRANSITIONS
             and not counters.get("actor_enabled")
         ):
-            natural_late = sum(refit_bank.late_support_by_source("fit").values())
-            if natural_late == 0:
+            natural_fit_support = refit_bank.natural_support("fit")
+            if not bool(natural_fit_support["meets_minimum"]):
                 from research.bl_ppo.late_body import collect_refit_late_supplement
 
                 supplement_config = CollectorConfig(
@@ -883,10 +983,95 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 supplement = {"used": True, **result}
                 counters["critic_refit_supplement_seconds"] = time.monotonic() - supplement_started
                 counters["critic_refit_supplement_transitions"] = result["transitions"]
-                if sum(refit_bank.late_support_by_source("fit").values()) == 0:
-                    raise ValueError(
-                        "bounded P1 refit support supplement retained no L>=800 fit row"
+        support_continuation = {
+            "used": False,
+            "status": "NOT_NEEDED",
+            "initial_fit": refit_bank.natural_support("fit") if p1_runtime else None,
+            "initial_holdout": refit_bank.natural_support("holdout") if p1_runtime else None,
+        }
+        if (
+            p1_runtime
+            and not args.preflight
+            and status == "RUNNING"
+            and not requested_stop["value"]
+            and not counters.get("actor_enabled")
+        ):
+            initial_ready = bool(
+                support_continuation["initial_fit"]["meets_minimum"]
+                and support_continuation["initial_holdout"]["meets_minimum"]
+            )
+            if not initial_ready:
+                # This is the one support-only continuation.  Its ceiling
+                # includes predeclared supplemental fit rows, so neither
+                # constructed work nor an accuracy outcome can buy another
+                # natural collection pass.
+                supplement_fit = int(supplement.get("fit_target_transitions", 0))
+                natural_cap = MAX_CRITIC_REFIT_FIT_TRANSITIONS - supplement_fit
+                support_continuation.update(
+                    used=True,
+                    status="INSUFFICIENT_LATE_BODY_SUPPORT",
+                    natural_fit_transition_cap=natural_cap,
+                    supplement_fit_transitions=supplement_fit,
+                )
+                fit_per_step = int((np.arange(args.worlds, dtype=np.int64) % 5 != 0).sum())
+                while (
+                    counters["critic_refit_fit_transitions"] < natural_cap
+                    and not requested_stop["value"]
+                ):
+                    remaining_fit = natural_cap - counters["critic_refit_fit_transitions"]
+                    steps = min(args.rollout_steps, remaining_fit // fit_per_step)
+                    if steps <= 0:
+                        break
+                    raw = collector.collect(adapter, steps=steps)
+                    counters["collection_seconds"] += raw.wall_seconds
+                    learning_started = time.monotonic()
+                    rollout = adapter.take_rollout(raw, collector.peek())
+                    refit_bank.add_batch(
+                        world_ids=torch.as_tensor(raw.world_id),
+                        critic_features=adapter.last_critic_features.transpose(0, 1).reshape(
+                            -1, 257
+                        ),
+                        lengths=torch.as_tensor(raw.length),
+                        remaining_horizon=torch.as_tensor(
+                            (HORIZON - raw.frame.astype(np.float32)) / HORIZON
+                        ),
+                        rewards=torch.as_tensor(raw.reward),
+                        terminals=torch.as_tensor(raw.done),
+                        mixes=[str(value) for value in np.asarray(raw.mix)],
                     )
+                    counters["hero_transitions"] += int(raw.active_transitions)
+                    counters["critic_refit_transitions"] += int(raw.active_transitions)
+                    counters["critic_refit_fit_transitions"] += int((raw.world_id % 5 != 0).sum())
+                    events = adapter.action_windows.observe(
+                        adapter.last_actions, adapter.last_b8_actions
+                    )
+                    adapter.diagnostics.observe(
+                        raw,
+                        actions=adapter.last_actions.transpose(0, 1).reshape(-1),
+                        b8_actions=adapter.last_b8_actions.transpose(0, 1).reshape(-1),
+                    )
+                    if events:
+                        tripwires.extend(events)
+                        status = "KILL"
+                        break
+                    learner.update(rollout, actor_enabled=False)
+                    adapter.refresh_hidden()
+                    counters["learner_seconds"] += time.monotonic() - learning_started
+                    counters["updates"] += 1
+                    if counters["hero_transitions"] >= adapter.next_monitor_transition:
+                        _record_fixed_bank_monitor(adapter, policy, args, counters)
+                    print(
+                        json.dumps({"progress": counters, "phase": "late_body_continuation"}),
+                        flush=True,
+                    )
+                support_continuation["final_fit"] = refit_bank.natural_support("fit")
+                support_continuation["final_holdout"] = refit_bank.natural_support("holdout")
+                support_continuation["status"] = (
+                    "SUPPORT_ESTABLISHED"
+                    if bool(support_continuation["final_fit"]["meets_minimum"])
+                    and bool(support_continuation["final_holdout"]["meets_minimum"])
+                    else "NOT_READY(P1 support)"
+                )
         critic_refit = getattr(adapter, "critic_refit_receipt", None)
         if args.preflight:
             critic_refit = {
@@ -900,12 +1085,42 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             }
             adapter.critic_refit_receipt = critic_refit
         elif not (counters.get("actor_enabled") and isinstance(critic_refit, dict)):
-            # `qualify_critic` owns the held-out late-body EV/baseline gate.
+            # The support decision is made before this one evaluation.  Even a
+            # missing/failed complete-target fit must retain numeric refusal
+            # evidence rather than erasing the diagnostic rows and counts.
+            fit_error = None
             try:
                 refit_bank.fit_complete_targets(learner)
-                critic_metrics = refit_bank.qualification(learner)
             except ValueError as exc:
-                critic_metrics = {"passed": False, "error": str(exc)}
+                fit_error = str(exc)
+            try:
+                critic_metrics = refit_bank.qualification(
+                    learner, require_support_minimum=p1_runtime
+                )
+            except ValueError as exc:
+                critic_metrics = {
+                    "passed": False,
+                    "accuracy_passed": False,
+                    "late_body_rows": float(refit_bank.natural_support("holdout")["late_rows"]),
+                    "explained_variance": 0.0,
+                    "mse": 0.0,
+                    "baseline_mse": 0.0,
+                    "bias": 0.0,
+                    "metrics_available": False,
+                    "status": "NOT_READY(P1 support)" if p1_runtime else "CRITIC_QUALITY_REFUSAL",
+                    "error": str(exc),
+                }
+            if counters["critic_refit_fit_transitions"] < CRITIC_REFIT_TRANSITIONS:
+                critic_metrics["passed"] = False
+                critic_metrics["status"] = "INCOMPLETE_CRITIC_REFIT_PREFIX"
+            if fit_error is not None:
+                critic_metrics["passed"] = False
+                critic_metrics["status"] = "INCOMPLETE_CRITIC_REFIT_FIT"
+            fixture_metrics = (
+                refit_bank.score_fixture_holdout(learner, fixture_bank)
+                if p1_runtime and isinstance(fixture_bank, CompleteLifeRefitBank)
+                else None
+            )
             critic_refit = {
                 "required_transitions": CRITIC_REFIT_TRANSITIONS,
                 "observed_transitions": counters["critic_refit_transitions"],
@@ -917,22 +1132,41 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                     "baseline_explained_variance": None,
                     "mse": critic_metrics.get("mse"),
                     "baseline_mse": critic_metrics.get("baseline_mse"),
-                    "beats_baseline": bool(critic_metrics.get("passed", False)),
+                    "bias": critic_metrics.get("bias"),
+                    "metrics_available": bool(critic_metrics.get("metrics_available", False)),
+                    "beats_baseline": bool(critic_metrics.get("metrics_available", False))
+                    and float(critic_metrics["mse"]) < float(critic_metrics["baseline_mse"]),
                 },
-                "qualified": bool(critic_metrics.get("passed", False)),
-                "fit_support": critic_metrics.get("fit_support"),
-                "holdout_support": critic_metrics.get("holdout_support"),
+                "qualified": bool(critic_metrics.get("passed", False)) and fit_error is None,
+                "status": critic_metrics.get("status"),
+                "fit_support": refit_bank.natural_support("fit"),
+                "holdout_support": refit_bank.natural_support("holdout"),
                 "late_body_support": {
-                    "fixed_holdout": fixed_late_support,
-                    "fit_late_by_source": refit_bank.late_support_by_source("fit"),
-                    "holdout_late_by_source": refit_bank.late_support_by_source("holdout"),
+                    "fixture_late_body": fixed_late_support,
+                    "fixture_diagnostic": fixture_metrics,
+                    "fixture_by_provenance_mix_length_horizon": (
+                        fixture_bank.support_table("holdout")
+                        if isinstance(fixture_bank, CompleteLifeRefitBank)
+                        else []
+                    ),
+                    "fit_by_provenance_mix_length_horizon": refit_bank.support_table("fit"),
+                    "holdout_by_provenance_mix_length_horizon": refit_bank.support_table("holdout"),
                     "completed_rows_by_source": refit_bank.source_counts(),
                     "refit_support_supplement": supplement,
+                    "support_continuation": support_continuation,
                 },
-                **({"error": critic_metrics["error"]} if "error" in critic_metrics else {}),
+                **(
+                    {
+                        "error": "; ".join(
+                            part for part in (fit_error, critic_metrics.get("error")) if part
+                        )
+                    }
+                    if fit_error or "error" in critic_metrics
+                    else {}
+                ),
             }
             adapter.critic_refit_receipt = critic_refit
-        if not args.preflight and not bool(critic_refit["qualified"]):
+        if status == "RUNNING" and not args.preflight and not bool(critic_refit["qualified"]):
             status = "INCOMPLETE"
         counters["actor_enabled"] = status == "RUNNING"
         while (
@@ -1134,6 +1368,49 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         close = getattr(collector, "close", None)
         if close:
             close()
+    late_body_rows_export = None
+    late_body_rows_export_error = None
+    if p1_runtime:
+        try:
+            late_body_rows_export = _export_late_body_rows(args.output, refit_bank)
+        except (OSError, ValueError) as exc:
+            late_body_rows_export_error = str(exc)
+            if status != "KILL":
+                status = "INCOMPLETE"
+    if p1_runtime and not isinstance(locals().get("critic_refit"), dict):
+        # An interrupted fixture/supplement phase still leaves a reviewable,
+        # explicitly unavailable numeric gate record.  Never let an early
+        # operational failure erase the natural/fixture provenance ledger.
+        critic_refit = {
+            "required_transitions": CRITIC_REFIT_TRANSITIONS,
+            "observed_transitions": counters["critic_refit_transitions"],
+            "observed_fit_transitions": counters["critic_refit_fit_transitions"],
+            "popart": True,
+            "heldout_late_body": {
+                "count": int(refit_bank.natural_support("holdout")["late_rows"]),
+                "explained_variance": 0.0,
+                "baseline_explained_variance": None,
+                "mse": 0.0,
+                "baseline_mse": 0.0,
+                "bias": 0.0,
+                "metrics_available": False,
+                "beats_baseline": False,
+            },
+            "qualified": False,
+            "status": "NOT_READY(P1 support)",
+            "fit_support": refit_bank.natural_support("fit"),
+            "holdout_support": refit_bank.natural_support("holdout"),
+            "late_body_support": {
+                "fixture_late_body": fixed_late_support,
+                "fixture_by_provenance_mix_length_horizon": (
+                    fixture_bank.support_table("holdout")
+                    if isinstance(fixture_bank, CompleteLifeRefitBank)
+                    else []
+                ),
+                "fit_by_provenance_mix_length_horizon": refit_bank.support_table("fit"),
+                "holdout_by_provenance_mix_length_horizon": refit_bank.support_table("holdout"),
+            },
+        }
     value = {
         "schema": STATUS_SCHEMA,
         "arm": args.arm,
@@ -1149,9 +1426,13 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             "charged_simulator_transitions": counters.get("monitor_simulator_transitions", 0),
         },
         "counters": counters,
-        "critic_refit": critic_refit if "critic_refit" in locals() else None,
+        "critic_refit": critic_refit if isinstance(locals().get("critic_refit"), dict) else None,
+        "late_body_rows_sidecar": late_body_rows_export,
+        "late_body_rows_sidecar_error": late_body_rows_export_error,
         "critic_qualified": (
-            bool(critic_refit.get("qualified", False)) if "critic_refit" in locals() else False
+            bool(critic_refit.get("qualified", False))
+            if isinstance(locals().get("critic_refit"), dict)
+            else False
         ),
         "target_transitions": transitions,
         "pause_at": pause_at,
@@ -1176,7 +1457,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                     if status == "PAUSED"
                     else (
                         "critic_not_qualified"
-                        if status == "INCOMPLETE" and "critic_refit" in locals()
+                        if status == "INCOMPLETE" and isinstance(locals().get("critic_refit"), dict)
                         else status.lower()
                     )
                 )

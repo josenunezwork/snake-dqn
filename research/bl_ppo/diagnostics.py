@@ -118,6 +118,11 @@ class E8Diagnostics:
         self.transitions = 0
         self.occupancy = {mix: _zero_occupancy() for mix in MIXES}
         self.long_body_exposure = {mix: 0 for mix in MIXES}
+        # Natural hero decisions only. Sparse length bins stay bounded by arena
+        # capacity; 500-frame bins expose late crowding without storing rows.
+        self.length_histogram_by_frame = {
+            mix: {str(start): {} for start in range(0, self.horizon, 500)} for mix in MIXES
+        }
         self.departures = _zero_deciles()
         self._pending_departures: dict[int, list[int]] = {}
         self.drift = {
@@ -304,6 +309,9 @@ class E8Diagnostics:
             life = self._life(world, episode)
             self.transitions += 1
             self.occupancy[mix][_length_bin(length)][_frame_bin(frame)] += 1
+            histogram = self.length_histogram_by_frame[mix][str((frame // 500) * 500)]
+            length_bucket = str(min(length // 100 * 100, 12000))
+            histogram[length_bucket] = histogram.get(length_bucket, 0) + 1
             if length >= 800:
                 self.long_body_exposure[mix] += 1
             departed = int(action) != int(b8)
@@ -465,6 +473,13 @@ class E8Diagnostics:
             ),
             "occupancy": copy.deepcopy(self.occupancy),
             "long_body_exposure": dict(self.long_body_exposure),
+            "hero_length_histogram_by_frame": {
+                "frame_bucket_width": 500,
+                "length_bucket_width": 100,
+                "length_overflow_bucket": 12000,
+                "bucket_intervals": "[start,start+width); length >=12000 in overflow",
+                "by_mix": copy.deepcopy(self.length_histogram_by_frame),
+            },
             "realised_departures_by_length_decile": departures,
             "fixed_ordinary_bank_drift_by_length_decile": drift,
             "non_greedy_runs_at_l_ge_800": runs,
@@ -509,6 +524,14 @@ class E8Diagnostics:
         self.transitions = _finite_int(report.get("transitions"), "transitions")
         self.occupancy = copy.deepcopy(report["occupancy"])
         self.long_body_exposure = copy.deepcopy(report["long_body_exposure"])
+        histogram = report.get("hero_length_histogram_by_frame")
+        if histogram is not None:
+            if (
+                histogram.get("frame_bucket_width") != 500
+                or histogram.get("length_bucket_width") != 100
+            ):
+                raise ValueError("invalid recovered histogram buckets")
+            self.length_histogram_by_frame = copy.deepcopy(histogram["by_mix"])
         self.departures = copy.deepcopy(report["realised_departures_by_length_decile"])
         for row in self.departures.values():
             row.pop("departure_rate", None)
