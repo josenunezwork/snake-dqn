@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 
 from research.bl_density.runner import (
@@ -134,6 +136,137 @@ def test_density_two_namespaces_are_disjoint_from_all_pilot_worlds() -> None:
     assert not (production & preflight)
     assert not (canary & preflight)
     assert_density2_seed_separation()
+
+
+def test_verified_skip_ledger_removes_only_frozen_allocation_ids(tmp_path: object) -> None:
+    from pathlib import Path
+
+    from research.bl_density.ledger import SCHEMA
+    from research.bl_density.runner import NAMESPACE, _load_skip_ledger, _seed
+
+    path = Path(str(tmp_path)) / "ledger.json"
+    jobs = [
+        {
+            "namespace": NAMESPACE,
+            "arm": "A",
+            "mix": "scripted",
+            "index": 0,
+            "plan": {"seed": _seed("A", "scripted", 0)},
+        },
+        {
+            "namespace": NAMESPACE,
+            "arm": "A",
+            "mix": "scripted",
+            "index": 1,
+            "plan": {"seed": _seed("A", "scripted", 1)},
+        },
+    ]
+    path.write_text(
+        json.dumps(
+            {
+                "schema": SCHEMA,
+                "namespace": NAMESPACE,
+                "entries": [
+                    {
+                        "episode_id": f"{NAMESPACE}/A/scripted/000",
+                        "sha256": "a" * 64,
+                        "size": 1,
+                    }
+                ],
+            }
+        )
+    )
+    skipped, _ = _load_skip_ledger(path, namespace=NAMESPACE, jobs=jobs)
+    assert skipped == {f"{NAMESPACE}/A/scripted/000"}
+    assert jobs[0]["plan"]["seed"] == _seed("A", "scripted", 0)
+
+
+def test_skip_ledger_rejects_foreign_or_duplicate_ids(tmp_path: object) -> None:
+    from pathlib import Path
+
+    import pytest
+
+    from research.bl_density.ledger import SCHEMA
+    from research.bl_density.runner import NAMESPACE, _load_skip_ledger
+
+    path = Path(str(tmp_path)) / "ledger.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": SCHEMA,
+                "namespace": NAMESPACE,
+                "entries": [
+                    {
+                        "episode_id": f"{NAMESPACE}/A/scripted/999",
+                        "sha256": "a" * 64,
+                        "size": 1,
+                    }
+                ],
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="out-of-allocation"):
+        _load_skip_ledger(path, namespace=NAMESPACE, jobs=[])
+
+
+def test_allocation_minus_408_entry_ledger_is_exactly_84_and_preserves_seeds(
+    tmp_path: object,
+) -> None:
+    from pathlib import Path
+
+    from research.bl_density.ledger import SCHEMA
+    from research.bl_density.runner import DENSITY2_ALLOCATION, NAMESPACE, _load_skip_ledger, _seed
+
+    jobs = [
+        {
+            "namespace": NAMESPACE,
+            "arm": arm,
+            "mix": mix,
+            "index": index,
+            "plan": {"seed": _seed(arm, mix, index)},
+        }
+        for arm, by_mix in DENSITY2_ALLOCATION.items()
+        for mix, count in by_mix.items()
+        for index in range(count)
+    ]
+    missing = {
+        f"{NAMESPACE}/C-P1/{mix}/{index:03d}"
+        for mix in ("frozen", "mixed", "scripted")
+        for index in range(24)
+    } | {f"{NAMESPACE}/B70p/mixed/{index:03d}" for index in (22, *range(25, 36))}
+    ledger = {
+        "schema": SCHEMA,
+        "namespace": NAMESPACE,
+        "entries": [
+            {"episode_id": _id, "sha256": "a" * 64, "size": 1}
+            for _id in sorted(
+                {f"{job['namespace']}/{job['arm']}/{job['mix']}/{job['index']:03d}" for job in jobs}
+                - missing
+            )
+        ],
+    }
+    path = Path(str(tmp_path)) / "real-shape-ledger.json"
+    path.write_text(json.dumps(ledger))
+    skipped, _ = _load_skip_ledger(path, namespace=NAMESPACE, jobs=jobs)
+    remaining = [
+        job
+        for job in jobs
+        if f"{job['namespace']}/{job['arm']}/{job['mix']}/{job['index']:03d}" not in skipped
+    ]
+    assert len(skipped) == 408
+    assert len(remaining) == 84
+    assert {
+        f"{job['namespace']}/{job['arm']}/{job['mix']}/{job['index']:03d}" for job in remaining
+    } == missing
+    assert _seed("B70p", "mixed", 22) == remaining[0]["plan"]["seed"]
+
+
+def test_partial_records_are_never_exported_to_ledger_eligible_directories() -> None:
+    from research.bl_density.runner import _export_group
+
+    assert _export_group("episodes", {"complete": True}) == "episodes"
+    assert _export_group("episodes", {"complete": False}) == "episodes-partial"
+    assert _export_group("episodes-replay", {"complete": False}) == "episodes-replay-partial"
 
 
 def test_terminal_a_floor_closes_rows_9_and_9a_without_extending_incomplete_runs() -> None:

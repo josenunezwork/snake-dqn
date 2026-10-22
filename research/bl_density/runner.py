@@ -24,6 +24,7 @@ from typing import Any, Iterator, Sequence
 
 import numpy as np
 
+from research.bl_density.ledger import SCHEMA as LEDGER_SCHEMA
 from research.bl_ppo.exports import export_json
 
 # The completed 90-episode pilot is sizing-only.  DENSITY-2 is an independent,
@@ -785,6 +786,42 @@ def planned_jobs(
     return jobs
 
 
+def _episode_id(job: dict[str, Any]) -> str:
+    """Return a job's immutable identity without executing an episode."""
+    return f"{job['namespace']}/{job['arm']}/{job['mix']}/{job['index']:03d}"
+
+
+def _load_skip_ledger(
+    path: Path, *, namespace: str, jobs: Sequence[dict[str, Any]]
+) -> tuple[set[str], str]:
+    """Validate metadata-only ledger entries against the frozen allocation."""
+    payload = json.loads(path.read_text())
+    if payload.get("schema") != LEDGER_SCHEMA or payload.get("namespace") != namespace:
+        raise ValueError("skip ledger schema or namespace does not match this run")
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("skip ledger entries must be a list")
+    allowed = {_episode_id(job) for job in jobs}
+    skipped: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError("skip ledger entry is malformed")
+        episode_id, digest, size = entry.get("episode_id"), entry.get("sha256"), entry.get("size")
+        if not isinstance(episode_id, str) or not isinstance(digest, str) or type(size) is not int:
+            raise ValueError("skip ledger entry lacks id/hash/size")
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise ValueError("skip ledger has invalid sha256")
+        if size < 1 or episode_id not in allowed or episode_id in skipped:
+            raise ValueError("skip ledger has duplicate or out-of-allocation episode")
+        skipped.add(episode_id)
+    return skipped, _sha(path)
+
+
+def _export_group(requested_group: str, record: dict[str, Any]) -> str:
+    """Keep unfinished units outside ledger-eligible completed export directories."""
+    return requested_group if bool(record.get("complete")) else f"{requested_group}-partial"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--b8", required=True, type=Path)
@@ -797,6 +834,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--arms", default=",".join(ARMS))
     parser.add_argument("--mixes", default=",".join(MIXES))
     parser.add_argument("--max-seconds", type=float, default=None)
+    parser.add_argument("--skip-ledger", type=Path)
+    parser.add_argument("--identity-replay", action="store_true")
     args = parser.parse_args(argv)
     if args.canary and args.tiny:
         raise SystemExit("--canary is already the fixed 12-episode tiny allocation")
@@ -824,7 +863,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SystemExit("production requires the fixed 10800-second work cap")
     if args.canary and (args.max_seconds is None or args.max_seconds > 1200):
         raise SystemExit("canary requires a finite work cap of at most 1200 seconds")
+    if args.identity_replay and (args.tiny or args.canary or args.skip_ledger is None):
+        raise SystemExit("identity replay requires a production verified skip ledger")
     binding = _verify_metrics()
+    runtime_commit = os.environ.get("BL_DENSITY_COMMIT", binding["metrics_commit"])
+    provenance_binding = {
+        **binding,
+        "metrics_science_commit": os.environ.get("BL_DENSITY_SCIENCE_COMMIT", runtime_commit),
+        "metrics_completion_amendment_sha256": os.environ.get(
+            "BL_DENSITY_COMPLETION_AMENDMENT_SHA256"
+        ),
+    }
     arms, mixes = tuple(args.arms.split(",")), tuple(args.mixes.split(","))
     if _sha(args.b8) != "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8":
         raise SystemExit("--b8 does not match the frozen B8 s3 checkpoint digest")
@@ -839,14 +888,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     args.out.mkdir(parents=True)
     started = time.monotonic()
     parent_cpu = time.process_time()
-    records = []
+    records: list[dict[str, Any]] = []
+    replay_records: list[dict[str, Any]] = []
     from research.redesign_scope_20261007 import grid_h5000_identity as gid
 
     assert_density2_seed_separation()
     namespace = (
         CANARY_NAMESPACE if args.canary else LOCAL_PREFLIGHT_NAMESPACE if args.tiny else NAMESPACE
     )
-    jobs = planned_jobs(
+    allocation_jobs = planned_jobs(
         gid._context(1),
         b8=args.b8,
         arms=arms,
@@ -857,6 +907,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         deadline=(started + args.max_seconds) if args.max_seconds is not None else None,
         namespace=namespace,
     )
+    skipped_ids: set[str] = set()
+    ledger_digest: str | None = None
+    if args.skip_ledger is not None:
+        try:
+            skipped_ids, ledger_digest = _load_skip_ledger(
+                args.skip_ledger, namespace=namespace, jobs=allocation_jobs
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"invalid --skip-ledger: {exc}") from exc
+    jobs = [job for job in allocation_jobs if _episode_id(job) not in skipped_ids]
+    replay_jobs = (
+        [job for job in allocation_jobs if job["arm"] == "A" and int(job["index"]) < 4]
+        if args.identity_replay
+        else []
+    )
+    work_items = [(job, "episodes") for job in jobs] + [
+        (job, "episodes-replay") for job in replay_jobs
+    ]
     child_before = (
         resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime
         + resource.getrusage(resource.RUSAGE_CHILDREN).ru_stime
@@ -864,15 +932,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=args.workers, mp_context=mp.get_context("spawn")
     ) as pool:
-        pending: dict[Any, dict[str, Any]] = {}
+        pending: dict[Any, tuple[dict[str, Any], str]] = {}
         cursor = 0
-        while cursor < len(jobs) or pending:
-            while cursor < len(jobs) and len(pending) < args.workers:
+        while cursor < len(work_items) or pending:
+            while cursor < len(work_items) and len(pending) < args.workers:
                 if args.max_seconds is not None and time.monotonic() - started >= args.max_seconds:
-                    cursor = len(jobs)
+                    cursor = len(work_items)
                     break
-                future = pool.submit(run_episode, jobs[cursor])
-                pending[future] = jobs[cursor]
+                job, export_group = work_items[cursor]
+                future = pool.submit(run_episode, job)
+                pending[future] = (job, export_group)
                 cursor += 1
             if not pending:
                 break
@@ -884,8 +953,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     json.dumps(
                         {
                             "event": "bl_density_progress",
-                            "completed": len(records),
-                            "scheduled": len(jobs),
+                            "completed": len(records) + len(replay_records),
+                            "scheduled": len(work_items),
                             "elapsed_seconds": time.monotonic() - started,
                         }
                     ),
@@ -893,22 +962,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 continue
             for future in done:
-                pending.pop(future)
+                _job, export_group = pending.pop(future)
                 record = future.result()
-                record.update(binding)
-                records.append(record)
+                record.update(provenance_binding)
+                (replay_records if export_group == "episodes-replay" else records).append(record)
                 export_json(
-                    args.out / "episodes" / f"{record['episode_id'].replace('/', '_')}.json", record
+                    args.out
+                    / _export_group(export_group, record)
+                    / f"{record['episode_id'].replace('/', '_')}.json",
+                    record,
                 )
                 elapsed = time.monotonic() - started
                 print(
                     json.dumps(
                         {
                             "event": "bl_density_progress",
-                            "completed": len(records),
-                            "scheduled": len(jobs),
+                            "completed": len(records) + len(replay_records),
+                            "scheduled": len(work_items),
                             "elapsed_seconds": elapsed,
-                            "eta_seconds": elapsed / len(records) * (len(jobs) - len(records)),
+                            "eta_seconds": elapsed
+                            / (len(records) + len(replay_records))
+                            * (len(work_items) - len(records) - len(replay_records)),
                         }
                     ),
                     flush=True,
@@ -916,16 +990,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Completion order is deliberately unconstrained by process scheduling;
     # every downstream descriptive calculation receives the fixed job order.
     records.sort(key=lambda record: str(record["episode_id"]))
+    replay_records.sort(key=lambda record: str(record["episode_id"]))
     status = (
         "COMPLETE"
-        if len(records) == len(jobs) and all(r["complete"] for r in records)
+        if len(records) == len(jobs)
+        and len(replay_records) == len(replay_jobs)
+        and all(r["complete"] for r in records + replay_records)
         else "INCOMPLETE"
     )
     child_after = (
         resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime
         + resource.getrusage(resource.RUSAGE_CHILDREN).ru_stime
     )
-    episode_cpu = sum(float(r["cpu_seconds"]) for r in records)
+    episode_cpu = sum(float(r["cpu_seconds"]) for r in records + replay_records)
     from research.bl_density.analysis import finalize_cpu, summarize
 
     # Fit/KS once, then charge its measured CPU before the lightweight repricing.
@@ -938,6 +1015,67 @@ def main(argv: Sequence[str] | None = None) -> int:
     end_to_end_cpu = parent_total_cpu + child_after
     overhead = max(0.0, end_to_end_cpu - episode_cpu)
     analysis = finalize_cpu(analysis, records, overhead)
+    attempted = len(records) + len(replay_records)
+    attempt = {
+        "schema": "bl-density-attempt/v1",
+        "namespace": namespace,
+        "b8_sha256": _sha(args.b8),
+        **provenance_binding,
+        "status": status,
+        "allocated_episodes": len(allocation_jobs),
+        "skipped_episodes": len(skipped_ids),
+        "skipped_episode_ids": sorted(skipped_ids),
+        "skip_ledger_sha256": ledger_digest,
+        "planned_episodes": len(jobs),
+        "replay_episodes": len(replay_jobs),
+        "attempted_episode_count": attempted,
+        "skip_ledger": (
+            None
+            if ledger_digest is None
+            else {"schema": LEDGER_SCHEMA, "sha256": ledger_digest, "entry_count": len(skipped_ids)}
+        ),
+        "identity_replay": {
+            "enabled": bool(args.identity_replay),
+            "episode_ids": [record["episode_id"] for record in replay_records],
+            "export_subdir": "episodes-replay",
+        },
+        "completed_primary_episode_ids": [
+            record["episode_id"] for record in records if record["complete"]
+        ],
+        "partial_primary_episode_ids": [
+            record["episode_id"] for record in records if not record["complete"]
+        ],
+        "completed_replay_episode_ids": [
+            record["episode_id"] for record in replay_records if record["complete"]
+        ],
+        "partial_replay_episode_ids": [
+            record["episode_id"] for record in replay_records if not record["complete"]
+        ],
+        "partial_episode_cpu_seconds": [
+            {
+                "episode_id": record["episode_id"],
+                "kind": "primary",
+                "cpu_seconds": float(record["cpu_seconds"]),
+            }
+            for record in records
+            if not record["complete"]
+        ]
+        + [
+            {
+                "episode_id": record["episode_id"],
+                "kind": "replay",
+                "cpu_seconds": float(record["cpu_seconds"]),
+            }
+            for record in replay_records
+            if not record["complete"]
+        ],
+        "attempt_cpu_overhead_seconds": overhead,
+        "attempt_cpu_overhead_per_attempted_episode_seconds": (
+            overhead / attempted if attempted else None
+        ),
+        "overhead_attribution": "completion overhead is charged equally per attempted episode",
+    }
+    export_json(args.out / "attempt.json", attempt)
     summary = {
         "schema": "bl-density-run/v2",
         "status": status,
@@ -948,10 +1086,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "densification_closure": _densification_closure(
             analysis, status, production=not args.tiny and not args.canary
         ),
-        **binding,
+        **provenance_binding,
         "b8_sha256": _sha(args.b8),
-        "scheduled_episodes": len(jobs),
+        "scheduled_episodes": len(allocation_jobs),
         "completed_episodes": len(records),
+        "skipped_episodes": len(skipped_ids),
+        "skipped_episode_ids": sorted(skipped_ids),
+        "skip_ledger_sha256": ledger_digest,
+        "replay_episodes": len(replay_records),
         "records": [r["episode_id"] for r in records],
         "parent_analysis_cpu_seconds": analysis_cpu,
         "parent_cpu_seconds": parent_total_cpu,

@@ -92,6 +92,25 @@ def test_real_sidecar_gate_and_pinned_runtime_proof(tmp_path: Path) -> None:
         verify_proof(path, "c" * 40, "b" * 64)
 
 
+def test_ordinary_canary_accepts_the_runner_attempt_export_when_receipted(tmp_path: Path) -> None:
+    """The new runner writes attempt metadata while legacy recovered canaries did not."""
+    manifest = _fixture(tmp_path)
+    attempt = tmp_path / "exports/density/attempt.json"
+    export_json(attempt, {"schema": "bl-density-attempt/v1", "status": "COMPLETE"})
+    entry = {
+        "path": "density/attempt.json",
+        "size": attempt.stat().st_size,
+        "sha256": digest(attempt),
+    }
+    receipt_path = tmp_path / "receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["exports"].append(entry)
+    receipt["terminal"]["exports"].append(entry)
+    receipt_path.write_text(json.dumps(receipt))
+    proof = recovered(tmp_path, manifest)
+    assert entry in proof["export_inventory"]
+
+
 @pytest.mark.parametrize("fault", ["sidecar", "receipt", "local", "terminal", "hardware"])
 def test_missing_or_foreign_canary_evidence_refuses(tmp_path: Path, fault: str) -> None:
     manifest = _fixture(tmp_path)
