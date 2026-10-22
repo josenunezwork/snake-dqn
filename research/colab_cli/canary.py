@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import re
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -106,6 +107,87 @@ def is_canary(manifest: dict[str, Any]) -> bool:
     return isinstance(manifest.get("canary"), dict) and manifest["canary"].get("mode") == "probe"
 
 
+def _entrypoint(manifest: dict[str, Any], repo: Path) -> str:
+    """Read device arguments from the pinned entrypoint, never a mutable script."""
+    try:
+        return subprocess.check_output(
+            ["git", "show", f"{manifest['commit']}:{manifest['script']}"],
+            cwd=repo,
+            text=True,
+            timeout=10,
+            stderr=subprocess.PIPE,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise CanaryError("ambiguous job device: cannot read pinned entrypoint") from exc
+
+
+def job_device(manifest: dict[str, Any], repo: Path | None = None) -> str:
+    """Resolve explicit science devices, independently of rented hardware.
+
+    A job can use CPU workers alongside CUDA inference, so any CUDA declaration
+    requires CUDA proof. Missing, automatic, or unresolved device choices are
+    refused rather than inferred from the allocation target. Entrypoints must
+    declare their devices in ``device``, ``DEVICE``/``*_DEVICE`` environment
+    variables, or ``--device`` arguments in environment values and the pinned
+    entrypoint. Device choices hidden inside Python remain the author's explicit
+    manifest contract; this function never executes shell code to guess them.
+    """
+    declared = []
+    env = manifest.get("env", {})
+    if "device" in manifest:
+        declared.append(manifest["device"])
+    arguments = []
+    for key, value in env.items():
+        if key == "DEVICE" or key.endswith("_DEVICE"):
+            declared.append(value)
+        # Some Bash entrypoints receive their CLI options through an env var.
+        # Do not interpret shell expansions or evaluate the command.
+        if isinstance(value, str) and "--device" in value:
+            arguments.append((value, False))
+    if repo is not None:
+        arguments.append((_entrypoint(manifest, repo), True))
+    for value, entrypoint in arguments:
+        try:
+            tokens = shlex.split(value.replace("\\\n", ""), comments=True)
+        except ValueError as exc:
+            raise CanaryError("ambiguous job device arguments") from exc
+        assignments = {}
+        if entrypoint:
+            for token in tokens:
+                assignment = re.fullmatch(r"([A-Za-z_][A-Za-z_0-9]*)=(.*)", token)
+                if assignment:
+                    key, choice = assignment.groups()
+                    assignments[key] = choice
+                    if key == "DEVICE" or key.endswith("_DEVICE"):
+                        declared.append(choice)
+        for index, token in enumerate(tokens):
+            if token == "--device":
+                choice = tokens[index + 1] if index + 1 < len(tokens) else None
+            elif token.startswith("--device="):
+                choice = token.split("=", 1)[1]
+            else:
+                continue
+            # Resolve only manifest-bound variables. Local shell variables,
+            # defaults and computed branches are ambiguous, never executed.
+            variable = re.fullmatch(
+                r"\$(?:\{([A-Za-z_][A-Za-z_0-9]*)\}|([A-Za-z_][A-Za-z_0-9]*))", choice or ""
+            )
+            if variable:
+                name = variable[1] or variable[2]
+                if name in assignments:
+                    # An entrypoint-local assignment is not the manifest's
+                    # value. Without evaluating control flow it is ambiguous.
+                    raise CanaryError("ambiguous job device: entrypoint reassigns device argument")
+                choice = env.get(name)
+            declared.append(choice)
+    if not declared or any(
+        not isinstance(value, str) or not re.fullmatch(r"cpu|cuda(?::[0-9]+)?", value)
+        for value in declared
+    ):
+        raise CanaryError("ambiguous job device: explicitly declare cpu or cuda[:index]")
+    return "cuda" if any(value.startswith("cuda") for value in declared) else "cpu"
+
+
 def check(manifest: dict[str, Any], repo: Path) -> None:
     """Admission gate called by validate, and consequently again before run."""
     if manifest["script"] == ACCEPTANCE_SCRIPT:
@@ -113,6 +195,7 @@ def check(manifest: dict[str, Any], repo: Path) -> None:
         if manifest.get("canary"):
             raise CanaryError("acceptance probe cannot qualify a science family")
         return
+    device = job_device(manifest, repo)
     expected_exports = _exports(manifest)
     request = manifest.get("canary", {})
     if not isinstance(request, dict):
@@ -147,6 +230,8 @@ def check(manifest: dict[str, Any], repo: Path) -> None:
     probe = json.loads(saved.read_text())
     if not is_canary(probe):
         raise CanaryError("receipt is not from a family canary run")
+    if job_device(probe, repo) != device:
+        raise CanaryError("family canary science device differs from dispatch")
     proof = receipt.get("canary_evidence")
     if (
         receipt.get("status") != "PASS"
@@ -270,7 +355,9 @@ def evidence(
             and row.get("root") == "/content/snake-cli/" + str(receipt.get("generation", ""))
         )
     ]
-    if hardware != "cpu" and not valid_decisions:
+    device = job_device(manifest, repo)
+    observed_cuda = any(str(row.get("device", "")).startswith("cuda") for row in decisions)
+    if (device == "cuda" or observed_cuda) and not valid_decisions:
         raise CanaryError("GPU family canary lacks a real CUDA action decision from its entrypoint")
     return {
         "schema": SCHEMA,
@@ -281,6 +368,7 @@ def evidence(
         "upload_elapsed_seconds": elapsed,
         "exports": sorted(exports),
         "hardware": hardware,
+        "device": device,
         "cuda_observations": decisions,
     }
 

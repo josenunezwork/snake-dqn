@@ -1,6 +1,6 @@
 # Process-gate requalification — pending operator execution
 
-This branch changes executable `colab_cli` code. The earlier qualification in
+This branch (`gate-cuda-scope-20261022`) changes executable `colab_cli` code. The earlier qualification in
 `QUALIFICATION.md` does **not** qualify these bytes. No Colab allocation, canary,
 or live acceptance was run during implementation. Merge remains blocked until
 Claude runs and independently reviews the source-bound **final-only** acceptance.
@@ -38,18 +38,40 @@ entrypoint and is exempt from the science-family canary prerequisite so it can
 bootstrap qualification. It cannot generate a science-family canary receipt.
 The acceptance program, not a hand-edited receipt, selects its actual gate IDs.
 
-From the final branch checkout, use the qualified launcher and a fresh state path:
+Claude must requalify the final published SHA reported in this branch's handoff,
+before merging it to main or dispatching DENSITY-2. Use that exact clean checkout;
+the old main acceptance does not cover the device-rule change. Do not edit any
+transport Python/shell bytes between acceptance and merge. From that checkout,
+use the launcher and a fresh state parent:
 
 ```sh
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
-LAUNCH=/Users/josenunez/Projects/ml/snake-dqn-gates/research/colab_cli/launch.sh
+REPO=/Users/josenunez/Projects/ml/snake-dqn-gatefix
+cd "$REPO"
+git fetch origin
+git status --short                    # must be empty
+git rev-parse HEAD origin/gate-cuda-scope-20261022  # both must equal handoff SHA
+LAUNCH="$REPO/research/colab_cli/launch.sh"
+STATE=/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-cuda-scope-requalification-20261022
+# Prepare a reviewed JSON endpoint-to-positive-rate map from the live inventory.
+# {} is valid only when that inventory is actually empty.
+ACCOUNT_MAP=/absolute/path/to/reviewed-current-account-rates.json
 "$LAUNCH" acceptance --profile final-only \
-  --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-process-gates-acceptance
+  --repo "$REPO" --state-dir "$STATE" --other-assignments "$ACCOUNT_MAP" \
+  --colab /Users/josenunez/.local/bin/colab
 # Review the generated plan and its current account map first. Claude then runs:
 "$LAUNCH" acceptance --profile final-only \
-  --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-process-gates-acceptance \
+  --repo "$REPO" --state-dir "$STATE" --other-assignments "$ACCOUNT_MAP" \
+  --colab /Users/josenunez/.local/bin/colab \
   --execute-after-review --review-token COLAB_CLI_ACCEPTANCE_REVIEWED
 ```
+
+Independently review the new `acceptance-*/acceptance-result.json`, its bound
+CPU/L4 broker receipts, all ten required observations, the recovered 64 MiB
+artifact hash, positive rate calibration, and exact backend disappearance.
+`require_final_only(result, REPO)` and `verify_plan_sources(...)` must both pass
+against these exact bytes. Retain the previous qualification and attempt files.
+No family-canary PASS or scientific admission is implied by this acceptance.
 
 After a reviewed PASS, update qualification by the established source-bound
 procedure and merge only through the operator's normal review. A later Python
@@ -105,12 +127,35 @@ branches exercised by that canary; instrumentation is not exhaustive branch proo
 
 A canary must finish its whole session within 30 minutes, complete real staging
 within **150 seconds** (half the 300-second staging cap), recover every declared
-export through **`runtime._exports`**, and have verified backend release. CUDA
-canaries install an observer in the pinned venv: the real package must execute
+export through **`runtime._exports`**, and have verified backend release. The
+science device is independent of the rented hardware: **only jobs declaring or
+using CUDA require an observed CUDA action decision**. Explicit CPU-only jobs
+on L4 (including DENSITY-2's twelve-vCPU host) retain every transport, scanner,
+sidecar, source, budget and release gate, without a CUDA-decision requirement.
+
+`canary.job_device` derives the device from the manifest's `device`, environment
+`DEVICE` / `*_DEVICE` values (including `SNAKE_DQN_DEVICE`), and literal
+`--device value` / `--device=value` arguments in environment values and the pinned
+Bash entrypoint (simple manifest-bound `$VAR` / `${VAR}` arguments are resolved).
+Unresolved local variables, defaults or computed device flags refuse; the gate
+also refuses device arguments reassigned by the entrypoint and accounts for
+explicit device environment assignments there. It never executes a shell to
+guess device choices. Hardcoded `--device cuda` cannot
+be hidden by a CPU environment default. Device choices inside Python remain an
+explicit manifest contract, and observed CUDA use also requires attributable
+CUDA decision proof. Values must
+be `cpu` or `cuda[:index]`; missing, automatic (`auto`), unsupported, malformed,
+or unresolved choices refuse before allocation. Multiple CPU and CUDA stages
+make this a CUDA job. The manifest must declare all entrypoint device choices;
+hardware availability never supplies a missing declaration. The saved canary
+and production device classes must match, preventing a CPU proof from admitting
+a CUDA dispatch.
+
+Canaries install an observer in the pinned venv: a CUDA job's real package must execute
 an action-space `argmax` or `multinomial` on CUDA and synchronize it successfully.
 Hardware availability, a flag saying `cuda`, a generic warmup, CPU decisions, or
-a manually written boolean do not qualify. Families with action selection on
-CPU cannot qualify GPU dispatch by merely requesting an L4.
+a manually written boolean do not qualify as CUDA evidence. CPU action selection
+does qualify CPU science on rented GPU hardware when all other evidence passes.
 
 The broker writes `canary_evidence` inside its normal create-only receipt only
 after all these checks. A science manifest binds that receipt as:
@@ -130,7 +175,8 @@ after all these checks. A science manifest binds that receipt as:
 `validate` re-derives the proof from the saved manifest, measurements, recovered
 exports and receipt. It binds entrypoint + operational mode + source commit +
 complete transport executable inventory. It refuses changed code, incomplete
-release, missing sidecars/scanner evidence, missing CUDA decisions, uncovered
+release, missing sidecars/scanner evidence, missing CUDA decisions for CUDA jobs, ambiguous
+devices, CPU-canary/CUDA-production substitution, uncovered
 export paths, more files, larger files, changed input hashes/destinations/source paths or a different
 hardware target. Every allowed GPU target needs its own canary; use a single
 qualified target per manifest. Canary runs and recovery attempts still spend
@@ -175,7 +221,9 @@ audited bank. The fenced wrapper uses those rosters for the original completenes
 checks; E7 selection rows contain three ancestors per world and cannot substitute
 for that roster. Older exports lacking the roster fields refuse the new wrapper.
 
-## Result (2026-10-22 ~02:30 PT, Claude operator)
+## Historical result (2026-10-22 ~02:30 PT, Claude operator)
 final-only acceptance on e9ce99f2: **PASS, qualified=true** — receipt
 `snake-dqn-artifacts/colab-cli-process-gates-acceptance/acceptance-1792660644/acceptance-result.json`
 (CPU + L4 jobs; final artifact 67,108,864 bytes, Mac-verified, ≥1.58 MB/s). Merged to main.
+That PASS predates this branch's executable device-rule change and does not qualify it.
+Current result: **PENDING — no Colab operations performed for this correction.**

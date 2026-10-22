@@ -34,13 +34,68 @@ its upload inventory remains identical to the canary's. No receipt is invented
 by preparation. The validation report distinguishes schema/structure checks
 from live admission prerequisites.
 
-The inherited family gate has an unresolved prerequisite: registered density
-decisions run on CPU, while an L4 family receipt requires an actual CUDA action
-decision. The newer source-bound `colab-cli-main-acceptance-20261022` receipt
-qualifies the current transport; the older QUALIFICATION.md inventory is stale. This package preserves these gates and marks preparation
-NOT_READY for dispatch. A separately reviewed resolution of the CPU-on-L4 family requirement is needed. No Colab calls or gameplay runs occur during this
-implementation. Commands in the delivery DISPATCH.txt are conditional operator
+The family gate now scopes CUDA observations to jobs that declare CUDA. DENSITY-2
+declares `SNAKE_DQN_DEVICE=cpu`, so its L4 canary still requires the real
+entrypoint, full upload inventory, scanner-recovered export sidecars and verified
+release, but not an invented CUDA decision. The transport code change invalidates
+the old final-only acceptance. Until the exact changed source passes a new live
+final-only acceptance, preparation is **PENDING_REQUALIFICATION**, never a PASS
+and never scientific admission. No Colab calls or gameplay runs occur during
+preparation. Commands in the delivery DISPATCH.txt are conditional operator
 handoff commands, not evidence of execution.
+
+Use the following create-only sequence after the gatefix branch is published.
+It prepares both CPU-on-L4 templates while honestly retaining disabled runtime
+admission. `SHA` is the published branch commit to requalify and `PACKET` must be
+a fresh, absent artifact directory.
+
+```bash
+PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+SHA=<published-gatefix-commit>
+PACKET=/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-density/density2-20261022-gatefix
+
+"$PY" -m research.bl_density.manifests \
+  --commit "$SHA" --phase canary --output-dir "$PACKET/canary-output" \
+  --manifest "$PACKET/canary-pending.json" \
+  --validation-report "$PACKET/canary-pending-validation.json" \
+  --pending-requalification
+"$PY" -m research.bl_density.manifests \
+  --commit "$SHA" --phase production --output-dir "$PACKET/production-output" \
+  --manifest "$PACKET/production-pending.json" \
+  --validation-report "$PACKET/production-pending-validation.json" \
+  --pending-requalification
+```
+
+After the exact commit is published on `origin/main` and Claude has completed the
+fresh final-only acceptance described in `research/colab_cli/REQUALIFICATION.md`,
+point admission at that real acceptance result. This is still offline validation;
+it does not allocate. The canary command is the only operation that can set its
+runtime guard to `BL_DENSITY_SCIENTIFIC_ADMISSION=1`:
+
+```bash
+ACCEPTANCE_RESULT=<fresh-final-only-acceptance-result.json>
+"$PY" -m research.bl_density.manifests \
+  --admit-template "$PACKET/canary-pending.json" \
+  --manifest "$PACKET/canary-admitted.json" \
+  --validation-report "$PACKET/canary-admitted-validation.json" \
+  --source-qualification-receipt "$ACCEPTANCE_RESULT"
+```
+
+Only after a genuine canary run is recovered and its package proof and family
+receipt are verified may production be finalized and admitted. The declared
+`prior_spend_units` must cover the receipt's measured canary charge; production
+remains disabled if any of those checks fail.
+
+```bash
+"$PY" -m research.bl_density.manifests \
+  --admit-template "$PACKET/production-pending.json" \
+  --manifest "$PACKET/production-admitted.json" \
+  --validation-report "$PACKET/production-admitted-validation.json" \
+  --source-qualification-receipt "$ACCEPTANCE_RESULT" \
+  --canary-proof "$PACKET/canary-proof.json" \
+  --canary-receipt "$PACKET/canary-output/receipt.json" \
+  --prior-spend-units <measured-canary-charge-rounded-up>
+```
 
 Use `/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python`. Run only targeted
 package tests with CPU and one numerical/Numba thread. Prepared artifacts live
