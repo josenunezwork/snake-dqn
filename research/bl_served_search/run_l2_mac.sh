@@ -17,7 +17,7 @@ if [[ "${1:-}" == "--check" ]]; then
   exec "$PYTHON_BIN" -m research.bl_served_search.mac_l2 --check
 fi
 if [[ "${1:-}" != "--run" ]]; then
-  printf '%s\n' 'usage: run_l2_mac.sh --check | --run <mac_l2 arguments>' >&2
+  printf '%s\n' 'usage: run_l2_mac.sh --check | --run --mode {A,B} <mac_l2 arguments>' >&2
   exit 2
 fi
 shift

@@ -121,34 +121,60 @@ def transfer_status(per_mix: dict[str, dict[str, float | int]]) -> dict[str, Any
 
 
 def execution_error(
-    row: dict[str, Any], *, search_mode: str = "exact_stop", native_mode: str = "kernel"
+    row: dict[str, Any], *, search_mode: str = "exact_stop", native_mode: str = "stock"
 ) -> str | None:
     """Reject absent/contradictory execution evidence before any scientific look."""
     from research.bl_served_search.ceiling import DEPTH, THREAD_ENV
 
-    if row.get("search_mode") != search_mode or row.get("native_mode") != native_mode:
+    if (
+        search_mode not in ("all", "exact_stop")
+        or native_mode not in ("stock", "kernel")
+        or row.get("search_mode") != search_mode
+        or row.get("native_mode") != native_mode
+    ):
         return "wrong registered search/native mode"
     stats = row.get("native_v8", {})
     if not isinstance(stats, dict):
         return "missing/invalid native execution counters"
-    keys = ("kernel_rows", "stock_rows", "fallback_rows", "noncandidate_rows", "calls")
+    keys = (
+        "calls",
+        "kernel_rows",
+        "stock_rows",
+        "fallback_rows",
+        "noncandidate_rows",
+        "python_calls",
+        "root_stock_rows",
+    )
     if stats.get("mode") != native_mode or any(
         type(stats.get(key)) is not int or stats[key] < 0 for key in keys
     ):
         return "missing/invalid native execution counters"
-    if any(stats[key] for key in ("stock_rows", "fallback_rows", "noncandidate_rows")):
-        return "native stock/fallback/noncandidate rows"
+    if any(type(value) is not int or value != 0 for key, value in stats.items() if key != "mode"):
+        return "opponent veto counters must all be zero"
+    slots = row.get("opponent_veto_slots")
+    plan = row.get("plan")
+    if not isinstance(plan, dict) or not isinstance(plan.get("specs"), list):
+        return "missing opponent roster plan"
+    specs = plan["specs"]
+    if len(specs) != 5 or any(
+        not isinstance(spec, (list, tuple))
+        or len(spec) != 2
+        or spec[0] not in ("checkpoint", "scripted")
+        for spec in specs
+    ):
+        return "invalid opponent roster plan"
+    checkpoint_count = sum(spec[0] == "checkpoint" for spec in specs)
+    if not isinstance(slots, list) or slots != [[] for _ in range(checkpoint_count)]:
+        return "missing/nonempty opponent veto slots"
+    members = row.get("opponent_member_sha256s")
+    if not isinstance(members, list) or len(members) != 5 or members != plan.get("member_sha256s"):
+        return "constructed opponent roster digests disagree with plan"
     dense = row.get("dense", {})
     if not isinstance(dense, dict):
         return "missing dense result"
     batches = dense.get("batches")
     if type(batches) is not int or batches < 0:
         return "missing/invalid batch count"
-    if row.get("mix") == "scripted":
-        if stats["kernel_rows"] or stats["calls"]:
-            return "scripted row made a kernel call"
-    elif batches > 0 and (stats["kernel_rows"] <= 0 or stats["calls"] <= 0):
-        return "missing native branch rows"
     threads = row.get("worker_threads", {})
     if not isinstance(threads, dict):
         return "invalid worker thread attestation"
@@ -229,7 +255,7 @@ def _row_error(
     expected: dict[str, Any] | None = None,
     *,
     search_mode: str = "exact_stop",
-    native_mode: str = "kernel",
+    native_mode: str = "stock",
 ) -> str | None:
     expected = row if expected is None else expected
     error = execution_error(row, search_mode=search_mode, native_mode=native_mode)
@@ -475,7 +501,7 @@ def load_rows(bank_path: Path, shard_paths: list[Path]) -> tuple[list[dict[str, 
     bank_sha = digest_file(bank_path)
     if bank_sha != BANK_SHA256:
         return [], ["Mac amendment bank digest differs from registered BANK_L2.json"]
-    run_lease = run_runtime = None
+    run_lease = run_runtime = run_modes = None
     for path in shard_paths:
         try:
             verify_export(path)
@@ -496,12 +522,17 @@ def load_rows(bank_path: Path, shard_paths: list[Path]) -> tuple[list[dict[str, 
             ):
                 raise ValueError("shard is not bound to this complete bank")
             if (
-                identity.get("search_mode") != "exact_stop"
-                or identity.get("native_mode") != "kernel"
+                identity.get("search_mode") not in ("exact_stop", "all")
+                or identity.get("native_mode") not in ("stock", "kernel")
                 or identity.get("workers") != 2
                 or not identity.get("lease_id")
             ):
                 raise ValueError("wrong Mac amendment mode/workers/lease identity")
+            modes = (identity["search_mode"], identity["native_mode"])
+            if run_modes is None:
+                run_modes = modes
+            elif run_modes != modes:
+                raise ValueError("chunks use different registered search/native modes")
             chunk_index = identity.get("chunk_index")
             if type(chunk_index) is not int or identity.get("chunk_count") != CHUNK_COUNT:
                 raise ValueError("missing immutable L2' chunk identity")
@@ -539,7 +570,9 @@ def load_rows(bank_path: Path, shard_paths: list[Path]) -> tuple[list[dict[str, 
                 world_id = str(row.get("world_id"))
                 if world_id in seen or world_id not in expected:
                     raise ValueError("duplicate or foreign world row")
-                error = _row_error(row, expected[world_id])
+                error = _row_error(
+                    row, expected[world_id], search_mode=modes[0], native_mode=modes[1]
+                )
                 if error:
                     raise ValueError(f"{world_id}: {error}")
                 seen.add(world_id)

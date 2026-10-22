@@ -2,7 +2,7 @@
 
 This is deliberately not an L2 bank runner.  It derives five development
 worlds in a namespace that is audited as a whole against every visible bank,
-then runs those worlds through :func:`ceiling._worker` in both kernel modes.
+then runs those worlds through :func:`ceiling._worker` in both stock modes.
 The only conclusion it can produce is whether the modes have identical
 scientific receipts on those development worlds.
 """
@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from research.bl_served_search import analyze, bank, ceiling
-from research.bl_served_search.exports import digest, export_json
+from research.bl_served_search.exports import digest, export_json, verify_export
 from research.t1_commitment_20261015.replay import configure_cpu
 
 SCHEMA = "bl-served-search-mac-identity/v1"
@@ -33,6 +33,37 @@ HORIZON = 5000
 MODES = ("all", "exact_stop")
 MIXES = ("frozen", "frozen", "mixed", "mixed", "scripted")
 LEASE_SECONDS = 2 * 60 * 60
+P3_ALLOCATION = (
+    Path(__file__).resolve().parents[3]
+    / "snake-dqn-artifacts/big-lever/exp/bl-l2/mac-prerequisites-01/p3-identity-02/allocation.json"
+)
+P3_ALLOCATION_SHA256 = "348187b77dd8f407722a4654efdef5ebf512e4239d3b0be37cb9bac9fab6b5bf"
+EXECUTION_MODES = {
+    "all": {"search_mode": "all", "native_mode": "stock"},
+    "exact_stop": {"search_mode": "exact_stop", "native_mode": "stock"},
+}
+_VETO_COUNTER_KEYS = (
+    "calls",
+    "rows",
+    "replayed_rows",
+    "fallback_rows",
+    "tail_release_rows",
+    "python_calls",
+    "audited_rows",
+    "overrides",
+    "v5_changes",
+    "v7_changes",
+    "head_changes",
+    "no_spacious",
+    "tie_rows",
+    "tie_overrides",
+    "boost_base_rows",
+    "long_rows",
+    "kernel_rows",
+    "stock_rows",
+    "noncandidate_rows",
+    "root_stock_rows",
+)
 
 # These fields establish how the search was executed, or measure it.  They are
 # intentionally excluded from the scientific identity comparison below.
@@ -167,6 +198,60 @@ def allocate(out: Path, *, max_rounds: int = 32) -> tuple[list[dict[str, Any]], 
     raise RuntimeError("no clear whole P3 allocation; no seed swaps are permitted")
 
 
+def load_allocation(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Load the immutable P3-02 allocation without deriving replacement worlds."""
+    path = Path(path)
+    verify_export(path)
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("P3 allocation is not an object")
+    round_index = value.get("round_index")
+    if type(round_index) is not int:
+        raise ValueError("P3 allocation round index is invalid")
+    audit_path = path.parent / f"seed-audit-round-{round_index:02d}.json"
+    verify_export(audit_path)
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    if not isinstance(audit, dict):
+        raise ValueError("P3 allocation audit is not an object")
+    if (
+        value.get("schema") != "bl-served-search-mac-identity-allocation/v1"
+        or digest(path) != P3_ALLOCATION_SHA256
+        or value.get("namespace") != NAMESPACE
+        or round_index != 1
+        or value.get("development_only") is not True
+        or value.get("horizon") != HORIZON
+        or value.get("mix_counts") != {"frozen": 2, "mixed": 2, "scripted": 1}
+        or value.get("seed_audit_sha256") != digest(audit_path)
+        or audit.get("schema") != "bl-served-search-seed-audit/v1"
+        or audit.get("status") != "CLEAR"
+        or audit.get("namespace") != NAMESPACE
+        or audit.get("round_index") != round_index
+        or audit.get("candidate_count") != 5
+        or audit.get("unique_count") != 5
+        or audit.get("history", {}).get("never_opened") != bank.SEALED
+    ):
+        raise ValueError("P3 allocation/audit identity does not bind the audited round-1 worlds")
+    rows = value.get("rows")
+    if not isinstance(rows, list) or len(rows) != len(MIXES):
+        raise ValueError("P3 allocation does not contain exactly five worlds")
+    expected_rows = derive(1)
+    for row, expected in zip(rows, expected_rows):
+        if not isinstance(row, dict) or any(row.get(key) != expected[key] for key in expected):
+            raise ValueError("P3 allocation world identity differs from audited round-1 allocation")
+        plan = row.get("plan")
+        if (
+            not isinstance(plan, dict)
+            or plan.get("seed") != row["world_seed"]
+            or plan.get("mix") != row["mix"]
+            or not isinstance(plan.get("specs"), list)
+            or not isinstance(plan.get("member_sha256s"), list)
+            or len(plan["specs"]) != 5
+            or len(plan["member_sha256s"]) != 5
+        ):
+            raise ValueError("P3 allocation has an incomplete historical roster plan")
+    return rows, audit
+
+
 def scientific_projection(row: Any) -> Any:
     """Remove timing and branch diagnostics before comparing scientific receipts."""
     if isinstance(row, dict):
@@ -182,9 +267,16 @@ def scientific_projection(row: Any) -> Any:
 
 def validate_row(row: dict[str, Any], expected: dict[str, Any], *, mode: str) -> None:
     """Apply the production analyzer's execution and scientific-row checks."""
-    error = analyze._row_error(row, expected, search_mode=mode, native_mode="kernel")
+    error = analyze._row_error(row, expected, search_mode=mode, native_mode="stock")
     if error:
         raise ValueError(f"invalid {mode} production row {row.get('world_id')}: {error}")
+    counters = row.get("native_v8")
+    if not isinstance(counters, dict) or any(
+        type(value) is not int or value != 0 for key, value in counters.items() if key != "mode"
+    ):
+        raise ValueError(
+            f"invalid {mode} production row {row.get('world_id')}: nonzero veto counter"
+        )
 
 
 def compare_rows(all_row: dict[str, Any], stopped_row: dict[str, Any]) -> None:
@@ -233,9 +325,7 @@ def _run_mode(
     result: list[dict[str, Any]] = []
     mode_started = time.monotonic()
     try:
-        pending = {
-            pool.submit(ceiling._worker, (row, str(b8_path), mode, "kernel")) for row in rows
-        }
+        pending = {pool.submit(ceiling._worker, (row, str(b8_path), mode, "stock")) for row in rows}
         while pending:
             guard()
             remaining = deadline - time.monotonic()
@@ -268,6 +358,14 @@ def _run_mode(
         raise ModeRunError(str(error), result) from error
     else:
         pool.shutdown(wait=True)
+    expected_ids = set(positions)
+    received_ids = [str(row.get("world_id")) for row in result]
+    if (
+        len(result) != len(rows)
+        or set(received_ids) != expected_ids
+        or len(set(received_ids)) != len(rows)
+    ):
+        raise ModeRunError("P3 mode returned incomplete or duplicate world rows", result)
     result.sort(key=lambda row: positions[str(row["world_id"])])
     try:
         for row in result:
@@ -286,21 +384,82 @@ def git_commit(root: Path) -> str:
     ).stdout.strip()
 
 
+def _execution_counters(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize partial worker rows without treating malformed evidence as valid."""
+    native = dict.fromkeys(_VETO_COUNTER_KEYS, 0)
+    branches_evaluated = branches_skipped = 0
+    rejected_rows = []
+    for index, row in enumerate(rows):
+        world_id = row.get("world_id") if isinstance(row, dict) else None
+        reasons = []
+        stats = row.get("native_v8") if isinstance(row, dict) else None
+        if not isinstance(stats, dict):
+            reasons.append("missing/invalid native_v8")
+        else:
+            invalid = [
+                key
+                for key in _VETO_COUNTER_KEYS
+                if type(stats.get(key)) is not int or stats[key] < 0
+            ]
+            if invalid:
+                reasons.append("missing/invalid native counters: " + ", ".join(invalid))
+            else:
+                for key in _VETO_COUNTER_KEYS:
+                    native[key] += stats[key]
+        dense = row.get("dense") if isinstance(row, dict) else None
+        if not isinstance(dense, dict) or any(
+            type(dense.get(key)) is not int or dense[key] < 0
+            for key in ("branches_evaluated", "branches_skipped")
+        ):
+            reasons.append("missing/invalid dense branch counters")
+        else:
+            branches_evaluated += dense["branches_evaluated"]
+            branches_skipped += dense["branches_skipped"]
+        if reasons:
+            rejected_rows.append({"index": index, "world_id": world_id, "reasons": reasons})
+    return {
+        "native_v8": native,
+        "branches_evaluated": branches_evaluated,
+        "branches_skipped": branches_skipped,
+        "valid_rows": len(rows) - len(rejected_rows),
+        "rejected_rows": rejected_rows,
+    }
+
+
+def _fired_batches_by_mix(results: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, int]]:
+    """Report only well-formed diagnostic batch counts from retained partial rows."""
+    totals = {mix: dict.fromkeys(MODES, 0) for mix in set(MIXES)}
+    for mode in MODES:
+        for row in results[mode]:
+            mix = row.get("mix") if isinstance(row, dict) else None
+            if not isinstance(mix, str) or mix not in totals:
+                continue
+            dense = row.get("dense")
+            batches = dense.get("batches") if isinstance(dense, dict) else None
+            if type(batches) is int and batches >= 0:
+                totals[mix][mode] += batches
+    return totals
+
+
 def run(
     out: Path,
     *,
     b8_path: Path,
+    allocation: Path = P3_ALLOCATION,
     workers: int = 2,
     max_rounds: int = 32,
     deadline: float | None = None,
     guard: Callable[[], Any] | None = None,
     execution_identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Allocate five audited worlds, execute both modes, and write one receipt."""
+    """Execute both stock modes on the immutable five-world P3-02 allocation."""
     if workers != 2:
         raise ValueError("P3 requires exactly two worker processes")
     if not b8_path.is_file() or ceiling.digest_file(b8_path) != ceiling.B8_SHA256:
         raise ValueError("P3 requires the byte-pinned B8 checkpoint")
+    out = Path(out)
+    if out.exists() or any(Path(str(out) + suffix).exists() for suffix in (".sha256", ".complete")):
+        raise FileExistsError("P3 output directory is create-only")
     started = time.monotonic()
     deadline = started + LEASE_SECONDS if deadline is None else deadline
     if deadline <= started:
@@ -309,77 +468,98 @@ def run(
     rows: list[dict[str, Any]] = []
     audit: dict[str, Any] | None = None
     results: dict[str, list[dict[str, Any]]] = {mode: [] for mode in MODES}
-    status, error = "PASS", None
+    status, error = "NOT_READY", None
+    readiness = {
+        "mode_a": {**EXECUTION_MODES["exact_stop"], "status": "NOT_READY"},
+        "mode_b": {**EXECUTION_MODES["all"], "status": "NOT_READY"},
+    }
     try:
-        rows, audit = allocate(out, max_rounds=max_rounds)
-        for mode in MODES:
-            results[mode] = _run_mode(
-                rows, b8_path=b8_path, mode=mode, workers=workers, deadline=deadline, guard=guard
-            )
-        for all_row, stopped_row in zip(results["all"], results["exact_stop"]):
-            compare_rows(all_row, stopped_row)
-        fired = {
-            mix: sum(row["dense"]["batches"] for row in results["exact_stop"] if row["mix"] == mix)
+        rows, audit = load_allocation(allocation)
+        results["all"] = _run_mode(
+            rows, b8_path=b8_path, mode="all", workers=workers, deadline=deadline, guard=guard
+        )
+        fired_b = {
+            mix: sum(row["dense"]["batches"] for row in results["all"] if row["mix"] == mix)
             for mix in set(MIXES)
         }
-        if any(count <= 0 for count in fired.values()):
-            raise ValueError(f"NOT_READY vacuous P3 search coverage: {fired}")
-    except ModeRunError as exc:
-        status, error = "INCONCLUSIVE", str(exc)
-        # Retain the rows returned before the owned pool was terminated.
-        for mode in MODES:
-            if not results[mode] and exc.rows:
-                results[mode] = exc.rows
-                break
-    except ValueError as exc:
-        status, error = ("INCONCLUSIVE" if str(exc).startswith("NOT_READY") else "INVALID"), str(
-            exc
-        )
-    except BaseException as exc:
-        status, error = "INCONCLUSIVE", f"{type(exc).__name__}: {exc}"
-    counters = {
-        mode: {
-            "native_v8": {
-                key: sum(int(row["native_v8"][key]) for row in results[mode])
-                for key in (
-                    "kernel_rows",
-                    "stock_rows",
-                    "fallback_rows",
-                    "noncandidate_rows",
-                    "calls",
+        if any(count <= 0 for count in fired_b.values()):
+            raise ValueError(f"NOT_READY vacuous mode-B search coverage: {fired_b}")
+        readiness["mode_b"] = {**EXECUTION_MODES["all"], "status": "READY"}
+        try:
+            results["exact_stop"] = _run_mode(
+                rows,
+                b8_path=b8_path,
+                mode="exact_stop",
+                workers=workers,
+                deadline=deadline,
+                guard=guard,
+            )
+            for all_row, stopped_row in zip(results["all"], results["exact_stop"]):
+                compare_rows(all_row, stopped_row)
+            fired_a = {
+                mix: sum(
+                    row["dense"]["batches"] for row in results["exact_stop"] if row["mix"] == mix
                 )
-            },
-            "branches_evaluated": sum(
-                int(row["dense"]["branches_evaluated"]) for row in results[mode]
-            ),
-            "branches_skipped": sum(int(row["dense"]["branches_skipped"]) for row in results[mode]),
-        }
-        for mode in MODES
-    }
+                for mix in set(MIXES)
+            }
+            if any(count <= 0 for count in fired_a.values()):
+                raise ValueError(f"NOT_READY vacuous mode-A search coverage: {fired_a}")
+            readiness["mode_a"] = {**EXECUTION_MODES["exact_stop"], "status": "READY"}
+            status = "READY_MODE_A"
+        except ModeRunError as exc:
+            results["exact_stop"] = exc.rows
+            readiness["mode_a"] = {
+                **EXECUTION_MODES["exact_stop"],
+                "status": "NOT_READY",
+                "reason": str(exc),
+            }
+            status, error = "READY_MODE_B", str(exc)
+        except ValueError as exc:
+            readiness["mode_a"] = {
+                **EXECUTION_MODES["exact_stop"],
+                "status": "NOT_READY",
+                "reason": str(exc),
+            }
+            status, error = "READY_MODE_B", str(exc)
+    except ModeRunError as exc:
+        results["all"] = exc.rows
+        status, error = "NOT_READY", str(exc)
+    except ValueError as exc:
+        status, error = "NOT_READY", str(exc)
+    except BaseException as exc:
+        status, error = "NOT_READY", f"{type(exc).__name__}: {exc}"
+    counters = {mode: _execution_counters(results[mode]) for mode in MODES}
     receipt = {
         "schema": SCHEMA,
         "status": status,
         "identity": {"status": status, "schema": SCHEMA},
-        "authority": "JUDGMENT_MAC_AMENDMENT.md P3; development identity only, not bank evidence",
+        "authority": (
+            "JUDGMENT_OPPONENT_PREMISE.md P3'; development identity only, not bank evidence"
+        ),
         "units": 0,
         "platform": "mac",
         "workers": workers,
         "threads": 1,
         "horizon": HORIZON,
         "modes": list(MODES),
+        "execution_modes": EXECUTION_MODES,
+        "readiness": readiness,
+        "permitted_search_modes": (
+            ["all", "exact_stop"]
+            if status == "READY_MODE_A"
+            else ["all"] if status == "READY_MODE_B" else []
+        ),
         "execution_counters": counters,
         "allocation": {
-            "path": str(Path(out) / "allocation.json"),
-            "sha256": (
-                digest(Path(out) / "allocation.json")
-                if (Path(out) / "allocation.json").is_file()
-                else None
-            ),
+            "path": str(allocation),
+            "sha256": digest(allocation) if Path(allocation).is_file() else None,
             "seed_audit_status": None if audit is None else audit["status"],
             "seed_audit_sha256": (
                 None
                 if audit is None
-                else digest(Path(out) / f"seed-audit-round-{audit['round_index']:02d}.json")
+                else digest(
+                    Path(allocation).parent / f"seed-audit-round-{audit['round_index']:02d}.json"
+                )
             ),
             "never_opened": None if audit is None else audit["history"]["never_opened"],
             "coverage": None if audit is None else audit["coverage"],
@@ -397,21 +577,17 @@ def run(
                 "chosen action at every fired batch",
                 "full mass and alive trajectories",
                 "mass and world ledgers plus paired deltas",
-                "analyzer row validation in both kernel modes",
+                "analyzer row validation in both stock modes",
+                "all-zero opponent-veto counters",
             ],
             "excluded_fields": sorted(_DIAGNOSTIC_FIELDS),
-            "fired_batches_by_mix": {
-                mix: sum(
-                    row["dense"]["batches"] for row in results["exact_stop"] if row["mix"] == mix
-                )
-                for mix in set(MIXES)
-            },
+            "fired_batches_by_mix": _fired_batches_by_mix(results),
         },
         "error": error,
         "elapsed_seconds": time.monotonic() - started,
     }
     export_json(Path(out) / "receipt.json", receipt)
-    if status != "PASS":
+    if status == "NOT_READY":
         raise RuntimeError(f"P3 {status}: {error}")
     return receipt
 
@@ -427,7 +603,8 @@ def _until() -> str:
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--b8-path", type=Path, required=True)
+    parser.add_argument("--b8-path", type=Path)
+    parser.add_argument("--allocation", type=Path, default=P3_ALLOCATION)
     parser.add_argument(
         "--check", action="store_true", help="derive and audit only; do not run worlds"
     )
@@ -443,12 +620,20 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.check == args.run:
         parser.error("choose exactly one of --check or --run")
     if args.check:
-        rows = derive(0)
-        report = bank.audit(rows)
+        rows, report = load_allocation(args.allocation)
         print(
-            canonical({"status": report["status"], "candidate_count": len(rows), "audit": report})
+            canonical(
+                {
+                    "status": report["status"],
+                    "candidate_count": len(rows),
+                    "allocation": str(args.allocation),
+                    "audit": report,
+                }
+            )
         )
         return 0
+    if args.b8_path is None:
+        parser.error("--run requires --b8-path")
     try:
         priority = os.getpriority(os.PRIO_PROCESS, 0)
     except (AttributeError, OSError) as error:
@@ -468,6 +653,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         receipt = run(
             args.out,
             b8_path=args.b8_path,
+            allocation=args.allocation,
             deadline=time.monotonic() + remaining,
             guard=lambda: require(args.lease, args.lease_owner, lease["id"]),
             execution_identity={

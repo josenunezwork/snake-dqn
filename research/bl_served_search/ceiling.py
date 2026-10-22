@@ -141,6 +141,7 @@ def source_manifest() -> dict[str, str]:
         root / "research/bl_mac_latency/host.py",
         root / "research/bl_served_search/mac_identity.py",
         root / "research/bl_served_search/run_l2_mac.sh",
+        root / "research/bl_served_search/run_mac_identity.sh",
         root / "research/bl_served_search/AMENDMENT_MAC_L2.md",
         root / "research/t3_rollout_labels_20261015/trigger.py",
         root / "research/t3_rollout_labels_20261015/bank_engine.py",
@@ -305,6 +306,24 @@ def _step(
     return selected
 
 
+def opponent_attestation(world: Any) -> dict[str, Any]:
+    """Read ordered roster bytes and veto slots from constructed policies."""
+    from src.evaluation.strict_promotion import scripted_agent
+    from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
+    from src.simd_env.vector61_policy import Vector61SimdPolicy
+
+    members, veto_slots = [], []
+    for policy in world.opponents:
+        if isinstance(policy, Vector61SimdPolicy):
+            members.append(digest_file(Path(policy.checkpoint_path)))
+            veto_slots.append(sorted(policy.veto_slots))
+        elif isinstance(policy, FastProfileAnchorSimdPolicy):
+            members.append(scripted_agent(policy.kind)["sha256"])
+        else:
+            raise ValueError("unregistered constructed opponent policy")
+    return {"opponent_member_sha256s": members, "opponent_veto_slots": veto_slots}
+
+
 def run_arm(
     plan: dict[str, Any],
     *,
@@ -319,6 +338,7 @@ def run_arm(
 
     configure_cpu()
     world = build_world(ARM, plan, hero_checkpoint=b8_path)
+    opponents = opponent_attestation(world)
     trigger = DenseTrigger(min_length=600, interval=5) if dense else None
     mass = alive_frames = decisions = 0
     mass_trace: list[int] = []
@@ -398,7 +418,10 @@ def run_arm(
     # A local H300 rescue that still ends in an episode death is disclosed as
     # a D300-only escape/re-death rather than counted as a productive rescue.
     d300_only = d300_escape_changes if death_frame is not None else 0
+    if opponent_attestation(world) != opponents:
+        raise ValueError("constructed opponent roster/veto configuration changed during arm")
     return {
+        **opponents,
         "branches_evaluated": branches_evaluated,
         "branches_skipped": branches_skipped,
         "batch_diagnostics": batch_diagnostics,
@@ -464,7 +487,7 @@ def run_world(
         b8_path=b8_path,
         horizon=horizon,
         search_mode=search_mode,
-        full_depth=native_mode == "kernel",
+        full_depth=True,
     )
     dense = run_arm(
         plan,
@@ -472,8 +495,15 @@ def run_world(
         b8_path=b8_path,
         horizon=horizon,
         search_mode=search_mode,
-        full_depth=native_mode == "kernel",
+        full_depth=True,
     )
+    opponents = {
+        key: baseline.pop(key) for key in ("opponent_member_sha256s", "opponent_veto_slots")
+    }
+    if {key: dense.pop(key) for key in opponents} != opponents:
+        raise ValueError("paired arms constructed different opponent rosters/veto slots")
+    if opponents["opponent_member_sha256s"] != plan.get("member_sha256s"):
+        raise ValueError("constructed opponent roster digests disagree with plan")
     baseline_trace, dense_trace = baseline.pop("_mass_trace"), dense.pop("_mass_trace")
     baseline_alive, dense_alive = baseline.pop("_alive_trace"), dense.pop("_alive_trace")
     if len(baseline_trace) != horizon or len(dense_trace) != horizon:
@@ -548,6 +578,7 @@ def run_world(
     }
     return {
         "schema": ROW_SCHEMA,
+        **opponents,
         "search_mode": search_mode,
         "native_mode": native_mode,
         "native_v8": {"mode": native_mode, **native_stats.as_dict()},
@@ -700,17 +731,19 @@ def main() -> None:
     args = parser.parse_args()
     if not args.fixture and not args.allow_production:
         parser.error("refusing L2 selection-world execution without --allow-production")
-    if not args.fixture and args.native_mode == "kernel":
+    if not args.fixture:
         from research.bl_served_search.mac_lease import require
 
         if (
-            args.search_mode != "exact_stop"
+            args.native_mode not in ("stock", "kernel")
             or args.workers != 2
             or not args.lease
             or not args.lease_owner
             or not args.lease_id
         ):
-            parser.error("Mac amendment requires exact_stop/kernel, W2 and an owned lease")
+            parser.error(
+                "Mac amendment requires all/exact_stop, stock/kernel, W2 and an owned lease"
+            )
         require(args.lease, args.lease_owner, args.lease_id)
         if digest_file(args.bank) != BANK_SHA256:
             parser.error("Mac amendment requires the byte-unchanged BANK_L2.json")
@@ -798,10 +831,15 @@ def main() -> None:
                             child.kill()
                             child.join()
                     raise
-                if not args.fixture and args.native_mode == "kernel":
+                if not args.fixture:
                     from research.bl_served_search.analyze import _row_error
 
-                    error = _row_error(result, result)
+                    error = _row_error(
+                        result,
+                        next(row for row in selected if row["world_id"] == result["world_id"]),
+                        search_mode=args.search_mode,
+                        native_mode=args.native_mode,
+                    )
                     if error:
                         raise ValueError(f"INCONCLUSIVE execution validation: {error}")
                 export_json(args.out.parent / "worlds" / f"{result['world_id']}.json", result)

@@ -33,7 +33,7 @@ def _fixture(
     source: dict[str, str],
     *,
     search_mode: str = "exact_stop",
-    native_mode: str = "kernel",
+    native_mode: str = "stock",
     workers: int = 2,
 ) -> None:
     rows = json.loads(bank.read_text())["excluded_preflight_rows"]

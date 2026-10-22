@@ -25,8 +25,10 @@ from research.published_ledger import require_published_ledger
 OWNER = "claude-l2prime-mac"
 CHUNK_COUNT = 8
 WORKERS = 2
-CHUNK_TIMEOUT_SECONDS = 142 * 60
-LEASE_HOURS = 28.3
+MODE_CONFIG = {
+    "A": {"search_mode": "exact_stop", "chunk_timeout_seconds": 142 * 60, "lease_hours": 28.3},
+    "B": {"search_mode": "all", "chunk_timeout_seconds": int(6.3 * 60 * 60), "lease_hours": 60.0},
+}
 DEFAULT_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-l2")
 DEFAULT_CHECKPOINT_DIR = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes")
 BANK_SHA256 = "0a8d3059e1feb7f9c954171093e0c21258b6cf89ea43e1c20f8e035776fcb8d3"
@@ -46,10 +48,16 @@ def _load_export(path: Path) -> tuple[dict[str, Any], str]:
 
 
 def _source_bound_receipt(
-    path: Path, name: str, source: dict[str, str]
+    path: Path,
+    name: str,
+    source: dict[str, str],
+    *,
+    mode: str | None = None,
+    native_mode: str | None = None,
 ) -> tuple[dict[str, Any], str]:
     value, sha256 = _load_export(path)
-    if value.get("status") != "PASS":
+    accepted_statuses = {"READY_MODE_A", "READY_MODE_B"} if name == "P3" else {"PASS"}
+    if value.get("status") not in accepted_statuses:
         raise AdmissionError(f"{name} receipt is not PASS")
     if value.get("source_manifest") != source:
         raise AdmissionError(f"{name} receipt binds another source manifest")
@@ -58,24 +66,45 @@ def _source_bound_receipt(
             value.get("schema") != "bl-l2-mac-independent-review/v1"
             or value.get("independent") is not True
             or value.get("review_scope") != "P1_MAC_L2"
+            or value.get("review_id") != "review-04"
         ):
             raise AdmissionError("review receipt lacks independent P1 review identity")
     if name == "P3":
+        if mode not in MODE_CONFIG or native_mode not in {"stock", "kernel"}:
+            raise ValueError("P3 validation requires a registered mode and native mode")
         comparison = value.get("comparison", {})
+        configured = MODE_CONFIG[mode]
+        readiness_key = f"mode_{mode.lower()}"
+        readiness = value.get("readiness", {})
+        selected_readiness = readiness.get(readiness_key, {})
+        execution_modes = value.get("execution_modes", {})
+        execution_mode = execution_modes.get(configured["search_mode"], {})
+        fired_by_mix = comparison.get("fired_batches_by_mix", {})
+        accepted_statuses = {"READY_MODE_A"} if mode == "A" else {"READY_MODE_A", "READY_MODE_B"}
         if (
             value.get("schema") != "bl-served-search-mac-identity/v1"
-            or comparison.get("status") != "PASS"
+            or value.get("status") not in accepted_statuses
             or comparison.get("worlds") != 5
             or comparison.get("mix_counts") != {"frozen": 2, "mixed": 2, "scripted": 1}
             or value.get("modes") != ["all", "exact_stop"]
+            or value.get("platform") != "mac"
+            or value.get("workers") != WORKERS
+            or value.get("threads") != 1
+            or selected_readiness.get("status") != "READY"
+            or selected_readiness.get("search_mode") != configured["search_mode"]
+            or selected_readiness.get("native_mode") != native_mode
+            or configured["search_mode"] not in value.get("permitted_search_modes", [])
+            or execution_mode.get("search_mode") != configured["search_mode"]
+            or execution_mode.get("native_mode") != native_mode
             or value.get("horizon") != 5000
             or value.get("b8_sha256") != ceiling.B8_SHA256
             or any(
-                comparison.get("fired_batches_by_mix", {}).get(mix, 0) <= 0
+                not isinstance(fired_by_mix.get(mix), dict)
+                or fired_by_mix[mix].get(configured["search_mode"], 0) <= 0
                 for mix in ("frozen", "mixed", "scripted")
             )
         ):
-            raise AdmissionError("P3 receipt lacks five-world exercised production identity")
+            raise AdmissionError("P3 receipt lacks selected-mode production identity")
     if name in {"review", "P3"}:
         commit = value.get("commit")
         if not isinstance(commit, str) or not commit:
@@ -111,7 +140,13 @@ def _write_sample(samples: Path, phase: str, snapshot: dict[str, Any]) -> None:
 
 
 def _operational_ok(
-    path: Path, *, source: dict[str, str], lease_id: str, shard_index: int
+    path: Path,
+    *,
+    source: dict[str, str],
+    lease_id: str,
+    shard_index: int,
+    mode: str,
+    native_mode: str,
 ) -> dict[str, Any]:
     """Validate a producer's non-scientific attestation without opening shard rows."""
     value, sha256 = _load_export(path)
@@ -124,8 +159,8 @@ def _operational_ok(
         "chunk_index": shard_index,
         "rows": 20,
         "clean_exit": True,
-        "search_mode": "exact_stop",
-        "native_mode": "kernel",
+        "search_mode": MODE_CONFIG[mode]["search_mode"],
+        "native_mode": native_mode,
     }
     wrong = [key for key, wanted in expected.items() if value.get(key) != wanted]
     if (
@@ -204,29 +239,34 @@ def check() -> dict[str, Any]:
         "workers": WORKERS,
         "thread_limits": 1,
         "chunks": CHUNK_COUNT,
-        "chunk_timeout_seconds": CHUNK_TIMEOUT_SECONDS,
-        "lease_hours": LEASE_HOURS,
+        "modes": MODE_CONFIG,
+        "native_mode_default": "stock",
         "command": "/usr/bin/nice -n 10 /usr/bin/caffeinate -is",
     }
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     """Create one exclusive run, then execute chunks 0..7 once each in order."""
+    config = MODE_CONFIG[args.mode]
     if os.getpriority(os.PRIO_PROCESS, 0) != 10:
         raise AdmissionError("Mac amendment coordinator must run at nice 10")
     if ceiling.digest_file(args.bank) != BANK_SHA256:
         raise AdmissionError("Mac amendment requires the registered BANK_L2 bytes")
     source = ceiling.source_manifest()
-    review, review_sha = _source_bound_receipt(args.review_receipt, "review", source)
-    p3, p3_sha = _source_bound_receipt(args.p3_receipt, "P3", source)
+    _review, review_sha = _source_bound_receipt(args.review_receipt, "review", source)
+    _p3, p3_sha = _source_bound_receipt(
+        args.p3_receipt, "P3", source, mode=args.mode, native_mode=args.native_mode
+    )
     checkout = _check_clean_checkout()
     if args.out.exists():
         raise AdmissionError("run output is create-only")
     initial = host.snapshot()
     if not initial.get("quiet") or not initial.get("phase0_session_absent"):
         raise AdmissionError("start gate is not QUIET")
-    until = (datetime.now(timezone.utc) + timedelta(hours=LEASE_HOURS)).isoformat()
-    lease = mac_lease.acquire(args.lease, OWNER, "L2' Mac amendment chunks 0-7", until)
+    until = (datetime.now(timezone.utc) + timedelta(hours=config["lease_hours"])).isoformat()
+    lease = mac_lease.acquire(
+        args.lease, OWNER, f"L2' Mac amendment mode {args.mode} chunks 0-7", until
+    )
 
     def interrupted(_signum: int, _frame: Any) -> None:
         raise SystemExit("SIGTERM received by L2' coordinator")
@@ -235,6 +275,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     terminal: dict[str, Any] = {
         "schema": "bl-served-search-l2-mac-run/v1",
         "status": "INCONCLUSIVE",
+        "mode": args.mode,
+        "search_mode": config["search_mode"],
+        "native_mode": args.native_mode,
         "lease_id": lease["id"],
         "source_manifest": source,
         "review_sha256": review_sha,
@@ -285,9 +328,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "--runtime-parity-receipt",
                 str(args.runtime_parity_receipt),
                 "--search-mode",
-                "exact_stop",
+                config["search_mode"],
                 "--native-mode",
-                "kernel",
+                args.native_mode,
                 "--lease",
                 str(args.lease),
                 "--lease-owner",
@@ -297,7 +340,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             ]
             code = _run_chunk(
                 command,
-                timeout=CHUNK_TIMEOUT_SECONDS,
+                timeout=config["chunk_timeout_seconds"],
                 samples=samples,
                 sample=host.snapshot,
                 lease_guard=lambda: mac_lease.require(args.lease, OWNER, lease["id"]),
@@ -306,7 +349,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 raise RuntimeError(f"chunk {index} exited {code}")
             mac_lease.require(args.lease, OWNER, lease["id"])
             operational = _operational_ok(
-                chunk / "operational.json", source=source, lease_id=lease["id"], shard_index=index
+                chunk / "operational.json",
+                source=source,
+                lease_id=lease["id"],
+                shard_index=index,
+                mode=args.mode,
+                native_mode=args.native_mode,
             )
             terminal["chunks"].append({"index": index, **operational})
         terminal["status"] = "TERMINAL_VALID"
@@ -335,6 +383,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--mode", choices=tuple(MODE_CONFIG))
+    parser.add_argument("--native-mode", choices=("stock", "kernel"), default="stock")
     parser.add_argument("--out", type=Path, default=DEFAULT_ROOT / "mac-amendment-01")
     parser.add_argument("--lease", type=Path, default=DEFAULT_ROOT.parent / "mac-lease.json")
     parser.add_argument("--bank", type=Path)
@@ -349,6 +399,8 @@ def main() -> None:
     if args.check:
         print(json.dumps(check(), sort_keys=True))
         return
+    if args.mode is None:
+        parser.error("--run requires --mode A or --mode B")
     required = (
         args.bank,
         args.b8_path,

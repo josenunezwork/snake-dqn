@@ -122,7 +122,13 @@ def test_prospective_transfer_does_not_replace_scientific_label() -> None:
 
 
 def test_bool_survival_endpoint_is_accepted_and_delta_checked() -> None:
-    expected = {"world_id": "x", "world_seed": 1, "mix": "scripted", "horizon": 5000, "plan": {}}
+    expected = {
+        "world_id": "x",
+        "world_seed": 1,
+        "mix": "scripted",
+        "horizon": 5000,
+        "plan": {"specs": [["scripted", "greedy_food"]] * 5, "member_sha256s": ["a" * 64] * 5},
+    }
     row = {
         "schema": ceiling.ROW_SCHEMA,
         **expected,
@@ -180,14 +186,18 @@ def test_bool_survival_endpoint_is_accepted_and_delta_checked() -> None:
     }
     row.update(
         search_mode="exact_stop",
-        native_mode="kernel",
+        native_mode="stock",
+        opponent_member_sha256s=["a" * 64] * 5,
+        opponent_veto_slots=[],
         native_v8={
-            "mode": "kernel",
+            "mode": "stock",
             "kernel_rows": 0,
             "stock_rows": 0,
             "fallback_rows": 0,
             "noncandidate_rows": 0,
             "calls": 0,
+            "python_calls": 0,
+            "root_stock_rows": 0,
         },
         worker_threads={
             "environment": dict.fromkeys(ceiling.THREAD_ENV, "1"),
@@ -231,6 +241,8 @@ def test_run_world_mass_ledger_reconciles(monkeypatch) -> None:
     results = iter(
         (
             {
+                "opponent_member_sha256s": ["a" * 64] * 5,
+                "opponent_veto_slots": [],
                 "mass_integral": 1.0,
                 "alive_frame_fraction": 0.5,
                 "no_death_episode": False,
@@ -249,6 +261,8 @@ def test_run_world_mass_ledger_reconciles(monkeypatch) -> None:
                 "consumed_before_deadline_availability": "UNAVAILABLE_UNPACED_L2",
             },
             {
+                "opponent_member_sha256s": ["a" * 64] * 5,
+                "opponent_veto_slots": [],
                 "mass_integral": 2.0,
                 "alive_frame_fraction": 1.0,
                 "no_death_episode": True,
@@ -268,17 +282,27 @@ def test_run_world_mass_ledger_reconciles(monkeypatch) -> None:
             },
         )
     )
-    monkeypatch.setattr(ceiling, "run_arm", lambda *args, **kwargs: next(results))
+    calls = []
+
+    def run_arm(*args, **kwargs):
+        calls.append(kwargs)
+        return next(results)
+
+    monkeypatch.setattr(ceiling, "run_arm", run_arm)
     row = ceiling.run_world(
         {
             "world_id": "fixture",
             "world_seed": 1,
             "mix": "scripted",
             "horizon": 2,
-            "plan": {"seed": 1, "mix": "scripted"},
+            "plan": {"seed": 1, "mix": "scripted", "member_sha256s": ["a" * 64] * 5},
         },
         b8_path=__import__("pathlib").Path("ignored"),
     )
+    assert row["native_mode"] == "stock"
+    assert all(call["full_depth"] is True for call in calls)
+    assert row["opponent_veto_slots"] == []
+    assert row["opponent_member_sha256s"] == ["a" * 64] * 5
     assert row["mass_ledger"] == {
         "common_alive_productivity_delta": 1.0,
         "dense_only_survival_mass": 0.0,

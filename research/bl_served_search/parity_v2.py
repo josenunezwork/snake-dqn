@@ -106,7 +106,7 @@ def _run_fixture(
         "--search-mode",
         "exact_stop",
         "--native-mode",
-        "kernel",
+        "stock",
         "--b8-path",
         str(b8_path),
         "--checkpoint-dir",
