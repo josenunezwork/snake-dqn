@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from research.bl_served_search.exports import digest, export_json, verify_export
+from research.mac_lease import DEFAULT_LEASE_PATH, held
 
 SCHEMA = "bl-served-search-ruler-fixtures/v1"
 RECEIPT_SCHEMA = "bl-served-search-ruler-receipt/v1"
@@ -553,26 +554,10 @@ def validate_qualification(mac: dict[str, Any], l4: dict[str, Any]) -> dict[str,
     return result
 
 
-def _main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True)
-    prepare = sub.add_parser("prepare")
-    prepare.add_argument("--request", type=Path, required=True)
-    prepare.add_argument("--out", type=Path, required=True)
-    prepare.add_argument(
-        "--operator", default="research.bl_served_search.ruler_operator:create_operator"
-    )
-    run = sub.add_parser("run")
-    run.add_argument("--fixtures", type=Path, required=True)
-    run.add_argument("--out", type=Path, required=True)
-    run.add_argument(
-        "--operator", default="research.bl_served_search.ruler_operator:create_operator"
-    )
-    run.add_argument("--platform", choices=("mac", "l4"), required=True)
-    run.add_argument("--workers", type=int, required=True)
-    run.add_argument("--min-batches", type=int, default=MIN_BATCHES)
-    run.add_argument("--smoke", action="store_true")
-    args = parser.parse_args()
+def _run_cli(
+    args: argparse.Namespace, parser: argparse.ArgumentParser, lease: dict[str, object] | None
+) -> None:
+    """Run the selected command after any Mac-exclusive admission check."""
     operator = _load_factory(args.operator)()
     if args.command == "prepare":
         value = build_fixtures(json.loads(args.request.read_text()), operator)
@@ -601,6 +586,8 @@ def _main() -> None:
         operator_spec=args.operator,
         heartbeat=heartbeat,
     )
+    if lease is not None:
+        receipt["mac_lease"] = lease
     export_json(args.out, receipt)
     heartbeat(
         {
@@ -609,6 +596,43 @@ def _main() -> None:
             "elapsed_seconds": receipt["elapsed_seconds"],
         }
     )
+
+
+def _main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    prepare = sub.add_parser("prepare")
+    prepare.add_argument("--request", type=Path, required=True)
+    prepare.add_argument("--out", type=Path, required=True)
+    prepare.add_argument(
+        "--operator", default="research.bl_served_search.ruler_operator:create_operator"
+    )
+    run = sub.add_parser("run")
+    run.add_argument("--fixtures", type=Path, required=True)
+    run.add_argument("--out", type=Path, required=True)
+    run.add_argument(
+        "--operator", default="research.bl_served_search.ruler_operator:create_operator"
+    )
+    run.add_argument("--platform", choices=("mac", "l4"), required=True)
+    run.add_argument("--workers", type=int, required=True)
+    run.add_argument("--min-batches", type=int, default=MIN_BATCHES)
+    run.add_argument("--smoke", action="store_true")
+    run.add_argument("--lease-owner", default="bl-served-search-ruler")
+    run.add_argument("--lease-path", type=Path, default=DEFAULT_LEASE_PATH)
+    args = parser.parse_args()
+    if args.command == "prepare":
+        _run_cli(args, parser, None)
+        return
+    if args.platform == "mac":
+        with held(
+            args.lease_owner,
+            "bl-served-search public ruler",
+            seconds=14400,
+            path=args.lease_path,
+        ) as lease:
+            _run_cli(args, parser, lease.receipt)
+        return
+    _run_cli(args, parser, None)
 
 
 if __name__ == "__main__":

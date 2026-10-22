@@ -2,6 +2,7 @@
 
 import copy
 import json
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -277,6 +278,59 @@ def test_v2_ruler_legacy_cli_boundary_preserves_fixture_hash(tmp_path: Path, mon
         smoke=True,
     )
     assert value["fixture_sha256"] == ruler.sha256_bytes(ruler.canonical(fixtures).encode())
+
+
+def test_v2_ruler_receipt_binds_mac_lease(tmp_path: Path, monkeypatch) -> None:
+    from research.bl_served_search import ruler_v2
+
+    fixtures = {**_fixtures(), "source_identity": ruler.source_identity()}
+    path = tmp_path / "ruler-fixtures.json"
+    export_json(path, fixtures)
+    monkeypatch.setattr(ruler, "_load_factory", lambda spec: lambda: object())
+    monkeypatch.setattr(
+        ruler,
+        "run_ruler",
+        lambda *args, **kwargs: {"status": "PRECHECK_ONLY", "completed_batches": 1},
+    )
+    result = ruler_v2.run(
+        path,
+        tmp_path / "out.json",
+        label="mac",
+        workers=1,
+        batches=1,
+        operator_spec="fake",
+        smoke=True,
+        mac_lease={"id": "lease-1"},
+    )
+    assert result["mac_lease"] == {"id": "lease-1"}
+    assert json.loads((tmp_path / "out.json").read_text())["mac_lease"] == {"id": "lease-1"}
+
+
+def test_v2_ruler_cli_refuses_a_held_mac_lease(tmp_path: Path, monkeypatch) -> None:
+    from research import mac_lease
+    from research.bl_served_search import ruler_v2
+
+    lease_path = tmp_path / "mac-lease.json"
+    with mac_lease.held("existing", "other measurement", seconds=60, path=lease_path):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "ruler_v2",
+                "--fixtures",
+                str(tmp_path / "not-read.json"),
+                "--out",
+                str(tmp_path / "out.json"),
+                "--platform",
+                "mac",
+                "--workers",
+                "1",
+                "--lease-path",
+                str(lease_path),
+            ],
+        )
+        with pytest.raises(mac_lease.LeaseHeld, match="existing"):
+            ruler_v2.main()
 
 
 def terminal_family(root: Path, monkeypatch: pytest.MonkeyPatch) -> Path:

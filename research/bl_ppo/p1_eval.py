@@ -19,6 +19,7 @@ from statistics import mean, variance
 from typing import Any, Mapping
 
 from research.bl_ppo.exports import digest, export_json, verify_export
+from research.published_ledger import bind_published_ledger_check, require_published_ledger
 
 ROOT = Path(__file__).resolve().parents[2]
 MIXES = ("scripted", "frozen", "mixed")
@@ -620,6 +621,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--burned-inventory", type=Path, action="append", default=[])
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--round", type=int, default=0)
+    parser.add_argument(
+        "--authoring-repo",
+        type=Path,
+        help="clean checkout that owns the published look ledger; required for --analyze",
+    )
+    parser.add_argument(
+        "--ledger", help="repository-relative published look ledger; required for --analyze"
+    )
     args = parser.parse_args(argv)
     if args.prepare_bank:
         bank = materialize(args.round)
@@ -629,6 +638,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not args.bank or not args.audit:
         parser.error("--evaluate and --analyze require --bank and --audit")
+    if args.analyze:
+        if not args.results:
+            parser.error("--analyze requires --results")
+        if args.authoring_repo is None or args.ledger is None:
+            parser.error("--analyze is a claim and requires --authoring-repo and --ledger")
+        # This happens before result bytes are opened: a Colab runtime can compute
+        # pairs, but only the published authoring checkout may consume the look.
+        proof = require_published_ledger(args.authoring_repo, args.ledger)
+        bank, audit = _read_complete(args.bank), _read_complete(args.audit)
+        decision = bind_published_ledger_check(
+            analyze(bank, audit, _read_complete(args.results)), proof
+        )
+        export_json(args.out, decision)
+        return 0
     bank, audit = _read_complete(args.bank), _read_complete(args.audit)
     if args.evaluate:
         if not all((args.f_checkpoint, args.b8_checkpoint, args.endpoint_receipt, args.e13_parity)):
@@ -648,10 +671,7 @@ def main(argv: list[str] | None = None) -> int:
             workers=args.workers,
         )
         return 0
-    if not args.results:
-        parser.error("--analyze requires --results")
-    export_json(args.out, analyze(bank, audit, _read_complete(args.results)))
-    return 0
+    raise AssertionError("unreachable action")
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@ from research.bl_served_search.ruler import (
     source_identity,
     validate_fixtures,
 )
+from research.mac_lease import DEFAULT_LEASE_PATH, held
 
 SCHEMA = "bl-mac-l1-prime-diagnostic/v1"
 PACED_STATUS = "NOT_READY"
@@ -882,6 +883,7 @@ def run(
     guard: Callable[[], dict[str, Any]],
     stress_probe: bool = False,
     burst_seconds: tuple[float, ...] = (12.0, 15.0),
+    mac_lease: dict[str, object] | None = None,
 ) -> dict[str, Any]:
     """Create-only write of a bounded diagnostic receipt and its sidecars."""
     receipt = build_receipt(
@@ -896,8 +898,28 @@ def run(
             Path(out).parent / (Path(out).stem + "-attempts") if stress_probe else None
         ),
     )
+    if mac_lease is not None:
+        receipt["mac_lease"] = mac_lease
     export_json(Path(out), receipt)
     return receipt
+
+
+def _run(
+    args: argparse.Namespace,
+    check_guard: Callable[[], dict[str, Any]],
+    mac_lease: dict[str, object],
+) -> None:
+    run(
+        fixtures_path=args.fixtures,
+        out=args.out,
+        authorization_path=args.authorization,
+        cpu_reference_path=args.cpu_reference,
+        budget_seconds=args.budget_seconds,
+        guard=check_guard,
+        stress_probe=args.stress_probe,
+        burst_seconds=tuple(args.burst_seconds or (12.0, 15.0)),
+        mac_lease=mac_lease,
+    )
 
 
 def _main() -> None:
@@ -910,6 +932,8 @@ def _main() -> None:
     parser.add_argument(
         "--check", action="store_true", help="validate inputs only; never start workers"
     )
+    parser.add_argument("--lease-owner", default="bl-mac-l1")
+    parser.add_argument("--lease-path", type=Path, default=DEFAULT_LEASE_PATH)
     parser.add_argument(
         "--stress-probe",
         action="store_true",
@@ -946,16 +970,13 @@ def _main() -> None:
             )
         )
         return
-    run(
-        fixtures_path=args.fixtures,
-        out=args.out,
-        authorization_path=args.authorization,
-        cpu_reference_path=args.cpu_reference,
-        budget_seconds=args.budget_seconds,
-        guard=check_guard,
-        stress_probe=args.stress_probe,
-        burst_seconds=tuple(args.burst_seconds or (12.0, 15.0)),
-    )
+    with held(
+        args.lease_owner,
+        "bl-mac-l1 paced diagnostic",
+        seconds=args.budget_seconds,
+        path=args.lease_path,
+    ) as lease:
+        _run(args, check_guard, lease.receipt)
 
 
 if __name__ == "__main__":

@@ -78,7 +78,11 @@ def execute(plan_path: Path, out: Path) -> dict[str, Any]:
         from research.bl_prefix.e6 import run
     else:
         from research.bl_prefix.e7 import run
-    result = run(plan, out, preflight=plan.get("preflight") is True)
+    preflight = plan.get("preflight") is True
+    # The remote runtime may generate immutable paired rows but cannot open a
+    # registered summary.  The Mac publication wrapper recomputes it after the
+    # explicit authoring-checkout ledger fence passes.
+    result = run(plan, out, preflight=preflight, compute_analysis=preflight)
     expected = "PREFLIGHT_ONLY" if plan.get("preflight") is True else "COMPLETE"
     if result.get("status") != expected:
         raise RuntimeError(f"{experiment}: {result.get('status')}: {result.get('reason', '')}")

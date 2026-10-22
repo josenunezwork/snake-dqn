@@ -4,6 +4,7 @@ import base64
 import copy
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -187,3 +188,32 @@ def test_frozen_root_encodes_runtime_distance_sentinels() -> None:
     assert '"float_hex":"inf"' in payload
     assert '"float_hex":"-inf"' in payload
     assert '"float_hex":"nan"' in payload
+
+
+def test_public_ruler_cli_refuses_held_mac_lease_before_loading_operator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from research import mac_lease
+
+    lease_path = tmp_path / "mac-lease.json"
+    with mac_lease.held("existing", "other timing", seconds=60, path=lease_path):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "ruler",
+                "run",
+                "--fixtures",
+                str(tmp_path / "not-read.json"),
+                "--out",
+                str(tmp_path / "out.json"),
+                "--platform",
+                "mac",
+                "--workers",
+                "1",
+                "--lease-path",
+                str(lease_path),
+            ],
+        )
+        with pytest.raises(mac_lease.LeaseHeld, match="live holder"):
+            ruler._main()

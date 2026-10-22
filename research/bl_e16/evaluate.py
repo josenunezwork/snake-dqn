@@ -31,6 +31,7 @@ from research.bl_info_value.reconstruct import _geometry, _history_state, _histo
 from research.bl_ppo.collector import TerminalEvalDriver, _FrozenRoster, _sim_config
 from research.bl_ppo.exports import digest, export_json, verify_export
 from research.bl_ppo.model import PPOPolicy
+from research.published_ledger import bind_published_ledger_check, require_published_ledger
 from src.model.ego2s_network import load_ego2s_checkpoint
 
 
@@ -311,7 +312,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--endpoint-lock", type=Path, required=True)
+    parser.add_argument("--authoring-repo", type=Path, required=True)
+    parser.add_argument("--ledger", required=True)
     args = parser.parse_args(argv)
+    proof = require_published_ledger(args.authoring_repo, args.ledger)
     plan = require_execution_plan(args.plan)
     verify_export(args.endpoint_lock)
     lock = json.loads(args.endpoint_lock.read_text())
@@ -365,7 +369,7 @@ def main(argv: list[str] | None = None) -> int:
         training_status=statuses,
     )
     export_json(args.output.with_name(args.output.stem + "-worlds.json"), {"rows": rows})
-    export_json(args.output, result)
+    export_json(args.output, bind_published_ledger_check(result, proof))
     return 0
 
 

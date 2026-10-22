@@ -149,6 +149,12 @@ def validate(manifest: dict[str, Any], repo: Path | None = None) -> dict[str, An
     """Validate inputs and a conservatively priced whole-session envelope."""
     repo = REPO if repo is None else repo
     m = json.loads(json.dumps(manifest))
+    from research.colab_cli.schema import SchemaError, validate_manifest
+
+    try:
+        validate_manifest(m)
+    except SchemaError as exc:
+        raise Refused(str(exc)) from exc
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", m.get("job_id", "")):
         raise Refused("job_id must be a short lowercase identifier")
     commit = m.get("commit", "")
@@ -254,6 +260,12 @@ def validate(manifest: dict[str, Any], repo: Path | None = None) -> dict[str, An
     from research.colab_cli.admission import check_study_manifest
 
     check_study_manifest(m, repo)
+    from research.colab_cli.canary import CanaryError, check
+
+    try:
+        check(m, repo)
+    except CanaryError as exc:
+        raise Refused(str(exc)) from exc
     return m
 
 
@@ -757,9 +769,40 @@ class Broker:
                     timeout=10,
                 )
                 (staging / name).write_bytes(data)
+            if not (staging / "schema-validation.json").is_file():
+                raise Refused("preparation did not publish schema-validation sidecar")
             for path in staging.iterdir():
                 if path.stat().st_size > m["max_export_bytes"]:
-                    raise Refused("pinned upload exceeds bounded transfer size before allocation")
+                    from research.colab_cli.failures import ClassifiedFailure, FailureClass
+
+                    detail = "pinned upload exceeds bounded transfer size before allocation"
+                    write_once(
+                        output / "receipt.json",
+                        {
+                            "job_id": job,
+                            "generation": None,
+                            "commit": m["commit"],
+                            "manifest_sha256": sha256(output / "manifest.json"),
+                            "session": None,
+                            "supervisor_sha256": sha256(Path(__file__)),
+                            "endpoint": None,
+                            "usage_before": None,
+                            "usage_after": None,
+                            "accounting": None,
+                            "elapsed_seconds": 0.0,
+                            "terminal": None,
+                            "exports": [],
+                            "transfers": [],
+                            "contents_transfers": [],
+                            "cli_calls": [],
+                            "error": detail,
+                            "failure_class": FailureClass.UPLOAD_CAP.value,
+                            "cleanup_error": None,
+                            "status": "INCOMPLETE",
+                            "stop_verified": False,
+                        },
+                    )
+                    raise ClassifiedFailure(FailureClass.UPLOAD_CAP, detail)
             generation = uuid.uuid4().hex
             session = f"snake-{job}-{generation[:12]}"
             cli = CLI(self.binary, lane / "sessions.json", session)
@@ -782,6 +825,7 @@ class Broker:
             usage_before = None
             accounting = None
             error = None
+            failure_class = None
             cleanup = None
             usage_after = None
             terminal = None
@@ -897,7 +941,13 @@ class Broker:
                         cli, m, generation, output, started, usage_before, retained, admission_lock
                     )
                 except BaseException as exc:
+                    from research.colab_cli.failures import classify_exception
+
                     error = redact(repr(exc))
+                    failure_class = classify_exception(exc).value
+                    terminal_path = output / "terminal.json"
+                    if terminal is None and terminal_path.is_file():
+                        terminal = json.loads(terminal_path.read_text())
                 finally:
                     cli.stop_lease()
                     # Recover identity from CLI metadata if allocation returned uncertain.
@@ -959,6 +1009,10 @@ class Broker:
                             self.backup(output, m["backup_dir"], job, generation)
                         except BaseException as exc:
                             error = error or redact(repr(exc))
+                    if (error or cleanup) and failure_class is None:
+                        from research.colab_cli.failures import classify_exception
+
+                        failure_class = classify_exception(RuntimeError(error or cleanup)).value
                     receipt = {
                         "job_id": job,
                         "generation": generation,
@@ -977,6 +1031,7 @@ class Broker:
                         "contents_transfers": cli.contents_transfers,
                         "cli_calls": cli.call_records,
                         "error": error,
+                        "failure_class": failure_class,
                         "cleanup_error": cleanup,
                         "status": (
                             ("COMPLETED_SESSION_RETAINED" if keep else "PASS")
@@ -985,6 +1040,16 @@ class Broker:
                         ),
                         "stop_verified": bool(endpoint and not cleanup and not keep),
                     }
+                    from research.colab_cli.canary import evidence, is_canary
+
+                    if is_canary(m) and receipt["status"] == "PASS":
+                        try:
+                            receipt["canary_evidence"] = evidence(m, receipt, output, REPO)
+                        except Exception as exc:
+                            error = redact(repr(exc))
+                            receipt.update(
+                                error=error, status="INCOMPLETE", failure_class="SUPERVISOR"
+                            )
                     write_once(output / "receipt.json", receipt)
                     if keep:
                         retained.update(
@@ -1277,7 +1342,8 @@ class Broker:
                 )
             from research.colab_cli.transfers import UPLOAD_TOTAL_TIMEOUT_SECONDS, upload_file
 
-            upload_deadline = time.monotonic() + UPLOAD_TOTAL_TIMEOUT_SECONDS
+            upload_started = time.monotonic()
+            upload_deadline = upload_started + UPLOAD_TOTAL_TIMEOUT_SECONDS
             local_files = [
                 (pinned["bootstrap.sh"], "bootstrap.sh", ""),
                 (pinned["source.py"], "source.py", ""),
@@ -1337,6 +1403,10 @@ class Broker:
                 or delivery.get("tree") != plan["tree"]
             ):
                 raise Refused("source delivery commit/tree identity mismatch")
+            write_once(
+                output / "upload-measurement.json",
+                {"elapsed_seconds": time.monotonic() - upload_started},
+            )
             write_once(output / "source-delivery.json", delivery)
             write_once(output / "input-hashes.json", checks)
             # Hardware admission and process launch are short RPCs. Bootstrap
@@ -1454,11 +1524,29 @@ class Broker:
                 renew(force=True)
             if state.get("terminal"):
                 terminal = state["terminal"]
+                if not terminal.get("last_traceback_line") and terminal.get("returncode") != 0:
+                    terminal = {
+                        **terminal,
+                        "last_traceback_line": next(
+                            (
+                                line
+                                for line in reversed(state.get("job_log_tail", "").splitlines())
+                                if line.strip()
+                            ),
+                            None,
+                        ),
+                    }
                 write_once(output / "terminal.json", terminal)
-                if terminal.get("generation") != generation or terminal.get("returncode") != 0:
-                    raise Refused("remote terminal failed or foreign generation")
-                if terminal.get("status") not in {"completed", "success", "succeeded", "PASS"}:
-                    raise Refused(f"remote terminal not successful: {terminal.get('status')}")
+                from research.colab_cli.failures import terminal_failure
+                from research.colab_cli.schema import SchemaError, validate_export_inventory
+
+                failure = terminal_failure(terminal, generation)
+                if failure is not None:
+                    raise failure
+                try:
+                    validate_export_inventory(m, list(exported.values()))
+                except SchemaError as exc:
+                    raise Refused(str(exc)) from exc
                 if self.observer:
                     self.observer(
                         "terminal",
