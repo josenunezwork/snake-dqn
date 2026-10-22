@@ -98,7 +98,7 @@ ACCEPTANCE=/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/warmup3-requalif
 cd "$REPO"
 "$REPO/tools/ops/dispatch.sh" p1-y3-05-snapshot-bounds-canary-20261022 \
   "$PACK/family-canary/canary-manifest.json" --broker "$REPO" --cwd "$REPO" \
-  --dispatch-txt "$PACK/DISPATCH.txt"
+  --dispatch-txt "$PACK/DISPATCH-snapshot-bounds.txt"
 
 # Continue only after a genuine current-pin passing canary, verified exports and stop.
 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_ppo.p1_family_canary admit \
@@ -106,7 +106,7 @@ cd "$REPO"
   --acceptance "$ACCEPTANCE" --review "$PACK/independent-artifact-review.json"
 "$REPO/tools/ops/dispatch.sh" p1-y3-05-snapshot-bounds-source-20261022 \
   "$PACK/family-canary/source-admitted.json" --broker "$REPO" --cwd "$REPO" \
-  --dispatch-txt "$PACK/DISPATCH.txt"
+  --dispatch-txt "$PACK/DISPATCH-snapshot-bounds.txt"
 ```
 
 No tmux session, released checkpoint, serving pin, or pre-existing hash-bound
@@ -118,3 +118,7 @@ Dispatch/transport admission plus updated arithmetic/debit regression batch: **1
 Black with line length 100, isort with the Black profile, flake8 on all 18 changed
 Python files, shell syntax and diff whitespace checks passed. The independent
 Codex-V receipt records separate heavy replay, final arithmetic and lint evidence.
+
+Prepared executable pin: `7b83e3be80db763bc5101e87684773c0039a8716`.
+Both templates pin that published commit; subsequent handoff/index publication
+changes no reviewed executable source.
