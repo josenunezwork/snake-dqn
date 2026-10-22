@@ -1,10 +1,9 @@
-"""Prospective Friday paired kernel rulers; no science bank or provider calls."""
+"""Prospective paired kernel rulers; no science bank or provider calls."""
 
 from __future__ import annotations
 
 import argparse
 import concurrent.futures
-import datetime as dt
 import json
 import math
 import multiprocessing
@@ -14,7 +13,6 @@ import statistics
 import time
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from research.bl_served_search import ruler
 from research.bl_served_search.exports import digest, export_json, verify_export
@@ -390,12 +388,6 @@ def run_pairs(
     return receipt
 
 
-def window() -> None:
-    now = dt.datetime.now(ZoneInfo("America/Los_Angeles"))
-    if now.date().isoformat() != "2026-10-23" or not 12 <= now.hour < 20:
-        raise RuntimeError("native ruler only Fri 2026-10-23 12:00–20:00 PT after D2 PASS")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixtures", type=Path, required=True)
@@ -434,7 +426,6 @@ def main() -> None:
         from research.bl_served_search.mac_lease import require
 
         def guard() -> dict:
-            window()
             require(args.lease, args.lease_owner, args.lease_id)
             return {
                 **check_guard(),
@@ -452,7 +443,7 @@ def main() -> None:
             parser.error("L4 requires qualified CLI runtime")
 
         def guard() -> None:
-            window()
+            pass
 
         hardware = ruler.hardware_provenance()
         if (

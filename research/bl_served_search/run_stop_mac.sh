@@ -13,7 +13,7 @@ if [[ "${1:-}" == "--check" ]]; then
   test -x "$PYTHON_BIN"
   bash -n "$0"
   printf '%s\n' "CHECK_ONLY: no lease or timing started" \
-    "Friday 2026-10-23 12:00-20:00 PT; K1_PASS required: $K1" \
+    "Any single run; lease until launch + 2 hours; K1_PASS required: $K1" \
     "canary: $CANARY_OUT" "paired full: $FULL_OUT" \
     "Mac cap including canary: 7200 seconds; one math thread; exclusive lease"
   exit 0
@@ -27,9 +27,11 @@ export SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 export SNAKE_CKPT_DIR=/Users/josenunez/Projects/ml/snake-dqn/saved_snakes
 export RULER_B8_PATH="$SNAKE_CKPT_DIR/b8_s3_t7_20261016.pth"
+LEASE_UNTIL="$("$PYTHON_BIN" -c \
+  'from datetime import datetime, timedelta, timezone; print((datetime.now(timezone.utc) + timedelta(hours=2)).isoformat())')"
 LEASE_ID="$("$PYTHON_BIN" -m research.bl_served_search.mac_lease acquire \
-  --path "$LEASE" --owner "$OWNER" --purpose 'Friday native Y1 all/exact_stop ruler' \
-  --until '2026-10-23T20:00:00-07:00' | \
+  --path "$LEASE" --owner "$OWNER" --purpose 'Native Y1 all/exact_stop ruler' \
+  --until "$LEASE_UNTIL" | \
   "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 release_lease() {
   "$PYTHON_BIN" -m research.bl_served_search.mac_lease release \
