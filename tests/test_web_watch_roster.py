@@ -56,6 +56,9 @@ def _released_checkpoint_fixture(monkeypatch, tmp_path):
     local_registry = {
         name: replace(entry, artifact_path=None) for name, entry in registry.REGISTRY.items()
     }
+    # Isolate roster behavior from the immutable release evidence reader: these
+    # stand-in checkpoints/pins are deliberately not scientific evidence.
+    monkeypatch.setattr(registry, "strict_evidence_problems", lambda *args, **kwargs: [])
     local_root = str(tmp_path)
 
     def receipt(files):

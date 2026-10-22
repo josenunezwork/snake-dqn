@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .clock_seam import EXPECTED, clock_seam_passed
+from .clock_seam import EXPECTED, synthetic_clock_seam_passed
 from .events import sha256
 from .preflight import TinyGame
 from .record import read_export, read_journal
@@ -33,7 +33,10 @@ def audit_preflight(directory: Path) -> dict[str, Any]:
     if replay_journal(directory / "real-game-trace", TinyGame) != replay:
         raise ValueError("fresh independent real-game replay changed")
     proof = receipt.get("clock_seam")
-    if not clock_seam_passed(proof, sha256(receipt["source_sha256"])):
+    # This audit only validates the intentionally synthetic X7 fixture corpus.
+    # It is never a production admission path; production receipts use the typed
+    # loader through ``clock_seam_passed``.
+    if not synthetic_clock_seam_passed(proof, sha256(receipt["source_sha256"])):
         raise ValueError("clock seam proof missing, stale or mis-dispositioned")
     if proof["cases"] != fixtures.get("clock_seam", {}).get("cases"):
         raise ValueError("clock seam fixture/receipt mismatch")
