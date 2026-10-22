@@ -294,12 +294,12 @@ class DeviceOperator:
     """
 
     def __init__(self, device: str) -> None:
-        from research.bl_served_search.ruler_operator import ExactT3Operator
+        from research.bl_served_search.ruler_operator import create_stop_operator
 
         if device not in {"cpu", "mps"}:
             raise ValueError("device must be cpu or mps")
         self.device = device
-        self._exact = ExactT3Operator()
+        self._exact = create_stop_operator()
         self.placement: dict[str, list[dict[str, str]]] = {}
 
     def _sync(self) -> None:
@@ -404,6 +404,7 @@ def _worker_batch(fixture: dict[str, Any]) -> dict[str, Any]:
         for name, original in originals.items():
             setattr(bank_engine, name, guarded(original))
         result = _WORKER_OPERATOR.batch(fixture)
+        import numba
         import torch
 
         completed = time.monotonic_ns()
@@ -422,6 +423,23 @@ def _worker_batch(fixture: dict[str, Any]) -> dict[str, Any]:
                 "warmup": "none; cold worker/root initialization included in diagnostic S",
             },
             "semantic": result["semantic"],
+            "native_v8": result["native_v8"],
+            "stage_seconds": result["stage_seconds"],
+            "worker_wall_seconds": (completed - started) / 1e9,
+            "worker_threads": {
+                "environment": {
+                    name: os.environ.get(name)
+                    for name in (
+                        "OMP_NUM_THREADS",
+                        "OPENBLAS_NUM_THREADS",
+                        "MKL_NUM_THREADS",
+                        "NUMBA_NUM_THREADS",
+                        "VECLIB_MAXIMUM_THREADS",
+                    )
+                },
+                "torch": torch.get_num_threads(),
+                "numba": numba.get_num_threads(),
+            },
             "placement": result.get("placement", []),
         }
     finally:
@@ -429,13 +447,11 @@ def _worker_batch(fixture: dict[str, Any]) -> dict[str, Any]:
             setattr(bank_engine, name, original)
 
 
-def _semantic_reference(cpu_reference: dict[str, Any]) -> dict[str, str]:
-    """Use the frozen CPU ruler's first semantic output as a diagnostic oracle."""
+def _semantic_reference(cpu_reference: dict[str, Any]) -> dict[str, int]:
+    """Compare chosen actions to all-branch Y1, allowing exact-stop skipped rows."""
     receipt, _ = _read_completed_json(Path(cpu_reference["path"]))
     return {
-        str(row["fixture_id"]): json.dumps(
-            row["batches"][0]["semantic"], sort_keys=True, separators=(",", ":")
-        )
+        str(row["fixture_id"]): int(row["batches"][0]["semantic"]["chosen"])
         for row in receipt["records"]
     }
 
@@ -584,14 +600,19 @@ def run_stress_cell(
                 payload = future.result()
                 visible = time.monotonic_ns()
                 item["visible_ns"] = visible
-                semantic = json.dumps(payload["semantic"], sort_keys=True, separators=(",", ":"))
+                from research.bl_served_search.native_ruler import validate_batch
+
+                validate_batch(payload, row, "exact_stop")
                 item.update(
                     worker_started_ns=payload["worker_started_ns"],
                     worker_completed_ns=payload["worker_completed_ns"],
                     placement=payload["placement"],
                     worker_pid=payload["worker_pid"],
                     execution_environment=payload["execution_environment"],
-                    semantic_matches_cpu_reference=semantic == expected[row["fixture_id"]],
+                    semantic_matches_cpu_reference=(
+                        payload["semantic"]["chosen"] == expected[row["fixture_id"]]
+                    ),
+                    native_v8=payload["native_v8"],
                     S_diagnostic_seconds=(visible - admitted_ns) / 1e9,
                     worker_occupancy_seconds=(
                         payload["worker_completed_ns"] - payload["worker_started_ns"]
