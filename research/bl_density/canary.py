@@ -122,6 +122,11 @@ def verify_proof(path: Path, commit: str, amendment_sha256: str) -> dict[str, An
     """Runtime requires the uploaded immutable proof generated after Mac recovery."""
     verify_export(path)
     proof = json.loads(path.read_text())
+    return verify_proof_value(proof, commit, amendment_sha256)
+
+
+def verify_proof_value(proof: dict[str, Any], commit: str, amendment_sha256: str) -> dict[str, Any]:
+    """Validate a receipt-bound proof carried without changing family uploads."""
     if (
         proof.get("schema") != "bl-density-canary-proof/v1"
         or proof.get("status") != "L4_CANARY_RECOVERED_HASH_VERIFIED"
@@ -143,9 +148,12 @@ def main() -> None:
     parser.add_argument("--proof", type=Path)
     parser.add_argument("--commit")
     parser.add_argument("--amendment-sha256")
+    parser.add_argument("--proof-json")
     args = parser.parse_args()
     if args.proof:
         verify_proof(args.proof, args.commit, args.amendment_sha256)
+    elif args.proof_json:
+        verify_proof_value(json.loads(args.proof_json), args.commit, args.amendment_sha256)
     elif args.recovered_output and args.manifest and args.out:
         export_json(
             args.out, recovered(args.recovered_output, json.loads(args.manifest.read_text()))

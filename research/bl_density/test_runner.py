@@ -70,11 +70,11 @@ def test_frozen_pool_rotates_across_the_whole_cell() -> None:
     assert len({tuple(tuple(spec) for spec in job["plan"]["specs"]) for job in jobs}) > 1
 
 
-def test_amendment_three_production_allocation_is_90_and_a_is_shared_reference() -> None:
+def test_density_two_production_allocation_is_492_and_a_is_shared_reference() -> None:
     from pathlib import Path
 
     from research.apex_safety_20260926 import dev_screen as ds
-    from research.bl_density.runner import ARMS, MIXES, planned_jobs
+    from research.bl_density.runner import ARMS, DENSITY2_ALLOCATION, MIXES, planned_jobs
 
     context = {"ds": ds, "lookup": ds.agent_lookup({sha: name for name, sha in ds.POOL})}
     jobs = planned_jobs(
@@ -92,10 +92,76 @@ def test_amendment_three_production_allocation_is_90_and_a_is_shared_reference()
         for arm in ARMS
         for mix in MIXES
     }
-    assert len(jobs) == 90
-    assert all(counts["A", mix] == 12 for mix in MIXES)
-    assert all(counts[arm, mix] == 6 for arm in ARMS if arm != "A" for mix in MIXES)
+    assert len(jobs) == 492
+    assert counts["A", "frozen"] == 96
+    assert counts["A", "mixed"] == counts["A", "scripted"] == 72
+    assert all(counts["B70m", mix] == 24 for mix in MIXES)
+    assert all(counts["B70p", mix] == 36 for mix in MIXES)
+    assert all(counts["C-P1", mix] == 24 for mix in MIXES)
+    assert DENSITY2_ALLOCATION["A"]["frozen"] == 96
     assert {job["arm"] for job in jobs} == {"A", "B70m", "B70p", "C-P1"}
+
+
+def test_density_two_namespaces_are_disjoint_from_all_pilot_worlds() -> None:
+    from research.bl_density.runner import (
+        CANARY_NAMESPACE,
+        DENSITY2_ALLOCATION,
+        DENSITY2_NAMESPACE,
+        LOCAL_PREFLIGHT_NAMESPACE,
+        MIXES,
+        PILOT_ALLOCATION,
+        PILOT_NAMESPACE,
+        allocation_seeds,
+        assert_density2_seed_separation,
+    )
+
+    pilot = allocation_seeds(PILOT_NAMESPACE, PILOT_ALLOCATION)
+    production = allocation_seeds(DENSITY2_NAMESPACE, DENSITY2_ALLOCATION)
+    canary = allocation_seeds(
+        CANARY_NAMESPACE, {arm: {mix: 1 for mix in MIXES} for arm in DENSITY2_ALLOCATION}
+    )
+    preflight = allocation_seeds(
+        LOCAL_PREFLIGHT_NAMESPACE, {arm: {mix: 1 for mix in MIXES} for arm in DENSITY2_ALLOCATION}
+    )
+    assert len(pilot) == 90
+    assert len(production) == 492
+    assert len(canary) == 12
+    assert len(preflight) == 12
+    assert not (pilot & production)
+    assert not (pilot & canary)
+    assert not (production & canary)
+    assert not (pilot & preflight)
+    assert not (production & preflight)
+    assert not (canary & preflight)
+    assert_density2_seed_separation()
+
+
+def test_terminal_a_floor_closes_rows_9_and_9a_without_extending_incomplete_runs() -> None:
+    from research.bl_density.runner import _densification_closure
+
+    analysis = {
+        "cells": {
+            "A": {
+                "scripted": {"distinct_doom_bearing_episodes": 3},
+                "frozen": {"distinct_doom_bearing_episodes": 4},
+                "mixed": {"distinct_doom_bearing_episodes": 1},
+            }
+        }
+    }
+    terminal = _densification_closure(analysis, "COMPLETE", production=True)
+    assert terminal["scripted"] == {
+        "status": "CLOSED",
+        "rows": ["9", "9a"],
+        "reason": "A_fewer_than_4_doom_bearing_episodes",
+        "action": "NO_THIRD_ENLARGEMENT",
+    }
+    assert terminal["frozen"]["status"] == "OPEN"
+    incomplete = _densification_closure(analysis, "INCOMPLETE", production=True)
+    assert all(
+        row["action"] == "PRESERVE_COLLECTED_EPISODES_NO_EXTENSION" for row in incomplete.values()
+    )
+    excluded = _densification_closure(analysis, "COMPLETE", production=False)
+    assert all(row["status"] == "NOT_APPLICABLE_EXCLUDED_PREFLIGHT" for row in excluded.values())
 
 
 class _RootProbe:

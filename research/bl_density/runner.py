@@ -26,10 +26,32 @@ import numpy as np
 
 from research.bl_ppo.exports import export_json
 
-NAMESPACE = "bl-density-round14-20261022"
+# The completed 90-episode pilot is sizing-only.  DENSITY-2 is an independent,
+# one-look replication and must therefore never reuse a pilot world.
+PILOT_NAMESPACE = "bl-density-round14-20261022"
+DENSITY2_NAMESPACE = "bl-density-round14b-20261022"
+CANARY_NAMESPACE = "bl-density-round14b-canary-20261022"
+LOCAL_PREFLIGHT_NAMESPACE = "bl-density-round14b-preflight-20261022"
+# Retain the public name for callers which imported it before the replication.
+NAMESPACE = DENSITY2_NAMESPACE
 HORIZON, DEPTH = 5000, 300
 MIXES = ("scripted", "frozen", "mixed")
 ARMS = ("A", "B70m", "B70p", "C-P1")
+
+# Frozen by the spare-slot judgment.  These are episode counts, not weights;
+# the pilot is excluded from all DENSITY-2 summaries and decisions.
+DENSITY2_ALLOCATION = {
+    "A": {"frozen": 96, "mixed": 72, "scripted": 72},
+    "B70m": {mix: 24 for mix in MIXES},
+    "B70p": {mix: 36 for mix in MIXES},
+    "C-P1": {mix: 24 for mix in MIXES},
+}
+PILOT_ALLOCATION = {
+    "A": {mix: 12 for mix in MIXES},
+    "B70m": {mix: 6 for mix in MIXES},
+    "B70p": {mix: 6 for mix in MIXES},
+    "C-P1": {mix: 6 for mix in MIXES},
+}
 FEATURE_NAMES = tuple(
     f"{action}_{name}"
     for action in range(6)
@@ -86,9 +108,88 @@ def retrospective_doom(death_decision: int | None, decision: int) -> bool:
     return death_decision is not None and 0 <= int(death_decision) - int(decision) < DEPTH
 
 
-def _seed(arm: str, mix: str, index: int) -> int:
-    raw = f"{NAMESPACE}/{arm}/{mix}/{index}".encode()
+def _seed(arm: str, mix: str, index: int, *, namespace: str = NAMESPACE) -> int:
+    raw = f"{namespace}/{arm}/{mix}/{index}".encode()
     return int.from_bytes(hashlib.sha256(raw).digest()[:4], "big")
+
+
+def allocation_seeds(namespace: str, allocation: dict[str, dict[str, int]]) -> set[int]:
+    """Materialize an allocation's deterministic seed identity for pre-data audits."""
+    return {
+        _seed(arm, mix, index, namespace=namespace)
+        for arm, by_mix in allocation.items()
+        for mix, count in by_mix.items()
+        for index in range(count)
+    }
+
+
+def assert_density2_seed_separation() -> None:
+    """Reject any DENSITY-2/canary collision with the sizing pilot or production."""
+    pilot = allocation_seeds(PILOT_NAMESPACE, PILOT_ALLOCATION)
+    production = allocation_seeds(DENSITY2_NAMESPACE, DENSITY2_ALLOCATION)
+    canary = allocation_seeds(CANARY_NAMESPACE, {arm: {mix: 1 for mix in MIXES} for arm in ARMS})
+    preflight = allocation_seeds(
+        LOCAL_PREFLIGHT_NAMESPACE, {arm: {mix: 1 for mix in MIXES} for arm in ARMS}
+    )
+    if len(pilot) != 90 or len(production) != 492 or len(canary) != 12 or len(preflight) != 12:
+        raise RuntimeError("density allocation has an internal seed collision")
+    if any(
+        left & right
+        for left, right in (
+            (pilot, production),
+            (pilot, canary),
+            (pilot, preflight),
+            (production, canary),
+            (production, preflight),
+            (canary, preflight),
+        )
+    ):
+        raise RuntimeError("density namespace overlaps pilot, production, or canary worlds")
+
+
+def _densification_closure(
+    analysis: dict[str, Any], status: str, *, production: bool
+) -> dict[str, dict[str, Any]]:
+    """Record the ruled terminal closure without changing round-14 decisions."""
+    if not production:
+        return {
+            mix: {
+                "status": "NOT_APPLICABLE_EXCLUDED_PREFLIGHT",
+                "rows": ["9", "9a"],
+                "action": "NO_DENSIFICATION_DECISION",
+            }
+            for mix in MIXES
+        }
+    if status != "COMPLETE":
+        return {
+            mix: {
+                "status": "NO_EXTENSION_INCOMPLETE",
+                "rows": ["9", "9a"],
+                "action": "PRESERVE_COLLECTED_EPISODES_NO_EXTENSION",
+            }
+            for mix in MIXES
+        }
+    return {
+        mix: {
+            "status": (
+                "CLOSED"
+                if analysis["cells"]["A"][mix]["distinct_doom_bearing_episodes"] < 4
+                else "OPEN"
+            ),
+            "rows": ["9", "9a"],
+            "reason": (
+                "A_fewer_than_4_doom_bearing_episodes"
+                if analysis["cells"]["A"][mix]["distinct_doom_bearing_episodes"] < 4
+                else "A_floor_reached"
+            ),
+            "action": (
+                "NO_THIRD_ENLARGEMENT"
+                if analysis["cells"]["A"][mix]["distinct_doom_bearing_episodes"] < 4
+                else "NO_ACTION"
+            ),
+        }
+        for mix in MIXES
+    }
 
 
 def _expanded_specs(specs: Sequence[Sequence[str]], count: int) -> list[list[str]]:
@@ -517,8 +618,8 @@ def run_episode(job: dict[str, Any]) -> dict[str, Any]:
     )
     return {
         "schema": "bl-density-episode/v2",
-        "episode_id": f"{NAMESPACE}/{arm}/{mix}/{job['index']:03d}",
-        "namespace": NAMESPACE,
+        "episode_id": f"{job.get('namespace', NAMESPACE)}/{arm}/{mix}/{job['index']:03d}",
+        "namespace": job.get("namespace", NAMESPACE),
         "arm": arm,
         "mix": mix,
         "seed": plan["seed"],
@@ -617,11 +718,28 @@ def _verify_metrics() -> dict[str, str]:
             raise RuntimeError("committed amendment 03 unavailable before gameplay")
     if hashlib.sha256(frozen_amendment03).hexdigest() != amendment03_digest:
         raise RuntimeError("working amendment 03 differs from committed binding")
+    replication = Path(__file__).with_name("METRICS_AMENDMENT_04.md")
+    replication_digest = _sha(replication)
+    expected_replication = os.environ.get("BL_DENSITY_REPLICATION_AMENDMENT_SHA256")
+    if expected_replication and expected_replication != replication_digest:
+        raise RuntimeError("METRICS_AMENDMENT_04.md SHA does not match supervisor binding")
+    try:
+        frozen_replication = subprocess.check_output(
+            ["git", "show", f"{commit}:research/bl_density/METRICS_AMENDMENT_04.md"], text=False
+        )
+    except subprocess.CalledProcessError:
+        if expected_replication:
+            frozen_replication = replication.read_bytes()
+        else:
+            raise RuntimeError("committed replication amendment unavailable before gameplay")
+    if hashlib.sha256(frozen_replication).hexdigest() != replication_digest:
+        raise RuntimeError("working replication amendment differs from committed binding")
     return {
         "metrics_sha256": digest,
         "metrics_amendment_sha256": amendment_digest,
         "metrics_capacity_amendment_sha256": capacity_digest,
         "metrics_round14_amendment_sha256": amendment03_digest,
+        "metrics_replication_amendment_sha256": replication_digest,
         "metrics_commit": commit,
     }
 
@@ -636,6 +754,8 @@ def planned_jobs(
     horizon: int,
     tiny: bool,
     deadline: float | None,
+    namespace: str = NAMESPACE,
+    allocation: dict[str, dict[str, int]] | None = None,
 ) -> list[dict[str, Any]]:
     """Materialize each entire cell before execution, preserving pool rotation."""
     from research.t3_rollout_labels_20261015.bank_engine import planned_rosters
@@ -643,8 +763,8 @@ def planned_jobs(
     jobs = []
     for arm in arms:
         for mix in mixes:
-            count = episodes if tiny else 12 if arm == "A" else 6
-            seeds = [_seed(arm, mix, index) for index in range(count)]
+            count = episodes if tiny else int((allocation or DENSITY2_ALLOCATION)[arm][mix])
+            seeds = [_seed(arm, mix, index, namespace=namespace) for index in range(count)]
             plans = planned_rosters(context, seeds, [mix] * len(seeds))
             for index, plan in enumerate(plans):
                 jobs.append(
@@ -657,6 +777,7 @@ def planned_jobs(
                         "horizon": horizon,
                         "tiny": tiny,
                         "deadline": deadline,
+                        "namespace": namespace,
                     }
                 )
     if len({job["plan"]["seed"] for job in jobs}) != len(jobs):
@@ -669,26 +790,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--b8", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--episodes-per-cell", type=int, default=6)
-    parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--horizon", type=int, default=HORIZON)
     parser.add_argument("--tiny", action="store_true")
+    parser.add_argument("--canary", action="store_true")
     parser.add_argument("--arms", default=",".join(ARMS))
     parser.add_argument("--mixes", default=",".join(MIXES))
     parser.add_argument("--max-seconds", type=float, default=None)
     args = parser.parse_args(argv)
-    if args.tiny:
+    if args.canary and args.tiny:
+        raise SystemExit("--canary is already the fixed 12-episode tiny allocation")
+    if args.canary:
+        args.horizon, args.episodes_per_cell, args.workers = (min(args.horizon, 8), 1, 1)
+    elif args.tiny:
         args.horizon, args.episodes_per_cell, args.workers = (
             min(args.horizon, 8),
             min(args.episodes_per_cell, 1),
             1,
         )
     elif args.horizon != HORIZON or args.episodes_per_cell != 6:
-        raise SystemExit("production allocation is frozen at H5000, A=12/mix, others=6/mix")
-    elif args.workers != 6:
-        raise SystemExit(
-            "production requires six CPU workers; local default remains bounded at two"
-        )
-    if args.workers < 1 or args.workers > 6 or args.episodes_per_cell < 1:
+        raise SystemExit("production allocation is frozen at H5000 with DENSITY-2's 492 episodes")
+    elif args.workers != 10:
+        raise SystemExit("production requires ten CPU workers")
+    if args.workers < 1 or args.workers > 10 or args.episodes_per_cell < 1:
         raise SystemExit("invalid bounded worker/allocation request")
     if (
         args.horizon < 1
@@ -696,6 +820,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         and (not math.isfinite(args.max_seconds) or args.max_seconds <= 0)
     ):
         raise SystemExit("horizon and work bound must be finite and positive")
+    if not args.tiny and not args.canary and args.max_seconds != 10800:
+        raise SystemExit("production requires the fixed 10800-second work cap")
+    if args.canary and (args.max_seconds is None or args.max_seconds > 1200):
+        raise SystemExit("canary requires a finite work cap of at most 1200 seconds")
     binding = _verify_metrics()
     arms, mixes = tuple(args.arms.split(",")), tuple(args.mixes.split(","))
     if _sha(args.b8) != "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8":
@@ -714,6 +842,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     records = []
     from research.redesign_scope_20261007 import grid_h5000_identity as gid
 
+    assert_density2_seed_separation()
+    namespace = (
+        CANARY_NAMESPACE if args.canary else LOCAL_PREFLIGHT_NAMESPACE if args.tiny else NAMESPACE
+    )
     jobs = planned_jobs(
         gid._context(1),
         b8=args.b8,
@@ -721,8 +853,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         mixes=mixes,
         episodes=args.episodes_per_cell,
         horizon=args.horizon,
-        tiny=bool(args.tiny),
+        tiny=bool(args.tiny or args.canary),
         deadline=(started + args.max_seconds) if args.max_seconds is not None else None,
+        namespace=namespace,
     )
     child_before = (
         resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime
@@ -797,6 +930,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Fit/KS once, then charge its measured CPU before the lightweight repricing.
     analysis_started = time.process_time()
+    if any(record["namespace"] != namespace for record in records):
+        raise RuntimeError("analysis refuses records outside this run namespace")
     analysis = summarize(records, FEATURE_NAMES, run_status=status)
     analysis_cpu = time.process_time() - analysis_started
     parent_total_cpu = time.process_time()
@@ -807,7 +942,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "schema": "bl-density-run/v2",
         "status": status,
         "development_only": True,
-        "tiny_preflight": bool(args.tiny),
+        "tiny_preflight": bool(args.tiny or args.canary),
+        "canary": bool(args.canary),
+        "namespace": namespace,
+        "densification_closure": _densification_closure(
+            analysis, status, production=not args.tiny and not args.canary
+        ),
         **binding,
         "b8_sha256": _sha(args.b8),
         "scheduled_episodes": len(jobs),
