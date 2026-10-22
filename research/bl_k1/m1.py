@@ -54,6 +54,7 @@ def sources() -> dict[str, str]:
     root = Path(__file__).resolve().parents[2]
     names = [root / "research/bl_mac_latency/l1.py", root / "research/mac_lease.py"]
     names += list((root / "web/backend").glob("*.py"))
+    names += list((root / "research/bl_evidence").glob("*.py"))
     names += [root / "web/backend/served_checkpoint_pins.json"]
     names += list((root / "research/t15_mixed_roster_20261017").glob("*.py"))
     names += list((root / "research/apex_veto_serving_20261001").glob("*.py"))
