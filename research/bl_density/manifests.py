@@ -303,15 +303,27 @@ def validation_report(manifest: dict[str, Any], *, repo: Path = ROOT) -> dict[st
 
 
 def finalize_production(
-    template: dict[str, Any], *, canary_proof: Path, canary_receipt: Path, prior_spend_units: float
+    template: dict[str, Any],
+    *,
+    canary_proof: Path,
+    canary_receipt: Path,
+    prior_spend_units: float,
+    envelope_units: float = PRODUCTION_CAP,
 ) -> dict[str, Any]:
-    """Bind recovered proof/receipt while retaining one <=5-unit envelope."""
+    """Bind recovered proof/receipt within the explicitly authorized envelope."""
     if template.get("env", {}).get("BL_DENSITY_PHASE") != "production":
         raise ValueError("production template required")
     if template.get("scientific_admission") is not False:
         raise ValueError("only a non-admitted template may be finalized")
     if not isinstance(prior_spend_units, (int, float)) or not 0 <= prior_spend_units <= CANARY_CAP:
-        raise ValueError("prior_spend_units must be the bounded canary charge")
+        raise ValueError("prior_spend_units must be the bounded prior series charge")
+    if (
+        isinstance(envelope_units, bool)
+        or not isinstance(envelope_units, (int, float))
+        or not math.isfinite(envelope_units)
+        or envelope_units <= 0
+    ):
+        raise ValueError("envelope_units must be finite and positive")
     value = copy.deepcopy(template)
     proof = verify_proof(
         canary_proof, value["commit"], value["density"]["round14_amendment_sha256"]
@@ -337,7 +349,7 @@ def finalize_production(
     measured_charge = float(elapsed) * float(rate) / 3600
     if float(prior_spend_units) + 1e-12 < measured_charge:
         raise ValueError("prior_spend_units understates the recovered canary charge")
-    effective_cap = PRODUCTION_CAP - PRODUCTION_RESERVE - float(prior_spend_units)
+    effective_cap = float(envelope_units) - PRODUCTION_RESERVE - float(prior_spend_units)
     if effective_cap <= 0:
         raise ValueError("no production units remain after reserve and prior charge")
     priced_timeout = min(PRODUCTION_TIMEOUT, int(60 * effective_cap / L4_RATE))
@@ -358,9 +370,11 @@ def finalize_production(
         status="NOT_READY",
         prior_spend_units=float(prior_spend_units),
         effective_production_unit_cap=effective_cap,
-        total_envelope_unit_cap=PRODUCTION_CAP,
+        total_envelope_unit_cap=float(envelope_units),
         production_gate="NOT_READY_QUALIFICATION_AND_SUPERVISOR_ADMISSION_REQUIRED",
     )
+    if envelope_units > PRODUCTION_CAP:
+        value["density"]["envelope_raise_reason"] = "JUDGMENT_DENSITY2_CAP mechanical retry"
     return value
 
 
@@ -372,6 +386,7 @@ def admit(
     canary_proof: Path | None = None,
     canary_receipt: Path | None = None,
     prior_spend_units: float | None = None,
+    envelope_units: float = PRODUCTION_CAP,
 ) -> dict[str, Any]:
     """Admit a previously prepared template only after current real evidence.
 
@@ -400,6 +415,7 @@ def admit(
             canary_proof=canary_proof,
             canary_receipt=canary_receipt,
             prior_spend_units=prior_spend_units,
+            envelope_units=envelope_units,
         )
     elif any(item is not None for item in (canary_proof, canary_receipt, prior_spend_units)):
         raise ValueError("canary admission does not accept production canary evidence")
@@ -432,6 +448,7 @@ def main() -> None:
     parser.add_argument("--canary-proof", type=Path)
     parser.add_argument("--canary-receipt", type=Path)
     parser.add_argument("--prior-spend-units", type=float)
+    parser.add_argument("--envelope-units", type=float, default=PRODUCTION_CAP)
     args = parser.parse_args()
     if args.admit_template:
         if args.pending_requalification:
@@ -443,6 +460,7 @@ def main() -> None:
             canary_proof=args.canary_proof,
             canary_receipt=args.canary_receipt,
             prior_spend_units=args.prior_spend_units,
+            envelope_units=args.envelope_units,
         )
     else:
         if not args.commit or args.output_dir is None:

@@ -186,3 +186,112 @@ def test_production_admission_requires_recovered_proof_before_qualification(
     )
     with pytest.raises(ValueError, match="requires recovered canary proof"):
         manifests.admit(template)
+
+
+@pytest.mark.parametrize(
+    "envelope,prior,cap,timeout,raised",
+    [(None, 0.128, 3.872, 150, False), (5.5, 0.306, 4.194, 163, True)],
+)
+def test_production_admission_preserves_recipe_and_prices_envelope(
+    monkeypatch, tmp_path: Path, envelope, prior, cap, timeout, raised
+) -> None:
+    template = _template(monkeypatch, tmp_path)
+    before = json.loads(json.dumps(template))
+    proof, receipt = tmp_path / "canary-proof.json", tmp_path / "receipt.json"
+    proof.write_text("{}")
+    receipt.write_text(
+        json.dumps({"elapsed_seconds": 297.9, "accounting": {"priced_rate_units_per_hour": 1.54}})
+    )
+    monkeypatch.setattr(
+        manifests, "verify_proof", lambda *_args: {"receipt_sha256": manifests.digest(receipt)}
+    )
+    monkeypatch.setattr(manifests, "_published_and_clean", lambda *_args, **_kw: None)
+    monkeypatch.setattr(manifests, "validate", lambda value, **_kw: value)
+    kwargs = {} if envelope is None else {"envelope_units": envelope}
+    value = manifests.admit(
+        template, canary_proof=proof, canary_receipt=receipt, prior_spend_units=prior, **kwargs
+    )
+    assert template == before
+    assert value["budget"]["unit_cap"] == pytest.approx(cap)
+    assert value["budget"]["reserve_units"] == 1.0
+    assert value["timeout_minutes"] == timeout
+    assert value["requirements"] == template["requirements"]
+    assert value["commit"] == template["commit"]
+    assert value["env"]["BL_DENSITY_COMMIT"] == template["env"]["BL_DENSITY_COMMIT"]
+    assert value["density"]["prior_spend_units"] == prior
+    assert value["density"]["total_envelope_unit_cap"] == (5.0 if envelope is None else envelope)
+    assert value["density"]["effective_production_unit_cap"] == pytest.approx(cap)
+    for key in ("episodes_per_mix_by_arm", "namespace", "workers", "total_episodes", "horizon"):
+        assert value["density"][key] == template["density"][key]
+    if raised:
+        assert value["density"]["envelope_raise_reason"] == "JUDGMENT_DENSITY2_CAP mechanical retry"
+    else:
+        assert "envelope_raise_reason" not in value["density"]
+    assert value["density"]["status"] == "ADMITTED_OFFLINE_PENDING_DISPATCH"
+
+
+@pytest.mark.parametrize("envelope", [float("nan"), float("inf"), -1.0, 0.0, True])
+def test_finalizer_refuses_invalid_envelope(monkeypatch, tmp_path: Path, envelope) -> None:
+    template = _template(monkeypatch, tmp_path)
+    with pytest.raises(ValueError, match="envelope_units must be finite and positive"):
+        manifests.finalize_production(
+            template,
+            canary_proof=tmp_path / "unused-proof",
+            canary_receipt=tmp_path / "unused-receipt",
+            prior_spend_units=0.306,
+            envelope_units=envelope,
+        )
+
+
+def test_default_envelope_refuses_retry_charge(monkeypatch, tmp_path: Path) -> None:
+    template = _template(monkeypatch, tmp_path)
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text(
+        json.dumps({"elapsed_seconds": 297.9, "accounting": {"priced_rate_units_per_hour": 1.54}})
+    )
+    monkeypatch.setattr(
+        manifests, "verify_proof", lambda *_args: {"receipt_sha256": manifests.digest(receipt)}
+    )
+    with pytest.raises(ValueError, match="fixed 75-minute"):
+        manifests.finalize_production(
+            template,
+            canary_proof=tmp_path / "proof",
+            canary_receipt=receipt,
+            prior_spend_units=0.306,
+        )
+
+
+def test_cli_forwards_explicit_envelope(monkeypatch, tmp_path: Path) -> None:
+    import sys
+
+    template = tmp_path / "pending.json"
+    template.write_text("{}")
+    output = tmp_path / "admitted.json"
+    received = {}
+
+    def fake_admit(value, **kwargs):
+        received.update(kwargs)
+        return {"density": {"status": "ADMITTED_OFFLINE_PENDING_DISPATCH"}}
+
+    monkeypatch.setattr(manifests, "admit", fake_admit)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "manifests",
+            "--admit-template",
+            str(template),
+            "--manifest",
+            str(output),
+            "--prior-spend-units",
+            "0.306",
+            "--envelope-units",
+            "5.5",
+        ],
+    )
+    manifests.main()
+    assert received["envelope_units"] == 5.5
+    assert received["prior_spend_units"] == 0.306
+    assert (
+        json.loads(output.read_text())["density"]["status"] == "ADMITTED_OFFLINE_PENDING_DISPATCH"
+    )
