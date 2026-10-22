@@ -52,6 +52,7 @@ def _manifest(repo: Path) -> dict[str, object]:
         "commit": _run(repo, "rev-parse", "HEAD"),
         "script": "research/study/run.sh",
         "env": {},
+        "budget": {"rate_units_per_hour": 1.0, "unit_cap": 1.0, "reserve_units": 0.0},
     }
 
 
@@ -91,6 +92,14 @@ def test_prepare_builds_small_allowlisted_fallback(repo: Path, tmp_path: Path) -
     assert "src/pkg/main.py" in plan["files"]
     assert "research/study/run.sh" in plan["files"]
     assert json.loads((directory / "source-plan.json").read_text()) == plan
+    assert json.loads((directory / "schema-validation.json").read_text()) == {
+        "manifest_sha256": hashlib.sha256(
+            json.dumps(_manifest(repo), sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+        "required_exports": [],
+        "schema": "colab-cli-manifest/v1",
+        "status": "PASS",
+    }
     with tarfile.open(directory / "source.tar.gz") as archive:
         assert set(archive.getnames()) == set(plan["files"])
 

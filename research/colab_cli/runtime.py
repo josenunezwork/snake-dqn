@@ -638,7 +638,18 @@ def _supervise(spec: Mapping[str, Any], cleanup: dict[str, Any]) -> int:
     final_status = (
         "succeeded" if returncode == 0 and reason is None and failure is None else "failed"
     )
+    canary_observations = []
+    if spec["env"].get("SNAKE_COLAB_CANARY") == "1":
+        # This is collected from hooks in the real package subprocesses, not
+        # inferred from hardware discovery or an environment flag.
+        for observation in sorted((root / "canary-observations").glob("*.json")):
+            canary_observations.append(json.loads(observation.read_text()))
     terminal = {
+        "export_scanner": {"name": "runtime._exports", "inventory": completed_exports},
+        "canary_observations": canary_observations,
+        "last_traceback_line": next(
+            (line for line in reversed(_tail(root / "job.log").splitlines()) if line.strip()), None
+        ),
         "job_id": spec["job_id"],
         "generation": spec["generation"],
         "status": final_status,

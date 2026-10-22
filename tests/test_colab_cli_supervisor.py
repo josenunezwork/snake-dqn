@@ -1302,6 +1302,7 @@ def test_public_release_broker_delivery_and_verified_cleanup(
     receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
     assert receipt["stop_verified"] is True
     assert receipt["status"] == ("INCOMPLETE" if fault else "PASS")
+    assert receipt["failure_class"] == ("CHILD_NONZERO_EXIT" if fault else None)
     assert supervisor.CLI(binary, tmp_path / "status.json").sessions() == {}
     state = json.loads((tmp_path / "fake-state.json").read_text())
     if fault:
