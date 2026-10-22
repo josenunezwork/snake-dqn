@@ -1,9 +1,10 @@
-# Runtime-readiness requalification — pending Claude execution
+# Canary-staging requalification — pending Claude execution
 
-The final published commit on **`supervisor-warmup-20261022`** requires a new
+The final published commit on **`canary-staging-20261022`** requires a new
 source-bound `final-only` CPU + L4 acceptance before merge or production use.
 The handoff names the exact SHA. The PASS at `82fb9376`, merged as `96e9b776`,
-does not qualify this correction to cold-kernel identity recovery. No Colab operation was run
+does not qualify this correction to staging measurement or cold-kernel identity recovery.
+No Colab operation was run
 while implementing this correction. The earlier telemetry incident record is
 [TELEMETRY_STALL_20261022.md](TELEMETRY_STALL_20261022.md).
 
@@ -96,11 +97,39 @@ As in the existing allocation-to-watchdog window, Mac death during readiness
 still requires recovery from the durable assignment record; the local deadline
 depends on the supervisor staying alive.
 
-The shared **300 s upload cap** and the **150 s real-staging canary rule** retain
-their existing definitions. The upload clock starts after readiness, watchdog
-launch and rate calibration; actual staging still includes verification,
-renewals and source delivery. A later 120-second verification stall stays charged
-to staging, rather than being subtracted or relabelled warmup.
+The DENSITY-2 completion canary `density2-completion-20261022-03` reported
+**177.8 s** in `upload-measurement.json`, while its six receipt uploads totalled
+about **21 s** (owner-supplied incident figures). The old staging clock included
+remote source fetch/install, so it incorrectly applied the 150-second transfer
+bar to the combined phase. Historical receipts remain immutable.
+
+`upload-measurement.json` now records three separate values:
+
+- **`transfer_seconds`**: sum of the staged `upload_file` calls, including the
+  fallback archive when needed. Verified-upload hashing, verification, retries
+  and renewals remain charged to transfers; this is not raw Contents PUT time.
+- **`source_delivery_seconds`**: time in the runtime source-delivery calls
+  (`fetch` and, when needed, `install_fallback`), including their renewals but
+  excluding the separately measured fallback upload.
+- **`elapsed_seconds`**: the entire original staging interval, including source
+  delivery and preparation/control overhead. Readiness, watchdog launch and
+  rate calibration still precede this clock.
+
+A family canary requires **transfer time <=150 s** and **whole staging <=300 s**.
+The base whole-staging bar was 150 s; its effective bar is **2 x 150 = 300 s**
+under the owner's 100%-generous budget rule. The transfer bar remains 150 s,
+and the existing shared 300-second input PUT deadline is unchanged. Independent
+RPC, heartbeat, whole-session and priced-unit deadlines remain in force; the
+300-second whole-staging bar is a canary admission check, not a new shared
+heartbeat deadline. Missing, nonfinite, invalid or inconsistent separated timing
+measurements cannot qualify. Old combined-only measurements cannot be reused.
+A later verification stall remains charged to transfer time; source delivery
+can no longer disguise a transfer overrun or trigger one by itself.
+
+Offline regressions cover GitHub and fallback delivery with distinct timing,
+receipt transfer agreement, the 177.8-second/21-second case, exact 150/300-second
+boundaries, independent overruns and malformed measurements. These checks do
+not qualify the changed executable transport; Claude must run the wrapper below.
 
 Claude runs **`tools/ops/requalify.sh`**, which saves a review plan, consumes one
 execution attempt, checks exact source/manifests, and updates the ops qualification
@@ -128,18 +157,18 @@ extension or a production retry as part of this correction.
    plan; do not rerun its execution marker or allocate an automatic replacement.
 
 ```sh
-REPO=/Users/josenunez/Projects/ml/snake-dqn-warmup
+REPO=/Users/josenunez/Projects/ml/snake-dqn-canaryfix
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 cd "$REPO"
 git fetch origin
 git status --short
-git rev-parse HEAD origin/supervisor-warmup-20261022
+git rev-parse HEAD origin/canary-staging-20261022
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
   "$PY" -m pytest -q -n 2 tests/test_colab_cli_*.py
 ACCOUNT_MAP=/absolute/path/to/reviewed-current-account-rates.json
 "$REPO/tools/ops/requalify.sh" plan --broker "$REPO" \
   --other-assignments "$ACCOUNT_MAP" \
-  --state-parent /Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/warmup-requalification-20261022
+  --state-parent /Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/canary-staging-requalification-20261022
 # Review the printed saved plan, then set PLAN to that exact ops-review.json.
 PLAN=/absolute/path/from/plan/ops-review.json
 "$REPO/tools/ops/requalify.sh" execute --plan "$PLAN" \
@@ -160,9 +189,14 @@ PLAN=/absolute/path/from/plan/ops-review.json
    throughput claim. Existing wall/unit caps still govern failed transfers.
    Inspect each `warmup-measurement.json` and receipt `warmup_seconds`; require a
    successful bounded readiness phase before any Contents upload and compare
-   verified-upload versus raw Contents timings. Confirm actual staging remains
-   measured independently and exercise a fresh family canary at this exact pin
-   before science dispatch. Generic readiness cannot waive a later staging stall.
+   verified-upload versus raw Contents timings. Inspect all three fields in
+   `upload-measurement.json`: require `transfer_seconds <= 150`,
+   `elapsed_seconds <= 300`, and a finite, nonnegative `source_delivery_seconds`
+   consistent with the whole interval. Compare staged verified-upload receipt
+   durations (including fallback upload) with `transfer_seconds`; exclude source
+   fetch/install from that sum. Exercise a fresh family canary at this exact pin
+   before science dispatch. Generic readiness cannot waive a later transfer or
+   whole-staging overrun.
    Require both CPU and L4 records for `cold-kernel-metadata-recovery`, exact
    original/recovered kernel identity, and a completed first Contents upload.
 5. Confirm the new registry's qualified commit/tree/result hash match the final
@@ -220,8 +254,9 @@ real public artifacts. Include all relevant dtype fixtures, including `_paint`
 paths for GPU simulator families, in the small real workload. A pass only covers
 branches exercised by that canary; instrumentation is not exhaustive branch proof.
 
-A canary must finish its whole session within 30 minutes, complete real staging
-within **150 seconds** (half the 300-second staging cap), recover every declared
+A canary must finish its whole session within 30 minutes, complete staged
+verified uploads within **150 seconds** and the whole staging phase (including
+source delivery) within **300 seconds** (base 150 s x owner's 2), recover every declared
 export through **`runtime._exports`**, and have verified backend release. The
 science device is independent of the rented hardware: **only jobs declaring or
 using CUDA require an observed CUDA action decision**. Explicit CPU-only jobs
@@ -320,7 +355,7 @@ for that roster. Older exports lacking the roster fields refuse the new wrapper.
 final-only acceptance on e9ce99f2: **PASS, qualified=true** — receipt
 `snake-dqn-artifacts/colab-cli-process-gates-acceptance/acceptance-1792660644/acceptance-result.json`
 (CPU + L4 jobs; final artifact 67,108,864 bytes, Mac-verified, ≥1.58 MB/s). Merged to main.
-That historical PASS does not qualify this branch's telemetry/export correction.
+That historical PASS does not qualify this branch's staging measurement correction.
 The later `82fb9376` warmup PASS (merged as `96e9b776`) also predates this
 kernel-metadata recovery gate. Current result for this correction:
 **PENDING — no Colab operations performed.** Requalify the final branch SHA

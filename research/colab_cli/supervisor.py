@@ -1487,6 +1487,17 @@ class Broker:
 
             upload_started = time.monotonic()
             upload_deadline = upload_started + UPLOAD_TOTAL_TIMEOUT_SECONDS
+            transfer_seconds = 0.0
+            source_delivery_seconds = 0.0
+
+            def stage_upload(path: Path, dest: str) -> None:
+                nonlocal transfer_seconds
+                started = time.monotonic()
+                upload_file(cli, path, dest, renew=renew, deadline=upload_deadline)
+                # Include verified-upload hashing, retries and lease renewals,
+                # while excluding the runtime's source fetch/install work.
+                transfer_seconds += time.monotonic() - started
+
             local_files = [
                 (pinned["bootstrap.sh"], "bootstrap.sh", ""),
                 (pinned["source.py"], "source.py", ""),
@@ -1507,7 +1518,7 @@ class Broker:
                     f"parent=Path({(root + '/' + dest)!r}).parent\n"
                     "parent.mkdir(parents=True,exist_ok=True)\nresult=True"
                 )
-                upload_file(cli, path, root + "/" + dest, renew=renew, deadline=upload_deadline)
+                stage_upload(path, root + "/" + dest)
                 checks[dest] = digest
             checks["runtime.py"] = sha256(pinned["runtime.py"])
             checks["release.py"] = sha256(pinned["release.py"])
@@ -1516,6 +1527,8 @@ class Broker:
             plan = json.loads((staging / "source-plan.json").read_text())
 
             def deliver_source(operation: str) -> Any:
+                nonlocal source_delivery_seconds
+                started = time.monotonic()
                 renew()
                 result = cli.recoverable_rpc(
                     "# SNAKE_SOURCE_DELIVERY\n"
@@ -1527,6 +1540,7 @@ class Broker:
                     f"result=mod.{operation}(root,plan)",
                 )
                 renew()
+                source_delivery_seconds += time.monotonic() - started
                 return result
 
             delivery = deliver_source("fetch")
@@ -1534,9 +1548,7 @@ class Broker:
                 raise Refused("source delivery returned no identity evidence")
             if delivery.get("transport") == "fallback_required":
                 path = staging / "source.tar.gz"
-                upload_file(
-                    cli, path, root + "/source.tar.gz", renew=renew, deadline=upload_deadline
-                )
+                stage_upload(path, root + "/source.tar.gz")
                 checks["source.tar.gz"] = sha256(path)
                 delivery = deliver_source("install_fallback")
             if (
@@ -1548,7 +1560,11 @@ class Broker:
                 raise Refused("source delivery commit/tree identity mismatch")
             write_once(
                 output / "upload-measurement.json",
-                {"elapsed_seconds": time.monotonic() - upload_started},
+                {
+                    "elapsed_seconds": time.monotonic() - upload_started,
+                    "transfer_seconds": transfer_seconds,
+                    "source_delivery_seconds": source_delivery_seconds,
+                },
             )
             write_once(output / "source-delivery.json", delivery)
             write_once(output / "input-hashes.json", checks)

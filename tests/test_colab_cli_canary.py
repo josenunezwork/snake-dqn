@@ -32,7 +32,10 @@ def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gpu: str = "cpu"):
     output.mkdir()
     probe = canary.prepare(template, package="bl_ppo", output=output, job_id="probe")
     _json(output / "manifest.json", probe)
-    _json(output / "upload-measurement.json", {"elapsed_seconds": 149})
+    _json(
+        output / "upload-measurement.json",
+        {"elapsed_seconds": 149, "transfer_seconds": 21, "source_delivery_seconds": 120},
+    )
     _json(output / "hardware.json", {"hardware": {"kind": gpu}})
     remote = tmp_path / "remote"
     (remote / "output").mkdir(parents=True)
@@ -153,13 +156,102 @@ def test_canary_proof_requires_real_observations(tmp_path, monkeypatch, fault, g
     template, probe, receipt, output = _fixture(tmp_path, monkeypatch, gpu)
     probe["env"]["BL_PPO_DEVICE"] = "cpu"
     if fault == "slow":
-        _json(output / "upload-measurement.json", {"elapsed_seconds": 151})
+        _json(
+            output / "upload-measurement.json",
+            {"elapsed_seconds": 301, "transfer_seconds": 21, "source_delivery_seconds": 120},
+        )
     elif fault == "scanner":
         receipt["terminal"].pop("export_scanner")
     elif fault == "upload":
         receipt["transfers"] = []
     elif fault == "sidecars":
         receipt["exports"] = []
+    with pytest.raises(canary.CanaryError):
+        canary.evidence(probe, receipt, output, tmp_path)
+
+
+def test_staging_accepts_slow_source_delivery_when_transfers_are_within_cap(tmp_path, monkeypatch):
+    _, probe, receipt, output = _fixture(tmp_path, monkeypatch)
+    _json(
+        output / "upload-measurement.json",
+        {"elapsed_seconds": 177.8, "transfer_seconds": 21.0, "source_delivery_seconds": 156.8},
+    )
+
+    proof = canary.evidence(probe, receipt, output, tmp_path)
+
+    assert proof["upload_elapsed_seconds"] == 177.8
+    assert proof["transfer_seconds"] == 21.0
+    assert proof["source_delivery_seconds"] == 156.8
+
+
+@pytest.mark.parametrize(
+    "measurement",
+    [
+        {"elapsed_seconds": 300, "transfer_seconds": 150, "source_delivery_seconds": 150},
+        {"elapsed_seconds": 150, "transfer_seconds": 150, "source_delivery_seconds": 0},
+    ],
+)
+def test_staging_timing_accepts_exact_caps(tmp_path, monkeypatch, measurement):
+    _, probe, receipt, output = _fixture(tmp_path, monkeypatch)
+    _json(output / "upload-measurement.json", measurement)
+
+    canary.evidence(probe, receipt, output, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("measurement", "message"),
+    [
+        (
+            {"elapsed_seconds": 200, "transfer_seconds": 150.000001, "source_delivery_seconds": 49},
+            "transfers must complete within 150",
+        ),
+        (
+            {
+                "elapsed_seconds": 300.000001,
+                "transfer_seconds": 150,
+                "source_delivery_seconds": 150,
+            },
+            "staging must complete within 300",
+        ),
+        (
+            {"elapsed_seconds": 200, "transfer_seconds": 21, "source_delivery_seconds": 180},
+            "components exceed",
+        ),
+        (
+            {"elapsed_seconds": 100, "transfer_seconds": 60, "source_delivery_seconds": 60},
+            "components exceed",
+        ),
+    ],
+)
+def test_staging_timing_refuses_cap_or_component_overrun(
+    tmp_path, monkeypatch, measurement, message
+):
+    _, probe, receipt, output = _fixture(tmp_path, monkeypatch)
+    _json(output / "upload-measurement.json", measurement)
+
+    with pytest.raises(canary.CanaryError, match=message):
+        canary.evidence(probe, receipt, output, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "measurement",
+    [
+        {},
+        {"elapsed_seconds": 1, "transfer_seconds": 1},
+        {"elapsed_seconds": 1, "transfer_seconds": 1, "source_delivery_seconds": float("nan")},
+        {"elapsed_seconds": 1, "transfer_seconds": float("inf"), "source_delivery_seconds": 0},
+        {"elapsed_seconds": True, "transfer_seconds": 1, "source_delivery_seconds": 0},
+        {"elapsed_seconds": 1, "transfer_seconds": False, "source_delivery_seconds": 0},
+        {"elapsed_seconds": 1, "transfer_seconds": 1, "source_delivery_seconds": True},
+        {"elapsed_seconds": -1, "transfer_seconds": 1, "source_delivery_seconds": 0},
+        {"elapsed_seconds": 1, "transfer_seconds": -1, "source_delivery_seconds": 0},
+        {"elapsed_seconds": 1, "transfer_seconds": 1, "source_delivery_seconds": -1},
+    ],
+)
+def test_staging_timing_requires_finite_nonboolean_fields(tmp_path, monkeypatch, measurement):
+    _, probe, receipt, output = _fixture(tmp_path, monkeypatch)
+    _json(output / "upload-measurement.json", measurement)
+
     with pytest.raises(canary.CanaryError):
         canary.evidence(probe, receipt, output, tmp_path)
 
