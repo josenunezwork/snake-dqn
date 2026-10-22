@@ -61,6 +61,35 @@ def test_wrong_generation_never_renews_lease(tmp_path: Path) -> None:
     assert json.loads((root / "lease.json").read_text())["renewed_at"] == 123.0
 
 
+@pytest.mark.parametrize("foreign", ["state.json", "lease.json"])
+def test_lightweight_renewal_checks_both_generation_fences(tmp_path: Path, foreign: str) -> None:
+    for name in ("state.json", "lease.json"):
+        _write_json(tmp_path / name, {"generation": "wrong" if name == foreign else "g"})
+    before = (tmp_path / "lease.json").read_bytes()
+    with pytest.raises(RuntimeError, match="generation fence mismatch"):
+        runtime.renew_lease(tmp_path, "g")
+    assert (tmp_path / "lease.json").read_bytes() == before
+
+
+def test_compact_poll_and_lightweight_renewal_do_not_repeat_large_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inventory = [{"path": f"{index}.json", "sha256": "a" * 64, "size": 10} for index in range(562)]
+    _write_json(tmp_path / "state.json", {"generation": "g", "exports": inventory})
+    _write_json(tmp_path / "lease.json", {"generation": "g", "contents_disabled": True})
+    terminal = {"generation": "g", "exports": inventory, "export_scanner": {"inventory": inventory}}
+    _write_json(tmp_path / "terminal.json", terminal)
+    for name in ("job.log", "supervisor.log"):
+        (tmp_path / name).write_bytes(b"x" * (1024 * 1024))
+    result = runtime.read_state(tmp_path, "g", compact=True)
+    assert result["terminal"] == terminal  # Preserve original scanner proof.
+    assert "exports" not in result["state"] and result["exports"] == []
+    assert len(result["job_log_tail"]) == len(result["supervisor_log_tail"]) == 4096
+    monkeypatch.setattr(runtime, "_tail", lambda *_args: pytest.fail("renewal read diagnostics"))
+    assert runtime.renew_lease(tmp_path, "g") is True
+    assert json.loads((tmp_path / "lease.json").read_text())["contents_disabled"] is True
+
+
 def test_validate_rejects_long_checkpoint_grace_before_touching_root() -> None:
     base = {
         "job_id": "job",

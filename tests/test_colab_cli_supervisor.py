@@ -196,6 +196,156 @@ def test_normal_job_stops_and_verifies_backend_release(
     _assert_transport(tmp_path)
 
 
+@pytest.mark.parametrize(
+    ("count", "outcome"),
+    [
+        (493, "pass"),
+        (562, "pass"),
+        (493, "running-then-terminal"),
+        (130, "transfer-failure"),
+        (2, "foreign"),
+    ],
+)
+def test_finished_large_inventory_does_not_reenter_telemetry_per_export(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, count: int, outcome: str
+) -> None:
+    """Reproduce the two production sizes with a costly 120s full-state poll.
+
+    The old loop forces another 120s poll per file, exhausting this 180s
+    session after the first export despite already observing remote success.
+    The fixed path needs one full poll and <=ceil(N/64) bounded batch GETs.
+    """
+    from research.colab_cli import export_batches
+
+    binary = _fake_env(monkeypatch, tmp_path)
+    now = [0.0]
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    manifest = _manifest(tmp_path)
+    if outcome == "running-then-terminal":
+        manifest["timeout_minutes"] = 10
+        manifest["budget"]["unit_cap"] = 2
+    ready = False
+    full_reads = 0
+    original_poll = supervisor.CLI.poll_rpc
+    original_batch = export_batches.export_batch
+    batches = 0
+    transferred = []
+
+    def expensive_poll(self, code: str, timeout: float = 300) -> object:
+        nonlocal full_reads
+        if ready and "read_state" in code:
+            full_reads += 1
+            now[0] += 120
+            self.remaining_seconds(1)  # Enforce the real first wall/unit cap.
+        result = original_poll(self, code, timeout)
+        if (
+            ready
+            and "read_state" in code
+            and outcome == "running-then-terminal"
+            and full_reads == 1
+        ):
+            return {
+                "state": {"status": "running"},
+                "terminal": None,
+                "exports": result["exports"][:408],
+            }
+        return result
+
+    def batch(*args: object, **kwargs: object) -> None:
+        nonlocal batches
+        batches += 1
+        if outcome == "transfer-failure" and batches == 2:
+            raise supervisor.Refused("injected batch transport failure")
+        original_batch(*args, **kwargs)
+        transferred.extend(entry["path"] for entry in args[2])
+
+    monkeypatch.setattr(supervisor.CLI, "poll_rpc", expensive_poll)
+    monkeypatch.setattr(export_batches, "export_batch", batch)
+
+    def observer(event: str, context: dict[str, object]) -> None:
+        nonlocal ready
+        if event != "ready":
+            return
+        state_path = tmp_path / "fake-state.json"
+        state = json.loads(state_path.read_text())
+        session = context["cli"].session
+        remote = state["runtime"][session]
+        output = tmp_path / "remote" / session / remote["root"].lstrip("/") / "output"
+        inventory = []
+        for index in range(count):
+            payload = f"episode {index}".encode()
+            name = f"episode-{index:04d}.json"
+            digest = hashlib.sha256(payload).hexdigest()
+            (output / name).write_bytes(payload)
+            (output / (name + ".sha256")).write_text(digest + "\n")
+            (output / (name + ".complete")).write_text("complete\n")
+            inventory.append({"path": name, "sha256": digest, "size": len(payload)})
+        remote["terminal"]["exports"] = inventory
+        if outcome == "foreign":
+            remote["terminal"]["generation"] = "foreign"
+        state_path.write_text(json.dumps(state))
+        ready = True
+
+    broker = supervisor.Broker(tmp_path / "lanes", binary, observer=observer)
+    success = outcome in {"pass", "running-then-terminal"}
+    if success:
+        broker.run(manifest)
+    else:
+        with pytest.raises(supervisor.Refused, match="INCOMPLETE"):
+            broker.run(manifest)
+    receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
+    assert receipt["stop_verified"] is True
+    assert full_reads == (2 if outcome == "running-then-terminal" else 1)
+    assert now[0] == 120 * full_reads
+    assert len(transferred) == len(set(transferred))
+    if outcome == "foreign":
+        assert batches == 0 and receipt["exports"] == []
+        assert receipt["failure_class"] == "FOREIGN_GENERATION"
+        assert receipt["terminal"] is None
+    else:
+        assert receipt["terminal"]["returncode"] == 0
+        assert len(receipt["terminal"]["exports"]) == count
+        expected = count if success else 64
+        assert len(receipt["exports"]) == expected
+        assert receipt["status"] == ("PASS" if success else "INCOMPLETE")
+        downloads = [e for e in _events(tmp_path) if e["argv"][4] == "download"]
+        expected_downloads = 9 if outcome == "running-then-terminal" else (count + 63) // 64
+        assert len(downloads) == (expected_downloads if success else 1)
+    _assert_transport(tmp_path)
+
+
+def test_export_collection_skips_verified_entries_and_rejects_changed_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cli = supervisor.CLI("unused", tmp_path / "config", "owned")
+    entry = {"path": "episode.json", "sha256": "a" * 64, "size": 10}
+    cli.verified_exports[entry["path"]] = dict(entry)
+    monkeypatch.setattr(supervisor, "export_file", lambda *_args: pytest.fail("downloaded twice"))
+    cli.renew = lambda: pytest.fail("polled unchanged inventory")
+    supervisor.collect_exports(cli, "/content/snake-cli/g", [entry], tmp_path, 1024)
+    with pytest.raises(supervisor.Refused, match="immutable snapshot metadata changed"):
+        supervisor.collect_exports(
+            cli, "/content/snake-cli/g", [{**entry, "sha256": "b" * 64}], tmp_path, 1024
+        )
+
+
+def test_observer_prefetched_export_is_validated_without_batch_overwrite(
+    tmp_path: Path,
+) -> None:
+    payload = b"prefetched by acceptance"
+    digest = hashlib.sha256(payload).hexdigest()
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    (exports / "client.bin").write_bytes(payload)
+    (exports / "client.bin.sha256").write_text(digest + "\n")
+    (exports / "client.bin.complete").write_text("complete\n")
+    cli = supervisor.CLI("unused", tmp_path / "config", "owned")
+    entry = {"path": "client.bin", "sha256": digest, "size": len(payload)}
+    supervisor.collect_exports(cli, "/content/snake-cli/g", [entry], tmp_path, 1024)
+    assert cli.verified_exports == {"client.bin": entry}
+
+
 def test_renewal_after_initial_staging_deadline_uses_fresh_contents_transfer(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -473,7 +623,7 @@ def test_existing_output_directory_is_refused_as_nonfresh(tmp_path: Path) -> Non
 def test_h100_chain_allocates_once_stops_once_and_writes_release_proof(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    binary = _fake_env(monkeypatch, tmp_path)
+    binary = _fake_env(monkeypatch, tmp_path, mode="export_success")
     monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
     first_output = tmp_path / "h100-first"
     second_output = tmp_path / "h100-second"
@@ -482,7 +632,23 @@ def test_h100_chain_allocates_once_stops_once_and_writes_release_proof(
         _manifest(tmp_path, output=second_output, job_id="h100-second", gpu="H100"),
     ]
 
-    supervisor.Broker(tmp_path / "lanes", binary).chain(
+    def change_second_export(event: str, context: dict[str, object]) -> None:
+        if event != "ready" or context["output"] != second_output:
+            return
+        state_path = tmp_path / "fake-state.json"
+        state = json.loads(state_path.read_text())
+        session = context["cli"].session
+        remote = state["runtime"][session]
+        target = (
+            tmp_path / "remote" / session / remote["root"].lstrip("/") / "output/checkpoint.bin"
+        )
+        target.write_bytes(b"SECOND")
+        digest = hashlib.sha256(b"SECOND").hexdigest()
+        Path(str(target) + ".sha256").write_text(digest + "\n")
+        remote["terminal"]["exports"] = [{"path": "checkpoint.bin", "size": 6, "sha256": digest}]
+        state_path.write_text(json.dumps(state))
+
+    supervisor.Broker(tmp_path / "lanes", binary, observer=change_second_export).chain(
         manifests, retention_minutes=7, retention_units=1
     )
 
@@ -494,6 +660,9 @@ def test_h100_chain_allocates_once_stops_once_and_writes_release_proof(
     assert first_receipt["status"] == "COMPLETED_SESSION_RETAINED"
     assert second_receipt["status"] == "COMPLETED_SESSION_RETAINED"
     assert first_receipt["session"] == second_receipt["session"]
+    assert len(first_receipt["exports"]) == len(second_receipt["exports"]) == 1
+    assert (first_output / "exports/checkpoint.bin").read_bytes() == b"GOOD"
+    assert (second_output / "exports/checkpoint.bin").read_bytes() == b"SECOND"
     for output in (first_output, second_output):
         release = list(output.glob("session-release.json"))
         assert len(release) == 1

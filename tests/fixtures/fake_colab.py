@@ -405,6 +405,17 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
     root = _root_from_code(code)
     local_root = _remote(session, root)
     local_root.mkdir(parents=True, exist_ok=True)
+    if "SNAKE_EXPORT_BATCH" in code:
+        # Exercise the real bounded archive construction and durable operation
+        # fence, replacing only the fake VM's filesystem prefix.
+        code = code.replace(root, str(local_root))
+        code = code.replace(
+            "'path': str(archive)",
+            f"'path': str(archive).replace({str(local_root)!r}, {root!r}, 1)",
+        )
+        exec(compile(code, "<fake-export-batch>", "exec"), {})
+        _save(state)
+        return
     if "SNAKE_SOURCE_DELIVERY" in code:
         # Execute the actual uploaded source helper. Only the network/git
         # boundary is faked; identity checks and fallback extraction are real.
@@ -621,6 +632,16 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         if session in state.get("public_inputs_verified", {}):
             assert (local_root / "public-inputs-verified.json").is_file()
             state.setdefault("trainer_starts", []).append(session)
+
+    if "renew_lease" in code:
+        runtime = state.setdefault("runtime", {}).get(session)
+        if runtime is None:
+            _reply(code, ok=False, error="RuntimeError('runtime has not started')")
+        else:
+            runtime["renewed_at"] = float(os.environ.get("FAKE_COLAB_NOW", "0"))
+            _reply(code, True)
+        _save(state)
+        return
 
     if "read_state" in code:
         runtime = state.setdefault("runtime", {}).get(session)
