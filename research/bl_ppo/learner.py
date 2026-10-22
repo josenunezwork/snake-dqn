@@ -136,6 +136,15 @@ def compute_gae(
     return advantages, advantages + values
 
 
+def fit_time_length_baseline(
+    lengths: torch.Tensor, horizon: torch.Tensor, returns: torch.Tensor
+) -> torch.Tensor:
+    """Fit the registered comparator on CPU without float32 rank truncation."""
+    h, length, y = (t.detach().cpu().double() for t in (horizon, lengths, returns))
+    design = torch.stack((torch.ones_like(h), h, length), 1)
+    return torch.linalg.lstsq(design, y.unsqueeze(1), driver="gelsd").solution.squeeze(1)
+
+
 class PPOLearner:
     """Two-epoch clipped PPO with an explicit critic-only warm-start phase."""
 
@@ -301,12 +310,14 @@ class PPOLearner:
             dim=1,
         )
         if baseline_coefficients is None:
-            baseline_coefficients = torch.linalg.lstsq(design, y.unsqueeze(1)).solution.squeeze(1)
+            baseline_coefficients = fit_time_length_baseline(
+                lengths[selected], remaining_horizon[selected], y
+            )
         if baseline_coefficients.shape != (3,):
             raise ValueError("baseline_coefficients must have shape [3]")
-        baseline = design @ baseline_coefficients.to(device=design.device, dtype=design.dtype)
+        baseline = design.cpu().double() @ baseline_coefficients.cpu().double()
         mse = (prediction - y).square().mean()
-        baseline_mse = (baseline - y).square().mean()
+        baseline_mse = (baseline - y.cpu().double()).square().mean()
         variance = (y - y.mean()).square().mean()
         explained_variance = 1.0 - (prediction - y).var(unbiased=False) / variance.clamp_min(1e-8)
         bias = (prediction - y).mean()

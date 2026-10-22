@@ -269,3 +269,29 @@ def test_pinned_late_fixture_survives_a_full_reservoir() -> None:
         source="fixed_injected_long_body",
     )
     assert bank.late_support_by_source() == {"fixed_injected_long_body": 1}
+
+
+def test_large_unscaled_fit_baseline_cannot_false_pass_biased_critic() -> None:
+    """Default float32 rank truncation previously admitted this worse critic."""
+    from research.bl_ppo.learner import PPOLearner, fit_time_length_baseline
+
+    count = 10_000
+    h = torch.linspace(0, 1, count)
+    length = 800 + 400 * ((torch.arange(count) * 29) % 997).float() / 997
+    returns = 10_000 + 3000 * h + 50 * length
+    # Fit and holdout are disjoint rows, each spanning all three columns.
+    fit, held = torch.arange(count) % 5 != 0, torch.arange(count) % 5 == 0
+    coefficients = fit_time_length_baseline(length[fit], h[fit], returns[fit])
+    assert coefficients.dtype == torch.float64
+    assert coefficients.tolist() == pytest.approx([10_000, 3000, 50], rel=1e-6)
+    quality = PPOLearner.critic_quality(
+        returns[held] + 1000,
+        returns[held],
+        length[held],
+        h[held],
+        baseline_coefficients=coefficients,
+    )
+    assert quality["explained_variance"] > 0.99
+    assert quality["baseline_mse"] < 0.001
+    assert quality["mse"] > 999_000
+    assert not quality["passed"]

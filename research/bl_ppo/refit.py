@@ -9,7 +9,7 @@ from typing import Sequence
 
 import torch
 
-from research.bl_ppo.learner import PPOLearner
+from research.bl_ppo.learner import PPOLearner, fit_time_length_baseline
 
 REGISTERED_MIXES = ("scripted", "frozen", "mixed")
 
@@ -355,9 +355,7 @@ class CompleteLifeRefitBank:
             # refit row (1, h, L); only the held-out estimand is late-body.
             _, fl, fh, fr = self._columns("fit", natural_only=True, late_only=False)
             features, hl, hh, hr = self._columns("holdout", natural_only=True, late_only=True)
-            coef = torch.linalg.lstsq(
-                torch.stack((torch.ones_like(fh), fh, fl), 1), fr.unsqueeze(1)
-            ).solution.squeeze(1)
+            coef = fit_time_length_baseline(fl, fh, fr)
             device = next(learner.policy.critic.parameters()).device
             with torch.no_grad():
                 predictions = learner.policy.value_from_critic_features(features.to(device)).cpu()
@@ -423,9 +421,7 @@ class CompleteLifeRefitBank:
         lengths = torch.tensor([row[1].length for row in fixture_rows])
         horizon = torch.tensor([row[1].horizon for row in fixture_rows])
         returns = torch.tensor([row[2] for row in fixture_rows])
-        coef = torch.linalg.lstsq(
-            torch.stack((torch.ones_like(fh), fh, fl), 1), fr.unsqueeze(1)
-        ).solution.squeeze(1)
+        coef = fit_time_length_baseline(fl, fh, fr)
         device = next(learner.policy.critic.parameters()).device
         with torch.no_grad():
             predictions = learner.policy.value_from_critic_features(features.to(device)).cpu()
