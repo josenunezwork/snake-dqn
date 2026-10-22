@@ -212,3 +212,80 @@ def test_kernel_idle_accepts_only_known_idle_or_busy(
     assert guard._kernel_idle_once(str(tmp_path / "sessions.json"), "lane") == {"idle": True}
     assert calls[0]["timeout"] == (30, 120)
     assert calls[0]["url"] == "https://runtime.example/api/kernels/kid"
+
+
+@pytest.mark.parametrize("outcome", ["ready", "404", "403", "malformed"])
+def test_contents_readiness_is_metadata_only_and_does_not_require_a_kernel(
+    monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    guard = _load("guard_readiness_test")
+    calls = []
+    state = types.SimpleNamespace(url="https://runtime.example/", token="private", kernel_id=None)
+
+    class Store:
+        def __init__(self, _path: str) -> None:
+            pass
+
+        def get(self, _session: str) -> object:
+            return state
+
+    class HTTPError(Exception):
+        def __init__(self, status: int) -> None:
+            self.response = types.SimpleNamespace(status_code=status)
+
+    class Session:
+        def request(self, *args: object, **kwargs: object) -> object:
+            calls.append((args, kwargs))
+
+    original = Session.request
+
+    class Contents:
+        def __init__(self, saved: object) -> None:
+            assert saved is state
+
+        def _request(self, method: str, path: str, params: object) -> object:
+            assert (method, path, params) == ("GET", "/content", {"content": "0"})
+            Session().request(method, path)
+            if outcome == "404":
+                raise FileNotFoundError(path)
+            if outcome == "403":
+                raise HTTPError(403)
+            return {"type": "directory" if outcome == "ready" else "file"}
+
+    monkeypatch.setitem(sys.modules, "colab_cli", types.ModuleType("colab_cli"))
+    monkeypatch.setitem(sys.modules, "colab_cli.state", types.SimpleNamespace(StateStore=Store))
+    monkeypatch.setitem(
+        sys.modules, "colab_cli.contents", types.SimpleNamespace(ContentsClient=Contents)
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "requests",
+        types.SimpleNamespace(sessions=types.SimpleNamespace(Session=Session), HTTPError=HTTPError),
+    )
+    if outcome == "403":
+        with pytest.raises(HTTPError):
+            guard._runtime_ready_once("session.json", "new")
+    elif outcome == "malformed":
+        with pytest.raises(guard.GuardError, match="unknown state"):
+            guard._runtime_ready_once("session.json", "new")
+    else:
+        assert guard._runtime_ready_once("session.json", "new") == {"ready": outcome == "ready"}
+    assert calls[0][1]["timeout"] == (30, 120)
+    assert Session.request is original
+
+
+def test_runtime_readiness_helper_uses_single_bounded_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    guard = _load("guard_ready_helper_test")
+    calls = []
+
+    def run(*args: object, **kwargs: object) -> dict[str, bool]:
+        calls.append((args, kwargs))
+        return {"ready": False}
+
+    monkeypatch.setattr(guard, "_run_helper", run)
+    assert not guard.runtime_ready("/private/python", "config.json", "new", timeout=17)
+    assert calls == [
+        (("/private/python", "--runtime-ready", "config.json", "new"), {"timeout": 17})
+    ]

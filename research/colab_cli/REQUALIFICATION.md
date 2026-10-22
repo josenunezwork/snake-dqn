@@ -1,12 +1,43 @@
-# Telemetry/export stall requalification — pending Claude execution
+# Runtime-readiness requalification — pending Claude execution
 
-The final published commit on **`supervisor-telemetry-20261022`** requires a new
+The final published commit on **`supervisor-warmup-20261022`** requires a new
 source-bound `final-only` CPU + L4 acceptance before merge or production use.
 The handoff names the exact SHA. Earlier qualified transport bytes do not cover
-`renew_lease`, compact telemetry, the incremental export ledger, or bounded ZIP
-export batches. No Colab operation was run while implementing this correction.
-The incident and recoverability record is
+the new pre-upload Contents/kernel readiness phase. No Colab operation was run
+while implementing this correction. The earlier telemetry incident record is
 [TELEMETRY_STALL_20261022.md](TELEMETRY_STALL_20261022.md).
+
+The DENSITY-2 completion canary at
+`snake-dqn-artifacts/big-lever/exp/bl-density/density2-completion-20261022-01/canary-output/receipt.json`
+records a 3,244-byte bootstrap verified upload taking **134.095 s**, with only
+**9.260 s** in its Contents PUT and a **120.007 s failed exec** followed by
+acknowledgement recovery. The preceding credential PUT took **1.158 s** and
+earlier execs also succeeded. Its staging measurement was **177.075 s**, so the
+150-second canary rule correctly refused it. The observed defect is charging
+runtime/control-path latency within verified staging without an explicit
+startup-readiness phase. Runtime cold-start readiness is the suspected provider
+cause; these receipts alone do not prove that every later exec stall is startup
+or that a noop eliminates it. Live requalification must check this distinction.
+
+`CLI.wait_runtime_ready` now probes Contents `/content` metadata and a tiny
+nonce-acknowledged exec before the first credential PUT, lease thread, watchdog
+launch or input staging clock. The initial exec may create the kernel; after an
+uncertain exec, only an independently idle tracked kernel permits another probe.
+Read-only startup probes have a **300 s total bound**, **30 s per call**, and
+**5 s between attempts**, clipped to the existing wall and priced-unit deadlines.
+Permanent auth/state/kernel errors refuse immediately. The immutable
+`warmup-measurement.json` records status, attempts, elapsed time and any error;
+the terminal receipt records **`warmup_seconds`** on success and failure.
+Warmup remains billable whole-session time and grants no extra budget or retry.
+As in the existing allocation-to-watchdog window, Mac death during readiness
+still requires recovery from the durable assignment record; the local deadline
+depends on the supervisor staying alive.
+
+The shared **300 s upload cap** and the **150 s real-staging canary rule** retain
+their existing definitions. The upload clock starts after readiness, watchdog
+launch and rate calibration; actual staging still includes verification,
+renewals and source delivery. A later 120-second verification stall stays charged
+to staging, rather than being subtracted or relabelled warmup.
 
 Claude runs **`tools/ops/requalify.sh`**, which saves a review plan, consumes one
 execution attempt, checks exact source/manifests, and updates the ops qualification
@@ -21,7 +52,9 @@ extension or a production retry as part of this correction.
    any transport bytes between planning, acceptance and merge.
 2. Run the complete offline CLI suite (including the 493/562-file virtual-latency
    regressions, running-to-terminal case, partial-export failure, archive
-   integrity, caps and verified cleanup) with the project interpreter.
+   integrity, caps and verified cleanup), plus cold-first-call readiness,
+   missing initial kernel, independent idle proof, permanent refusals,
+   wall/unit clipping and failed-warmup cleanup, with the project interpreter.
 3. Prepare a reviewed, current endpoint-to-positive-rate map. `{}` is valid only
    for an actually empty account. Plan offline, inspect the printed
    `ops-review.json`, its exact manifests, source inventory and budget. Execute
@@ -29,18 +62,18 @@ extension or a production retry as part of this correction.
    plan; do not rerun its execution marker or allocate an automatic replacement.
 
 ```sh
-REPO=/Users/josenunez/Projects/ml/snake-dqn-telemetry
+REPO=/Users/josenunez/Projects/ml/snake-dqn-warmup
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 cd "$REPO"
 git fetch origin
 git status --short
-git rev-parse HEAD origin/supervisor-telemetry-20261022
+git rev-parse HEAD origin/supervisor-warmup-20261022
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
   "$PY" -m pytest -q -n 2 tests/test_colab_cli_*.py
 ACCOUNT_MAP=/absolute/path/to/reviewed-current-account-rates.json
 "$REPO/tools/ops/requalify.sh" plan --broker "$REPO" \
   --other-assignments "$ACCOUNT_MAP" \
-  --state-parent /Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/telemetry-requalification-20261022
+  --state-parent /Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/warmup-requalification-20261022
 # Review the printed saved plan, then set PLAN to that exact ops-review.json.
 PLAN=/absolute/path/from/plan/ops-review.json
 "$REPO/tools/ops/requalify.sh" execute --plan "$PLAN" \
@@ -59,9 +92,14 @@ PLAN=/absolute/path/from/plan/ops-review.json
    and prepare a separately reviewed bounded acceptance attempt, never waive it.
    The hundreds-of-files scale proof is the offline regression, not a live
    throughput claim. Existing wall/unit caps still govern failed transfers.
+   Inspect each `warmup-measurement.json` and receipt `warmup_seconds`; require a
+   successful bounded readiness phase before any Contents upload and compare
+   verified-upload versus raw Contents timings. Confirm actual staging remains
+   measured independently and exercise a fresh family canary at this exact pin
+   before science dispatch. Generic readiness cannot waive a later staging stall.
 5. Confirm the new registry's qualified commit/tree/result hash match the final
-   commit and reviewed receipt. Only Claude may then perform the normal reviewed
-   merge. Any subsequent executable transport change requires another acceptance.
+   commit and reviewed receipt. This handoff is branch-only: do not merge as part
+   of the fix. Any subsequent executable transport change requires another acceptance.
    Keep original incident and acceptance attempts immutable. Scientific outputs
    from the two incomplete jobs remain incomplete; no study rerun is authorized
    by this code change.
