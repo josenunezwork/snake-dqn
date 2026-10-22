@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from research.bl_prefix.analysis import IncompleteResult, e6_summary, e7_summary
@@ -67,6 +69,22 @@ def test_e7_requires_both_confirmation_streams_and_explicit_survival() -> None:
     rows[-1].pop("candidate_survival")
     with pytest.raises(IncompleteResult):
         e7_summary(rows, ["a", "b", "c"])
+
+
+def test_dispatch_exports_production_rows_without_opening_summary(tmp_path, monkeypatch) -> None:
+    from research.bl_prefix import dispatch, e6
+
+    seen = {}
+
+    def raw_only(_plan, _out, *, preflight, compute_analysis):
+        seen.update(preflight=preflight, compute_analysis=compute_analysis)
+        return {"status": "COMPLETE"}
+
+    monkeypatch.setattr(e6, "run", raw_only)
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"ready": True, "experiment": "e6", "preflight": False}))
+    dispatch.execute(plan, tmp_path / "output")
+    assert seen == {"preflight": False, "compute_analysis": False}
 
 
 def test_e6_rejects_relabelled_and_repeated_actual_worlds(tmp_path, monkeypatch) -> None:

@@ -15,6 +15,7 @@ from typing import Any
 
 from research.bl_ppo import bank as banks
 from research.bl_ppo.rule import E2_ALPHA, RULE, holm_rejections, mass_pvalue
+from research.published_ledger import bind_published_ledger_check, require_published_ledger
 
 ARMS = ("R", "F", "B8")
 B8_SHA256 = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
@@ -910,6 +911,7 @@ def execute_screen(
         raise ValueError("actual bound Mac/runtime parity evidence required before screen")
     result = {
         "schema": "bl-ppo-screen-results/v2",
+        "claim_status": "COMPUTE_ONLY_UNCLAIMED",
         "complete": True,
         "cap_expired": False,
         "bank_semantic_sha256": bank["allocation_sha256"],
@@ -974,7 +976,6 @@ def execute_screen(
         )
     _validate_results(bank, audit, result)
     export_json(out / "results.json", result)
-    export_json(out / "decision.json", analyze(bank, audit, result))
     return result
 
 
@@ -1014,6 +1015,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--f-status", type=Path)
     parser.add_argument("--mac-reference", type=Path)
     parser.add_argument("--runtime-parity", type=Path)
+    parser.add_argument("--authoring-repo", type=Path)
+    parser.add_argument("--ledger")
     args = parser.parse_args(argv)
     import os
 
@@ -1069,9 +1072,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.results is None:
         parser.error("analysis requires --results")
+    if args.authoring_repo is None or args.ledger is None:
+        parser.error("analysis is a claim and requires --authoring-repo and --ledger")
+    proof = require_published_ledger(args.authoring_repo, args.ledger)
     verify_export(args.results)
     decision = analyze(*(json.loads(p.read_text()) for p in (args.bank, args.audit, args.results)))
-    export_json(args.out, decision)
+    export_json(args.out, bind_published_ledger_check(decision, proof))
     print(json.dumps({"status": decision["status"], "out": str(args.out)}))
     return 0 if decision["status"] == "COMPLETE" else 2
 

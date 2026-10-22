@@ -210,3 +210,15 @@ def test_parallel_pair_assembly_is_ordered_and_keeps_both_arms_in_each_worker() 
         worlds, Path("f.pt"), Path("b8.pt"), workers=4, evaluator=evaluator
     )
     assert parallel == serial
+
+
+def test_colab_runtime_exports_pairs_but_cannot_make_the_registered_claim() -> None:
+    script = (Path(__file__).with_name("p1_colab.sh")).read_text(encoding="utf-8")
+    assert "python -m research.bl_ppo.p1_eval --analyze" not in script
+    assert 'payload="evaluation/results.json"' in script
+
+
+def test_e2_runtime_screen_exports_compute_only_pairs_not_a_decision() -> None:
+    source = Path(__file__).with_name("screen.py").read_text(encoding="utf-8")
+    assert '"claim_status": "COMPUTE_ONLY_UNCLAIMED"' in source
+    assert 'export_json(out / "decision.json", analyze(bank, audit, result))' not in source

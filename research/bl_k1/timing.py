@@ -17,6 +17,7 @@ from research.bl_mac_latency.host import check_guard, process_screen, snapshot
 from research.bl_mac_latency.ruler_run import distribution
 from research.bl_served_search.exports import export_json, verify_export
 from research.bl_served_search.ruler_operator import ExactT3Operator
+from research.mac_lease import DEFAULT_LEASE_PATH, held
 
 
 def decision(stock: list[float], kernel: list[float], identity_pass: bool) -> dict[str, Any]:
@@ -57,6 +58,8 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--identity", type=Path, required=True)
+    parser.add_argument("--lease-owner", default="bl-k1-timing")
+    parser.add_argument("--lease-path", type=Path, default=DEFAULT_LEASE_PATH)
     args = parser.parse_args()
     manifest = verify_manifest(args.manifest)
     from research.bl_k1.audit import verify_identity
@@ -70,132 +73,144 @@ def main() -> None:
             raise FileExistsError(f"fresh timing attempt required: {args.out / name}")
     (args.out / "batches").mkdir()
     batches = []
-    started = time.monotonic()
-    try:
-        before = snapshot()
-        export_json(args.out / "idle.json", before)
-        if not before["quiet"]:
-            raise RuntimeError("initial host not idle; retained, never kill daemons")
-        operators = {mode: ExactT3Operator(mode) for mode in ("stock", "replay", "kernel")}
-        # Alternation limits drift; each mode still has its own first/cold sample.
-        for fixture in manifest["fixtures"]:
-            expected = None
-            for repeat in range(30):
-                for mode in manifest["timing"]["mode_order"]:
-                    window()
-                    if time.monotonic() - started >= manifest["timing"]["max_seconds"]:
-                        raise RuntimeError("timing budget exhausted")
-                    guard = {**check_guard(), "process_screen": process_screen()}
-                    result = operators[mode].batch(fixture)
-                    if expected is not None and result["semantic"] != expected:
-                        export_json(
-                            args.out / "invalid.json",
-                            {
-                                "status": "INVALID",
-                                "mode": mode,
-                                "fixture_id": fixture["fixture_id"],
-                                "result": result,
-                            },
-                        )
-                        raise RuntimeError(
-                            "action/outcome mismatch: mode INVALID; stop exact search"
-                        )
-                    expected = result["semantic"]
-                    stats = result["native_v8"]
-                    if mode != "stock" and fixture["mix"] != "scripted" and stats["rows"] <= 0:
-                        raise RuntimeError("native mode executed no native rows")
-                    record = {
-                        "fixture_id": fixture["fixture_id"],
-                        "repeat": repeat,
-                        "mode": mode,
-                        "guard": guard,
-                        **result,
-                    }
-                    export_json(
-                        args.out / "batches" / f"{fixture['fixture_id']}-{repeat:02d}-{mode}.json",
-                        record,
-                    )
-                    batches.append(record)
-                    window()
-                    if time.monotonic() - started >= manifest["timing"]["max_seconds"]:
-                        raise RuntimeError("timing budget exhausted after batch")
-                    print(
-                        json.dumps(
-                            {
-                                "completed": len(batches),
-                                "fixture": fixture["fixture_id"],
-                                "mode": mode,
-                            }
-                        ),
-                        flush=True,
-                    )
-        samples = {
-            mode: [
-                row["stage_seconds"]["opponent_v8"]
-                for row in batches
-                if row["fixture_id"] == "frozen-1500" and row["mode"] == mode
-            ]
-            for mode in operators
-        }
-        result = decision(samples["stock"], samples["kernel"], True)
-        export_json(
-            args.out / "timing.json",
-            {
-                "schema": "bl-k1-mac-timing/v1",
-                "argv": sys.argv,
-                "source_closure": manifest["sources"],
-                **result,
-                "manifest_sha256": manifest_hash,
-                "identity_sha256": identity_hash,
-                "stage_seconds": {
-                    f"{fixture['fixture_id']}/{mode}": {
-                        stage: {
-                            "all30": distribution(
-                                [
-                                    row["stage_seconds"][stage]
-                                    for row in batches
-                                    if row["fixture_id"] == fixture["fixture_id"]
-                                    and row["mode"] == mode
-                                ]
-                            ),
-                            "warm29": distribution(
-                                [
-                                    row["stage_seconds"][stage]
-                                    for row in batches
-                                    if row["fixture_id"] == fixture["fixture_id"]
-                                    and row["mode"] == mode
-                                ][1:]
-                            ),
+    # This two-hour window is an exclusive Mac operation; retaining the lease
+    # identity in either terminal receipt makes the quiet-host claim auditable.
+    with held(
+        args.lease_owner,
+        "bl-k1 timing",
+        seconds=manifest["timing"]["max_seconds"],
+        path=args.lease_path,
+    ) as lease:
+        started = time.monotonic()
+        try:
+            before = snapshot()
+            export_json(args.out / "idle.json", before)
+            if not before["quiet"]:
+                raise RuntimeError("initial host not idle; retained, never kill daemons")
+            operators = {mode: ExactT3Operator(mode) for mode in ("stock", "replay", "kernel")}
+            # Alternation limits drift; each mode still has its own first/cold sample.
+            for fixture in manifest["fixtures"]:
+                expected = None
+                for repeat in range(30):
+                    for mode in manifest["timing"]["mode_order"]:
+                        window()
+                        if time.monotonic() - started >= manifest["timing"]["max_seconds"]:
+                            raise RuntimeError("timing budget exhausted")
+                        guard = {**check_guard(), "process_screen": process_screen()}
+                        result = operators[mode].batch(fixture)
+                        if expected is not None and result["semantic"] != expected:
+                            export_json(
+                                args.out / "invalid.json",
+                                {
+                                    "status": "INVALID",
+                                    "mode": mode,
+                                    "fixture_id": fixture["fixture_id"],
+                                    "result": result,
+                                },
+                            )
+                            raise RuntimeError(
+                                "action/outcome mismatch: mode INVALID; stop exact search"
+                            )
+                        expected = result["semantic"]
+                        stats = result["native_v8"]
+                        if mode != "stock" and fixture["mix"] != "scripted" and stats["rows"] <= 0:
+                            raise RuntimeError("native mode executed no native rows")
+                        record = {
+                            "fixture_id": fixture["fixture_id"],
+                            "repeat": repeat,
+                            "mode": mode,
+                            "guard": guard,
+                            **result,
                         }
-                        for stage in batches[0]["stage_seconds"]
-                    }
-                    for fixture in manifest["fixtures"]
-                    for mode in operators
+                        export_json(
+                            args.out
+                            / "batches"
+                            / f"{fixture['fixture_id']}-{repeat:02d}-{mode}.json",
+                            record,
+                        )
+                        batches.append(record)
+                        window()
+                        if time.monotonic() - started >= manifest["timing"]["max_seconds"]:
+                            raise RuntimeError("timing budget exhausted after batch")
+                        print(
+                            json.dumps(
+                                {
+                                    "completed": len(batches),
+                                    "fixture": fixture["fixture_id"],
+                                    "mode": mode,
+                                }
+                            ),
+                            flush=True,
+                        )
+            samples = {
+                mode: [
+                    row["stage_seconds"]["opponent_v8"]
+                    for row in batches
+                    if row["fixture_id"] == "frozen-1500" and row["mode"] == mode
+                ]
+                for mode in operators
+            }
+            result = decision(samples["stock"], samples["kernel"], True)
+            export_json(
+                args.out / "timing.json",
+                {
+                    "schema": "bl-k1-mac-timing/v1",
+                    "argv": sys.argv,
+                    "source_closure": manifest["sources"],
+                    **result,
+                    "manifest_sha256": manifest_hash,
+                    "identity_sha256": identity_hash,
+                    "mac_lease": lease.receipt,
+                    "stage_seconds": {
+                        f"{fixture['fixture_id']}/{mode}": {
+                            stage: {
+                                "all30": distribution(
+                                    [
+                                        row["stage_seconds"][stage]
+                                        for row in batches
+                                        if row["fixture_id"] == fixture["fixture_id"]
+                                        and row["mode"] == mode
+                                    ]
+                                ),
+                                "warm29": distribution(
+                                    [
+                                        row["stage_seconds"][stage]
+                                        for row in batches
+                                        if row["fixture_id"] == fixture["fixture_id"]
+                                        and row["mode"] == mode
+                                    ][1:]
+                                ),
+                            }
+                            for stage in batches[0]["stage_seconds"]
+                        }
+                        for fixture in manifest["fixtures"]
+                        for mode in operators
+                    },
+                    "completed_batches": len(batches),
+                    "workers": 1,
+                    "threads": 1,
+                    "elapsed_seconds": time.monotonic() - started,
+                    "bar": manifest["bar"],
+                    "foreign_load_observed": any(
+                        row["guard"]["process_screen"]["other_heavy_processes"] for row in batches
+                    ),
+                    "host_after": snapshot(),
+                    "serving_or_release": "NOT_GRANTED",
                 },
-                "completed_batches": len(batches),
-                "workers": 1,
-                "threads": 1,
-                "elapsed_seconds": time.monotonic() - started,
-                "bar": manifest["bar"],
-                "foreign_load_observed": any(
-                    row["guard"]["process_screen"]["other_heavy_processes"] for row in batches
-                ),
-                "host_after": snapshot(),
-                "serving_or_release": "NOT_GRANTED",
-            },
-        )
-    except Exception as exc:
-        export_json(
-            args.out / "stopped.json",
-            {
-                "status": "STOPPED",
-                "error": str(exc),
-                "completed_batches": len(batches),
-                "manifest_sha256": manifest_hash,
-                "failed_observation": getattr(exc, "observation", None),
-            },
-        )
-        raise
+            )
+        except Exception as exc:
+            export_json(
+                args.out / "stopped.json",
+                {
+                    "status": "STOPPED",
+                    "error": str(exc),
+                    "completed_batches": len(batches),
+                    "manifest_sha256": manifest_hash,
+                    "failed_observation": getattr(exc, "observation", None),
+                    "mac_lease": lease.receipt,
+                },
+            )
+            raise
 
 
 if __name__ == "__main__":

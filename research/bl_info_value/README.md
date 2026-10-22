@@ -57,6 +57,12 @@ recipe, selects epochs using validation only and evaluates held-out worlds once
 after all arms finish. All geometry uses fixed physical scaling, without clipping.
 Artifacts are final-only checkpoints, not exact training resumes.
 
+Production `run.py` exports E3 fit metrics and arm-level held-out inputs without
+opening the registered decision. The established `fit_students` helper retains
+its default computed decision for offline tests. A clean authoring checkout must
+use `research.bl_info_value.decide --authoring-repo ... --ledger ...` to compute
+and publish the decision claim with its published-ledger proof.
+
 All outputs use create-only payload + `.sha256` + `.complete`, including failed
 terminal receipts. `job.sh` uses a fresh child under the supervisor-owned output
 directory. `run.py` merges deterministic process-pool results in task order.

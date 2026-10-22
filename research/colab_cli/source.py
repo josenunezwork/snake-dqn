@@ -99,16 +99,26 @@ def _defaults(manifest: dict[str, Any], tracked: dict[str, tuple[str, str, str]]
 
 def _required(manifest: dict[str, Any]) -> list[str]:
     requirements = str(manifest.get("env", {}).get("COLAB_CLI_REQUIREMENTS", "requirements.txt"))
-    return [
+    required = [
         *_REQUIRED_COLAB,
         str(manifest["script"]),
         *([requirements] if requirements else []),
         "pyproject.toml",
     ]
+    if str(manifest["script"]).startswith("research/bl_"):
+        # Mutable BL entrypoints import the shared publication/lease helpers,
+        # including on L4 where they must remain inert until explicitly used.
+        required.extend(["research/mac_lease.py", "research/published_ledger.py"])
+    if manifest.get("env", {}).get("SNAKE_COLAB_CANARY") == "1":
+        required.append("research/colab_cli/canary_observer.py")
+    return required
 
 
 def prepare(repo: Path, manifest: dict[str, Any], directory: Path) -> dict[str, Any]:
     """Write an immutable plan and bounded sparse fallback archive for *manifest*."""
+    from research.colab_cli.schema import validate_manifest
+
+    required_exports = validate_manifest(manifest)
     repo, directory = repo.resolve(), directory.resolve()
     commit = str(manifest["commit"])
     if len(commit) != 40 or any(char not in "0123456789abcdef" for char in commit):
@@ -191,6 +201,23 @@ def prepare(repo: Path, manifest: dict[str, Any], directory: Path) -> dict[str, 
     with plan_path.open("x") as output:
         output.write(encoded)
     plan_path.chmod(0o444)
+    validation_path = directory / "schema-validation.json"
+    with validation_path.open("x") as output:
+        json.dump(
+            {
+                "schema": "colab-cli-manifest/v1",
+                "manifest_sha256": hashlib.sha256(
+                    json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest(),
+                "required_exports": list(required_exports),
+                "status": "PASS",
+            },
+            output,
+            indent=2,
+            sort_keys=True,
+        )
+        output.write("\n")
+    validation_path.chmod(0o444)
     return plan
 
 
