@@ -11,6 +11,7 @@ from research.bl_served_search.chunks import CHUNK_COUNT
 from research.bl_served_search.exports import digest, export_json, verify_export
 from research.bl_served_search.provenance_v2 import FROZEN_BANK_SHA256
 from research.bl_upload.qualification import _canonical, _sha256_bytes
+from research.published_ledger import bind_published_ledger_check, require_published_ledger
 
 
 def verified_chunk(plan_path: Path, index: int, receipt: dict) -> Path:
@@ -119,7 +120,7 @@ def seal(plan_path: Path, index: int, supervisor_path: Path, shard: Path) -> dic
     return receipt
 
 
-def finalize(plan_path: Path, out: Path) -> dict:
+def finalize(plan_path: Path, out: Path, ledger_proof: dict[str, str] | None = None) -> dict:
     """Reject faults without partial metrics; the scientific output is create-only."""
     if any(Path(str(out) + suffix).exists() for suffix in ("", ".sha256", ".complete")):
         raise FileExistsError("one-look output already exists")
@@ -154,6 +155,8 @@ def finalize(plan_path: Path, out: Path) -> dict:
             },
         )
         result = {"schema": "bl-served-search-l2-analysis/v2", **analyze.analyze(rows)}
+    if ledger_proof is not None:
+        result = bind_published_ledger_check(result, ledger_proof)
     export_json(out, result)
     return result
 
@@ -165,6 +168,8 @@ def main() -> None:
     parser.add_argument("--seal-index", type=int)
     parser.add_argument("--supervisor-receipt", type=Path)
     parser.add_argument("--shard", type=Path)
+    parser.add_argument("--authoring-repo", type=Path)
+    parser.add_argument("--ledger")
     args = parser.parse_args()
     if args.seal_index is not None:
         if args.supervisor_receipt is None or args.shard is None:
@@ -173,7 +178,10 @@ def main() -> None:
     else:
         if args.out is None:
             parser.error("finalize requires create-only --out")
-        print(json.dumps(finalize(args.plan, args.out)))
+        if args.authoring_repo is None or args.ledger is None:
+            parser.error("finalize is a claim and requires --authoring-repo and --ledger")
+        proof = require_published_ledger(args.authoring_repo, args.ledger)
+        print(json.dumps(finalize(args.plan, args.out, proof)))
 
 
 if __name__ == "__main__":

@@ -161,7 +161,9 @@ def _root_rows(
     return rows
 
 
-def run(plan: Mapping[str, Any], out: Path, *, preflight: bool = False) -> dict[str, Any]:
+def run(
+    plan: Mapping[str, Any], out: Path, *, preflight: bool = False, compute_analysis: bool = False
+) -> dict[str, Any]:
     """Run only a fully-bound E6 plan; any missing scientific guard is INCOMPLETE."""
     begun = time.perf_counter()
     preflight = bool(preflight or plan.get("preflight"))
@@ -247,23 +249,27 @@ def run(plan: Mapping[str, Any], out: Path, *, preflight: bool = False) -> dict[
         analyses = (
             {"decision": "NOT_SCORED_PREFLIGHT", "reason": "tiny operational fixture"}
             if preflight
-            else {
-                name: e6_summary(
-                    rows,
-                    name,
-                    expected_early=[
-                        str(x.get("source_world", i))
-                        for i, x in enumerate(roots)
-                        if x["stratum"] == "early"
-                    ],
-                    expected_ordinary=[
-                        str(x.get("source_world", i))
-                        for i, x in enumerate(roots)
-                        if x["stratum"] == "ordinary"
-                    ],
-                )
-                for name in ("R", "F")
-            }
+            else (
+                {"status": "UNOPENED_PENDING_PUBLISHED_LEDGER"}
+                if not compute_analysis
+                else {
+                    name: e6_summary(
+                        rows,
+                        name,
+                        expected_early=[
+                            str(x.get("source_world", i))
+                            for i, x in enumerate(roots)
+                            if x["stratum"] == "early"
+                        ],
+                        expected_ordinary=[
+                            str(x.get("source_world", i))
+                            for i, x in enumerate(roots)
+                            if x["stratum"] == "ordinary"
+                        ],
+                    )
+                    for name in ("R", "F")
+                }
+            )
         )
         if time.perf_counter() - begun > cap_seconds:
             raise IncompleteResult("E6 allocation cap expired")
@@ -271,6 +277,7 @@ def run(plan: Mapping[str, Any], out: Path, *, preflight: bool = False) -> dict[
             "schema": "bl-prefix-e6-results/v1",
             "preflight": preflight,
             "scientific": not preflight,
+            "claim_status": "COMPUTE_ONLY_UNCLAIMED",
             "status": "PREFLIGHT_ONLY" if preflight else "COMPLETE",
             "workers": workers,
             "rows": rows,
@@ -286,6 +293,7 @@ def run(plan: Mapping[str, Any], out: Path, *, preflight: bool = False) -> dict[
             "schema": "bl-prefix-e6-results/v1",
             "preflight": preflight,
             "scientific": False,
+            "claim_status": "COMPUTE_ONLY_UNCLAIMED",
             "status": "INCOMPLETE",
             "reason": str(exc),
             "elapsed_seconds": time.perf_counter() - begun,
@@ -300,7 +308,12 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--preflight", action="store_true")
     args = parser.parse_args()
-    result = run(json.loads(args.plan.read_text()), args.out, preflight=args.preflight)
+    result = run(
+        json.loads(args.plan.read_text()),
+        args.out,
+        preflight=args.preflight,
+        compute_analysis=args.preflight,
+    )
     print(json.dumps(result, sort_keys=True))
     return 0 if result["status"] == ("PREFLIGHT_ONLY" if args.preflight else "COMPLETE") else 2
 

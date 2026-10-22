@@ -49,6 +49,15 @@ held-out late-body EV >=.1, and MSE below the time/length baseline. B8 fixtures
 are permitted only in explicit preflight mode. Scientific E7 requires the
 complete E6 source bank and never silently recollects a replacement bank.
 
+Production E6/E7 CLIs now export raw immutable rows with their summaries marked
+`UNOPENED_PENDING_PUBLISHED_LEDGER`. The existing Python `run(...,
+compute_analysis=True)` helper remains available for offline tests, but both
+the module CLI and the Colab `dispatch.py` runtime leave production summaries
+unopened. A
+registered CLI run does not open the scientific summary. The clean Mac
+authoring checkout runs `research.bl_prefix.decide` with `--authoring-repo` and
+`--ledger` to recompute and publish the hash-bound claim.
+
 ## Transport and resource boundary
 
 `run.sh` is the child script for the unchanged qualified `research/colab_cli`

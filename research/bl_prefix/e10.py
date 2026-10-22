@@ -16,6 +16,7 @@ from typing import Any, Iterable, Mapping
 
 from research.bl_ppo.exports import export_json, verify_export
 from research.bl_prefix.analysis import MIXES, IncompleteResult, _number, e6_summary, e7_summary
+from research.published_ledger import bind_published_ledger_check, require_published_ledger
 from src.scripts.eval_stats import student_t_isf
 
 HORIZON = 5000
@@ -587,7 +588,14 @@ def _load_complete(path: Path, schema: str) -> Mapping[str, Any]:
     return value
 
 
-def run(bank_path: Path, e6_path: Path, e7_path: Path, out: Path) -> dict[str, Any]:
+def run(
+    bank_path: Path,
+    e6_path: Path,
+    e7_path: Path,
+    out: Path,
+    *,
+    ledger_proof: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Read only verified E6/E7 exports and publish E10's immutable result."""
     try:
         bank = _load_complete(bank_path, "bl-prefix-bank/v1")
@@ -640,6 +648,8 @@ def run(bank_path: Path, e6_path: Path, e7_path: Path, out: Path) -> dict[str, A
             "status": "INCOMPLETE",
             "reason": str(exc),
         }
+    if ledger_proof is not None:
+        result = bind_published_ledger_check(result, ledger_proof)
     export_json(out / "e10-results.json", result)
     return result
 
@@ -650,8 +660,11 @@ def main() -> int:
     parser.add_argument("--e6", type=Path, required=True)
     parser.add_argument("--e7", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--authoring-repo", type=Path, required=True)
+    parser.add_argument("--ledger", required=True)
     args = parser.parse_args()
-    result = run(args.bank, args.e6, args.e7, args.out)
+    proof = require_published_ledger(args.authoring_repo, args.ledger)
+    result = run(args.bank, args.e6, args.e7, args.out, ledger_proof=proof)
     print(json.dumps(result, sort_keys=True))
     return 0 if result["status"] == "COMPLETE" else 2
 

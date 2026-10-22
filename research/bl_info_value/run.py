@@ -185,7 +185,12 @@ def execute(args: argparse.Namespace) -> dict:
 
         fit_start = time.perf_counter()
         fits = fit_students(
-            arrays, out / "fits", device=args.device, epochs=args.epochs, smoke=args.smoke
+            arrays,
+            out / "fits",
+            device=args.device,
+            epochs=args.epochs,
+            smoke=args.smoke,
+            compute_decision=args.smoke,
         )
         fit_seconds = time.perf_counter() - fit_start
         report = dict(
