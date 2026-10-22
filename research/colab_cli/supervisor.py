@@ -298,6 +298,7 @@ class CLI:
         self.transfer_records: list[dict[str, Any]] = []
         self.contents_transfers: list[dict[str, Any]] = []
         self.call_records: list[dict[str, Any]] = []
+        self.verified_exports: dict[str, dict[str, Any]] = {}
         self._lease_stop = threading.Event()
         self._lease_thread: threading.Thread | None = None
 
@@ -676,6 +677,48 @@ def _stop_verified(cli: CLI, endpoint: str) -> None:
     raise Refused(message)
 
 
+def collect_exports(
+    cli: CLI, root: str, inventory: list[dict[str, Any]], output: Path, limit: int
+) -> None:
+    """Collect new immutable exports without polling a cumulative inventory per file."""
+    from research.colab_cli.export_batches import export_batch, small_batches
+    from research.colab_cli.schema import validate_export_inventory
+
+    validate_export_inventory({}, inventory)
+    pending = []
+    for entry in inventory:
+        if entry["size"] > limit:
+            raise Refused("export exceeds bounded whole-file transfer limit")
+        previous = cli.verified_exports.get(entry["path"])
+        if previous is not None:
+            if previous != entry:
+                raise Refused("immutable snapshot metadata changed")
+            continue
+        if (output / "exports" / entry["path"]).exists():
+            # Acceptance observers can prefetch into this output before the
+            # main loop. Revalidate that exact triple once; unrelated observer
+            # downloads (e.g. resume roundtrips) must not enter this job ledger.
+            export_file(cli, root, entry, output, limit)
+            cli.verified_exports[entry["path"]] = dict(entry)
+            continue
+        pending.append(entry)
+
+    def verified(entry: dict[str, Any]) -> None:
+        cli.verified_exports[entry["path"]] = dict(entry)
+
+    for batch in small_batches(pending):
+        if len(batch) > 1:
+            export_batch(cli, root, batch, output, limit, on_verified=verified)
+        else:
+            entry = batch[0]
+            export_file(cli, root, entry, output, limit)
+            verified(entry)
+        # Transfers already call this throttled maintenance callback. It must
+        # never force a full state/log/inventory read for each completed file.
+        if cli.renew:
+            cli.renew()
+
+
 def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit: int) -> None:
     """Download immutable data + digest + marker, verify, publish atomically."""
     from research.colab_cli.transfers import TransferError, _contents_call, download_file
@@ -814,6 +857,7 @@ class Broker:
                 cli.transfer_records = []
                 cli.contents_transfers = []
                 cli.call_records = []
+                cli.verified_exports = {}
             started = time.monotonic()
             cli.deadline = min(
                 started + m["timeout_minutes"] * 60 - 45, (retained or {}).get("deadline", math.inf)
@@ -945,6 +989,7 @@ class Broker:
 
                     error = redact(repr(exc))
                     failure_class = classify_exception(exc).value
+                    exports = list(cli.verified_exports.values())
                     terminal_path = output / "terminal.json"
                     if terminal is None and terminal_path.is_file():
                         terminal = json.loads(terminal_path.read_text())
@@ -1294,12 +1339,17 @@ class Broker:
 
                 # The independent Contents heartbeat covers slow credential
                 # work; rotation borrows no time beyond the first real cap.
+                operation = (
+                    f"read_state({root!r},{generation!r},renew=True,compact=True)"
+                    if force
+                    else f"renew_lease({root!r},{generation!r})"
+                )
                 result = cli.poll_rpc(
                     "import importlib.util\n"
                     f"runtime_path={root + '/runtime.py'!r}\n"
                     "s=importlib.util.spec_from_file_location('snake_runtime',runtime_path)\n"
                     "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
-                    f"result=mod.read_state({root!r},{generation!r},renew=True)"
+                    f"result=mod.{operation}"
                 )
                 if credential_renewal_due(cli.release_credential, "", safety_window_seconds=900):
                     cli.release_credential = mint_release_credential(
@@ -1317,8 +1367,10 @@ class Broker:
                         "result=True",
                     )
                 self.renew_retained(cli, retained)
-                renewal.update(at=time.monotonic(), state=result)
-                return result
+                renewal["at"] = time.monotonic()
+                if force:
+                    renewal["state"] = result
+                return renewal["state"]
 
             cli.renew = renew
             renew()
@@ -1454,7 +1506,7 @@ class Broker:
                         "output": output,
                     },
                 )
-        exported: dict[str, Any] = {}
+        exported = cli.verified_exports
         poll = 0
         while True:
             elapsed = time.monotonic() - started
@@ -1508,22 +1560,27 @@ class Broker:
             state = renew(force=True)
             write_once(output / f"poll-{poll:06d}.json", state)
             print(
-                json.dumps({"job": m["job_id"], "elapsed": round(elapsed, 1), "state": state}),
+                json.dumps(
+                    {
+                        "job": m["job_id"],
+                        "elapsed": round(elapsed, 1),
+                        "status": state.get("state", {}).get("status"),
+                        "terminal": bool(state.get("terminal")),
+                        "exports": len(
+                            (state.get("terminal") or {}).get("exports", state.get("exports", []))
+                        ),
+                        "job_log_tail": state.get("job_log_tail", "")[-4096:],
+                    }
+                ),
                 flush=True,
             )
-            inventory = (
-                state.get("terminal", {}).get("exports", [])
-                if state.get("terminal")
-                else state.get("exports", [])
-            )
-            for entry in inventory:
-                if entry["path"] in exported and entry != exported[entry["path"]]:
-                    raise Refused("immutable snapshot metadata changed")
-                export_file(cli, root, entry, output, m["max_export_bytes"])
-                exported[entry["path"]] = entry
-                renew(force=True)
-            if state.get("terminal"):
-                terminal = state["terminal"]
+            terminal = state.get("terminal")
+            if terminal:
+                from research.colab_cli.failures import FailureClass, terminal_failure
+
+                failure = terminal_failure(terminal, generation)
+                if failure and failure.failure_class == FailureClass.FOREIGN_GENERATION:
+                    raise failure
                 if not terminal.get("last_traceback_line") and terminal.get("returncode") != 0:
                     terminal = {
                         **terminal,
@@ -1536,8 +1593,15 @@ class Broker:
                             None,
                         ),
                     }
+                # Persist observed completion before any export RPC can fail.
                 write_once(output / "terminal.json", terminal)
-                from research.colab_cli.failures import terminal_failure
+            inventory = (
+                state.get("terminal", {}).get("exports", [])
+                if state.get("terminal")
+                else state.get("exports", [])
+            )
+            collect_exports(cli, root, inventory, output, m["max_export_bytes"])
+            if terminal:
                 from research.colab_cli.schema import SchemaError, validate_export_inventory
 
                 failure = terminal_failure(terminal, generation)

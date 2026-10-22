@@ -1,81 +1,70 @@
-# Process-gate requalification — pending operator execution
+# Telemetry/export stall requalification — pending Claude execution
 
-This branch (`gate-cuda-scope-20261022`) changes executable `colab_cli` code. The earlier qualification in
-`QUALIFICATION.md` does **not** qualify these bytes. No Colab allocation, canary,
-or live acceptance was run during implementation. Merge remains blocked until
-Claude runs and independently reviews the source-bound **final-only** acceptance.
-Do not replace the existing qualification hashes with current hashes without that
-PASS receipt. Do not run the full-state extension for this change.
+The final published commit on **`supervisor-telemetry-20261022`** requires a new
+source-bound `final-only` CPU + L4 acceptance before merge or production use.
+The handoff names the exact SHA. Earlier qualified transport bytes do not cover
+`renew_lease`, compact telemetry, the incremental export ledger, or bounded ZIP
+export batches. No Colab operation was run while implementing this correction.
+The incident and recoverability record is
+[TELEMETRY_STALL_20261022.md](TELEMETRY_STALL_20261022.md).
 
-## Exactly which acceptance gates to rerun
+Claude runs **`tools/ops/requalify.sh`**, which saves a review plan, consumes one
+execution attempt, checks exact source/manifests, and updates the ops qualification
+registry only after the existing final-only checks pass. These steps replace
+the earlier direct acceptance commands; use this wrapper workflow. Keep the
+existing **4.0-unit envelope / 0.8 reserve**, wall/unit caps and all ten required
+acceptance gates from [ACCEPTANCE.md](ACCEPTANCE.md). Do not run the full-state
+extension or a production retry as part of this correction.
 
-Run the complete `final-only` CPU + L4 acceptance once on the final published
-branch commit, within the existing **4.0 unit envelope, 0.8 reserve** and its
-existing first-wall-or-unit caps. Preserve every create-only attempt receipt.
-The required gates from `ACCEPTANCE.md` are:
-
-1. `account-assignment-spend`: pre-existing endpoint-to-rate map and separate
-   elapsed-rate charge / other-assignment baseline.
-2. `rate-calibration`: stable positive baseline-subtracted CPU and L4 observed
-   rates, within the priced ceiling and tolerance.
-3. `fresh-oauth-refresh`: fresh terminal identity and usage without a browser prompt.
-4. `silence-timeout`: bounded timeout after a gap greater than 60 seconds,
-   without re-submitting uncertain work.
-5. `url-no-second-allocation`: sessions before/after browser attachment identify
-   the same assignment.
-6. `client-loss-reconnect`: same generation and remote job, one completion record.
-7. `failure-and-corrupt-export`: intentional child failure and rejected corrupt
-   download, with the new distinct `failure_class` and last traceback line.
-8. `final-artifact-download`: exactly **67,108,864 bytes**, real scanner sidecars,
-   verified recovered hash, measured transfer seconds and goodput lower bound.
-9. `mac-loss-watchdog-unassign`: L4 lease expiry and backend disappearance within
-   300 seconds, before broker fallback cleanup.
-10. `backend-stop-disappearance`: independent sessions proof of exact endpoint removal.
-
-`busy-full-snapshot`, `exact-resume`, and `checkpoint-overhead` remain
-`NOT_REQUIRED`, not observed passes. Acceptance mode uses its fixed probe
-entrypoint and is exempt from the science-family canary prerequisite so it can
-bootstrap qualification. It cannot generate a science-family canary receipt.
-The acceptance program, not a hand-edited receipt, selects its actual gate IDs.
-
-Claude must requalify the final published SHA reported in this branch's handoff,
-before merging it to main or dispatching DENSITY-2. Use that exact clean checkout;
-the old main acceptance does not cover the device-rule change. Do not edit any
-transport Python/shell bytes between acceptance and merge. From that checkout,
-use the launcher and a fresh state parent:
+1. Fetch this branch into the clean worktree below. Confirm `HEAD` and the remote
+   branch equal the handoff SHA and `git status --short` is empty. Do not change
+   any transport bytes between planning, acceptance and merge.
+2. Run the complete offline CLI suite (including the 493/562-file virtual-latency
+   regressions, running-to-terminal case, partial-export failure, archive
+   integrity, caps and verified cleanup) with the project interpreter.
+3. Prepare a reviewed, current endpoint-to-positive-rate map. `{}` is valid only
+   for an actually empty account. Plan offline, inspect the printed
+   `ops-review.json`, its exact manifests, source inventory and budget. Execute
+   that saved plan once. A failed/interrupted attempt requires a new reviewed
+   plan; do not rerun its execution marker or allocate an automatic replacement.
 
 ```sh
+REPO=/Users/josenunez/Projects/ml/snake-dqn-telemetry
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
-REPO=/Users/josenunez/Projects/ml/snake-dqn-gatefix
 cd "$REPO"
 git fetch origin
-git status --short                    # must be empty
-git rev-parse HEAD origin/gate-cuda-scope-20261022  # both must equal handoff SHA
-LAUNCH="$REPO/research/colab_cli/launch.sh"
-STATE=/Users/josenunez/Projects/ml/snake-dqn-artifacts/colab-cli-cuda-scope-requalification-20261022
-# Prepare a reviewed JSON endpoint-to-positive-rate map from the live inventory.
-# {} is valid only when that inventory is actually empty.
+git status --short
+git rev-parse HEAD origin/supervisor-telemetry-20261022
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+  "$PY" -m pytest -q -n 2 tests/test_colab_cli_*.py
 ACCOUNT_MAP=/absolute/path/to/reviewed-current-account-rates.json
-"$LAUNCH" acceptance --profile final-only \
-  --repo "$REPO" --state-dir "$STATE" --other-assignments "$ACCOUNT_MAP" \
-  --colab /Users/josenunez/.local/bin/colab
-# Review the generated plan and its current account map first. Claude then runs:
-"$LAUNCH" acceptance --profile final-only \
-  --repo "$REPO" --state-dir "$STATE" --other-assignments "$ACCOUNT_MAP" \
-  --colab /Users/josenunez/.local/bin/colab \
-  --execute-after-review --review-token COLAB_CLI_ACCEPTANCE_REVIEWED
+"$REPO/tools/ops/requalify.sh" plan --broker "$REPO" \
+  --other-assignments "$ACCOUNT_MAP" \
+  --state-parent /Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/telemetry-requalification-20261022
+# Review the printed saved plan, then set PLAN to that exact ops-review.json.
+PLAN=/absolute/path/from/plan/ops-review.json
+"$REPO/tools/ops/requalify.sh" execute --plan "$PLAN" \
+  --review-token COLAB_CLI_ACCEPTANCE_REVIEWED
 ```
 
-Independently review the new `acceptance-*/acceptance-result.json`, its bound
-CPU/L4 broker receipts, all ten required observations, the recovered 64 MiB
-artifact hash, positive rate calibration, and exact backend disappearance.
-`require_final_only(result, REPO)` and `verify_plan_sources(...)` must both pass
-against these exact bytes. Retain the previous qualification and attempt files.
-No family-canary PASS or scientific admission is implied by this acceptance.
-
-After a reviewed PASS, update qualification by the established source-bound
-procedure and merge only through the operator's normal review. A later Python
-or shell change in `research/colab_cli` invalidates this acceptance again.
+4. Independently review `acceptance-result.json`, CPU/L4 broker receipts and all
+   ten observations. Require exact generation/source identity, positive rate
+   calibration, the 67,108,864-byte verified artifact, original scanner and
+   checksum/marker evidence, bounded telemetry recovery, and independent backend
+   disappearance. `require_final_only` and `verify_plan_sources` must pass for
+   these exact bytes. The live CPU probe must exercise at least one multi-file
+   batch through `collect_exports`: verify its `.zip` transfer, every original
+   payload/sidecar/marker and matching receipt ledger. If the fault sequence
+   prevents this, it has not exercised the new batch path; record NOT_QUALIFIED
+   and prepare a separately reviewed bounded acceptance attempt, never waive it.
+   The hundreds-of-files scale proof is the offline regression, not a live
+   throughput claim. Existing wall/unit caps still govern failed transfers.
+5. Confirm the new registry's qualified commit/tree/result hash match the final
+   commit and reviewed receipt. Only Claude may then perform the normal reviewed
+   merge. Any subsequent executable transport change requires another acceptance.
+   Keep original incident and acceptance attempts immutable. Scientific outputs
+   from the two incomplete jobs remain incomplete; no study rerun is authorized
+   by this code change.
 
 ## Family canary protocol
 
@@ -225,5 +214,5 @@ for that roster. Older exports lacking the roster fields refuse the new wrapper.
 final-only acceptance on e9ce99f2: **PASS, qualified=true** — receipt
 `snake-dqn-artifacts/colab-cli-process-gates-acceptance/acceptance-1792660644/acceptance-result.json`
 (CPU + L4 jobs; final artifact 67,108,864 bytes, Mac-verified, ≥1.58 MB/s). Merged to main.
-That PASS predates this branch's executable device-rule change and does not qualify it.
+That historical PASS does not qualify this branch's telemetry/export correction.
 Current result: **PENDING — no Colab operations performed for this correction.**

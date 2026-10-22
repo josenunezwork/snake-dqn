@@ -337,8 +337,29 @@ def _exports(
     return records
 
 
+def renew_lease(root: str | Path, generation: str | int, *, disable_contents: bool = False) -> bool:
+    """Renew a fenced lease without returning inventories or diagnostic logs."""
+    root_path = Path(root).resolve()
+    state = _load_json(root_path / "state.json")
+    if str(state.get("generation")) != str(generation):
+        raise RuntimeError("generation fence mismatch; lease was not renewed")
+    lease = _load_json(root_path / "lease.json")
+    if str(lease.get("generation")) != str(generation):
+        raise RuntimeError("lease generation fence mismatch; lease was not renewed")
+    renewed = {"generation": generation, "renewed_at": _now()}
+    if disable_contents or lease.get("contents_disabled") is True:
+        renewed["contents_disabled"] = True
+    _atomic_json(root_path / "lease.json", renewed)
+    return True
+
+
 def read_state(
-    root: str | Path, generation: str | int, renew: bool = True, *, disable_contents: bool = False
+    root: str | Path,
+    generation: str | int,
+    renew: bool = True,
+    *,
+    disable_contents: bool = False,
+    compact: bool = False,
 ) -> dict[str, Any]:
     """Read a fenced state and optionally renew its lease.
 
@@ -350,22 +371,24 @@ def read_state(
     if str(state.get("generation")) != str(generation):
         raise RuntimeError("generation fence mismatch; lease was not renewed")
     if renew:
-        lease = _load_json(root_path / "lease.json")
-        if str(lease.get("generation")) != str(generation):
-            raise RuntimeError("lease generation fence mismatch; lease was not renewed")
-        renewed = {"generation": generation, "renewed_at": _now()}
-        if disable_contents or lease.get("contents_disabled") is True:
-            renewed["contents_disabled"] = True
-        _atomic_json(root_path / "lease.json", renewed)
+        renew_lease(root_path, generation, disable_contents=disable_contents)
     terminal_path = root_path / "terminal.json"
     terminal = _load_json(terminal_path) if terminal_path.exists() else None
+    exports = terminal.get("exports", []) if terminal else state.get("exports", [])
+    if compact:
+        # The terminal's original scanner evidence is retained verbatim. Avoid
+        # two additional copies of its inventory in every CLI stdout reply.
+        state = {key: value for key, value in state.items() if key != "exports"}
+        if terminal:
+            exports = []
+    tail_limit = 4096 if compact else 64 * 1024
     return {
         "state": state,
         "terminal": terminal,
         # Inventory is computed by the supervisor, not a short polling kernel.
-        "exports": terminal.get("exports", []) if terminal else state.get("exports", []),
-        "job_log_tail": _tail(root_path / "job.log"),
-        "supervisor_log_tail": _tail(root_path / "supervisor.log"),
+        "exports": exports,
+        "job_log_tail": _tail(root_path / "job.log", tail_limit),
+        "supervisor_log_tail": _tail(root_path / "supervisor.log", tail_limit),
     }
 
 
