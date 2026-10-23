@@ -1,0 +1,87 @@
+{
+  "source": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/f1-decision-10/decision.json",
+  "source_sha256": "11fb8526546a79bb4ddcb69d2f77d6c8464112493c414df95dedb72fd48bf540",
+  "scope": "Control faults only; no label outcomes",
+  "faults": [
+    {
+      "platform": "cpu",
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.01552170800278,
+      "status": "failed",
+      "timeout_seconds": 119.99999645800563
+    },
+    {
+      "platform": "cpu",
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.01088316703681,
+      "status": "failed",
+      "timeout_seconds": 119.99999695795123
+    },
+    {
+      "platform": "cpu",
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.014207582979,
+      "status": "failed",
+      "timeout_seconds": 119.9999980829889
+    },
+    {
+      "platform": "cpu",
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.00889825000195,
+      "status": "failed",
+      "timeout_seconds": 119.99999937502434
+    },
+    {
+      "platform": "cpu",
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.01458045898471,
+      "status": "failed",
+      "timeout_seconds": 119.99999758298509
+    },
+    {
+      "platform": "cpu",
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.01330024999334,
+      "status": "failed",
+      "timeout_seconds": 119.99999799998477
+    },
+    {
+      "platform": "l4",
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 36.73803158401279,
+      "status": "failed",
+      "timeout_seconds": 119.9999992090161
+    },
+    {
+      "platform": "l4",
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.01303754100809,
+      "status": "failed",
+      "timeout_seconds": 119.9999966250034
+    },
+    {
+      "platform": "l4",
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.01216566597577,
+      "status": "failed",
+      "timeout_seconds": 119.99999862501863
+    },
+    {
+      "platform": "l4",
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.01152512500994,
+      "status": "failed",
+      "timeout_seconds": 119.99999941600254
+    }
+  ]
+}

@@ -170,6 +170,13 @@ def test_dispatch_recovers_missing_kernel_metadata_before_first_upload(tmp_path:
         f"#!{sys.executable}\n"
         "import json, os, runpy, sys\n"
         "from colab_cli.client import Client\n"
+        # The dispatch wrapper first makes an account-wide read-only census,
+        # before the supervisor's per-lane guard/config has been established.
+        "if sys.argv[1:] == ['--auth', 'oauth2', 'sessions']:\n"
+        "    state = json.load(open(os.environ['FAKE_COLAB_STATE']))\n"
+        "    assert not state['sessions'], 'fixture expects empty admission account'\n"
+        "    print('No active sessions found on server.')\n"
+        "    raise SystemExit(0)\n"
         "if not getattr(Client, '_snake_guard_installed', False):\n"
         "    raise SystemExit('sitecustomize guard hook was not installed')\n"
         "args = sys.argv[1:]\n"

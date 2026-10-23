@@ -1,0 +1,155 @@
+{
+  "branch": "ops-rpc-stall-fix-20261023",
+  "historical_non_timeout_fault": {
+    "cause": "UNKNOWN",
+    "classification": "UNRESOLVED_NON_TIMEOUT_CONTROL_FAILURE",
+    "constraint": "Do not invent child/provider/tunnel attribution or relabel as timeout. Future errors retain sanitized details.",
+    "elapsed_seconds": 36.73803158401279,
+    "evidence": "F1 l4-ruler receipt cli_calls[50] and decision preserve no exception. Remote terminal succeeded with returncode 0; available ops logs contain no attribution.",
+    "recorded_timeout_seconds": 119.9999992090161
+  },
+  "independent_commands": [
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_colab_cli_rpc_recovery.py tests/test_colab_cli_latency_policy.py tests/test_colab_cli_schema_failures.py tests/test_colab_cli_acceptance.py tests/test_colab_cli_warmup.py tests/test_colab_cli_guard.py tests/test_ops_qualification.py",
+      "passed": 156,
+      "seconds": 7.35,
+      "status": "PASS"
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m black --check --line-length 100 research/colab_cli/rpc.py research/colab_cli/supervisor.py research/colab_cli/policy.py research/colab_cli/failures.py research/colab_cli/acceptance_faults.py tests/test_colab_cli_rpc_recovery.py tests/test_colab_cli_latency_policy.py tests/test_colab_cli_supervisor.py tests/fixtures/fake_colab.py",
+      "files": 9,
+      "status": "PASS"
+    },
+    {
+      "command": "git diff --check",
+      "status": "PASS"
+    },
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_colab_cli_fault_properties.py",
+      "detail": "Duplicate review suite stopped on its owned test processes; exit 143, no pass claim.",
+      "status": "STOPPED_INCOMPLETE"
+    }
+  ],
+  "open_findings": [],
+  "qualification": {
+    "blockers": [
+      "F1 six-session harness/manifests not yet prepared; normal final-only wrapper is not a substitute",
+      "Three L4 hours at historical 1.54 units/hour cost 4.62 units before reserve; aggregate effective 4-unit reading needs judge clarification"
+    ],
+    "commands_document": "research/colab_cli/CONTROL_RPC_REQUALIFICATION.md",
+    "remaining_risks": [
+      "Offline recovery proof does not establish elimination of provider stalls",
+      "Worker death after started and before done fails closed permanently",
+      "No live acceptance, F1-bis, merge or production admission performed"
+    ],
+    "required": [
+      "Source-bound normal final-only CPU and L4 acceptance",
+      "Three CPU plus three L4 sessions, each >=60 minutes on frozen F1 bank loop",
+      "Zero counted faults of any class; preserved census including recovered faults",
+      "Separate injected-retry no-duplicate proof; no waiver for any fault inside six clean sessions",
+      "F1-bis earliest 2026-10-26 with frozen 25 percent and stall rule"
+    ],
+    "status": "PENDING_LIVE_NOT_MERGEABLE"
+  },
+  "recorded_by": "Root agent from independent reviewer report, with hash verification and root verification supplement",
+  "resolved_findings": [
+    {
+      "file": "research/colab_cli/supervisor.py",
+      "finding": "Pending worker deadline exhaustion lacked a counted control fault and fence.",
+      "resolution": "Expiry marks the request call failed CONTROL_RPC_TIMEOUT, raises ClassifiedFailure and fences subsequent commands; tested through frozen F1 transport_faults.",
+      "severity": "P2"
+    },
+    {
+      "file": "research/colab_cli/failures.py",
+      "finding": "Adjacent Rich traceback source containing timeout could misclassify provider 5xx.",
+      "resolution": "Prefer terminal exception line and explicit timeout phrases; regression passes.",
+      "severity": "P2"
+    }
+  ],
+  "review_base_commit": "6ceba866d95227d5da1794d38607c576f40a7384",
+  "review_binding": "Reviewed file hashes bind the implementation in the containing commit; this is not live qualification or merge authority.",
+  "reviewer": "Independent Codex-V /root/codex_v",
+  "root_verification": [
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_colab_cli_rpc_recovery.py tests/test_colab_cli_latency_policy.py tests/test_colab_cli_warmup.py tests/test_colab_cli_schema_failures.py tests/test_colab_cli_transfers.py tests/test_colab_cli_source.py tests/test_ops_qualification.py tests/test_ops_dispatch.py",
+      "passed": 181,
+      "seconds": 65.17,
+      "status": "PASS"
+    },
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_colab_cli_dispatch_warmup.py",
+      "passed": 1,
+      "seconds": 20.33,
+      "status": "PASS"
+    },
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_colab_cli_supervisor.py -k 'poll_rpc_completion_grace_cannot_extend_per_attempt_budget or busy_kernel_is_never_resubmitted_after_uncertain_exec or kernel_error_with_zero_cli_exit_is_fatal or upload_phase_caps_outer_rpc_grace'",
+      "executed_by": "test_adaptation",
+      "passed": 4,
+      "status": "PASS"
+    },
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_colab_cli_fault_properties.py -k 'run7_l4_heartbeat_stall_then_exec_timeout_has_bounded_idle_recovery and 1'",
+      "executed_by": "test_adaptation",
+      "passed": 1,
+      "seconds": 33.26,
+      "status": "PASS"
+    },
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_colab_cli_fault_properties.py -k 'run7_l4_heartbeat_stall_then_exec_timeout_has_bounded_idle_recovery and 3'",
+      "executed_by": "test_adaptation",
+      "passed": 1,
+      "seconds": 16.4,
+      "status": "PASS"
+    },
+    {
+      "commands": [
+        "black --check --line-length 100",
+        "isort --profile black --check-only",
+        "flake8",
+        "git diff --check"
+      ],
+      "scope": "All 11 changed Python files",
+      "status": "PASS"
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.colab_cli.supervisor --help",
+      "detail": "Local entrypoint only; no allocation",
+      "status": "PASS"
+    }
+  ],
+  "schema": "codex-v-control-rpc-stall-review/v1",
+  "side_effects": {
+    "colab_allocations": 0,
+    "colab_stops": 0,
+    "historical_artifacts_modified": false,
+    "real_tmux_mutations": 0,
+    "released_checkpoints_or_pins_modified": false,
+    "sealed_outcomes_opened": false
+  },
+  "source_sha256": {
+    "research/colab_cli/CONTROL_RPC_REQUALIFICATION.md": "256656151b70d502ef9c88dbb6e3a2ad98f23b08ad4e9ff061087999f6836e42",
+    "research/colab_cli/acceptance_faults.py": "0723d93069eda19a4ef5d72bbffd82a29ec2c5a6570d62c2d87eaded88f356a2",
+    "research/colab_cli/failures.py": "315bcffe0bd0064cf64e2adac3082fad2e467f1e83a84722805a2fad03e7b13a",
+    "research/colab_cli/policy.py": "7b83e5b23919647bcd48a7411b25910bbaca92a32273b9999c8871c34b0cf25b",
+    "research/colab_cli/rpc.py": "95b6e28d7e90d248a5a4ce6e137deab57388347c2fc2d2547aeae1d984ead95e",
+    "research/colab_cli/supervisor.py": "d4afef58048ad9235c839440caf3fc3848a2559d53ed29e01be2e331ea63fd92",
+    "tests/fixtures/colab_control_faults_f1.json": "1a807959e9a994745e42b6921a1718e8ecfd24bfb6ff08128fd726967941ba8a",
+    "tests/fixtures/fake_colab.py": "7c701092e0e658037992281e3f83fa7f177e944aaacc4d3b2f8e73491fd03b11",
+    "tests/test_colab_cli_dispatch_warmup.py": "742baced926481818cc60840ba66701b176b232159b2b32f13fc930485c5b974",
+    "tests/test_colab_cli_fault_properties.py": "df724b898b9c09b0dae1a6ef8a63a44543dce52368be98dc32edcfee3b18a325",
+    "tests/test_colab_cli_latency_policy.py": "b16af57af197e4463b473e65c2891612e2b2ef5ebcb14977c91aa8faf4a16daa",
+    "tests/test_colab_cli_rpc_recovery.py": "1eb9cd5163a2abd2040dbe70142e227f23ebb51bbb219d5dd5077d2bf964c2f8",
+    "tests/test_colab_cli_supervisor.py": "1331c2fc755b7767d26e77c44a1c7609d314929001907dc24ebb3c808632d1ad"
+  },
+  "verdict": "ACCEPT_OFFLINE_ONLY",
+  "verified_properties": [
+    "Exclusive started claim precedes command execution; partial, existing or foreign claims never replay a command.",
+    "Invocation-local worker closures retain command, identity and paths across kernel envelope reissues.",
+    "Success and command errors serialize and fsync before atomic done publication.",
+    "Session-derived namespace survives reconnect; explicit duplicate request ID returns saved result without repeating mutation.",
+    "Exec and idle probes are bounded to 30 seconds, with exponential jittered backoff clipped to original operation/session/priced caps.",
+    "Retry uses same request ID and independent idle proof; permanent provider failures and command errors are not automatically retried.",
+    "F1 counting code is unchanged; recovered failures stay counted. No scientific or release changes."
+  ]
+}

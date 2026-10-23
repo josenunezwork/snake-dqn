@@ -546,6 +546,10 @@ def test_run7_l4_heartbeat_stall_then_exec_timeout_has_bounded_idle_recovery(
     binary = _fake_env(monkeypatch, tmp_path, {})
     plan = _pinned_plan(tmp_path, pinned_repo)
     clock = _isolate_account
+    # The virtual clock must not sample jitter: three observed 120-second
+    # provider stalls consume three 30-second control slots plus the two
+    # fixed recovery delays, so the attempt cap wins before the 300s budget.
+    monkeypatch.setattr(policy, "poll_delay", lambda attempt: 2.0 ** (attempt + 1))
     original_observe = acceptance.AcceptanceObserver.__call__
     original_idle = cli_guard.kernel_idle
     original_rpc = supervisor.CLI.rpc
@@ -622,13 +626,15 @@ def test_run7_l4_heartbeat_stall_then_exec_timeout_has_bounded_idle_recovery(
     stalls = [event for event in events if event.get("fault")]
     assert stalls[0]["argv"][-1].endswith("/lease-heartbeat.json")
     assert stalls[0]["fault"]["virtual_latency_seconds"] == 41
-    assert stalls[1]["fault"]["virtual_latency_seconds"] == pytest.approx(120)
+    # The replay still injects the observed control-path timeout, but the
+    # fixture records the supervisor's current 30-second exec limit.
+    assert stalls[1]["fault"]["virtual_latency_seconds"] == pytest.approx(policy.RPC_SECONDS)
     assert order[:3] == ["exec", "idle", "exec"]
     assert state["allocation_count"] == 2
     assert receipt["stop_verified"] is True
     assert receipt["cleanup_error"] is None
     assert all(
-        call["timeout_seconds"] <= 120
+        call["timeout_seconds"] <= policy.RPC_SECONDS
         for call in receipt["cli_calls"]
         if call["command"] == "exec" and call["status"] == "failed"
     )
@@ -651,8 +657,8 @@ def test_run7_l4_heartbeat_stall_then_exec_timeout_has_bounded_idle_recovery(
     else:
         assert rc == 1 and result["qualified"] is False
         assert receipt["status"] == "INCOMPLETE"
-        assert "TimeoutExpired" in receipt["error"] or "deadline" in receipt["error"]
-        assert recovery_finished[0] - recovery_started[0] == pytest.approx(policy.TELEMETRY_SECONDS)
+        assert "control exec timed out" in receipt["error"]
+        assert recovery_finished[0] - recovery_started[0] == pytest.approx(96)
         assert len(stalls) == 4  # One upload stall, then three bounded attempts.
         assert gates["final-artifact-download"]["status"] == "INCOMPLETE"
         assert gates["mac-loss-watchdog-unassign"]["status"] == "INCOMPLETE"

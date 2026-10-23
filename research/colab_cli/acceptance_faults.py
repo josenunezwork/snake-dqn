@@ -375,9 +375,7 @@ class AcceptanceObserver:
         # The runtime child is an independently supervised subprocess. This
         # bounded kernel call creates an actual >60-second execution silence;
         # its explicit timeout is evidence that no unbounded wait is hidden.
-        value = cli.rpc(
-            "import time\ntime.sleep(65)\nresult={'after_silence':True}", timeout=policy.RPC_SECONDS
-        )
+        value = cli.rpc("import time\ntime.sleep(65)\nresult={'after_silence':True}", timeout=120)
         self._record(
             "silence-timeout",
             silence_seconds=time.monotonic() - started,

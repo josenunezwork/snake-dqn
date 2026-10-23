@@ -317,6 +317,12 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         # only its record so their ``open('x')`` and atomic replace remain real
         # filesystem operations in the fake endpoint namespace.
         code = code.replace(record_match.group(2), str(remote_record))
+    # Real wrapper and durable markers, deterministic worker scheduling in this
+    # provider emulator. Thread timing is tested independently by rpc tests.
+    request_root = re.search(r"/content/\.snake-rpc-[0-9a-f]{32}", code)
+    if request_root:
+        code = code.replace(request_root.group(), str(_remote(session, request_root.group())))
+        code = code.replace("threading.Thread(target=worker, daemon=True).start()", "worker()")
     count = int(state.setdefault("exec_count", {}).get(session, 0))
     state["exec_count"][session] = count + 1
     if MODE in {"busy_exec", "poll_hiccup"} and count == 0:

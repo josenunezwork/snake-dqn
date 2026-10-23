@@ -6,13 +6,15 @@ budget. A latency allowance never authorizes a replacement assignment or job.
 
 from __future__ import annotations
 
+import random
 import re
 import subprocess
 
 READ_SECONDS = 120.0
-RPC_SECONDS = 120.0
-# One full exec timeout must leave room for independent idle proof and a read
-# retry. Contents heartbeats continue under the unchanged runtime lease.
+RPC_SECONDS = 30.0
+REQUEST_SECONDS = 120.0
+# Short exec attempts leave room for independent idle proof and retries.
+# Contents heartbeats continue under the unchanged runtime lease.
 TELEMETRY_SECONDS = 300.0
 ALLOCATION_SECONDS = 180.0
 # Runtime allocation is not readiness of its Contents and kernel transports.
@@ -20,6 +22,7 @@ ALLOCATION_SECONDS = 180.0
 WARMUP_SECONDS = 300.0
 WARMUP_PROBE_SECONDS = 30.0
 WARMUP_INTERVAL_SECONDS = 5.0
+MAX_REQUEST_POLLS = 300
 ATTEMPTS = 3
 BACKOFF_SECONDS = (2.0, 5.0)
 READ_COMMANDS = frozenset({"version", "whoami", "sessions", "usage", "url"})
@@ -60,3 +63,8 @@ def transient_error(exc: BaseException) -> bool:
             )
         )
     )
+
+
+def poll_delay(attempt: int) -> float:
+    """Exponential backoff with jitter; capped independently of session budgets."""
+    return random.uniform(0.75, 1.25) * min(8.0, 2.0 ** min(attempt, 3))

@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from research.colab_cli import supervisor
+from research.colab_cli.failures import ClassifiedFailure, FailureClass
 
 REPO = Path(__file__).resolve().parents[1]
 FAKE = REPO / "tests" / "fixtures" / "fake_colab.py"
@@ -738,8 +739,9 @@ def test_busy_kernel_is_never_resubmitted_after_uncertain_exec(
     binary = _fake_env(monkeypatch, tmp_path, mode="busy_exec")
     cli = supervisor.CLI(binary, tmp_path / "lane-sessions.json", "fake-session")
 
-    with pytest.raises(supervisor.Refused, match="kernel completion not acknowledged"):
+    with pytest.raises(ClassifiedFailure, match="kernel completion not acknowledged") as raised:
         cli.rpc("result=True")
+    assert raised.value.failure_class is FailureClass.CONTROL_RPC_TIMEOUT
     with pytest.raises(supervisor.Refused, match="uncertain/busy"):
         cli.rpc("result=True")
 
@@ -1053,9 +1055,10 @@ def test_upload_phase_caps_outer_rpc_grace_and_restores_session_deadline(
         return subprocess.CompletedProcess(args, 0, stdout="no kernel acknowledgment", stderr="")
 
     monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
-    with pytest.raises(supervisor.Refused, match="not acknowledged"):
+    with pytest.raises(ClassifiedFailure, match="not acknowledged") as raised:
         with cli.limit_deadline(103.0):
             cli.rpc("result=True", timeout=60)
+    assert raised.value.failure_class is FailureClass.CONTROL_RPC_TIMEOUT
     assert seen == [3.0]
     assert cli.deadline == 1000.0
 
@@ -1594,7 +1597,9 @@ def test_poll_rpc_completion_grace_cannot_extend_per_attempt_budget(
     monkeypatch.setattr(supervisor.time, "monotonic", lambda: 100)
 
     def invoke(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert kwargs["timeout"] == 120  # Not the ordinary mutation RPC's 130s outer grace.
+        # A durable request is polled through short control RPCs, even though
+        # its aggregate telemetry deadline remains much larger.
+        assert kwargs["timeout"] == 30
         code = Path(argv[argv.index("-f") + 1]).read_text()
         nonce = "SNAKE_RPC_" + code.split("SNAKE_RPC_")[1][:32]
         return subprocess.CompletedProcess(argv, 0, nonce + '{"ok":true,"value":true}', "")

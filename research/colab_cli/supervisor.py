@@ -385,11 +385,22 @@ class CLI:
                 raise Refused(f"colab {args[0]} operation budget exhausted")
             started = time.monotonic()
             status = "failed"
+            failure_class = None
+            failure_detail = None
             try:
                 result = self._call_once(*args, timeout=remaining)
                 status = "completed"
                 return result
             except (Refused, OSError, subprocess.SubprocessError) as exc:
+                if args[0] == "exec":
+                    from research.colab_cli.failures import FailureClass, control_timeout
+
+                    failure_detail = redact(str(exc))[-2000:]
+                    failure_class = (
+                        FailureClass.CONTROL_RPC_TIMEOUT
+                        if control_timeout(exc)
+                        else FailureClass.CONTROL_RPC_ERROR
+                    ).value
                 if attempt + 1 == attempts or not policy.transient_error(exc):
                     raise
                 delay = min(policy.BACKOFF_SECONDS[attempt], max(0, deadline - time.monotonic()))
@@ -403,6 +414,11 @@ class CLI:
                         "timeout_seconds": remaining,
                         "status": status,
                         "elapsed_seconds": time.monotonic() - started,
+                        **(
+                            {"failure_class": failure_class, "error": failure_detail}
+                            if failure_class
+                            else {}
+                        ),
                     }
                 )
         raise Refused("read retry budget exhausted")
@@ -504,44 +520,92 @@ class CLI:
         return result
 
     def rpc(
-        self, code: str, timeout: float = policy.RPC_SECONDS, *, completion_grace: float = 10
+        self,
+        code: str,
+        timeout: float = policy.REQUEST_SECONDS,
+        *,
+        completion_grace: float = 0,
+        request_id: str | None = None,
     ) -> Any:
-        """Prove completion by nonce, with optional transport acknowledgement grace."""
+        """Launch once, then poll a durable result with <=30-second exec calls.
+
+        ``completion_grace`` is retained for callers but never extends an RPC.
+        A lost response leaves the kernel fence set. Only poll_rpc's independent
+        idle proof permits re-issuing the exact same request identity.
+        """
+        from research.colab_cli.failures import ClassifiedFailure, FailureClass
+        from research.colab_cli.rpc import request_code
+
         if self.exec_uncertain:
             raise Refused("previous exec uncertain/busy; refusing to resubmit to kernel")
-        nonce = "SNAKE_RPC_" + uuid.uuid4().hex
-        wrapped = (
-            "import json, traceback\ntry:\n"
-            + "\n".join("    " + line for line in code.splitlines())
-            + f"\n    print({nonce!r} + json.dumps({{'ok':True,'value':result}}))\n"
-            + "except BaseException as exc:\n"
-            + f"    print({nonce!r} + json.dumps({{'ok':False,'error':repr(exc)}}))\n"
-        )
+        request_id = request_id or uuid.uuid4().hex
+        nonce = "SNAKE_RPC_" + request_id
+        # Session names are unique per allocation and survive a client reconnect.
+        # A fresh CLI object re-issuing an explicit request ID sees the same claim.
+        namespace = hashlib.sha256(self.session.encode()).hexdigest()[:32]
+        wrapped = request_code(code, request_id, namespace, nonce)
+        deadline = time.monotonic() + self.remaining_seconds(timeout)
         with tempfile.NamedTemporaryFile("w", suffix=".py") as handle:
-            compile(wrapped, "<colab-cli-rpc>", "exec")
             handle.write(wrapped)
             handle.flush()
-            try:
-                output = self.call(
-                    "exec",
-                    "-s",
-                    self.session,
-                    "-f",
-                    handle.name,
-                    "--timeout",
-                    str(timeout),
-                    timeout=timeout + completion_grace,
-                )
-                matches = re.findall(re.escape(nonce) + r"(\{[^\n]*\})", output)
-                if not matches:
-                    raise Refused("kernel completion not acknowledged (busy/error/timeout)")
-                reply = json.loads(matches[-1])
-            except BaseException:
-                self.exec_uncertain = True
-                raise
-        if not reply["ok"]:
-            raise Refused(f"kernel error despite CLI exit zero: {reply.get('error')}")
-        return reply["value"]
+            for poll in range(policy.MAX_REQUEST_POLLS):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                attempt_seconds = min(policy.RPC_SECONDS, remaining)
+                try:
+                    output = self.call(
+                        "exec",
+                        "-s",
+                        self.session,
+                        "-f",
+                        handle.name,
+                        "--timeout",
+                        str(attempt_seconds),
+                        timeout=attempt_seconds,
+                    )
+                    matches = re.findall(re.escape(nonce) + r"(\{[^\n]*\})", output)
+                    if not matches:
+                        for record in reversed(self.call_records):
+                            if record["command"] == "exec":
+                                record.update(status="failed", failure_class="CONTROL_RPC_TIMEOUT")
+                                break
+                        raise ClassifiedFailure(
+                            FailureClass.CONTROL_RPC_TIMEOUT,
+                            "kernel completion not acknowledged (busy/error/timeout)",
+                        )
+                    reply = json.loads(matches[-1])
+                except BaseException as exc:
+                    self.exec_uncertain = True
+                    if isinstance(exc, subprocess.TimeoutExpired):
+                        raise ClassifiedFailure(
+                            FailureClass.CONTROL_RPC_TIMEOUT, "control exec timed out"
+                        ) from exc
+                    raise
+                finally:
+                    for record in reversed(self.call_records):
+                        if record["command"] == "exec":
+                            record.update(
+                                request_id=request_id,
+                                request_sha256=hashlib.sha256(code.encode()).hexdigest(),
+                            )
+                            break
+                if not reply["ok"]:
+                    raise Refused(f"kernel error despite CLI exit zero: {reply.get('error')}")
+                if not reply.get("pending"):
+                    return reply["value"]
+                delay = min(policy.poll_delay(poll), max(0, deadline - time.monotonic()))
+                if delay:
+                    time.sleep(delay)
+        self.exec_uncertain = True
+        for record in reversed(self.call_records):
+            if record.get("request_id") == request_id:
+                record.update(status="failed", failure_class="CONTROL_RPC_TIMEOUT")
+                break
+        raise ClassifiedFailure(
+            FailureClass.CONTROL_RPC_TIMEOUT,
+            "request started without durable completion before operation deadline",
+        )
 
     def wait_runtime_ready(self, output: Path) -> None:
         """Bound cold-start latency before credentials, uploads or their clock.
@@ -554,6 +618,7 @@ class CLI:
 
         started = time.monotonic()
         evidence: dict[str, Any] = {"status": "INCOMPLETE", "attempts": 0}
+        request_id = uuid.uuid4().hex
         try:
             deadline = started + self.remaining_seconds(policy.WARMUP_SECONDS)
             # A count bound also protects against a stalled monotonic clock.
@@ -598,6 +663,7 @@ class CLI:
                                 min(policy.WARMUP_PROBE_SECONDS, remaining)
                             ),
                             completion_grace=0,
+                            request_id=request_id,
                         )
                         if result != {"ready": True}:
                             raise Refused("runtime readiness exec returned unknown state")
@@ -625,93 +691,72 @@ class CLI:
             write_once(output / "warmup-measurement.json", evidence)
 
     def recoverable_rpc(self, code: str, timeout: float = policy.TELEMETRY_SECONDS) -> Any:
-        """Recover an acknowledgement without repeating a committed mutation.
-
-        One durable UUID record fences the operation across verified-idle
-        retries. A completed record returns its saved result; a started record
-        without a result is ambiguous and refuses. The operation may start only
-        when its record does not exist, never merely because the kernel is idle.
-        """
-        record = "/content/.snake-rpc-" + uuid.uuid4().hex + ".json"
-        guarded = (
-            "# SNAKE_RECOVERABLE_RPC\n"
-            "import json as _snake_json, os as _snake_os\n"
-            "from pathlib import Path as _SnakePath\n"
-            f"_snake_record=_SnakePath({record!r})\n"
-            "if _snake_record.exists():\n"
-            "    _snake_saved=_snake_json.loads(_snake_record.read_text())\n"
-            "    if _snake_saved.get('status') != 'completed':\n"
-            "        raise RuntimeError('operation started without durable completion; '\n"
-            "                           'refusing replay')\n"
-            "    result=_snake_saved['result']\n"
-            "else:\n"
-            "    with _snake_record.open('x') as _snake_handle:\n"
-            "        _snake_json.dump({'status':'started'},_snake_handle)\n"
-            "        _snake_handle.flush()\n"
-            "        _snake_os.fsync(_snake_handle.fileno())\n"
-            + "\n".join("    " + line for line in code.splitlines())
-            + "\n    _snake_temporary=_snake_record.with_suffix('.tmp')\n"
-            "    with _snake_temporary.open('x') as _snake_handle:\n"
-            "        _snake_json.dump({'status':'completed','result':result},_snake_handle)\n"
-            "        _snake_handle.flush()\n"
-            "        _snake_os.fsync(_snake_handle.fileno())\n"
-            "    _snake_os.replace(_snake_temporary,_snake_record)\n"
-        )
-        return self.poll_rpc(guarded, timeout=timeout)
+        """Recover any command using one durable identity, never replay its body."""
+        return self.poll_rpc(code, timeout=timeout)
 
     def poll_rpc(self, code: str, timeout: float = policy.TELEMETRY_SECONDS) -> Any:
-        """Recover idempotent reads/controls only after independent kernel-idle proof.
+        """Re-issue the same request only after independent kernel-idle proof.
 
-        Each exec is bounded by RPC_SECONDS; all attempts, idle probes, and
-        backoff share one separate operation budget, clipped to session caps.
-        Neither a kernel error nor an exhausted deadline is a retry trigger.
+        Faults remain recorded even when recovered. Attempts, probes, polls and
+        jitter borrow from one operation budget and the first session cap.
         """
         from research.colab_cli.cli_guard import kernel_idle
+        from research.colab_cli.failures import ClassifiedFailure, FailureClass
 
-        deadline = min(
-            time.monotonic() + timeout,
-            self.deadline if self.deadline is not None else math.inf,
-            self.priced_deadline if self.priced_deadline is not None else math.inf,
-        )
+        request_id = uuid.uuid4().hex
+        deadline = time.monotonic() + self.remaining_seconds(timeout)
         for attempt in range(policy.ATTEMPTS):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise Refused("deadline reached during telemetry recovery")
+                raise ClassifiedFailure(
+                    FailureClass.CONTROL_RPC_TIMEOUT, "deadline reached during telemetry recovery"
+                )
             try:
-                attempt_seconds = min(policy.RPC_SECONDS, remaining)
-                # Bound this call directly: narrowing shared self.deadline here
-                # would also starve the independent Contents heartbeat thread.
-                return self.rpc(code, attempt_seconds, completion_grace=0)
-            except (Refused, subprocess.SubprocessError):
-                if not self.exec_uncertain or attempt == policy.ATTEMPTS - 1:
+                return self.rpc(code, remaining, completion_grace=0, request_id=request_id)
+            except (Refused, ClassifiedFailure, OSError, subprocess.SubprocessError) as exc:
+                if (
+                    not self.exec_uncertain
+                    or attempt == policy.ATTEMPTS - 1
+                    or not policy.transient_error(exc)
+                ):
                     raise
-                # Never enqueue work while the previous exec could still be busy.
                 idle = False
                 for probe in range(policy.ATTEMPTS):
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        raise Refused("deadline reached during telemetry recovery")
+                        raise ClassifiedFailure(
+                            FailureClass.CONTROL_RPC_TIMEOUT,
+                            "deadline reached during telemetry recovery",
+                        ) from exc
                     try:
                         idle = kernel_idle(
                             self.oauth_python,
                             self.config,
                             self.session,
-                            timeout=min(policy.READ_SECONDS, remaining),
+                            timeout=min(policy.RPC_SECONDS, remaining),
                         )
-                    except Exception as exc:
-                        if not policy.transient_error(exc):
+                    except Exception as probe_exc:
+                        if not policy.transient_error(probe_exc):
                             raise
                     if idle:
                         break
-                    delay = min(2, max(0, deadline - time.monotonic()))
+                    delay = min(policy.poll_delay(probe), max(0, deadline - time.monotonic()))
                     if delay:
                         time.sleep(delay)
                 if not idle:
-                    raise Refused("kernel remains busy/unknown after telemetry hiccup")
-                self.exec_uncertain = False
-                delay = min(policy.BACKOFF_SECONDS[attempt], max(0, deadline - time.monotonic()))
+                    raise ClassifiedFailure(
+                        FailureClass.CONTROL_RPC_TIMEOUT,
+                        "kernel remains busy/unknown after telemetry hiccup",
+                    ) from exc
+                delay = min(policy.poll_delay(attempt), max(0, deadline - time.monotonic()))
                 if delay:
                     time.sleep(delay)
+                if deadline <= time.monotonic():
+                    raise ClassifiedFailure(
+                        FailureClass.CONTROL_RPC_TIMEOUT,
+                        "deadline reached during telemetry recovery",
+                    ) from exc
+                self.exec_uncertain = False
         raise Refused("telemetry recovery exhausted")
 
 

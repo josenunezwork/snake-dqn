@@ -10,12 +10,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from research.colab_cli import cli_guard, supervisor
+from research.colab_cli import cli_guard, policy, supervisor
 from research.colab_cli.acceptance_faults import AcceptanceObserver
+from research.colab_cli.failures import ClassifiedFailure, FailureClass
 
 
 @pytest.mark.parametrize("cap", ["deadline", "priced_deadline", "explicit"])
-def test_telemetry_recovery_cannot_extend_real_or_explicit_caps(
+def test_telemetry_recovery_stops_after_three_short_attempts_without_extending_caps(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str
 ) -> None:
     now = [0.0]
@@ -42,18 +43,22 @@ def test_telemetry_recovery_cannot_extend_real_or_explicit_caps(
     )
     monkeypatch.setattr(supervisor.subprocess, "run", invoke)
     monkeypatch.setattr(cli_guard, "kernel_idle", idle)
-    with pytest.raises(supervisor.Refused, match="deadline reached during telemetry recovery"):
+    monkeypatch.setattr(policy, "poll_delay", lambda _attempt: 2.0)
+    with pytest.raises(ClassifiedFailure, match="control exec timed out") as raised:
         cli.poll_rpc("result=True", **({"timeout": 150} if cap == "explicit" else {}))
-    assert calls == [120, 28]
-    assert probes == [30]
-    assert now[0] == 150
+    assert raised.value.failure_class is FailureClass.CONTROL_RPC_TIMEOUT
+    assert calls == [30, 30, 30]
+    assert probes == [30, 30]
+    # The fixed three-attempt envelope stops at 94s; it neither borrows the
+    # remaining 56s nor allows retries to extend the frozen first cap.
+    assert now[0] == 94
     assert cli.exec_uncertain  # Exhaustion never clears uncertain kernel state.
 
 
 def test_telemetry_attempt_does_not_shorten_independent_heartbeat_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """At t=110 an in-flight 120s poll must still allow a 60s lease PUT."""
+    """At t=20 an in-flight short control poll still allows a 60s lease PUT."""
     cli = supervisor.CLI("fake", tmp_path / "config", "owned")
     cli.deadline = 1000
     cli.priced_deadline = 900
@@ -61,8 +66,8 @@ def test_telemetry_attempt_does_not_shorten_independent_heartbeat_budget(
     allowances = []
 
     def invoke(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert kwargs["timeout"] == 120
-        now[0] = 110
+        assert kwargs["timeout"] == 30
+        now[0] = 20
         worker = threading.Thread(target=lambda: allowances.append(cli.remaining_seconds(60)))
         worker.start()
         worker.join(timeout=2)
@@ -91,8 +96,10 @@ def test_telemetry_timeout_does_not_resubmit_without_kernel_idle_proof(
     monkeypatch.setattr(supervisor.subprocess, "run", invoke)
     monkeypatch.setattr(supervisor.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(cli_guard, "kernel_idle", lambda *args, **kwargs: False)
-    with pytest.raises(supervisor.Refused, match="kernel remains busy/unknown"):
+    monkeypatch.setattr(policy, "poll_delay", lambda _attempt: 0.0)
+    with pytest.raises(ClassifiedFailure, match="kernel remains busy/unknown") as raised:
         cli.poll_rpc("result=True")
+    assert raised.value.failure_class is FailureClass.CONTROL_RPC_TIMEOUT
     assert len(calls) == 1
     assert cli.exec_uncertain
 
