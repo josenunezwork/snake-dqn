@@ -172,6 +172,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 07:10 PT | OWNER standing approval | Verbatim "always gonna- approved" (big-lever/exp/OWNER_STANDING_APPROVAL_20261023.txt): routine operational asks pre-approved; W12 Mac F0 factory approved subject to the registered 30-min calibration (after M-E). Releases and credential entry still owner-only. |
 
+| 2026-10-23 07:40 PT | F0 Mac equivalence PASS; D256 started | mac-pack-02 RUN_ME (W6): F1 1/3/6-worker identity, Canary-B 36 allocations complete in 1,117 s, Canary-A replay audit PASS, single F0 look PASS: 14.5 rescue-bearing lives per Mac-worker-hour (floor 8; forecast was 6-9). D256 dispatched on the Mac at W6 (bl-f0-mac-d256-02; first attempt refused pre-start on a missing approval path — operator error, no data). W12 calibration runner queued (owner standing approval). |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
