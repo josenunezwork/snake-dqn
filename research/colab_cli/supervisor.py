@@ -420,6 +420,8 @@ class CLI:
             **os.environ,
             "SNAKE_COLAB_NOTEBOOK_HASH": self.notebook_hash,
             "SNAKE_COLAB_ASSIGNMENT_RECORD": str(self.assignment_record),
+            "SNAKE_COLAB_CONFIG": str(self.config),
+            "SNAKE_COLAB_SESSION": self.session,
             "NO_COLOR": "1",
             "COLUMNS": "240",
         }

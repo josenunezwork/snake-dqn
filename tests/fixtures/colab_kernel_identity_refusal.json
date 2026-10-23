@@ -1,0 +1,113 @@
+{
+  "source_acceptance": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/kernel-ambiguity-requalification-20261022/requalify-7mpzkr3k/acceptance-1792727428",
+  "receipt": {
+    "accounting": {
+      "allocated_endpoint": null,
+      "assignments": [],
+      "baseline_balance_units": 1113.34,
+      "baseline_rate_units_per_hour": 0.0,
+      "calibration": null,
+      "declared_other_rate_units_per_hour": 0,
+      "integrated_accounted_other_units": 0.0,
+      "last_crosscheck": null,
+      "observed_rate_units_per_hour": null,
+      "own_rate_units_per_hour": 0.5,
+      "priced_rate_units_per_hour": 0.5,
+      "unaccounted_endpoints": [],
+      "unit_cap": 0.16666666666666666
+    },
+    "cleanup_error": null,
+    "cli_calls": [
+      {
+        "attempt": 1,
+        "command": "version",
+        "elapsed_seconds": 0.21928737498819828,
+        "status": "completed",
+        "timeout_seconds": 119.99999916600063
+      },
+      {
+        "attempt": 1,
+        "command": "sessions",
+        "elapsed_seconds": 0.6119004999636672,
+        "status": "completed",
+        "timeout_seconds": 119.99999241600744
+      },
+      {
+        "attempt": 1,
+        "command": "usage",
+        "elapsed_seconds": 0.47759416699409485,
+        "status": "completed",
+        "timeout_seconds": 119.99999912496423
+      },
+      {
+        "attempt": 1,
+        "command": "new",
+        "elapsed_seconds": 3.213345500000287,
+        "status": "completed",
+        "timeout_seconds": 179.99999945802847
+      },
+      {
+        "attempt": 1,
+        "command": "exec",
+        "elapsed_seconds": 0.30628529202658683,
+        "status": "failed",
+        "timeout_seconds": 29.999999583989847
+      },
+      {
+        "attempt": 1,
+        "command": "stop",
+        "elapsed_seconds": 0.6557589590083808,
+        "status": "completed",
+        "timeout_seconds": 74.99999774998287
+      },
+      {
+        "attempt": 1,
+        "command": "sessions",
+        "elapsed_seconds": 0.40463537495816126,
+        "status": "completed",
+        "timeout_seconds": 59.99999879201641
+      },
+      {
+        "attempt": 1,
+        "command": "usage",
+        "elapsed_seconds": 0.6419863749761134,
+        "status": "completed",
+        "timeout_seconds": 119.9999988329946
+      }
+    ],
+    "commit": "38a12a915d357ac0412090bfb22acfe881833333",
+    "contents_transfers": [],
+    "elapsed_seconds": 306.50140883401036,
+    "endpoint": "m-s-use1c10-137ae2mzo4pkp",
+    "error": "Refused('runtime readiness warmup deadline reached; kernel remains busy/unknown')",
+    "exports": [],
+    "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+    "generation": "5aace14b18b644dc8a2eea70077bf134",
+    "job_id": "acceptance-1792727428-cpu",
+    "manifest_sha256": "ee3c97a34d1f4f201a64232ad9043d616b8452ee6e4888babb435ae76fc00d72",
+    "session": "snake-acceptance-1792727428-cpu-5aace14b18b6",
+    "status": "INCOMPLETE",
+    "stop_verified": true,
+    "supervisor_sha256": "263eeecc556ae02057d87c351e7c83b9fb3175f55f8b1d823982bf53c564e853",
+    "terminal": null,
+    "transfers": [],
+    "usage_after": {
+      "assignments": 0.0,
+      "balance": 1113.34,
+      "rate": 0.0
+    },
+    "usage_before": {
+      "assignments": 0.0,
+      "balance": 1113.34,
+      "rate": 0.0
+    },
+    "warmup_seconds": 300.0078705829801
+  },
+  "warmup": {
+    "attempts": 50,
+    "elapsed_seconds": 300.0078705829801,
+    "error": "Refused('runtime readiness warmup deadline reached; kernel remains busy/unknown')",
+    "last_probe_error": "Refused('colab exec failed (1):   \u2502\\n\u2502   174 \u2502   \u2502   or record.get(\"notebook_hash\") != os.environ.get(\"SNAKE_COLAB_NOTEBOOK_HASH\")                                                                                                                                                  \u2502\\n\u2502   175 \u2502   \u2502   or headers.get(\"X-Colab-Runtime-Proxy-Token\") != state.token                                                                                                                                                                   \u2502\\n\u2502   176 \u2502   ):                                                                                                                                                                                                                                 \u2502\\n\u2502 \u2771 177 \u2502   \u2502   raise GuardError(\"kernel creation does not match tracked runtime identity\")                                                                                                                                                    \u2502\\n\u2502   178 \u2502   if state.kernel_id:                                                                                                                                                                                                                \u2502\\n\u2502   179 \u2502   \u2502   raise GuardError(\"tracked kernel reconnect required; kernel already exists\")                                                                                                                                                   \u2502\\n\u2502   180 \u2502   return store, state                                                                                                                                                                                                                \u2502\\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\\nGuardError: kernel creation does not match tracked runtime identity\\n')",
+    "status": "INCOMPLETE"
+  }
+}

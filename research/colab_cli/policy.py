@@ -30,6 +30,13 @@ def transient_error(exc: BaseException) -> bool:
     if isinstance(exc, (ConnectionError, TimeoutError, subprocess.TimeoutExpired)):
         return True
     message = str(exc).lower()
+    # Rich's CLI traceback includes adjacent source lines. A permanent guard
+    # refusal can therefore display the reconnect-required raise (or timeout
+    # text) without actually raising it. Classify the terminal guard exception,
+    # preserving genuine saved-kernel reconnect recovery after idle proof.
+    guard_errors = re.findall(r"(?:^|\n)(?:cli_guard: )?guarderror: ([^\n]+)", message)
+    if guard_errors:
+        message = guard_errors[-1]
     return bool(
         re.search(r"\b(?:500|502|503|504)\b", message)
         or any(
@@ -45,6 +52,9 @@ def transient_error(exc: BaseException) -> bool:
                 "remotedisconnected",
                 "network is unreachable",
                 "temporarily unavailable",
+                # Creation was acknowledged and saved before websocket setup.
+                # Only independent idle proof may clear exec_uncertain.
+                "tracked kernel reconnect required",
                 "timed out",
                 "timeout",
             )
