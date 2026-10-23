@@ -138,6 +138,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-22 22:05 PT | A100 A1 decision | Repaired GPU engine (corpse loop fix, 313d27eb) on A100-40: E6 speedup 190.9x (event-path hypothesis PASS) but E1024 complete steps/s = 158 frozen / 163 mixed / 166 scripted << 2,000 => pre-registered STOP_ENGINE. GPU label factory (WP2) not funded; A2/A3/P1 continue. |
 
+| 2026-10-22 22:30 PT | M1 attempt-06b RESULT | BLOCKED (not mechanical; owner-authorized daemon-tolerant estimand; daemons ~0 %). receipt sha 3631f67bf5c41284bdcdb0beb4bd77a346f629be3065d70130d30b76e44a75b8. Latency bars PASS: W4K4 frozen-800 doom p99 1.46 s (<=5), update p95 4.6-10.2 ms (<=11.688); FAIL: tick overruns W1K1 6, W2K2 26, W4K4 5, W4K8 8 (bar 0). M0 with p99 1.4586 => L*=72, F(72)=0.944 => not CLOSED. D1 judge ruling on the one judged remedy pending. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
