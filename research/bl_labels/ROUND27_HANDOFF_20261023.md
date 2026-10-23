@@ -64,13 +64,16 @@ not workload completion. Never reuse a dispatcher job name after it is consumed.
 SOURCE=/Users/josenunez/Projects/ml/snake-dqn-f0
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 ART=/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0-speed
-PIN=$(git -C "$SOURCE" rev-parse HEAD) # Freeze the published implementation SHA now.
+PIN=bf8ac97dc66d1b4515e4c5510db3ad5886fa695d # Immutable implementation/bank pin.
 CAL_RUNNER=2a0821a9f5c6cd5f7b45ba6b22352e48e349b451
 cd "$SOURCE"
 ```
 
-Offline preparation (the implementer may already have created these sealed paths;
-verify/reuse them unchanged rather than rerunning preparation into an existing path):
+Offline preparation is **already complete** at this exact pin. Verify and reuse
+these sealed paths; the following are the preparation commands for reference,
+not commands to rerun into those existing paths. Inventory:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0-speed/build-01/prepared-inventory.json`,
+SHA256 `5930e7a64dda67ddfbf5b8571af2c23363ebac19f0d3baf86a534d3c7f862928`.
 
 ```bash
 "$PY" -m research.bl_labels.mac_package --future \

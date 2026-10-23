@@ -387,3 +387,15 @@ Final round-27 implementation Codex-V: `PASS_IMPLEMENTATION_LIGHT_VERIFICATION`,
 receipt SHA256 `19713e3929a00c601042405903dc34a3bcd92d728898d8155aebcf473ebe4f07`.
 The initial style-blocked receipt is retained unchanged; its import-order finding
 is corrected and the final receipt supersedes it. Heavy qualification is pending.
+Round-27 published implementation/bank pin:
+`bf8ac97dc66d1b4515e4c5510db3ad5886fa695d` (origin/main fast-forward verified).
+Create-only preparation completed, no factory execution: D1024 2160 parents,
+D4096 7020 parents, all fold 1--4, preserved stream/roster ratios, nonoverlapping
+append-only indices, sealed seed audits/empty ledgers; excluded B-EQ 12 parents
+with materialized plans. Packages:
+`bl-labels-f0-speed/{d1024-d4096-pack-01,equiv-pack-01}`. Prepared inventory:
+`bl-labels-f0-speed/build-01/prepared-inventory.json`, SHA256
+`5930e7a64dda67ddfbf5b8571af2c23363ebac19f0d3baf86a534d3c7f862928`.
+Use that immutable implementation SHA for every NEW-run command, including after
+later metadata publication commits; the handoff now spells it out literally.
+Actual T-EQ and calibration receipts do not yet exist from this task.
