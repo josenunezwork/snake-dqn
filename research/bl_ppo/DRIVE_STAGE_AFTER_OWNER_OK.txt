@@ -1,0 +1,165 @@
+P1 Drive staging after owner OK — Addendum A, 2026-10-23
+Authority SHA-256: 2fb9e3914a5eb86e9cd5c42495a1d8213fa1475aa6cf0c72d14c83350de5bc5e
+Prepared only. Claude operates; Codex never dispatches.
+
+1. Obtain the owner's explicit in-chat yes to changing exposure to an unlisted
+   Anyone with the link: Viewer Drive folder: same 9 assets and disclosed local
+   paths, 595,248,269 bytes. This is not private storage.
+   Existing disclosures/secret scan: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/release-scan.json and
+   public-path-disclosures.json. The new bundle changes only attempt namespaces
+   and SHA sidecars; no credentials or new metadata are inserted.
+   No Drive copy or sharing was performed by Sol.
+
+2. Run this bash block once after that yes. mkdir must succeed: existing folder
+   means HOLD, never overwrite. Eight payloads come from -03; p1-inputs.tar.gz
+   comes from -04 because Finalisation §3.1 requires a fresh attempt namespace.
+   This is a new file with a new SHA, never an in-place update. Stop on any error.
+
+```bash
+set -euo pipefail
+P1_DRIVE_FOLDER='/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/snake-dqn-p1-y3-origin-20261023'
+mkdir "$P1_DRIVE_FOLDER"
+cp '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/release-assets/p1-y3-origin-pause-snapshot-00000.pt' "$P1_DRIVE_FOLDER/p1-y3-origin-pause-snapshot-00000.pt"
+shasum -a 256 "$P1_DRIVE_FOLDER/p1-y3-origin-pause-snapshot-00000.pt"
+stat -f %z "$P1_DRIVE_FOLDER/p1-y3-origin-pause-snapshot-00000.pt"
+test "$(shasum -a 256 "$P1_DRIVE_FOLDER/p1-y3-origin-pause-snapshot-00000.pt" | awk '{print $1}')" = 'dbdc10c61914cccd156e4a73de67b8004cacce133ae334686d393153fe4109ce'
+test "$(stat -f %z "$P1_DRIVE_FOLDER/p1-y3-origin-pause-snapshot-00000.pt")" = '427911156'
+cp '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/release-assets/immutable-ordinary_bank-e63802f2e97cbb5d.pt' "$P1_DRIVE_FOLDER/immutable-ordinary_bank-e63802f2e97cbb5d.pt"
+shasum -a 256 "$P1_DRIVE_FOLDER/immutable-ordinary_bank-e63802f2e97cbb5d.pt"
+stat -f %z "$P1_DRIVE_FOLDER/immutable-ordinary_bank-e63802f2e97cbb5d.pt"
+test "$(shasum -a 256 "$P1_DRIVE_FOLDER/immutable-ordinary_bank-e63802f2e97cbb5d.pt" | awk '{print $1}')" = 'a581990666ea5c17f3ee51cf354eb9213043f2f1899cf6b4f81b4a5a688f0136'
+test "$(stat -f %z "$P1_DRIVE_FOLDER/immutable-ordinary_bank-e63802f2e97cbb5d.pt")" = '144091565'
+cp '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/release-assets/immutable-refit_bank-f7fd77c1276d8df6.pt' "$P1_DRIVE_FOLDER/immutable-refit_bank-f7fd77c1276d8df6.pt"
+shasum -a 256 "$P1_DRIVE_FOLDER/immutable-refit_bank-f7fd77c1276d8df6.pt"
+stat -f %z "$P1_DRIVE_FOLDER/immutable-refit_bank-f7fd77c1276d8df6.pt"
+test "$(shasum -a 256 "$P1_DRIVE_FOLDER/immutable-refit_bank-f7fd77c1276d8df6.pt" | awk '{print $1}')" = '7b9325445ad7fab12de58d119cc5c9300dceaa9419b0bf9526d779fa83655ed0'
+test "$(stat -f %z "$P1_DRIVE_FOLDER/immutable-refit_bank-f7fd77c1276d8df6.pt")" = '15110573'
+cp '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/release-assets/p1-inputs.tar.gz' "$P1_DRIVE_FOLDER/p1-inputs.tar.gz"
+shasum -a 256 "$P1_DRIVE_FOLDER/p1-inputs.tar.gz"
+stat -f %z "$P1_DRIVE_FOLDER/p1-inputs.tar.gz"
+test "$(shasum -a 256 "$P1_DRIVE_FOLDER/p1-inputs.tar.gz" | awk '{print $1}')" = '6a520e7c9d07909e4852368242ec8157719f3dd4392eefaea08ca4394edc5908'
+test "$(stat -f %z "$P1_DRIVE_FOLDER/p1-inputs.tar.gz")" = '2517009'
+cp '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/release-assets/late-body-rows-0000.npz' "$P1_DRIVE_FOLDER/late-body-rows-0000.npz"
+shasum -a 256 "$P1_DRIVE_FOLDER/late-body-rows-0000.npz"
+stat -f %z "$P1_DRIVE_FOLDER/late-body-rows-0000.npz"
+test "$(shasum -a 256 "$P1_DRIVE_FOLDER/late-body-rows-0000.npz" | awk '{print $1}')" = 'e5794210e7b236fba8ab191a47379f309af522241bf9bc4aed8f7b71fd7a12be'
+test "$(stat -f %z "$P1_DRIVE_FOLDER/late-body-rows-0000.npz")" = '2433946'
+cp '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/release-assets/late-body-rows-0001.npz' "$P1_DRIVE_FOLDER/late-body-rows-0001.npz"
+shasum -a 256 "$P1_DRIVE_FOLDER/late-body-rows-0001.npz"
+stat -f %z "$P1_DRIVE_FOLDER/late-body-rows-0001.npz"
+test "$(shasum -a 256 "$P1_DRIVE_FOLDER/late-body-rows-0001.npz" | awk '{print $1}')" = 'a92bbb5b49e6f966e1cfa77e239be02d8e0f94268c2f95dc77c2eab185c72731'
+test "$(stat -f %z "$P1_DRIVE_FOLDER/late-body-rows-0001.npz")" = '1442768'
+cp '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/release-assets/late-body-rows-0002.npz' "$P1_DRIVE_FOLDER/late-body-rows-0002.npz"
+shasum -a 256 "$P1_DRIVE_FOLDER/late-body-rows-0002.npz"
+stat -f %z "$P1_DRIVE_FOLDER/late-body-rows-0002.npz"
+test "$(shasum -a 256 "$P1_DRIVE_FOLDER/late-body-rows-0002.npz" | awk '{print $1}')" = 'c40429054110c5fc61c4c6655efff53f7f4413279d056738b2c4d24e94e8d124'
+test "$(stat -f %z "$P1_DRIVE_FOLDER/late-body-rows-0002.npz")" = '1093629'
+cp '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/release-assets/failed-supervisor-receipt.json' "$P1_DRIVE_FOLDER/failed-supervisor-receipt.json"
+shasum -a 256 "$P1_DRIVE_FOLDER/failed-supervisor-receipt.json"
+stat -f %z "$P1_DRIVE_FOLDER/failed-supervisor-receipt.json"
+test "$(shasum -a 256 "$P1_DRIVE_FOLDER/failed-supervisor-receipt.json" | awk '{print $1}')" = 'aaa9f106c029b0235a174adbb38d617dad7c631af9dda49ce6fb01033f1db6eb'
+test "$(stat -f %z "$P1_DRIVE_FOLDER/failed-supervisor-receipt.json")" = '384986'
+cp '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/release-assets/immutable-fixture_late_body_bank-64031cc19f35a73a.pt' "$P1_DRIVE_FOLDER/immutable-fixture_late_body_bank-64031cc19f35a73a.pt"
+shasum -a 256 "$P1_DRIVE_FOLDER/immutable-fixture_late_body_bank-64031cc19f35a73a.pt"
+stat -f %z "$P1_DRIVE_FOLDER/immutable-fixture_late_body_bank-64031cc19f35a73a.pt"
+test "$(shasum -a 256 "$P1_DRIVE_FOLDER/immutable-fixture_late_body_bank-64031cc19f35a73a.pt" | awk '{print $1}')" = '64031cc19f35a73a0c72ddcf71d7ae3fd2a71aec96c50bec5ebccac4ea3b6522'
+test "$(stat -f %z "$P1_DRIVE_FOLDER/immutable-fixture_late_body_bank-64031cc19f35a73a.pt")" = '262637'
+```
+3. Share the folder as Anyone with the link: Viewer after the owner's yes.
+   Do not publish to web or change accounts. Keep exactly these nine files.
+
+4. Read IDs after sync using these exact commands. Missing/local placeholder
+   IDs mean wait; repeat reads no more than once per minute. Drive UI or xattrs
+   alone do not prove complete HTTPS sync.
+
+```bash
+xattr -p 'com.google.drivefs.item-id#S' '/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/snake-dqn-p1-y3-origin-20261023/p1-y3-origin-pause-snapshot-00000.pt'
+xattr -p 'com.google.drivefs.item-id#S' '/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/snake-dqn-p1-y3-origin-20261023/immutable-ordinary_bank-e63802f2e97cbb5d.pt'
+xattr -p 'com.google.drivefs.item-id#S' '/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/snake-dqn-p1-y3-origin-20261023/immutable-refit_bank-f7fd77c1276d8df6.pt'
+xattr -p 'com.google.drivefs.item-id#S' '/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/snake-dqn-p1-y3-origin-20261023/p1-inputs.tar.gz'
+xattr -p 'com.google.drivefs.item-id#S' '/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/snake-dqn-p1-y3-origin-20261023/late-body-rows-0000.npz'
+xattr -p 'com.google.drivefs.item-id#S' '/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/snake-dqn-p1-y3-origin-20261023/late-body-rows-0001.npz'
+xattr -p 'com.google.drivefs.item-id#S' '/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/snake-dqn-p1-y3-origin-20261023/late-body-rows-0002.npz'
+xattr -p 'com.google.drivefs.item-id#S' '/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/snake-dqn-p1-y3-origin-20261023/failed-supervisor-receipt.json'
+xattr -p 'com.google.drivefs.item-id#S' '/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/snake-dqn-p1-y3-origin-20261023/immutable-fixture_late_body_bank-64031cc19f35a73a.pt'
+```
+5. Claude writes the asset-to-URL JSON from those IDs with this single-run block.
+   It refuses missing/duplicate/local-placeholder IDs. Keep links only in
+   manifests/receipts and their local receipt inputs; never post elsewhere.
+   Placeholder template: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/drive-urls.template.json.
+
+```bash
+cd '/Users/josenunez/Projects/ml/snake-dqn-p1snap'
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python - <<'ID_JSON'
+import json, re, subprocess
+from pathlib import Path
+root = Path('/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04')
+folder = Path('/Users/josenunez/Library/CloudStorage/GoogleDrive-josemnunez.jn@gmail.com/My Drive/snake-dqn-p1-y3-origin-20261023')
+assets = json.loads((root / 'drive-asset-plan.json').read_text())['assets']
+urls, seen = {}, set()
+for asset in assets:
+    item_id = subprocess.check_output(
+        ['xattr', '-p', 'com.google.drivefs.item-id#S', str(folder / asset['name'])],
+        text=True, timeout=10).strip()
+    if (not re.fullmatch(r'[A-Za-z0-9_-]{10,}', item_id)
+            or item_id.lower().startswith(('local', 'placeholder')) or item_id in seen):
+        raise SystemExit('HOLD: invalid/missing/duplicate/local ID; wait for sync')
+    seen.add(item_id)
+    urls[asset['name']] = (
+        f'https://drive.usercontent.google.com/download?id={item_id}&export=download&confirm=t')
+with (root / 'drive-urls.json').open('x') as handle:
+    json.dump(urls, handle, sort_keys=True)
+    handle.write('\n')
+ID_JSON
+```
+6. Freeze final -04 manifests exactly once from Claude's JSON. Every template
+   field except nine URLs stays identical. byte-diff-03-to-04.json explains
+   the attempt-identity exception and all 36 URL edits. -03 remains untouched.
+
+```bash
+cd '/Users/josenunez/Projects/ml/snake-dqn-p1snap'
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_ppo.p1_repair_transport build-drive --source '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03' --urls '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/drive-urls.json' --output '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04'
+```
+7. Run the single Mac preflight: require all nine exact size/SHA matches and
+   PASS within <=300 seconds total; measured rate is recorded in the receipt.
+   Public fetch timing stays null in measured-forecast-04.json until this A3.5
+   receipt exists; never edit the frozen forecast. HTML/auth/quota/mismatch or
+   timeout means HOLD: no retry loop or URL-form tinkering on a pinned pack.
+   Either use -03 unchanged after gh authentication or return to a judge.
+
+```bash
+cd '/Users/josenunez/Projects/ml/snake-dqn-p1snap'
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_ppo.p1_repair_transport preflight --manifest '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-manifest.json' --output '/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/public-fetch-preflight-drive-04.json'
+```
+8. Re-run independent Codex-V _12 against the now-final manifest hashes and diff;
+   the preparation review has no final manifest bindings. Claude line-checks
+   Addendum A/Finalisation §7, records campaign log and publishes the reconciled
+   ledger. No held root manifest is dispatched. Require proof == current == pin
+   tree d0d92bdb572b770284a1fea6152417ffa5f06bea, live zero other assignments and
+   calibrated rate <=1.54u/h. First fast-forward the operator broker:
+
+```bash
+git -C /Users/josenunez/Projects/ml/snake-dqn-acctfix fetch origin
+git -C /Users/josenunez/Projects/ml/snake-dqn-acctfix merge --ff-only origin/main
+git -C /Users/josenunez/Projects/ml/snake-dqn-acctfix rev-parse HEAD:research/colab_cli
+git -C '/Users/josenunez/Projects/ml/snake-dqn-p1snap' rev-parse 03e0af75c64538f53a6971e6fec5d9a173bc921b:research/colab_cli
+/Users/josenunez/.local/bin/colab --auth oauth2 usage
+/Users/josenunez/.local/bin/colab --auth oauth2 sessions
+```
+9. Claude creates a reviewed canary-admission/manifest.json and gate-specific
+   DISPATCH.txt using p1_repair_admission, then tools/ops/dispatch.sh only. Exact
+   admission/dispatch commands are in handoff _12. Canary: 2.00u/.40 reserve/
+   30min, zero retries. Require VM fetch <=300s, residual upload <=150s, whole
+   staging <=300s, exports recovered, release verified, 200min/6.16u support.
+   Failure is terminal: no repair or host switch; return to judge.
+
+10. Only after canary PASS, reconcile debit, fresh live inventory and Claude
+    checks; admit/dispatch repair (6.16u/1.03 reserve/200min; one mechanical retry
+    under registered conditions). Replacement/1M stay NOT_MATERIALIZED held
+    price templates until real prerequisites exist; no runnable command.
+    Keep WARNING_UNEXPLAINED_DEBIT and conservative max(own,gross) debit.
+
+Keep folder/files immutable until P1 closes: no edit/replace/move/rename/unshare
+or version management. New bytes require a new folder and pack. No private
+mounts, legacy queue, A100/H100, caps/price changes, new look or serving change.
+B8 s3 stays served; Y3 is not PASS. No research/colab_cli code was changed.
