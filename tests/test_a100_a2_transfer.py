@@ -134,3 +134,23 @@ def test_recovery_charges_all_allocations_and_refuses_missing_parent(tmp_path):
     main.write_text(json.dumps(value))
     with pytest.raises(ValueError, match="stopped mechanical"):
         make_pack.transfer_recovery_envelope([first, second, main])
+
+
+def test_recovery_refuses_omitted_ancestors_and_third_completion(tmp_path):
+    first = prior(tmp_path, "canary-original", "INCOMPLETE", "CHILD_NONZERO_EXIT", 60)
+    later = prior(tmp_path, "main-later", "INCOMPLETE", "UPLOAD_CAP", 60)
+    manifest = later.parent / "manifest.json"
+    value = json.loads(manifest.read_text())
+    value["a2"]["remaining_envelope"]["prior_receipts"] = [
+        {"path": str(first), "sha256": digest(first)}
+    ]
+    manifest.write_text(json.dumps(value))
+    value = json.loads(later.read_text())
+    value["manifest_sha256"] = digest(manifest)
+    later.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="recovery ancestor"):
+        make_pack.transfer_recovery_envelope([later])
+    second = prior(tmp_path, "main-second", "INCOMPLETE", "UPLOAD_CAP", 60)
+    third = prior(tmp_path, "main-third", "INCOMPLETE", "UPLOAD_CAP", 60)
+    with pytest.raises(ValueError, match="two completion attempts"):
+        make_pack.transfer_recovery_envelope([first, later, second, third])

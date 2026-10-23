@@ -196,6 +196,7 @@ def transfer_recovery_envelope(receipts: list[Path]) -> dict:
         raise ValueError("duplicate prior receipt")
     rows = []
     elapsed = 0.0
+    main_attempts = 0
     for path in receipts:
         prior = json.loads(path.read_text())
         manifest_path = path.parent / "manifest.json"
@@ -241,6 +242,14 @@ def transfer_recovery_envelope(receipts: list[Path]) -> dict:
             or digest(Path(proof["path"])) != proof["sha256"]
         ):
             raise ValueError("missing or changed charged family canary")
+        ancestors = manifest.get("a2", {}).get("remaining_envelope", {}).get("prior_receipts", [])
+        for ancestor in ancestors:
+            if (
+                Path(ancestor["path"]).resolve() not in {p.resolve() for p in receipts}
+                or digest(Path(ancestor["path"])) != ancestor["sha256"]
+            ):
+                raise ValueError("missing or changed recovery ancestor")
+        main_attempts += int(failed_upload)
         elapsed += seconds
         rows.append(
             {
@@ -254,6 +263,8 @@ def transfer_recovery_envelope(receipts: list[Path]) -> dict:
         raise ValueError("foreign allocation in prior receipts")
     if not any(json.loads(p.read_text()).get("failure_class") == "UPLOAD_CAP" for p in receipts):
         raise ValueError("transfer recovery requires mechanical main upload failure")
+    if main_attempts > 2:
+        raise ValueError("at most two completion attempts")
     minutes = min(258, math.floor(288 - 18 - elapsed / 60))
     units = min(45, math.floor((48 - 3 - elapsed * 10 / 3600) * 100) / 100)
     if minutes < 240 or units <= 8:
@@ -264,6 +275,7 @@ def transfer_recovery_envelope(receipts: list[Path]) -> dict:
         "prior_receipts": rows,
         "prior_elapsed_seconds": elapsed,
         "prior_charged_units_at_ceiling": elapsed * 10 / 3600,
+        "completion_attempt": main_attempts,
     }
 
 
@@ -303,6 +315,9 @@ def make_pack(
     from tools.ops.import_preflight import check as check_imports
     from tools.ops.qualification import check
 
+    commit = subprocess.check_output(
+        ["git", "rev-parse", f"{commit}^{{commit}}"], cwd=ROOT, text=True
+    ).strip()
     registry = ARTIFACTS / "ops/colab-cli-qualified.json"
     if check(ROOT, registry, commit) != QUALIFIED_TREE:
         raise ValueError("unexpected qualified transport tree")
