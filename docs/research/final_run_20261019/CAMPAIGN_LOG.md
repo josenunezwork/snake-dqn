@@ -134,6 +134,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-22 21:30 PT | M1 attempt-05 | INCOMPLETE (verified mechanical): cell cpu-w1-k1 restarted 3x then stopped; foreign heavy corespotlightd 99.8 %, fileproviderd 67.7/55.1/54.2 %; charged 771.55 s cumulative. receipt sha256 48dcd2ad67be5a44d563d95af6737be275bb73562e666fcc0080dd2544453f05; m1_carry verdict INCOMPLETE (receipt.carried.json sha 053b57fb). JUDGMENT_M1_ATTEMPT6.md sha 80598e91: attempt-06 admitted (last PLAN rerun) with HARD owner clean-window precondition + 600 s measured quiet; D1 Sat 12:00 else <= Sun 12:00. |
 
+| 2026-10-22 22:00 PT | M1 owner directive | Owner: "let them run during test" — macOS system daemons (fileproviderd, corespotlightd, mds/mdworker, mediaanalysisd, photoanalysisd, cloudd, bird) and our Colab supervisors no longer abort M1; their per-sample CPU is recorded and every cell discloses max/mean daemon load; estimand relabelled 'served-Mac timing under normal macOS background load (owner-authorized)'. Any other foreign process (codex, other python) still aborts/restarts as before. Sol implements; attempt-06 waiter replaced. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
