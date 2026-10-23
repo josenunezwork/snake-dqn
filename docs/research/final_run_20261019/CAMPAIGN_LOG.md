@@ -166,6 +166,10 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 05:20 PT | F1 re-funded | JUDGMENT_F1_REFUND.md sha f2f35631e65e4234... (Opus stand-in): F1 INVALID = packaging defect (ledger sidecar basename), not science; failed probes recorded, excluded. pack-10 caps: CPU probe 40 min/0.07 u, CPU ruler 180 min/0.30 u, L4 probe 20 min/0.65 u, L4 ruler 94 min/3.02 u (F1 total <= 4.20 u incl. 0.153 spent; <= 5.0 u). Keep CPU arm and 25 % rule; no A100 arm. Next INVALID => HOLD. GC A1 FAIL logged earlier. |
 
+| 2026-10-23 06:20 PT | F1 placement decision | f1-decision-10/decision.json (single look; hashes published 0b2c1ca8): NO_PRODUCTION_PLATFORM — CPU runtime 6 and L4 4 exec RPC faults at the 120-s budget => per registered rule neither Colab platform used for F0 production this week. Judge asked about Mac-as-production label factory + supervisor stall fix. |
+
+| 2026-10-23 06:35 PT | Placement ruling | JUDGMENT_PLACEMENT_MAC.md sha 6adf731e49b0fd27... (Opus stand-in): Colab NO_PRODUCTION_PLATFORM through Sun Oct 25 (control-path RPC stalls on CPU and L4). Mac = F0 production platform after a Mac-equivalence package (1/3/6-worker digest+label identity on the 64-root bank; full 36-allocation F0 canary on Mac as the single F0 look, floor 8 rescue-bearing lives/Mac-worker-h). Default 6 workers nice 10 (12 needs owner OK). Forecast 37-56 lives/h at 6 workers (P(fail) ~0.4); D256 6-9 h. Supervisor stall fix commissioned (re-qualify 3+3 one-hour sessions, then F1-bis Mon Oct 26). |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
