@@ -561,7 +561,7 @@ def test_prepool_exception_receipt_keeps_verified_stop(monkeypatch, tmp_path) ->
         yield SimpleNamespace(receipt={"id": "test-only"})
 
     monkeypatch.setattr(mac_lease, "held", held)
-    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(host, "snapshot", lambda **kwargs: {"quiet": True})
     monkeypatch.setattr(m1, "wait_quiet", lambda *args, **kwargs: {"quiet": True, "samples": []})
     monkeypatch.setattr(m1, "inputs", lambda *args: {"namespace": "n", "sources": {}})
     monkeypatch.setattr(m1, "sources", lambda: {})
@@ -1017,7 +1017,7 @@ def test_judged_recovery_check_and_final_receipt(monkeypatch, judged_case, capsy
         yield SimpleNamespace(receipt={"id": "test-only"})
 
     monkeypatch.setattr(mac_lease, "held", held)
-    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(host, "snapshot", lambda **kwargs: {"quiet": True})
     monkeypatch.setattr(m1, "wait_quiet", lambda *args, **kwargs: {"quiet": True, "samples": []})
     clock = iter([100.0, 102.0])
     monkeypatch.setattr(m1.time, "monotonic", lambda: next(clock, 102.0))
@@ -1267,7 +1267,7 @@ def test_main_restarts_only_foreign_stop_and_exports_discard(
     monkeypatch.setattr(m1, "inputs", lambda *args: data)
     monkeypatch.setattr(m1, "sources", lambda: {})
     monkeypatch.setattr(m1, "cells", lambda: [cell])
-    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(host, "snapshot", lambda **kwargs: {"quiet": True})
     quiet = []
 
     def wait(*args, **kwargs):
@@ -1346,7 +1346,7 @@ def test_main_does_not_restart_nonforeign_stop(monkeypatch, tmp_path) -> None:
     )
     monkeypatch.setattr(m1, "sources", lambda: {})
     monkeypatch.setattr(m1, "cells", lambda: [cell])
-    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(host, "snapshot", lambda **kwargs: {"quiet": True})
     monkeypatch.setattr(m1, "wait_quiet", lambda *args, **kwargs: {"quiet": True, "samples": []})
     monkeypatch.setattr(m1, "run_cell", lambda *args: row)
     monkeypatch.setattr(m1.time, "monotonic", lambda: 100.0)
@@ -1448,7 +1448,7 @@ def run_mock_attempt(
     data = {"namespace": "n", "sources": {}}
     monkeypatch.setattr(m1, "inputs", lambda *args: data)
     monkeypatch.setattr(m1, "sources", lambda: {})
-    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(host, "snapshot", lambda **kwargs: {"quiet": True})
     monkeypatch.setattr(m1.time, "monotonic", lambda: clock.now)
     monkeypatch.setattr(m1.time, "monotonic_ns", lambda: int(clock.now * 1e9))
     monkeypatch.setattr(m1, "audit_unit", lambda *args: None)
@@ -1698,6 +1698,9 @@ def judged3_case(monkeypatch, tmp_path):
     proof = {
         "schema": m1.SCHEMA + "/judged-recovery",
         "judge": "Fable-M1-attempt6",
+        "owner_directive_path": str(m1.OWNER_DIRECTIVE_PATH),
+        "owner_directive_sha256": m1.OWNER_DIRECTIVE_SHA256,
+        "estimand": m1.ESTIMAND,
         "status": "JUDGED_FOREIGN_LOAD_STOP_3",
         "judgment_path": str(judgment),
         "judgment_sha256": m1.digest(judgment),
@@ -1736,7 +1739,16 @@ def test_judged3_recovery_happy_path(judged3_case) -> None:
 
 
 @pytest.mark.parametrize(
-    "change", ["hash", "attempt4", "discard_count", "old_source", "no_carry_flag"]
+    "change",
+    [
+        "hash",
+        "attempt4",
+        "discard_count",
+        "old_source",
+        "no_carry_flag",
+        "no_owner",
+        "wrong_estimand",
+    ],
 )
 def test_judged3_recovery_refuses_required_boundaries(monkeypatch, judged3_case, change) -> None:
     case = judged3_case
@@ -1750,6 +1762,10 @@ def test_judged3_recovery_refuses_required_boundaries(monkeypatch, judged3_case,
         case.data["sources"]["research/bl_k1/m1.py"] = "old"
     elif change == "no_carry_flag":
         case.proof["carry_forward_required"] = False
+    elif change == "no_owner":
+        case.proof.pop("owner_directive_sha256")
+    elif change == "wrong_estimand":
+        case.proof["estimand"] = "quiet host"
     if change in {"attempt4", "discard_count"}:
         receipt = Path(case.proof["previous_receipt_path"])
         for artifact in (

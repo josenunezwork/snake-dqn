@@ -132,7 +132,7 @@ def reduce_attempt(out_dir: Path) -> dict:
         verdict=max(statuses, key=PRECEDENCE.__getitem__),
         judgment_sha256=JUDGMENT_SHA256,
         input_sha256=input_hashes,
-        estimand=ESTIMAND,
+        estimand=receipt.get("estimand", ESTIMAND),
         discarded_run_disclosures=disclosures,
         retained_cell_disclosures=retained_disclosures,
         discarded_timings_pooled=False,
