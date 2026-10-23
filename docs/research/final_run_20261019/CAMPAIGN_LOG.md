@@ -150,6 +150,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-22 23:50 PT | A100 A2 result (single look) | decision.json sha 045be833616754e9...: scale NOT_CLOSED_EXPLORATORY, target KEEP_SINGLE_HORIZON. T5 D300 AUC @100%: frozen-B8 linear 0.767 > s_b8 0.719 > m_random(6.7M) 0.711 ~ s_random 0.706; data 25->100% +0.02-0.05 for all arms. Bigger model no gain; data volume helps; frozen B8 features beat fine-tuning. Exploratory historical bank, no served-gain claim. |
 
+| 2026-10-22 23:58 PT | Direction ruling (round 23) | JUDGMENT_DIRECTION.md sha b50dffba...: 86/89 attempt-07 overrun ticks carry >= 20 ms gen-2 GC pauses (bare W0: 42 gen-2 collections, ~2.1 s GC/100 s) => served B8 game misses SC §4 today (product finding); C15 blocked by GC, not search. Path A: GC fix in served process (Astra round 25 started) -> bare qualification >= 2,400 ticks + 10-min session -> owner-rechartered M1-bis Sat 09:00 -> PLAN_v3 +2 days. B: CPU-runtime label factory (post-Nov-10 distillation). C: P1 on L4. Owner decisions requested by Fri 21:00. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
