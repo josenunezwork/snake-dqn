@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import types
 
 import pytest
 
-from research.bl_labels import exports
-from research.bl_labels.manifests import canary_allocation, make_manifest, namespace
+from research.bl_labels import exports, manifests
+from research.bl_labels.manifests import (
+    canary_allocation,
+    fresh_seed_audit,
+    make_manifest,
+    namespace,
+)
 
 
 def test_completion_last_ledger_refuses_foreign_and_duplicate(tmp_path):
@@ -51,6 +57,50 @@ def test_canary_manifest_freezes_counts_and_effective_cap(tmp_path):
     assert manifest["resume"]["max_outcome_blind_retries"] == 2
 
 
+def test_fresh_seed_audit_uses_literal_whole_word_rg_and_refuses_hits(monkeypatch):
+    calls = []
+
+    def clean(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 1, "", "")
+
+    monkeypatch.setattr("research.bl_labels.manifests.subprocess.run", clean)
+    commit = "c" * 40
+    audit = fresh_seed_audit(commit, [123, 456])
+    assert audit["hits_by_root"] and not any(audit["hits_by_root"].values())
+    assert len(calls) == 2
+    assert calls[0][0][:6] == ["rg", "-I", "-l", "-F", "-w", "--no-config"]
+    assert calls[0][1]["timeout"] == 600
+
+    monkeypatch.setattr(
+        "research.bl_labels.manifests.subprocess.run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, "/tmp/hit\n", ""),
+    )
+    with pytest.raises(ValueError, match="fresh seed collision"):
+        fresh_seed_audit(commit, [123])
+
+
+def test_fresh_seed_audit_real_whole_word_collision_and_scan_error(monkeypatch, tmp_path):
+    repo, artifacts = tmp_path / "repo", tmp_path / "snake-dqn-artifacts"
+    repo.mkdir()
+    artifacts.mkdir()
+    monkeypatch.setattr(manifests, "ROOT", repo)
+    (repo / "adjacent.txt").write_text("x123y\n")
+    clean = manifests.fresh_seed_audit("d" * 40, [123])
+    assert not any(clean["hits_by_root"].values())
+    (artifacts / "standalone.txt").write_text("value 123, here\n")
+    with pytest.raises(ValueError, match="fresh seed collision"):
+        manifests.fresh_seed_audit("d" * 40, [123])
+
+    monkeypatch.setattr(
+        manifests.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 2, "", "permission denied"),
+    )
+    with pytest.raises(RuntimeError, match="fresh seed scan failed"):
+        manifests.fresh_seed_audit("d" * 40, [456])
+
+
 def test_attempt_aggregator_unions_lives_and_refuses_duplicate(tmp_path):
     allocation = [{"allocation_id": "watch6-000", "seed": 1}]
     ns = "f0-union"
@@ -76,8 +126,46 @@ def test_attempt_aggregator_unions_lives_and_refuses_duplicate(tmp_path):
         "watch6-000--life-000000",
         "watch6-000--life-000001",
     ]
+    # A resume ledger may preserve partial lives, but cannot take the one
+    # scientific look until every allocation has published its session.
+    assert result["mac_aggregate"]["status"] == "INCOMPLETE"
+    assert result["mac_aggregate"]["summary"] is None
+    assert result["mac_aggregate"]["derived_effective_label"] is None
     with pytest.raises(ValueError, match="duplicate"):
         exports.aggregate_attempts([first, first], tmp_path / "duplicate.json", ns, allocation)
+
+
+def test_session_requires_exact_death_life_dependencies_for_resume_and_aggregate(tmp_path):
+    allocation, ns, attempt = ([{"allocation_id": "watch6-000", "seed": 1}], "f0-deps", tmp_path)
+    exports.publish_session(
+        attempt,
+        ns,
+        allocation,
+        {
+            "schema": "bl-labels-f0-session/v1",
+            "namespace": ns,
+            "allocation_id": "watch6-000",
+            "allocation": allocation[0],
+            "counters": {"deaths": 1},
+        },
+    )
+    ledger = tmp_path / "portable" / "verified-ledger.json"
+    built = exports.build_ledger(attempt, ledger, ns, allocation)
+    assert [row["unit_id"] for row in built["units"]] == ["watch6-000--session"]
+    names = exports.load_ledger(ledger, ns, allocation)
+    assert exports.completed_session_parents(ledger, names) == set()
+    aggregate = exports.aggregate_attempts([attempt], tmp_path / "union.json", ns, allocation)
+    assert aggregate["mac_aggregate"]["status"] == "INCOMPLETE"
+    assert aggregate["mac_aggregate"]["summary"] is None
+
+    session = attempt / "lives" / "watch6-000--session.json"
+    malformed = json.loads(session.read_text())
+    malformed["counters"] = {"deaths": "one"}
+    malformed_root = tmp_path / "malformed"
+    exports.publish_session(malformed_root, ns, allocation, malformed)
+    exports.build_ledger(malformed_root, tmp_path / "bad" / "verified-ledger.json", ns, allocation)
+    with pytest.raises(ValueError, match="invalid deaths metadata"):
+        exports.load_ledger(tmp_path / "bad" / "verified-ledger.json", ns, allocation)
 
 
 def test_invalid_attempt_receipt_invalidates_its_leaves(tmp_path):
@@ -106,9 +194,7 @@ def test_invalid_attempt_receipt_invalidates_its_leaves(tmp_path):
 
 
 def test_mac_analysis_prioritizes_incomplete_and_insufficient_before_rate():
-    incomplete = {
-        "mac_aggregate": {"status": "INCOMPLETE", "summary": {"rescue_bearing_lives": 99}}
-    }
+    incomplete = {"mac_aggregate": {"status": "INCOMPLETE", "summary": None}}
     assert exports.analyze_aggregate(incomplete, 1.0)["verdict"] == "INCOMPLETE"
     insufficient = {
         "mac_aggregate": {"status": "INSUFFICIENT", "summary": {"rescue_bearing_lives": 0}}
@@ -139,6 +225,7 @@ def test_runtime_value_error_publishes_terminal_invalid_marker(monkeypatch, tmp_
             tmp_path,
             allocation,
             set(),
+            False,
             None,
         )
     )

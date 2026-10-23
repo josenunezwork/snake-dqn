@@ -40,6 +40,22 @@ def _parent_id(name: str) -> str:
     return name.split("--life-", 1)[0].removesuffix("--session")
 
 
+def _session_life_ids(payload: Path, parent: str) -> set[str]:
+    """Return the exact death-life export IDs a terminal session depends on."""
+    try:
+        session = json.loads(payload.read_text())
+        deaths = session["counters"]["deaths"]
+    except (KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError("F0 session has invalid deaths metadata") from error
+    if type(deaths) is not int or deaths < 0:
+        raise ValueError("F0 session has invalid deaths metadata")
+    return {f"{parent}--life-{life:06d}" for life in range(deaths)}
+
+
+def _parent_life_ids(names: set[str], parent: str) -> set[str]:
+    return {name for name in names if name.startswith(f"{parent}--life-")}
+
+
 def publish_json(path: Path, value: dict[str, Any]) -> None:
     """Create a payload, digest, then completion marker, never overwriting bytes."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,6 +124,7 @@ def load_ledger(path: Path, namespace: str, allocation: list[dict[str, Any]]) ->
         raise ValueError("foreign F0 ledger allocation")
     allowed = {unit_id(row) for row in allocation}
     found: set[str] = set()
+    sessions: dict[str, tuple[Path, str]] = {}
     for row in value["units"]:
         if not isinstance(row, dict) or set(row) != {"unit_id", "path", "sha256", "size"}:
             raise ValueError("malformed F0 ledger row")
@@ -129,7 +146,24 @@ def load_ledger(path: Path, namespace: str, allocation: list[dict[str, Any]]) ->
         if digest != row["sha256"] or payload.stat().st_size != row["size"]:
             raise ValueError("F0 ledger payload differs from metadata")
         found.add(name)
+        if name.endswith("--session"):
+            sessions[name] = (payload, _parent_id(name))
+    for _name, (payload, parent) in sessions.items():
+        _session_life_ids(payload, parent)
     return found
+
+
+def completed_session_parents(ledger: Path, names: set[str]) -> set[str]:
+    """Return session parents whose immutable death-life dependencies are present."""
+    result: set[str] = set()
+    for name in names:
+        if not name.endswith("--session"):
+            continue
+        parent = name.removesuffix("--session")
+        payload = Path(ledger).parent / UNIT_DIR / f"{name}.json"
+        if _session_life_ids(payload, parent) == _parent_life_ids(names, parent):
+            result.add(parent)
+    return result
 
 
 def build_ledger(
@@ -137,7 +171,7 @@ def build_ledger(
 ) -> dict[str, Any]:
     """Build a resume ledger from paths/sizes/digests without inspecting labels."""
     _validate_contract(namespace, allocation)
-    rows = []
+    candidates: list[tuple[dict[str, Any], Path]] = []
     allowed = {unit_id(row) for row in allocation}
     directory = Path(exports) / UNIT_DIR
     if directory.exists():
@@ -155,15 +189,21 @@ def build_ledger(
             ):
                 continue
             digest = _verify(payload)
-            _materialize_triplet(payload, Path(out).parent / UNIT_DIR / payload.name)
-            rows.append(
-                {
-                    "unit_id": name,
-                    "path": f"{UNIT_DIR}/{payload.name}",
-                    "sha256": digest,
-                    "size": payload.stat().st_size,
-                }
+            candidates.append(
+                (
+                    {
+                        "unit_id": name,
+                        "path": f"{UNIT_DIR}/{payload.name}",
+                        "sha256": digest,
+                        "size": payload.stat().st_size,
+                    },
+                    payload,
+                )
             )
+    rows = []
+    for row, payload in candidates:
+        _materialize_triplet(payload, Path(out).parent / UNIT_DIR / payload.name)
+        rows.append(row)
     value = empty_ledger(namespace, allocation)
     value["units"] = rows
     publish_json(out, value)
@@ -183,14 +223,10 @@ def aggregate_attempts(
     allocation_by_id = {unit_id(row): row for row in allocation}
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
-    summary = {
-        "lives": 0,
-        "rescue_bearing_lives": 0,
-        "decisive_rows": 0,
-        "h1440": 0,
-        "reversals": 0,
-        "elapsed_seconds": 0.0,
-    }
+    # Keep wrappers until all parents have completed sessions.  A partial
+    # union is useful for resume, but its labels must not influence the one
+    # registered look.
+    verified_wrappers: list[tuple[str, dict[str, Any]]] = []
     for root in attempt_exports:
         for marker in sorted(Path(root).glob("INVALID-*.json")):
             _verify(marker)
@@ -244,8 +280,44 @@ def aggregate_attempts(
                 or wrapper.get("allocation", {}).get("allocation_id") != parent
             ):
                 raise ValueError("F0 attempt unit identity differs from its filename")
-            # Read only per-life wrapper metadata and row predicates; raw rows
-            # remain immutable and are never rewritten by this aggregator.
+            seen.add(name)
+            verified_wrappers.append((name, wrapper))
+            _materialize_triplet(payload, Path(out).parent / UNIT_DIR / payload.name)
+            rows.append(
+                {
+                    "unit_id": name,
+                    "path": f"{UNIT_DIR}/{payload.name}",
+                    "sha256": digest,
+                    "size": payload.stat().st_size,
+                }
+            )
+    value = empty_ledger(namespace, allocation)
+    value["units"] = rows
+    value["aggregate_attempts"] = [str(Path(path).resolve()) for path in attempt_exports]
+    row_names = {row["unit_id"] for row in rows}
+    completed_parents = {
+        name.removesuffix("--session")
+        for name, wrapper in verified_wrappers
+        if name.endswith("--session")
+        and _session_life_ids(
+            Path(out).parent / UNIT_DIR / f"{name}.json", name.removesuffix("--session")
+        )
+        == _parent_life_ids(row_names, name.removesuffix("--session"))
+    }
+    incomplete = completed_parents != allowed
+    summary: dict[str, Any] | None = None
+    reversal_rate: float | None = None
+    derived_effective_label: str | None = None
+    if not incomplete:
+        summary = {
+            "lives": 0,
+            "rescue_bearing_lives": 0,
+            "decisive_rows": 0,
+            "h1440": 0,
+            "reversals": 0,
+            "elapsed_seconds": 0.0,
+        }
+        for _name, wrapper in verified_wrappers:
             if wrapper.get("schema") == "bl-labels-f0-life/v1":
                 life_rows = wrapper.get("rows", [])
                 if not isinstance(life_rows, list):
@@ -260,37 +332,16 @@ def aggregate_attempts(
                 summary["h1440"] += int(counters.get("h1440", 0))
                 summary["reversals"] += int(counters.get("reversals", 0))
             elif wrapper.get("schema") == "bl-labels-f0-session/v1":
-                # Session summaries supply timing and H1440 counters exactly
-                # once; scientific rows remain solely in the life payloads.
-                counters = wrapper.get("counters", {})
                 provenance = wrapper.get("provenance", {})
                 summary["elapsed_seconds"] += float(provenance.get("elapsed_seconds", 0.0))
-            seen.add(name)
-            _materialize_triplet(payload, Path(out).parent / UNIT_DIR / payload.name)
-            rows.append(
-                {
-                    "unit_id": name,
-                    "path": f"{UNIT_DIR}/{payload.name}",
-                    "sha256": digest,
-                    "size": payload.stat().st_size,
-                }
-            )
-    value = empty_ledger(namespace, allocation)
-    value["units"] = rows
-    value["aggregate_attempts"] = [str(Path(path).resolve()) for path in attempt_exports]
-    reversal_rate = summary["reversals"] / summary["h1440"] if summary["h1440"] else None
-    completed_parents = {
-        row["unit_id"].removesuffix("--session")
-        for row in rows
-        if row["unit_id"].endswith("--session")
-    }
-    incomplete = completed_parents != allowed
+        reversal_rate = summary["reversals"] / summary["h1440"] if summary["h1440"] else None
+        derived_effective_label = (
+            "delay" if reversal_rate is not None and reversal_rate > 0.10 else "rescue"
+        )
     value["mac_aggregate"] = {
         "raw_rows_immutable": True,
         "summary": summary,
-        "derived_effective_label": (
-            "delay" if reversal_rate is not None and reversal_rate > 0.10 else "rescue"
-        ),
+        "derived_effective_label": derived_effective_label,
         "h1440_reversal_rate": reversal_rate,
         "status": (
             "INCOMPLETE"
@@ -323,7 +374,8 @@ def analyze_aggregate(value: dict[str, Any], mac_worker_hours: float) -> dict[st
         raise ValueError("mac_worker_hours must be finite and positive")
     aggregate = value.get("mac_aggregate", {})
     status = aggregate.get("status")
-    rescue = aggregate.get("summary", {}).get("rescue_bearing_lives")
+    summary = aggregate.get("summary") or {}
+    rescue = summary.get("rescue_bearing_lives")
     if status == "INCOMPLETE":
         verdict = "INCOMPLETE"
         rate = None

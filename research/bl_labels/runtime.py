@@ -11,7 +11,13 @@ import platform
 import time
 from pathlib import Path
 
-from .exports import load_ledger, publish_json, publish_life, publish_session
+from .exports import (
+    completed_session_parents,
+    load_ledger,
+    publish_json,
+    publish_life,
+    publish_session,
+)
 
 
 def _source_sha256() -> str:
@@ -25,10 +31,10 @@ def _source_sha256() -> str:
 
 
 def _collect(
-    job: tuple[dict, Path, Path, str, Path, list[dict], set[int], float | None],
+    job: tuple[dict, Path, Path, str, Path, list[dict], set[int], bool, float | None],
 ) -> tuple[dict, str | None]:
     """Top-level process target: each worker has exactly one CPU thread."""
-    item, b8, frp3, namespace, output, allocation, skip_lives, deadline = job
+    item, b8, frp3, namespace, output, allocation, skip_lives, suppress_session, deadline = job
     os.environ.update(
         OMP_NUM_THREADS="1", MKL_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", NUMBA_NUM_THREADS="1"
     )
@@ -36,6 +42,8 @@ def _collect(
 
     def write_life(value: dict) -> None:
         if value.get("schema") == "bl-labels-f0-session/v1":
+            if suppress_session:
+                return
             publish_session(output, namespace, allocation, value)
         else:
             publish_life(output, namespace, allocation, value)
@@ -110,13 +118,14 @@ def run(
 
     completed, invalid, incomplete = [], None, False
     done_by_parent: dict[str, set[int]] = {}
-    completed_sessions: set[str] = set()
+    session_parents = {
+        name.removesuffix("--session") for name in done if name.endswith("--session")
+    }
+    completed_sessions = completed_session_parents(ledger_path, done)
     for name in done:
         parent, marker, life = name.partition("--life-")
         if marker:
             done_by_parent.setdefault(parent, set()).add(int(life))
-        elif name.endswith("--session"):
-            completed_sessions.add(name.removesuffix("--session"))
     pending = [item for item in allocation if item["allocation_id"] not in completed_sessions]
     deadline = time.monotonic() + deadline_seconds if deadline_seconds else None
     # imap preserves the frozen allocation order even if a later life finishes first.
@@ -130,6 +139,7 @@ def run(
                 output,
                 allocation,
                 done_by_parent.get(item["allocation_id"], set()),
+                item["allocation_id"] in session_parents,
                 deadline,
             )
             for item in pending

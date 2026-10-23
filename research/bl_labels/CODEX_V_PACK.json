@@ -1,0 +1,124 @@
+{
+  "authority": {
+    "intent": "research/bl_labels/INTENT.md",
+    "judgment": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/JUDGMENT.md",
+    "prior_judgment": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/JUDGMENT_fable_prior_0010.md",
+    "qualified_cli_record": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json",
+    "qualified_cli_record_sha256": "967cc5802637a95827a4fd846ddfe97df3cfceed53ace7429088ddbeac2b39a0",
+    "qualified_cli_tree": "553af3f692515b2bf66173356fe4d099acc96942"
+  },
+  "caps_and_kills": {
+    "allocation": {
+      "gate_frozen": 12,
+      "gate_mixed": 12,
+      "gate_scripted": 8,
+      "watch6": 4
+    },
+    "digest_or_bare_audit_mismatch": "INVALID",
+    "effective_units": 0.2,
+    "effective_wall_minutes": 60,
+    "gpu_units": 0,
+    "h1440_reversal_rule": "> 0.10 => delay",
+    "horizons": {
+      "gate": 5000,
+      "watch6": 14400
+    },
+    "max_outcome_blind_retries": 2,
+    "rescue_bearing_lives_per_mac_worker_hour_kill": "< 8"
+  },
+  "independent_checks": [
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist research/bl_labels tests/test_t34_shadow.py research/bl_served_search/test_b2_engine.py",
+      "evidence": "50 passed in 9.15s",
+      "result": "PASS",
+      "seconds": 9.15,
+      "single_process": true,
+      "tests": 50
+    },
+    {
+      "command": "bash -n research/bl_labels/colab.sh; python -m black --check --line-length 100 research/bl_labels/test_factory.py research/bl_labels/test_real_driver.py; python -m isort --check-only --profile black research/bl_labels/test_factory.py research/bl_labels/test_real_driver.py; python -m flake8 research/bl_labels/test_factory.py research/bl_labels/test_real_driver.py; git diff --check",
+      "evidence": "black: 2 files unchanged; shell, isort, flake8, and diff checks exited 0",
+      "result": "PASS"
+    },
+    {
+      "command": "root-reported supervisor/schema/transport suite",
+      "evidence": "qualified transport tree unchanged",
+      "evidence_owner": "root",
+      "result": "PASS",
+      "seconds": 533.62,
+      "tests": 107
+    },
+    {
+      "command": "reviewer-reported separate ledger and aggregate dependency regression",
+      "evidence": "d5730dee",
+      "evidence_owner": "review",
+      "result": "PASS",
+      "seconds": 0.11,
+      "tests": 2
+    }
+  ],
+  "live_gates": {
+    "clean_venv_import_preflight_final_commit": "NOT_RUN_BY_REVIEWER",
+    "colab_cpu_canary": "NOT_RUN",
+    "mac_64_root_replay_audit": "NOT_RUN",
+    "mac_yield_ruler": "NOT_RUN",
+    "tiny_mac_real_entrypoint": {
+      "artifact": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/mac-smoke-20261023-a/output-b/runtime-result.json",
+      "deaths": 0,
+      "interpretation": "Execution smoke only; no yield or audit qualification.",
+      "rescue_bearing_lives": 0,
+      "roots": 0,
+      "status": "PASS_EXECUTION_ONLY",
+      "status_observed": "COMPLETE",
+      "units": 4
+    }
+  },
+  "preserved_receipts": [
+    "research/bl_labels/CODEX_V.json",
+    "research/bl_labels/CODEX_V_FINAL.json"
+  ],
+  "remaining_external_gates": [
+    "Clean-venv import preflight against the final committed source pin.",
+    "Real Colab CPU canary through dispatch.sh using the qualified CLI record.",
+    "64-root Mac replay audit and Mac worker-hour yield measurement."
+  ],
+  "review_status": "ACCEPT",
+  "reviewed_files_sha256": {
+    "INTENT.md": "8760a64b71dd4fb8967e6198145a6f6b9d63d32079dcb49d340ae1d9a5470398",
+    "__init__.py": "272d8d65dbc74c10e9c977736886c0e2476b736fd9b8a289326b2f6551537ff1",
+    "colab.sh": "d3c2f0f2b835f4c658585b5ece9d4c115b0f02c2248fb73450b9240984f5c582",
+    "exports.py": "eadf22ffd5284436f3128ab9546496d89529ce804f4dde5452bc08637761156e",
+    "factory.py": "3ecbdf044a975be9152656e4a869f361abc6e20d6fc2c1e24d07e2fcaf9000a0",
+    "manifests.py": "a8f35aceaa06363fc2c6ec58937a30add810cd4cb480027a87598d0fe09a22e9",
+    "replay_audit.py": "2be5d6143a49f84b938e66e0e8ee51f313974eeeea90bc0b52a9a2b798378e42",
+    "requirements.txt": "ac6a89eba29e384b36ab0f9627c5b554bc0226e100a540d4cd8ca1f4113a5ab1",
+    "runtime.py": "310dba37c33fd7487bc4d84d24fe8fe35c9462794e6d2e3284bb36115d35e2a0"
+  },
+  "reviewer": "Independent Codex-V verifier",
+  "schema": "bl-labels-f0-codex-v-pack-review/v1",
+  "source_closure_sha256": "723996a78b1ba70c64332c5277a0ae6e75c8bc12a424b1182b4e03f884c22d72",
+  "source_pin": "0a8a898f8062255a0a00519f2d045fd7d3024a6d",
+  "verdict": "PASS_IMPLEMENTATION_ONLY_PENDING_LIVE_GATES",
+  "verification_closure_sha256": "8bb98b2ad7122b47bcd0015dd7a49b7dbbd8502b109cf1dd4d23e691ed2f98b5",
+  "verification_files_sha256": {
+    "test_factory.py": "779beae56ea8bb0f7f3ce08860c01ef10f681654ed56047efd08c7f1538c55ba",
+    "test_pack.py": "cea8e0646eaeba4fe6a303c809c342d756a33a94dcc3c9024b9d9ff3695f3cc2",
+    "test_real_driver.py": "6e035e14292af393a853bca303580482bc47e8e31f9ebf76e13048acd2ba2632",
+    "test_replay_audit.py": "676ef4ebfd6ac98d220900a4bda3264304f34f9733c132b88aed7deaa863de74"
+  },
+  "verified_behavior": [
+    "Fatal transition uses decision e and endpoint f=e+1; doom roots include [f-300,f), including the fatal decision.",
+    "60-stride plus final-30 root union is capped at 90 and ordinary alternatives are allocated separately.",
+    "Bare replay uses the exact natural H300 tape; no bare reroll is permitted except the selected audit branch.",
+    "Dead branches keep the fixed H300 mass integral and zero tail; reacting-opponent transitions are covered.",
+    "Bare audit compares survival, frames, death decision, and final length and fails closed to INVALID on mismatch.",
+    "H1440 reversal aggregation uses the registered >0.10 delay rule.",
+    "Two-pass aggregation materializes immutable triplets first and computes scientific summaries only after every parent session and expected death-life dependency is present.",
+    "Session counters.deaths determine expected life IDs; a session marker with a missing life cannot skip or complete the parent, and incomplete aggregation has no summary or derived label.",
+    "Distinct-output build_ledger materializes payload, digest, and completion sidecars so the resulting ledger is loadable from its own output directory.",
+    "Fresh-seed audit uses rg -I -l -F -w --no-config and rejects collisions under both scan roots.",
+    "Disabled gate v8 produces zero native eligible/kernel rows while Watch6 produces native rows; no silent gate-v8 switch is accepted."
+  ],
+  "working_tree_note": "Source hashes bind the current working-tree bytes; the source files were not edited by this verifier.",
+  "working_tree_source": true
+}

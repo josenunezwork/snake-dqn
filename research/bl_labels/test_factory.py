@@ -185,7 +185,7 @@ def test_h1440_reversal_rate_above_ten_percent_uses_delay_label(tmp_path: Path) 
             "life": 0,
             "death_decision": 10,
             "rows": [{"decisive": True}],
-            "counters": {"h1440": 10, "reversals": 2},
+            "counters": {"deaths": 1, "h1440": 10, "reversals": 2},
         },
     )
     publish_session(
@@ -199,7 +199,7 @@ def test_h1440_reversal_rate_above_ten_percent_uses_delay_label(tmp_path: Path) 
             "allocation": allocation[0],
             "status": "COMPLETE",
             "rows": [],
-            "counters": {"h1440": 10, "reversals": 2},
+            "counters": {"deaths": 1, "h1440": 10, "reversals": 2},
             "provenance": {},
         },
     )

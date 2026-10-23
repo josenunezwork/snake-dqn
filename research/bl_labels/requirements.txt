@@ -1,1 +1,2 @@
 -r ../../requirements.txt
+google-colab-cli==0.7.4

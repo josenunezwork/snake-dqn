@@ -128,6 +128,50 @@ def ledger_inputs(ledger: Path) -> list[dict[str, str]]:
     ]
 
 
+def fresh_seed_audit(commit: str, seeds: list[int]) -> dict[str, Any]:
+    """Prove candidate integer seeds are absent under both immutable scan roots.
+
+    ``rg -I -F -w`` provides the same literal whole-word rule as the campaign
+    scanner while avoiding a Python decode and regex pass over every artifact.
+    Its normal ignore, hidden-file, and symlink policy is deliberately retained.
+    """
+    roots = (ROOT, ROOT.parent / "snake-dqn-artifacts")
+    needles = [str(seed) for seed in seeds]
+    commands: list[list[str]] = []
+    hits: dict[str, list[str]] = {}
+    for root in roots:
+        command = ["rg", "-I", "-l", "-F", "-w", "--no-config"]
+        command.extend(item for seed in needles for item in ("-e", seed))
+        command.extend(("--", str(root)))
+        try:
+            result = subprocess.run(
+                command, text=True, capture_output=True, timeout=600, check=False
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(f"F0 fresh seed scan timed out under {root}") from error
+        commands.append(command)
+        if result.returncode == 2:
+            raise RuntimeError(f"F0 fresh seed scan failed under {root}: {result.stderr.strip()}")
+        if result.returncode not in (0, 1):
+            raise RuntimeError(f"F0 fresh seed scan returned {result.returncode} under {root}")
+        if result.returncode == 0:
+            hits[str(root)] = sorted(line for line in result.stdout.splitlines() if line)
+        else:
+            hits[str(root)] = []
+    if any(hits.values()):
+        raise ValueError(f"F0 fresh seed collision: {hits}")
+    return {
+        "schema": "bl-labels-f0-seed-audit/v1",
+        "namespace": namespace(commit),
+        "seeds": seeds,
+        "hits_by_root": hits,
+        "outcome_blind": True,
+        "method": "rg -I -l -F -w --no-config (default ignore/nohidden/nosymlink)",
+        "argv_by_root": commands,
+        "timeout_seconds": 600,
+    }
+
+
 def source_paths() -> list[str]:
     """Return the exact static import closure plus declared dynamic seams."""
     from tools.ops.import_preflight import import_closure, module_path
@@ -302,25 +346,7 @@ def prepare(
         raise ValueError("F0 frozen allocation has an internal seed collision")
     seed_audit = artifact_dir / "SEED_AUDIT.json"
     if not seed_audit.exists():
-        from research.t3_rollout_labels_20261015.bank_engine import concrete_seed_hits
-
-        artifacts = ROOT.parent / "snake-dqn-artifacts"
-        hits = {
-            str(ROOT): sorted(concrete_seed_hits(ROOT, seeds)),
-            str(artifacts): sorted(concrete_seed_hits(artifacts, seeds)),
-        }
-        if any(hits.values()):
-            raise ValueError(f"F0 fresh seed collision: {hits}")
-        publish_json(
-            seed_audit,
-            {
-                "schema": "bl-labels-f0-seed-audit/v1",
-                "namespace": namespace(commit),
-                "seeds": seeds,
-                "hits_by_root": hits,
-                "outcome_blind": True,
-            },
-        )
+        publish_json(seed_audit, fresh_seed_audit(commit, seeds))
     else:
         saved_audit = json.loads(seed_audit.read_text())
         if (
