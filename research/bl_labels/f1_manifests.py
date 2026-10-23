@@ -26,6 +26,25 @@ STAGES = {
 }
 
 
+def source_paths() -> list[str]:
+    """Retain the runtime closure while excluding docs/tests from sparse delivery."""
+    paths = set(manifests.source_paths())
+    for directory in ("research/bl_labels", "research/colab_cli"):
+        paths.discard(directory)
+        for path in (manifests.ROOT / directory).iterdir():
+            if (
+                path.is_file()
+                and path.suffix in {".py", ".sh", ".txt"}
+                and not path.name.startswith("test_")
+                and (
+                    directory != "research/bl_labels"
+                    or path.name not in {"manifests.py", "f1_manifests.py", "f1_analyze.py"}
+                )
+            ):
+                paths.add(path.relative_to(manifests.ROOT).as_posix())
+    return sorted(paths)
+
+
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -151,7 +170,7 @@ def make_template(
         },
         "lease_seconds": 180,
         "max_export_bytes": 64 * 1024**2,
-        "source_paths": manifests.source_paths(),
+        "source_paths": source_paths(),
         "required_exports": ["runtime-result.json", "session-budget.json"]
         + [
             f"units/config-{label}.json"
@@ -242,7 +261,7 @@ def build(commit: str, bank: Path, b8: Path, frp3: Path, out: Path, output_root:
     preflight = check(
         manifests.ROOT,
         commit,
-        manifests.source_paths(),
+        source_paths(),
         "research/bl_labels/requirements.txt",
         [*manifests.RUNTIME_ROOTS, "research.bl_labels.f1_ruler"],
     )
