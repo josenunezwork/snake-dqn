@@ -202,8 +202,11 @@ def client(tmp_path, monkeypatch):
     """A TestClient with an isolated temp scores DB (lifespan builds the app)."""
     monkeypatch.setenv("SNAKE_SCORES_DB", str(tmp_path / "scores.db"))
     # Import inside the fixture so the env var is read at lifespan time.
-    from web.backend.app import app, hub
+    from web.backend.app import app, gc_policy, hub
 
+    # These endpoint unit tests repeatedly enter lifespans in one interpreter.
+    # The process-level GC policy is covered in fresh subprocesses by test_gc_policy.
+    monkeypatch.setattr(gc_policy, "apply_startup_policy", lambda **_kwargs: {})
     with TestClient(app) as c:
         yield c, hub
 

@@ -114,6 +114,14 @@ def assess(
     if not watch_ticks:
         faults.append("missing B8 Watch tick telemetry")
 
+    # Diagnostic only: the released health bars and trigger messages are unchanged.
+    gc_stall = 0
+    for item in latency_ticks:
+        try:
+            pause = float(item.get("gc_gen2_pause_ms", 0.0))
+            gc_stall += int(math.isfinite(pause) and pause >= 20.0)
+        except (TypeError, ValueError, OverflowError):
+            pass  # Optional diagnostics never change the released health bars.
     decisions = deaths = 0
     watch_deaths: dict[tuple[str, int], dict[str, int]] = {}
     default_update_ms: dict[tuple[str, str, int], list[float]] = {}
@@ -253,6 +261,7 @@ def assess(
         values["window_complete"] for values in windows_by_roster.values()
     )
     metrics = {
+        "gc_stall": gc_stall,
         "decisions": decisions,
         "deaths": deaths,
         "deaths_per_1000": death_rate,
@@ -363,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
                 "complete" if values["window_complete"] else "active",
             )
         )
+    print("GC stalls (report-only): %d" % metrics["gc_stall"])
     for message in messages:
         print(f"NOT_HEALTHY: {message}")
     print("HEALTHY" if healthy else "NOT_HEALTHY")

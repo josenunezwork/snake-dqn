@@ -33,6 +33,7 @@ from src.data.score_store import compute_score
 from src.game.game_state import GameState
 from src.model.obs_spec import DEFAULT_OBS_SPEC, EGO2S_OBS_SPECS, RASTER31V2, RASTER31V3, VECTOR61
 from src.training.apex_policy import ApexPolicy
+from web.backend import gc_policy
 from web.backend.checkpoints import resolve_checkpoint_name
 from web.backend.release_monitoring import (
     ego2s_exception,
@@ -972,6 +973,7 @@ class GameSession:
                         hero.update = original_update
                 if monitor_b8:
                     update_ms = (time.perf_counter() - started) * 1000.0
+                    gc_fields = gc_policy.drain_tick()
                     latency_eligible = self._release_latency_warmup_remaining <= 0
                     self._release_latency_warmup_remaining -= 1
                     watch_tick(
@@ -983,6 +985,7 @@ class GameSession:
                         deaths=int(monitored_hero_id in self.game.frame_death_causes),
                         update_ms=update_ms,
                         latency_eligible=latency_eligible,
+                        **gc_fields,
                     )
             self._enforce_food_target()
             if getattr(self, "pathb", None) is not None:
@@ -1043,6 +1046,7 @@ class GameSession:
             raise
         if monitor_b8:
             update_ms = (time.perf_counter() - started) * 1000.0
+            gc_fields = gc_policy.drain_tick()
             latency_eligible = self._release_latency_warmup_remaining <= 0
             self._release_latency_warmup_remaining -= 1
             play_tick(
@@ -1051,6 +1055,7 @@ class GameSession:
                 speed=self.speed,
                 update_ms=update_ms,
                 latency_eligible=latency_eligible,
+                **gc_fields,
             )
         human = self._find_human()
         if human is not None and human.is_alive and not self.run_over:
@@ -1489,6 +1494,7 @@ class GameSession:
     def control_state(self) -> Dict[str, object]:
         with self._lock:
             state = {
+                **gc_policy.state(),
                 "playing": self.playing,
                 "speed": self.speed,
                 "speed_ceiling": self.speed_ceiling,

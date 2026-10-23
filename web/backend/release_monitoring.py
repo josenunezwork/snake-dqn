@@ -65,6 +65,11 @@ def watch_tick(
     deaths: int,
     update_ms: float,
     latency_eligible: bool,
+    gc_pause_ms: float = 0.0,
+    gc_gen2_count: int = 0,
+    gc_gen2_pause_ms: float = 0.0,
+    gc_freeze_count: int = 0,
+    gc_policy: str = "default",
 ) -> None:
     """Record one B8 Watch hero update at the default server speed.
 
@@ -84,11 +89,26 @@ def watch_tick(
         deaths=int(deaths),
         update_ms=float(update_ms),
         latency_eligible=bool(latency_eligible),
+        gc_pause_ms=float(gc_pause_ms),
+        gc_gen2_count=int(gc_gen2_count),
+        gc_gen2_pause_ms=float(gc_gen2_pause_ms),
+        gc_freeze_count=int(gc_freeze_count),
+        gc_policy=str(gc_policy),
     )
 
 
 def play_tick(
-    *, checkpoint: str, driven_ai: int, speed: float, update_ms: float, latency_eligible: bool
+    *,
+    checkpoint: str,
+    driven_ai: int,
+    speed: float,
+    update_ms: float,
+    latency_eligible: bool,
+    gc_pause_ms: float = 0.0,
+    gc_gen2_count: int = 0,
+    gc_gen2_pause_ms: float = 0.0,
+    gc_freeze_count: int = 0,
+    gc_policy: str = "default",
 ) -> None:
     """Record one B8 Play update for the separately qualified Play latency path."""
     emit(
@@ -98,6 +118,11 @@ def play_tick(
         speed=float(speed),
         update_ms=float(update_ms),
         latency_eligible=bool(latency_eligible),
+        gc_pause_ms=float(gc_pause_ms),
+        gc_gen2_count=int(gc_gen2_count),
+        gc_gen2_pause_ms=float(gc_gen2_pause_ms),
+        gc_freeze_count=int(gc_freeze_count),
+        gc_policy=str(gc_policy),
     )
 
 

@@ -619,3 +619,63 @@ def test_window_completes_only_after_both_time_and_decision_conditions() -> None
     records = [records[0]] + [tick] * 100000
     healthy, _messages, metrics = monitor.assess(records, [], now=8 * 86400)
     assert healthy and metrics["window_complete"] is True
+
+
+def test_gc_telemetry_preserves_released_monitor_bars() -> None:
+    records = _healthy_records()
+    records[1].update(
+        gc_pause_ms=1.0,
+        gc_gen2_count=1,
+        gc_gen2_pause_ms=1.0,
+        gc_freeze_count=300000,
+        gc_policy="freeze_startup",
+    )
+    healthy, messages, metrics = monitor.assess(records, [])
+    assert healthy and messages == []
+    assert metrics["gc_stall"] == 0
+
+
+def test_gc_stall_is_counted_report_only() -> None:
+    records = _healthy_records()
+    records[1].update(
+        gc_pause_ms=20.0,
+        gc_gen2_count=1,
+        gc_gen2_pause_ms=20.0,
+        gc_freeze_count=300000,
+        gc_policy="freeze_startup",
+    )
+    healthy, messages, metrics = monitor.assess(records, [])
+    assert healthy and messages == []
+    assert metrics["gc_stall"] == 1
+
+
+def test_watch_drains_snapshot_pause_into_next_tick(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pause after a step belongs to the next drain, including snapshot work."""
+    from web.backend.gc_policy import GcTickMeter
+
+    meter = GcTickMeter()
+    monkeypatch.setattr(session_mod.gc_policy, "meter", meter)
+    hero = SimpleNamespace(id=0, is_alive=True, update=lambda *_args: None)
+    game = SimpleNamespace(snakes=[hero], frame_death_causes={})
+    game.update = lambda **_kwargs: hero.update([], [])
+    events: list[dict] = []
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(session_mod, "watch_tick", lambda **kwargs: events.append(kwargs))
+    session = _b8_session(game)
+    session.step()
+    meter.callback("start", {"generation": 2})
+    meter.callback("stop", {"generation": 2})
+    session.step()
+    session.step()
+    assert [event["gc_gen2_count"] for event in events] == [0, 1, 0]
+    assert events[1]["gc_gen2_pause_ms"] > 0
+    assert events[1]["gc_policy"] == "default"
+
+
+@pytest.mark.parametrize("value", [None, "bad", float("nan")])
+def test_malformed_optional_gc_diagnostic_does_not_break_monitor(value: object) -> None:
+    records = _healthy_records()
+    records[1]["gc_gen2_pause_ms"] = value
+    healthy, messages, metrics = monitor.assess(records, [])
+    assert healthy and messages == []
+    assert metrics["gc_stall"] == 0

@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.data.score_store import DEFAULT_SCORES_DB, ScoreStore
-from web.backend import metrics
+from web.backend import gc_policy, metrics
 from web.backend.session import (
     MODE_PLAY,
     MODE_TRAIN,
@@ -148,6 +148,7 @@ hub = Hub()
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     hub.store = ScoreStore(os.environ.get("SNAKE_SCORES_DB", DEFAULT_SCORES_DB))
+    gc_policy.apply_startup_policy(stage="lifespan")
     hub.session = await asyncio.to_thread(GameSession)
     hub.engine_task = asyncio.create_task(hub.engine_loop())
     try:
