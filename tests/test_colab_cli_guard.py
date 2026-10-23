@@ -483,6 +483,36 @@ def test_creation_id_survives_websocket_timeout_and_ignores_unowned_kernels(
     assert fixture.guard._kernel_idle_once("owned-config", "owned-session") == {"idle": True}
 
 
+@pytest.mark.parametrize("trailing_slash", [False, True])
+def test_creation_hook_accepts_installed_jupyter_url_construction(
+    creation_hook: object, trailing_slash: bool
+) -> None:
+    """KernelHttpManager.start_kernel appends the route without stripping '/'."""
+    fixture = creation_hook
+    fixture.state.url = "https://owned.example" + ("/" if trailing_slash else "")
+    url = f"{fixture.state.url}/api/kernels"
+    fixture.session.request("POST", url, headers=fixture.headers)
+    assert json.loads(fixture.saved.read_text())["kernel_id"] == "created-by-us"
+    with pytest.raises(fixture.guard.GuardError, match="already exists"):
+        fixture.session.request("POST", url, headers=fixture.headers)
+    assert len(fixture.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://owned.example///api/kernels",
+        "https://owned.example/other/api/kernels",
+        "https://owned.example.evil/api/kernels",
+    ],
+)
+def test_creation_hook_does_not_normalize_unowned_paths(creation_hook: object, url: str) -> None:
+    fixture = creation_hook
+    with pytest.raises(fixture.guard.GuardError, match="identity"):
+        fixture.session.request("POST", url, headers=fixture.headers)
+    assert not fixture.calls
+
+
 @pytest.mark.parametrize("mismatch", ["url", "token", "endpoint", "notebook", "config", "session"])
 def test_creation_hook_refuses_foreign_or_missing_identity_before_post(
     creation_hook: object, monkeypatch: pytest.MonkeyPatch, mismatch: str
@@ -531,12 +561,18 @@ def test_creation_hook_never_repeats_uncertain_post(creation_hook: object) -> No
     assert not fixture.saved.exists()
 
 
+@pytest.mark.parametrize("trailing_slash", [False, True])
 def test_internal_startup_retry_recovers_only_after_exact_saved_kernel_idle(
-    creation_hook: object, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    creation_hook: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    trailing_slash: bool,
 ) -> None:
     from research.colab_cli import cli_guard, policy, supervisor
 
     fixture = creation_hook
+    fixture.state.url = "https://owned.example" + ("/" if trailing_slash else "")
+    creation_url = f"{fixture.state.url}/api/kernels"
     cli = supervisor.CLI("fake", tmp_path / "config", "owned-session")
     cli.oauth_python = "unused"
     cli.config = "owned-config"
@@ -544,13 +580,17 @@ def test_internal_startup_retry_recovers_only_after_exact_saved_kernel_idle(
 
     def call(*_args: str, **_kwargs: object) -> str:
         if not events:
-            fixture.session.request("POST", fixture.url, headers=fixture.headers)
+            fixture.session.request("POST", creation_url, headers=fixture.headers)
             events.append("created-before-websocket-timeout")
             # Upstream retries startup using its still-empty in-memory ID.
             try:
-                fixture.session.request("POST", fixture.url, headers=fixture.headers)
+                fixture.session.request("POST", creation_url, headers=fixture.headers)
             except fixture.guard.GuardError as exc:
-                raise supervisor.Refused(str(exc)) from exc
+                raise supervisor.Refused(
+                    'colab exec failed (1): │ raise GuardError("kernel creation does not '
+                    'match tracked runtime identity") │\n'
+                    f"GuardError: {exc}\n"
+                ) from exc
         assert events[-1] == "idle-proved"
         wrapped = Path(_args[_args.index("-f") + 1]).read_text()
         nonce = "SNAKE_RPC_" + wrapped.split("SNAKE_RPC_")[1][:32]

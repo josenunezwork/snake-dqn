@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import subprocess
@@ -188,3 +189,77 @@ def test_permanent_exec_failure_is_not_retried_despite_uncertainty(
         cli.wait_runtime_ready(tmp_path)
     assert len(cli.call_records) == 1
     assert cli.exec_uncertain
+
+
+def test_requalification_identity_refusal_fails_fast_from_exact_receipt_sequence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Replay acceptance-1792727428: one fast exec failure, then empty GETs.
+
+    Rich includes a neighboring reconnect-required raise in its source excerpt.
+    That text is not the exception; it must not turn a pre-POST guard refusal
+    into 50 probes and a misleading 300-second busy/unknown timeout.
+    """
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures/colab_kernel_identity_refusal.json").read_text()
+    )
+    receipt, warmup = fixture["receipt"], fixture["warmup"]
+    exec_call = next(call for call in receipt["cli_calls"] if call["command"] == "exec")
+    assert warmup["attempts"] == 50 and 300 <= warmup["elapsed_seconds"] < 301
+    assert receipt["contents_transfers"] == receipt["exports"] == []
+    assert receipt["terminal"] is None and receipt["stop_verified"] is True
+    error = ast.literal_eval(warmup["last_probe_error"][len("Refused(") : -1])
+    stderr = error.split("colab exec failed (1): ", 1)[1]
+    assert 'raise GuardError("tracked kernel reconnect required' in stderr
+    assert stderr.endswith("GuardError: kernel creation does not match tracked runtime identity\n")
+    now = _clock(monkeypatch)
+    cli = supervisor.CLI("never-invoked", tmp_path / "session.json", receipt["session"])
+    probes = []
+    idle_reads = []
+
+    def ready(*_args: object, **_kwargs: object) -> bool:
+        probes.append(now[0])
+        return True
+
+    def empty_inventory(*_args: object, **_kwargs: object) -> bool:
+        idle_reads.append(now[0])
+        return False
+
+    def invoke(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        now[0] += exec_call["elapsed_seconds"]
+        return subprocess.CompletedProcess(argv, 1, "", stderr)
+
+    monkeypatch.setattr(cli_guard, "runtime_ready", ready)
+    monkeypatch.setattr(cli_guard, "kernel_idle", empty_inventory)
+    monkeypatch.setattr(supervisor.subprocess, "run", invoke)
+    with pytest.raises(supervisor.Refused, match="kernel creation does not match"):
+        cli.wait_runtime_ready(tmp_path)
+    assert probes == [0] and idle_reads == []
+    assert len(cli.call_records) == 1
+    assert cli.exec_uncertain
+    measured = json.loads((tmp_path / "warmup-measurement.json").read_text())
+    assert measured["attempts"] == 1
+    assert measured["elapsed_seconds"] == exec_call["elapsed_seconds"]
+
+
+@pytest.mark.parametrize(
+    ("error", "transient"),
+    [
+        ("kernel creation does not match tracked runtime identity", False),
+        ("kernel creation returned malformed kernel identity", False),
+        ("kernel creation already attempted; refusing uncertain retry", False),
+        ("tracked kernel reconnect required; kernel already exists", True),
+    ],
+)
+def test_rich_source_excerpt_does_not_classify_kernel_guard_exception(
+    error: str, transient: bool
+) -> None:
+    from research.colab_cli import policy
+
+    traceback = (
+        "colab exec failed (1): │ timeout=timeout │\n"
+        '│ raise GuardError("kernel creation does not match tracked runtime identity") │\n'
+        '│ raise GuardError("tracked kernel reconnect required; kernel already exists") │\n'
+        f"GuardError: {error}\n"
+    )
+    assert policy.transient_error(supervisor.Refused(traceback)) is transient

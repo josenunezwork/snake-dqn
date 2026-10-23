@@ -168,7 +168,11 @@ def _kernel_creation_target(url: str, kwargs: dict[str, Any], record_path: Path)
         state is None
         or not state.url
         or not state.token
-        or url != state.url.rstrip("/") + "/api/kernels"
+        # KernelHttpManager.start_kernel in the installed CLI appends this
+        # route verbatim; a runtime URL ending in '/' produces '//api/kernels'.
+        # Admit only that exact construction and the canonical route used by
+        # our GET probes. Do not normalize arbitrary paths or foreign URLs.
+        or url not in {state.url.rstrip("/") + "/api/kernels", state.url + "/api/kernels"}
         or not state.endpoint
         or state.endpoint != record.get("endpoint")
         or record.get("notebook_hash") != os.environ.get("SNAKE_COLAB_NOTEBOOK_HASH")
