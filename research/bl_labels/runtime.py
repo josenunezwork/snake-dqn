@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import multiprocessing as mp
 import os
 import platform
@@ -18,6 +19,47 @@ from .exports import (
     publish_life,
     publish_session,
 )
+
+
+def session_budget(root: Path, session_seconds: float, finalize_seconds: float) -> dict:
+    """Subtract measured setup from the qualified watchdog's remaining window.
+
+    Its timeout already deducts Mac-side allocation/setup and the supervisor's
+    cleanup guards from the whole-session cap. Its state clock starts before
+    uploads, public inputs, uv/Python and dependency installation. Never start a
+    fresh independent runtime timer with the full manifest session allowance.
+    """
+    spec = json.loads((root / "spec.json").read_text())
+    state = json.loads((root / "state.json").read_text())
+    if (
+        spec.get("job_id") != state.get("job_id")
+        or spec.get("generation") != state.get("generation")
+        or Path(spec["root"]).resolve() != root.resolve()
+        or float(spec["env"]["F0_SESSION_SECONDS"]) != session_seconds
+        or float(spec["env"]["F0_FINALIZE_SECONDS"]) != finalize_seconds
+    ):
+        raise ValueError("F0 session budget identity differs from qualified runtime")
+    timeout = float(spec["timeout_seconds"])
+    elapsed = time.time() - float(state["started_at"])
+    if not all(math.isfinite(v) for v in (session_seconds, finalize_seconds, timeout, elapsed)):
+        raise ValueError("F0 session budget must be finite")
+    if not (0 < timeout <= session_seconds and 0 < finalize_seconds < timeout and elapsed >= 0):
+        raise ValueError("F0 session budget has invalid bounds or clock")
+    remaining = timeout - elapsed - finalize_seconds
+    if remaining <= 0:
+        raise ValueError("F0 setup exhausted whole-session budget before collection")
+    return {
+        "schema": "bl-labels-f0-session-budget/v1",
+        "session_seconds": session_seconds,
+        "qualified_window_seconds": timeout,
+        "pre_watchdog_setup_and_guard_seconds": session_seconds - timeout,
+        "measured_setup_seconds": elapsed,
+        "finalize_seconds": finalize_seconds,
+        "runtime_seconds": remaining,
+        "collection_deadline_monotonic": time.monotonic() + remaining,
+        "job_id": spec["job_id"],
+        "generation": spec["generation"],
+    }
 
 
 def _source_sha256() -> str:
@@ -105,10 +147,13 @@ def run(
     frp3: Path,
     output: Path,
     deadline_seconds: float | None = None,
+    *,
+    deadline_monotonic: float | None = None,
 ) -> dict:
     started = time.monotonic()
     namespace, allocation = control["namespace"], control["allocation"]
     done = load_ledger(ledger_path, namespace, allocation)
+    transport_probe = os.environ.get("F0_TRANSPORT_PROBE") == "1"
     requested = control.get("workers", "nproc")
     workers = (
         (os.cpu_count() or 1)
@@ -127,7 +172,9 @@ def run(
         if marker:
             done_by_parent.setdefault(parent, set()).add(int(life))
     pending = [item for item in allocation if item["allocation_id"] not in completed_sessions]
-    deadline = time.monotonic() + deadline_seconds if deadline_seconds else None
+    deadline = deadline_monotonic
+    if deadline is None and deadline_seconds is not None:
+        deadline = started + deadline_seconds
     # imap preserves the frozen allocation order even if a later life finishes first.
     with mp.get_context("spawn").Pool(processes=min(workers, len(pending) or 1)) as pool:
         jobs = [
@@ -138,7 +185,11 @@ def run(
                 namespace,
                 output,
                 allocation,
-                done_by_parent.get(item["allocation_id"], set()),
+                (
+                    set(range(int(item["horizon"]) + 1))
+                    if transport_probe
+                    else done_by_parent.get(item["allocation_id"], set())
+                ),
                 item["allocation_id"] in session_parents,
                 deadline,
             )
@@ -158,6 +209,8 @@ def run(
         "completed": completed,
         "skipped_verified": sorted(done),
         "status": status,
+        "transport_probe": transport_probe,
+        "result_class": "EXCLUDED_TRANSPORT_PROBE" if transport_probe else "SCIENCE",
         "invalid_reason": invalid,
         "workers": workers,
         "operational_diagnostics": {
@@ -181,7 +234,13 @@ def main() -> None:
     parser.add_argument("--frp3", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--deadline-seconds", type=float)
+    parser.add_argument("--session-seconds", type=float)
+    parser.add_argument("--finalize-seconds", type=float)
     args = parser.parse_args()
+    if (args.session_seconds is None) != (args.finalize_seconds is None):
+        parser.error("session and finalize seconds must be supplied together")
+    if args.session_seconds is not None and args.deadline_seconds is not None:
+        parser.error("session-derived and standalone runtime deadlines are mutually exclusive")
     expected = os.environ.get("F0_SOURCE_SHA256")
     if expected and expected != _source_sha256():
         raise SystemExit("F0 runtime Python source digest differs from manifest")
@@ -189,6 +248,14 @@ def main() -> None:
     # identity. GateDriver resolves input: checkpoint references internally
     # under SNAKE_CKPT_DIR after the qualified bootstrap binds the catalog.
     control = json.loads(args.control.read_text())
+    deadline_monotonic = None
+    if args.session_seconds is not None:
+        budget = session_budget(
+            Path(os.environ["COLAB_CLI_ROOT"]), args.session_seconds, args.finalize_seconds
+        )
+        publish_json(args.output / "session-budget.json", budget)
+        deadline_monotonic = budget["collection_deadline_monotonic"]
+        print(json.dumps(budget, sort_keys=True), flush=True)
     result = run(
         control,
         args.ledger,
@@ -196,6 +263,7 @@ def main() -> None:
         args.frp3,
         args.output,
         args.deadline_seconds,
+        deadline_monotonic=deadline_monotonic,
     )
     publish_json(args.output / "runtime-result.json", result)
     print(json.dumps(result, sort_keys=True))

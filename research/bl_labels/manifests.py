@@ -14,9 +14,72 @@ from .exports import empty_ledger, publish_json
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "research/bl_labels"
 SCRIPT = f"{PACKAGE}/colab.sh"
+RUNTIME_ROOTS = (
+    "research.bl_labels.runtime",
+    "research.bl_labels.factory",
+    "research.bl_labels.replay_audit",
+    "research.bl_upload.inputs",
+    "src.simd_env.grid_sim_nb",
+    "src.simd_env.vector61_nb",
+    "src.simd_env.v8_nb",
+)
 QUALIFIED_RECORD = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json"
 )
+
+
+# Whole-session forecasts, including setup/export. Caps and reserves get the
+# owner's factor exactly once; useful-work forecasts and measured rates do not.
+STAGES = {
+    "transport_probe": {
+        "setup_seconds": 180,
+        "work_seconds": 270,
+        "export_seconds": 120,
+        "margin_seconds": 30,
+        "base_units": 0.02,
+        "base_reserve_units": 0.004,
+    },
+    "science": {
+        "setup_seconds": 180,
+        "work_seconds": 3150,
+        "export_seconds": 120,
+        "margin_seconds": 150,
+        "base_units": 0.10,
+        "base_reserve_units": 0.020,
+    },
+}
+
+
+def stage_envelope(stage: str) -> dict[str, Any]:
+    """Apply the owner multiplier once to the complete base session forecast."""
+    base = STAGES[stage]
+    seconds = sum(
+        base[key] for key in ("setup_seconds", "work_seconds", "export_seconds", "margin_seconds")
+    )
+    return {
+        **base,
+        "base_minutes": seconds / 60,
+        "effective_minutes": 2 * seconds / 60,
+        "effective_units": 2 * base["base_units"],
+        "effective_reserve_units": 2 * base["base_reserve_units"],
+        "effective_finalize_seconds": 2 * (base["export_seconds"] + base["margin_seconds"]),
+        "owner_multiplier": 2,
+    }
+
+
+def apply_stage(manifest: dict[str, Any], stage: str) -> None:
+    """Keep runtime and supervisor limits coupled to the same session cap."""
+    envelope = stage_envelope(stage)
+    manifest["timeout_minutes"] = envelope["effective_minutes"]
+    manifest["requirements"]["est_minutes"] = envelope["base_minutes"]
+    manifest["budget"].update(
+        unit_cap=envelope["effective_units"],
+        reserve_units=envelope["effective_reserve_units"],
+    )
+    manifest["env"].update(
+        F0_SESSION_SECONDS=str(int(envelope["effective_minutes"] * 60)),
+        F0_FINALIZE_SECONDS=str(envelope["effective_finalize_seconds"]),
+    )
 
 
 def _sha(path: Path) -> str:
@@ -176,12 +239,7 @@ def source_paths() -> list[str]:
     """Return the exact static import closure plus declared dynamic seams."""
     from tools.ops.import_preflight import import_closure, module_path
 
-    roots = [
-        "research.bl_labels.runtime",
-        "research.bl_labels.factory",
-        "research.bl_labels.replay_audit",
-    ]
-    modules, _statements = import_closure(ROOT, roots)
+    modules, _statements = import_closure(ROOT, list(RUNTIME_ROOTS))
     paths = {
         module_path(ROOT, module).relative_to(ROOT).as_posix()
         for module in modules
@@ -197,6 +255,7 @@ def source_paths() -> list[str]:
             "src/simd_env/v8_nb.py",
             "configs",
             "research/colab_cli",
+            "research/bl_upload",
             "research/t34_exit_b8/PUBLIC_INPUTS.json",
             "research/apex_safety_20260926",
             "requirements.txt",
@@ -233,12 +292,7 @@ def clean_import_preflight(commit: str, out: Path, *, repo: Path = ROOT) -> dict
         commit,
         source_paths(),
         f"{PACKAGE}/requirements.txt",
-        [
-            "research.bl_labels.runtime",
-            "research.bl_labels.factory",
-            "research.bl_labels.replay_audit",
-            "research.bl_upload.inputs",
-        ],
+        list(RUNTIME_ROOTS),
     )
     publish_json(out, result)
     return result
@@ -277,8 +331,8 @@ def make_manifest(
             "NUMBA_NUM_THREADS": "1",
             "VECLIB_MAXIMUM_THREADS": "1",
         },
-        "requirements": {"gpu": "cpu", "allowed_gpus": ["cpu"], "min_vcpu": 1, "est_minutes": 30},
-        "timeout_minutes": 60,
+        "requirements": {"gpu": "cpu", "allowed_gpus": ["cpu"], "min_vcpu": 1, "est_minutes": 60},
+        "timeout_minutes": 120,
         "output_dir": str(output_dir),
         "inputs": [
             input_row(control, "inputs/control.json"),
@@ -287,9 +341,9 @@ def make_manifest(
             *_pool_inputs(b8, frp3),
         ],
         "budget": {
-            "unit_cap": 0.2,
+            "unit_cap": 0.20,
             "rate_units_per_hour": 0.08,
-            "reserve_units": 0.04,
+            "reserve_units": 0.040,
             "other_assignments": {},
         },
         "lease_seconds": 180,
@@ -308,9 +362,12 @@ def make_manifest(
             "skip_verified": True,
             "max_outcome_blind_retries": 2,
         },
+        "canary": {"template": True, "family": SCRIPT},
         "f0": {
-            "base_envelope": {"hours": 0.5, "units": 0.1},
-            "effective_envelope": {"hours": 1.0, "units": 0.2},
+            "base_envelope": {"minutes": 70, "units": 0.12, "reserve_units": 0.024},
+            "effective_envelope": {"minutes": 140, "units": 0.24, "reserve_units": 0.048},
+            "stages": {stage: stage_envelope(stage) for stage in STAGES},
+            "cap_authority": "research/bl_labels/SESSION_CAPS_AMENDMENT.md",
             "gpu": 0,
             "allocation": {
                 "gate": {"frozen": 12, "mixed": 12, "scripted": 8},
@@ -326,13 +383,55 @@ def make_manifest(
             "attempt_policy": (
                 "One original plus at most two manually dispatched mechanical completion attempts; "
                 "every attempt has a fresh output directory. The full series shares the single "
-                "60-minute/0.2-unit effective envelope; no automatic retries, cap reset, or "
+                "140-minute/0.24-unit effective envelope; no automatic retries, cap reset, or "
                 "outcome-triggered rerun. Verified lives are skipped and never recomputed or "
                 "relabelled."
             ),
         },
     }
+    apply_stage(result, "science")
     return result
+
+
+def make_family_probe(template: dict[str, Any], output_dir: Path) -> dict[str, Any]:
+    """Build the excluded, same-entrypoint CPU transport-family probe."""
+    probe = json.loads(json.dumps(template))
+    probe["job_id"] = f"bl-f0-family-probe-{template['commit'][:8]}"
+    probe["output_dir"] = str(Path(output_dir).resolve())
+    apply_stage(probe, "transport_probe")
+    probe["env"].update(
+        F0_TRANSPORT_PROBE="1",
+        SNAKE_COLAB_CANARY="1",
+        SNAKE_COLAB_CANARY_PACKAGE=PACKAGE,
+    )
+    probe["canary"] = {
+        "schema": "colab-family-canary/v1",
+        "mode": "probe",
+        "family": SCRIPT,
+    }
+    probe.pop("resume", None)
+    probe["resume_exemption"] = {
+        "kind": "short-canary",
+        "reason": "excluded F0 same-entrypoint transport probe; no label rows may contribute",
+        "timeout_minutes": probe["timeout_minutes"],
+    }
+    probe["f0"]["stage"] = "EXCLUDED_TRANSPORT_PROBE"
+    return probe
+
+
+def bind_family_receipt(
+    template: Path, receipt: Path, out: Path, *, repo: Path = ROOT
+) -> dict[str, Any]:
+    """Bind only a verified qualified family receipt into a create-only science manifest."""
+    value = json.loads(template.read_text())
+    if value.get("canary", {}).get("template") is not True:
+        raise ValueError("F0 science template is malformed")
+    value["canary"] = {"receipt": {"path": str(receipt.resolve()), "sha256": _sha(receipt)}}
+    from research.colab_cli.canary import check
+
+    check(value, repo)
+    publish_json(out, value)
+    return value
 
 
 def prepare(
@@ -389,19 +488,35 @@ def prepare(
 
     manifest = convert_public_checkpoints(manifest, repo=ROOT)
     assert_upload_budget(manifest, repo=ROOT)
-    path = artifact_dir / "f0-cpu-canary.json"
-    publish_json(path, manifest)
-    return path, control
+    template = artifact_dir / "f0-cpu-canary-template.json"
+    publish_json(template, manifest)
+    probe = artifact_dir / "f0-family-probe.json"
+    publish_json(
+        probe, make_family_probe(manifest, output_dir.with_name(output_dir.name + "-probe"))
+    )
+    return template, control
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--commit", required=True)
-    parser.add_argument("--artifact-dir", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--b8", type=Path, required=True)
-    parser.add_argument("--frp3", type=Path, required=True)
+    parser.add_argument("--commit")
+    parser.add_argument("--artifact-dir", type=Path)
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--b8", type=Path)
+    parser.add_argument("--frp3", type=Path)
+    parser.add_argument("bind", nargs="?")
+    parser.add_argument("--template", type=Path)
+    parser.add_argument("--receipt", type=Path)
+    parser.add_argument("--out", type=Path)
     args = parser.parse_args()
+    if args.bind:
+        if args.bind != "bind" or not all((args.template, args.receipt, args.out)):
+            parser.error("bind requires --template, --receipt, and --out")
+        print(args.out)
+        bind_family_receipt(args.template, args.receipt, args.out)
+        return
+    if not all((args.commit, args.artifact_dir, args.output_dir, args.b8, args.frp3)):
+        parser.error("prepare requires --commit, --artifact-dir, --output-dir, --b8, and --frp3")
     manifest, _ = prepare(args.commit, args.artifact_dir, args.b8, args.frp3, args.output_dir)
     print(manifest)
 

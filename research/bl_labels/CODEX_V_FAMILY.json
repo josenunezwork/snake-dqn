@@ -1,0 +1,160 @@
+{
+  "authority": {
+    "family_probe_execution": "research/bl_labels/FAMILY_PROBE_EXECUTION.md",
+    "intent": "research/bl_labels/INTENT.md",
+    "judgment": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/JUDGMENT.md"
+  },
+  "caps_and_kills": {
+    "allocation": {
+      "gate_frozen": 12,
+      "gate_mixed": 12,
+      "gate_scripted": 8,
+      "watch6": 4
+    },
+    "digest_or_bare_audit_mismatch": "INVALID",
+    "effective_units": 0.2,
+    "effective_wall_minutes": 60,
+    "gpu_units": 0,
+    "horizons": {
+      "gate": 5000,
+      "watch6": 14400
+    },
+    "max_outcome_blind_retries": 2,
+    "rescue_bearing_lives_per_mac_worker_hour_kill_lt": 8
+  },
+  "family_contract": {
+    "probe_base_minutes": 2.5,
+    "probe_base_units": 0.01,
+    "probe_effective_minutes": 5,
+    "probe_effective_units": 0.02,
+    "probe_outputs_science_admission": "forbidden",
+    "probe_resume_exemption": "short-canary",
+    "same_device": "cpu",
+    "same_entrypoint": "research/bl_labels/colab.sh",
+    "same_input_inventory": true,
+    "same_source_pin": "f9bbae8c02f2cdcee235b5415eb5d9eec8a6fe8b",
+    "science_base_minutes": 27.5,
+    "science_base_units": 0.09,
+    "science_effective_minutes": 55,
+    "science_effective_units": 0.18,
+    "science_resume_required": true,
+    "series_base_minutes": 30,
+    "series_base_units": 0.1,
+    "series_effective_minutes": 60,
+    "series_effective_units": 0.2
+  },
+  "independent_checks": [
+    {
+      "command": "family budget/source identity/receipt refusal Python fixture",
+      "evidence": "Decimal(0.02)+Decimal(0.18)=Decimal(0.20); 5+55=60; probe preserved source/input/script/commit identity; unbound science manifest rejected with SHA-bound receipt error.",
+      "result": "PASS"
+    },
+    {
+      "command": "probe isolation source check over research/bl_labels/colab.sh and runtime.py",
+      "evidence": "Separate probe control/ledger, -transport-probe namespace, H3 allocation, all probe life indices skipped, EXCLUDED_TRANSPORT_PROBE result class.",
+      "result": "PASS"
+    },
+    {
+      "command": "root-reported final package tests/lint/shell checks",
+      "evidence_owner": "root",
+      "result": "PASS",
+      "seconds": 16.36,
+      "single_process": true,
+      "tests": 51
+    },
+    {
+      "command": "prior independent verifier suite",
+      "result": "PASS",
+      "seconds": 9.15,
+      "single_process": true,
+      "tests": 50
+    }
+  ],
+  "live_gates": {
+    "family_probe_runtime": "NOT_RUN",
+    "mac_64_root_replay_audit": "NOT_RUN",
+    "mac_yield": "NOT_RUN",
+    "science_canary_runtime": "NOT_RUN",
+    "tiny_mac_entrypoint": "PASS_EXECUTION_ONLY"
+  },
+  "pack_artifact_closure_sha256": "7834275c55472fdfdd3557f94ea76cfd8a0b335d77b920867077d9081270b070",
+  "pack_artifacts_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/DISPATCH_v2.txt": "c3f580b02cae96f838605cc5fe95962424b79a4739d7e2571bddb59ad4aaad40",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/DISPATCH_v2.txt.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/DISPATCH_v2.txt.sha256": "f36ae36863632d2e85105d35103eff626411923aa6229c9d948a56440e503a8a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/SEED_AUDIT.json": "7daba9ba0530af7db6833adbfc68a9571751c951c504b1138d5c7d2823d29a14",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/SEED_AUDIT.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/SEED_AUDIT.json.sha256": "e1636bd07891f7a918c2d388e367c177a1b710d62cfd159fd0ae28fd3b83937f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/clean-import-preflight.json": "6634c60bb24b0c094b73fb91de1c2a6e18c418285b3422ac00688014d0096331",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/clean-import-preflight.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/clean-import-preflight.json.sha256": "2e13640571b5cf0900437a5ed656819dfe1b4f0890904315529f6920c99f4f60",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/control.json": "91cf2a29f43fe011c76bfc08882e57add6c3894a82863fb7330c20942126fc2b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/control.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/control.json.sha256": "6a0150763391bd4de926859b0234e8ef7a8a80cb833109979e88e11cc9e41ab6",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/f0-cpu-canary-template.json": "88abefede8f97188b61b2c077ce411a0e5cb396cb53f5d2678403e22bc707fb6",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/f0-cpu-canary-template.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/f0-cpu-canary-template.json.sha256": "8862af37481c89bb975cb88edf8205d149878633efcbd0f10c974ed634e7eba4",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/f0-family-probe.json": "494dcdae4c2adcaf028a8856548875d3771055ed15080c13070dd59923b1086c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/f0-family-probe.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/f0-family-probe.json.sha256": "d1488dbd84b543645550d6f1b6a22e585950ffe747582b804ba5cf89cb0fdf4f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/verified-ledger.json": "8bd4eb27c004fcffb5a8edabbf5e8d3edb31d2be66a0459111b02580a0c85fc2",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/verified-ledger.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-04/verified-ledger.json.sha256": "1950dd84b692ba1553b73899a3e35b4c933a2f423decf9754a94f0b2cc6dbf85"
+  },
+  "pack_validation": {
+    "clean_import_preflight": {
+      "artifact_sha256": "6634c60bb24b0c094b73fb91de1c2a6e18c418285b3422ac00688014d0096331",
+      "import_statements": 673,
+      "local_modules": 223,
+      "python": "3.12.15",
+      "runtime_roots": 7,
+      "status": "PASS",
+      "system_site_packages": false,
+      "user_site": false
+    },
+    "frozen_pack_commit": "f9bbae8c02f2cdcee235b5415eb5d9eec8a6fe8b",
+    "supervisor_manifest_validate": {
+      "evidence_owner": "root",
+      "family_probe_manifest_sha256": "494dcdae4c2adcaf028a8856548875d3771055ed15080c13070dd59923b1086c",
+      "job_ops": false,
+      "science_template_manifest_sha256": "88abefede8f97188b61b2c077ce411a0e5cb396cb53f5d2678403e22bc707fb6",
+      "status": "PASS"
+    }
+  },
+  "preserved_receipts": [
+    "research/bl_labels/CODEX_V.json",
+    "research/bl_labels/CODEX_V_FINAL.json",
+    "research/bl_labels/CODEX_V_PACK.json"
+  ],
+  "qualified_transport": {
+    "qualified_commit": "a36a821de98f7ef48b730ab454fa2870b0962a5e",
+    "record": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json",
+    "record_sha256": "4983cab57b26d9df9879ada094a84471eedbbb6c85599b1cdea26d86013f70f0",
+    "tree_hash": "d0d92bdb572b770284a1fea6152417ffa5f06bea"
+  },
+  "reviewer": "Independent Codex-V verifier",
+  "schema": "bl-labels-f0-codex-v-family/v1",
+  "scope": "Implementation and offline family/science admission validation only; no live family or science execution claim.",
+  "source_closure_sha256": "50c451d9d9eb3587b63de889de81207be4f349f20f20f12cb0b33a31485d2ba8",
+  "source_files_sha256": {
+    "research/bl_labels/FAMILY_PROBE_EXECUTION.md": "34de065b5f3413bd488ea41ab61a38162a2888d61fe78ae7c1c2eb5c927e110c",
+    "research/bl_labels/INTENT.md": "8760a64b71dd4fb8967e6198145a6f6b9d63d32079dcb49d340ae1d9a5470398",
+    "research/bl_labels/__init__.py": "272d8d65dbc74c10e9c977736886c0e2476b736fd9b8a289326b2f6551537ff1",
+    "research/bl_labels/colab.sh": "a3a965638da4d09ed48f02cb52bd67f3c09df9b8b3655b1d57b41af7f9e580a5",
+    "research/bl_labels/exports.py": "fb98467718f25c57cfacd395b3d5208d3f5e91c1eb47e070293f9fb5702cba1d",
+    "research/bl_labels/factory.py": "3ecbdf044a975be9152656e4a869f361abc6e20d6fc2c1e24d07e2fcaf9000a0",
+    "research/bl_labels/manifests.py": "9c1b0e8c21c30f682bc5f40802bda19ea29c7f2d18b2c8cd5fb908ae93b00e77",
+    "research/bl_labels/replay_audit.py": "2be5d6143a49f84b938e66e0e8ee51f313974eeeea90bc0b52a9a2b798378e42",
+    "research/bl_labels/requirements.txt": "c1810c7b38517a845d01f3157816b8a2a91b2218eae746cdc4b2b650d1518b8a",
+    "research/bl_labels/runtime.py": "2add50e3a06b9656e04818c5e7ac61cf1b79e936159275b604d7115f3d6c5634"
+  },
+  "source_pin": "f9bbae8c02f2cdcee235b5415eb5d9eec8a6fe8b",
+  "verdict": "PASS_IMPLEMENTATION_AND_OFFLINE_ADMISSION_ONLY",
+  "verification_closure_sha256": "849a90a50fb83b3bf69a080ac59bd0fb9540443c4992784dbacd21961b0aec1a",
+  "verification_files_sha256": {
+    "research/bl_labels/test_factory.py": "12306b7fe9655e46596d09b73cf483ae69aeb7c48a3addf447016a14745c22ab",
+    "research/bl_labels/test_pack.py": "37e6d1f00a2d688529411093f48debe5037136b0cecb0e50cc9b99c0d2f4a118",
+    "research/bl_labels/test_real_driver.py": "6e035e14292af393a853bca303580482bc47e8e31f9ebf76e13048acd2ba2632",
+    "research/bl_labels/test_replay_audit.py": "676ef4ebfd6ac98d220900a4bda3264304f34f9733c132b88aed7deaa863de74"
+  }
+}
