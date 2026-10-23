@@ -98,12 +98,34 @@ def install_hooks() -> None:
     original_issue_request = Client._issue_request
     original_session_request = requests.sessions.Session.request
     record_path = Path(record_name)
+    kernel_creation_attempted = False
 
     def guarded_issue_request(self: Any, *args: Any, **kwargs: Any) -> Any:
         return original_issue_request(self, *args, **_timeout_kwargs(kwargs))
 
     def guarded_session_request(self: Any, *args: Any, **kwargs: Any) -> Any:
-        return original_session_request(self, *args, **_timeout_kwargs(kwargs))
+        nonlocal kernel_creation_attempted
+        method = args[0] if args else kwargs.get("method")
+        url = args[1] if len(args) > 1 else kwargs.get("url")
+        # Persist creation identity before websocket startup (the upstream
+        # callback runs too late). Never infer ownership from a kernel list.
+        capture = None
+        if str(method).upper() == "POST" and str(url).endswith("/api/kernels"):
+            capture = _kernel_creation_target(url, kwargs, record_path)
+            if kernel_creation_attempted:
+                raise GuardError("kernel creation already attempted; refusing uncertain retry")
+            kernel_creation_attempted = True
+        response = original_session_request(self, *args, **_timeout_kwargs(kwargs))
+        if capture is not None:
+            store, state = capture
+            response.raise_for_status()
+            body = response.json()
+            kernel_id = body.get("id") if isinstance(body, dict) else None
+            if not isinstance(kernel_id, str) or not kernel_id.strip():
+                raise GuardError("kernel creation returned malformed kernel identity")
+            state.kernel_id = kernel_id
+            store.add(state)
+        return response
 
     def guarded_assign(
         self: Any,
@@ -124,6 +146,38 @@ def install_hooks() -> None:
     # the latter creates a Session, so patch the class-level request path too.
     requests.sessions.Session.request = guarded_session_request
     Client._snake_guard_installed = True
+
+
+def _kernel_creation_target(url: str, kwargs: dict[str, Any], record_path: Path) -> Any:
+    """Bind a creation response to this process's exact tracked assignment.
+
+    A second POST after creation is forbidden even if websocket setup failed.
+    The next supervisor probe must independently prove the saved kernel idle.
+    """
+    from colab_cli.state import StateStore
+
+    config = os.environ.get("SNAKE_COLAB_CONFIG")
+    session = os.environ.get("SNAKE_COLAB_SESSION")
+    if not config or not session:
+        raise GuardError("kernel creation lacks supervisor session identity")
+    store = StateStore(config)
+    state = store.get(session)
+    record = json.loads(record_path.read_text())
+    headers = kwargs.get("headers", {})
+    if (
+        state is None
+        or not state.url
+        or not state.token
+        or url != state.url.rstrip("/") + "/api/kernels"
+        or not state.endpoint
+        or state.endpoint != record.get("endpoint")
+        or record.get("notebook_hash") != os.environ.get("SNAKE_COLAB_NOTEBOOK_HASH")
+        or headers.get("X-Colab-Runtime-Proxy-Token") != state.token
+    ):
+        raise GuardError("kernel creation does not match tracked runtime identity")
+    if state.kernel_id:
+        raise GuardError("tracked kernel reconnect required; kernel already exists")
+    return store, state
 
 
 def _run_helper(

@@ -45,6 +45,9 @@ def transient_error(exc: BaseException) -> bool:
                 "remotedisconnected",
                 "network is unreachable",
                 "temporarily unavailable",
+                # Creation was acknowledged and saved before websocket setup.
+                # Only independent idle proof may clear exec_uncertain.
+                "tracked kernel reconnect required",
                 "timed out",
                 "timeout",
             )
