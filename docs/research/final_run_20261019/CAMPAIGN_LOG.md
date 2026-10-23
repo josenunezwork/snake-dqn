@@ -152,6 +152,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-22 23:58 PT | Direction ruling (round 23) | JUDGMENT_DIRECTION.md sha b50dffba...: 86/89 attempt-07 overrun ticks carry >= 20 ms gen-2 GC pauses (bare W0: 42 gen-2 collections, ~2.1 s GC/100 s) => served B8 game misses SC §4 today (product finding); C15 blocked by GC, not search. Path A: GC fix in served process (Astra round 25 started) -> bare qualification >= 2,400 ticks + 10-min session -> owner-rechartered M1-bis Sat 09:00 -> PLAN_v3 +2 days. B: CPU-runtime label factory (post-Nov-10 distillation). C: P1 on L4. Owner decisions requested by Fri 21:00. |
 
+| 2026-10-23 00:20 PT | Data plan (round 24) | Opus stand-in JUDGMENT.md sha 750c2c6a... (Fable prior c718cd56..., same core plan, kept as JUDGMENT_fable_prior_0010.md). Bigger GPUs add no labels (CPU-bound sim). Multiplier = hindsight relabelling (restore last 300 decisions after each bare-B8 death; roll out only alternatives): ~15-33 rescue-bearing lives/Mac-worker-h vs 2.7 (L2'); fleet ~7-34k decisive labels/day. P(dev-screen win vs B8) ~0.10. No GPU engine now. Sol started F0 (label factory + CPU-runtime canary) and F3 (frozen-B8 residual-head harness + F4 dose-study draft). P1 source retry05 dispatched (canary PASS). |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
