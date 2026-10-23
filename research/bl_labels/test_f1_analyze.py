@@ -86,3 +86,54 @@ def test_transport_census_requires_evidence_and_counts_budget_exhaustion() -> No
     assert transport_faults({"cli_calls": [call]}) == [call]
     call["elapsed_seconds"] = 1.0
     assert transport_faults({"cli_calls": [call]}) == []
+
+
+def test_probe_receipt_contributes_fault_census_without_scoring(tmp_path) -> None:
+    import hashlib
+    import json
+
+    from research.bl_labels.exports import _verify, publish_json
+    from research.bl_labels.f1_analyze import load_attempt
+
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"env": {"F1_PLATFORM": "cpu"}, "commit": "d" * 40}))
+    runtime = tmp_path / "exports/runtime-result.json"
+    publish_json(
+        runtime,
+        {
+            "platform": "cpu",
+            "bank_sha256": "a" * 64,
+            "source_commit": "d" * 40,
+            "status": "COMPLETE",
+            "transport_probe": True,
+            "configs": [{"root_count": 1}],
+        },
+    )
+    receipt = {
+        "status": "PASS",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        "cli_calls": [{"status": "completed", "elapsed_seconds": 1.0, "timeout_seconds": 120.0}],
+        "exports": [
+            {
+                "path": "runtime-result.json",
+                "sha256": _verify(runtime),
+                "size": runtime.stat().st_size,
+            }
+        ],
+    }
+    (tmp_path / "receipt.json").write_text(json.dumps(receipt))
+    probe = load_attempt(tmp_path, "a" * 64)
+    assert probe["complete"] is False
+    assert probe["configs"] == []
+    assert (
+        decide([probe, attempt("cpu"), attempt("l4")], ROOT_IDS)["verdict"] == "CPU_ALL_THREE_SLOTS"
+    )
+    receipt["cli_calls"][0]["status"] = "failed"
+    (tmp_path / "receipt.json").write_text(json.dumps(receipt))
+    probe = load_attempt(tmp_path, "a" * 64)
+    assert (
+        decide([probe, attempt("cpu"), attempt("l4")], ROOT_IDS)["verdict"]
+        == "L4_ONLY_CPU_EXCLUDED"
+    )

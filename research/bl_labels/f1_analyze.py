@@ -104,8 +104,11 @@ def load_attempt(path: Path, bank_sha256: str) -> dict[str, Any]:
     if runtime.get("source_commit") != manifest.get("commit"):
         raise ValueError("F1 runtime source differs from pinned manifest")
     result["source_commit"] = runtime["source_commit"]
-    result["complete"] = runtime.get("status") == "COMPLETE"
-    result["configs"] = runtime.get("configs", [runtime])
+    result["transport_probe"] = runtime.get("transport_probe") is True
+    # Probe receipts participate in the fault census, never in the 64-root
+    # placement matrix. Their three one-root diagnostic schedules are excluded.
+    result["complete"] = runtime.get("status") == "COMPLETE" and not result["transport_probe"]
+    result["configs"] = [] if result["transport_probe"] else runtime.get("configs", [runtime])
     result["runtime_sha256"] = digest
     return result
 
