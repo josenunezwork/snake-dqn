@@ -50,43 +50,49 @@ if reversals exceed ten percent, leaving immutable raw outcomes intact.
 
 ## Prepare and dispatch the CPU canary
 
-The package generator requires a clean published source pin, the qualified CLI
-tree, six pinned public checkpoint identities and a clean Python 3.12 import
-preflight via `tools/ops/import_preflight.py`. It uploads an empty verified
-ledger on the original attempt. Runtime paths are public input paths; the
-runtime never requires a Mac artifact directory or Drive.
+The current frozen source pin, verified artifact hashes, Codex-V receipt and exact
+Claude commands are in [HANDOFF.md](HANDOFF.md). The transport allocation is
+frozen in [FAMILY_PROBE_EXECUTION.md](FAMILY_PROBE_EXECUTION.md).
+
+Preparation requires a clean published source pin, the qualified CLI tree,
+six pinned public checkpoint identities and a clean Python 3.12 import
+preflight via `tools/ops/import_preflight.py`. It creates an excluded family
+probe and an unadmitted scientific template with identical input inventories.
+The original scientific attempt carries an empty verified ledger.
 
 ```bash
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 cd /Users/josenunez/Projects/ml/snake-dqn-f0
 PIN=$(git rev-parse HEAD)
 "$PY" -m research.bl_labels.manifests \
-  --commit "$PIN" \
-  --artifact-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-01 \
-  --output-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-output-01 \
+  --commit "$PIN" --artifact-dir /absolute/fresh-pack \
+  --output-dir /absolute/fresh-output \
   --b8 /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth \
   --frp3 /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth
 ```
 
-Claude dispatches the reviewed resulting manifest, using a fresh attempt name:
+Claude dispatches only through
+`/Users/josenunez/Projects/ml/snake-dqn-acctfix/tools/ops/dispatch.sh`.
+First run `f0-family-probe.json`: CPU, five minutes, 0.02 units. Its separate
+H3 namespace emits no life labels and cannot contribute to scientific aggregates.
+After its actual verified PASS receipt and backend release, bind that receipt:
 
 ```bash
-/Users/josenunez/Projects/ml/snake-dqn-acctfix/tools/ops/dispatch.sh \
-  bl-f0-cpu-canary-01 \
-  /Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-01/f0-cpu-canary.json \
-  --broker /Users/josenunez/Projects/ml/snake-dqn-acctfix \
-  --cwd /Users/josenunez/Projects/ml/snake-dqn-acctfix \
-  --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/state/bl-f0-cpu-canary-01 \
-  --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-01/DISPATCH.txt
+"$PY" -m research.bl_labels.manifests bind \
+  --template /absolute/pack/f0-cpu-canary-template.json \
+  --receipt /absolute/probe-output/receipt.json \
+  --out /absolute/pack/f0-cpu-canary.json
 ```
 
-The allocation is exactly 12 frozen + 12 mixed + 8 scripted H5000 worlds,
-and four Watch6 sessions of 14,400 frames. It uses CPU, zero GPUs, W=nproc,
-one numerical thread per worker. Base/effective limits are 0.1/0.2 units,
-30/60 minutes, and 0.02/0.04 reserve units; measured CPU accounting rate is
-0.08 u/hour. Setup, imports, export and failures count; first cap wins. The
-series, including any manually authorized mechanical completion attempts,
-shares the original effective envelope. There is no automatic retry.
+Only the receipt-bound manifest admits the full F0 canary: 12 frozen + 12 mixed
++ 8 scripted H5000 worlds and four Watch6 H14400 sessions, CPU, W=nproc,
+one numerical thread per worker. It has 55 minutes / 0.18 units / 0.036 reserve;
+the excluded probe has five minutes / 0.02 units / 0.004 reserve. The combined
+base/effective envelope stays 30/60 minutes, 0.1/0.2 units, 0.02/0.04 reserve.
+The measured accounting rate is 0.08 u/hour. Setup, export, failures and manual
+mechanical completion attempts share these limits; first cap wins. There is
+no automatic retry, purchase or cap reset. The designated broker must match
+the qualified CLI registry before either dispatch.
 
 ## Verify, resume, aggregate, and audit
 
