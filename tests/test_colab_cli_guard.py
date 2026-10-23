@@ -73,6 +73,51 @@ def test_sitecustomize_hook_forces_hash_writes_nonsecret_durable_identity(
     assert client._issue_request("unused", timeout=None) == {"timeout": (30, 120)}
 
 
+@pytest.mark.parametrize("hash_form", ["hex", "hyphenated"])
+def test_assignment_then_first_exec_replays_cpu_uuid_refusal(
+    tmp_path: Path, hash_form: str
+) -> None:
+    """Replay acceptance-1792737517: new and exec are separate CLI processes."""
+    from research.colab_cli import supervisor
+
+    fixture = Path(__file__).with_name("fixtures") / "colab_identity_replay.py"
+    binary = tmp_path / "replay-colab"
+    binary.write_text(f'#!/bin/sh\nexec "{sys.executable}" -S "{fixture}" "$@"\n')
+    binary.chmod(0o700)
+    cli = supervisor.CLI(str(binary), tmp_path / "sessions.json", "owned-session")
+    # Exact UUID retained in the failed CPU arm's durable assignment record.
+    identity = uuid.UUID("8a64755c-57f4-43d1-92d9-59159b2cb7a0")
+    if hash_form == "hyphenated":
+        cli.notebook_hash = str(identity)
+    else:
+        cli.notebook_hash = identity.hex  # CLI.__init__'s production format
+    cli.call("new", timeout=10)
+    assert json.loads(cli.assignment_record.read_text())["notebook_hash"] == str(identity)
+    cli.call("exec", "-s", cli.session, "pass", timeout=10)
+    assert json.loads(cli.config.read_text())["kernel_id"] == "created-by-us"
+    # A fresh subprocess must honor the durable ID and never create a duplicate.
+    with pytest.raises(supervisor.Refused, match="kernel already exists"):
+        cli.call("exec", "-s", cli.session, "pass", timeout=10)
+    events = [
+        json.loads(line)
+        for line in cli.config.with_suffix(".events.jsonl").read_text().splitlines()
+    ]
+    assert events == [
+        {"assign_uuid": str(identity)},
+        {"post": "https://owned.example//api/kernels"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "recorded", [None, "", "foreign", 123, {}, "00000000-0000-0000-0000-000000000001"]
+)
+def test_uuid_identity_comparison_refuses_missing_malformed_and_foreign(recorded: object) -> None:
+    guard = _load("guard_uuid_identity_test")
+    assert not guard._same_notebook_uuid(recorded, "8a64755c57f443d192d959159b2cb7a0")
+    assert not guard._same_notebook_uuid(recorded, None)
+    assert not guard._same_notebook_uuid(recorded, "malformed")
+
+
 def test_helpers_use_bounded_private_python_and_validate_json(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -380,3 +425,247 @@ def test_runtime_readiness_helper_uses_single_bounded_read(
     assert calls == [
         (("/private/python", "--runtime-ready", "config.json", "new"), {"timeout": 17})
     ]
+
+
+@pytest.fixture
+def creation_hook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> object:
+    """Exercise the installed sitecustomize hook at its real requests boundary."""
+    notebook_hash = str(uuid.uuid4())
+    record = tmp_path / "assignment.json"
+    record.write_text(json.dumps({"endpoint": "owned", "notebook_hash": notebook_hash}))
+    state = types.SimpleNamespace(
+        kernel_id=None, url="https://owned.example/", token="private", endpoint="owned"
+    )
+    saved = tmp_path / "saved.json"
+    calls = []
+    outcome = {"body": {"id": "created-by-us"}, "error": None}
+
+    class Store:
+        def __init__(self, config: str) -> None:
+            assert config == "owned-config"
+
+        def get(self, session: str) -> object:
+            assert session == "owned-session"
+            return state
+
+        def add(self, value: object) -> None:
+            saved.write_text(json.dumps(vars(value)))
+
+    class Client:
+        def assign(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def _issue_request(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+    class Session:
+        def request(self, method: str, url: str, **kwargs: object) -> object:
+            calls.append((method, url, kwargs))
+            if outcome["error"]:
+                raise outcome["error"]
+            return types.SimpleNamespace(
+                raise_for_status=lambda: None, json=lambda: outcome["body"]
+            )
+
+    monkeypatch.setitem(sys.modules, "colab_cli", types.ModuleType("colab_cli"))
+    monkeypatch.setitem(sys.modules, "colab_cli.client", types.SimpleNamespace(Client=Client))
+    monkeypatch.setitem(sys.modules, "colab_cli.state", types.SimpleNamespace(StateStore=Store))
+    requests = types.SimpleNamespace(sessions=types.SimpleNamespace(Session=Session))
+    monkeypatch.setitem(sys.modules, "requests", requests)
+    monkeypatch.setenv("SNAKE_COLAB_NOTEBOOK_HASH", notebook_hash)
+    monkeypatch.setenv("SNAKE_COLAB_ASSIGNMENT_RECORD", str(record))
+    monkeypatch.setenv("SNAKE_COLAB_CONFIG", "owned-config")
+    monkeypatch.setenv("SNAKE_COLAB_SESSION", "owned-session")
+    guard = _load("guard_creation_hook")
+    return types.SimpleNamespace(
+        guard=guard,
+        state=state,
+        saved=saved,
+        calls=calls,
+        outcome=outcome,
+        requests=requests,
+        session=Session(),
+        record=record,
+        url="https://owned.example/api/kernels",
+        headers={"X-Colab-Runtime-Proxy-Token": "private"},
+    )
+
+
+def test_creation_id_survives_websocket_timeout_and_ignores_unowned_kernels(
+    creation_hook: object,
+) -> None:
+    fixture = creation_hook
+    fixture.session.request("POST", fixture.url, headers=fixture.headers)
+    # This point precedes websocket start_channels(), which may now time out.
+    assert json.loads(fixture.saved.read_text())["kernel_id"] == "created-by-us"
+    # Model the upstream runtime retry: it must not create a second kernel.
+    with pytest.raises(fixture.guard.GuardError, match="already exists"):
+        fixture.session.request("POST", fixture.url, headers=fixture.headers)
+    assert len(fixture.calls) == 1
+    gets = []
+
+    def get(url: str, **_kwargs: object) -> object:
+        gets.append(url)
+        # The tracked runtime also has another kernel. Inventory discovery is
+        # ambiguous; the saved creation identity addresses only our own kernel.
+        body = (
+            [
+                {"id": "other", "execution_state": "idle"},
+                {"id": "created-by-us", "execution_state": "busy"},
+            ]
+            if url.endswith("/api/kernels")
+            else {"id": "created-by-us", "execution_state": "busy"}
+        )
+        return types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: body)
+
+    fixture.requests.get = get
+    assert fixture.guard._kernel_idle_once("owned-config", "owned-session") == {"idle": False}
+    assert gets == [fixture.url + "/created-by-us"]
+    fixture.requests.get = lambda *_args, **_kwargs: types.SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {"id": "created-by-us", "execution_state": "idle"},
+    )
+    assert fixture.guard._kernel_idle_once("owned-config", "owned-session") == {"idle": True}
+
+
+@pytest.mark.parametrize("trailing_slash", [False, True])
+def test_creation_hook_accepts_installed_jupyter_url_construction(
+    creation_hook: object, trailing_slash: bool
+) -> None:
+    """KernelHttpManager.start_kernel appends the route without stripping '/'."""
+    fixture = creation_hook
+    fixture.state.url = "https://owned.example" + ("/" if trailing_slash else "")
+    url = f"{fixture.state.url}/api/kernels"
+    fixture.session.request("POST", url, headers=fixture.headers)
+    assert json.loads(fixture.saved.read_text())["kernel_id"] == "created-by-us"
+    with pytest.raises(fixture.guard.GuardError, match="already exists"):
+        fixture.session.request("POST", url, headers=fixture.headers)
+    assert len(fixture.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://owned.example///api/kernels",
+        "https://owned.example/other/api/kernels",
+        "https://owned.example.evil/api/kernels",
+    ],
+)
+def test_creation_hook_does_not_normalize_unowned_paths(creation_hook: object, url: str) -> None:
+    fixture = creation_hook
+    with pytest.raises(fixture.guard.GuardError, match="identity"):
+        fixture.session.request("POST", url, headers=fixture.headers)
+    assert not fixture.calls
+
+
+@pytest.mark.parametrize("mismatch", ["url", "token", "endpoint", "notebook", "config", "session"])
+def test_creation_hook_refuses_foreign_or_missing_identity_before_post(
+    creation_hook: object, monkeypatch: pytest.MonkeyPatch, mismatch: str
+) -> None:
+    fixture = creation_hook
+    if mismatch == "url":
+        fixture.url = "https://foreign.example/api/kernels"
+    elif mismatch == "token":
+        fixture.headers = {"X-Colab-Runtime-Proxy-Token": "foreign"}
+    elif mismatch == "endpoint":
+        fixture.state.endpoint = "foreign"
+    elif mismatch == "notebook":
+        fixture.record.write_text(json.dumps({"endpoint": "owned", "notebook_hash": "foreign"}))
+    else:
+        monkeypatch.delenv("SNAKE_COLAB_" + mismatch.upper())
+    with pytest.raises(fixture.guard.GuardError, match="identity"):
+        fixture.session.request("POST", fixture.url, headers=fixture.headers)
+    assert not fixture.calls
+    assert not fixture.saved.exists()
+
+
+@pytest.mark.parametrize("body", [{}, {"id": ""}, {"id": 3}, [], {"id": "  "}])
+def test_creation_hook_refuses_malformed_creation_response(
+    creation_hook: object, body: object
+) -> None:
+    fixture = creation_hook
+    fixture.outcome["body"] = body
+    with pytest.raises(fixture.guard.GuardError, match="malformed kernel identity"):
+        fixture.session.request("POST", fixture.url, headers=fixture.headers)
+    assert not fixture.saved.exists()
+    with pytest.raises(fixture.guard.GuardError, match="uncertain retry"):
+        fixture.session.request("POST", fixture.url, headers=fixture.headers)
+    assert len(fixture.calls) == 1
+
+
+def test_creation_hook_never_repeats_uncertain_post(creation_hook: object) -> None:
+    fixture = creation_hook
+    fixture.outcome["error"] = TimeoutError("creation response lost")
+    with pytest.raises(TimeoutError):
+        fixture.session.request("POST", fixture.url, headers=fixture.headers)
+    fixture.outcome["error"] = None
+    with pytest.raises(fixture.guard.GuardError, match="uncertain retry"):
+        fixture.session.request("POST", fixture.url, headers=fixture.headers)
+    assert len(fixture.calls) == 1
+    assert fixture.state.kernel_id is None
+    assert not fixture.saved.exists()
+
+
+@pytest.mark.parametrize("trailing_slash", [False, True])
+def test_internal_startup_retry_recovers_only_after_exact_saved_kernel_idle(
+    creation_hook: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    trailing_slash: bool,
+) -> None:
+    from research.colab_cli import cli_guard, policy, supervisor
+
+    fixture = creation_hook
+    fixture.state.url = "https://owned.example" + ("/" if trailing_slash else "")
+    creation_url = f"{fixture.state.url}/api/kernels"
+    cli = supervisor.CLI("fake", tmp_path / "config", "owned-session")
+    cli.oauth_python = "unused"
+    cli.config = "owned-config"
+    events = []
+
+    def call(*_args: str, **_kwargs: object) -> str:
+        if not events:
+            fixture.session.request("POST", creation_url, headers=fixture.headers)
+            events.append("created-before-websocket-timeout")
+            # Upstream retries startup using its still-empty in-memory ID.
+            try:
+                fixture.session.request("POST", creation_url, headers=fixture.headers)
+            except fixture.guard.GuardError as exc:
+                raise supervisor.Refused(
+                    'colab exec failed (1): │ raise GuardError("kernel creation does not '
+                    'match tracked runtime identity") │\n'
+                    f"GuardError: {exc}\n"
+                ) from exc
+        assert events[-1] == "idle-proved"
+        wrapped = Path(_args[_args.index("-f") + 1]).read_text()
+        nonce = "SNAKE_RPC_" + wrapped.split("SNAKE_RPC_")[1][:32]
+        events.append("reconnected")
+        return nonce + '{"ok":true,"value":{"ready":true}}'
+
+    def get(url: str, **_kwargs: object) -> object:
+        assert cli.exec_uncertain
+        assert url == fixture.url + "/created-by-us"
+        events.append("idle-proved")
+        return types.SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"id": "created-by-us", "execution_state": "idle"},
+        )
+
+    fixture.requests.get = get
+    monkeypatch.setattr(cli, "call", call)
+    monkeypatch.setattr(cli_guard, "runtime_ready", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        cli_guard,
+        "kernel_idle",
+        lambda _python, config, session, **_kwargs: fixture.guard._kernel_idle_once(
+            config, session
+        )["idle"],
+    )
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _delay: None)
+    cli.wait_runtime_ready(tmp_path)
+    assert events == ["created-before-websocket-timeout", "idle-proved", "reconnected"]
+    assert len(fixture.calls) == 1
+    assert not cli.exec_uncertain
+    assert not policy.transient_error(
+        fixture.guard.GuardError("kernel creation already attempted; refusing uncertain retry")
+    )
