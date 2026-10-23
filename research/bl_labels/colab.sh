@@ -42,4 +42,5 @@ python -m research.bl_labels.runtime \
   --b8 "${COLAB_INPUT_DIR}/public-checkpoints/B8_s3_final.pth" \
   --frp3 "${COLAB_INPUT_DIR}/public-checkpoints/checkpoints/frp3_m3_s12_u60000_20261005.pth" \
   --output "${COLAB_CLI_ROOT}/output" \
-  --deadline-seconds "${F0_RUNTIME_SECONDS:-3150}"
+  --session-seconds "${F0_SESSION_SECONDS:?whole-session cap required}" \
+  --finalize-seconds "${F0_FINALIZE_SECONDS:?export and margin reserve required}"

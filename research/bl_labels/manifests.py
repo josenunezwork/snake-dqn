@@ -28,6 +28,60 @@ QUALIFIED_RECORD = Path(
 )
 
 
+# Whole-session forecasts, including setup/export. Caps and reserves get the
+# owner's factor exactly once; useful-work forecasts and measured rates do not.
+STAGES = {
+    "transport_probe": {
+        "setup_seconds": 180,
+        "work_seconds": 270,
+        "export_seconds": 120,
+        "margin_seconds": 30,
+        "base_units": 0.02,
+        "base_reserve_units": 0.004,
+    },
+    "science": {
+        "setup_seconds": 180,
+        "work_seconds": 3150,
+        "export_seconds": 120,
+        "margin_seconds": 150,
+        "base_units": 0.10,
+        "base_reserve_units": 0.020,
+    },
+}
+
+
+def stage_envelope(stage: str) -> dict[str, Any]:
+    """Apply the owner multiplier once to the complete base session forecast."""
+    base = STAGES[stage]
+    seconds = sum(
+        base[key] for key in ("setup_seconds", "work_seconds", "export_seconds", "margin_seconds")
+    )
+    return {
+        **base,
+        "base_minutes": seconds / 60,
+        "effective_minutes": 2 * seconds / 60,
+        "effective_units": 2 * base["base_units"],
+        "effective_reserve_units": 2 * base["base_reserve_units"],
+        "effective_finalize_seconds": 2 * (base["export_seconds"] + base["margin_seconds"]),
+        "owner_multiplier": 2,
+    }
+
+
+def apply_stage(manifest: dict[str, Any], stage: str) -> None:
+    """Keep runtime and supervisor limits coupled to the same session cap."""
+    envelope = stage_envelope(stage)
+    manifest["timeout_minutes"] = envelope["effective_minutes"]
+    manifest["requirements"]["est_minutes"] = envelope["base_minutes"]
+    manifest["budget"].update(
+        unit_cap=envelope["effective_units"],
+        reserve_units=envelope["effective_reserve_units"],
+    )
+    manifest["env"].update(
+        F0_SESSION_SECONDS=str(int(envelope["effective_minutes"] * 60)),
+        F0_FINALIZE_SECONDS=str(envelope["effective_finalize_seconds"]),
+    )
+
+
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -277,8 +331,8 @@ def make_manifest(
             "NUMBA_NUM_THREADS": "1",
             "VECLIB_MAXIMUM_THREADS": "1",
         },
-        "requirements": {"gpu": "cpu", "allowed_gpus": ["cpu"], "min_vcpu": 1, "est_minutes": 27.5},
-        "timeout_minutes": 55,
+        "requirements": {"gpu": "cpu", "allowed_gpus": ["cpu"], "min_vcpu": 1, "est_minutes": 60},
+        "timeout_minutes": 120,
         "output_dir": str(output_dir),
         "inputs": [
             input_row(control, "inputs/control.json"),
@@ -287,9 +341,9 @@ def make_manifest(
             *_pool_inputs(b8, frp3),
         ],
         "budget": {
-            "unit_cap": 0.18,
+            "unit_cap": 0.20,
             "rate_units_per_hour": 0.08,
-            "reserve_units": 0.036,
+            "reserve_units": 0.040,
             "other_assignments": {},
         },
         "lease_seconds": 180,
@@ -310,22 +364,10 @@ def make_manifest(
         },
         "canary": {"template": True, "family": SCRIPT},
         "f0": {
-            "base_envelope": {"hours": 0.5, "units": 0.1},
-            "effective_envelope": {"hours": 1.0, "units": 0.2},
-            "stages": {
-                "transport_probe": {
-                    "base_minutes": 2.5,
-                    "effective_minutes": 5,
-                    "base_units": 0.01,
-                    "effective_units": 0.02,
-                },
-                "science": {
-                    "base_minutes": 27.5,
-                    "effective_minutes": 55,
-                    "base_units": 0.09,
-                    "effective_units": 0.18,
-                },
-            },
+            "base_envelope": {"minutes": 70, "units": 0.12, "reserve_units": 0.024},
+            "effective_envelope": {"minutes": 140, "units": 0.24, "reserve_units": 0.048},
+            "stages": {stage: stage_envelope(stage) for stage in STAGES},
+            "cap_authority": "research/bl_labels/SESSION_CAPS_AMENDMENT.md",
             "gpu": 0,
             "allocation": {
                 "gate": {"frozen": 12, "mixed": 12, "scripted": 8},
@@ -341,12 +383,13 @@ def make_manifest(
             "attempt_policy": (
                 "One original plus at most two manually dispatched mechanical completion attempts; "
                 "every attempt has a fresh output directory. The full series shares the single "
-                "60-minute/0.2-unit effective envelope; no automatic retries, cap reset, or "
+                "140-minute/0.24-unit effective envelope; no automatic retries, cap reset, or "
                 "outcome-triggered rerun. Verified lives are skipped and never recomputed or "
                 "relabelled."
             ),
         },
     }
+    apply_stage(result, "science")
     return result
 
 
@@ -355,12 +398,9 @@ def make_family_probe(template: dict[str, Any], output_dir: Path) -> dict[str, A
     probe = json.loads(json.dumps(template))
     probe["job_id"] = f"bl-f0-family-probe-{template['commit'][:8]}"
     probe["output_dir"] = str(Path(output_dir).resolve())
-    probe["timeout_minutes"] = 5
-    probe["requirements"]["est_minutes"] = 2.5
-    probe["budget"].update(unit_cap=0.02, reserve_units=0.004)
+    apply_stage(probe, "transport_probe")
     probe["env"].update(
         F0_TRANSPORT_PROBE="1",
-        F0_RUNTIME_SECONDS="270",
         SNAKE_COLAB_CANARY="1",
         SNAKE_COLAB_CANARY_PACKAGE=PACKAGE,
     )
@@ -373,7 +413,7 @@ def make_family_probe(template: dict[str, Any], output_dir: Path) -> dict[str, A
     probe["resume_exemption"] = {
         "kind": "short-canary",
         "reason": "excluded F0 same-entrypoint transport probe; no label rows may contribute",
-        "timeout_minutes": 5,
+        "timeout_minutes": probe["timeout_minutes"],
     }
     probe["f0"]["stage"] = "EXCLUDED_TRANSPORT_PROBE"
     return probe

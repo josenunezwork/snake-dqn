@@ -52,7 +52,9 @@ if reversals exceed ten percent, leaving immutable raw outcomes intact.
 
 The current frozen source pin, verified artifact hashes, Codex-V receipt and exact
 Claude commands are in [HANDOFF.md](HANDOFF.md). The transport allocation is
-frozen in [FAMILY_PROBE_EXECUTION.md](FAMILY_PROBE_EXECUTION.md).
+frozen in [FAMILY_PROBE_EXECUTION.md](FAMILY_PROBE_EXECUTION.md), with the
+owner-authorized execution envelope replaced by
+[SESSION_CAPS_AMENDMENT.md](SESSION_CAPS_AMENDMENT.md).
 
 Preparation requires a clean published source pin, the qualified CLI tree,
 six pinned public checkpoint identities and a clean Python 3.12 import
@@ -73,7 +75,7 @@ PIN=$(git rev-parse HEAD)
 
 Claude dispatches only through
 `/Users/josenunez/Projects/ml/snake-dqn-acctfix/tools/ops/dispatch.sh`.
-First run `f0-family-probe.json`: CPU, five minutes, 0.02 units. Its separate
+First run `f0-family-probe.json`: CPU, 20 minutes, 0.04 units. Its separate
 H3 namespace emits no life labels and cannot contribute to scientific aggregates.
 After its actual verified PASS receipt and backend release, bind that receipt:
 
@@ -86,9 +88,16 @@ After its actual verified PASS receipt and backend release, bind that receipt:
 
 Only the receipt-bound manifest admits the full F0 canary: 12 frozen + 12 mixed
 + 8 scripted H5000 worlds and four Watch6 H14400 sessions, CPU, W=nproc,
-one numerical thread per worker. It has 55 minutes / 0.18 units / 0.036 reserve;
-the excluded probe has five minutes / 0.02 units / 0.004 reserve. The combined
-base/effective envelope stays 30/60 minutes, 0.1/0.2 units, 0.02/0.04 reserve.
+one numerical thread per worker. It has 120 minutes / 0.20 units / 0.040 reserve;
+the excluded probe has 20 minutes / 0.04 units / 0.008 reserve. The combined
+base/effective replacement envelope is 70/140 minutes, 0.12/0.24 units,
+0.024/0.048 reserve, doubled exactly once. Base whole-session forecasts are
+10 minutes for the probe and 60 minutes for science, including setup, useful
+work, export and margin. The runtime reads the qualified watchdog window and
+subtracts measured setup plus the 300/540-second effective export/margin
+reserve; it never starts a separate full-session work timer. It exports those
+operands in `session-budget.json`, and ledger verification consumes the same
+absolute collection deadline.
 The measured accounting rate is 0.08 u/hour. Setup, export, failures and manual
 mechanical completion attempts share these limits; first cap wins. There is
 no automatic retry, purchase or cap reset. The designated broker must match

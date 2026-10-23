@@ -51,13 +51,13 @@ def test_canary_manifest_freezes_counts_and_effective_cap(tmp_path):
     manifest = make_manifest(commit, tmp_path / "out", control, ledger, b8, frp3)
     assert len(canary_allocation()) == 36
     assert manifest["requirements"]["gpu"] == "cpu"
-    assert manifest["budget"]["unit_cap"] == 0.18
+    assert manifest["budget"]["unit_cap"] == 0.20
     assert manifest["budget"]["rate_units_per_hour"] == 0.08
     assert manifest["f0"]["allocation"]["watch6_decisions"] == 14400
     assert manifest["resume"]["max_outcome_blind_retries"] == 2
     probe = manifests.make_family_probe(manifest, tmp_path / "probe-out")
-    assert probe["budget"]["unit_cap"] == 0.02
-    assert probe["timeout_minutes"] == 5
+    assert probe["budget"]["unit_cap"] == 0.04
+    assert probe["timeout_minutes"] == 20
     assert probe["inputs"] == manifest["inputs"]
     assert "resume" not in probe and probe["resume_exemption"]["kind"] == "short-canary"
 
