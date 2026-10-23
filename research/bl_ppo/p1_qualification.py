@@ -37,6 +37,36 @@ def terminal(path: Path) -> dict[str, Any]:
     return row
 
 
+def final_transfer_release_timing(session: dict[str, Any]) -> dict[str, float]:
+    """Bind measured verified downloads and the stop/disappearance CLI sequence."""
+    transfers = [
+        row
+        for row in session.get("transfers", [])
+        if row.get("direction") == "download" and row.get("status") == "verified"
+    ]
+    calls = session.get("cli_calls", [])
+    stops = [i for i, row in enumerate(calls) if row.get("command") == "stop"]
+    if not transfers or not stops:
+        raise ValueError("qualification lacks measured final transfer/release timing")
+    release = [
+        row
+        for row in calls[stops[-1] :]
+        if row.get("command") == "stop"
+        or row.get("command") == "sessions"
+        and row.get("status") == "completed"
+    ]
+    if {row.get("command") for row in release} != {"stop", "sessions"}:
+        raise ValueError("qualification lacks measured final release/disappearance timing")
+    for row in transfers + release:
+        seconds = row.get("elapsed_seconds")
+        if type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds <= 0:
+            raise ValueError("qualification has invalid final transfer/release timing")
+    return {
+        "verified_download_seconds": sum(row["elapsed_seconds"] for row in transfers),
+        "stop_and_disappearance_seconds": sum(row["elapsed_seconds"] for row in release),
+    }
+
+
 def finalize(
     *,
     runtime: Path,
@@ -52,11 +82,12 @@ def finalize(
     source = terminal(source_supervisor)
     replacement = terminal(replacement_supervisor)
     durability = complete_json(y3)
-    if durability.get("schema") != "bl-p1-y3/v1" or durability.get("status") not in {
-        "PASS",
-        "Y3_PASS_BOUNDARY_ONLY",
-    }:
-        raise ValueError("P1 pricing requires Y3 PASS")
+    if (
+        durability.get("schema") != "bl-p1-y3/v1"
+        or durability.get("status") != "PASS"
+        or durability.get("operational_replay", {}).get("status") != "PASS"
+    ):
+        raise ValueError("P1 pricing requires full Y3 PASS including operational replay")
     if not source.get("endpoint") or source.get("endpoint") == replacement.get("endpoint"):
         raise ValueError("Y3 source and replacement must be distinct assignments")
     if len({s.get("commit") for s in (source, replacement, qual_session)}) != 1:
@@ -99,6 +130,7 @@ def finalize(
         raise ValueError("qualification lacks measured collection+update+probe seconds")
     if run.get("timing_includes_collection_updates_probes") is not True:
         raise ValueError("collection-only rate cannot price P1")
+    final_timing = final_transfer_release_timing(qual_session)
     overhead = qual_session["elapsed_seconds"] - actor_seconds
     row = {
         "schema": "bl-p1-complete-job-qualification/v1",
@@ -111,6 +143,7 @@ def finalize(
         "per_job_overhead_seconds": overhead,
         "prefix_seconds": sum(s["elapsed_seconds"] for s in (source, replacement, qual_session)),
         "transfer_and_release_verified": True,
+        "final_transfer_release_timing": final_timing,
         "source_commit": qual_session["commit"],
         "registration_sha256": run.get("registration_sha256"),
         "runtime_sha256": digest(runtime),

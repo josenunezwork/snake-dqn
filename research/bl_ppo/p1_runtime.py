@@ -49,7 +49,8 @@ def _load_control(path: Path, phase: str) -> dict[str, Any]:
         resume.get("unit_kind") != "operational-snapshot"
         or resume.get("skip_verified") is not True
         or type(resume.get("max_outcome_blind_retries")) is not int
-        or resume.get("max_outcome_blind_retries") != 2
+        or resume.get("max_outcome_blind_retries")
+        != ((0 if phase == "qual-1m" else 1) if value.get("y3_origin_import") is not None else 2)
         or not isinstance(resume.get("ledger_path"), str)
         or not resume["ledger_path"].strip()
     ):
@@ -63,6 +64,26 @@ def _load_control(path: Path, phase: str) -> dict[str, Any]:
     value["_verified_ledger"] = read_ledger(ledger, namespace=namespace, allocation=allocation)
     if value.get("scientific_admission") is not True:
         raise ValueError("P1 manifest is a template or has unresolved dispatch blockers")
+    if value.get("y3_origin_import") is not None:
+        expected_cadence = 1800 if phase == "qual-1m" else 900
+        if value.get("checkpoint_every_seconds") != expected_cadence:
+            raise ValueError("amendment-06 phase must use its frozen snapshot cadence")
+        if phase not in {"y3-source", "y3-replacement", "qual-1m"} or (
+            phase == "y3-source" and value["_verified_ledger"]
+        ):
+            raise ValueError("amendment-06 import requires y3-source with an empty verified ledger")
+        from research.bl_ppo.p1_origin_import import validate
+
+        # The family canary has its own deliberately isolated collection
+        # identity.  It carries the same import block for transport binding,
+        # while the sibling source control supplies the science identity.
+        import_control = value
+        if os.environ.get("SNAKE_COLAB_CANARY") == "1":
+            sibling = path.parent / "p1-control.json"
+            if sibling != path and sibling.is_file():
+                verify_export(sibling)
+                import_control = json.loads(sibling.read_text())
+        value["_origin_import"] = validate(import_control, path.parent)
     fixed = {
         "target": p1_contract.SHAPE.target,
         "seed": 20261021,
@@ -185,7 +206,11 @@ def _load_control(path: Path, phase: str) -> dict[str, Any]:
         verify_export(admission)
         row = json.loads(admission.read_text())
         required = "bl-p1-y3/v1" if phase == "qual-1m" else "bl-p1-complete-job-qualification/v1"
-        statuses = {"PASS", "Y3_PASS_BOUNDARY_ONLY"} if phase == "qual-1m" else {"PASS"}
+        statuses = (
+            {"PASS"}
+            if value.get("y3_origin_import") is not None
+            else ({"PASS", "Y3_PASS_BOUNDARY_ONLY"} if phase == "qual-1m" else {"PASS"})
+        )
         if row.get("schema") != required or row.get("status") not in statuses:
             raise ValueError("P1 phase lacks its immutable PASS admission evidence")
         if (
@@ -425,6 +450,13 @@ def _train_args(
             and bool(control.get("operational_replay_required", False))
         ),
         p1_origin_snapshot=origin_snapshot,
+        p1_origin_import_sha256=control.get("_origin_import", {}).get("binding_sha256"),
+        p1_imported_origin_snapshot_sha256=control.get("_origin_import", {}).get(
+            "origin_snapshot_sha256"
+        ),
+        p1_prefix_witness_actions=control.get("_origin_import", {})
+        .get("prefix_witness", {})
+        .get("actor_actions"),
         p1_origin_source_path=origin_source_path,
         p1_resume_source_trace=durability and control["phase"] == "y3-source",
         p1_replay_stop_at=replay_stop_at,
@@ -445,19 +477,23 @@ def _run_one(
     origin_source_path: Path | None = None,
 ) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=False)
-    return run_train(
-        _train_args(
-            control,
-            output=output,
-            checkpoint=checkpoint,
-            resume=resume,
-            durability=durability,
-            snapshot_label=snapshot_label,
-            origin_snapshot=origin_snapshot,
-            replay_stop_at=replay_stop_at,
-            origin_source_path=origin_source_path,
-        )
+    train_args = _train_args(
+        control,
+        output=output,
+        checkpoint=checkpoint,
+        resume=resume,
+        durability=durability,
+        snapshot_label=snapshot_label,
+        origin_snapshot=origin_snapshot,
+        replay_stop_at=replay_stop_at,
+        origin_source_path=origin_source_path,
     )
+    if control.get("_origin_import") is not None:
+        from research.bl_ppo.p1_origin_import import guard_refit_entry
+
+        with guard_refit_entry():
+            return run_train(train_args)
+    return run_train(train_args)
 
 
 def _require_pause(value: dict[str, Any], *, pause: int, durability: bool = False) -> Path:
@@ -621,6 +657,9 @@ def _validate_resume(control: dict[str, Any], resume: Path, input_dir: Path) -> 
         "p1_registration_sha256": control["registration_sha256"],
         "p1_evaluation_bank_sha256": control["evaluation_bank_sha256"],
     }
+    imported = control.get("_origin_import")
+    if imported is not None and verify_export(resume) == imported["origin_snapshot_sha256"]:
+        expected_identity["source_commit"] = control["y3_origin_import"]["source_commit"]
     if any(identity.get(key) != value for key, value in expected_identity.items()):
         raise ValueError("P1 resume identity differs from the frozen trajectory")
     convergence_enabled = control.get("e8_critic_convergence_amendment_03", False)
@@ -690,6 +729,23 @@ def _validate_resume(control: dict[str, Any], resume: Path, input_dir: Path) -> 
 def execute(args: argparse.Namespace) -> dict[str, Any]:
     """Execute exactly one P1 runtime phase and publish its immutable receipt."""
     control = _load_control(args.control, args.phase)
+    if getattr(args, "validate_only", False):
+        imported = control.get("_origin_import")
+        if args.phase != "y3-source" or imported is None:
+            raise ValueError("validate-only is reserved for an amendment-06 y3 source import")
+        if not args.checkpoint.is_file():
+            raise FileNotFoundError("missing hash-verified B8 checkpoint")
+        from research.bl_ppo.p1_eval import B8_SHA256
+
+        if digest(args.checkpoint) != B8_SHA256:
+            raise ValueError("P1 requires the exact released B8 s3 checkpoint")
+        return {
+            "schema": "bl-p1-y3-origin-import-preflight/v1",
+            "status": "VALIDATED_NO_ACTOR_STEP",
+            "origin_snapshot_sha256": imported["origin_snapshot_sha256"],
+            "origin_status_sha256": imported["origin_status_sha256"],
+            "binding_sha256": imported["binding_sha256"],
+        }
     budget = control.get("export_byte_budget")
     if budget is None:
         return _execute(args, control)
@@ -774,7 +830,18 @@ def _execute(args: argparse.Namespace, control: dict[str, Any]) -> dict[str, Any
             }
             if any(latest_state["identity"].get(key) != value for key, value in expected.items()):
                 raise ValueError("operational snapshot trajectory identity differs")
-        if latest_state is None or not latest_state["counters"].get("actor_enabled"):
+        imported = control.get("_origin_import")
+        if imported is not None:
+            if latest_state is not None or args.resume is not None:
+                raise ValueError("amendment-06 import cannot resume an operational ledger")
+            origin_snapshot = imported["snapshot"]
+            continuation_start = origin_snapshot
+            origin = {
+                "status": "IMPORTED_VERIFIED_ORIGIN",
+                "origin_status_sha256": imported["origin_status_sha256"],
+                "failed_receipt_sha256": imported["failed_receipt_sha256"],
+            }
+        elif latest_state is None or not latest_state["counters"].get("actor_enabled"):
             origin_control = dict(control, pause_at=0, requested_pause_at=0)
             origin = _run_one(
                 origin_control,
@@ -814,8 +881,31 @@ def _execute(args: argparse.Namespace, control: dict[str, Any]) -> dict[str, Any
         )
         continuation["_output"] = str(output / "source-continuation")
         continuation_snapshot = _require_pause(continuation, pause=0, durability=True)
+        if imported is not None:
+            final_counters = continuation.get("counters", {})
+            if any(final_counters.get(key) != item for key, item in imported["counters"].items()):
+                raise ValueError("VOID: imported refit counters changed during actor continuation")
+            if continuation.get("critic_refit") != imported["critic_refit"]:
+                raise ValueError(
+                    "VOID: imported critic_refit subtree changed during actor continuation"
+                )
         trace_path = output / "source-continuation" / "action-trace.json"
         trace = _read_trace(trace_path)
+        if imported is not None:
+            observed_prefix = trace.get("prefix_witness")
+            expected_prefix = imported["prefix_witness"]
+            if not isinstance(observed_prefix, dict):
+                raise ValueError("amendment-06 continuation failed to emit prefix witness")
+            prefix_result = {
+                **observed_prefix,
+                "expected_full_tape_sha256": expected_prefix["full_tape_sha256"],
+                "status": (
+                    "MATCH"
+                    if observed_prefix.get("full_tape_sha256")
+                    == expected_prefix["full_tape_sha256"]
+                    else "MISMATCH_BLOCKS_REPLACEMENT"
+                ),
+            }
         operational = continuation.get("operational_snapshots", [])
         if latest_state is not None and latest_state["counters"].get("actor_enabled"):
             from research.bl_ppo.recovery import copy_snapshot_closure
@@ -886,6 +976,33 @@ def _execute(args: argparse.Namespace, control: dict[str, Any]) -> dict[str, Any
                 for item in _snapshot_catalog(output / "source-continuation" / row["path"])
             ],
         }
+        if imported is not None:
+            result["origin_mode"] = "IMPORTED_VERIFIED_ORIGIN"
+            result["imported_origin"] = {
+                "origin_status_sha256": imported["origin_status_sha256"],
+                "failed_receipt_sha256": imported["failed_receipt_sha256"],
+                "offline_audit_sha256": imported["offline_audit_sha256"],
+                "control_binding_sha256": imported["binding_sha256"],
+                "critic_refit_sha256": imported["critic_refit_sha256"],
+                "critic_refit": imported["critic_refit"],
+            }
+            result["critic_refit"] = imported["critic_refit"]
+            result["critic_refit_sha256"] = imported["critic_refit_sha256"]
+            result["prefix_witness"] = prefix_result
+            witness_ledger = {
+                "schema": "bl-p1-origin-prefix-witness-ledger/v1",
+                "namespace": control["resume"]["namespace"],
+                "allocation": control["resume"]["allocation"],
+                "origin_snapshot_sha256": imported["origin_snapshot_sha256"],
+                "superseded_failed_receipt_sha256": imported["failed_receipt_sha256"],
+                "witness": prefix_result,
+            }
+            exported_witness = export_json(output / "prefix-witness-ledger.json", witness_ledger)
+            result["prefix_witness_ledger_record"] = exported_witness
+            result["refit_counters_before"] = imported["counters"]
+            result["refit_counters_after"] = {
+                key: continuation["counters"][key] for key in imported["counters"]
+            }
     else:
         if args.resume is None:
             raise ValueError(f"{args.phase} requires a hash-verified transitive resume snapshot")
@@ -902,7 +1019,17 @@ def _execute(args: argparse.Namespace, control: dict[str, Any]) -> dict[str, Any
             )
             expected = _read_trace(expected_path)
             source_continuation_fingerprint = _snapshot_fingerprint(expected_snapshot)
-            if proof.get("assignment_endpoint") == assignment_endpoint:
+            if (
+                control.get("_origin_import") is not None
+                and proof.get("prefix_witness", {}).get("status") != "MATCH"
+            ):
+                raise ValueError(
+                    "replacement admission blocked by missing or mismatched prefix witness"
+                )
+            if (
+                str(proof.get("assignment_endpoint", "")).split("#generation=", 1)[0]
+                == assignment_endpoint.split("#generation=", 1)[0]
+            ):
                 raise ValueError("Y3 replacement must use a different L4 assignment")
             if verify_export(resume) != proof.get("origin_snapshot", {}).get("sha256"):
                 raise ValueError("replacement resume is not the source Y3 origin snapshot")
@@ -1096,6 +1223,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--expected-trace", type=Path)
+    parser.add_argument("--validate-only", action="store_true")
     return parser
 
 

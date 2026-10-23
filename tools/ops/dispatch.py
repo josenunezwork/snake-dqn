@@ -302,7 +302,17 @@ def require_resume_policy(manifest: dict[str, Any]) -> None:
     if resume.get("skip_verified") is not True:
         raise Refused("resume.skip_verified must be true")
     retries = resume.get("max_outcome_blind_retries")
-    if type(retries) is not int or retries != 2:
+    # Amendment 06 narrows the generic maximum for this exact ruled family.
+    # This declaration never launches an automatic research completion retry.
+    ruling = "fe0584595cca6f6fcb28071692e52e4fe8460f3ab90fc29429c027203ff9ebfc"
+    env = manifest.get("env")
+    phase = env.get("BL_P1_MODE") if isinstance(env, dict) else None
+    ruled = manifest.get("p1_finalisation_ruling_sha256") == ruling
+    maximum = {"y3-source": 1, "y3-replacement": 1, "qual-1m": 0}.get(phase)
+    if ruled and maximum is not None:
+        if type(retries) is not int or retries != maximum:
+            raise Refused(f"resume.max_outcome_blind_retries must be the ruled integer {maximum}")
+    elif type(retries) is not int or retries != 2:
         raise Refused("resume.max_outcome_blind_retries must be the integer 2")
 
 
