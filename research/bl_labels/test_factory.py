@@ -218,6 +218,7 @@ def test_canary_manifest_binds_cpu_cap_and_resume_contract(tmp_path: Path) -> No
     publish_json(ledger, empty_ledger(namespace(commit), _allocation()))
     for path in (control, b8, frp3):
         path.write_bytes(b"fixture")
+    control.with_name("SEED_AUDIT.json").write_text("{}")
     manifest = make_manifest(commit, tmp_path / "output", control, ledger, b8, frp3)
     assert manifest["requirements"] == {
         "gpu": "cpu",
