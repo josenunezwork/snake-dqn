@@ -1,0 +1,14 @@
+{
+  "bare_audit_mismatches": 0,
+  "command": "bash /var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/rq-functional-_qf0pa68/run.sh",
+  "digest_checks": 1,
+  "elapsed_seconds": 17.79723012499744,
+  "functional_roots": 1,
+  "label_row_hash_present": true,
+  "qualification": false,
+  "schema": "rpc-qualification-functional-smoke/v1",
+  "scope": "Real frozen F1 prepare and label entrypoint, one root only; no platform admission, no result outcome printed",
+  "source_archive_sha256": "2b9fe8be23ac8fe163a315a88f0c6810efd882f5b61c21e89970fe76f6d13529",
+  "source_pin": "2af48cd0b98a2063f46871cf4d320a5541b789af",
+  "status": "PASS"
+}

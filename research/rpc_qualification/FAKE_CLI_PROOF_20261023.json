@@ -1,0 +1,22 @@
+{
+  "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_colab_cli_rpc_recovery.py",
+  "live": false,
+  "passed": 31,
+  "properties": [
+    "hanging exec bounded and counted",
+    "post-send dropped response retains same request ID",
+    "concurrent duplicate request executes command once",
+    "completed request survives client reconnect",
+    "provider HTTP 503 retains control failure and only transient recovery",
+    "started without done cannot rerun",
+    "pending expiry stays counted and fenced"
+  ],
+  "schema": "rpc-qualification-fake-cli-proof/v1",
+  "source_sha256": {
+    "research/colab_cli/rpc.py": "95b6e28d7e90d248a5a4ce6e137deab57388347c2fc2d2547aeae1d984ead95e",
+    "research/colab_cli/supervisor.py": "d4afef58048ad9235c839440caf3fc3848a2559d53ed29e01be2e331ea63fd92",
+    "tests/fixtures/colab_control_faults_f1.json": "1a807959e9a994745e42b6921a1718e8ecfd24bfb6ff08128fd726967941ba8a",
+    "tests/test_colab_cli_rpc_recovery.py": "1eb9cd5163a2abd2040dbe70142e227f23ebb51bbb219d5dd5077d2bf964c2f8"
+  },
+  "status": "PASS"
+}

@@ -82,6 +82,14 @@ def qualified(broker: Path, ops: Path, deadline: float | None = None, ref: str =
     )
 
 
+def profile_launcher(broker: Path, manifest: Path) -> Path:
+    """Use the explicit C1 adapter only for its ruled engineering entrypoint."""
+    value = json.loads(manifest.read_text())
+    if value.get("script") == "research/rpc_qualification/colab.sh":
+        return broker / "research/rpc_qualification/launch.sh"
+    return broker / "research/colab_cli/launch.sh"
+
+
 def validate(
     broker: Path, cwd: Path, state: Path, manifest: Path, log: Path, deadline: float | None = None
 ) -> None:
@@ -89,7 +97,7 @@ def validate(
     with log.open("x") as stream:
         command(
             [
-                str(broker / "research/colab_cli/launch.sh"),
+                str(profile_launcher(broker, manifest)),
                 "--state-dir",
                 str(state),
                 "--colab",
@@ -117,7 +125,7 @@ def start(
     log.touch(exist_ok=False)
     register(log.parent.parent, log, name)
     launcher = [
-        str(broker / "research/colab_cli/launch.sh"),
+        str(profile_launcher(broker, manifest)),
         "--state-dir",
         str(state),
         "--colab",
@@ -444,6 +452,16 @@ def dispatch(args: argparse.Namespace) -> str:
                 raise Refused("refreshed manifest changed after validation")
             start(broker, cwd, state, live_manifest, log, name, deadline)
             outcome = wait_allocation(Path(output), log, deadline, poll)
+            # C1's fixed qualification slot is failed by this original call.
+            # Preserve its receipt and liability; a replacement cannot rescue it.
+            # The generic exact accounting-allocation retry remains unchanged.
+            if (
+                outcome == "retry"
+                and value.get("script") == "research/rpc_qualification/colab.sh"
+                and value.get("rq", {}).get("schema") == "rpc-qualification-profile/v1"
+            ):
+                note(log, "OPS_QUALIFICATION_COUNTED_FAILURE_NO_REPLACEMENT")
+                outcome = "failed"
             if attempt == 1 and outcome == "retry":
                 note(log, "OPS_ALLOCATION_RETRY_EXHAUSTED")
                 outcome = "failed"

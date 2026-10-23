@@ -1,0 +1,113 @@
+{
+  "authority_sha256": "738a367bec2c3399ed8bd9383811d7fa643109a8aaba384a775f1c028a7285ea",
+  "base_commit": "a18bf6b4f606f023bfd7c035e68a48e64d7f7457",
+  "branch": "ops-rpc-stall-fix-20261023",
+  "historical_non_timeout_fault": {
+    "attribution": "Saved records cannot distinguish child exit, provider or tunnel; remains counted, never relabelled timeout",
+    "classification": "UNRESOLVED_NON_TIMEOUT_CONTROL_FAILURE",
+    "elapsed_seconds": 36.73803158401279
+  },
+  "independent_verification": [
+    {
+      "passed": 86,
+      "pytest_args": "-q -p no:xdist",
+      "seconds": 42.15,
+      "selection": "producer/injection/profile/ops dispatch"
+    },
+    {
+      "passed": 3,
+      "pytest_args": "-q -p no:xdist",
+      "seconds": 10.83,
+      "selection": "checker"
+    },
+    {
+      "passed": 4,
+      "pytest_args": "-q -p no:xdist",
+      "seconds": 0.75,
+      "selection": "loop final including verified-prefix union"
+    },
+    {
+      "passed": 4,
+      "pytest_args": "-q -p no:xdist",
+      "seconds": 0.76,
+      "selection": "injection final"
+    },
+    {
+      "result": "Propagates and remains non-injected",
+      "selection": "natural provider timeout while response-drop armed"
+    }
+  ],
+  "open_findings": [],
+  "qualification": {
+    "prerequisite": "Source-bound final-only CPU and L4 acceptance at a18bf6b4 with zero counted calls",
+    "required_live": [
+      "three L4 W12 frozen F1 loops >=3600s each",
+      "three CPU W2 frozen F1 loops >=3600s each",
+      "separate CPU injection >=3 actual units with post-send response loss and completed request reissue",
+      "every failed call record counted even after recovery",
+      "verified release and backend disappearance; hash ledgers remotely published before one look"
+    ],
+    "scope": "No live qualification, F1-bis, placement or serving admission is claimed",
+    "status": "PREPARED_PENDING_PREREQUISITE_AND_LIVE"
+  },
+  "recorded_by": "Root from independent reviewer report; source hashes rechecked locally",
+  "remaining_limits": [
+    "Full live six-session census and CPU injection have not run",
+    "Synthetic checker fixtures and real request envelope regressions are offline evidence, not a strict live end-to-end pass",
+    "Second-attempt plans are not supplied; fresh namespaces and a reviewed mechanical fix are required"
+  ],
+  "reviewer": "Independent Codex-V /root/codex_v",
+  "root_verification": [
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_rpc_qualification_profile.py tests/test_rpc_qualification_loop.py tests/test_rpc_qualification_injection.py tests/test_rpc_qualification_checker.py tests/test_colab_cli_rpc_recovery.py tests/test_ops_dispatch.py",
+      "passed": 121,
+      "seconds": 60.5
+    },
+    {
+      "command": "black --check --line-length 100; isort --check-only --profile black; flake8",
+      "scope": "All changed Python files",
+      "status": "PASS"
+    },
+    {
+      "command": "bash -n research/rpc_qualification/colab.sh research/rpc_qualification/launch.sh",
+      "status": "PASS"
+    },
+    {
+      "command": "python -m research.rpc_qualification.manifests --help",
+      "status": "PASS"
+    },
+    {
+      "receipt": "research/rpc_qualification/LOCAL_FUNCTIONAL_SMOKE_20261023.json",
+      "seconds": 17.79723012499744,
+      "selection": "actual frozen F1 one-root prepare + label",
+      "status": "PASS"
+    },
+    {
+      "frozen_archive_bytes": 690380,
+      "jobs": 7,
+      "selection": "offline seven-template preparation",
+      "status": "PASS"
+    }
+  ],
+  "schema": "codex-v-rpc-qualification-review/v1",
+  "side_effects": {
+    "colab_allocations": 0,
+    "colab_stops": 0,
+    "protected_transport_science_or_requalify_modified": false,
+    "scientific_outcomes_read": false,
+    "serving_changed": false,
+    "tmux_mutations": 0
+  },
+  "source_sha256": {
+    "research/rpc_qualification/__init__.py": "745fc85f9d368c518621860da6f6c78196f9c18cf930077ca5eebcf13e5551d7",
+    "research/rpc_qualification/admission.py": "abedcc8ed8795bc26ee3d3f2fe5867c0b5594b52c84e051e07e0796645233805",
+    "research/rpc_qualification/broker.py": "b37c2ebafab326dba1b01f46dc351f267211ab1d809e1d614e55325a7eb93434",
+    "research/rpc_qualification/checker.py": "4a22a13a61952912b86194fcf0e7063002e4df7f29229ef345ebb118f0042046",
+    "research/rpc_qualification/colab.sh": "8afb2528d08158e64279095dddcb72f7357a9234639638fc53cfde9f664a036f",
+    "research/rpc_qualification/launch.sh": "9520e728b6360e486b8749d4607cf6e409764629ec97895d8dfaf4d6d6e0de92",
+    "research/rpc_qualification/loop.py": "0dfbb2d2b5bfec727ef35e9ff4e388dbe54a12716d96adaf0abe2ad11d4d897d",
+    "research/rpc_qualification/manifests.py": "34b78a6c78a8a86b4474ee66eacbcfa17d62921f2d5d00eb8c76a868cd5ae2ee",
+    "tools/ops/dispatch.py": "d58f8e0e409cefee2c4ed0c7214e03ef7860fecfb107f4bafb2e6042165249d9"
+  },
+  "verdict": "ACCEPT_OFFLINE_ONLY"
+}

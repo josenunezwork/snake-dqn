@@ -215,6 +215,26 @@ def runs(f):
     )
 
 
+def test_c1_profile_keeps_original_accounting_fault_without_replacement(fixture):
+    f = fixture
+    profile = f["broker"] / "research/rpc_qualification"
+    profile.mkdir()
+    import shutil
+
+    shutil.copyfile(f["broker"] / "research/colab_cli/launch.sh", profile / "launch.sh")
+    (profile / "launch.sh").chmod(0o755)
+    f["change"](
+        script="research/rpc_qualification/colab.sh",
+        rq={"schema": "rpc-qualification-profile/v1"},
+        test_mode="retry_success",
+    )
+    result = f["invoke"]()
+    assert "allocation=failed" in result.stdout
+    assert len(runs(f)) == 1
+    assert (f["tmp"] / "output/receipt.json").exists()
+    assert not (f["tmp"] / "output-retry-1").exists()
+
+
 def active(endpoint, rate, **fields):
     return {
         "endpoint": endpoint,
