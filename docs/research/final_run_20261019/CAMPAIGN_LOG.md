@@ -146,6 +146,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-22 23:00 PT | M1 Branch B REJECTED | big-lever/round-22/JUDGMENT.md sha256 c85134313f824046cf26cd3060eabfa9df87ea6b2a6b4c25816d0614d5e439f6; admission-rule block sha256 4dc7bc164a1199cee40cb0f5a52c19525291f4282ecaf8a80b6def34f8743aa7. Attempt-07 = Branch A only (zero overruns in every worker cell, other bars unchanged); W0 controls verdict-neutral, report-only; --branch-b refuses. Pre-data. Dispatch by Sun 20:00, verdict by Mon 12:00; FAIL => KEEP_B8. |
 
+| 2026-10-22 23:40 PT | M1 attempt-07 RESULT = FAIL (BLOCKED, second failure) | receipt sha 7117dd42415f1bc6...: worker cells overruns W1K1 15, W2K2 9, W4K4 12, W4K8 10 (bar 0); latency PASS (W4K4 doom p99 1.38 s, update p95 8.6-9.6 ms). Bare W0 controls (no search, verdict-neutral): pre 43 overruns with update p95 13.2 ms (> 11.688), post 3 (incomplete). Per JUDGMENT_D1 / round-22: M1 FAIL => KEEP_B8 for serving; no further remedy; C15 not built. PRODUCT FINDING for owner: the served B8 Watch game itself misses 24 fps deadlines on this Mac without any search. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
