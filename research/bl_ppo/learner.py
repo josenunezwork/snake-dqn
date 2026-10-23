@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 from torch import nn
 from torch.distributions import Categorical
@@ -384,6 +386,107 @@ class PPOLearner:
             self.optimizer.step()
             losses.append(loss.detach())
         return float(torch.stack(losses).mean())
+
+    def install_exact_return_critic_solution(
+        self, features: torch.Tensor, returns: torch.Tensor
+    ) -> dict[str, object]:
+        """Install the Amendment-03 raw-return least-squares PopArt head.
+
+        This CPU NumPy float64 solve replaces only the affine PopArt head.  It
+        is a single pre-gate analytic operation, not a PPO update.
+        """
+        if features.ndim != 2 or features.shape[1] != 257 or returns.shape != (features.shape[0],):
+            raise ValueError("complete critic targets require [N, 257] features and [N] returns")
+        if not features.numel():
+            raise ValueError("complete critic targets must be non-empty")
+        if not torch.isfinite(features).all() or not torch.isfinite(returns).all():
+            raise FloatingPointError("non-finite Amendment-03 complete critic targets")
+        x = np.asarray(features.detach().cpu(), dtype=np.float64)
+        y = np.asarray(returns.detach().cpu().reshape(-1), dtype=np.float64)
+        if x.shape[0] > 10_000:
+            raise ValueError("Amendment-03 critic fit reservoir exceeds 10000 rows")
+        design = np.concatenate((np.ones((x.shape[0], 1), dtype=np.float64), x), axis=1)
+        try:
+            coefficients, _residuals, rank, _singular_values = np.linalg.lstsq(
+                design, y, rcond=None
+            )
+        except np.linalg.LinAlgError as exc:
+            raise ValueError("Amendment-03 critic least-squares solve failed") from exc
+        prediction64 = design @ coefficients
+        mean = float(np.mean(y, dtype=np.float64))
+        second_moment = float(np.mean(np.square(y), dtype=np.float64))
+        variance = float(np.mean(np.square(y - mean), dtype=np.float64))
+        scale = float(np.sqrt(max(variance, 1e-8)))
+        values = (*coefficients, mean, second_moment, variance, scale)
+        if not np.isfinite(values).all() or not np.isfinite(prediction64).all():
+            raise FloatingPointError("non-finite Amendment-03 critic least-squares solution")
+
+        critic = self.policy.critic
+        device, dtype = critic.mean.device, critic.mean.dtype
+        new_mean = torch.as_tensor(mean, device=device, dtype=dtype)
+        new_second = torch.as_tensor(second_moment, device=device, dtype=dtype)
+        new_scale = torch.as_tensor(scale, device=device, dtype=dtype)
+        # The installed forward evaluates in these fp32 buffer coordinates, so
+        # map the raw affine solve against their actual stored values.  Using
+        # the pre-cast float64 moments here would install a different affine
+        # function whenever the moments are not exactly fp32 representable.
+        stored_mean = float(new_mean.detach().cpu())
+        stored_scale = float(new_scale.detach().cpu())
+        solution_weight = torch.as_tensor(
+            coefficients[1:] / stored_scale, device=device, dtype=critic.linear.weight.dtype
+        ).reshape_as(critic.linear.weight)
+        solution_bias = torch.as_tensor(
+            (coefficients[0] - stored_mean) / stored_scale,
+            device=device,
+            dtype=critic.linear.bias.dtype,
+        ).reshape_as(critic.linear.bias)
+        if not all(
+            torch.isfinite(value).all()
+            for value in (new_mean, new_second, new_scale, solution_weight, solution_bias)
+        ):
+            raise FloatingPointError("non-finite Amendment-03 fp32 PopArt installation")
+        with torch.no_grad():
+            # Set target coordinates using PopArt's output-preserving affine
+            # transformation, then install the registered raw-return solution.
+            old_mean, old_scale = critic.mean.clone(), critic.scale.clone()
+            critic.linear.weight.mul_(old_scale / new_scale)
+            critic.linear.bias.mul_(old_scale).add_(old_mean - new_mean).div_(new_scale)
+            critic.mean.copy_(new_mean)
+            critic.second_moment.copy_(new_second)
+            critic.scale.copy_(new_scale)
+            critic.linear.weight.copy_(solution_weight)
+            critic.linear.bias.copy_(solution_bias)
+            installed = (
+                self.policy.value_from_critic_features(
+                    features.to(device=device, dtype=critic.linear.weight.dtype)
+                )
+                .detach()
+                .cpu()
+                .double()
+            )
+        if not torch.isfinite(installed).all():
+            raise FloatingPointError("non-finite Amendment-03 installed critic predictions")
+        for parameter in critic.linear.parameters():
+            self.optimizer.state.pop(parameter, None)
+        raw_lstsq_fit_mse = float(np.mean(np.square(prediction64 - y), dtype=np.float64))
+        installed_fp32_fit_mse = float(torch.mean((installed - returns.cpu().double()).square()))
+        if not math.isfinite(raw_lstsq_fit_mse) or not math.isfinite(installed_fp32_fit_mse):
+            raise FloatingPointError("non-finite Amendment-03 installed critic fit metrics")
+        return {
+            "method": "numpy.linalg.lstsq(float64, rcond=None)",
+            "fit_count": int(y.shape[0]),
+            "rank": int(rank),
+            "target_mean": mean,
+            "target_second_moment": second_moment,
+            "target_variance": variance,
+            "target_scale": scale,
+            "installed_popart_mean": stored_mean,
+            "installed_popart_scale": stored_scale,
+            "raw_lstsq_fit_mse": raw_lstsq_fit_mse,
+            "installed_fp32_fit_mse": installed_fp32_fit_mse,
+            "optimizer_head_state_reset": True,
+            "popart_stat_initialisation": "output_preserving_affine_then_exact_moments",
+        }
 
     def update(self, rollout: PPORollout, *, actor_enabled: bool | None = None) -> dict[str, float]:
         """Perform exactly two PPO epochs, or critic-only refit before unfreezing.

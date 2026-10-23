@@ -226,6 +226,39 @@ def test_source_control_refuses_unbound_late_body_amendment(tmp_path, monkeypatc
         )
 
 
+def test_source_control_requires_a_boolean_and_bound_amendment_03_opt_in(
+    tmp_path, monkeypatch
+) -> None:
+    from research.bl_ppo.exports import digest
+    from research.bl_ppo.p1_runtime import _load_control, _train_args
+
+    with pytest.raises(ValueError, match="convergence flag must be boolean"):
+        _load_control(
+            _control(tmp_path, monkeypatch, e8_critic_convergence_amendment_03=1), "y3-source"
+        )
+    control = _load_control(
+        _control(
+            tmp_path / "enabled",
+            monkeypatch,
+            e8_critic_convergence_amendment_03=True,
+            e8_critic_convergence_amendment_03_sha256=digest(
+                Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_03.md")
+            ),
+            pause_at=0,
+        ),
+        "y3-source",
+    )
+    args = _train_args(
+        control,
+        output=tmp_path / "output",
+        checkpoint=tmp_path / "checkpoint",
+        resume=None,
+        durability=False,
+        snapshot_label="origin",
+    )
+    assert args.e8_critic_convergence_amendment_03 is True
+
+
 @pytest.mark.parametrize("changes", [{"processes": 6}, {"seed": 7}, {"worlds": 2}])
 def test_source_control_refuses_recipe_substitution(tmp_path, monkeypatch, changes) -> None:
     from research.bl_ppo.p1_runtime import _load_control

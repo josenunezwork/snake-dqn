@@ -128,6 +128,7 @@ def _source_identity(commit: str) -> dict[str, str]:
         "E8_AMENDMENT.md",
         "E8_LATE_BODY_AMENDMENT.md",
         "E8_LATE_BODY_AMENDMENT_02.md",
+        "E8_LATE_BODY_AMENDMENT_03.md",
         "collector.py",
         "late_body.py",
         "model.py",
