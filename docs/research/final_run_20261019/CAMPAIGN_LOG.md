@@ -160,6 +160,24 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 02:05 PT | P1 finalisation ruling | JUDGMENT_P1_FINALISATION.md sha fe0584595cca6f6f... (Opus stand-in): critic PASS stands as the registered Y3 critic-gate result (no second look); Y3 not yet PASS. Amendment 06 repair = import verified pre-actor origin, skip refit/gate, actor phase only to a 900-s operational capture + suffix (canary 2.00 u, repair 6.16 u); envelope 25.50 -> 34.50 u (one retry each); replacement 3.86 u with tape check; 1M qualification 4.00 u after full Y3 PASS. Sol building. |
 
+| 2026-10-23 04:00 PT | OWNER DECISIONS | Verbatim "yes approved yes to all fri" (big-lever/exp/OWNER_DECISIONS_20261023.txt): (1) publish P1 Y3 origin assets as public GitHub release (incl. disclosed paths; scope incl. replacement/1M) — pending owner gh auth login; (2) GC freeze_startup serving change approved subject to registered qualification (d.2 A1 + Sunday regression) passing; M1-bis re-chartered once, conditional on GC A1 PASS; 120-tick probe retired for >=2,400-tick + 10-min bare qualification. F1 CPU probe INVALID (F0 export digest mismatch) — investigating; L4 probe running. |
+
+| 2026-10-23 05:05 PT | GC A1 (d.2) VERDICT = FAIL | A1_VERDICT.json sha d1ff26d47edb58df... at 85aa7cf5 (all 6 cells COMPLETE; hashes published e68de0d3). Overruns default 117/113 (2,400) & 813 (14,400); freeze 100/105 & 1,138. freeze cut max GC pause (87/52/67 -> 11/12/28 ms) but gen-2 collections ~4x more often; non-GC overruns dominate (70-739/cell); update p95 13.8-23.3 ms (> 11.688) under BOTH policies; RSS slope 15.5 MiB/min (fail). Host noisier than attempt-07 (bare 43/2,400 then). Per owner approval terms: GC serving change NOT adopted; M1-bis NOT chartered; KEEP_B8; C15 stays closed. Product finding: served Watch game cannot hold 24 fps on this Mac under normal background load. |
+
+| 2026-10-23 05:20 PT | F1 re-funded | JUDGMENT_F1_REFUND.md sha f2f35631e65e4234... (Opus stand-in): F1 INVALID = packaging defect (ledger sidecar basename), not science; failed probes recorded, excluded. pack-10 caps: CPU probe 40 min/0.07 u, CPU ruler 180 min/0.30 u, L4 probe 20 min/0.65 u, L4 ruler 94 min/3.02 u (F1 total <= 4.20 u incl. 0.153 spent; <= 5.0 u). Keep CPU arm and 25 % rule; no A100 arm. Next INVALID => HOLD. GC A1 FAIL logged earlier. |
+
+| 2026-10-23 06:20 PT | F1 placement decision | f1-decision-10/decision.json (single look; hashes published 0b2c1ca8): NO_PRODUCTION_PLATFORM — CPU runtime 6 and L4 4 exec RPC faults at the 120-s budget => per registered rule neither Colab platform used for F0 production this week. Judge asked about Mac-as-production label factory + supervisor stall fix. |
+
+| 2026-10-23 06:35 PT | Placement ruling | JUDGMENT_PLACEMENT_MAC.md sha 6adf731e49b0fd27... (Opus stand-in): Colab NO_PRODUCTION_PLATFORM through Sun Oct 25 (control-path RPC stalls on CPU and L4). Mac = F0 production platform after a Mac-equivalence package (1/3/6-worker digest+label identity on the 64-root bank; full 36-allocation F0 canary on Mac as the single F0 look, floor 8 rescue-bearing lives/Mac-worker-h). Default 6 workers nice 10 (12 needs owner OK). Forecast 37-56 lives/h at 6 workers (P(fail) ~0.4); D256 6-9 h. Supervisor stall fix commissioned (re-qualify 3+3 one-hour sessions, then F1-bis Mon Oct 26). |
+
+| 2026-10-23 07:10 PT | OWNER standing approval | Verbatim "always gonna- approved" (big-lever/exp/OWNER_STANDING_APPROVAL_20261023.txt): routine operational asks pre-approved; W12 Mac F0 factory approved subject to the registered 30-min calibration (after M-E). Releases and credential entry still owner-only. |
+
+| 2026-10-23 07:40 PT | F0 Mac equivalence PASS; D256 started | mac-pack-02 RUN_ME (W6): F1 1/3/6-worker identity, Canary-B 36 allocations complete in 1,117 s, Canary-A replay audit PASS, single F0 look PASS: 14.5 rescue-bearing lives per Mac-worker-hour (floor 8; forecast was 6-9). D256 dispatched on the Mac at W6 (bl-f0-mac-d256-02; first attempt refused pre-start on a missing approval path — operator error, no data). W12 calibration runner queued (owner standing approval). |
+
+| 2026-10-23 07:55 PT | Colab stall fix PARKED | Requal of a18bf6b4: CPU PASS, L4 INCOMPLETE; Sol diagnosis (03d7e841): real bounded L4 control-RPC timeouts (2 x 30 s, one unrecovered), no sizing defect; counts as L4's first failed attempt (§7 C1.3/C1.4). Colab label lanes parked this week; Mac factory is the platform (14.5 lives/worker-h). D256 running at W6 (8/858 parents in 20 min — slower than forecast); round-27 (10 Astras) on factory speed in progress. App update killed tmux waiters; W12 calibration re-queued after round 27. |
+
+| 2026-10-23 08:10 PT | Factory speed ruling (round 27) | JUDGMENT.md sha f3d4e62547718306... (Opus stand-in): measured canary profile = play 47 %, doom alternatives 34 %, ordinary roots 11 %, audits 7 %, restore 1 %. Build from D1024: W12 (>=1.54x; width-change resume), fold 1-4 parent filter (1.25x usable), prepared-decision packet (1 obs + 1 B8 forward per decision; 1.08-1.16x), bare-audit mass check; 4 gated items behind pre-set profile thresholds. Byte-identity vs 61900af2 on a 12-parent bank + 1/64 production recheck. D256 left untouched (ETA ~15:00 PT at W6). Rejected: pruning, warm-start, batched/GPU inference, >12 workers. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -302,3 +320,37 @@ Published executable/pack pin `efdba0c2cbea91fc408e0597f76ed7ef5864634d`;
 supervisor validation passed with qualified CLI tree d0d92bdb572b770284a1fea6152417ffa5f06bea.
 No real labels/outcomes opened, no Colab allocation/spend, no operator approval
 file written, and no serving/release authority exercised.
+
+F1 refund pack-10 preparation (2026-10-23, Sol): **HOLD**. Exact caps and repaired
+worker pin `2af48cd0b98a2063f46871cf4d320a5541b789af` preserved; qualified CLI tree
+`d0d92bdb572b770284a1fea6152417ffa5f06bea` unchanged. Four upload qualifications
+PASS; L4 probe validates, but CPU's ruled 40-minute probe is refused by the
+qualified 30-minute family-canary maximum. Both rulers await actual family PASS.
+Historical pack-08 spend carried as 0.153 u, separate from fresh 4.04 u caps;
+exact historical failures retained/excluded by SHA-bound refund census; A100
+`NOT_RUN by ruling`. 153 light single-process tests PASS. No Colab dispatch.
+See `research/bl_labels/F1_REFUND_HANDOFF_20261023.md` and sibling Codex-V receipt.
+
+F1 A1 CPU-only preparation (2026-10-23, Sol): post-amendment authority SHA256
+`86e9ca69383d21a45ede31fd721d315ff39ae09736ad538496ce42b1abf1ac72`,
+`big-lever/round-24/JUDGMENT_F1_REFUND.md` Amendment A1. Create-only
+`bl-labels-f0/f1-pack-10a/` corrects the CPU probe's four time fields to
+30 minutes / 1800 seconds, adds the A1 binding, and gives CPU probe/ruler
+fresh `-10a` IDs, outputs, state paths and CPU-only dispatch instructions.
+All unit figures, worker pin `2af48cd0`, bank/ledger/census bytes and qualified
+transport tree `d0d92bdb572b770284a1fea6152417ffa5f06bea` are unchanged.
+CPU probe supervisor validation and both CPU upload qualifications PASS.
+The Mac-only analyzer additionally accepts the exact ratified A1 ruling-file
+hash, while still requiring the original unchanged census authority hash;
+foreign hashes remain refused and no decision rule changes. Five focused
+regression cases cover this compatibility fix. The ruler still requires its actual
+CPU probe PASS receipt. Pack-10, its original dispatch file and L4 lane are
+untouched. See `research/bl_labels/F1_A1_CPU_HANDOFF_20261023.md` and
+`CODEX_V_F1_A1_DELTA_20261023.json` for independent review and exact commands.
+No CPU allocation, dispatch, new science result or serving change by this task.
+Final A1 delta review: `PASS_CPU_A1_DELTA`, zero open findings; receipt SHA256
+`9d1cd980d9bcaf76c6b2bdf3183594e243f70ad5d9f5f320b5c7cab45d5752b8`.
+Final package/family-canary suite: 158 PASS in 8.82 seconds; reviewer independently
+ran 132 F1/canary checks and 24 final analyzer checks. Artifact inventory is
+`research/bl_labels/F1_A1_PACK_20261023.json`, SHA256
+`f537b69a3a097d88f2ea661ec76d16d29fac5404de0561f7789ac914cf6f82fe`.

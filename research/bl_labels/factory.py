@@ -40,6 +40,10 @@ class FactoryInvalid(RuntimeError):
     """An exactness invariant failed and the containing tranche is invalid."""
 
 
+class FactoryPreempted(RuntimeError):
+    """A cooperative host preemption reached a completed life boundary."""
+
+
 def _restore_terminal_sim(state: dict[str, Any]) -> Any:
     """Unpickle the evaluator's dynamically generated terminal GridBatchSim."""
     from src.simd_env import eval_engine
@@ -171,7 +175,7 @@ def _platform_tag() -> str:
     """Return a concise platform label without claiming cross-host identity."""
     machine = platform.machine().lower()
     return (
-        "mac-arm64"
+        "darwin-arm64"
         if machine in {"arm64", "aarch64"} and platform.system() == "Darwin"
         else machine
     )
@@ -435,7 +439,8 @@ def collect_unit(
     public = {
         key: copy.deepcopy(value)
         for key, value in allocation.items()
-        if key not in {"publish_life", "progress", "deadline_monotonic", "skip_lives"}
+        if key
+        not in {"publish_life", "progress", "deadline_monotonic", "skip_lives", "should_preempt"}
     }
     stream = public["stream"]
     selection_namespace = namespace + "/" + public["allocation_id"]
@@ -449,6 +454,7 @@ def collect_unit(
         raise ValueError("positive F0 horizon required")
     publish = allocation.get("publish_life", lambda _value: None)
     progress = allocation.get("progress", lambda _value: None)
+    should_preempt = allocation.get("should_preempt", lambda: False)
     skip = set(allocation.get("skip_lives", ()))
     deadline = allocation.get("deadline_monotonic")
     started = last_progress = time.monotonic()
@@ -802,6 +808,11 @@ def collect_unit(
                 )
                 stages["export"] += time.monotonic() - t
                 all_rows.extend(life_rows)
+                # The driver only observes preemption after completing and
+                # publishing a life.  This preserves immutable units and
+                # leaves the next life for the verified resume ledger.
+                if should_preempt():
+                    raise FactoryPreempted("F0 preempted after completed life boundary")
         finally:
             driver = restore(death_payload)
             safe.clear()
