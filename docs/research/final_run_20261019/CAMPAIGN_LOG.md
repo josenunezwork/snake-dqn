@@ -154,6 +154,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 00:20 PT | Data plan (round 24) | Opus stand-in JUDGMENT.md sha 750c2c6a... (Fable prior c718cd56..., same core plan, kept as JUDGMENT_fable_prior_0010.md). Bigger GPUs add no labels (CPU-bound sim). Multiplier = hindsight relabelling (restore last 300 decisions after each bare-B8 death; roll out only alternatives): ~15-33 rescue-bearing lives/Mac-worker-h vs 2.7 (L2'); fleet ~7-34k decisive labels/day. P(dev-screen win vs B8) ~0.10. No GPU engine now. Sol started F0 (label factory + CPU-runtime canary) and F3 (frozen-B8 residual-head harness + F4 dose-study draft). P1 source retry05 dispatched (canary PASS). |
 
+| 2026-10-23 01:25 PT | F4 APPROVED (pre-data) | round-26 JUDGMENT.md sha 0fe1a103...8362 (Opus stand-in, RATIFY-WITH-CHANGES); F4_REGISTRATION.md sha 66388c79...2fd65; FitRecipe sha 49d12f48...3a5a; all 8 edits at 8d6df609 (Codex-V PASS, 151 tests); approval artifacts big-lever/exp/f4/judgment.json (sha 15b6c842e73f1030...). No labels read. F0 label factory: family probe PASS on qualified tree d0d92bdb; CPU science canary running. GC fix: d.1 PASS (3 seeds x 5,000 ticks), d.3 PASS (both policies) at 40993bce; d.2 timed probes queued. Kernel-identity supervisor fix merged (qualified d0d92bdb). |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
