@@ -269,7 +269,7 @@ def _worker(
     if collector_root is None:
         from .factory import FactoryInvalid, FactoryPreempted, collect_unit
     else:
-        # T-EQ FAIL fallback only: load the frozen worker closure after spawn,
+        # Admitted frozen science: load the frozen worker closure after spawn,
         # never into the candidate coordinator or another worker's imports.
         from . import frozen_factory
 
@@ -451,6 +451,7 @@ def run(
     w12_calibration_receipt: Path | None = None,
     state_dir: Path | None = None,
     started_monotonic: float | None = None,
+    d256_frozen_root: Path | None = None,
 ) -> dict[str, Any]:
     """Run admitted parents until complete, guard stop, or cooperative preemption."""
     started = time.monotonic() if started_monotonic is None else started_monotonic
@@ -463,6 +464,19 @@ def run(
             control, owner_w12_ok, w12_calibration_receipt
         )
     collector_root, collector_source_commit = _collector_fallback(control, workers)
+    if d256_frozen_root is not None:
+        from .d256_resume import OLD_PIN, verify_resume_request
+
+        verify_resume_request(
+            control, d256_frozen_root, ledger, output, state_dir, deadline_seconds
+        )
+        if workers == MAX_WORKERS:
+            from .d256_resume import require_w12
+
+            require_w12(w12_calibration_receipt, b8, frp3)
+        if workers not in RESUME_WIDTHS:
+            raise ValueError("original D256 continuation requires W6 or W12")
+        collector_root, collector_source_commit = d256_frozen_root, OLD_PIN
     output = output.resolve()
     if output.exists() and any(output.iterdir()):
         raise ValueError("F0 Mac output directory must be fresh and empty")
@@ -470,7 +484,8 @@ def run(
     if "mac_gate" in control:
         from .mac_gates import require_admission
 
-        require_admission(control)
+        if d256_frozen_root is None:
+            require_admission(control)
         source_commit = control.get("source_commit")
         if not isinstance(source_commit, str) or len(source_commit) != 40:
             raise ValueError("admitted Mac control needs a full source_commit")
@@ -550,7 +565,9 @@ def run(
             start_workers = start_value.get("workers")
             if type(start_workers) is not int or not 1 <= start_workers <= MAX_WORKERS:
                 raise MacGuardError("prior Mac factory worker width is invalid; HOLD")
-            if not _width_change_allowed(control, start_workers, workers):
+            if not _width_change_allowed(control, start_workers, workers) and not (
+                d256_frozen_root is not None and {start_workers, workers} <= RESUME_WIDTHS
+            ):
                 raise MacGuardError("prior Mac factory worker width differs; HOLD")
             if start_workers == MAX_WORKERS and not (
                 start_value.get("owner_w12_ok") is True
@@ -584,7 +601,11 @@ def run(
             ):
                 raise MacGuardError("invalid prior Mac wall charge; HOLD")
             expected_worker_seconds = start_workers * elapsed
-            if terminal_value.get("worker_seconds_denominator") != expected_worker_seconds:
+            if d256_frozen_root is not None:
+                from .d256_resume import verify_worker_charge
+
+                verify_worker_charge(start_value, terminal_value, elapsed)
+            elif terminal_value.get("worker_seconds_denominator") != expected_worker_seconds:
                 raise MacGuardError("prior Mac worker-second accounting differs; HOLD")
             if start_workers == MAX_WORKERS and (
                 terminal_value.get("w12_calibration_receipt_sha256")
@@ -652,6 +673,11 @@ def run(
                 "output": str(output.resolve()),
                 "state_dir": str(state_dir.resolve()),
                 "source_commit": control.get("source_commit"),
+                "operational_source_commit": (
+                    subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+                    if d256_frozen_root is not None
+                    else None
+                ),
                 "control_sha256": hashlib.sha256(
                     json.dumps(control, sort_keys=True, separators=(",", ":")).encode()
                 ).hexdigest(),
@@ -678,6 +704,7 @@ def run(
     telemetry: list[dict[str, Any]] = []
     invalid: str | None = None
     stop_reason: str | None = None
+    registered_stop_reason: str | None = None
     preempt_started: float | None = None
     life_started: dict[str, float] = {}
     # A width switch starts a new first-hour baseline.  A same-width completion
@@ -824,6 +851,9 @@ def run(
                                     "sealed rolling six-hour rescue rate below "
                                     "50 percent Canary-B baseline"
                                 )
+                                # A later host/IPC/drain failure can replace the
+                                # operational reason, but cannot undo this stop.
+                                registered_stop_reason = stop_reason
                                 preempted = True
                                 stop_event.set()
                     elif kind == "preempted":
@@ -899,6 +929,11 @@ def run(
         "w12_calibration_receipt_sha256": w12_receipt_sha256,
         "w12_calibration_source_commit": _w12_calibration_source(control),
         "collector_source_commit": collector_source_commit,
+        "operational_source_commit": (
+            subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+            if d256_frozen_root is not None
+            else None
+        ),
         "admission_workers_final": admission_workers,
         "nice": 10,
         "thread_env": THREAD_ENV,
@@ -906,6 +941,7 @@ def run(
         "pending_parents": [job.allocation["allocation_id"] for job in pending],
         "invalid_reason": invalid,
         "stop_reason": stop_reason,
+        "registered_stop_reason": registered_stop_reason,
         "thermal_trip_count_24h": len(thermal_trips),
         "thermal_trip_epochs": thermal_trips,
         "first_hour_life_seconds": baseline_lives,
@@ -920,6 +956,14 @@ def run(
         "cumulative_elapsed_seconds": prior_elapsed + attempt_elapsed,
         "worker_seconds_denominator": workers * attempt_elapsed,
         "cumulative_worker_seconds_denominator": prior_worker_seconds + workers * attempt_elapsed,
+        "prior_recorded_worker_seconds_denominator": (
+            sum(
+                json.loads(p.read_text())["worker_seconds_denominator"]
+                for p in (state_dir / name for name in prior_attempts)
+            )
+            if d256_frozen_root is not None and state_dir is not None
+            else prior_worker_seconds
+        ),
         "platform_attestation": platform_attestation(),
         "telemetry_sealed_no_outcomes": telemetry,
     }
@@ -960,13 +1004,30 @@ def main() -> None:
     parser.add_argument("--lease-owner", default="bl-labels-f0-mac-factory")
     parser.add_argument("--owner-w12-ok", action="store_true")
     parser.add_argument("--w12-calibration-receipt", type=Path)
+    parser.add_argument("--d256-frozen-root", type=Path)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     control = json.loads(args.control.read_text())
     if args.check:
         from .mac_gates import require_admission
 
-        require_admission(control)
+        if args.d256_frozen_root is not None:
+            from .d256_resume import verify_resume_request
+
+            verify_resume_request(
+                control,
+                args.d256_frozen_root,
+                args.ledger,
+                args.output,
+                args.state_dir,
+                args.deadline_seconds,
+            )
+            if args.workers == MAX_WORKERS:
+                from .d256_resume import require_w12
+
+                require_w12(args.w12_calibration_receipt, args.b8, args.frp3)
+        else:
+            require_admission(control)
         _prepare_jobs(control, args.ledger)
         _validate_workers(args.workers, args.owner_w12_ok, args.w12_calibration_receipt is not None)
         if args.workers == MAX_WORKERS:
@@ -1002,6 +1063,7 @@ def main() -> None:
                 w12_calibration_receipt=args.w12_calibration_receipt,
                 state_dir=args.state_dir,
                 started_monotonic=entry_started,
+                d256_frozen_root=args.d256_frozen_root,
             )
             result["mac_lease"] = lease.receipt
             publish_json(args.output / "runtime-result.json", result)

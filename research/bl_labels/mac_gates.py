@@ -554,13 +554,9 @@ def _require_future_admission(control: dict) -> None:
         raise ValueError("future admitted control differs from sealed admission")
 
 
-def publish_ledger(pack: Path, attempts: list[Path], out: Path) -> dict:
-    """Publish only verified wrappers/path/size/hash; do not calculate any outcome."""
-    from .mac_driver import _verify_resume_metadata
-
-    control = _read(pack / "control.json")
-    namespace, allocation = control["namespace"], control["allocation"]
-    value = empty_ledger(namespace, allocation)
+def ledger_units(attempts: list[Path]) -> list[dict]:
+    """Inventory completed immutable triplets without inspecting outcomes."""
+    units = []
     seen = set()
     for attempt in attempts:
         if list(attempt.glob("INVALID*.json")):
@@ -575,8 +571,7 @@ def publish_ledger(pack: Path, attempts: list[Path], out: Path) -> dict:
                 raise ValueError("duplicate Mac completed unit across attempts")
             seen.add(name)
             digest = _verify(path)
-            _materialize_triplet(path, out.parent / "lives" / path.name)
-            value["units"].append(
+            units.append(
                 {
                     "unit_id": name,
                     "path": "lives/" + path.name,
@@ -584,6 +579,27 @@ def publish_ledger(pack: Path, attempts: list[Path], out: Path) -> dict:
                     "size": path.stat().st_size,
                 }
             )
+    return units
+
+
+def publish_ledger(
+    pack: Path, attempts: list[Path], out: Path, *, control: dict | None = None
+) -> dict:
+    """Publish only verified wrappers/path/size/hash; do not calculate any outcome.
+
+    D256 callers must first validate their complete durable attempt chain.
+    The default remains the historical Canary-B namespace and allocation.
+    """
+    from .mac_driver import _verify_resume_metadata
+
+    control = _read(pack / "control.json") if control is None else control
+    namespace, allocation = control["namespace"], control["allocation"]
+    value = empty_ledger(namespace, allocation)
+    value["units"] = ledger_units(attempts)
+    for attempt in attempts:
+        for path in sorted((attempt / "lives").glob("*.json")):
+            if Path(str(path) + ".complete").is_file():
+                _materialize_triplet(path, out.parent / "lives" / path.name)
     # Validate before the ledger itself becomes visible as completed evidence.
     temporary = out.parent / (".validation-" + uuid.uuid4().hex + ".json")
     publish_json(temporary, value)
