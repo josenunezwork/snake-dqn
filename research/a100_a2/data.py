@@ -236,6 +236,11 @@ def _verify_bundle(bundle: Path) -> dict[str, Any]:
 
 
 def _t5_raw(bundle: Path) -> dict[str, np.ndarray]:
+    projection = None
+    if (bundle / "projection.json").is_file():
+        from research.a100_a2.transfer import verify_projection
+
+        projection = verify_projection(bundle)
     with np.load(bundle / "t5/features.npz", allow_pickle=False) as z:
         data = {key: z[key].copy() for key in z.files}
     if data["scalars"].shape != (19976, 60) or int(data["legal"].sum()) != 103264:
@@ -254,6 +259,11 @@ def _t5_raw(bundle: Path) -> dict[str, np.ndarray]:
             path = directory / name
             if not path.is_file():
                 continue
+            if projection is not None:
+                projected = projection["shards"][str(path.relative_to(bundle))]
+                if projected["source_sha256"] != expected:
+                    raise ValueError("projected T4e source manifest differs")
+                expected = projected["sha256"]
             if sha256(path) != expected:
                 raise ValueError(f"copied T4e shard hash mismatch: {name}")
             with np.load(path, allow_pickle=False) as z:
@@ -432,15 +442,23 @@ def _safe_extract(archive: Path, destination: Path) -> Path:
     return candidates[0]
 
 
-def materialize_bundle(bundle: Path, output: Path, checkpoint: Path) -> dict[str, Path]:
+def materialize_bundle(
+    bundle: Path, output: Path, checkpoint: Path, source_archive_sha256: str | None = None
+) -> dict[str, Path]:
     """Verify bundle bytes and create remote normalized T5/A5 NPZ tables."""
     bundle, output, checkpoint = Path(bundle), Path(output), Path(checkpoint)
     if output.exists():
         raise FileExistsError(f"refusing to overwrite materialization: {output}")
     if bundle.is_file():
         with tempfile.TemporaryDirectory(prefix="a2-bundle-") as temporary:
-            return materialize_bundle(_safe_extract(bundle, Path(temporary)), output, checkpoint)
+            return materialize_bundle(
+                _safe_extract(bundle, Path(temporary)), output, checkpoint, source_archive_sha256
+            )
     receipt = _verify_bundle(bundle)
+    if source_archive_sha256 is not None:
+        from research.a100_a2.transfer import verify_projection
+
+        verify_projection(bundle, source_archive_sha256)
     opponent_root = bundle / "checkpoints"
     if any(not (opponent_root / name).is_file() for name in OPPONENT_CHECKPOINTS):
         raise ValueError("bundle lacks a frozen opponent checkpoint needed by the audited replay")

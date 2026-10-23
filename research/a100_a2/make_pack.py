@@ -190,17 +190,134 @@ def replacement_envelope(receipt: Path | None) -> dict:
     }
 
 
+def transfer_recovery_envelope(receipts: list[Path]) -> dict:
+    """Charge every bound, stopped prior allocation before the new canary/main."""
+    if len({p.resolve() for p in receipts}) != len(receipts):
+        raise ValueError("duplicate prior receipt")
+    rows = []
+    elapsed = 0.0
+    main_attempts = 0
+    for path in receipts:
+        prior = json.loads(path.read_text())
+        manifest_path = path.parent / "manifest.json"
+        if digest(manifest_path) != prior.get("manifest_sha256"):
+            raise ValueError("prior receipt manifest binding differs")
+        manifest = json.loads(manifest_path.read_text())
+        is_canary = prior.get("job_id", "").startswith("a100-a2-canary-")
+        failed_import = (
+            is_canary
+            and prior.get("status") == "INCOMPLETE"
+            and prior.get("failure_class") == "CHILD_NONZERO_EXIT"
+            and "ModuleNotFoundError" in prior.get("error", "")
+            and prior.get("exports") == []
+        )
+        passed_canary = is_canary and prior.get("status") == "PASS" and not prior.get("error")
+        failed_upload = (
+            prior.get("job_id", "").startswith("a100-a2-main-")
+            and prior.get("status") == "INCOMPLETE"
+            and prior.get("failure_class") == "UPLOAD_CAP"
+            and prior.get("exports") == []
+        )
+        seconds = prior.get("elapsed_seconds")
+        if (
+            prior.get("stop_verified") is not True
+            or not (failed_import or passed_canary or failed_upload)
+            or isinstance(seconds, bool)
+            or not isinstance(seconds, (int, float))
+            or not math.isfinite(seconds)
+            or seconds <= 0
+        ):
+            raise ValueError("requires stopped mechanical failure or passed canary evidence")
+        parent = manifest.get("a2", {}).get("remaining_envelope", {}).get("prior_canary_receipt")
+        if parent and Path(parent).resolve() not in {p.resolve() for p in receipts}:
+            raise ValueError("missing earlier charged receipt")
+        parent_sha = (
+            manifest.get("a2", {}).get("remaining_envelope", {}).get("prior_canary_receipt_sha256")
+        )
+        if parent_sha and digest(Path(parent)) != parent_sha:
+            raise ValueError("earlier charged receipt hash differs")
+        proof = manifest.get("canary", {}).get("receipt")
+        if proof and (
+            Path(proof["path"]).resolve() not in {p.resolve() for p in receipts}
+            or digest(Path(proof["path"])) != proof["sha256"]
+        ):
+            raise ValueError("missing or changed charged family canary")
+        ancestors = manifest.get("a2", {}).get("remaining_envelope", {}).get("prior_receipts", [])
+        for ancestor in ancestors:
+            if (
+                Path(ancestor["path"]).resolve() not in {p.resolve() for p in receipts}
+                or digest(Path(ancestor["path"])) != ancestor["sha256"]
+            ):
+                raise ValueError("missing or changed recovery ancestor")
+        main_attempts += int(failed_upload)
+        elapsed += seconds
+        rows.append(
+            {
+                "path": str(path.resolve()),
+                "sha256": digest(path),
+                "elapsed_seconds": seconds,
+                "allocation": manifest["a2"]["allocation"],
+            }
+        )
+    if len({row["allocation"] for row in rows}) != 1:
+        raise ValueError("foreign allocation in prior receipts")
+    if not any(json.loads(p.read_text()).get("failure_class") == "UPLOAD_CAP" for p in receipts):
+        raise ValueError("transfer recovery requires mechanical main upload failure")
+    if main_attempts > 2:
+        raise ValueError("at most two completion attempts")
+    minutes = min(258, math.floor(288 - 18 - elapsed / 60))
+    units = min(45, math.floor((48 - 3 - elapsed * 10 / 3600) * 100) / 100)
+    if minutes < 240 or units <= 8:
+        raise ValueError("remaining original envelope cannot admit unchanged forecast")
+    return {
+        "main_minutes": minutes,
+        "main_units": units,
+        "prior_receipts": rows,
+        "prior_elapsed_seconds": elapsed,
+        "prior_charged_units_at_ceiling": elapsed * 10 / 3600,
+        "completion_attempt": main_attempts,
+    }
+
+
+def prepare_compact_inputs(source: Path, output: Path) -> dict:
+    """Keep the original scientific bindings/ledgers; bind compact transport separately."""
+    from research.a100_a2.transfer import compact_bundle
+
+    control = json.loads((source / "control.json").read_text())
+    for name, sha in control["input_hashes"].items():
+        if digest(source / name) != sha:
+            raise ValueError("original prepared input changed")
+    if control["bindings"]["labels"] != digest(source / "labels.tar.gz"):
+        raise ValueError("original archive differs from scientific binding")
+    output.mkdir(parents=True, exist_ok=False)
+    receipt = compact_bundle(source / "labels.tar.gz", output / "labels.tar.xz")
+    for name in ("b8.pth", "verified-ledger.json", "canary-ledger.json"):
+        shutil.copyfile(source / name, output / name)
+    control["bundle_name"] = "labels.tar.xz"
+    control["bundle_receipt"] = receipt
+    control["input_hashes"] = {
+        name: digest(output / name)
+        for name in ("labels.tar.xz", "b8.pth", "verified-ledger.json", "canary-ledger.json")
+    }
+    export_json(output / "control.json", control)
+    return control
+
+
 def make_pack(
     inputs: Path,
     output: Path,
     commit: str,
     rates: Path | None = None,
     failed_canary_receipt: Path | None = None,
+    prior_receipts: list[Path] | None = None,
 ) -> dict:
     """Pin published source and qualified tree; keep main refused until live canary."""
     from tools.ops.import_preflight import check as check_imports
     from tools.ops.qualification import check
 
+    commit = subprocess.check_output(
+        ["git", "rev-parse", f"{commit}^{{commit}}"], cwd=ROOT, text=True
+    ).strip()
     registry = ARTIFACTS / "ops/colab-cli-qualified.json"
     if check(ROOT, registry, commit) != QUALIFIED_TREE:
         raise ValueError("unexpected qualified transport tree")
@@ -216,20 +333,32 @@ def make_pack(
         ["git", "rev-parse", "origin/main"], cwd=ROOT, text=True
     ).strip()
     subprocess.run(["git", "merge-base", "--is-ancestor", commit, remote], cwd=ROOT, check=True)
-    envelope = replacement_envelope(failed_canary_receipt)
+    if prior_receipts and failed_canary_receipt:
+        raise ValueError("choose one prior-accounting interface")
+    envelope = (
+        transfer_recovery_envelope(prior_receipts)
+        if prior_receipts
+        else replacement_envelope(failed_canary_receipt)
+    )
     # Probe the pinned sparse archive, never the developer checkout or venv.
     # This must finish before any pack directory/manifests are published.
     if output.exists():
         raise FileExistsError(output)
-    preflight = check_imports(ROOT, commit, SOURCE_PATHS, REQUIREMENTS, IMPORT_ROOTS)
-    output.mkdir(parents=True, exist_ok=False)
-    export_json(output / "clean-import-preflight.json", preflight)
     control = json.loads((inputs / "control.json").read_text())
+    if control.get("bundle_name") == "labels.tar.xz" and not prior_receipts:
+        raise ValueError("compact recovery requires complete prior receipts")
+    if prior_receipts and any(
+        row["allocation"] != control["allocation"] for row in envelope["prior_receipts"]
+    ):
+        raise ValueError("recovery changes original allocation")
     for name, sha in control["input_hashes"].items():
         if digest(inputs / name) != sha:
             raise ValueError("prepared input changed")
+    preflight = check_imports(ROOT, commit, SOURCE_PATHS, REQUIREMENTS, IMPORT_ROOTS)
+    output.mkdir(parents=True, exist_ok=False)
+    export_json(output / "clean-import-preflight.json", preflight)
     names = [
-        "labels.tar.gz",
+        control.get("bundle_name", "labels.tar.gz"),
         "b8.pth",
         "control.json",
         "verified-ledger.json",
@@ -345,12 +474,16 @@ def main() -> None:
     prep = sub.add_parser("inputs")
     prep.add_argument("--out", type=Path, required=True)
     prep.add_argument("--bundle", type=Path)
+    compact = sub.add_parser("compact-inputs")
+    compact.add_argument("--source", type=Path, required=True)
+    compact.add_argument("--out", type=Path, required=True)
     pack = sub.add_parser("pack")
     pack.add_argument("--inputs", type=Path, required=True)
     pack.add_argument("--out", type=Path, required=True)
     pack.add_argument("--commit", required=True)
     pack.add_argument("--other-assignments", type=Path)
     pack.add_argument("--failed-canary-receipt", type=Path)
+    pack.add_argument("--prior-receipt", type=Path, action="append")
     admission = sub.add_parser("admit")
     admission.add_argument("--template", type=Path, required=True)
     admission.add_argument("--canary-receipt", type=Path, required=True)
@@ -358,9 +491,16 @@ def main() -> None:
     args = parser.parse_args()
     if args.action == "inputs":
         result = prepare_inputs(args.out, args.bundle)
+    elif args.action == "compact-inputs":
+        result = prepare_compact_inputs(args.source, args.out)
     elif args.action == "pack":
         result = make_pack(
-            args.inputs, args.out, args.commit, args.other_assignments, args.failed_canary_receipt
+            args.inputs,
+            args.out,
+            args.commit,
+            args.other_assignments,
+            args.failed_canary_receipt,
+            args.prior_receipt,
         )
     else:
         result = admit(args.template, args.canary_receipt, args.out)
