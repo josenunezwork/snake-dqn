@@ -202,6 +202,25 @@ def run_unit(spec: dict, index: int, ledger: dict, inputs: Path, out: Path) -> N
         )
     result["snapshot_sources"] = engine.snapshot_sources()
     exported = export_json(out / "trajectory.json", result)
+    if probe:
+        # Operational allowlist only. Admission never opens trajectory.json.
+        branches = [branch for root in result["roots"] for branch in root["alternatives"]]
+        export_json(
+            out / "canary-admission.json",
+            {
+                "schema": SCHEMA + "/canary-admission",
+                "allocation_digest": spec["allocation_digest"],
+                "unit_id": unit,
+                "seed": spec["canary_seed"],
+                "trajectory_frames": spec["trajectory_frames"],
+                "workers": spec["workers"],
+                "serial_parallel_root_checks": result["serial_parallel_root_checks"],
+                "serial_parallel_equal": True,  # collect raises on any unequal batch.
+                "native_v8": [result["native_v8"], *[b["native_v8"] for b in branches]],
+                "worker_threads": [b["worker_threads"] for b in branches],
+                "phase_timings": result["phase_timings"],
+            },
+        )
     export_json(
         out / "unit-status.json",
         {"unit_id": unit, "status": "COMPLETED", "sha256": exported["sha256"]},

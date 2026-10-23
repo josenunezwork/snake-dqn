@@ -110,6 +110,8 @@ def _design(
         **{key: ruling[key] for key in _SCIENTIFIC_KEYS},
     }
     design["root_grid"] = ruling["root_grid"]
+    if "mechanical_rescale" in ruling:
+        design["mechanical_rescale"] = ruling["mechanical_rescale"]
     design["allocation_digest"] = digest_value(design)
     b2.validate_spec(design)
     return design
@@ -162,10 +164,13 @@ def allocate(
     *,
     namespace: str = NAMESPACE,
     max_rounds: int = MAX_ROUNDS,
+    start_round: int = 0,
 ) -> dict[str, Any]:
     """Audit complete rounds until one is clear, then export B2 design and ledger."""
     if type(max_rounds) is not int or not 1 <= max_rounds <= MAX_ROUNDS:
         raise ValueError("B2 max_rounds must be a non-boolean integer from 1 through 32")
+    if type(start_round) is not int or not 0 <= start_round < max_rounds:
+        raise ValueError("B2 start_round must precede max_rounds")
     if not isinstance(namespace, str) or not namespace:
         raise ValueError("B2 namespace must be nonempty")
     # Refuse before audit side effects when the authority is incomplete or foreign.
@@ -174,7 +179,7 @@ def allocate(
     if out.exists():
         raise FileExistsError("B2 allocation output must be a fresh directory")
     out.mkdir(parents=True)
-    for round_index in range(max_rounds):
+    for round_index in range(start_round, max_rounds):
         seeds, canary_seed, rows = derive(round_index, namespace)
         audit = bank.audit(rows)
         if not isinstance(audit, dict) or audit.get("status") not in {"CLEAR", "REJECTED"}:

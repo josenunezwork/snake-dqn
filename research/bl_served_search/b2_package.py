@@ -7,11 +7,14 @@ retry. Missing frozen design, real Mac preflight or family evidence is a refusal
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import subprocess
 from pathlib import Path
 
 from research.bl_served_search import b2
+from research.bl_served_search import b2_admission as admission
 from research.bl_served_search.exports import digest, export_json, verify_export
 from research.bl_served_search.manifests import source_paths
 from research.colab_cli import canary
@@ -23,6 +26,23 @@ CANARY_CAP = 1.0
 UNIT_CAP = 19.0 / 32  # 32 original allocations + canary <=20; one completion series <=40.
 RESERVE = UNIT_CAP * 0.2
 TIMEOUT = (UNIT_CAP - RESERVE) / RATE * 60
+
+
+def qualified_cli(commit: str) -> dict:
+    """Pin both the published tree and the Mac's current qualification record."""
+    path = admission.QUALIFIED_RECORD
+    record = json.loads(path.read_text())
+    tree = subprocess.check_output(
+        ["git", "rev-parse", f"{commit}:research/colab_cli"], cwd=b2.ROOT, text=True, timeout=10
+    ).strip()
+    if record.get("tree_hash") != admission.QUALIFIED_TREE or tree != admission.QUALIFIED_TREE:
+        raise ValueError("NOT_READY qualified Colab CLI tree differs")
+    accepted = Path(record["acceptance_result"])
+    if digest(accepted) != record["acceptance_result_sha256"]:
+        raise ValueError("NOT_READY qualified CLI acceptance digest differs")
+    if json.loads(accepted.read_text()).get("status") != "PASS":
+        raise ValueError("NOT_READY qualified CLI acceptance is not PASS")
+    return {"path": str(path), "sha256": digest(path), **record}
 
 
 def input_row(path: Path, dest: str) -> dict:
@@ -60,6 +80,7 @@ def prepare(
     )
     if "origin/main" not in refs or len(commit) != 40:
         raise ValueError("B2 pin must be a full published origin/main commit")
+    qualification = qualified_cli(commit)
     paths = sorted(set(source_paths()) | {SCRIPT, "research/apex_safety_20260926/deployment.yaml"})
     changed = subprocess.check_output(
         ["git", "diff", commit, "--name-only", "--", *paths], cwd=b2.ROOT, text=True, timeout=20
@@ -73,6 +94,13 @@ def prepare(
         raise ValueError("B2 unit timeout must leave >=3 minutes for setup/export/release")
     if not probe and canary_receipt is None:
         raise ValueError("NOT_READY same-pin real-transport family canary required")
+    admitted = None
+    if not probe:
+        admitted = admission.evaluate(spec_path, canary_receipt)
+        if admitted["status"] != "ADMIT_UNCHANGED" or admitted["commit"] != commit:
+            raise ValueError("NOT_READY round-16 canary admission required; rescale/judge first")
+        if not math.isclose(estimate_minutes, admitted["estimate_minutes"], abs_tol=1e-9):
+            raise ValueError("NOT_READY estimate must equal the measured canary admission")
     inputs = [
         input_row(spec_path, "b2-design.json"),
         input_row(ledger_path, "verified-ledger.json"),
@@ -96,7 +124,7 @@ def prepare(
         raise ValueError("B2 allocation already verified; do not dispatch another runtime")
     manifests = []
     for index in ([0] if probe else indices):
-        token = out.name.lower().replace("_", "-")[-20:]
+        token = hashlib.sha256(str(out.resolve()).encode()).hexdigest()[:16]
         mode = "canary" if probe else f"trajectory-{index:02d}"
         manifest = {
             "job_id": f"bl-b2-{token}-{mode}",
@@ -113,7 +141,7 @@ def prepare(
             "output_dir": str(out.resolve() / mode),
             "backup_dir": str(backup),
             "max_export_bytes": 512 * 1024**2,
-            "required_exports": ["unit-status.json"],
+            "required_exports": ["unit-status.json"] + (["canary-admission.json"] if probe else []),
             "lease_seconds": 300,
             "budget": {
                 "unit_cap": cap,
@@ -146,6 +174,8 @@ def prepare(
                 "loss_bound": "one trajectory per dispatch; verify Drive backup before next unit",
                 "preflight_sha256": verify_export(preflight_path),
                 "estimate_scope": "whole allocation including setup, export and release",
+                "qualified_cli": qualification,
+                "admission": admitted,
             },
         }
         if probe:

@@ -37,6 +37,16 @@ def inputs(tmp_path: Path, monkeypatch) -> tuple:
         lambda args, **kw: "origin/main\n" if args[1] == "branch" else "",
     )
     monkeypatch.setattr(package.canary, "check", Mock())
+    monkeypatch.setattr(package, "qualified_cli", lambda commit: {"tree_hash": "mocked"})
+    monkeypatch.setattr(
+        package.admission,
+        "evaluate",
+        lambda *args: {
+            "status": "ADMIT_UNCHANGED",
+            "commit": "a" * 40,
+            "estimate_minutes": 1,
+        },
+    )
     return design, ledger, tmp_path, preflight
 
 
@@ -122,3 +132,21 @@ def test_completion_manifests_only_missing_units(tmp_path: Path, monkeypatch) ->
     )
     assert len(manifests) == 31
     assert "0" not in {m["env"]["BL_B2_INDEX"] for m in manifests}
+
+
+def test_fresh_pack_paths_do_not_reuse_job_ids(tmp_path, monkeypatch):
+    args = inputs(tmp_path, monkeypatch)
+    rows = []
+    for name in ("original/canary-manifests", "rescale/canary-manifests"):
+        rows.extend(
+            package.prepare(
+                *args,
+                tmp_path / name,
+                tmp_path / "drive",
+                "a" * 40,
+                probe=True,
+                estimate_minutes=1,
+                other_assignments={},
+            )
+        )
+    assert len({row["job_id"] for row in rows}) == 2
