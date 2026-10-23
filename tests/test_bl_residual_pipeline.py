@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -118,6 +119,41 @@ def test_all_scientific_controls_are_allocation_bound() -> None:
     original = allocation_hash(control)
     control["train_lives"]["256"] = ["b"]
     assert original != allocation_hash(control)
+
+
+def test_pinned_entrypoint_device_resolves_without_shell_execution(tmp_path: Path) -> None:
+    from research.colab_cli.canary import job_device
+
+    script = Path(__file__).resolve().parents[1] / "research/bl_residual/colab.sh"
+    target = tmp_path / "research/bl_residual/colab.sh"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(script.read_bytes())
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            "Device fixture",
+        ],
+        check=True,
+    )
+    manifest = {
+        "commit": "HEAD",
+        "script": "research/bl_residual/colab.sh",
+        "device": "cuda",
+        "env": {"F3_DEVICE": "cuda", "F3_MODE": "canary"},
+    }
+    assert job_device(manifest, tmp_path) == "cuda"
 
 
 def test_heldout_refuses_synthetic_foreign_and_changed_reserve(tmp_path: Path) -> None:

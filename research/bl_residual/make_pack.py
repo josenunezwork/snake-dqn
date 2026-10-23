@@ -106,7 +106,18 @@ def make_pack(output: Path, commit: str, b8: Path) -> dict:
         "output_dir": str((output / "canary-output").resolve()),
         "inputs": inventory,
         "required_exports": ["receipt.json"],
-        "env": {"F3_MODE": "canary", "F3_DEVICE": "cuda", "COLAB_CLI_REQUIREMENTS": REQUIREMENTS},
+        "env": {
+            "F3_MODE": "canary",
+            "F3_DEVICE": "cuda",
+            "COLAB_CLI_REQUIREMENTS": REQUIREMENTS,
+            "SNAKE_COLAB_CANARY": "1",
+            "SNAKE_COLAB_CANARY_PACKAGE": "research/bl_residual",
+        },
+        "canary": {
+            "schema": "colab-family-canary/v1",
+            "mode": "probe",
+            "family": "research/bl_residual/colab.sh",
+        },
         "budget": {
             "unit_cap": 1,
             "rate_units_per_hour": 1.54,
