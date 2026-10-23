@@ -1,0 +1,19 @@
+{
+  "schema": "gpu-sim-spike-a0-event-oracle/v1",
+  "baseline_revision": "01334e1ed04b49ebf61ab16a6df0cf6c7e4c2884",
+  "baseline_fixture": "research/gpu_sim_spike/device_sim_frozen.py",
+  "baseline_device_sim_sha256": "7fbabf67b439c6e8ebf2cbb252abed5dadcc1ce08194a8d6177605ab4bbe8d88",
+  "production_body_capacity": 10400,
+  "fixtures": [
+    "full-food-empty-event",
+    "food-refill",
+    "single-death",
+    "simultaneous-deaths",
+    "capacity-eviction"
+  ],
+  "rng_fixture": {
+    "ticks": 1000,
+    "purpose": "food-maintenance counter-RNG stream identity"
+  },
+  "scope": "Frozen baseline is loaded from git show at test time; no candidate helper is imported by the oracle arm."
+}

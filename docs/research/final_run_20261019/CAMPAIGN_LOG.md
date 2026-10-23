@@ -127,6 +127,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 2026-10-22 17:16 PT | DENSITY-2 look (TERMINAL result) | completion-01 PASS (98 exports). First merge IDENTITY_FAIL = comparator defect (Colab staging-uuid checkpoint paths; judge JUDGMENT_DENSITY2_IDENTITY.md), fixed 57c0ad9e (basename compare only). Sole look summary-02.json: identity 12/12 IDENTICAL, r=0.747 outside [0.80,1.25] (reported; raw and 1/r evaluations both shown). ALL 9 variant cells (B70m, B70p, C-P1 x frozen/mixed/scripted) REJECTED: minimum_map_rule_violation, identical under both evaluations. Natural doom 0.058/1k hero decisions overall. Density/smaller-map lever CLOSED. |
 | 2026-10-22 17:16 PT | Mac timing incident | Claude launched Sol b2freeze/density-identity at ~17:05 while M1 attempt-03 was armed: M1 cell stopped after 6 s ('foreign heavy load', verified stop, charged 6.0 s) and X5-12 refused. New hook guard_mac_timing.py blocks Codex launches while ops/mac-timing-armed or a live Mac lease exists. X5 restarted (x5-now, flag set). Fable judge asked whether M1 attempt-04 is admissible before D1. |
 
+| 2026-10-22 19:50 PT | M1 attempt-05 pre-dispatch | JUDGMENT_M1_RESTART_OBJECTION.md sha256 160f5980796a9f0ca21e9282329725594a59522c8ea51cea98e61fd1b813f91c (pre-data): attempt-05 may dispatch as built at 01334e1e; post-data reducer rules R1 carry-forward (overrun / W4 doom S>5s in discarded prefix => BLOCKED) + R2 discard disclosure pre-registered; Sol builds m1_carry.py. Also: A100 program funded (PLAN_A100.md; Sol A0/A2/A3); P1 amendment 04 HOLD (C2 value drift 7.7/14.6/20.4 > PopArt 5.53) -> judge. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
