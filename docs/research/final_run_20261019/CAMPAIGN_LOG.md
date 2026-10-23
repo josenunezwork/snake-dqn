@@ -144,6 +144,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-22 22:55 PT | A100 A3 result | analysis.json sha 721195a1b2fe6dae...: baseline cached actor learning 1.87 s (A100) / 1.81 s (L4) per 16,384-transition rollout, above the 1.6384 s stop line => WP5 paused for learner fix; optimized learner 0.41 s A100 / 0.98 s L4 (passes); collection 9.56 / 9.57 s dominates, full cycle ~10-12 s on both (~1.5k transitions/s). A100 gives no P1 wall-clock gain while collection is host-CPU bound; keep P1 on L4 with the optimized learner. |
 
+| 2026-10-22 23:00 PT | M1 Branch B REJECTED | big-lever/round-22/JUDGMENT.md sha256 c85134313f824046cf26cd3060eabfa9df87ea6b2a6b4c25816d0614d5e439f6; admission-rule block sha256 4dc7bc164a1199cee40cb0f5a52c19525291f4282ecaf8a80b6def34f8743aa7. Attempt-07 = Branch A only (zero overruns in every worker cell, other bars unchanged); W0 controls verdict-neutral, report-only; --branch-b refuses. Pre-data. Dispatch by Sun 20:00, verdict by Mon 12:00; FAIL => KEEP_B8. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
