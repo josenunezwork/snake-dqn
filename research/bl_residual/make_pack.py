@@ -99,6 +99,7 @@ def make_pack(output: Path, commit: str, b8: Path) -> dict:
         "commit": commit,
         "script": "research/bl_residual/colab.sh",
         "source_paths": SOURCE_PATHS,
+        "device": "cuda",
         "scientific_admission": False,
         "requirements": {"gpu": "L4", "allowed_gpus": ["L4"], "min_vcpu": 1, "est_minutes": 5},
         "timeout_minutes": 20,
