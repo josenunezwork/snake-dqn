@@ -115,8 +115,9 @@ def _decided_remedy_row(cell: dict, overruns: int, ticks_count: int) -> dict:
     }
     ticks = [
         {
-            "target_ns": index * 1_000_000,
-            "finished_ns": index * 1_000_000 + (101_000_000 if index in overrun_indices else 1),
+            "target_ns": index * 1_000_000_000 // 24,
+            "finished_ns": index * 1_000_000_000 // 24
+            + (101_000_000 if index in overrun_indices else 1),
             "update_seconds": 0.001,
             "overrun": index in overrun_indices,
             "gc_pause_ms": 0.0,
@@ -151,43 +152,70 @@ def test_branch_a_controls_are_reported_but_never_relax_zero_bar() -> None:
     assert result["bare_controls"]["overruns_per_1000_ticks"] == 10
 
 
-@pytest.mark.parametrize(
-    "worker_overruns,late_ms,expected",
-    [(14, 99, "PASS"), (16, 99, "BLOCKED"), (14, 101, "BLOCKED")],
-)
-def test_branch_b_relative_rate_and_lateness_bars(worker_overruns, late_ms, expected) -> None:
-    rows = [_decided_remedy_row(cell, 1, 100) for cell in control_cells()]
-    rows += [_decided_remedy_row(cell, worker_overruns, 1000) for cell in worker_cells()]
-    if late_ms != 101:
-        for row in rows[2:]:
-            for tick in row["ticks"]:
-                if tick["overrun"]:
-                    tick["finished_ns"] = tick["target_ns"] + late_ms * 1_000_000
-    result = m1.reduce_units(rows, "n", branch_b=True)
-    assert result["branch_b"]["verdict"] == expected
-    assert result["verdict"] == expected
-    worker_receipts = [
-        row
-        for row in result["cells"]
-        if row["cell_id"] in {cell["cell_id"] for cell in worker_cells()}
-    ]
-    assert [row["verdict"] for row in worker_receipts] == [expected] * 4
-    if expected == "PASS":
-        assert [row["branch_a_verdict"] for row in worker_receipts] == ["BLOCKED"] * 4
-
-
-def test_branch_b_refuses_three_consecutive_overruns() -> None:
-    rows = [_decided_remedy_row(cell, 1, 100) for cell in control_cells()]
+def test_branch_b_fields_report_only_with_separate_controls_and_both_origins() -> None:
+    rows = [_decided_remedy_row(control_cells()[0], 1, 100)]
+    rows += [_decided_remedy_row(control_cells()[1], 4, 200)]
     rows += [_decided_remedy_row(cell, 14, 1000) for cell in worker_cells()]
     for row in rows[2:]:
-        old = [index for index, tick in enumerate(row["ticks"]) if tick["overrun"]]
-        for index in old[:3]:
-            row["ticks"][index]["overrun"] = False
-            row["ticks"][index]["finished_ns"] = row["ticks"][index]["target_ns"] + 1
-        for index in range(3):
-            row["ticks"][index]["overrun"] = True
-            row["ticks"][index]["finished_ns"] = row["ticks"][index]["target_ns"] + 99_000_000
-    assert m1.reduce_units(rows, "n", branch_b=True)["verdict"] == "BLOCKED"
+        for index, tick in enumerate(row["ticks"]):
+            tick["overrun"] = index < 3
+            tick["finished_ns"] = tick["target_ns"] + (99_000_000 if index < 3 else 1)
+    result = m1.reduce_units(rows, "n")
+    assert result["verdict"] == "BLOCKED"
+    report = result["branch_b"]
+    assert report["status"] == "REJECTED" and report["report_only"]
+    assert report["enabled"] is False and "verdict" not in report
+    assert report["r0"] == pytest.approx(50 / 3)
+    assert [row["ticks"] for row in report["controls"]] == [100, 200]
+    assert [row["r0"] for row in report["controls"]] == [10, 20]
+    assert result["bare_controls"]["pooled"]["ticks"] == 300
+    assert len(result["bare_controls"]["cells"]) == 2
+    for row in report["cells"]:
+        assert row["r_c"] == 3
+        assert row["max_consecutive_overruns"] == 3
+        assert row["late_ms_target_max"] == 99
+        assert row["late_ms_deadline_max"] == pytest.approx(57.333334)
+        assert row["overrun_ticks"][0] == {
+            "tick_index": 0,
+            "late_ms_target": 99,
+            "late_ms_deadline": 57.333334,
+        }
+    with pytest.raises(ValueError, match="big-lever/round-22/JUDGMENT.md"):
+        m1.reduce_units(rows, "n", branch_b=True)
+
+
+def test_lateness_origins_at_exact_deadline_and_empty_exposure() -> None:
+    ticks = [
+        {
+            "target_ns": 100,
+            "finished_ns": 100 + 1_000_000_000 // 24,
+            "overrun": True,
+            "update_seconds": 0.001,
+        }
+    ]
+    report = m1.timing_report(ticks)
+    assert report["overrun_ticks"][0]["late_ms_target"] == 41.666666
+    assert report["overrun_ticks"][0]["late_ms_deadline"] == 0
+    assert report["max_consecutive_overruns"] == 1
+    assert m1.timing_report([])["overruns_per_1000_ticks"] is None
+
+
+def test_controls_cannot_change_worker_verdict(monkeypatch) -> None:
+    monkeypatch.setattr(m1, "audit_unit", lambda *args: None)
+    workers = [_decided_remedy_row(cell, 0, 100) for cell in worker_cells()]
+    for row in workers:
+        row["summary"].pop("decided")
+        row["summary"]["verdict"] = "PASS"
+    controls = [_decided_remedy_row(cell, 50, 100) for cell in control_cells()]
+    assert m1.reduce_units(workers + controls, "n", {})["verdict"] == "PASS"
+    controls[0]["summary"].update(complete=False, verdict="INCOMPLETE")
+    controls[0]["summary"].pop("decided")
+    result = m1.reduce_units(workers + controls, "n", {})
+    assert result["verdict"] == "INCOMPLETE"
+    controls[1]["summary"].pop("decided")
+    controls[1]["summary"].update(complete=False, verdict="INVALID")
+    assert m1.reduce_units(workers + controls, "n", {})["verdict"] == "INVALID"
+    assert not result["bare_controls"]["pooled"]["complete"]
 
 
 def test_l1_constructs_actual_stop_factory(monkeypatch) -> None:
@@ -1917,6 +1945,7 @@ def test_judged4_recovery_pins_d1_receipt_and_refuses_consumed_source(
     prior.mkdir()
     judgment = tmp_path / "JUDGMENT_D1.md"
     judgment.write_text("D1")
+    monkeypatch.setattr(m1, "verify_round22", lambda: {"status": "test-ruling"})
     log = tmp_path / "bl-m1-attempt-06b.try1.log"
     log.write_text("blocked")
     previous = {
@@ -1961,6 +1990,7 @@ def test_judged4_recovery_pins_d1_receipt_and_refuses_consumed_source(
     proof = {
         "schema": m1.SCHEMA + "/judged-recovery",
         "judge": "Fable-D1",
+        "round22": {"status": "test-ruling"},
         "status": "JUDGED_REMEDY_ATTEMPT_7",
         "judgment_path": str(judgment),
         "judgment_sha256": m1.digest(judgment),
@@ -2040,44 +2070,41 @@ def test_judged4_check_requires_empty_new_ledger(monkeypatch, tmp_path) -> None:
         m1.main()
 
 
-@pytest.mark.parametrize("ratification", [None, "wrong"])
-def test_branch_b_requires_the_fixed_ratification_hash(monkeypatch, tmp_path, ratification) -> None:
-    ratification_path = tmp_path / "RATIFICATION_D1_BRANCH_B.md"
-    monkeypatch.setattr(m1, "RATIFICATION_D1_BRANCH_B_PATH", ratification_path)
-    monkeypatch.setattr(m1, "M1_ARTIFACT_EXP_ROOT", tmp_path)
-    if ratification == "wrong":
-        ratification_path.write_text("ratified")
+@pytest.mark.parametrize("value", ["", "wrong", "a" * 64, m1.JUDGED4_ROUND22_RULING_SHA256])
+def test_branch_b_refuses_every_value_before_inputs(monkeypatch, value) -> None:
+    monkeypatch.setattr(m1, "inputs", lambda *args: pytest.fail("must refuse before inputs"))
     monkeypatch.setattr(
         "sys.argv",
-        ["m1", "--check", "--fixtures", "f", "--reference", "r", "--branch-b", ratification or "x"],
+        ["m1", "--check", "--fixtures", "f", "--reference", "r", "--branch-b", value],
     )
-    with pytest.raises(ValueError, match="exact pre-data Fable ratification hash"):
+    with pytest.raises(ValueError, match="Branch B REJECTED by big-lever/round-22/JUDGMENT.md"):
         m1.main()
 
 
-def test_branch_b_refuses_postdata_adoption(monkeypatch, tmp_path) -> None:
-    ratification_path = tmp_path / "RATIFICATION_D1_BRANCH_B.md"
-    ratification_path.write_text("ratified")
-    attempt = tmp_path / "bl-m1-attempt-07-data"
-    attempt.mkdir()
-    (attempt / "attempt.json").write_text("{}")
-    monkeypatch.setattr(m1, "RATIFICATION_D1_BRANCH_B_PATH", ratification_path)
-    monkeypatch.setattr(m1, "M1_ARTIFACT_EXP_ROOT", tmp_path)
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "m1",
-            "--check",
-            "--fixtures",
-            "f",
-            "--reference",
-            "r",
-            "--branch-b",
-            m1.digest(ratification_path),
-        ],
+def test_round22_runtime_sed_verification_refuses_changed_file_or_block(
+    monkeypatch, tmp_path
+) -> None:
+    root = tmp_path / "artifacts"
+    ruling = root / m1.JUDGED4_ROUND22_RULING_PATH
+    ruling.parent.mkdir(parents=True)
+    ruling.write_text(
+        "before\n-----BEGIN M1 ATTEMPT-07 ADMISSION RULE-----\nrule\n"
+        "-----END M1 ATTEMPT-07 ADMISSION RULE-----\nafter\n"
     )
-    with pytest.raises(ValueError, match="cannot be adopted after attempt-07 data"):
-        m1.main()
+    monkeypatch.setattr(m1, "JUDGED4_JUDGMENT_PATH", root / "big-lever/exp/JUDGMENT_D1.md")
+    monkeypatch.setattr(m1, "JUDGED4_ROUND22_RULING_SHA256", m1.digest(ruling))
+    block = (
+        b"-----BEGIN M1 ATTEMPT-07 ADMISSION RULE-----\nrule\n"
+        b"-----END M1 ATTEMPT-07 ADMISSION RULE-----\n"
+    )
+    monkeypatch.setattr(m1, "JUDGED4_ROUND22_BLOCK_SHA256", m1.ruler.sha256_bytes(block))
+    assert m1.verify_round22()["branch_b_status"] == "REJECTED"
+    ruling.write_text(ruling.read_text().replace("rule", "changed"))
+    with pytest.raises(ValueError, match="ruling/block hash mismatch"):
+        m1.verify_round22()
+    monkeypatch.setattr(m1, "JUDGED4_ROUND22_RULING_SHA256", m1.digest(ruling))
+    with pytest.raises(ValueError, match="ruling/block hash mismatch"):
+        m1.verify_round22()
 
 
 def test_w0_clock_excludes_slow_warmup_and_retains_gc_disclosure(monkeypatch) -> None:

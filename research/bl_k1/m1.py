@@ -13,6 +13,7 @@ import json
 import multiprocessing
 import os
 import queue
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -116,6 +117,10 @@ JUDGED4_CHARGED_SECONDS = 1294.6058014170267
 JUDGED4_JUDGMENT_PATH = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_D1.md"
 )
+JUDGED4_BRANCH_B_STATUS = "REJECTED"
+JUDGED4_ROUND22_RULING_PATH = "big-lever/round-22/JUDGMENT.md"
+JUDGED4_ROUND22_BLOCK_SHA256 = "4dc7bc164a1199cee40cb0f5a52c19525291f4282ecaf8a80b6def34f8743aa7"
+JUDGED4_ROUND22_RULING_SHA256 = "c85134313f824046cf26cd3060eabfa9df87ea6b2a6b4c25816d0614d5e439f6"
 OWNER_DIRECTIVE_SHA256 = "4480f9a731436f451667e5ad205d4c181c001a5c32e1ef42ad62a1dfad9c8f0f"
 JUDGED4_OWNER_DIRECTIVE_SHA256 = OWNER_DIRECTIVE_SHA256
 MAX_CELL_RESTARTS = 3
@@ -134,10 +139,37 @@ RESTART_POLICY = {
 }
 WARMUP_TICKS = 200
 CONTROL_TICKS = 2400
-RATIFICATION_D1_BRANCH_B_PATH = Path(
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/RATIFICATION_D1_BRANCH_B.md"
-)
-M1_ARTIFACT_EXP_ROOT = RATIFICATION_D1_BRANCH_B_PATH.parent
+
+
+def verify_round22() -> dict[str, str]:
+    """Verify the immutable ruling and its exact inclusive sed block at runtime."""
+    path = JUDGED4_JUDGMENT_PATH.parents[2] / JUDGED4_ROUND22_RULING_PATH
+    block = subprocess.run(
+        [
+            "sed",
+            "-n",
+            "/^-----BEGIN M1 ATTEMPT-07 ADMISSION RULE/,/^-----END M1 ATTEMPT-07 ADMISSION RULE/p",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    ).stdout
+    if (
+        digest(path) != JUDGED4_ROUND22_RULING_SHA256
+        or ruler.sha256_bytes(block) != JUDGED4_ROUND22_BLOCK_SHA256
+    ):
+        raise ValueError(f"M1 Round 22 ruling/block hash mismatch: {JUDGED4_ROUND22_RULING_PATH}")
+    return {
+        "branch_b_status": JUDGED4_BRANCH_B_STATUS,
+        "ruling_path": JUDGED4_ROUND22_RULING_PATH,
+        "ruling_sha256": JUDGED4_ROUND22_RULING_SHA256,
+        "block_sha256": JUDGED4_ROUND22_BLOCK_SHA256,
+    }
+
+
+def refuse_branch_b() -> None:
+    """Round 22 rejects every Branch B value, before any operational work."""
+    raise ValueError(f"M1 Branch B REJECTED by {JUDGED4_ROUND22_RULING_PATH}; Branch A only")
 
 
 def refuse_consumed(prior_path: Path, field: str, attempt_number: int) -> None:
@@ -195,6 +227,9 @@ def inputs(
     fixtures_path: Path, reference_path: Path, branch_b_ratification_sha256: str | None = None
 ) -> dict[str, Any]:
     """Open immutable Y1 evidence and validate every all/stop batch, untimed."""
+    if branch_b_ratification_sha256 is not None:
+        refuse_branch_b()
+    round22 = verify_round22()
     bank, bank_sha = l1._read_completed_json(fixtures_path)
     fixtures = ruler.validate_fixtures(bank)
     reference, ref_sha = l1._read_completed_json(reference_path)
@@ -233,6 +268,7 @@ def inputs(
         "cap_seconds": CAP_SECONDS,
         "contention_seconds": CONTENTION_SECONDS,
         "branch_b_ratification_sha256": branch_b_ratification_sha256,
+        "round22": round22,
     }
     return {
         **identity,
@@ -345,6 +381,7 @@ def _judged4_recovery(proof: dict, data: dict) -> dict:
         or proof.get("status") != "JUDGED_REMEDY_ATTEMPT_7"
         or Path(proof.get("judgment_path", "")) != JUDGED4_JUDGMENT_PATH
         or proof.get("judgment_sha256") != digest(JUDGED4_JUDGMENT_PATH)
+        or proof.get("round22") != verify_round22()
         or proof.get("target_namespace") != data["namespace"]
         or proof.get("next_attempt_number") != 6
         or proof.get("final_attempt") is not True
@@ -566,6 +603,46 @@ def validate_sample(payload: dict, fixture: dict, action: int) -> None:
         raise ValueError("INVALID worker interop thread count")
 
 
+def timing_report(ticks: list[dict]) -> dict:
+    """Report measured exposure and both lateness origins without moving any bar."""
+    streak = longest = 0
+    overruns = []
+    epoch = ticks[0]["target_ns"] if ticks else 0
+    for index, tick in enumerate(ticks):
+        streak = streak + 1 if tick["overrun"] else 0
+        longest = max(longest, streak)
+        if tick["overrun"]:
+            deadline = epoch + (index + 1) * 1_000_000_000 // 24
+            overruns.append(
+                {
+                    "tick_index": index,
+                    "late_ms_target": (tick["finished_ns"] - tick["target_ns"]) / 1e6,
+                    "late_ms_deadline": max(0, tick["finished_ns"] - deadline) / 1e6,
+                }
+            )
+    count = sum(tick["overrun"] for tick in ticks)
+    return {
+        "ticks": len(ticks),
+        "tick_overruns": count,
+        "overruns_per_1000_ticks": 1000 * count / len(ticks) if ticks else None,
+        "late_ms_target_max": max(
+            ((tick["finished_ns"] - tick["target_ns"]) / 1e6 for tick in ticks), default=None
+        ),
+        "late_ms_deadline_max": max((row["late_ms_deadline"] for row in overruns), default=0.0),
+        "max_consecutive_overruns": longest,
+        "overrun_ticks": overruns,
+        "stall_onset_seconds": next(
+            ((tick["target_ns"] - epoch) / 1e9 for tick in ticks if tick["overrun"]), None
+        ),
+        "update": l1.distribution(tick["update_seconds"] for tick in ticks),
+        "gc_pause_ms_total": sum(tick.get("gc_pause_ms", 0.0) for tick in ticks),
+        "gc_gen2_count": sum(tick.get("gc_gen2_count", 0) for tick in ticks),
+        "deaths": sum(tick.get("deaths", 0) for tick in ticks),
+        "respawns": sum(tick.get("respawns", 0) for tick in ticks),
+        "food_count_last": ticks[-1].get("food_count") if ticks else None,
+    }
+
+
 def summarize(cell: dict, samples: list[dict], ticks: list[dict], complete: bool) -> dict:
     """Frozen M1 bars; dense caps are descriptive, never the admission rule."""
     errors = [s["error"] for s in samples if "error" in s]
@@ -604,6 +681,7 @@ def summarize(cell: dict, samples: list[dict], ticks: list[dict], complete: bool
         for key in ("kernel_rows", "stock_rows", "fallback_rows", "calls")
     }
     return {
+        **timing_report(ticks),
         "native_v8_totals_warm": native_totals,
         "verdict": (
             "INVALID"
@@ -996,6 +1074,11 @@ def run_cell(
                     "finished_ns": finished,
                     "update_seconds": update_seconds,
                     "overrun": finished >= epoch + (tick_index + 1) * 1_000_000_000 // 24,
+                    "late_ms_target": (finished - target) / 1e6,
+                    "late_ms_deadline": max(
+                        0, finished - (epoch + (tick_index + 1) * 1_000_000_000 // 24)
+                    )
+                    / 1e6,
                     "gc_pause_ms": gc_pause_ns / 1e6,
                     "gc_gen2_count": gc_gen2_count,
                     "deaths": len(getattr(session.game, "frame_death_causes", {})),
@@ -1228,6 +1311,8 @@ def reduce_units(
     units: list[dict], namespace: str, data: dict | None = None, branch_b: bool = False
 ) -> dict:
     """One final look: controls disclose bare stalls; workers determine admission."""
+    if branch_b:
+        refuse_branch_b()
     ids = [row["cell_id"] for row in units]
     if len(ids) != len(set(ids)) or any(row["namespace"] != namespace for row in units):
         raise ValueError("duplicate or foreign M1 cell")
@@ -1278,98 +1363,48 @@ def reduce_units(
             else ("BLOCKED" if "BLOCKED" in statuses else "PASS")
         )
     )
-    branch_b_report = {"enabled": branch_b, "eligible": False, "verdict": None}
-    bare_controls = {"cells": [row["cell_id"] for row in controls]}
-    if controls and all(row.get("ticks") for row in controls):
-        control_ticks = [tick for row in controls for tick in row["ticks"]]
-        bare_controls.update(
-            ticks=len(control_ticks),
-            tick_overruns=sum(tick["overrun"] for tick in control_ticks),
-            overruns_per_1000_ticks=1000
-            * sum(tick["overrun"] for tick in control_ticks)
-            / len(control_ticks),
-            lateness_max_seconds=max(
-                (tick["finished_ns"] - tick["target_ns"]) / 1e9 for tick in control_ticks
-            ),
-            stall_onset_seconds=next(
-                (index / 24 for index, tick in enumerate(control_ticks) if tick["overrun"]),
-                None,
-            ),
-            stall_onset_clock="concatenated control ticks at 24 Hz; worker-cell gaps excluded",
-            update=l1.distribution(tick["update_seconds"] for tick in control_ticks),
-            gc_pause_ms_total=sum(tick.get("gc_pause_ms", 0.0) for tick in control_ticks),
-            gc_gen2_count=sum(tick.get("gc_gen2_count", 0) for tick in control_ticks),
-            deaths=sum(tick.get("deaths", 0) for tick in control_ticks),
-            respawns=sum(tick.get("respawns", 0) for tick in control_ticks),
-            food_count_last=control_ticks[-1].get("food_count"),
-        )
-    r0 = None
-    if len(controls) == 2 and all(row["summary"]["complete"] for row in controls):
-        r0 = (
-            sum(row["summary"]["tick_overruns"] for row in controls)
-            * 1000
-            / sum(len(row["ticks"]) for row in controls)
-        )
-    branch_b_cells = []
-    for row in worker_units:
-        summary = row["summary"]
-        streak = longest = 0
-        for tick in row.get("ticks", []):
-            streak = streak + 1 if tick["overrun"] else 0
-            longest = max(longest, streak)
-        late = max(
-            (
-                (tick["finished_ns"] - tick["target_ns"]) / 1e6
-                for tick in row.get("ticks", [])
-                if tick["overrun"]
-            ),
-            default=0.0,
-        )
-        rate = summary.get("overruns_per_1000_ticks")
-        update_p95 = summary.get("update", {}).get("p95_seconds")
-        doom = summary.get("doom_p99_seconds")
-        clauses = {
-            "complete": summary["complete"],
-            "integrity_pass": summary["verdict"] != "INVALID" and not summary.get("errors"),
-            "rate_pass": None if r0 is None else rate is not None and rate <= r0 + 5,
-            "lateness_pass": late <= 100,
-            "cascade_pass": longest < 3,
-            "update_pass": update_p95 is not None and update_p95 <= 0.011688,
-            "doom_pass": row["workers"] != 4 or (doom is not None and doom <= 5.0),
+    control_rows = [
+        {
+            "cell_id": row["cell_id"],
+            "complete": row["summary"]["complete"],
+            **timing_report(row.get("ticks", [])),
         }
-        branch_b_cells.append(
+        for row in controls
+    ]
+    for row in control_rows:
+        row["r0"] = row["overruns_per_1000_ticks"]
+    control_ticks = [tick for row in controls for tick in row.get("ticks", [])]
+    count = sum(tick["overrun"] for tick in control_ticks)
+    r0 = 1000 * count / len(control_ticks) if control_ticks else None
+    bare_controls = {
+        "report_only": True,
+        "cells": control_rows,
+        "pooled": {
+            "complete": len(controls) == 2 and all(row["complete"] for row in control_rows),
+            "ticks": len(control_ticks),
+            "tick_overruns": count,
+            "r0": r0,
+            "overruns_per_1000_ticks": r0,
+        },
+        "overruns_per_1000_ticks": r0,
+    }
+    branch_b_report = {
+        "enabled": False,
+        "status": JUDGED4_BRANCH_B_STATUS,
+        "report_only": True,
+        "ruling_path": JUDGED4_ROUND22_RULING_PATH,
+        "r0": r0,
+        "controls": control_rows,
+        "cells": [
             {
                 "cell_id": row["cell_id"],
-                "overruns_per_1000_ticks": rate,
-                "rate_limit_per_1000_ticks": None if r0 is None else r0 + 5,
-                "overrun_lateness_max_ms": late,
-                "max_consecutive_overruns": longest,
-                **clauses,
-                "pass": all(value is True for value in clauses.values()),
-                "reasons": [key for key, value in clauses.items() if value is not True],
+                "complete": row["summary"]["complete"],
+                **timing_report(row.get("ticks", [])),
+                "r_c": timing_report(row.get("ticks", []))["overruns_per_1000_ticks"],
             }
-        )
-    branch_b_report["cells"] = branch_b_cells
-    if r0 is not None:
-        worker_ok = (
-            r0 > 0 and len(branch_b_cells) == 4 and all(row["pass"] for row in branch_b_cells)
-        )
-        branch_b_report.update(
-            eligible=r0 > 0,
-            bare_overruns_per_1000_ticks=r0,
-            verdict="PASS" if worker_ok else "BLOCKED",
-        )
-        if branch_b and verdict not in {"INVALID", "INCOMPLETE"} and worker_ok:
-            verdict = "PASS"
-    elif branch_b and verdict != "INVALID":
-        verdict = "INCOMPLETE"
-    admission = {}
-    if branch_b and branch_b_report["eligible"]:
-        admission = {
-            row["cell_id"]: "PASS" if row["pass"] else "BLOCKED"
-            for row in branch_b_cells
-            if row["complete"] and row["integrity_pass"]
-        }
+            for row in worker_units
+        ],
+    }
     return {
         "schema": SCHEMA,
         "namespace": namespace,
@@ -1380,14 +1415,6 @@ def reduce_units(
             {
                 "cell_id": row["cell_id"],
                 **row["summary"],
-                **(
-                    {
-                        "branch_a_verdict": row["summary"]["verdict"],
-                        "verdict": admission[row["cell_id"]],
-                    }
-                    if row["cell_id"] in admission
-                    else {}
-                ),
                 **({"background_load": row["background_load"]} if "background_load" in row else {}),
             }
             for row in units
@@ -1536,13 +1563,7 @@ def main() -> None:
     args = parser.parse_args()
     branch_b = False
     if args.branch_b is not None:
-        if not RATIFICATION_D1_BRANCH_B_PATH.is_file() or args.branch_b != digest(
-            RATIFICATION_D1_BRANCH_B_PATH
-        ):
-            raise ValueError("M1 Branch B requires the exact pre-data Fable ratification hash")
-        if any(M1_ARTIFACT_EXP_ROOT.glob("bl-m1-attempt-07*/attempt.json")):
-            raise ValueError("M1 Branch B cannot be adopted after attempt-07 data exists")
-        branch_b = True
+        refuse_branch_b()
     data = inputs(args.fixtures, args.reference, args.branch_b if branch_b else None)
     if args.smoke:
         if any(
