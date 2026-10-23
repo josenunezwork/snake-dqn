@@ -1,0 +1,33 @@
+{
+  "artifact_pack": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-latebody-06-e8-04-review-20261022-08/final",
+  "canary_manifest_sha256": "b4e2c56ad44dab05928690c4faf4ab751eff255f168fe2744e8f2e2fe8e9d00c",
+  "commit": "5d877123ce8734537ef1f6924d5543be50dacdf7",
+  "dispatch": false,
+  "no_new_scientific_ruling_required": true,
+  "only_changed_original_source_paths": [
+    "job_id",
+    "output_dir"
+  ],
+  "pending": [
+    "Claude campaign ledger and existing section6 dispatch checklist; fresh empty account inventory and debit reconciliation",
+    "genuine current canary terminal receipt, verified exports and release before source admission"
+  ],
+  "prior_exports": [],
+  "prior_failure_class": "SUPERVISOR",
+  "prior_receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-latebody-06-e8-04-review-20261022-04/final/canary-output/receipt.json",
+  "prior_receipt_sha256": "a3c25f84f6297243e26b609f96433019ef7dd6ad8ba201a5f1b46f89283815b6",
+  "prior_stop_verified": true,
+  "prior_workload_ran": false,
+  "registered_envelope_units": 25.5,
+  "reservations": {
+    "prior_attempts_including_failed_canary": 7.48,
+    "replacement": 3.86,
+    "retry_canary": 2,
+    "source": 9.62,
+    "total": 22.96
+  },
+  "retry_authority": "JUDGMENT_P1_E8_04_B.md section7; round-18 JUDGMENT section5 first outcome-blind mechanical retry",
+  "science_pin_unchanged_paths": 267,
+  "qualified_transport_tree": "553af3f692515b2bf66173356fe4d099acc96942",
+  "status": "CANARY_ADMITTED_NOT_DISPATCHED_SOURCE_HELD"
+}
