@@ -156,6 +156,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 01:25 PT | F4 APPROVED (pre-data) | round-26 JUDGMENT.md sha 0fe1a103...8362 (Opus stand-in, RATIFY-WITH-CHANGES); F4_REGISTRATION.md sha 66388c79...2fd65; FitRecipe sha 49d12f48...3a5a; all 8 edits at 8d6df609 (Codex-V PASS, 151 tests); approval artifacts big-lever/exp/f4/judgment.json (sha 15b6c842e73f1030...). No labels read. F0 label factory: family probe PASS on qualified tree d0d92bdb; CPU science canary running. GC fix: d.1 PASS (3 seeds x 5,000 ticks), d.3 PASS (both policies) at 40993bce; d.2 timed probes queued. Kernel-identity supervisor fix merged (qualified d0d92bdb). |
 
+| 2026-10-23 01:40 PT | P1 Y3 critic gate PASS (amendment 04) | source retry05 training-status.json: critic_refit PASS, held-out natural late-body n=163 EV 0.587, MSE 295,944 vs baseline 528,354 (fresh disjoint worlds, offsets 3,010,000/3,011,000). Job ended INCOMPLETE at finalisation (mechanical): 'Y3 source lacks an operational snapshot and fixed suffix proof'; exports intact. Sol diagnosing + offline recovery path. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
