@@ -6,6 +6,13 @@ selected bare audits. It creates development data; no gate, model fit, timing
 qualification or serving change is performed. The frozen authority, allocation,
 caps, retry policy and kill rules are in [INTENT.md](INTENT.md).
 
+The reviewed CPU canary is **INCOMPLETE**, with 31/36 immutable completed
+session parents and no reported integrity mismatch in completed evidence.
+See [CANARY_RESULT_20261023.md](CANARY_RESULT_20261023.md) and
+[CODEX_V_CANARY.json](CODEX_V_CANARY.json). The registered rescue outcome
+look and Mac-equivalent yield decision remain pending; this result does not
+admit tranche 1.
+
 ## Exact execution and exported evidence
 
 `factory.py` composes B2 `WatchDriver.snapshot/restore`, the T3 gate-world
