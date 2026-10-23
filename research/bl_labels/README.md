@@ -1,0 +1,134 @@
+# F0 hindsight label factory
+
+F0 plays untouched bare B8 lives, reads the bare H300 outcome from the natural
+trajectory, and spends branch simulation only on alternative actions and the
+selected bare audits. It creates development data; no gate, model fit, timing
+qualification or serving change is performed. The frozen authority, allocation,
+caps, retry policy and kill rules are in [INTENT.md](INTENT.md).
+
+## Exact execution and exported evidence
+
+`factory.py` composes B2 `WatchDriver.snapshot/restore`, the T3 gate-world
+constructor, `clone_world_exact`, `full_digest`, native v8, and `exact_stop.run`.
+All streams use the same prepared maintenance/selector seam. Watch6 has bare
+B8 against five independent FRP3-s12+v8 opponents with continuous respawn.
+S-gate preserves the L2 constructor's frozen/mixed/scripted populations,
+including their disabled gate veto seats; zero eligible native-v8 rows in those
+gate worlds is expected. Watch opponent rows must attest native-only execution.
+
+The fatal action has zero-based index `e`; the exclusive death endpoint is
+`f=e+1`. Doom roots are in `[f-300,f)`, including the fatal action itself.
+The 60 stride roots union the last 30 roots normally gives 84 distinct roots,
+under the doom cap of 90. Eight ordinary roots are separate from that cap.
+They are a uniform bottom-hash sample of the same life's known-safe natural
+H300 roots. Their probabilities and capped natural-prevalence weights are
+recorded. Exact outcomes include fixed-H300 mass with zero mass after death.
+T3 ranking retains bare among surviving ties and chooses longest delay if
+every branch dies. Skipped actions remain `NOT_EVALUATED`, with null outcomes.
+
+Snapshots remain in a ring covering 420 decisions, plus the eight ordinary
+reservoir roots and their short replay prefixes. Every restored selected root
+must match its live full digest. B2 restore also restores process RNG and
+configuration. Label branches cannot change the continuing natural stream.
+No simulator implementation or shared simulator files are changed.
+
+Each death-life exports immediately as `lives/<parent>--life-NNNNNN.json`,
+with SHA sidecar and completion marker last. The terminal session exports as
+`lives/<parent>--session.json`. Session exports contain the shared natural
+six-seat action tape, per-decision Q/legal/length, digest cadence, UNKNOWN
+short suffixes, audit-root metadata, timing buckets and native attestation.
+Raw raster/scalar inputs retain their original values. Every row binds its
+namespace, parent world, life, code and checkpoint identity, and parent split.
+`audit-sealed` parents remain reserved from consumer fitting until the consumer
+model is frozen; F0 performs no fitting or admission of a student.
+
+Ten percent of doom roots get independent bare audits of death and final length.
+Last-30 roots and a ten-percent hash sample of stride roots get complete legal
+outcomes; ordinary roots are complete. Ten percent of rescue roots get H1440
+continuation. The Mac aggregator derives a tranche-wide `delay` effective label
+if reversals exceed ten percent, leaving immutable raw outcomes intact.
+
+## Prepare and dispatch the CPU canary
+
+The package generator requires a clean published source pin, the qualified CLI
+tree, six pinned public checkpoint identities and a clean Python 3.12 import
+preflight via `tools/ops/import_preflight.py`. It uploads an empty verified
+ledger on the original attempt. Runtime paths are public input paths; the
+runtime never requires a Mac artifact directory or Drive.
+
+```bash
+PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+cd /Users/josenunez/Projects/ml/snake-dqn-f0
+PIN=$(git rev-parse HEAD)
+"$PY" -m research.bl_labels.manifests \
+  --commit "$PIN" \
+  --artifact-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-01 \
+  --output-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-output-01 \
+  --b8 /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth \
+  --frp3 /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth
+```
+
+Claude dispatches the reviewed resulting manifest, using a fresh attempt name:
+
+```bash
+/Users/josenunez/Projects/ml/snake-dqn-acctfix/tools/ops/dispatch.sh \
+  bl-f0-cpu-canary-01 \
+  /Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-01/f0-cpu-canary.json \
+  --broker /Users/josenunez/Projects/ml/snake-dqn-acctfix \
+  --cwd /Users/josenunez/Projects/ml/snake-dqn-acctfix \
+  --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/state/bl-f0-cpu-canary-01 \
+  --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/canary-pack-01/DISPATCH.txt
+```
+
+The allocation is exactly 12 frozen + 12 mixed + 8 scripted H5000 worlds,
+and four Watch6 sessions of 14,400 frames. It uses CPU, zero GPUs, W=nproc,
+one numerical thread per worker. Base/effective limits are 0.1/0.2 units,
+30/60 minutes, and 0.02/0.04 reserve units; measured CPU accounting rate is
+0.08 u/hour. Setup, imports, export and failures count; first cap wins. The
+series, including any manually authorized mechanical completion attempts,
+shares the original effective envelope. There is no automatic retry.
+
+## Verify, resume, aggregate, and audit
+
+Use only Mac-verified payload/SHA/completion triplets. Ledger construction is
+outcome-blind. Aggregation is the registered outcome look and must wait until
+the frozen allocation is complete or mechanically closed.
+
+```bash
+"$PY" -m research.bl_labels.exports ledger \
+  --control /absolute/pack/control.json --exports /absolute/verified-attempt-output \
+  --out /absolute/fresh-ledger/verified-ledger.json
+"$PY" -m research.bl_labels.exports aggregate \
+  --control /absolute/pack/control.json \
+  --attempt-exports /absolute/verified-attempt-output \
+  --out /absolute/fresh-aggregate/verified-ledger.json
+```
+
+The aggregator refuses duplicate IDs, foreign namespaces/allocations, partial
+payloads and durable INVALID markers. It materializes verified payloads beside
+its ledger. Completed sessions skip their parent entirely. A partial parent
+replays its deterministic natural discovery to reach missing lives, skipping
+every verified life's label computation and export. This is completed-unit
+resume, not a claim of full-state continuation of an interrupted trajectory.
+
+The independent Mac audit replays all six recorded actions, never x86 policy
+decisions. It classifies Mac-side policy ties at four float32 ulps, checks each
+replayed simulator digest and requires 64 distinct roots before reporting PASS:
+
+```bash
+"$PY" -m research.bl_labels.replay_audit \
+  --unit /absolute/verified/lives/parent--session.json \
+  --unit /absolute/verified/lives/another-parent--session.json \
+  --b8 /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth \
+  --frp3 /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth \
+  --out /absolute/fresh-audit/mac-replay.json
+```
+
+Any digest/bare-audit mismatch is INVALID. A completed zero-rescue canary is
+INSUFFICIENT, with no extension. The throughput kill is fewer than eight
+rescue-bearing lives per Mac-worker-hour equivalent. Colab hours cannot be
+silently substituted for Mac hours; only a measured Mac ruler or a separately
+measured conversion can supply `aggregate --mac-worker-hours`. Full Mac Canary
+B (W2, nice 10, at most one hour, unleased quiet gap) remains an operator step;
+the tiny implementation smoke does not establish throughput. Strict gates and
+serving qualification remain Mac-only and separate.
