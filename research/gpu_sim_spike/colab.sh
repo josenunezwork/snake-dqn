@@ -12,6 +12,14 @@ set -euo pipefail
 : "${GPU_SIM_SPIKE_CPU_WORKERS:=12}"
 : "${GPU_SIM_SPIKE_RATE_UNITS_PER_HOUR:?manifest must bind the provider rate ceiling}"
 
+# A1 uses the already-qualified gpu_sim_spike family entrypoint, while its
+# measurement body stays isolated in a100_ruler.sh.  Keeping this routing here
+# preserves the family canary's real-entrypoint identity without changing the
+# Colab transport tree.
+if [[ "${GPU_SIM_SPIKE_ENTRYPOINT:-benchmark}" == "a1-ruler" ]]; then
+  exec "$(dirname "$0")/a100_ruler.sh"
+fi
+
 input_root="${COLAB_INPUT_DIR}"
 if [[ "${BL_PUBLIC_INPUTS:-0}" == "1" ]]; then
   python -m research.bl_upload.inputs --input-dir "${COLAB_INPUT_DIR}"

@@ -121,20 +121,25 @@ class DevicePolicy:
             ),
             dim=1,
         )
-        legal = sim.advisory_mask()[:, 0]
-        features = (
-            v8_decide(
-                sim,
-                rows,
-                torch.zeros((sim.E, 6), device=self.device),
-                legal,
-                self.v8_lambda,
-                features=True,
+        with sim.stage("v8_floods"):
+            legal = sim.advisory_mask()[:, 0]
+        with sim.stage("v8_floods"):
+            features = (
+                v8_decide(
+                    sim,
+                    rows,
+                    torch.zeros((sim.E, 6), device=self.device),
+                    legal,
+                    self.v8_lambda,
+                    features=True,
+                )
+                .feature_planes()
+                .reshape(sim.E, 30)
             )
-            .feature_planes()
-            .reshape(sim.E, 30)
-        )
-        q = self.b8_network(*build_observation(sim, rows, features)).float()
+        with sim.stage("observation_paint"):
+            observation = build_observation(sim, rows, features)
+        with sim.stage("b8_forward"):
+            q = self.b8_network(*observation).float()
         return q, legal, _masked_argmax(q, legal)
 
     @torch.inference_mode()
@@ -148,13 +153,15 @@ class DevicePolicy:
         out = torch.ones((sim.E, sim.S), dtype=torch.long, device=self.device)
         out[:, 0] = hero_actions
         if not self.vector_prepared:
-            self.vector_runtime.prepare(sim)
+            with sim.stage("vector61"):
+                self.vector_runtime.prepare(sim)
             self.vector_prepared = True
         for slot, (net, kind, table) in enumerate(
             zip(self.opponent_networks, self.anchor_kinds, self.anchor_tables), start=1
         ):
             if kind is not None:
-                out[:, slot] = choose_anchor(sim, slot, kind, table)
+                with sim.stage("opponent_forwards"):
+                    out[:, slot] = choose_anchor(sim, slot, kind, table)
                 continue
             rows = torch.stack(
                 (
@@ -163,16 +170,20 @@ class DevicePolicy:
                 ),
                 dim=1,
             )
-            states, masks = self.vector_runtime.selection(rows)
-            q = net(states).float()
-            out[:, slot] = v8_decide(sim, rows, q, masks, self.v8_lambda).action
+            with sim.stage("vector61"):
+                states, masks = self.vector_runtime.selection(rows)
+            with sim.stage("opponent_forwards"):
+                q = net(states).float()
+            with sim.stage("v8_floods"):
+                out[:, slot] = v8_decide(sim, rows, q, masks, self.v8_lambda).action
         return out
 
     def after_step(self, sim: Any) -> None:
         if self.reference_bridge is not None:
             self.reference_bridge.after_step(sim, self.host_stages)
         else:
-            self.vector_runtime.observe_step(sim)
+            with sim.stage("vector61"):
+                self.vector_runtime.observe_step(sim)
             self.vector_prepared = False
 
 

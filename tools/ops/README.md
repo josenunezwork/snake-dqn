@@ -113,6 +113,13 @@ Only explicitly declared short operational canaries or acceptance jobs may omit
 `kind` must be `short-canary` or `acceptance`, with a nonempty reason and a finite
 positive numeric timeout. Short canaries are bounded at 40 minutes (the ruling's
 20 minutes ×2); acceptance at 60 minutes (the existing 30-minute maximum ×2).
+A1 has one package-specific override authorized by the owner's 2026-10-22 work
+order and `PLAN_A100.md` §3: `acceptance`, at most 120 minutes / exactly 20 units,
+A100 only, the exact 6/256/1,024 × three-mix, 3 × 8-tick ruler. It must identify
+that plan's SHA-256 (`1c87898be554d8e66788da6f0a09ee7b842a514e530c1d0e1c624bcf58c3962c`)
+in `resume_exemption.authority_sha256` and use the A1 entrypoint. This does not
+change the generic 60-minute ceiling or the qualified transport tree.
+
 The supervisor still enforces its other admission, budget, and timeout checks.
 Never declare both blocks. Names, scripts, and environment flags do not imply an
 exemption. A resume canary should itself use `resume` when testing that contract;

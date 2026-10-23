@@ -1,0 +1,35 @@
+{
+  "schema": "gpu-sim-spike-a0-a1-static-review/v1",
+  "reviewer": "Independent Codex-V native_review specialist",
+  "verdict": "PASS_STATIC_REVIEW",
+  "scope": "A0 simulator/native FIFO/stages, A1 ruler and dispatch pack, named ops admission exception",
+  "resolved_findings": [
+    "exclusive respawn/advisory timers",
+    "TF32 and one-thread regime frozen before timing",
+    "same-process action-tape CPU rescoring and mismatch reporting",
+    "peak memory max across repeats",
+    "published source and qualified transport pin validation",
+    "same-pin/cwd handoff and main-only validation after completed canary",
+    "18-minute/3-unit whole-session canary arithmetic"
+  ],
+  "qualification_tree": "553af3f692515b2bf66173356fe4d099acc96942",
+  "native_cuda": "PENDING_SAME_PIN_A100_CANARY",
+  "reviewer_execution": "Read-only source/diff/search/hash inspection; no tests, Python workloads, file edits or Colab dispatch",
+  "reviewed_source_sha256": {
+    "research/gpu_sim_spike/device_sim.py": "816ebd5fbd4016bb01eda5fe31ee7739f8cb7bf021b2885684f769ea63dc58ae",
+    "research/gpu_sim_spike/device_policy.py": "fa265af4b53374a727b2dd341956dec97aa1834fcc6868bb9e4060b4b3d780a0",
+    "research/gpu_sim_spike/stage_timing.py": "3a9df1263bf3623ba5c9f37bf1fed19041fca9cf8ffa2487bdf9b6d873133f4c",
+    "research/gpu_sim_spike/event_cuda.py": "5d6fd6d0742f13c9e4005e0cd40cb579ce22a459c1dc4cf7a52cf67217fdcdd4",
+    "research/gpu_sim_spike/event_cuda.cpp": "55951b333320311baa8065a614a5c64df06cdc091f7c19263717409b49d366cb",
+    "research/gpu_sim_spike/event_cuda.cu": "22639be741aaf8dd8abc4b17b8bb32ce890a73dd872bdd4d5cace3f5c6ad67d9",
+    "research/gpu_sim_spike/device_sim_frozen.py": "7fbabf67b439c6e8ebf2cbb252abed5dadcc1ce08194a8d6177605ab4bbe8d88",
+    "research/gpu_sim_spike/a100_ruler.py": "a7b306c7838066ee6f0557eb13b8fdb58e9966f088a8d7b6688db0a94d7551aa",
+    "research/gpu_sim_spike/a100_ruler.sh": "41c60866036bc46b4259f230d51b52d3331ec3cbf5aa4e7be08198a6af0512fe",
+    "research/gpu_sim_spike/make_a1_pack.py": "38b31640a31c9d55d7281d127f709e73a1b63ba348954ae9a531853b75f456be",
+    "research/gpu_sim_spike/colab.sh": "ec1245f57c5792bc84d65b2c173a94e3362c3d8935370d429f3c4e2e51dcb79f",
+    "research/gpu_sim_spike/test_a0_event_oracle.py": "2dcfced59dc599e1b870210f77bfad3ae4f35e741640a6d90e216b7d101bded2",
+    "research/gpu_sim_spike/test_a1_pack.py": "4389426476e6ca2da310514b796ae75d59c387b7c68dc946fd8f8fd1321b4de7",
+    "tools/ops/dispatch.py": "c45818aa68aa52cafa7c7e8bb96a4ed4cbd3ed334a73e16581f68ec5500c3f95",
+    "tests/test_ops_a1_exemption.py": "9cbeca7100e9d50631ff98a37382799570f0688dc403268a6b639037b1e1c6ed"
+  }
+}

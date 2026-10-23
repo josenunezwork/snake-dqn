@@ -1,0 +1,24 @@
+{
+  "schema": "gpu-sim-spike-a0-codex-v-review/v1",
+  "verdict": "PASS",
+  "scope": "Independent CPU oracle review of A0 event-path state and counter-RNG behavior",
+  "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -p no:xdist -q research/gpu_sim_spike/test_a0_event_oracle.py",
+  "observed": "11 passed in 6.90s",
+  "production_body_capacity": 10400,
+  "rng_ticks": 1000,
+  "baseline_revision": "01334e1ed04b49ebf61ab16a6df0cf6c7e4c2884",
+  "baseline_device_sim_sha256": "7fbabf67b439c6e8ebf2cbb252abed5dadcc1ce08194a8d6177605ab4bbe8d88",
+  "candidate_device_sim_sha256": "816ebd5fbd4016bb01eda5fe31ee7739f8cb7bf021b2885684f769ea63dc58ae",
+  "oracle_test_sha256": "2dcfced59dc599e1b870210f77bfad3ae4f35e741640a6d90e216b7d101bded2",
+  "checks": [
+    "empty event rejects without corpse append",
+    "full-food maintenance preserves state and counter-RNG stream for 1000 ticks",
+    "food refill preserves frozen order and RNG",
+    "active-subset food maintenance covers full, refill, no-space, and exhausted rows",
+    "single and simultaneous deaths compact actual in-arena segments",
+    "production-capacity append and eviction ignore stale non-present padding",
+    "stage timer and launch-count schema is complete and nonnegative"
+  ],
+  "native_cuda": "NOT_RUN_ON_MAC",
+  "limitations": "This receipt is CPU evidence; it does not qualify native CUDA execution or A100 throughput."
+}
