@@ -19,6 +19,18 @@ d.3 or d.2. See `GC_CODEX_V_D3_20261023.json` for the amendment review; the prio
 review and failed receipts remain historical evidence. Full d.1 and amended d.3
 must pass before d.2; nothing here admits a release or default flip.
 
+**I3/I4 are further restated by**
+[`big-lever/round-25/JUDGMENT_D3_B.md`](/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-25/JUDGMENT_D3_B.md).
+Strict gameplay types have no exceptions. Other prefix objects require identity
+ownership by `RASTER31V2_SHAPES` or the bounded `SnakeGeometry` cache, plus a
+referent isolation walk. No geometry is allowed at birth. The receipt reports
+S/P/A per-type counts, A1/A2 counts, cache bounds and isolation failures; census
+`total`/`types` now count rejected objects and `clean` gates I3/I4. The harness
+never clears the cache. Diagnostic code and identity/serving sources stay
+unchanged. Prior failed receipts remain evidence. Claude must run fresh d.3
+from a clean detached frozen worktree under the exclusive Mac lease, nice 0,
+AC power and open lid; the implementer runs only light single-process tests.
+
 `identity.py` exports the per-tick SHA-256 chain and final hash. Its `--check`
 verifies immutable exports, the default/freeze/default order, source identity,
 and equal seed/tick allocation. The permanent test uses 600 ticks and includes a

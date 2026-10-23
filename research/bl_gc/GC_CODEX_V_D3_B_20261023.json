@@ -1,0 +1,116 @@
+{
+  "schema": "bl-gc-freeze/v1/codex-v-d3-b",
+  "reviewer": "Codex-V",
+  "agent_task": "/root/codex_v_d3_b",
+  "independent": true,
+  "status": "IMPLEMENTATION_ACCEPTED_OPERATOR_QUALIFICATION_PENDING",
+  "review_base": "45ad04b1397cba12568271f08761f87a29184838",
+  "reviewed_head": "45ad04b1397cba12568271f08761f87a29184838",
+  "reviewed_dirty": true,
+  "implementation_branch": "serving-gc-freeze-20261023",
+  "reviewed_worktree": "/Users/josenunez/Projects/ml/snake-dqn-gcfix",
+  "reviewer_files_changed": [],
+  "implementation_findings": [],
+  "receipt_written_by": "Root from independent read-only Codex-V payload; prior review receipts preserved",
+  "authority": {
+    "AGENTS.md": "4e291a4454028a0b21b6b58492292a19fcacec1dd4b8ce684fbd8b386420828b",
+    "judgment_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-25/JUDGMENT_D3_B.md",
+    "judgment_sha256": "813c0dcf2b439fc392dbfa89ce204e7ed1856e72667d894070d635b2ab7c5634",
+    "read_in_full": true
+  },
+  "amended_census_review": {
+    "strict_gameplay_types_have_zero_exceptions": true,
+    "strict_subclass_detection_unchanged": true,
+    "prefix_rule_matches_registered_three_prefixes": true,
+    "allowlist_exactly_A1_and_A2": true,
+    "A1_module_constant_object_identity": true,
+    "A2_exact_geometry_type_and_cache_object_identity": true,
+    "A2_cache_bound_max_entries_and_absolute_64": true,
+    "every_observed_allowed_object_gets_isolation_walk": true,
+    "isolation_rejects_S_and_P_outside_A": true,
+    "walk_follows_builtin_containers_and_A_only": true,
+    "walk_does_not_follow_types_or_modules": true,
+    "I3_after_collect2_before_freeze": true,
+    "I3_A2_count_zero": true,
+    "I4_after_unfreeze_before_collect": true,
+    "harness_never_clears_cache": true,
+    "per_type_S_P_A_and_A1_A2_counts_reported": true,
+    "I1_I2_20_cycles_weakrefs_growth_negative_control_unchanged": true
+  },
+  "required_fail_case_tests": {
+    "nonconstant_RasterObsShapes": true,
+    "uncached_SnakeGeometry": true,
+    "cached_SnakeGeometry_at_birth": true,
+    "unlisted_prefix_objects": true,
+    "A1_and_A2_isolation_reaching_strict_instance": true,
+    "A1_and_A2_isolation_reaching_unlisted_prefix_instance": true,
+    "live_each_strict_type_at_teardown": true,
+    "strict_type_cannot_use_A1_identity_exception": true,
+    "cache_overflow": true,
+    "geometry_subclass_not_allowlisted": true
+  },
+  "sources_sha256": {
+    "research/bl_gc/lifecycle.py": "3f5c810109330c43b853a483bc09a53a65c6a86cfb286c8dde9619453ec53b9f",
+    "tests/test_gc_lifecycle.py": "19c16b7fcfb7ca08ed6cfae910c2e87cb22f2e52e7c0c7e2e1f10e3fc791d66c",
+    "research/bl_gc/README.md": "9c2ab842d1154ba608f68d4c8f4442c247241ebd1ddf5d436f244f4f39147680"
+  },
+  "identity_closure_unchanged_sha256": {
+    "research/bl_gc/identity.py": "463a8e7b39e4cdd002f4ad09f3ecbe5222492584110414e81271ba01c0f712b8",
+    "research/bl_gc/common.py": "ba1f4189d95838e43f3420c7e8b6192db9b8b8b1d89b6868b5b6f3692a03f20c",
+    "web/backend/gc_policy.py": "833bb8bd158c8db0f4eb4dac63a1110641179f8311e2b9a9898e4afa38603398",
+    "web/backend/session.py": "92e23e5da61a28790aa6dd19458267e2ee75f1bc3879b5f63ee3ea9ee6020334",
+    "web/backend/app.py": "10d5b00a3417daa5b2aa6ea1ae9281890fa732c95795dc5ee52578031dc60fd4"
+  },
+  "protected_src_web_backend": {
+    "tracked_paths_compared": 151,
+    "mismatches": [],
+    "aggregate_path_sha256": "41918ae7ebbd44a2c7ad3d44e7e594f122c8e63a02afe3742f3acfe848a10695",
+    "aggregate_definition": "sha256 of git-ls-tree sorted path NUL sha256(current bytes) newline records",
+    "baseline_and_current_byte_identical": true
+  },
+  "diagnose_exact_function_bytes": {
+    "baseline_sha256": "773a869359c34318aae20f0fa18ef70c607acc4379f195a96b0b3fbe61fc7ca3",
+    "current_sha256": "773a869359c34318aae20f0fa18ef70c607acc4379f195a96b0b3fbe61fc7ca3",
+    "equal": true
+  },
+  "existing_tests_suffix_from_run": {
+    "baseline_sha256": "76744bcd4636d2c3f0f2223c035e97ecaac14dde9c7894a535a5cf645d494ba7",
+    "current_sha256": "76744bcd4636d2c3f0f2223c035e97ecaac14dde9c7894a535a5cf645d494ba7",
+    "equal": true
+  },
+  "independent_light_tests": [
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu SNAKE_SERVE_PATHB=0 ./venv/bin/python -m pytest -q -p no:xdist tests/test_gc_lifecycle.py -k census",
+      "result": "26 passed, 5 deselected in 0.74s",
+      "exit_code": 0,
+      "note": "macOS pytest restarted under the repository's single-OpenMP-runtime isolation"
+    }
+  ],
+  "root_light_tests": [
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu SNAKE_SERVE_PATHB=0 ./venv/bin/python -m pytest -q -p no:xdist tests/test_gc_policy.py tests/test_gc_lifecycle.py tests/test_gc_probe.py tests/test_b8_release_monitoring.py -k 'not watch_session_replacements and not real_frozen_decrease and not failed_invariant_records and not crash_preserves'",
+      "result": "100 passed, 5 deselected in 8.46s",
+      "exit_code": 0
+    }
+  ],
+  "static_verification": [
+    "git diff --check: passed",
+    "git diff --exit-code 45ad04b1 -- src web/backend research/bl_gc/identity.py research/bl_gc/common.py: exit 0",
+    "SHA256 byte comparison of all 151 protected tracked paths: passed",
+    "Exact diagnose() source-byte comparison: passed",
+    "Entire pre-existing tests suffix from def _run onward: unchanged",
+    "Root black/isort/flake8 changed Python files: passed"
+  ],
+  "not_run": [
+    "d.3 qualification suite",
+    "lifecycle CLI",
+    "diagnostic",
+    "identity tests",
+    "subprocess lifecycle tests",
+    "d.1",
+    "d.2"
+  ],
+  "qualification_note": "Light implementation review only. Claude must qualify both policies from a clean detached frozen worktree under the exclusive Mac lease at nice 0, on AC with the lid open. No qualification or release is inferred from this review.",
+  "release_authorized": false,
+  "merge_to_main_authorized": false
+}

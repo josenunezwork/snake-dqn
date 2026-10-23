@@ -7,8 +7,157 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable
 
 import pytest
+
+if TYPE_CHECKING:
+    from src.game.snake_geometry import SnakeGeometry
+
+Census = Callable[..., dict[str, Any]]
+
+
+@pytest.fixture
+def census(monkeypatch: pytest.MonkeyPatch) -> Census:
+    """Inspect only fixture objects; never run a session or alter the real cache."""
+    from research.bl_gc import lifecycle
+    from src.game import snake_geometry
+
+    monkeypatch.setattr(snake_geometry, "_cache", {})
+    types = lifecycle._gameplay_types()
+
+    def inspect(objects: list[Any], *, birth: bool = False) -> dict[str, Any]:
+        monkeypatch.setattr(lifecycle.gc, "get_objects", lambda: objects)
+        return lifecycle.gameplay_census(types, birth=birth)
+
+    return inspect
+
+
+def _cached_geometry() -> SnakeGeometry:
+    from src.game import snake_geometry
+
+    geometry = snake_geometry.SnakeGeometry(((10, 10), (20, 10)), 2, 10)
+    snake_geometry._cache[0] = (((10, 10), (20, 10)), 2, 10, geometry)
+    return geometry
+
+
+def test_census_accepts_only_module_shapes_identity(census: Census) -> None:
+    from src.model.obs_spec import RASTER31V2_SHAPES, RasterObsShapes
+
+    allowed = census([RASTER31V2_SHAPES], birth=True)
+    assert allowed["clean"] and allowed["total"] == 0
+    assert allowed["A1_count"] == 1 and allowed["A2_count"] == 0
+    assert allowed["P"]["total"] == allowed["A"]["total"] == 1
+    rejected = census([RasterObsShapes()])
+    assert not rejected["clean"] and rejected["total"] == 1
+    assert rejected["A1_count"] == 0
+
+
+def test_census_rejects_geometry_outside_owner_cache(census: Census) -> None:
+    from src.game.snake_geometry import SnakeGeometry
+
+    result = census([SnakeGeometry(((10, 10),), 1, 10)])
+    assert not result["clean"] and result["total"] == 1
+    assert result["A2_count"] == 0
+
+
+def test_census_rejects_cached_geometry_at_birth_only(census: Census) -> None:
+    geometry = _cached_geometry()
+    birth = census([geometry], birth=True)
+    assert not birth["clean"] and birth["total"] == 1
+    assert birth["A2_count"] == 1
+    teardown = census([geometry])
+    assert teardown["clean"] and teardown["total"] == 0
+    assert teardown["A2_count"] == 1 and not teardown["isolation_failures"]
+
+
+@pytest.mark.parametrize("module", ["src.game.new", "src.model.new", "web.backend.session.new"])
+def test_census_rejects_unlisted_prefix_object(census: Census, module: str) -> None:
+    obj = type("Unlisted", (), {"__module__": module})()
+    result = census([obj])
+    assert not result["clean"] and result["total"] == 1
+    assert result["P"]["types"] == {f"{module}.Unlisted": 1}
+    assert result["A"]["total"] == 0
+
+
+@pytest.mark.parametrize("root", ["A1", "A2"])
+@pytest.mark.parametrize("target", ["strict", "prefix", "unowned_shapes", "unowned_geometry"])
+def test_census_allowlisted_object_must_be_isolated(
+    census: Census, monkeypatch: pytest.MonkeyPatch, root: str, target: str
+) -> None:
+    from src.game.snake import Snake
+    from src.game.snake_geometry import SnakeGeometry
+    from src.model.obs_spec import RASTER31V2_SHAPES, RasterObsShapes
+
+    if target == "strict":
+        retained = object.__new__(Snake)
+    elif target == "prefix":
+        retained = type("Unlisted", (), {"__module__": "src.game.new"})()
+    elif target == "unowned_shapes":
+        retained = RasterObsShapes()
+    else:
+        retained = SnakeGeometry((), 0, 10)
+    # A container cycle proves termination; the target is absent from the census
+    # list so it can only be detected through the transitive referent walk.
+    containers = [{"nested": (frozenset({1}), [retained])}]
+    containers.append(containers)
+    if root == "A1":
+        obj = RASTER31V2_SHAPES
+        monkeypatch.setitem(vars(obj), "test_retained", containers)
+    else:
+        obj = _cached_geometry()
+        obj.obstacle_cells[(0, 0)] = containers
+    result = census([obj])
+    assert not result["clean"] and result["total"] == 1
+    assert result["isolation_failures"][0]["owner"] == root
+    assert sum(result["isolation_failures"][0]["reached"].values()) == 1
+
+
+def test_census_cache_bound_and_exact_geometry_type(census: Census) -> None:
+    from src.game import snake_geometry
+
+    geometry = _cached_geometry()
+    for key in range(64):
+        snake_geometry._cache[key] = ((), 0, 10, geometry)
+    assert census([geometry])["clean"]
+    snake_geometry._cache[64] = ((), 0, 10, geometry)
+    result = census([geometry])
+    assert not result["clean"] and not result["cache_bound_ok"]
+    assert result["cache_size"] == 65 and result["A2_count"] == 0
+
+
+def test_census_rejects_geometry_subclass_even_in_cache(census: Census) -> None:
+    from src.game import snake_geometry
+
+    child = type("ChildGeometry", (snake_geometry.SnakeGeometry,), {"__module__": "src.game.test"})
+    geometry = child((), 0, 10)
+    snake_geometry._cache[0] = ((), 0, 10, geometry)
+    result = census([geometry])
+    assert not result["clean"] and result["A2_count"] == 0
+
+
+@pytest.mark.parametrize("index", range(8))
+def test_census_rejects_each_live_strict_type_at_teardown(census: Census, index: int) -> None:
+    from research.bl_gc.lifecycle import _gameplay_types
+
+    cls = _gameplay_types()[index]
+    obj = object.__new__(cls)
+    result = census([obj])
+    assert not result["clean"] and result["total"] == result["S"]["total"] == 1
+    assert result["A"]["total"] == 0
+
+
+def test_census_strict_type_has_no_allowlist_exception(
+    census: Census, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.game.snake import Snake
+    from src.model import obs_spec
+
+    obj = object.__new__(Snake)
+    monkeypatch.setattr(obs_spec, "RASTER31V2_SHAPES", obj)
+    result = census([obj])
+    assert not result["clean"] and result["S"]["total"] == 1
+    assert result["A1_count"] == 0
 
 
 def _run(tmp_path: Path, policy: str) -> dict:

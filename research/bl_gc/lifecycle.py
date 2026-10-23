@@ -1,4 +1,4 @@
-"""Amended untimed d.3 lifecycle/retention qualification (JUDGMENT_D3.md)."""
+"""Amended untimed d.3 lifecycle/retention qualification (JUDGMENT_D3_B.md)."""
 
 from __future__ import annotations
 
@@ -51,18 +51,96 @@ def _gameplay_types() -> tuple[type, ...]:
     )
 
 
-def gameplay_census(types: tuple[type, ...]) -> dict[str, Any]:
-    """Count instances by type, retaining no objects or census list on return."""
-    counts: Counter[str] = Counter()
-    for obj in gc.get_objects():
+def gameplay_census(types: tuple[type, ...], *, birth: bool = False) -> dict[str, Any]:
+    """Apply the closed ownership rule, returning only counts and scalar evidence.
+
+    ``total`` and ``types`` count rejected census objects, preserving the zero
+    clean-census contract. S/P/A report all observed objects in each category;
+    P includes A. No gameplay object, referent, or census list escapes.
+    """
+    from src.game import snake_geometry
+    from src.model import obs_spec
+
+    cache_size = len(snake_geometry._cache)
+    cache_bound_ok = cache_size <= snake_geometry._MAX_ENTRIES and cache_size <= 64
+    geometry_ids = {id(entry[3]) for entry in snake_geometry._cache.values()}
+    counts: dict[str, Counter[str]] = {key: Counter() for key in ("S", "P", "A", "rejected")}
+    isolation_failures: list[dict[str, Any]] = []
+    a1_count = 0
+    a2_count = 0
+
+    def category(obj: Any) -> tuple[str | None, str]:
         cls = type(obj)
         module = cls.__module__
         module = module if isinstance(module, str) else ""
-        if issubclass(cls, types) or module.startswith(
-            ("src.game", "src.model", "web.backend.session")
-        ):
-            counts[f"{module}.{cls.__qualname__}"] += 1
-    return {"total": sum(counts.values()), "types": dict(sorted(counts.items()))}
+        name = f"{module}.{cls.__qualname__}"
+        # Strict gameplay types always win over identity ownership.
+        if issubclass(cls, types):
+            return "S", name
+        if module.startswith(("src.game", "src.model", "web.backend.session")):
+            return "P", name
+        return None, name
+
+    def allowance(obj: Any) -> str | None:
+        if obj is obs_spec.RASTER31V2_SHAPES:
+            return "A1"
+        if type(obj) is snake_geometry.SnakeGeometry and id(obj) in geometry_ids and cache_bound_ok:
+            return "A2"
+        return None
+
+    def isolation(obj: Any) -> dict[str, int]:
+        """Walk only builtin containers/A; inspect S/P before any traversal."""
+        pending = [obj]
+        seen: set[int] = set()
+        violations: Counter[str] = Counter()
+        while pending:
+            current = pending.pop()
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+            group, name = category(current)
+            allowed = allowance(current)
+            if group == "S" or (group == "P" and allowed is None):
+                violations[name] += 1
+            elif allowed is not None or type(current) in (dict, list, tuple, set, frozenset):
+                pending.extend(gc.get_referents(current))
+        return dict(sorted(violations.items()))
+
+    for obj in gc.get_objects():
+        group, name = category(obj)
+        if group is None:
+            continue
+        counts[group][name] += 1
+        allowed = allowance(obj) if group == "P" else None
+        if allowed is None:
+            counts["rejected"][name] += 1
+            continue
+        counts["A"][name] += 1
+        a1_count += int(allowed == "A1")
+        a2_count += int(allowed == "A2")
+        violations = isolation(obj)
+        if violations:
+            isolation_failures.append({"owner": allowed, "type": name, "reached": violations})
+        if violations or (birth and allowed == "A2"):
+            counts["rejected"][name] += 1
+
+    total = sum(counts["rejected"].values())
+    clean = total == 0 and cache_bound_ok and a1_count <= 1 and a2_count <= 64
+    return {
+        "total": total,
+        "types": dict(sorted(counts["rejected"].items())),
+        "clean": clean,
+        **{
+            key: {"total": sum(counts[key].values()), "types": dict(sorted(counts[key].items()))}
+            for key in ("S", "P", "A")
+        },
+        "A1_count": a1_count,
+        "A2_count": a2_count,
+        "birth": birth,
+        "cache_size": cache_size,
+        "cache_bound_ok": cache_bound_ok,
+        "isolation_failures": isolation_failures,
+    }
 
 
 def freeze_non_increasing(counts: list[int], frozen_count: int) -> bool:
@@ -141,7 +219,7 @@ def run(policy: str, cycles: int = 20, ticks: int = 50) -> dict[str, Any]:
     from web.backend import gc_policy
 
     result: dict[str, Any] = {
-        "schema": "bl-gc-lifecycle/v2",
+        "schema": "bl-gc-lifecycle/v3",
         "status": "FAIL",
         "policy": policy,
         "cycles_requested": cycles,
@@ -199,13 +277,13 @@ def run(policy: str, cycles: int = 20, ticks: int = 50) -> dict[str, Any]:
         freeze_calls += 1
         # Production has just called collect(2). No census objects escape.
         if result["birth_census"] is None:
-            result["birth_census"] = gameplay_census(types)
+            result["birth_census"] = gameplay_census(types, birth=True)
         original_freeze()
 
     def census_apply(*, stage: str) -> dict[str, Any]:
         if policy == "default":
             gc.collect(2)
-            result["birth_census"] = gameplay_census(types)
+            result["birth_census"] = gameplay_census(types, birth=True)
         return original_apply(stage=stage)
 
     gc.freeze = counted_freeze
@@ -224,7 +302,7 @@ def run(policy: str, cycles: int = 20, ticks: int = 50) -> dict[str, Any]:
         trajectory.append(int(gc.get_freeze_count()))
         expected_calls = int(policy == "freeze_startup")
         checks = result["checks"]
-        checks["I3"] = result["birth_census"]["total"] == 0
+        checks["I3"] = result["birth_census"]["clean"]
         checks["I1"] = freeze_non_increasing(trajectory, baseline)
         for cycle in range(cycles):
             cycle_refs, roster = _exercise_cycle(2026102300 + cycle)
@@ -264,7 +342,7 @@ def run(policy: str, cycles: int = 20, ticks: int = 50) -> dict[str, Any]:
         # I4: reveal the startup generation and census BEFORE any collection.
         gc.unfreeze()
         result["teardown_census_pre_collect"] = gameplay_census(types)
-        checks["I4"] = result["teardown_census_pre_collect"]["total"] == 0
+        checks["I4"] = result["teardown_census_pre_collect"]["clean"]
         _collect_twice()
         result["teardown_weakrefs_cleared"] = all(r() is None for b in refs for r in b)
         result["gameplay_objects_released_by_teardown"] = sum(
