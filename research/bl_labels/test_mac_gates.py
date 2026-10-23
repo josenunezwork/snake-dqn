@@ -193,3 +193,53 @@ def test_unsealed_old_payload_stays_out_of_verified_result_set(tmp_path, monkeyp
     result = gates.look_canary(pack, ledger, [attempt], tmp_path / "look/decision.json")
     assert result["status"] == "PASS"
     assert (attempt / "lives/parent-000--life-000099.json").read_text() == "partial unsealed bytes"
+
+
+def test_d256_admission_requires_actual_f4_binding_and_mac_look(tmp_path, monkeypatch) -> None:
+    """Use the real F4 approval checker; all outcome data here are synthetic."""
+    from research.bl_labels.mac_package import (
+        F4_JUDGMENT_SHA256,
+        F4_RECIPE_SHA256,
+        F4_REGISTRATION_SHA256,
+    )
+
+    pack, attempt = fixture_pack(tmp_path, monkeypatch)
+    ledger = tmp_path / "ledger/verified-ledger.json"
+    gates.publish_ledger(pack, [attempt], ledger)
+    look = tmp_path / "look/decision.json"
+    gates.look_canary(pack, ledger, [attempt], look)
+    output = tmp_path / "f1-output"
+    publish_json(output / "runtime-result.json", {"synthetic_fixture": True})
+    monkeypatch.setattr(gates, "_f1", lambda *_args: ({}, {"status": "PASS"}))
+    approval = tmp_path / "judgment.json"
+    approval.write_text(
+        json.dumps(
+            {
+                "schema": "bl-residual-f4-judgment/v1",
+                "decision": "APPROVE",
+                "judgment_sha256": F4_JUDGMENT_SHA256,
+                "registration_sha256": F4_REGISTRATION_SHA256,
+                "recipe_sha256": F4_RECIPE_SHA256,
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="sidecars"):
+        gates.admit_d256(pack, output, look, approval, tmp_path / "premature.json")
+    allocation = json.loads((pack / "d256-control.json").read_text())["allocation"]
+    publish_json(
+        pack / "d256-seed-audit.json",
+        {
+            "schema": "bl-labels-f0-d256-seed-audit/v1",
+            "seeds": [r["seed"] for r in allocation],
+            "outcome_blind": True,
+            "hits_by_root": {"synthetic-repo": [], "synthetic-artifacts": []},
+        },
+    )
+    control = gates.admit_d256(pack, output, look, approval, tmp_path / "admitted-d256.json")
+    assert control["operational_canary_rate"] == 48
+    gates.require_admission(control)
+    changed = json.loads(approval.read_text())
+    changed["recipe_sha256"] = "b" * 64
+    approval.write_text(json.dumps(changed))
+    with pytest.raises(ValueError, match="approval changed"):
+        gates.require_admission(control)

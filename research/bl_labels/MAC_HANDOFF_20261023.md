@@ -1,13 +1,14 @@
 # Mac F0 production and equivalence — 2026-10-23
 
 Authority: round-24 `JUDGMENT_PLACEMENT_MAC.md`, SHA256
-`6adf731e49b0fd27f9014ef48fed3ec0f4a31b7001345af9bf980ac4a39cee5e`,
-plus round-24 and round-26 judgments. This sibling supersedes the preserved old Mac
+`738a367bec2c3399ed8bd9383811d7fa643109a8aaba384a775f1c028a7285ea`,
+including its appended C1 clarification (separate stall-fix scope), plus round-24
+and round-26 judgments. This sibling supersedes the preserved old Mac
 W2/quiet-gap execution wording. Frozen intents, old receipts and serving stay unchanged.
 This is implementation/preparation evidence; the full Mac ruler, Canary-B, replay audit,
 registered F0 look and D256 collection remain Claude's operator steps.
 
-Prepared package: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/mac-pack-01`.
+Prepared package: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/mac-pack-02`.
 The controls record their frozen executable `source_commit`; later receipt/doc commits
 can leave executable bytes unchanged. Admission checks those bytes against that pin.
 Canary-B keeps the canonical 36 namespace/ID/seed/roster/horizon allocation exactly;
@@ -31,7 +32,7 @@ only the worktree reservation. Do not wrap the scripts in a second Mac lease.
 
 ```bash
 SOURCE=/Users/josenunez/Projects/ml/snake-dqn-f0
-PACK=/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/mac-pack-01
+PACK=/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/mac-pack-02
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 PIN=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["source_commit"])' "$PACK/control.json")
 cd "$PACK"
@@ -74,10 +75,11 @@ both `--attempt` arguments to the sole look. No completion follows scientific fa
 After the script exits, inspect its terminal receipt and `f0-look/decision.json`.
 D256 stays HOLD until F1/F0 PASS and the actual F4 approval JSON exist. Claude creates
 that exact five-field judgment.json only after accepting F4 Codex-V, following
-research/bl_residual/F4_HANDOFF.md; this package creates no approval. Then:
+research/bl_residual/F4_HANDOFF.md. Its reserved input path is
+`$PACK/inputs/judgment.json`; this package creates no approval. Then:
 
 ```bash
-APPROVAL=/absolute/path/to/the/actual/judgment.json
+APPROVAL="$PACK/inputs/judgment.json"
 "$SOURCE/tools/ops/mac_run.sh" --repo "$SOURCE" bl-f0-mac-d256-01 "$PIN" -- /bin/bash "$PACK/RUN_D256.sh" "$APPROVAL"
 ```
 
@@ -112,3 +114,21 @@ you own. Never kill daemons/tmux or use process-name patterns. Cleanup targets o
 children/groups this implementation created and verifies quiescence before lease exit.
 No Colab dispatch, transport stall-fix work, fit, strict/serving gate or release occurred.
 The closed Round0 bank and snake-dqn-l2mac were not opened or modified.
+
+## Prepared pin and verification
+
+Executable pin: `61900af28932e47e22e332840fc4406559adb062`. It is published on main.
+The native entrypoint proof used merged commit `94210cf61e86e2fc8c7762d0b48ff7a46006afc1`,
+whose executable bytes are identical. The full package selection passed126 tests
+with `-p no:xdist`, one numerical thread and the real immutable artifact fixture;
+the final priority-setting fixture rerun passed8 tests. Black/isort/flake8 pass.
+Native final-pin proof: factory `--check`0.142s, real excluded H3 factory2.556s,
+guarded repeated one-root F1 probe15.298s; no production/yield claim. Evidence is
+`bl-labels-f0/mac-functional-02/entrypoint-proof.json`.
+
+Pack01's entire D256 allocation was rejected before data because seeds collided
+with historical training-exclusion inventories. Pack02 uses a fresh namespace
+from the equivalent published source pin; its full seed audit passed.
+`SEED_ALLOCATION_ERRATUM.json` preserves the rejected allocation's receipt hash,
+new pin and executable equivalence. No world was swapped after an outcome.
+The full ruler, Canary-B, replay audit, F0 look and D256 remain NOT RUN.
