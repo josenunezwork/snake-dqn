@@ -55,6 +55,11 @@ def inputs(
             "commit": "a" * 40,
             "terminal": {"status": "succeeded", "returncode": 0},
             "elapsed_seconds": 900,
+            "transfers": [{"direction": "download", "status": "verified", "elapsed_seconds": 10}],
+            "cli_calls": [
+                {"command": "stop", "status": "completed", "elapsed_seconds": 1},
+                {"command": "sessions", "status": "completed", "elapsed_seconds": 2},
+            ],
             "exports": [{"path": run.name, "sha256": digest(run)}],
         }
         if name == "source":
@@ -111,8 +116,31 @@ def test_unrelated_successful_sessions_cannot_supply_y3(tmp_path: Path, which: s
         finalize(**arguments)
 
 
-def test_boundary_only_y3_qualifies_only_pause_snapshot_recovery(tmp_path: Path) -> None:
-    result = finalize(**inputs(tmp_path, y3_status="Y3_PASS_BOUNDARY_ONLY"))
-    assert result["status"] == "PASS"
-    assert result["y3_status"] == "Y3_PASS_BOUNDARY_ONLY"
-    assert result["operational_resume_eligible"] is False
+def test_boundary_only_y3_cannot_fund_qualification(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="full Y3 PASS"):
+        finalize(**inputs(tmp_path, y3_status="Y3_PASS_BOUNDARY_ONLY"))
+    assert not (tmp_path / "receipt.json").exists()
+
+
+@pytest.mark.parametrize("field", ["transfers", "cli_calls"])
+def test_missing_final_transfer_or_release_timing_blocks_funding(
+    tmp_path: Path, field: str
+) -> None:
+    arguments = inputs(tmp_path)
+    path = arguments["supervisor"]
+    value = json.loads(path.read_text())
+    del value[field]
+    path.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="final transfer/release timing"):
+        finalize(**arguments)
+    assert not arguments["output"].exists()
+
+
+def test_failed_stop_with_verified_disappearance_has_release_timing(tmp_path: Path) -> None:
+    arguments = inputs(tmp_path)
+    path = arguments["supervisor"]
+    value = json.loads(path.read_text())
+    value["cli_calls"][0]["status"] = "failed"
+    path.write_text(json.dumps(value))
+    result = finalize(**arguments)
+    assert result["final_transfer_release_timing"]["stop_and_disappearance_seconds"] == 3

@@ -20,7 +20,7 @@ from research.bl_ppo.test_p1_replay_amendment02 import synthetic_natural_support
 __all__ = ["synthetic_natural_support", "tiny_p1"]
 
 
-def _cadence_clock(monkeypatch):
+def _cadence_clock(monkeypatch, *, first_actor_capture=1):
     class Clock:
         now = 0.0
         refit = 0
@@ -38,7 +38,7 @@ def _cadence_clock(monkeypatch):
         phase = "actor" if kwargs.get("actor_enabled") else "refit"
         count = getattr(clock, phase) + 1
         setattr(clock, phase, count)
-        if count == 1:
+        if count == (first_actor_capture if phase == "actor" else 1):
             clock.now += 901
         return result
 
@@ -47,6 +47,33 @@ def _cadence_clock(monkeypatch):
     monkeypatch.setattr(run, "time", SimpleNamespace(monotonic=clock.tick))
     monkeypatch.setattr(PPOLearner, "update", controlled_update)
     return clock
+
+
+def test_exact_actor_origin_waits_for_real_periodic_capture(tmp_path, monkeypatch, tiny_p1):
+    """The production origin says actor but has no OPERATIONAL metadata.
+
+    Three fast actor updates must not satisfy the periodic proof from this
+    exact origin. The first actual cadence capture is on update four, after
+    which the registered suffix still needs three whole updates.
+    """
+    clock = _cadence_clock(monkeypatch, first_actor_capture=4)
+    _, source, argv = _source(tmp_path / "source", monkeypatch, tiny_p1)
+    assert p1_runtime.main(argv) == 0
+    proof = json.loads((source / "receipt.json").read_text())
+    origin = read_snapshot(source / "origin" / proof["origin_snapshot"]["name"])
+    assert origin["execution"]["phase"] == "actor"
+    assert "operational" not in origin
+    latest = max(proof["operational_snapshots"], key=lambda row: row["index"])
+    anchor = read_snapshot(source / "source-continuation" / latest["path"])
+    trace = json.loads((source / "source-continuation/operational-action-trace.json").read_text())
+    assert trace["snapshot"] == latest["path"]
+    assert anchor["operational"]["label"] == "OPERATIONAL"
+    assert anchor["operational"]["execution"]["phase"] == "actor"
+    assert anchor["counters"]["actor_updates"] == 4
+    assert trace["final_actor_updates"] - anchor["counters"]["actor_updates"] >= 3
+    assert trace["final_episode_boundaries"] > anchor["counters"]["actor_episode_boundaries"]
+    assert trace["actions"] >= 1000
+    assert clock.actor >= 7
 
 
 def _source(tmp_path, monkeypatch, tiny_p1):

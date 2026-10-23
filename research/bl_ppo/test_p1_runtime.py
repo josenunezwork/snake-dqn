@@ -104,6 +104,60 @@ def _snapshot(path, seed: int) -> None:
     )
 
 
+@pytest.mark.parametrize("anchor_kind", ["exact", "refit", "actor"])
+def test_periodic_proof_refuses_phase_only_or_refit_anchor(tmp_path, anchor_kind) -> None:
+    from research.bl_ppo.exports import export_json
+    from research.bl_ppo.p1_runtime import _validate_operational_proof
+    from research.bl_ppo.recovery import read_snapshot
+
+    path = tmp_path / "anchor.pt"
+    _snapshot(tmp_path / "base.pt", 1)
+    state = read_snapshot(tmp_path / "base.pt")
+    state["counters"] = {
+        "actor_transitions": 128,
+        "actor_updates": 1,
+        "actor_episode_boundaries": 0,
+    }
+    metadata = {
+        "label": "OPERATIONAL",
+        "namespace": "test-y3",
+        "allocation": "source",
+        "index": 128,
+        "unit_id": "test-y3/source/128",
+        "execution": {"phase": "refit" if anchor_kind == "refit" else "actor"},
+    }
+    if anchor_kind == "exact":
+        state["execution"] = {"phase": "actor"}
+    else:
+        state["operational"] = metadata
+    payload = export_torch(path, state)
+    row = {**payload, **metadata, "path": path.name}
+    final = {
+        "actor_transitions": 1152,
+        "actor_updates": 4,
+        "actor_episode_boundaries": 1,
+    }
+    trace = export_json(
+        tmp_path / "trace.json",
+        {
+            "schema": "bl-ppo-p1-operational-trace/v1",
+            "snapshot": path.name,
+            "actions": 1024,
+            "full_tape_sha256": "a" * 64,
+            "final_actor_transitions": 1152,
+            "final_actor_updates": 4,
+            "final_episode_boundaries": 1,
+        },
+    )
+    trace["path"] = "trace.json"
+    control = {"resume": {"namespace": "test-y3", "allocation": "source"}}
+    if anchor_kind == "actor":
+        _validate_operational_proof(control, tmp_path, [row], trace, final)
+    else:
+        with pytest.raises(ValueError, match="operational actor unit"):
+            _validate_operational_proof(control, tmp_path, [row], trace, final)
+
+
 def test_snapshot_fingerprint_includes_worker_random_state(tmp_path) -> None:
     from research.bl_ppo.p1_runtime import _snapshot_fingerprint
 

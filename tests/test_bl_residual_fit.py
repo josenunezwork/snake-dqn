@@ -43,7 +43,19 @@ def _cache(n: int = 4) -> dict[str, torch.Tensor]:
         "ordinary": torch.tensor([True, False, True, False])[:n],
         "natural_stream": torch.tensor([True, False, True, False])[:n],
         "sampling_weight": torch.ones(n),
+        "life_id": torch.arange(n, dtype=torch.long),
     }
+
+
+def _recipe(*, updates: int, batch_size: int, learning_rate: float = 0.01) -> FitRecipe:
+    doom = batch_size // 2
+    return FitRecipe(
+        updates=updates,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        doom_batch_size=doom,
+        ordinary_batch_size=batch_size - doom,
+    )
 
 
 def _model() -> FrozenB8Residual:
@@ -62,14 +74,12 @@ def test_fit_changes_only_head_and_runs_exact_fixed_update_count() -> None:
     model.train()
     assert not model.b8.training
     before = {name: value.detach().clone() for name, value in model.b8.state_dict().items()}
-    state = fit_residual(model, _cache(), FitRecipe(updates=7, batch_size=3, learning_rate=0.01))
+    state = fit_residual(model, _cache(), _recipe(updates=7, batch_size=4))
     assert state.updates_completed == 7
     assert len(state.losses) == 7
     assert not torch.equal(model.residual.weight, torch.zeros_like(model.residual.weight))
     assert all(torch.equal(before[name], value) for name, value in model.b8.state_dict().items())
-    repeated = fit_residual(
-        _model(), _cache(2), FitRecipe(updates=7, batch_size=3, learning_rate=0.01)
-    )
+    repeated = fit_residual(_model(), _cache(2), _recipe(updates=7, batch_size=2))
     assert repeated.updates_completed == state.updates_completed
 
 
@@ -79,9 +89,8 @@ def test_unknown_branches_never_create_preference_gradients() -> None:
     cache["ordinary"][:] = False
     cache["natural_stream"][:] = False
     model = _model()
-    fit_residual(model, cache, FitRecipe(updates=3, batch_size=2, learning_rate=0.01))
-    assert torch.equal(model.residual.weight, torch.zeros_like(model.residual.weight))
-    assert torch.equal(model.residual.bias, torch.zeros_like(model.residual.bias))
+    with pytest.raises(ValueError, match="stratum"):
+        fit_residual(model, cache, _recipe(updates=3, batch_size=2))
 
 
 def test_unknown_bare_death_never_creates_a_preference_pair() -> None:
@@ -90,8 +99,8 @@ def test_unknown_bare_death_never_creates_a_preference_pair() -> None:
     cache["ordinary"][:] = False
     cache["natural_stream"][:] = False
     model = _model()
-    fit_residual(model, cache, FitRecipe(updates=3, batch_size=2, learning_rate=0.01))
-    assert torch.equal(model.residual.weight, torch.zeros_like(model.residual.weight))
+    with pytest.raises(ValueError, match="stratum"):
+        fit_residual(model, cache, _recipe(updates=3, batch_size=2))
 
 
 def test_fallback_mask_is_used_for_fit_and_metrics() -> None:
@@ -104,7 +113,8 @@ def test_fallback_mask_is_used_for_fit_and_metrics() -> None:
     cache["ordinary"][:] = False
     cache["natural_stream"][:] = False
     model = _model()
-    result = fit_residual(model, cache, FitRecipe(updates=2, batch_size=2, learning_rate=0.01))
+    cache["ordinary"][:] = torch.tensor([False, True])
+    result = fit_residual(model, cache, _recipe(updates=2, batch_size=2))
     assert result.losses[-1] >= 0
     with torch.no_grad():
         model.residual.bias[1] = 5
@@ -117,14 +127,10 @@ def test_fallback_mask_is_used_for_fit_and_metrics() -> None:
 
 def test_resume_restores_head_optimizer_rng_and_fixed_counter() -> None:
     cache = _cache()
-    partial = fit_residual(_model(), cache, FitRecipe(updates=2, batch_size=3, learning_rate=0.01))
+    partial = fit_residual(_model(), cache, _recipe(updates=2, batch_size=4))
     resumed_model = _model()
-    resumed = fit_residual(
-        resumed_model, cache, FitRecipe(updates=5, batch_size=3, learning_rate=0.01), state=partial
-    )
-    uninterrupted = fit_residual(
-        _model(), cache, FitRecipe(updates=5, batch_size=3, learning_rate=0.01)
-    )
+    resumed = fit_residual(resumed_model, cache, _recipe(updates=5, batch_size=4), state=partial)
+    uninterrupted = fit_residual(_model(), cache, _recipe(updates=5, batch_size=4))
     assert resumed.updates_completed == 5
     assert torch.equal(resumed_model.residual.weight, uninterrupted.model.residual.weight)
     assert torch.equal(resumed_model.residual.bias, uninterrupted.model.residual.bias)
@@ -135,16 +141,16 @@ def test_cache_and_fit_faults_are_refused() -> None:
     cache = _cache()
     del cache["sampling_weight"]
     with pytest.raises(ValueError, match="sampling"):
-        fit_residual(_model(), cache, FitRecipe(updates=1, batch_size=2))
+        fit_residual(_model(), cache, _recipe(updates=1, batch_size=2))
     cache = _cache()
     cache["q"][0, 0] = float("nan")
     with pytest.raises(ValueError, match="finite"):
-        fit_residual(_model(), cache, FitRecipe(updates=1, batch_size=2))
+        fit_residual(_model(), cache, _recipe(updates=1, batch_size=2))
     model = _model()
     with torch.no_grad():
         model.residual.bias.fill_(float("inf"))
     with pytest.raises(FitFault, match="corrected Q"):
-        fit_residual(model, _cache(), FitRecipe(updates=1, batch_size=2))
+        fit_residual(model, _cache(), _recipe(updates=1, batch_size=2))
 
 
 def test_pairwise_combined_sampling_and_mass_cost_is_capped_at_five() -> None:
@@ -168,9 +174,7 @@ def test_zero_head_is_identity_and_fused_head_matches_trained_model() -> None:
     glob = torch.randint(0, 256, (3, 4, 37, 37), dtype=torch.uint8)
     scalars = torch.randn(3, 60)
     assert torch.equal(model(local, glob, scalars), model.b8(local, glob, scalars))
-    trained = fit_residual(
-        model, _cache(), FitRecipe(updates=4, batch_size=4, learning_rate=0.01)
-    ).model
+    trained = fit_residual(model, _cache(), _recipe(updates=4, batch_size=4)).model
     fused = fuse_residual(trained)
     assert torch.allclose(
         trained(local, glob, scalars), fused(local, glob, scalars), atol=2e-6, rtol=2e-6

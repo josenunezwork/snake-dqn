@@ -477,6 +477,9 @@ def _identity(args: argparse.Namespace, temperature: float) -> dict[str, Any]:
             ),
             late_body_support=support_identity(excluded, horizon=HORIZON),
         )
+        origin_import = getattr(args, "p1_origin_import_sha256", None)
+        if origin_import is not None:
+            value["p1_origin_import_sha256"] = origin_import
         if bool(getattr(args, "e8_critic_convergence_amendment_03", False)):
             amendment_digest = getattr(args, "e8_critic_convergence_amendment_03_sha256", None)
             amendment_path = Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_03.md")
@@ -897,7 +900,17 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     if args.resume is not None:
         from research.bl_ppo.recovery import restore_full_snapshot
 
-        counters = restore_full_snapshot(args.resume, policy, learner, collector, adapter, identity)
+        restore_identity = identity
+        # Amendment-06 imports the old, hash-verified pre-actor state at a
+        # repair pin.  Restore against its historical identity, then persist
+        # the repair identity (including the import-control digest) forward.
+        if getattr(args, "p1_origin_import_sha256", None) is not None and digest(
+            args.resume
+        ) == getattr(args, "p1_imported_origin_snapshot_sha256", None):
+            restore_identity = read_snapshot(args.resume)["identity"]
+        counters = restore_full_snapshot(
+            args.resume, policy, learner, collector, adapter, restore_identity
+        )
         refit_bank = getattr(adapter, "refit_bank", None)
         if not isinstance(refit_bank, CompleteLifeRefitBank):
             raise ValueError("E8 resume lacks complete-life critic qualification state")
@@ -910,14 +923,13 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     actor_updates_at_start = int(counters.get("actor_updates", 0))
     actor_episodes_at_start = int(counters.get("actor_episode_boundaries", 0))
     resume_execution: dict[str, Any] = {}
+    resume_operational: dict[str, Any] = {}
     if p1_runtime and args.resume is not None:
         from research.bl_ppo.recovery import read_snapshot
 
-        resume_execution = (
-            read_snapshot(args.resume)
-            .get("operational", {})
-            .get("execution", read_snapshot(args.resume).get("execution", {}))
-        )
+        resume_state = read_snapshot(args.resume)
+        resume_operational = resume_state.get("operational", {})
+        resume_execution = resume_operational.get("execution", resume_state.get("execution", {}))
     trace_limit = int(getattr(args, "p1_trace_actions", 0))
     trace_state = (
         resume_execution.get("trace_state", {})
@@ -927,6 +939,8 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     action_trace: list[dict[str, Any]] = list(trace_state.get("rows", []))
     trace_digest = trace_state.get("full_tape_sha256", "00" * 32)
     trace_actions_total = int(trace_state.get("count", 0))
+    prefix_witness_at = getattr(args, "p1_prefix_witness_actions", None)
+    prefix_witness: dict[str, Any] | None = None
     actor_updates_at_start = int(trace_state.get("actor_updates_at_start", actor_updates_at_start))
     actor_episodes_at_start = int(
         trace_state.get("actor_episodes_at_start", actor_episodes_at_start)
@@ -1044,8 +1058,16 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 }
         last_checkpoint = time.monotonic()
 
-    # A resumed latest actor snapshot itself is the anchor, until a later cadence tick.
-    if require_operational and resume_execution.get("phase") == "actor":
+    # An exact pause can also have execution.phase == actor (including the
+    # pre-actor Y3 origin).  Only a labelled operational snapshot may seed the
+    # periodic suffix; otherwise wait for a real actor cadence capture.
+    if (
+        require_operational
+        and resume_operational.get("label") == "OPERATIONAL"
+        and resume_operational.get("namespace") == operational_namespace
+        and resume_operational.get("allocation") == operational_allocation
+        and resume_execution.get("phase") == "actor"
+    ):
         operational_trace = {
             "snapshot": args.resume.name,
             "updates": counters["actor_updates"],
@@ -1084,6 +1106,8 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             if args.preflight
             else counters["critic_refit_fit_transitions"] < CRITIC_REFIT_TRANSITIONS
         ) and not requested_stop["value"]:
+            if getattr(args, "p1_origin_import_sha256", None) is not None:
+                raise ValueError("VOID: imported origin entered refit collection")
             raw = collector.collect(adapter)
             if p1_runtime:
                 roots = np.unique(np.column_stack((raw.world_id, raw.episode)), axis=0)
@@ -1257,6 +1281,8 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                     steps = min(args.rollout_steps, remaining_fit // fit_per_step)
                     if steps <= 0:
                         break
+                    if getattr(args, "p1_origin_import_sha256", None) is not None:
+                        raise ValueError("VOID: imported origin entered refit support collection")
                     raw = collector.collect(adapter, steps=steps)
                     counters["collection_seconds"] += raw.wall_seconds
                     learning_started = time.monotonic()
@@ -1321,6 +1347,8 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             }
             adapter.critic_refit_receipt = critic_refit
         elif not (counters.get("actor_enabled") and isinstance(critic_refit, dict)):
+            if getattr(args, "p1_origin_import_sha256", None) is not None:
+                raise ValueError("VOID: imported origin entered refit solve or critic gate")
             # The support decision is made before this one evaluation.  Even a
             # missing/failed complete-target fit must retain numeric refusal
             # evidence rather than erasing the diagnostic rows and counts.
@@ -1509,6 +1537,11 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             if trace_limit:
                 trace_digest = _action_tape_chain(trace_digest, raw)
                 trace_actions_total += len(raw.action)
+                if prefix_witness_at is not None and trace_actions_total == prefix_witness_at:
+                    prefix_witness = {
+                        "actor_actions": trace_actions_total,
+                        "full_tape_sha256": trace_digest,
+                    }
             if operational_trace is not None:
                 operational_trace["actions"] += len(raw.action)
                 operational_trace["full_tape_sha256"] = _action_tape_chain(
@@ -1766,6 +1799,7 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 "actor_updates": counters["actor_updates"] - actor_updates_at_start,
                 "episode_boundaries": counters["actor_episode_boundaries"]
                 - actor_episodes_at_start,
+                "prefix_witness": prefix_witness,
             },
         )
         value["action_trace"] = {**trace_export, "path": trace_path.name}

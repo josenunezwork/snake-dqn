@@ -57,12 +57,31 @@ def allocate_lives(
     # Append-only collection indices, never a fresh ranking of a growing pool.
     rows.sort(key=lambda r: r["allocation_index"])
     eligible = [r for r in rows if r["fold"] == 0]
-    watch = [r for r in eligible if r["stream"] == "S-Watch6"][:16]
+
+    def take(
+        rows: list[dict[str, Any]], count: int, parent_counts: dict[str, int]
+    ) -> list[dict[str, Any]]:
+        selected_rows: list[dict[str, Any]] = []
+        for candidate in rows:
+            parent = candidate["parent_world"]
+            if parent_counts.get(parent, 0) >= 4:
+                continue
+            selected_rows.append(candidate)
+            parent_counts[parent] = parent_counts.get(parent, 0) + 1
+            if len(selected_rows) == count:
+                break
+        return selected_rows
+
+    reserve_parent_counts: dict[str, int] = {}
+    watch = take([r for r in eligible if r["stream"] == "S-Watch6"], 16, reserve_parent_counts)
     selected = {r["life_id"] for r in watch}
-    heldout = watch + [r for r in eligible if r["life_id"] not in selected][:48]
+    heldout = watch + take(
+        [r for r in eligible if r["life_id"] not in selected], 48, reserve_parent_counts
+    )
     if len(watch) != 16 or len(heldout) != 64:
         raise ValueError("INSUFFICIENT: need 64 fold-zero rescue lives including 16 Watch6")
     train = [r for r in rows if r["fold"] != 0]
+    recomputed_heldout = [r["life_id"] for r in heldout]
     if prior is not None:
         if prior.get("schema") != "bl-residual-life-allocation/v1":
             raise ValueError("foreign prior allocation")
@@ -75,8 +94,23 @@ def allocate_lives(
         if any(r["allocation_index"] <= last for r in catalog if r["life_id"] not in old_ids):
             raise ValueError("new tranche inserted before frozen allocation prefix")
         heldout_ids = prior["doses"]["256"]["heldout_lives"]
+        if heldout_ids != recomputed_heldout:
+            raise ValueError("prior heldout reserve differs from cap-four deterministic allocation")
         lookup = {r["life_id"]: r for r in rows}
         heldout = [lookup[life] for life in heldout_ids]
+    lookup = {r["life_id"]: r for r in rows}
+
+    def report(lives: list[str]) -> dict[str, Any]:
+        selected_rows = [lookup[life] for life in lives]
+        return {
+            "life_count": len(lives),
+            "distinct_parent_count": len({r["parent_world"] for r in selected_rows}),
+            "stream_counts": {
+                stream: sum(r["stream"] == stream for r in selected_rows)
+                for stream in ("S-Watch6", "S-gate")
+            },
+        }
+
     doses = {}
     for dose in DOSES:
         count = dose - len(heldout)
@@ -87,6 +121,12 @@ def allocate_lives(
             "heldout_lives": [r["life_id"] for r in heldout],
             "train_rescue_lives": count,
             "heldout_rescue_lives": 64,
+            "allocation_report": {
+                "train": (
+                    report([r["life_id"] for r in train[:count]]) if len(train) >= count else None
+                ),
+                "heldout": report([r["life_id"] for r in heldout]),
+            },
         }
     return {
         "schema": "bl-residual-life-allocation/v1",
@@ -95,6 +135,13 @@ def allocate_lives(
         "folds": {r["life_id"]: world_fold(r["parent_world"]) for r in catalog},
         "parents": {r["life_id"]: r["parent_world"] for r in catalog},
         "doses": doses,
+        "allocation_report": {
+            "available_fit_rescue_lives": len(train),
+            "unused_fit_rescue_lives": {
+                str(dose): max(0, len(train) - (dose - len(heldout))) for dose in DOSES
+            },
+            "reserve": report([r["life_id"] for r in heldout]),
+        },
     }
 
 
@@ -144,6 +191,14 @@ def validate_rows(table: dict[str, np.ndarray]) -> None:
             raise ValueError(f"non-finite {key}")
     if (table["sampling_weight"] <= 0).any():
         raise ValueError("positive natural-archive p/q weights required")
+    if "sampling_prob" in table:
+        if table["sampling_prob"].shape != (n,) or table["sampling_prob"].dtype != np.float32:
+            raise ValueError("sampling_prob must be fp32 with shape [N]")
+        if (
+            not np.isfinite(table["sampling_prob"]).all()
+            or not ((table["sampling_prob"] > 0) & (table["sampling_prob"] <= 1)).all()
+        ):
+            raise ValueError("sampling_prob must be finite and in (0, 1]")
     exact = (table["status"] == "EXACT") & table["legal"]
     if not np.isfinite(table["mass"][exact]).all():
         raise ValueError("EXACT branches require finite mass")
@@ -196,4 +251,12 @@ def tensor_cache(table: dict[str, np.ndarray], base: Any, *, batch_size: int = 1
     }
     cache["features"] = torch.cat(parts)
     cache["status"] = torch.as_tensor(table["status"] == "EXACT")
+    unique_lives = {
+        life: index for index, life in enumerate(sorted(set(table["life_id"].tolist())))
+    }
+    cache["life_id"] = torch.as_tensor(
+        [unique_lives[life] for life in table["life_id"].tolist()], dtype=torch.int64
+    )
+    if "sampling_prob" in table:
+        cache["sampling_prob"] = torch.as_tensor(table["sampling_prob"].copy())
     return cache

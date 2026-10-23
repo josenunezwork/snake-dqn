@@ -154,6 +154,12 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 00:20 PT | Data plan (round 24) | Opus stand-in JUDGMENT.md sha 750c2c6a... (Fable prior c718cd56..., same core plan, kept as JUDGMENT_fable_prior_0010.md). Bigger GPUs add no labels (CPU-bound sim). Multiplier = hindsight relabelling (restore last 300 decisions after each bare-B8 death; roll out only alternatives): ~15-33 rescue-bearing lives/Mac-worker-h vs 2.7 (L2'); fleet ~7-34k decisive labels/day. P(dev-screen win vs B8) ~0.10. No GPU engine now. Sol started F0 (label factory + CPU-runtime canary) and F3 (frozen-B8 residual-head harness + F4 dose-study draft). P1 source retry05 dispatched (canary PASS). |
 
+| 2026-10-23 01:25 PT | F4 APPROVED (pre-data) | round-26 JUDGMENT.md sha 0fe1a103...8362 (Opus stand-in, RATIFY-WITH-CHANGES); F4_REGISTRATION.md sha 66388c79...2fd65; FitRecipe sha 49d12f48...3a5a; all 8 edits at 8d6df609 (Codex-V PASS, 151 tests); approval artifacts big-lever/exp/f4/judgment.json (sha 15b6c842e73f1030...). No labels read. F0 label factory: family probe PASS on qualified tree d0d92bdb; CPU science canary running. GC fix: d.1 PASS (3 seeds x 5,000 ticks), d.3 PASS (both policies) at 40993bce; d.2 timed probes queued. Kernel-identity supervisor fix merged (qualified d0d92bdb). |
+
+| 2026-10-23 01:40 PT | P1 Y3 critic gate PASS (amendment 04) | source retry05 training-status.json: critic_refit PASS, held-out natural late-body n=163 EV 0.587, MSE 295,944 vs baseline 528,354 (fresh disjoint worlds, offsets 3,010,000/3,011,000). Job ended INCOMPLETE at finalisation (mechanical): 'Y3 source lacks an operational snapshot and fixed suffix proof'; exports intact. Sol diagnosing + offline recovery path. |
+
+| 2026-10-23 02:05 PT | P1 finalisation ruling | JUDGMENT_P1_FINALISATION.md sha fe0584595cca6f6f... (Opus stand-in): critic PASS stands as the registered Y3 critic-gate result (no second look); Y3 not yet PASS. Amendment 06 repair = import verified pre-actor origin, skip refit/gate, actor phase only to a 900-s operational capture + suffix (canary 2.00 u, repair 6.16 u); envelope 25.50 -> 34.50 u (one retry each); replacement 3.86 u with tape check; 1M qualification 4.00 u after full Y3 PASS. Sol building. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -267,3 +273,32 @@ _As of 2026-10-20 ~19:25 PT:_
   by `P1_E8_04_DISPATCH_PACKS.json`. Both top-level admission flags are false.
   This records Codex's receipt publication, **not** Claude's required
   line-by-line verification or a judge disposition. No dispatch occurred.
+
+### 2026-10-23 — F4 round-26 implementation binding (pre-data)
+
+Authority: round-26 `RATIFY-WITH-CHANGES`, judgment file
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-26/JUDGMENT.md`,
+SHA256 `0fe1a103384035839cb143a6df9193abf8269197e6d02f44bf7dceb000ab8362`.
+Extracted the exact 129-line §3.1 block into
+`research/bl_residual/F4_REGISTRATION.md`; its SHA256 matches the judge:
+`66388c795b3bec5bd014fa03d700994527b67763479143f7c3e5f35d1bb2fd65`.
+Post-change FitRecipe canonical SHA256:
+`49d12f486bffa455adcedbc318e88f1524f5c502894d0c1ace47daa84b9d3a5a`.
+The independent implementation receipt is
+`research/bl_residual/CODEX_V_F4_REVIEW.json`. Claude must accept that receipt
+and create the exact five-field `judgment.json` in `F4_HANDOFF.md` before any
+factory-label fit, reserve opening or screen allocation. This entry records
+bindings, not operator approval. No real labels or outcomes were opened by the
+implementation; synthetic fixtures only, 0 Colab units, no serving change.
+Future packs use qualified CLI tree
+`d0d92bdb572b770284a1fea6152417ffa5f06bea` from `origin/main`; historical packs
+and earlier hash-bound receipts remain unchanged.
+
+F4 implementation closeout (same pre-data scope): Codex-V all eight edits PASS;
+review receipt `research/bl_residual/CODEX_V_F4_REVIEW.json`, SHA256
+`9f7f26efa36e10361a4b66bad00e3df2b1798f9db35d79bf1e1a6f6d8001e890`.
+Published executable/pack pin `efdba0c2cbea91fc408e0597f76ed7ef5864634d`;
+151 light single-process tests passed. Fresh HOLD pack import preflight and
+supervisor validation passed with qualified CLI tree d0d92bdb572b770284a1fea6152417ffa5f06bea.
+No real labels/outcomes opened, no Colab allocation/spend, no operator approval
+file written, and no serving/release authority exercised.

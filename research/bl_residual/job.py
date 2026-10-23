@@ -17,13 +17,15 @@ from typing import Any
 import numpy as np
 import torch
 
-from research.bl_ppo.exports import digest, export_json, export_torch, limit_exports
+from research.bl_ppo.exports import digest, export_json, export_torch, limit_exports, verify_export
 from research.bl_residual.data import allocate_lives, tensor_cache, validate_rows, world_fold
-from research.bl_residual.fit import FitRecipe, fit_residual
+from research.bl_residual.fit import FitFault, FitRecipe, fit_residual
 from research.bl_residual.model import FrozenB8Residual, fuse_residual
 from research.bl_residual.protocol import (
     B8_SHA,
     DOSES,
+    F4_REGISTRATION_SHA,
+    QUALIFIED_TREE,
     allocation_hash,
     canonical_sha,
     read_ledger,
@@ -51,6 +53,7 @@ def synthetic_table(base: Any) -> dict[str, np.ndarray]:
         status=np.full((n, 6), "EXACT"),
         mass=rng.random((n, 6)).astype(np.float32) * 10,
         ordinary=np.arange(n) % 2 == 0,
+        sampling_prob=np.ones(n, np.float32),
         sampling_weight=np.ones(n, np.float32),
         natural_stream=np.arange(n) % 2 == 0,
         parent_world=np.asarray([f"synthetic-{i // 3}" for i in range(n)]),
@@ -58,6 +61,306 @@ def synthetic_table(base: Any) -> dict[str, np.ndarray]:
         row_id=np.asarray([f"synthetic-row-{i}" for i in range(n)]),
     )
     return raw
+
+
+def _sealed_stage_receipt(input_dir: Path, control: dict, name: str) -> dict:
+    """Read one hash-bound, create-only staging receipt before labels are opened."""
+    if Path(name).name != name or control.get("input_hashes", {}).get(name) is None:
+        raise ValueError("unbound staging receipt")
+    path = input_dir / name
+    if digest(path) != control["input_hashes"][name]:
+        raise ValueError("staging receipt hash mismatch")
+    verify_export(path)
+    value = json.loads(path.read_text())
+    if not isinstance(value, dict):
+        raise ValueError("malformed staging receipt")
+    return value
+
+
+def _fit_stage(
+    input_dir: Path, control: dict, name: str, prior_control_name: str, dose: int, recipe_sha: str
+) -> str:
+    """Bind a passed predecessor fit to its own immutable control and allocation."""
+    value = _sealed_stage_receipt(input_dir, control, name)
+    prior = _sealed_stage_receipt(input_dir, control, prior_control_name)
+    sha = value.get("fit_sha256")
+    if (
+        value.get("schema") != "bl-residual-stage-fit/v1"
+        or value.get("dose") != dose
+        or value.get("namespace") != control["namespace"]
+        or prior.get("schema") != "bl-residual-control/v1"
+        or prior.get("synthetic") is not False
+        or allocation_hash(prior) != prior.get("allocation")
+        or prior.get("namespace") != control["namespace"]
+        or prior.get("recipe_sha256") != recipe_sha
+        or prior.get("input_hashes", {}).get("b8.pth") != B8_SHA
+        or value.get("allocation") != prior["allocation"]
+        or value.get("recipe_sha256") != recipe_sha
+        or value.get("source_control_sha256") != digest(input_dir / prior_control_name)
+        or value.get("complete") is not True
+        or value.get("fit_fault_free") is not True
+        or not isinstance(sha, str)
+        or len(sha) != 64
+        or any(ch not in "0123456789abcdef" for ch in sha)
+    ):
+        raise ValueError("unpassed or foreign predecessor fit receipt")
+    return sha
+
+
+def _validate_staging(
+    input_dir: Path, control: dict, requested: list[int], recipe_sha: str, skipped: set[int]
+) -> None:
+    """Enforce R6 stops before training partitions or output directories are touched."""
+    if control.get("synthetic") is True:
+        return
+    stage = control.get("stage_receipts", {})
+    if not isinstance(stage, dict) or any(not isinstance(v, str) for v in stage.values()):
+        raise ValueError("bound stage_receipts mapping required")
+    d256, d256_control = stage.get("D256"), stage.get("D256_CONTROL")
+    d1024, d1024_control = stage.get("D1024"), stage.get("D1024_CONTROL")
+    # A prior passed D256 is needed only when D1024 is a later invocation.  A single
+    # D256/D1024 invocation remains allowed; an in-process unconditional fault raises
+    # immediately and therefore cannot reach the D1024 partition.
+    if 1024 in requested and (256 not in requested or DOSES.index(256) in skipped):
+        if not d256 or not d256_control:
+            raise ValueError("STOP: D1024 requires passed D256 stage receipt")
+        _fit_stage(input_dir, control, d256, d256_control, 256, recipe_sha)
+    if 4096 not in requested:
+        return
+    if not d256 or not d256_control or not d1024 or not d1024_control:
+        raise ValueError("STOP: D4096 requires passed D256 and D1024 stage receipts")
+    d256_sha = _fit_stage(input_dir, control, d256, d256_control, 256, recipe_sha)
+    d1024_sha = _fit_stage(input_dir, control, d1024, d1024_control, 1024, recipe_sha)
+    funding_name = stage.get("D4096_FUNDING")
+    projection_name = stage.get("D4096_PROJECTION")
+    if not funding_name or not projection_name:
+        raise ValueError("STOP: D4096 requires funding and projection receipts")
+    funding = _sealed_stage_receipt(input_dir, control, funding_name)
+    series_id = control.get("series_id")
+    reserve_sha = control.get("reserve_allocation_sha256")
+    if not isinstance(series_id, str) or not series_id or not isinstance(reserve_sha, str):
+        raise ValueError("D4096 requires a frozen series and reserve allocation identity")
+    funding_ok = (
+        funding.get("series_id") == series_id
+        and funding.get("registration_sha256") == F4_REGISTRATION_SHA
+        and funding.get("reserve_allocation_sha256") == reserve_sha
+        and funding.get("recipe_sha256") == recipe_sha
+        and funding.get("d256_fit_sha256") == d256_sha
+        and funding.get("d1024_fit_sha256") == d1024_sha
+        and (
+            (
+                funding.get("schema") == "bl-residual-funding-look/v1"
+                and funding.get("verdict") == "PASS"
+            )
+            or (
+                funding.get("schema") == "bl-residual-f2-disposition/v1"
+                and funding.get("volume_struck") is False
+                and funding.get("published") is True
+                and isinstance(funding.get("published_ref"), str)
+                and bool(funding["published_ref"])
+                and isinstance(funding.get("source_sha256"), str)
+                and len(funding["source_sha256"]) == 64
+                and all(char in "0123456789abcdef" for char in funding["source_sha256"])
+            )
+        )
+    )
+    if not funding_ok:
+        raise ValueError("STOP_FUNDING: D4096 funding receipt did not pass")
+    projection = _sealed_stage_receipt(input_dir, control, projection_name)
+    projected = projection.get("projected_units")
+    collection_names = (stage.get("D256_COLLECTION"), stage.get("D1024_COLLECTION"))
+    if any(not name for name in collection_names):
+        raise ValueError("INSUFFICIENT: D4096 needs bound collection receipts")
+    collections = [_sealed_stage_receipt(input_dir, control, name) for name in collection_names]
+    measurements = projection.get("measurements")
+    measured_units = 0.0
+    selected_lives = 0
+    measurements_valid = isinstance(measurements, list) and len(measurements) == 2
+    if measurements_valid:
+        for measurement, expected_dose, expected_sha in zip(
+            measurements, (256, 1024), (d256_sha, d1024_sha)
+        ):
+            if not isinstance(measurement, dict):
+                measurements_valid = False
+                break
+            units, lives = measurement.get("charged_units"), measurement.get(
+                "selected_rescue_lives"
+            )
+            if (
+                measurement.get("dose") != expected_dose
+                or measurement.get("fit_sha256") != expected_sha
+                or isinstance(units, bool)
+                or isinstance(lives, bool)
+                or not isinstance(units, (int, float))
+                or type(lives) is not int
+                or not np.isfinite(units)
+                or units < 0
+                or lives <= 0
+            ):
+                measurements_valid = False
+                break
+            measured_units += float(units)
+            selected_lives += lives
+    checked_measurements = measurements if isinstance(measurements, list) else []
+    for collection, measurement, expected_dose, expected_sha in zip(
+        collections, checked_measurements, (256, 1024), (d256_sha, d1024_sha)
+    ):
+        if (
+            not isinstance(measurement, dict)
+            or collection.get("schema") != "bl-residual-collection-receipt/v1"
+            or collection.get("series_id") != series_id
+            or collection.get("registration_sha256") != F4_REGISTRATION_SHA
+            or collection.get("reserve_allocation_sha256") != reserve_sha
+            or collection.get("dose") != expected_dose
+            or collection.get("fit_sha256") != expected_sha
+            or collection.get("qualified_tree") != QUALIFIED_TREE
+            or collection.get("charged_units") != measurement.get("charged_units")
+            or collection.get("selected_rescue_lives") != measurement.get("selected_rescue_lives")
+        ):
+            measurements_valid = False
+    expected_projection = (
+        measured_units / selected_lives * 3072 * 1.2 if selected_lives else float("inf")
+    )
+    projection_ok = (
+        projection.get("schema") == "bl-residual-d4096-projection/v1"
+        and projection.get("series_id") == series_id
+        and projection.get("registration_sha256") == F4_REGISTRATION_SHA
+        and projection.get("reserve_allocation_sha256") == reserve_sha
+        and projection.get("recipe_sha256") == recipe_sha
+        and projection.get("d256_fit_sha256") == d256_sha
+        and projection.get("d1024_fit_sha256") == d1024_sha
+        and projection.get("qualified_placement_tree") == QUALIFIED_TREE
+        and isinstance(projection.get("qualified_placement_receipts"), list)
+        and projection["qualified_placement_receipts"]
+        and isinstance(projected, (int, float))
+        and not isinstance(projected, bool)
+        and np.isfinite(projected)
+        and float(projected) > 0
+        and measurements_valid
+        and projected <= 480
+        and np.isclose(float(projected), expected_projection, rtol=0.0, atol=1e-9)
+        and projection.get("verdict") == "PASS"
+    )
+    if not projection_ok:
+        raise ValueError("INSUFFICIENT: D4096 projection receipt did not pass")
+
+
+def write_stage_fit_receipt(input_dir: Path, run_output: Path, dose: int, output: Path) -> dict:
+    """Seal one passed main-fit identity for a later, separately frozen stage.
+
+    This reads only control, fit metadata and run accounting.  It never opens a
+    held-out table or any gameplay artifact.
+    """
+    if dose not in DOSES or output.exists():
+        raise ValueError("fresh valid dose receipt required")
+    control_path = input_dir / "control.json"
+    control = json.loads(control_path.read_text())
+    recipe_sha = canonical_sha(dataclasses.asdict(FitRecipe()))
+    if (
+        control.get("synthetic") is not False
+        or allocation_hash(control) != control.get("allocation")
+        or control.get("recipe_sha256") != recipe_sha
+    ):
+        raise ValueError("foreign or unregistered source control")
+    require_judgment(input_dir / "judgment.json", input_dir / "F4_REGISTRATION.md", recipe_sha)
+    index = DOSES.index(dose)
+    checkpoint = run_output / f"fit-{index:04d}.pth"
+    receipt_path = run_output / "receipt.json"
+    fit_sha = verify_export(checkpoint)
+    verify_export(receipt_path)
+    values = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    meta = values.get("meta", {})
+    receipt = json.loads(receipt_path.read_text())
+    completed = receipt.get("completed", [])
+    if (
+        meta.get("schema") != "bl-residual-fit/v1"
+        or meta.get("synthetic") is not False
+        or meta.get("dose") != dose
+        or meta.get("index") != index
+        or meta.get("namespace") != control.get("namespace")
+        or meta.get("allocation") != control.get("allocation")
+        or meta.get("recipe_sha256") != recipe_sha
+        or meta.get("updates") != FitRecipe().updates
+        or receipt.get("schema") != "bl-residual-job/v1"
+        or receipt.get("mode") != "main"
+        or receipt.get("synthetic") is not False
+        or receipt.get("allocation") != control.get("allocation")
+        or receipt.get("heldout_outcomes_opened") is not False
+        or not any(row.get("index") == index and row.get("sha256") == fit_sha for row in completed)
+    ):
+        raise ValueError("unpassed or foreign main fit")
+    value = {
+        "schema": "bl-residual-stage-fit/v1",
+        "dose": dose,
+        "namespace": control["namespace"],
+        "allocation": control["allocation"],
+        "recipe_sha256": recipe_sha,
+        "source_control_sha256": digest(control_path),
+        "fit_sha256": fit_sha,
+        "complete": True,
+        # The fit worker observes numerical tripwires. Gameplay action/collapse
+        # telemetry is a separate, later trace artifact and is not claimed here.
+        "fit_fault_free": True,
+        "trajectory_unconditional_status": "NOT_OBSERVED",
+    }
+    export_json(output, value)
+    return value
+
+
+def preflight_main_dispatch(input_dir: Path) -> dict:
+    """Refuse an inadmissible main dispatch without opening any train partition.
+
+    This is the pack/dispatch admission boundary.  It reads only bound controls,
+    receipts and allocation metadata; workers repeat the checks in ``run``.
+    """
+    control = json.loads((input_dir / "control.json").read_text())
+    if control.get("schema") != "bl-residual-control/v1" or control.get("synthetic") is not False:
+        raise ValueError("main preflight requires a non-synthetic F4 control")
+    for name, sha in control.get("input_hashes", {}).items():
+        # Partition bytes are deliberately not opened at admission.  The runner
+        # checks their hashes only after this guard has permitted dispatch.
+        if name.startswith("train-") and name.endswith(".npz"):
+            continue
+        if Path(name).name != name or digest(input_dir / name) != sha:
+            raise ValueError("input hash mismatch")
+    if digest(input_dir / "b8.pth") != B8_SHA:
+        raise ValueError("B8 identity mismatch")
+    recipe_sha = canonical_sha(dataclasses.asdict(FitRecipe()))
+    if control.get("recipe_sha256") != recipe_sha:
+        raise ValueError("recipe binding mismatch")
+    require_judgment(input_dir / "judgment.json", input_dir / "F4_REGISTRATION.md", recipe_sha)
+    requested = control.get("doses")
+    if (
+        not isinstance(requested, list)
+        or not requested
+        or len(set(requested)) != len(requested)
+        or any(type(dose) is not int or dose not in DOSES for dose in requested)
+        or allocation_hash(control) != control.get("allocation")
+    ):
+        raise ValueError("frozen main allocation required")
+    skip = read_ledger(
+        input_dir / "verified-ledger.json", control["namespace"], control["allocation"]
+    )
+    if not set(skip) <= {DOSES.index(dose) for dose in requested}:
+        raise ValueError("ledger outside requested dose allocation")
+    if digest(input_dir / "verified-ledger.json") != control.get("ledger_sha256"):
+        raise ValueError("ledger binding mismatch")
+    allocation_path = input_dir / "life-allocation.json"
+    if control.get("input_hashes", {}).get("life-allocation.json") != digest(allocation_path):
+        raise ValueError("bound life allocation required")
+    life_allocation = json.loads(allocation_path.read_text())
+    if allocate_lives(life_allocation["catalog"]) != life_allocation:
+        raise ValueError("life allocation differs from frozen allocator")
+    if any(not life_allocation["doses"][str(dose)]["ready"] for dose in requested):
+        raise ValueError("INSUFFICIENT: requested dose not ready")
+    _validate_staging(input_dir, control, requested, recipe_sha, set(skip))
+    return {
+        "schema": "bl-residual-main-preflight/v1",
+        "namespace": control["namespace"],
+        "allocation": control["allocation"],
+        "doses": requested,
+        "recipe_sha256": recipe_sha,
+    }
 
 
 def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dict:
@@ -82,7 +385,7 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
     if synthetic != bool(control.get("synthetic")):
         raise ValueError("synthetic/main namespace mismatch")
     if not synthetic:
-        require_judgment(input_dir / "judgment.json", input_dir / "registration.md", recipe_sha)
+        require_judgment(input_dir / "judgment.json", input_dir / "F4_REGISTRATION.md", recipe_sha)
     namespace = control["namespace"]
     requested = control.get("doses")
     if (
@@ -112,6 +415,7 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
         for dose in requested:
             if not life_allocation["doses"][str(dose)]["ready"]:
                 raise ValueError("INSUFFICIENT: requested dose not ready")
+        _validate_staging(input_dir, control, requested, recipe_sha, set(skip))
     if output.exists():
         raise FileExistsError("fresh output required")
     output.mkdir(parents=True)
@@ -144,7 +448,9 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
                 base = load_ego2s_checkpoint(str(input_dir / "b8.pth"))
                 if synthetic:
                     table = synthetic_table(base)
-                    actual_recipe = dataclasses.replace(recipe, updates=3, batch_size=4)
+                    actual_recipe = dataclasses.replace(
+                        recipe, updates=3, batch_size=4, doom_batch_size=2, ordinary_batch_size=2
+                    )
                 else:
                     filename = f"train-{dose}.npz"
                     if filename not in control["input_hashes"]:
@@ -180,7 +486,26 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
                     actual_recipe = recipe
                 cache = tensor_cache(table, base)
                 model = FrozenB8Residual(base).to(device)
-                state = fit_residual(model, cache, actual_recipe)
+                try:
+                    state = fit_residual(model, cache, actual_recipe)
+                except FitFault as exc:
+                    # A scientific tripwire is terminal for this dose and the
+                    # staging path.  Seal it before returning a non-zero run.
+                    export_json(
+                        output / f"fault-{index:04d}.json",
+                        {
+                            "schema": "bl-residual-fit-fault/v1",
+                            "kind": "KILL_FIT",
+                            "dose": dose,
+                            "index": index,
+                            "namespace": namespace,
+                            "allocation": allocation,
+                            "recipe_sha256": recipe_sha,
+                            "reason": str(exc),
+                            "heldout_outcomes_opened": False,
+                        },
+                    )
+                    raise
                 fused = fuse_residual(model)
                 values = {
                     "obs_spec": spec_for(fused),
@@ -232,10 +557,18 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-dir", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--mode", choices=("smoke", "canary", "main"), required=True)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--mode", choices=("smoke", "canary", "main"))
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--preflight-main", action="store_true")
     args = parser.parse_args()
+    if args.preflight_main:
+        if args.output is not None or args.mode is not None:
+            parser.error("--preflight-main accepts only --input-dir")
+        print(json.dumps(preflight_main_dispatch(args.input_dir)))
+        return
+    if args.output is None or args.mode is None:
+        parser.error("--output and --mode are required unless --preflight-main is used")
     result = run(args.input_dir, args.output, mode=args.mode, device=args.device)
     print(json.dumps({"done": result["done"], "synthetic": result["synthetic"]}))
 

@@ -7,6 +7,7 @@ does not open tranche data, choose checkpoints, or tune thresholds.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Any, Mapping
 
 import torch
@@ -17,7 +18,7 @@ from research.bl_residual.model import FrozenB8Residual
 
 @dataclass(frozen=True)
 class FitRecipe:
-    """The frozen F3 recipe; small doses repeat cache rows for equal updates."""
+    """The frozen F4 recipe; small doses repeat life-uniform draws for equal updates."""
 
     updates: int = 2000
     batch_size: int = 256
@@ -27,8 +28,9 @@ class FitRecipe:
     residual_weight: float = 0.0001
     preference_weight: float = 1.0
     ordinary_growth_weight: float = 1.0
-    max_sampling_weight: float = 5.0
     max_mass_gap: float = 4.0
+    doom_batch_size: int = 128
+    ordinary_batch_size: int = 128
 
 
 @dataclass
@@ -58,6 +60,7 @@ def _cache(cache: Mapping[str, torch.Tensor], device: torch.device) -> dict[str,
         "mass",
         "ordinary",
         "natural_stream",
+        "life_id",
     }
     missing = required.difference(cache)
     if missing:
@@ -78,6 +81,13 @@ def _cache(cache: Mapping[str, torch.Tensor], device: torch.device) -> dict[str,
             raise ValueError(f"{name} must be boolean")
     if values["natural_stream"].shape != (n,):
         raise ValueError("natural_stream must have shape [N]")
+    if values["life_id"].shape != (n,) or values["life_id"].dtype not in (
+        torch.int8,
+        torch.int16,
+        torch.int32,
+        torch.int64,
+    ):
+        raise ValueError("life_id must be an integer tensor with shape [N]")
     if (values["natural_stream"] & ~values["ordinary"]).any():
         raise ValueError("natural_stream rows must be ordinary archive rows")
     if values["bare"].dtype not in (torch.int8, torch.int16, torch.int32, torch.int64):
@@ -86,27 +96,26 @@ def _cache(cache: Mapping[str, torch.Tensor], device: torch.device) -> dict[str,
         raise ValueError("bare actions must be in [0, 5]")
     if not torch.isfinite(values["features"]).all() or not torch.isfinite(values["q"]).all():
         raise ValueError("features and q must be finite")
-    if "sampling_prob" in values and "sampling_weight" in values:
-        raise ValueError("provide sampling_prob or sampling_weight, not both")
     if "sampling_prob" in values:
         if (
             not torch.isfinite(values["sampling_prob"]).all()
             or (values["sampling_prob"] <= 0).any()
         ):
             raise ValueError("sampling probabilities must be finite and positive")
-        values["sampling_weight"] = values["sampling_prob"].reciprocal()
-    if "sampling_weight" not in values:
+        values["design_weight"] = values["sampling_prob"].reciprocal()
+    elif "sampling_weight" in values:
+        # Legacy synthetic fixtures may supply p/q directly.  Production F4
+        # archives carry sampling_prob so the unclipped design rate is visible.
+        values["design_weight"] = values["sampling_weight"].float()
+    else:
         raise ValueError(
             "sampling_prob or sampling_weight is required for natural-prevalence metrics"
         )
-    if values["sampling_weight"].shape != (n,):
+    if values["design_weight"].shape != (n,):
         raise ValueError("sampling probability/weight must have shape [N]")
-    if (
-        not torch.isfinite(values["sampling_weight"]).all()
-        or (values["sampling_weight"] <= 0).any()
-    ):
+    if not torch.isfinite(values["design_weight"]).all() or (values["design_weight"] <= 0).any():
         raise ValueError("sampling weights must be finite and positive")
-    values["sampling_weight"] = values["sampling_weight"].float().clamp_max(5)
+    values["sampling_weight"] = values["design_weight"].float().clamp_max(5)
     selectable = _resolved_action_mask(values["action_mask"])
     mass_needed = values["status"] & values["legal"] & selectable
     if not torch.isfinite(values["mass"][mass_needed]).all():
@@ -136,22 +145,15 @@ def _preference_loss(
 ) -> torch.Tensor:
     """Pair every exact survivor over every exact dying selectable action."""
     exact = data["status"]
-    bare = data["bare"].long()
-    row = torch.arange(q.shape[0], device=q.device)
     selectable = _resolved_action_mask(data["action_mask"])
     known = exact & data["legal"] & selectable
-    bare_dies = known[row, bare] & data["died"][row, bare]
     survivors = known & ~data["died"]
     dying = known & data["died"]
-    decisive = bare_dies & survivors.any(dim=1)
-    pair = decisive[:, None, None] & survivors[:, :, None] & dying[:, None, :]
+    pair = survivors[:, :, None] & dying[:, None, :]
     if not pair.any():
         return q.sum() * 0
-    gap = (data["mass"][:, :, None] - data["mass"][:, None, :]).clamp_min(0)
-    costs = (1.0 + gap.clamp_max(recipe.max_mass_gap)).clamp_max(recipe.max_sampling_weight)
     pair_loss = functional.softplus(q[:, None, :] - q[:, :, None])
-    weights = (data["sampling_weight"][:, None, None] * costs).clamp_max(recipe.max_sampling_weight)
-    return _weighted_mean(pair_loss[pair], weights[pair])
+    return pair_loss[pair].mean()
 
 
 def _ordinary_growth_loss(
@@ -159,24 +161,65 @@ def _ordinary_growth_loss(
 ) -> torch.Tensor:
     """Use complete ordinary H300 rows for the required mass-growth signal."""
     exact = data["status"]
-    complete = (
+    survivors = (
         data["ordinary"][:, None]
         & exact
         & data["legal"]
         & _resolved_action_mask(data["action_mask"])
+        & ~data["died"]
     )
     i, good, poor = torch.where(
-        complete[:, :, None]
-        & complete[:, None, :]
+        survivors[:, :, None]
+        & survivors[:, None, :]
         & (data["mass"][:, :, None] > data["mass"][:, None, :])
     )
     if i.numel() == 0:
         return q.sum() * 0
     gap = (data["mass"][i, good] - data["mass"][i, poor]).clamp_max(recipe.max_mass_gap)
-    costs = (
-        (1.0 + gap).clamp_max(recipe.max_sampling_weight) * data["sampling_weight"][i]
-    ).clamp_max(recipe.max_sampling_weight)
-    return _weighted_mean(functional.softplus(q[i, poor] - q[i, good]), costs)
+    weights = gap / recipe.max_mass_gap
+    return (weights * functional.softplus(q[i, poor] - q[i, good])).sum() / max(1, i.numel())
+
+
+def _stratum_groups(
+    data: Mapping[str, torch.Tensor], stratum: torch.Tensor
+) -> tuple[torch.Tensor, ...]:
+    """Freeze sorted per-life CPU index groups once for the fit's sampler."""
+    eligible = torch.where(stratum)[0].cpu()
+    life = data["life_id"].cpu()
+    return tuple(
+        eligible[life[eligible] == value] for value in torch.unique(life[eligible], sorted=True)
+    )
+
+
+def _life_uniform_indices(
+    groups: tuple[torch.Tensor, ...], count: int, generator: torch.Generator, device: torch.device
+) -> torch.Tensor:
+    """Draw a life uniformly, then one of its eligible rows uniformly."""
+    if count <= 0:
+        return torch.empty(0, dtype=torch.long, device=device)
+    if not groups:
+        raise ValueError("fit stratum has no eligible lives")
+    selected_lives = torch.randint(len(groups), (count,), generator=generator)
+    chosen: list[torch.Tensor] = []
+    for group_index in selected_lives.tolist():
+        rows = groups[group_index]
+        chosen.append(rows[torch.randint(rows.numel(), (1,), generator=generator)])
+    return torch.cat(chosen).to(device)
+
+
+def _sample_batch_indices(
+    groups: tuple[tuple[torch.Tensor, ...], tuple[torch.Tensor, ...]],
+    recipe: FitRecipe,
+    generator: torch.Generator,
+    device: torch.device,
+) -> torch.Tensor:
+    """Return the registered 128 doom + 128 ordinary life-uniform batch."""
+    return torch.cat(
+        (
+            _life_uniform_indices(groups[0], recipe.doom_batch_size, generator, device),
+            _life_uniform_indices(groups[1], recipe.ordinary_batch_size, generator, device),
+        )
+    )
 
 
 def fit_residual(
@@ -194,7 +237,6 @@ def fit_residual(
         "residual_weight",
         "preference_weight",
         "ordinary_growth_weight",
-        "max_sampling_weight",
         "max_mass_gap",
     ):
         value = getattr(recipe, name)
@@ -204,8 +246,12 @@ def fit_residual(
             or value < 0
         ):
             raise ValueError(f"recipe.{name} must be finite and non-negative")
-    if recipe.learning_rate <= 0 or recipe.max_sampling_weight <= 0:
-        raise ValueError("learning_rate and max_sampling_weight must be positive")
+    if recipe.learning_rate <= 0 or recipe.max_mass_gap <= 0:
+        raise ValueError("learning_rate and max_mass_gap must be positive")
+    if recipe.batch_size != recipe.doom_batch_size + recipe.ordinary_batch_size:
+        raise ValueError("batch_size must equal doom_batch_size + ordinary_batch_size")
+    if recipe.doom_batch_size <= 0 or recipe.ordinary_batch_size <= 0:
+        raise ValueError("both registered strata must have positive batch sizes")
     device = next(model.residual.parameters()).device
     data = _cache(cache, device)
     n = data["features"].shape[0]
@@ -230,8 +276,19 @@ def fit_residual(
     else:
         generator.manual_seed(recipe.seed)
     model.b8.eval()
+    selectable = _resolved_action_mask(data["action_mask"])
+    known = data["status"] & data["legal"] & selectable
+    sampler_groups = (
+        _stratum_groups(
+            data,
+            ~data["ordinary"]
+            & (known & ~data["died"]).any(dim=1)
+            & (known & data["died"]).any(dim=1),
+        ),
+        _stratum_groups(data, data["ordinary"]),
+    )
     for _ in range(completed, recipe.updates):
-        index = torch.randint(n, (recipe.batch_size,), generator=generator).to(device)
+        index = _sample_batch_indices(sampler_groups, recipe, generator, device)
         batch = {name: value[index] for name, value in data.items()}
         corrected = model.cached_q(batch["features"], batch["q"])
         if not torch.isfinite(corrected).all():
@@ -282,6 +339,8 @@ def _none_metrics() -> dict[str, Any]:
         "unknown_selected_coverage": None,
         "selected_action_mass_regret": None,
         "rescue_retention": None,
+        "life_macro_rescue_retention": None,
+        "reserve_lives_with_zero_decisive_rows": 0,
         "rescue_decisive_count": 0,
         "harmful_override_rate_natural": None,
         "harmful_override_upper_rate_natural": None,
@@ -293,6 +352,10 @@ def _none_metrics() -> dict[str, Any]:
         "harmful_override_rate_natural_stream_conditional": None,
         "harmful_override_upper_rate_natural_stream_conditional": None,
         "harmful_override_weighted_count": 0.0,
+        "harmful_override_count_natural": 0,
+        "harmful_override_unweighted_rate_natural": None,
+        "harmful_override_unclipped_design_rate_natural": None,
+        "harmful_override_clipped_design_rate_natural": None,
         "natural_weighted_count": 0.0,
         "natural_ess": None,
         "natural_unknown_rate": None,
@@ -308,13 +371,13 @@ def heldout_metrics(
     *,
     natural_archive_complete: bool = False,
     candidate_q: torch.Tensor | None = None,
+    reserve_life_ids: torch.Tensor | None = None,
 ) -> dict[str, Any]:
     """Report frozen, threshold-free exact-label metrics for a held-out cache.
 
     The returned softmax survival values are diagnostic scores, not calibrated
-    probabilities. Conditional natural-stream harm conservatively charges changed
-    selections whose selected or base outcome is UNKNOWN. Generic natural-stream
-    admission fields remain unavailable without complete-archive provenance.
+    probabilities. R5 uses an unweighted, zero-event archive harm count.  Design
+    weights (both unclipped and clipped-at-five) remain descriptive only.
     """
     device = next(model.residual.parameters()).device
     data = _cache(cache, device)
@@ -342,7 +405,7 @@ def heldout_metrics(
     base_exact = exact[row, base] & data["legal"][row, base]
     decisive = base_exact & data["died"][row, base] & (exact_legal & ~data["died"]).any(dim=1)
     retained = decisive & selected_exact & ~data["died"][row, selected]
-    harmful = (
+    harmful_exact = (
         (selected != base)
         & selected_exact
         & data["died"][row, selected]
@@ -350,7 +413,10 @@ def heldout_metrics(
         & ~data["died"][row, base]
     )
     changed = selected != base
-    harmful_unknown = changed & (~selected_exact | ~base_exact)
+    selected_outcome_exact = exact[row, selected]
+    base_outcome_exact = exact[row, base]
+    harmful_unknown = changed & (~selected_outcome_exact | ~base_outcome_exact)
+    harmful = harmful_exact | harmful_unknown
     weights = data["sampling_weight"]
     survival_score = functional.softmax(controller_q, dim=1).gather(1, selected[:, None]).squeeze(1)
     survived = (~data["died"][row, selected]).float()
@@ -358,10 +424,10 @@ def heldout_metrics(
     natural_rows = data["natural_stream"]
     natural_weights = weights[natural_rows]
     if natural_rows.any():
-        observed_harm = _weighted_mean(harmful[natural_rows].float(), natural_weights)
-        upper_harm = _weighted_mean(
-            (harmful | harmful_unknown)[natural_rows].float(), natural_weights
-        )
+        observed_harm = _weighted_mean(harmful_exact[natural_rows].float(), natural_weights)
+        upper_harm = _weighted_mean(harmful[natural_rows].float(), natural_weights)
+        design_weights = data["design_weight"][natural_rows]
+        unclipped_harm = _weighted_mean(harmful[natural_rows].float(), design_weights)
         natural_weighted_count = float(natural_weights.sum().cpu())
         natural_ess = float((natural_weights.sum().square() / natural_weights.square().sum()).cpu())
         natural_unknown = float(
@@ -369,12 +435,14 @@ def heldout_metrics(
         )
         conditional_observed = float(observed_harm.cpu())
         conditional_upper = float(upper_harm.cpu())
+        unclipped_rate = float(unclipped_harm.cpu())
     else:
         observed_harm = upper_harm = None
         natural_weighted_count = 0.0
         natural_ess = None
         natural_unknown = None
         conditional_observed = conditional_upper = None
+        unclipped_rate = None
     scored_weight = weights[scored]
     score_brier = (
         _weighted_mean((survival_score[scored] - survived[scored]).square(), scored_weight)
@@ -409,6 +477,63 @@ def heldout_metrics(
                     "survival": float(mean_survival.cpu()),
                 }
             )
+    margin = (controller_q[row, selected] - controller_q[row, base]).abs()
+    margin_bins: list[dict[str, Any]] = []
+    for lower, upper in ((0.0, 0.01), (0.01, 0.1), (0.1, 0.5), (0.5, float("inf"))):
+        in_bin = natural_rows & (margin >= lower) & (margin < upper)
+        count = int(in_bin.sum().cpu())
+        decisive_in_bin = decisive & in_bin
+        margin_bins.append(
+            {
+                "lower": lower,
+                "upper": None if upper == float("inf") else upper,
+                "count": count,
+                "harm_count": int(harmful[in_bin].sum().cpu()),
+                "retention": (
+                    float(retained[decisive_in_bin].float().mean().cpu())
+                    if decisive_in_bin.any()
+                    else None
+                ),
+            }
+        )
+    reserve = (
+        reserve_life_ids.to(device=device, dtype=data["life_id"].dtype)
+        if reserve_life_ids is not None
+        else torch.unique(data["life_id"])
+    )
+    life_retention: list[dict[str, Any]] = []
+    zero_decisive = 0
+    for life in reserve.unique(sorted=True):
+        in_life = data["life_id"] == life
+        life_decisive = decisive & in_life
+        denominator = int(life_decisive.sum().cpu())
+        numerator = int((retained & in_life).sum().cpu())
+        if denominator == 0:
+            zero_decisive += 1
+            retention = None
+        else:
+            retention = numerator / denominator
+        life_retention.append(
+            {
+                "life_id": int(life.cpu()),
+                "decisive_rows": denominator,
+                "retained_rows": numerator,
+                "retention": retention,
+            }
+        )
+    life_macro = (
+        float(
+            sum(
+                (Fraction(row["retained_rows"], row["decisive_rows"]) for row in life_retention),
+                Fraction(),
+            )
+            / len(life_retention)
+        )
+        if life_retention and zero_decisive == 0
+        else None
+    )
+    harm_count = int(harmful[natural_rows].sum().cpu()) if natural_rows.any() else 0
+    natural_count = int(natural_rows.sum().cpu())
     return {
         "exact_selected_coverage": float(selected_exact.float().mean().cpu()),
         "unknown_selected_coverage": float((~selected_exact).float().mean().cpu()),
@@ -419,6 +544,9 @@ def heldout_metrics(
             float(retained.sum().cpu() / decisive.sum().cpu()) if decisive.any() else None
         ),
         "rescue_decisive_count": float(decisive.sum().cpu()),
+        "life_macro_rescue_retention": life_macro,
+        "reserve_lives_with_zero_decisive_rows": zero_decisive,
+        "life_retention": life_retention,
         "natural_archive_complete": natural_archive_complete,
         "controller_source": controller_source,
         "harmful_override_rate_natural_stream_conditional": conditional_observed,
@@ -438,10 +566,8 @@ def heldout_metrics(
             else None
         ),
         "harmful_override_upper_admission_pass": (
-            conditional_upper * 1000 <= 0.01
-            if natural_archive_complete
-            and candidate_q is not None
-            and conditional_upper is not None
+            harm_count == 0 and life_macro is not None and life_macro >= 0.70
+            if natural_archive_complete and candidate_q is not None
             else None
         ),
         "harmful_override_weighted_count": (
@@ -450,8 +576,48 @@ def heldout_metrics(
             else 0.0
         ),
         "natural_weighted_count": natural_weighted_count,
+        "natural_archive_row_count": natural_count,
+        "unclipped_design_weight_sum": (
+            float(data["design_weight"][natural_rows].sum().cpu()) if natural_rows.any() else 0.0
+        ),
+        "unclipped_design_ess": (
+            float(
+                data["design_weight"][natural_rows].sum().square()
+                / data["design_weight"][natural_rows].square().sum()
+            )
+            if natural_rows.any()
+            else None
+        ),
+        "natural_override_frequency": (
+            float(changed[natural_rows].float().mean().cpu()) if natural_rows.any() else None
+        ),
+        "natural_unknown_unweighted_rate": (
+            float((~selected_exact[natural_rows]).float().mean().cpu())
+            if natural_rows.any()
+            else None
+        ),
+        "natural_unknown_unclipped_design_rate": (
+            float(
+                _weighted_mean(
+                    (~selected_exact[natural_rows]).float(), data["design_weight"][natural_rows]
+                ).cpu()
+            )
+            if natural_rows.any()
+            else None
+        ),
         "natural_ess": natural_ess,
         "natural_unknown_rate": natural_unknown if natural_archive_complete else None,
+        "harmful_override_count_natural": harm_count if natural_archive_complete else None,
+        "harmful_override_unweighted_rate_natural": (
+            harm_count / natural_count if natural_archive_complete and natural_count else None
+        ),
+        "harmful_override_unclipped_design_rate_natural": (
+            unclipped_rate if natural_archive_complete else None
+        ),
+        "harmful_override_clipped_design_rate_natural": (
+            conditional_upper if natural_archive_complete else None
+        ),
+        "margin_binned_harm_retention": margin_bins,
         "score_brier_not_calibrated": float(score_brier.cpu()) if score_brier is not None else None,
         "score_ece_not_calibrated": float(ece.cpu()) if scored.any() else None,
         "score_reliability_bins_not_calibrated": bins,

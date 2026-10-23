@@ -1,173 +1,106 @@
-# F3 frozen-B8 residual harness
+# F4 frozen-B8 residual dose study
 
-F3 is implemented and frozen for **synthetic verification only**. No factory
-labels were opened. [F4_DRAFT.md](F4_DRAFT.md) is for Astra review and is
-**unratified**. Factory fits require its independently approved immutable
-successor. Gameplay observations always say `NOT_A_DECISION`; the scientific
-analyzer, P7 trajectory probes, product-session design and serving assay must be
-fixed by that review before scientific admission. Nothing changes serving.
+[F4_REGISTRATION.md](F4_REGISTRATION.md) contains the exact round-26 judged
+registration (SHA256
+`66388c795b3bec5bd014fa03d700994527b67763479143f7c3e5f35d1bb2fd65`).
+Factory-label fits and reserve looks require the operator's approval JSON binding
+that registration, the judgment and the post-change `FitRecipe` digest. The
+original F3 freezes, receipts, draft and handoff remain historical evidence.
+The independent `CODEX_V_F4_REVIEW.json` records verification of this revision.
+No F4 result changes serving: B8 s3 remains served; GO buys only a separately
+registered fresh Mac strict-gate plan.
 
-`model.py` freezes B8, adds a zero-initialized `Linear(256, 6)` head to the
-`a100_a2.model.b8_features` cache, and folds the final residual into a standard
-`Ego2sNet` value/advantage checkpoint. Zero initialization reproduces B8.
-Trained fusion is algebraically equivalent with float32 reassociation; offline
-action metrics run the **reloaded fused checkpoint rowwise** so near-tie actions
-are measured on the delivered controller.
+`model.py` freezes B8, adds an exactly zero-initialized `Linear(256,6)` residual
+on `a100_a2.model.b8_features`, and folds the fitted residual into a standard
+`Ego2sNet` checkpoint. Offline action metrics use the reloaded fused checkpoint
+rowwise, preserving the delivered controller's float32 action selection.
 
-`FitRecipe` fixes 2,000 Adam fp32 updates, batch 256, lr .001, seed 3403,
-preference/growth/KL-anchor coefficients 1 and residual L2 .0001. Small doses
-repeat deterministic sampled rows for the same update count. Exact survivors
-beat exact dying actions on decisive roots; ordinary complete branches supply
-mass preferences and B8 retention. Combined sampling and positive-mass-gap
-preference weights are capped at 5. Unknown/skipped actions never become
-negatives. Non-finite input/Q/loss/gradient/parameters refuse the fit. The final
-unit includes optimizer, head, generator RNG and update count; no intermediate
-checkpoint selection is provided.
+`FitRecipe` fixes Adam fp32, lr .001, 2,000 updates, seed 3403 and batch 256.
+Each batch draws 128 doom and 128 ordinary rows, drawing a life uniformly then
+a row uniformly within that life. Survival ranking uses every exact survivor
+against every exact dying legal, served-selectable action in both strata, with
+unit pair weights and pair-mean normalization. Ordinary growth ranking uses
+only exact survivors with positive mass gaps, weights `min(gap,4)/4`, and
+normalizes by eligible pair count. No prevalence weights enter either training
+loss. Retention is **KL(p_B8 || p_corrected)**, temperature 1, all six actions,
+on ordinary rows, coefficient 1; residual mean-square regularization is 1e-4.
+The advisory mask and normal-only fallback define served actions. UNKNOWN and
+NOT_EVALUATED branches never supply dying labels. Only the final checkpoint
+is used; no early stopping, alternate seeds, sweeps or checkpoint selection.
 
-## Input and split contract
+`data.py` validates pickle-free F0 NPZ projections and carries life/parent
+identities and sampling probabilities into feature caches. Parent hashes fix
+folds; fold zero is held out. The fixed reserve selects 16 S-Watch6 rescue lives
+then 48 other fold-zero rescue lives in allocation order, with at most four
+lives per parent across both selections. Total doses 256/1024/4096 include the
+same 64-life reserve, leaving 192/960/4032 nested fit lives. Allocation reports
+parent and stream counts and unused support, while enforcing append-only prior
+metadata. Missing support is INSUFFICIENT; it never shrinks N.
 
-The F0 adapter consumes pickle-free NPZ partitions with:
+`heldout.py` freezes a versioned census of every natural ordinary row whose
+parent is fold zero and allocation index is at most the reserve's maximum,
+including non-rescue lives and parents absent from the rescue reserve. Admission
+uses an empirical zero-event harm count H and life-macro rescue retention.
+H counts changed actions where the candidate exact-dies and B8 exact-survives,
+or where either action outcome is not EXACT. D4096 admission requires H=0 and
+retention >=.70. Unclipped `1/sampling_prob` rates, clipped-at-five rates, ESS,
+coverage, regret, override frequency and margin bins are descriptive. These
+are not population harm confidence bounds. Parent-cluster bootstrap resamples
+parents, retaining their whole life clusters.
 
-- `local[N,7,31,31]`, `global[N,4,37,37]` uint8; `scalars[N,60]` float32;
-- `q[N,6]`, H300 `mass[N,6]`, natural-archive p/q `sampling_weight[N]` float32;
-- physical `legal[N,6]`, served advisory `action_mask[N,6]`, `died[N,6]`,
-  `ordinary[N]`, `natural_stream[N]` boolean; recorded integer `bare[N]`;
-- `status[N,6]` strings `EXACT`, `NOT_EVALUATED`, `UNKNOWN`;
-- nonempty string `parent_world`, `life_id`, unique `row_id` arrays.
+Look R-A jointly reads the frozen D256 and D1024 checkpoints once; Look R-B
+reads frozen D4096 once. Both are create-only. When F2 strikes volume (including
+an unpublished disposition), funding requires life-macro D1024-D256 retention
+>=.05, parent-bootstrap LB90>0 (10,000 resamples, seed3403), and D1024 H=0.
+D4096 additionally requires a pre-dispatch cost projection from measured D256
+and D1024 collection receipts: units/selected life x3072 x1.2, compared with
+qualified-placement base caps. Earlier unconditional fit faults stop the path.
 
-Scalars are float32, as in the actual B8 observation contract. `bare` must match
-the served advisory mask with normal-only fallback. Native F0 exports retain
-their complete provenance and audit fields; this adapter is an explicit fit
-projection, not a replacement label format or simulator.
+`gameplay.py` supplies three arms (B8/D1024/D4096), exact-clone H5000 starts,
+delivered action traces and boost shares. A separate fresh probe bank has 32
+worlds (11 scripted/11 frozen/10 mixed). D4096 drift tripwires compare served
+argmax on candidate states by pooled length decile (>5%), probe boost share
+(>1.5x B8), and reserve retention (<.70). Lower-dose drift is descriptive;
+unconditional nonfinite/illegal/action-collapse faults remain binding.
+The development screen fixes 128 paired worlds per mix. Watch6 runs only after
+every H5000 GO bar passes: 128 paired continuous-respawn sessions, 14,400
+frames, hero against five FRP3-s12+v8 opponents, dense rule off.
 
-`data.allocate_lives` consumes metadata only: `life_id`, ultimate `parent_world`,
-`stream` (`S-Watch6`/`S-gate`), `rescue_bearing`, unique frozen
-`allocation_index`. Parent hashes assign five folds; fold zero is held out.
-The fixed reserve is 64 rescue lives including 16 Watch6 lives. Selected dose
-support is 256/1,024/4,096 including the reserve, hence 192/960/4,032 training
-rescue lives. Train prefixes follow append-only indices; passing `prior` refuses
-changed metadata or insertions into the earlier prefix. Restores, audits,
-extensions and future DAgger rows inherit the ultimate parent. The pool may need
-more collected lives than selected support. A missing reserve or dose is
-`INSUFFICIENT`, never a smaller N or automatic cap increase.
+`analyze.py` implements R8/R9 with stratified Welch inference, the two-test
+one-sided Holm efficacy family (alpha .10), unadjusted conjunctive guards,
+survival band v2, terminal dose futility and paired-session product bootstrap.
+It preserves INVALID/INCOMPLETE precedence, path-dependent NOT_RUN_BY_RULE
+units, the ten ordered labels and TOP_PASSED_DOSE_FAILED. Its outputs are
+create-only, identity-bound and one-look. Synthetic fixtures cover every label
+and the registered equality boundaries. No development screen grants release.
 
-The separate ordinary archive includes **non-rescue lives**, all on the same
-held-out parent side. It supplies the natural-prevalence denominator, weighted
-with p/q cap 5 and reported ESS. An enriched doom-only sample cannot establish
-natural admission. Unknown changed actions count in the conservative harm upper
-rate. The threshold is <=0.01 harmful overrides per 1,000 natural decisions.
-Admission is unavailable without both an immutable complete archive census and
-actual exported-checkpoint predictions. Reliability bins/ECE/Brier describe
-uncalibrated scores; no calibrator or threshold is fitted on holdout outcomes.
+Colab preparation uses only the qualified CLI subtree
+`d0d92bdb572b770284a1fea6152417ffa5f06bea`, verified against the ops registry.
+`make_pack.py` prepares fresh immutable packs; historical packs are never
+rewritten. Dispatch remains operator-owned through `tools/ops/dispatch.sh`;
+a prepared blocked canary template is not admission or execution proof.
+A current-code, same-pin live family canary remains required before main use.
 
-`heldout.py` verifies the complete final checkpoint, its control/allocation
-identity and real/non-synthetic 2,000-update metadata before opening outcomes.
-The verified `life-allocation.json` is input-hash-bound to that candidate;
-unselected rescue roots and foreign parents are refused. Training partitions
-alone are uploaded to Colab; held-out outcome files stay on the Mac until final
-fit units are immutable. An archive census uses schema
-`bl-residual-natural-archive/v1`, exact table hash, `complete: true`, sorted
-`natural_row_ids`, `parent_worlds`, `eligible_life_ids` and
-`includes_non_rescue_lives: true`, backed by F0's verified life inventory.
+Caps (base/effective Colab units, doubled once): D256 40/80; D1024 increment
+120/240; D4096 increment480/960; fits whole-series10/20. First wall/unit cap
+wins, all attempts/setup/export charged. Resume ledgers bind verified immutable
+complete-fit units and skip exactly verified units; missing units may receive
+at most two manually admitted outcome-blind completion attempts, never a
+scientific retry. Probes, reserve looks and gameplay stay on the Mac in permitted
+gaps. Strict gates and serving qualification remain separately registered and
+Mac-only; release requires the owner's OK.
 
-## Gameplay hook and existing exact code
-
-`gameplay.py` composes the existing H5000 terminal-hero evaluator
-`bl_served_search.ceiling.run_arm(dense=False)`, `bank_engine.build_world`,
-`clone_world_exact` and `full_digest`. It regenerates standard plans, checks
-128 worlds per mix, disjoint seed/parent identities, explicit training/holdout
-exclusions and a separately hash-bound collision receipt. Production is
-Mac-only, exact H5000, and requires actual hash-bound reviewed registration
-files. The <=3-step scripted fixture is excluded from inference. Boost share is
-explicitly unavailable in this evaluator; product/boost qualification and the
-scientific decision analyzer remain F4 work.
-
-The collector retains `WatchDriver.snapshot/restore`, `clone_world_exact`,
-`full_digest`, `exact_stop.run`, and native v8 unchanged. F3 does not implement a
-second snapshot, simulator, branch search, opponent tape, or label generator.
-
-## Caps and dispatch boundary
-
-F3 is **0 Colab units until labels exist and F4 is judged**. Under the owner's
-2x rule, the ruling's <=10-unit fit envelope is base <=10 / effective <=20,
-including setup/export/canaries/recovery. F0 tranche 1 remains base40/effective80
-units. The prepared future canary template is base .5/effective1 unit, reserve
-.1/.2, timeout10/20 minutes, estimate5 minutes at1.54u/h, all within the fit
-series. It is deliberately `scientific_admission: false` with `DISPATCH.txt`
-HOLD. It grants no runtime and must not be edited in place to admit a job.
-
-Qualified CLI registry:
-`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json`;
-qualified commit `f21a92edb86550df5263dbed4be7e2ff0bfa4c17`, tree
-`553af3f692515b2bf66173356fe4d099acc96942`. `make_pack` verifies it, requires a
-published enclosing source commit, and invokes `tools/ops/import_preflight.py`
-on a sparse archive in a fresh declared-dependencies-only managed Python3.12
-venv before creating the pack. This checks the fit runtime, not the Mac gameplay
-hook's dependency closure. A genuine same-pin L4 family canary is still needed
-before any future production manifest is admitted.
-
-`protocol.build_ledger` reads immutable allocation metadata, filenames, sizes,
-hashes and completion markers without opening payload outcomes. Runtime skips
-exact verified units and rejects foreign allocations. Each completion attempt
-has fresh output/manifest/receipt paths; one original plus at most two manually
-admitted mechanical completions, never automatic scientific retries. At a later
-dose stage, dispatch **only the new dose** and retain lower-dose immutable
-checkpoint references; do not refit earlier doses under a new allocation.
-
-## Reproduce the authorized local smoke
-
-Use fresh paths on a repeat. The recorded smoke paths are already occupied.
+Use the shared interpreter for light verification, with each numerical library
+thread capped at one:
 
 ```bash
 cd /Users/josenunez/Projects/ml/snake-dqn-f3
-/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_residual.make_pack \
-  --local-smoke-inputs-only \
-  --out /absolute/fresh-f3-smoke/inputs \
-  --b8 /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 \
 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu \
-/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_residual.job \
-  --input-dir /absolute/fresh-f3-smoke/inputs --output /absolute/fresh-f3-smoke/output \
-  --mode smoke --device cpu
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist \
+  tests/test_bl_residual_*.py
 ```
 
-Prepare a pinned, still-blocked Colab template after publication:
-
-```bash
-cd /Users/josenunez/Projects/ml/snake-dqn-f3
-/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_residual.make_pack \
-  --commit HEAD --out /absolute/fresh-f3-pack \
-  --b8 /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth
-```
-
-The **only** dispatch route is the operator-owned wrapper below. This exact
-template command is expected to **refuse HOLD/false admission**; it is recorded
-for review, not execution now. Claude prepares a new admitted manifest after F4,
-labels, measured pricing and same-pin canary proof; earlier template bytes stay
-immutable. Never invoke the Colab allocator directly.
-
-```bash
-/Users/josenunez/Projects/ml/snake-dqn-acctfix/tools/ops/dispatch.sh \
-  bl-f3-canary-REPLACE_WITH_ADMITTED_ID /absolute/fresh-admitted-f3-pack/canary.json \
-  --broker /Users/josenunez/Projects/ml/snake-dqn-acctfix \
-  --cwd /Users/josenunez/Projects/ml/snake-dqn-f3 \
-  --state-dir /absolute/fresh-admitted-f3-state \
-  --dispatch-txt /absolute/fresh-admitted-f3-pack/DISPATCH.txt
-```
-
-Future held-out one-look command (only a real reviewed final is accepted):
-
-```bash
-/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_residual.heldout \
-  --checkpoint /absolute/verified/fit-0000.pth --control /absolute/verified/control.json \
-  --allocation /absolute/verified/life-allocation.json \
-  --b8 /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth \
-  --table /absolute/heldout.npz --archive-receipt /absolute/natural-archive.json \
-  --out /absolute/fresh-heldout-look.json
-```
-
-The F4 draft retains gameplay kills exactly: D4096-D1024 >=+20/LB90>0;
-D4096-B8 >=+40/LB90>0; no mix UB90<0; all T34 survival/product/boost bars and
-Holm. Dose-benefit UB90<=0 closes the lane. Failure to clear a positive bar is
-reported inconclusive under the draft, not promoted. F2's negative result
-conditions purchase of D4096 on D1024 beating D256 in this harness.
+See the F4 handoff and independent Codex-V receipt for the exact commands,
+approval JSON and synthetic verification limits for this revision. No real
+labels, reserve outcomes or gameplay results are needed to run these tests.
