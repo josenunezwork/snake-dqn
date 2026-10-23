@@ -47,14 +47,31 @@ feature, and never enter this replay's acceptance.
 
 ## 2. C2: zero-unit Mac first-step fixture and moments clarification
 
-Install the C1 head on a small synthetic fixture, enable the actor, and run
-three real PPO `update()` calls on synthetic rollouts with core, encoder and
-residual trainable, global gradient clip 1.0 and core learning rate 1e-4.
-All values, losses and gradients must be finite. On a fixed held feature
-batch require, for each k, `max(abs(V_after_step_k - V_before))` <= the
-installed PopArt scale. A uniform 1e-4 shift of `core.norm.bias` must change
-V by <=1.0 return unit, including the analytic coefficient-sum check.
-This is light Mac CPU software evidence at 0 Colab units, not a policy assay.
+C2-prime replaces the original fixture under `exp/JUDGMENT_P1_E8_04.md`
+section 4. Test-side only: install the C1 head on 1,024 synthetic observations
+forwarded through that policy's own `last_critic_features`, with targets
+`c.z + 17*h + 5 + epsilon`, zero-sum `c=linspace(-.25,.25,256)` and
+`epsilon ~ N(0,.3^2)`. Use `zero_sum_basis=True`. For T=1, N=16 fresh
+observations, set values and last_value to that policy's own installed V,
+dones=False, and rewards uniform in [-.1*sigma,.1*sigma]. Record maximum
+and RMS target gaps. On 16 further held observations record cumulative raw
+value drift after each of three real actor-enabled `update()` calls.
+Reinitialise identically for the registered one-pass exact-target control
+(`fit_completed_critic` at learner.py:345, called `fit_complete_targets` in
+the judgment); use the same seeds and observations and self-consistent
+rollout construction. All values/losses/gradients in both arms must be finite.
+The full-forward uniform 1e-4 core.norm.bias shift and analytic coefficient
+sum must each move V by <=1 return unit. At each step the C1 arm's drift
+must be <=max(1 sigma,1.25 times registered-control drift). A control drift
+above sigma still admits the C1 arm only within that 1.25x comparison and
+with finiteness/bias checks passing. Any acceptance failure returns to the
+judge, without another fixture variant or spend. Retain the original
+fixture_03 unchanged as D1, and run the same rollout on a fresh copy with
+actor_enabled=False as head-only D2; both are diagnostics, not acceptance.
+Core/encoder/residual remain trainable in the actor arm, global clip 1.0,
+registered optimizer/lrs and all PPO settings unchanged. Run once on Mac
+CPU with four numerical thread variables set to 1, at 0 Colab units;
+write FIRST_STEP_FIXTURE_04 with SHA/completion sidecars. No policy assay.
 
 Correction to amendment 03 section 2 step 3: moments are frozen at the FIT
 moments for the actor phase because `update_targets` runs only while

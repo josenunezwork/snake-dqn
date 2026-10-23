@@ -25,7 +25,11 @@ CANARY_CONFIG = {"pause_at": 32, "processes": 1, "rollout_steps": 16, "worlds": 
 SOURCE_EXPORTS = ["receipt.json"]
 CANARY_EXPORTS = SOURCE_EXPORTS + ["canary/pause.json", "canary/pause-snapshot.pt"]
 QUALIFIED_CLI_TREE = "553af3f692515b2bf66173356fe4d099acc96942"
-REVIEW_HOLD = "HOLD: C2 first meaningful fixture failed; judgment kill rule forbids Colab spend"
+REVIEW_BLOCKERS = (
+    "pending independent Codex-V review receipt for C2-prime, C3, C1 replay, "
+    "and dispatched pin equality",
+    "pending Claude campaign-log and section-6 checklist review",
+)
 
 
 def _ledger(control: dict[str, Any]) -> dict[str, Any]:
@@ -53,22 +57,40 @@ def _require_source_control(control: dict[str, Any], *, offset: int) -> None:
         raise ValueError("source control lacks the Amendment-04 digest")
 
 
-def _require_audit(path: Path, *, offset: int, control: dict[str, Any]) -> None:
+def _require_audit(path: Path, *, offset: int, control: dict[str, Any]) -> dict[str, Any]:
     if verify_export(path) != control.get("collection_allocation_audit_sha256"):
         raise ValueError("collection allocation audit digest differs from its control")
     audit = json.loads(path.read_text())
     if (
-        audit.get("schema") != "bl-p1-collection-allocation-audit/v1"
+        audit.get("schema")
+        not in {"bl-p1-collection-allocation-audit/v1", "bl-p1-collection-allocation-audit/v3"}
         or audit.get("natural_collection_world_id_offset") != offset
         or audit.get("collision_count") != 0
         or audit.get("burned_roots") != control.get("natural_collection_burned_roots")
     ):
         raise ValueError("collection allocation audit does not prove the source control")
+    if audit.get("schema") == "bl-p1-collection-allocation-audit/v3":
+        enumeration = audit.get("enumeration")
+        cross_lane = audit.get("cross_lane")
+        advance_rule = audit.get("offset_advance_rule")
+        if (
+            not isinstance(enumeration, dict)
+            or (enumeration.get("episode_start"), enumeration.get("episode_end")) != (0, 127)
+            or (enumeration.get("attempt_start"), enumeration.get("attempt_end")) != (0, 1)
+            or not isinstance(cross_lane, dict)
+            or cross_lane.get("raw_root_intersection_count") != 0
+            or cross_lane.get("allocated_root_intersection_count") != 0
+            or not isinstance(advance_rule, dict)
+            or advance_rule.get("advance_both_offsets_by") != 10_000
+            or advance_rule.get("lane_separation") != 1_000
+        ):
+            raise ValueError("C3 audit lacks its fixed enumeration or collision proof")
+    return audit
 
 
-def _canary_control(source: dict[str, Any], audit: Path) -> dict[str, Any]:
+def _canary_control(source: dict[str, Any], audit: Path, *, offset: int) -> dict[str, Any]:
     value = copy.deepcopy(source)
-    value["natural_collection_world_id_offset"] = CANARY_OFFSET
+    value["natural_collection_world_id_offset"] = offset
     # The operational canary must not draw from the source's root stream even
     # if a future allocation mistake were to reuse an offset.
     value["natural_collection_seed"] = 2026102203
@@ -88,10 +110,9 @@ def bootstrap_source_template(
 ) -> Path:
     """Rebind the permitted source-05 template into a review-only source-06 staging input.
 
-    This does not admit an experiment.  It preserves the prior public/evaluation
-    inputs while replacing only the amendment-bound control, empty ledger and
-    source identity.  The C2 kill rule is recorded directly in the control so
-    neither this staging template nor any pack derived from it can allocate.
+    This does not admit an experiment. It preserves the prior public/evaluation
+    inputs while replacing only the amendment-bound control, empty ledger, and
+    source identity while independent review remains pending.
     """
     from research.bl_ppo.manifests import _bounded_source_paths, input_row
     from research.bl_ppo.p1_manifests import bundle_inputs
@@ -116,12 +137,14 @@ def bootstrap_source_template(
         e8_critic_convergence_amendment_03=False,
         e8_critic_convergence_amendment_04=True,
         e8_critic_convergence_amendment_04_sha256=digest(amendment),
-        natural_collection_world_id_offset=SOURCE_OFFSET,
+        natural_collection_world_id_offset=json.loads(source_audit.read_text())[
+            "natural_collection_world_id_offset"
+        ],
         natural_collection_seed=20261021,
         collection_allocation_audit_sha256=verify_export(source_audit),
         collection_allocation_audit_path="collection-allocation-audit.json",
         scientific_admission=False,
-        dispatch_blockers=[REVIEW_HOLD],
+        dispatch_blockers=list(REVIEW_BLOCKERS),
     )
     source_audit_value = json.loads(source_audit.read_text())
     control["natural_collection_burned_roots"] = source_audit_value["burned_roots"]
@@ -131,8 +154,9 @@ def bootstrap_source_template(
         "allocation": "source_latebody_06_e8_04",
         "ledger_path": "inputs/verified-ledger.json",
     }
-    _require_source_control(control, offset=SOURCE_OFFSET)
-    _require_audit(source_audit, offset=SOURCE_OFFSET, control=control)
+    source_offset = control["natural_collection_world_id_offset"]
+    _require_source_control(control, offset=source_offset)
+    _require_audit(source_audit, offset=source_offset, control=control)
     new_control = root / "p1-control.json"
     new_ledger = root / "verified-ledger.json"
     export_json(new_control, control)
@@ -144,6 +168,12 @@ def bootstrap_source_template(
         "verified-ledger.json",
         "verified-ledger.json.sha256",
         "verified-ledger.json.complete",
+        source_audit.name,
+        f"{source_audit.name}.sha256",
+        f"{source_audit.name}.complete",
+        source_audit.name,
+        f"{source_audit.name}.sha256",
+        f"{source_audit.name}.complete",
     }
     rows = [
         input_row(item, item.name)
@@ -154,7 +184,13 @@ def bootstrap_source_template(
         for suffix in ("", ".sha256", ".complete"):
             item = Path(str(path) + suffix)
             rows.append(input_row(item, item.name))
-    inputs = [row for row in template["inputs"] if row["dest"] != "p1-inputs.tar.gz"]
+    replaced_destinations = {
+        "p1-inputs.tar.gz",
+        source_audit.name,
+        f"{source_audit.name}.sha256",
+        f"{source_audit.name}.complete",
+    }
+    inputs = [row for row in template["inputs"] if row["dest"] not in replaced_destinations]
     inputs += bundle_inputs(root, rows)
     template.update(
         commit=commit,
@@ -165,7 +201,11 @@ def bootstrap_source_template(
     )
     template["env"]["BL_PPO_COMMIT"] = commit
     template.pop("canary", None)
-    template["bl_p1"] = {**template.get("bl_p1", {}), "control": control, "blockers": [REVIEW_HOLD]}
+    template["bl_p1"] = {
+        **template.get("bl_p1", {}),
+        "control": control,
+        "blockers": list(REVIEW_BLOCKERS),
+    }
     template["source_paths"] = sorted(
         set(template.get("source_paths", [])) | set(_bounded_source_paths(template))
     )
@@ -192,6 +232,12 @@ def _input_rows(
         "verified-ledger.json",
         "verified-ledger.json.sha256",
         "verified-ledger.json.complete",
+        source_audit.name,
+        f"{source_audit.name}.sha256",
+        f"{source_audit.name}.complete",
+        canary_audit.name,
+        f"{canary_audit.name}.sha256",
+        f"{canary_audit.name}.complete",
     }
     rows = [
         input_row(path, path.name)
@@ -245,10 +291,20 @@ def prepare(
     original_control = unpacked / "p1-control.json"
     verify_export(original_control)
     source_control_value = json.loads(original_control.read_text())
-    _require_source_control(source_control_value, offset=SOURCE_OFFSET)
-    _require_audit(source_audit, offset=SOURCE_OFFSET, control=source_control_value)
-    canary_control_value = _canary_control(source_control_value, canary_audit)
-    _require_audit(canary_audit, offset=CANARY_OFFSET, control=canary_control_value)
+    source_offset = json.loads(source_audit.read_text()).get("natural_collection_world_id_offset")
+    canary_offset = json.loads(canary_audit.read_text()).get("natural_collection_world_id_offset")
+    if (
+        type(source_offset) is not int
+        or type(canary_offset) is not int
+        or source_offset - canary_offset != SOURCE_OFFSET - CANARY_OFFSET
+        or (source_offset - SOURCE_OFFSET) % 10_000
+        or (canary_offset - CANARY_OFFSET) % 10_000
+    ):
+        raise ValueError("C3 offsets must advance together by fixed 10,000 steps")
+    _require_source_control(source_control_value, offset=source_offset)
+    _require_audit(source_audit, offset=source_offset, control=source_control_value)
+    canary_control_value = _canary_control(source_control_value, canary_audit, offset=canary_offset)
+    _require_audit(canary_audit, offset=canary_offset, control=canary_control_value)
 
     source_control = root / "p1-control.json"
     canary_control = root / "canary-control.json"
@@ -258,7 +314,16 @@ def prepare(
     export_json(canary_control, canary_control_value)
     export_json(source_ledger, _ledger(source_control_value))
     export_json(canary_ledger, _ledger(canary_control_value))
-    rows = [row for row in template["inputs"] if row["dest"] != "p1-inputs.tar.gz"]
+    replaced_destinations = {
+        "p1-inputs.tar.gz",
+        source_audit.name,
+        f"{source_audit.name}.sha256",
+        f"{source_audit.name}.complete",
+        canary_audit.name,
+        f"{canary_audit.name}.sha256",
+        f"{canary_audit.name}.complete",
+    }
+    rows = [row for row in template["inputs"] if row["dest"] not in replaced_destinations]
     rows += _input_rows(
         unpacked,
         source_control,
@@ -285,7 +350,7 @@ def prepare(
     source["bl_p1"] = {
         **source.get("bl_p1", {}),
         "control": source_control_value,
-        "blockers": [REVIEW_HOLD],
+        "blockers": list(REVIEW_BLOCKERS),
     }
     source["source_paths"] = sorted(
         set(source.get("source_paths", [])) | set(_bounded_source_paths(source))
@@ -334,7 +399,7 @@ def prepare(
         "source_template_sha256": digest(root / "source-template.json"),
         "canary_manifest_sha256": digest(root / "canary-manifest.json"),
         "shared_input_inventory": input_inventory(canary),
-        "offsets": {"canary": CANARY_OFFSET, "source": SOURCE_OFFSET},
+        "offsets": {"canary": canary_offset, "source": source_offset},
         "budgets": {
             "rate_units_per_hour": 1.54,
             "rate_tolerance": 0.0,
@@ -353,11 +418,7 @@ def prepare(
                 "reserve_units": 1.92,
             },
         },
-        "blockers": [
-            REVIEW_HOLD,
-            "independent Codex-V receipt records C2 failure",
-            "no dispatch or allocation is authorized",
-        ],
+        "blockers": [*REVIEW_BLOCKERS, "no dispatch or allocation is authorized"],
         "colab_calls": 0,
     }
     export_json(root / "preparation.json", result)
@@ -366,7 +427,7 @@ def prepare(
     export_bytes(
         root / "DISPATCH.txt",
         (
-            "REVIEW_ONLY_NOT_DISPATCHABLE\n" + REVIEW_HOLD + "\n"
+            "REVIEW_ONLY_NOT_DISPATCHABLE\n" + "\n".join(REVIEW_BLOCKERS) + "\n"
             "No dispatch command is emitted; do not invoke tools/ops/dispatch.sh.\n"
         ).encode(),
     )
