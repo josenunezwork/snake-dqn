@@ -1,0 +1,188 @@
+{
+  "schema": "codex-v-control-rpc-acceptance-diagnosis-review/v1",
+  "reviewer": "Independent Codex-V /root/codex_v",
+  "recorded_by": "Root publication of the independent read-only reviewer report",
+  "reviewed_at_utc": "2026-10-23T14:10:27.897032+00:00",
+  "branch": "ops-rpc-stall-fix-20261023",
+  "review_base_commit": "865b9ce6badf361a22ed36c96211583982443458",
+  "review_binding": "The hashes below bind the reviewed final files before their containing commit. This receipt does not grant live qualification, merge authority, platform admission, or dispatch readiness.",
+  "verdict": "ACCEPT_DIAGNOSIS_AND_OFFLINE_REGRESSIONS_ONLY",
+  "open_findings": [],
+  "resolved_findings": [
+    {
+      "severity": "P2",
+      "file": "tests/test_colab_cli_acceptance_stall_diagnosis.py",
+      "line": 76,
+      "finding": "The first draft treated both operational wall and priced deadlines as 1800 seconds, omitting the unchanged 45-second cleanup reserve.",
+      "resolution": "The final test independently models the actual operational wall deadline of 1755 seconds and priced deadline of 1800 seconds. The diagnosis also records 9555 seconds for the later 160-minute profile."
+    },
+    {
+      "severity": "P2",
+      "file": "research/rpc_qualification/ACCEPTANCE_STALL_DIAGNOSIS_20261023.md",
+      "line": 120,
+      "finding": "The first draft overstated the ruling as requiring a mechanical fix before a second attempt.",
+      "resolution": "The final text requires fresh plan, namespaces and the same envelope; it permits at most one reviewed intervening fix and correctly states that a fix is not mandatory."
+    }
+  ],
+  "diagnosis": {
+    "root_cause_classification": "REAL_BOUNDED_L4_CONTROL_PATH_TIMEOUTS_NOT_CUMULATIVE_READ_COUNT_EXHAUSTION",
+    "direct_evidence": [
+      {
+        "artifact": "outputs/l4/receipt.json",
+        "record": "cli_calls[58]",
+        "file_line": 555,
+        "status": "failed",
+        "failure_class": "CONTROL_RPC_TIMEOUT",
+        "elapsed_seconds": 30.01305816700915,
+        "timeout_seconds": 29.999986624985468,
+        "request_id": "1f91df004dc24083b1d55a61f2b2f7bb",
+        "recovery": "cli_calls[59] completed under the same request ID in 2.338153916003648 seconds; the prior fault remains recorded."
+      },
+      {
+        "artifact": "outputs/l4/receipt.json",
+        "record": "cli_calls[117]",
+        "file_line": 1022,
+        "status": "failed",
+        "failure_class": "CONTROL_RPC_TIMEOUT",
+        "elapsed_seconds": 30.0062095419853,
+        "timeout_seconds": 29.999997709004674,
+        "request_id": "954d47ea5c2747e0a109e9017ca8d81d",
+        "recovery": "No later exec recovery appears in the receipt."
+      },
+      {
+        "artifact": "outputs/l4/receipt.json",
+        "file_line": 1216,
+        "error": "GuardError('read helper operation budget exhausted')",
+        "terminal_failure_class": "SUPERVISOR",
+        "elapsed_seconds": 520.6077877499629,
+        "stop_verified": true,
+        "cleanup_error": null
+      },
+      {
+        "artifact": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/requal-stallfix.log",
+        "lines": "1-5",
+        "evidence": "CPU progress and successful completion are followed by REFUSE: acceptance failed; qualification registry unchanged and EXIT=1. No L4 helper traceback or provider attribution is present."
+      }
+    ],
+    "non_injection_check": "Both L4 failed execs use normal telemetry code SHA256 215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9. acceptance_faults.py:109-122 assigns silence injection only to the CPU path.",
+    "count_check": {
+      "l4_total_cli_calls": 122,
+      "l4_exec_calls": 62,
+      "l4_request_ids": 30,
+      "l4_max_exec_polls_for_one_request": 4,
+      "per_request_poll_ceiling": 300,
+      "cpu_total_cli_calls": 136,
+      "cpu_exec_calls": 73,
+      "conclusion": "cli_guard.py:260-275 creates a fresh time deadline per helper invocation and has no cumulative read-operation counter. Neither total call count nor the per-request poll ceiling explains this failure."
+    },
+    "arithmetic": [
+      "Each exec attempt is bounded to at most 30 seconds.",
+      "An idle helper receives min(150-second helper ceiling, 30-second caller allowance, remaining operation/session/priced time), hence at most 30 seconds.",
+      "At most three helper attempts share that single deadline. A first attempt consuming 30 seconds leaves 30 - 30 = 0 seconds for another attempt.",
+      "Telemetry recovery is bounded by 300 seconds and the earlier session/priced cap.",
+      "L4 manifest wall cap is 30 * 60 = 1800 seconds; operational wall deadline reserves 45 seconds, yielding 1755 seconds.",
+      "L4 priced cap is 1.0 / 2.0 * 3600 = 1800 seconds.",
+      "Recorded total elapsed 520.6077877499629 seconds is below both limits.",
+      "The later profile manifest wall cap is 160 * 60 = 9600 seconds; operational wall deadline is 9600 - 45 = 9555 seconds."
+    ],
+    "inference_limit": "The code path and outer GuardError are consistent with the idle-read time budget being consumed after the second exec timeout. The exact historical helper duration and underlying exception were not logged. The regression models a full 30-second helper timeout and does not claim that modeled duration was measured.",
+    "transport_changes_warranted_by_count_hypothesis": false
+  },
+  "counting_decision": {
+    "authority": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/JUDGMENT_PLACEMENT_MAC.md",
+    "authority_sha256": "738a367bec2c3399ed8bd9383811d7fa643109a8aaba384a775f1c028a7285ea",
+    "authority_lines": "234-260",
+    "guard_budget_refusal_is_counted_fault": true,
+    "reason": "C1.3 counts failed, exhausted, fenced or timed-out calls of any class, recovered or not. A guard refusal is an exhausted or failed helper operation and has no new exemption merely because it is local or reported as SUPERVISOR.",
+    "platform": "L4",
+    "attempt_status": "FIRST_FAILED_ATTEMPT",
+    "independent_sufficient_evidence": "The two non-injected CONTROL_RPC_TIMEOUT exec records already require failure, irrespective of the outer helper error.",
+    "fault_cardinality_limit": "Do not invent a precise aggregate by double-counting the terminal failure and its cause. The projected fixture census is not the entire original transfer census.",
+    "cpu_status": "Standard acceptance arm reports PASS; the L4 failure does not fail CPU.",
+    "second_attempt_rule": "Fresh plan and namespaces at the same envelope are required. At most one intervening mechanical fix is allowed and any fix needs Codex-V review. A second L4 failed attempt closes its Colab label lane for October."
+  },
+  "verified_properties": [
+    "All 122 projected L4 cli_call records exactly match the original receipt after removing only exception error arguments.",
+    "The original L4 receipt SHA256, original CPU receipt SHA256 and all 136 CPU command counts match the fixture.",
+    "Repeated successful helper reads at counts 62, 122 and 136 receive independent fresh deadlines.",
+    "The synthetic exec-timeout followed by helper deadline exhaustion preserves the uncertain-kernel fence, the failed control-call record and the unchanged wall/priced limits.",
+    "The final diagnosis separates logged facts from inferred helper behavior and retains the original failed evidence.",
+    "No executable transport or qualification-admission source changed in this diagnostic slice."
+  ],
+  "independent_commands": [
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_colab_cli_acceptance_stall_diagnosis.py tests/test_colab_cli_guard.py tests/test_colab_cli_rpc_recovery.py tests/test_colab_cli_latency_policy.py",
+      "status": "PASS",
+      "passed": 101,
+      "seconds": 1.72,
+      "execution": "Single process; pytest macOS OpenMP isolation also completed."
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m black --check --line-length 100 tests/test_colab_cli_acceptance_stall_diagnosis.py",
+      "status": "PASS"
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m isort --check-only --profile black tests/test_colab_cli_acceptance_stall_diagnosis.py",
+      "status": "PASS"
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m flake8 tests/test_colab_cli_acceptance_stall_diagnosis.py",
+      "status": "PASS"
+    },
+    {
+      "command": "git diff --check",
+      "status": "PASS"
+    },
+    {
+      "command": "Read-only Python verification of every projected original record, receipt metadata, original source hashes and CPU command counts",
+      "status": "PASS"
+    }
+  ],
+  "source_sha256": {
+    "research/rpc_qualification/ACCEPTANCE_STALL_DIAGNOSIS_20261023.md": "5c43db20cee721357ef1038c189d08049d3606b749e17bc9141e0a8d0df9426c",
+    "tests/fixtures/colab_control_faults_acceptance_1792762502.json": "de283d64bd8c1d69593b89893236e3679292ed9cdcd17faea2c77a08e98b5b69",
+    "tests/test_colab_cli_acceptance_stall_diagnosis.py": "87fe7e93557db6a33ec88f6bbba18a14c0dbc4b6417b63612a3a7c8f499446dd"
+  },
+  "examined_unchanged_source_sha256": {
+    "research/colab_cli/cli_guard.py": "f1a463ef6883f320992b23db116609d3582d86af3100a638e7a3a33c1e396dc7",
+    "research/colab_cli/policy.py": "7b83e5b23919647bcd48a7411b25910bbaca92a32273b9999c8871c34b0cf25b",
+    "research/colab_cli/supervisor.py": "d4afef58048ad9235c839440caf3fc3848a2559d53ed29e01be2e331ea63fd92",
+    "research/rpc_qualification/admission.py": "abedcc8ed8795bc26ee3d3f2fe5867c0b5594b52c84e051e07e0796645233805"
+  },
+  "historical_evidence_sha256": {
+    "acceptance-result.json": "a441372fd5ba8ab824a6bbbee28defcec54c42d8789765a3e4eaf503e6989262",
+    "outputs/l4/receipt.json": "78fae4b656429f034c1a95d41bb6a9bc8614acd963b3230f5044169bb31ee20b",
+    "outputs/cpu/receipt.json": "c4528d37a249bd0688d778f5a464c9678d4edbc08515857fb74f56749325e26d",
+    "requal-stallfix.log": "d2b785028c612a0513d651fd478da8a6513f139d224febdacb45a23ffd4463cd"
+  },
+  "remaining_risks_and_blockers": [
+    {
+      "severity": "P2",
+      "location": "research/rpc_qualification/admission.py:50-63",
+      "detail": "The existing six-session prerequisite hard-pins final-only acceptance to a18bf6b4. Planning at a new diagnostic HEAD is refused even with identical transport bytes. The documented detached original-pin broker preserves this binding."
+    },
+    {
+      "severity": "P2",
+      "location": "research/rpc_qualification/admission.py:60-63",
+      "detail": "The existing admission applies transport_faults to final-only CPU receipts without distinguishing intentionally injected silence/download failures. The observed CPU PASS therefore remains insufficient for this admission path. Protocol/source review must resolve this before 3+3 dispatch readiness; no exemption for actual L4 faults follows."
+    },
+    {
+      "detail": "The source of the L4 control latency, such as provider, tunnel or local client behavior, cannot be attributed from the saved evidence."
+    },
+    {
+      "detail": "No executable stall remedy is supplied. An unchanged-source second attempt can fail again and close the L4 lane for October."
+    },
+    {
+      "detail": "The combined live acceptance remains incomplete; six-session qualification, live injection proof, F1-bis and production admission are not established."
+    }
+  ],
+  "side_effects": {
+    "reviewer_files_changed": [],
+    "colab_allocations": 0,
+    "colab_stops": 0,
+    "real_tmux_mutations": 0,
+    "historical_artifacts_modified": false,
+    "sealed_scientific_outcomes_opened": false,
+    "commits_or_pushes_by_reviewer": 0
+  }
+}
