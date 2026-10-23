@@ -178,6 +178,7 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 08:10 PT | Factory speed ruling (round 27) | JUDGMENT.md sha f3d4e62547718306... (Opus stand-in): measured canary profile = play 47 %, doom alternatives 34 %, ordinary roots 11 %, audits 7 %, restore 1 %. Build from D1024: W12 (>=1.54x; width-change resume), fold 1-4 parent filter (1.25x usable), prepared-decision packet (1 obs + 1 B8 forward per decision; 1.08-1.16x), bare-audit mass check; 4 gated items behind pre-set profile thresholds. Byte-identity vs 61900af2 on a 12-parent bank + 1/64 production recheck. D256 left untouched (ETA ~15:00 PT at W6). Rejected: pruning, warm-start, batched/GPU inference, >12 workers. |
 
+| 2026-10-23 08:45 PT | D256 W6 PREEMPTED (operational, not scientific): driver slowdown_guard tripped (life wall 208.9 s vs first-hour baseline 147.9 s) at 36/858 parents, 4,463 s charged of the 57,600 s cap, 0 thermal trips, verified terminal receipt. Likely cause: concurrent Sol f0speed load. No D256 continuation tool exists (mac_gates ledger is Canary-only; d256_w12 refuses prior attempts). Mac idle → W12 calibration --check PASS (2a0821a9), full calibration queued; then Sol builds an accounting-preserving D256 resume (same state dir, fresh output, union ledger, W12 only on sealed PASS). Lesson: no Codex/Sol on the Mac during factory runs either. |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
