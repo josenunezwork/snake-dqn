@@ -77,8 +77,12 @@ def reduce_attempt(out_dir: Path) -> dict:
         raise ValueError("foreign M1 receipt")
     if receipt.get("verdict") not in PRECEDENCE:
         raise ValueError("unknown attempt verdict")
-    frozen = {cell["cell_id"]: index for index, cell in enumerate(m1.cells())}
     retained = receipt["cells"]
+    remedy = receipt.get("remedy_attempt") is True or any(
+        cell["cell_id"].startswith("cpu-w0-") for cell in retained
+    )
+    allocation = [cell for cell in m1.cells() if remedy or cell["workers"] > 0]
+    frozen = {cell["cell_id"]: index for index, cell in enumerate(allocation)}
     ids = [cell["cell_id"] for cell in retained]
     if len(ids) != len(set(ids)) or set(ids) - frozen.keys():
         raise ValueError("duplicate or foreign retained cell")
@@ -123,8 +127,18 @@ def reduce_attempt(out_dir: Path) -> dict:
                 ),
             }
         )
-    statuses = [receipt["verdict"], *(cell["verdict"] for cell in result["cells"])]
-    if len(retained) != 4:
+    # W0 is disclosure, including its R1/R2 carry; it never grants or denies
+    # admission under Branch A. Preserve the original worker carry rule.
+    statuses = [
+        receipt["verdict"],
+        *(
+            cell["verdict"]
+            for cell in result["cells"]
+            if not cell["cell_id"].startswith("cpu-w0-")
+            or cell["verdict"] in ("INVALID", "INCOMPLETE")
+        ),
+    ]
+    if set(ids) != set(frozen):
         statuses.append("INCOMPLETE")
     result.update(
         schema=SCHEMA,

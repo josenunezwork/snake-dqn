@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import gc
 import json
 import multiprocessing
 import os
@@ -90,7 +91,33 @@ JUDGED3_CHARGED_SECONDS = 771.5500928750262
 JUDGED3_JUDGMENT_PATH = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_M1_ATTEMPT6.md"
 )
+JUDGED4_RECEIPT_SHA256 = "3631f67bf5c41284bdcdb0beb4bd77a346f629be3065d70130d30b76e44a75b8"
+JUDGED4_ATTEMPT_SHA256 = "13e2a2de45f75c7f37e37aa335d6517300d1447f61737ce2c320a1c117ae35aa"
+JUDGED4_LOG_SHA256 = "2adaba63fb418649ca8177c3eea82f8e93cedfaf0ed0a714ad3bc36244b5b6bd"
+JUDGED4_IDLE_SHA256 = "f90e0b7ad3ff0cb654ff8b35608c1f7af02c856f5319cb1c473b234645843104"
+JUDGED4_CELL_SHA256 = {
+    "cpu-w1-k1": "0126714048e8ba92f3367d8f42585cd14d0b7f66293ca135cc045ca3b44f454a",
+    "cpu-w2-k2": "5f71629e4a9f9a8a014e4a9f4ac9e2c07c714736099916d0bc92f56105d0160f",
+    "cpu-w4-k4": "e2b78e26aed65590529f57517c327e9697ca7941e0582e23c97f75ba38d07ea3",
+    "cpu-w4-k8": "dbfbd49dd7b3d3c2dbc1ec4813a1ea40297dd73e89b751dc1e38d17754722886",
+}
+JUDGED4_DISCARDED_SHA256 = {
+    "cpu-w4-k4.discarded-1.json": (
+        "56742674b48699aeccc16473b01d69c4b094607be158bde7bdf2669ff7703760"
+    ),
+    "cpu-w4-k4.discarded-2.json": (
+        "3dc9eb0a17f03d8cf23d674d7c0a2f0e34d1e3ce95377d26dcdad83a2a456546"
+    ),
+}
+JUDGED4_SOURCE_SHA256 = "091be22f6d3cadc96b3cbcbb079de1a3339db15ed419a8069debf360c12d2213"
+JUDGED4_PREVIOUS_JUDGED_SHA256 = "96dab74a24d187c999e76482f99c27eab61ec5b3ec73faa90d1a6b96f5182738"
+JUDGED4_PREVIOUS_NAMESPACE = "f301034c0f16ad32506e6e9cafbe8fca718180b6853490754ee697b8a55a2e76"
+JUDGED4_CHARGED_SECONDS = 1294.6058014170267
+JUDGED4_JUDGMENT_PATH = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_D1.md"
+)
 OWNER_DIRECTIVE_SHA256 = "4480f9a731436f451667e5ad205d4c181c001a5c32e1ef42ad62a1dfad9c8f0f"
+JUDGED4_OWNER_DIRECTIVE_SHA256 = OWNER_DIRECTIVE_SHA256
 MAX_CELL_RESTARTS = 3
 MAX_DISCARDED_RUNS = 8
 MIN_CELL_BUDGET_SECONDS = 600
@@ -105,6 +132,12 @@ RESTART_POLICY = {
         "max_wait_seconds": 900.0,
     },
 }
+WARMUP_TICKS = 200
+CONTROL_TICKS = 2400
+RATIFICATION_D1_BRANCH_B_PATH = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/RATIFICATION_D1_BRANCH_B.md"
+)
+M1_ARTIFACT_EXP_ROOT = RATIFICATION_D1_BRANCH_B_PATH.parent
 
 
 def refuse_consumed(prior_path: Path, field: str, attempt_number: int) -> None:
@@ -122,11 +155,15 @@ def refuse_consumed(prior_path: Path, field: str, attempt_number: int) -> None:
 
 
 def cells() -> list[dict[str, Any]]:
-    """The four frozen CPU cells, in conservative-to-saturated order."""
-    return [
-        {"cell_id": f"cpu-w{w}-k{k}", "device": "cpu", "workers": w, "max_pending": k}
-        for w, k in ((1, 1), (2, 2), (4, 4), (4, 8))
-    ]
+    """Two bare controls bracket the four frozen worker cells."""
+    return (
+        [{"cell_id": "cpu-w0-k0-pre", "device": "cpu", "workers": 0, "max_pending": 0}]
+        + [
+            {"cell_id": f"cpu-w{w}-k{k}", "device": "cpu", "workers": w, "max_pending": k}
+            for w, k in ((1, 1), (2, 2), (4, 4), (4, 8))
+        ]
+        + [{"cell_id": "cpu-w0-k0-post", "device": "cpu", "workers": 0, "max_pending": 0}]
+    )
 
 
 def schedule(fixtures: list[dict]) -> list[tuple[int, dict]]:
@@ -150,11 +187,13 @@ def sources() -> dict[str, str]:
     names += list((root / "research/t15_mixed_roster_20261017").glob("*.py"))
     names += list((root / "research/apex_veto_serving_20261001").glob("*.py"))
     names += [root / "research/bl_k1/run_m1.sh", root / "research/bl_served_search/native_ruler.py"]
-    names += [root / "research/bl_k1/m1_attempt06_rearm.sh"]
+    names += [root / "research/bl_k1/m1_attempt07_rearm.sh"]
     return {**k1_sources(), **{str(p.relative_to(root)): digest(p) for p in names}}
 
 
-def inputs(fixtures_path: Path, reference_path: Path) -> dict[str, Any]:
+def inputs(
+    fixtures_path: Path, reference_path: Path, branch_b_ratification_sha256: str | None = None
+) -> dict[str, Any]:
     """Open immutable Y1 evidence and validate every all/stop batch, untimed."""
     bank, bank_sha = l1._read_completed_json(fixtures_path)
     fixtures = ruler.validate_fixtures(bank)
@@ -193,6 +232,7 @@ def inputs(fixtures_path: Path, reference_path: Path) -> dict[str, Any]:
         "repeats": REPEATS,
         "cap_seconds": CAP_SECONDS,
         "contention_seconds": CONTENTION_SECONDS,
+        "branch_b_ratification_sha256": branch_b_ratification_sha256,
     }
     return {
         **identity,
@@ -283,11 +323,92 @@ def reconciled_precell_stop(path: Path, data: dict) -> dict:
     return previous
 
 
+def _judged4_recovery(proof: dict, data: dict) -> dict:
+    """Admit only the byte-pinned D1 remedy debit; no prior cell evidence moves."""
+    error = "M1 judged recovery requires the exact audited attempt-06b D1 remedy stop"
+    prior_path = Path(proof["previous_receipt_path"])
+    previous, receipt_sha = l1._read_completed_json(prior_path)
+    attempt, attempt_sha = l1._read_completed_json(prior_path.parent / "attempt.json")
+    idle, idle_sha = l1._read_completed_json(prior_path.parent / "idle.json")
+    cells_sha = {
+        name: l1._read_completed_json(prior_path.parent / f"{name}.json")[1]
+        for name in JUDGED4_CELL_SHA256
+    }
+    discarded = {
+        name: l1._read_completed_json(prior_path.parent / name)[1]
+        for name in JUDGED4_DISCARDED_SHA256
+    }
+    log_path = Path(proof["previous_log_path"])
+    if (
+        proof.get("schema") != SCHEMA + "/judged-recovery"
+        or proof.get("judge") != "Fable-D1"
+        or proof.get("status") != "JUDGED_REMEDY_ATTEMPT_7"
+        or Path(proof.get("judgment_path", "")) != JUDGED4_JUDGMENT_PATH
+        or proof.get("judgment_sha256") != digest(JUDGED4_JUDGMENT_PATH)
+        or proof.get("target_namespace") != data["namespace"]
+        or proof.get("next_attempt_number") != 6
+        or proof.get("final_attempt") is not True
+        or proof.get("remedy_attempt") is not True
+        or proof.get("carry_forward_required") is not True
+        or proof.get("operator_dispatch_once") is not True
+        or proof.get("restart_policy_required") is not True
+        or proof.get("transferred_cell_or_timing_evidence") is not False
+        or receipt_sha != JUDGED4_RECEIPT_SHA256
+        or attempt_sha != JUDGED4_ATTEMPT_SHA256
+        or digest(log_path) != JUDGED4_LOG_SHA256
+        or idle_sha != JUDGED4_IDLE_SHA256
+        or cells_sha != JUDGED4_CELL_SHA256
+        or discarded != JUDGED4_DISCARDED_SHA256
+        or proof.get("previous_receipt_sha256") != receipt_sha
+        or proof.get("previous_attempt_sha256") != attempt_sha
+        or proof.get("previous_log_sha256") != JUDGED4_LOG_SHA256
+        or proof.get("previous_idle_sha256") != idle_sha
+        or proof.get("previous_cell_sha256") != cells_sha
+        or proof.get("previous_discarded_sha256") != discarded
+        or attempt.get("sources", {}).get("research/bl_k1/m1.py") != JUDGED4_SOURCE_SHA256
+        or previous.get("namespace") != JUDGED4_PREVIOUS_NAMESPACE
+        or previous.get("namespace") != attempt.get("namespace")
+        or previous.get("schema") != SCHEMA
+        or previous.get("attempt_number") != 5
+        or previous.get("verdict") != "BLOCKED"
+        or previous.get("mechanical_failure") is not False
+        or previous.get("verified_stop") is not True
+        or previous.get("final_attempt") is not True
+        or previous.get("judged_recovery_sha256") != JUDGED4_PREVIOUS_JUDGED_SHA256
+        or proof.get("previous_judged_recovery_sha256") != JUDGED4_PREVIOUS_JUDGED_SHA256
+        or proof.get("previous_namespace") != JUDGED4_PREVIOUS_NAMESPACE
+        or previous.get("charged_seconds") != JUDGED4_CHARGED_SECONDS
+        or proof.get("charged_seconds") != JUDGED4_CHARGED_SECONDS
+        or proof.get("remaining_seconds") != CAP_SECONDS - JUDGED4_CHARGED_SECONDS
+        or len(previous.get("discarded_runs", [])) != 2
+        or any(
+            row.get("stop_reason") != RESTART_POLICY["trigger"]
+            for row in previous["discarded_runs"]
+        )
+        or len(previous.get("completed_unit_exports", {})) != 2
+        or previous.get("failure") is not None
+        or proof.get("owner_directive_path") != str(OWNER_DIRECTIVE_PATH)
+        or proof.get("owner_directive_sha256") != JUDGED4_OWNER_DIRECTIVE_SHA256
+        or digest(OWNER_DIRECTIVE_PATH) != JUDGED4_OWNER_DIRECTIVE_SHA256
+        or proof.get("estimand") != ESTIMAND
+        or not idle
+        or data.get("sources", {}).get("research/bl_k1/m1.py") != digest(Path(__file__))
+        or "warmup" not in Path(__file__).read_text()
+        or "cpu-w0-k0-pre" not in Path(__file__).read_text()
+    ):
+        raise ValueError(error)
+    refuse_consumed(prior_path, "judged_recovery_sha256", 5)
+    return previous
+
+
 def judged_recovery(path: Path, data: dict) -> dict:
     """Carry only debit and attempt count from an exact judge-pinned stop."""
     error = "M1 judged recovery requires the exact audited attempt-03 foreign-load stop"
     try:
         proof, _ = l1._read_completed_json(path)
+        if proof.get("judge") == "Fable-D1":
+            error = "M1 judged recovery requires the exact audited attempt-06b D1 remedy stop"
+            return _judged4_recovery(proof, data)
         second = proof.get("judge") == "Fable-M1-attempt5"
         third = proof.get("judge") == "Fable-M1-attempt6"
         if second:
@@ -459,13 +580,25 @@ def summarize(cell: dict, samples: list[dict], ticks: list[dict], complete: bool
     doom = by_fixture.get("frozen-800", {}).get("p99_seconds")
     update = l1.distribution(row["update_seconds"] for row in ticks)
     overrun = sum(row["overrun"] for row in ticks)
-    failed = overrun > 0 or (update["p95_seconds"] is not None and update["p95_seconds"] > 0.011688)
+    lateness = [max(0.0, (row["finished_ns"] - row["target_ns"]) / 1e9) for row in ticks]
+    control = cell["workers"] == 0
+    failed = (not control) and (
+        overrun > 0 or (update["p95_seconds"] is not None and update["p95_seconds"] > 0.011688)
+    )
     if cell["workers"] == 4 and doom is not None and doom > 5.0:
         failed = True
     counts_complete = len(by_fixture) == 9 and all(
         v["count"] == REPEATS for v in by_fixture.values()
     )
-    completed = complete and counts_complete and len(cold) == cell["max_pending"] and bool(ticks)
+    completed = (
+        complete
+        and bool(ticks)
+        and (
+            len(ticks) == CONTROL_TICKS
+            if control
+            else counts_complete and len(cold) == cell["max_pending"]
+        )
+    )
     native_totals = {
         key: sum(s.get("payload", {}).get("native_v8", {}).get(key, 0) for s in warm)
         for key in ("kernel_rows", "stock_rows", "fallback_rows", "calls")
@@ -485,6 +618,16 @@ def summarize(cell: dict, samples: list[dict], ticks: list[dict], complete: bool
         "doom_fixture_id": "frozen-800",
         "doom_p99_seconds": doom,
         "tick_overruns": overrun,
+        "overruns_per_1000_ticks": 1000 * overrun / len(ticks) if ticks else None,
+        "lateness_max_seconds": max(lateness, default=None),
+        "stall_onset_seconds": next(
+            ((row["target_ns"] - ticks[0]["target_ns"]) / 1e9 for row in ticks if row["overrun"]),
+            None,
+        ),
+        "gc_pause_ms_total": sum(row.get("gc_pause_ms", 0.0) for row in ticks),
+        "gc_gen2_count": sum(row.get("gc_gen2_count", 0) for row in ticks),
+        "deaths": sum(row.get("deaths", 0) for row in ticks),
+        "respawns": sum(row.get("respawns", 0) for row in ticks),
         "update": update,
         "dense_caps_seconds_report_only": {"W2": 0.830, "W3": 1.250, "W4": 1.458},
         "scope": "M1 admits construction only; no L1 qualification or release",
@@ -607,7 +750,7 @@ def smoke(data: dict) -> dict:
         if int(session.game.frame) != before + 1 or session.last_error or not snapshot:
             raise RuntimeError(f"M1 smoke Watch tick failed: {session.last_error!r}")
 
-    for _ in range(3):
+    for _ in range(WARMUP_TICKS):
         tick()
     # Exercise the actual death/respawn lifecycle for both policy classes,
     # including the optional-attribute default that the former mocks hid.
@@ -628,6 +771,7 @@ def smoke(data: dict) -> dict:
         initargs=("cpu", stop, time.monotonic() + 120),
     )
     try:
+        prespawn = prespawn_pool(pool, 1)
         future = pool.submit(l1._worker_batch, fixture)
         for _ in range(3):
             tick()
@@ -645,11 +789,12 @@ def smoke(data: dict) -> dict:
         "timing_evidence": False,
         "timed_cells_run": False,
         "lease_acquired": False,
-        "watch_ticks": 7,
+        "watch_ticks": WARMUP_TICKS + 4,
         "watch_roster": roster["watch_roster"],
         "snakes": len(session.game.snakes),
         "respawned_ids": [snake.id for snake in targets],
         "workers": 1,
+        "prespawn": prespawn,
         "max_pending": 1,
         "fixture_id": fixture["fixture_id"],
         "chosen_action": payload["semantic"]["chosen"],
@@ -667,6 +812,43 @@ def timed_tick(session: Any) -> float:
     return update_ms / 1000
 
 
+def _worker_ping(ready: Any, release: Any) -> dict:
+    """Force one initialized pool worker to report its immutable placement."""
+    # Keep the ping evidence small and non-secret; the initializer owns these settings.
+    import torch
+
+    row = {
+        "pid": os.getpid(),
+        "threads": {key: os.environ.get(key) for key in native_ruler.THREAD_ENV},
+        "torch_num_threads": torch.get_num_threads(),
+        "torch_num_interop_threads": torch.get_num_interop_threads(),
+    }
+    ready.put(row)
+    if not release.wait(30):
+        raise RuntimeError("pre-spawn readiness release timed out")
+    return row
+
+
+def prespawn_pool(pool: Any, workers: int) -> dict:
+    """Prove every declared initialized worker is ready before a live clock."""
+    started = time.monotonic()
+    with multiprocessing.Manager() as manager:
+        ready, release = manager.Queue(), manager.Event()
+        pings = [pool.submit(_worker_ping, ready, release) for _ in range(workers)]
+        reports = [ready.get(timeout=30) for _ in range(workers)]
+        pids = sorted(report["pid"] for report in reports)
+        if len(set(pids)) != workers:
+            raise RuntimeError("pool failed to pre-spawn every declared worker")
+        release.set()
+        for future in pings:
+            future.result()
+    return {
+        "seconds": time.monotonic() - started,
+        "pids": pids,
+        "reports": sorted(reports, key=lambda r: r["pid"]),
+    }
+
+
 def run_cell(
     cell: dict,
     data: dict,
@@ -674,7 +856,7 @@ def run_cell(
     observe: Callable[[], dict],
     stop_state: dict | None = None,
 ) -> dict:
-    """Cold pool start and 270 warm submissions under one absolute Watch clock."""
+    """Warm Watch/pool before the fixed clock; then measure one declared cell."""
     from research.t1_commitment_20261015.replay import configure_cpu
 
     configure_cpu()
@@ -699,17 +881,34 @@ def run_cell(
     contention_rows = []
     load_stop, load_queue = context.Event(), None
     epoch = time.monotonic_ns()
+    warmup_updates: list[float] = []
+    prespawn = {"seconds": 0.0, "pids": [], "reports": []}
+    gc_events: list[tuple[str, int, int]] = []
+    gc_cursor = 0
+    gc_opens: dict[int, int] = {}
+
+    def gc_callback(phase: str, info: dict) -> None:
+        if phase == "start":
+            gc_events.append((phase, int(info["generation"]), time.monotonic_ns()))
+        elif phase == "stop":
+            gc_events.append((phase, int(info["generation"]), time.monotonic_ns()))
+
+    gc.callbacks.append(gc_callback)
     try:
-        # Keep resource setup inside cleanup coverage, including partial setup.
-        # Process construction is cold; no worker starts until the clock is live.
-        pool = concurrent.futures.ProcessPoolExecutor(
-            max_workers=cell["workers"],
-            mp_context=context,
-            initializer=l1._worker_init,
-            initargs=("cpu", stop, deadline),
-        )
-        load_queue = context.Queue()
-        epoch = time.monotonic_ns()  # preserve the original successful-cell clock placement
+        # Production's 200-tick latency-ineligible window precedes the cadence.
+        for _ in range(WARMUP_TICKS):
+            warmup_updates.append(timed_tick(session))
+        if cell["workers"]:
+            pool = concurrent.futures.ProcessPoolExecutor(
+                max_workers=cell["workers"],
+                mp_context=context,
+                initializer=l1._worker_init,
+                initargs=("cpu", stop, deadline),
+            )
+            prespawn = prespawn_pool(pool, cell["workers"])
+            load_queue = context.Queue()
+        epoch = time.monotonic_ns()
+        gc_cursor = len(gc_events)
         monitor.thread.start()
         monitor_started = True
         while True:
@@ -725,6 +924,7 @@ def run_cell(
             if now < target:
                 time.sleep((target - now) / 1e9)
             tick_started = time.monotonic_ns()
+            prior_dead = {snake.id for snake in session.game.snakes if not snake.is_alive}
             update_seconds = timed_tick(session)
             for future in list(pending):
                 if not future.done():
@@ -760,7 +960,7 @@ def run_cell(
                     )
                     contention.start()
             total = len(cold_jobs) if phase == "cold" else len(warm_jobs)
-            if reason is None:
+            if reason is None and cell["workers"]:
                 while len(pending) < cell["max_pending"] and admitted < total:
                     repeat, fixture = next(jobs)
                     admission = time.monotonic_ns()
@@ -772,6 +972,22 @@ def run_cell(
                     )
                     admitted += 1
                     max_pending = max(max_pending, len(pending))
+            gc_pause_ns = 0
+            gc_gen2_count = 0
+            gc_end = len(gc_events)
+            for phase_name, generation, event_ns in gc_events[gc_cursor:gc_end]:
+                if phase_name == "start":
+                    gc_opens[generation] = event_ns
+                elif generation in gc_opens:
+                    gc_pause_ns += event_ns - gc_opens.pop(generation)
+                    gc_gen2_count += generation == 2
+            gc_cursor = gc_end
+            respawns = sum(
+                snake.id in prior_dead
+                and (snake.is_alive or snake.id in session.game.frame_death_causes)
+                for snake in session.game.snakes
+            )
+            # Disclosure belongs to the paced coordinator tick as well.
             finished = time.monotonic_ns()
             ticks.append(
                 {
@@ -780,6 +996,11 @@ def run_cell(
                     "finished_ns": finished,
                     "update_seconds": update_seconds,
                     "overrun": finished >= epoch + (tick_index + 1) * 1_000_000_000 // 24,
+                    "gc_pause_ms": gc_pause_ns / 1e6,
+                    "gc_gen2_count": gc_gen2_count,
+                    "deaths": len(getattr(session.game, "frame_death_causes", {})),
+                    "respawns": respawns,
+                    "food_count": len(session.game.food_manager.food),
                 }
             )
             if tick_index % (24 * 60) == 0:
@@ -794,16 +1015,21 @@ def run_cell(
                     ),
                     flush=True,
                 )
-            if reason or (
-                phase == "warm"
-                and admitted == total
-                and not pending
-                and (contention is None or not contention.is_alive())
+            if (
+                reason
+                or (cell["workers"] == 0 and len(ticks) == CONTROL_TICKS)
+                or (
+                    phase == "warm"
+                    and admitted == total
+                    and not pending
+                    and (contention is None or not contention.is_alive())
+                )
             ):
                 break
     except (Exception, KeyboardInterrupt) as exc:
         reason = f"{type(exc).__name__}: {exc}"
     finally:
+        gc.callbacks.remove(gc_callback)
         stop.set()
         load_stop.set()
         try:
@@ -864,6 +1090,12 @@ def run_cell(
         "host": monitor.rows,
         "contention": contention_rows,
         "pending_at_stop": len(pending),
+        "warmup": {
+            "ticks": WARMUP_TICKS,
+            "update_p95_seconds": l1.distribution(warmup_updates)["p95_seconds"],
+            "update_max_seconds": max(warmup_updates, default=None),
+        },
+        "prespawn": prespawn,
     }
 
 
@@ -878,7 +1110,20 @@ def audit_unit(row: dict, data: dict) -> None:
         raise ValueError("foreign M1 cell content")
     if not row.get("mac_lease", {}).get("id"):
         raise ValueError("missing M1 cell lease")
-    fixture_map = {f["fixture_id"]: f for f in data["fixtures"]}
+    if row.get("warmup", {}).get("ticks") != WARMUP_TICKS:
+        raise ValueError("M1 warm-up placement or count changed")
+    if cell["workers"] == 0:
+        if (
+            row.get("samples")
+            or row.get("contention")
+            or row.get("actual_max_pending") != 0
+            or row.get("prespawn", {}).get("pids") != []
+        ):
+            raise ValueError("bare M1 control contains worker activity")
+        # Controls share the exact tick/host/clock audit below, but no job evidence.
+        fixture_map = {}
+    else:
+        fixture_map = {f["fixture_id"]: f for f in data["fixtures"]}
     seen = set()
     events = []
     ordered_allocations = []
@@ -904,7 +1149,7 @@ def audit_unit(row: dict, data: dict) -> None:
     cold_expected = {
         ("cold", i, data["fixtures"][i % 9]["fixture_id"]) for i in range(cell["max_pending"])
     }
-    if seen != warm_expected | cold_expected:
+    if cell["workers"] and seen != warm_expected | cold_expected:
         raise ValueError("incomplete M1 sample allocations")
     expected_order = [
         ("cold", i, data["fixtures"][i % 9]["fixture_id"]) for i in range(cell["max_pending"])
@@ -912,7 +1157,7 @@ def audit_unit(row: dict, data: dict) -> None:
     expected_order += [
         ("warm", repeat, f["fixture_id"]) for repeat, f in schedule(data["fixtures"])
     ]
-    if [key for _, key in sorted(ordered_allocations)] != expected_order:
+    if cell["workers"] and [key for _, key in sorted(ordered_allocations)] != expected_order:
         raise ValueError("M1 interleaved admission order changed")
     pending = high_water = 0
     for _, delta in sorted(events):
@@ -922,9 +1167,9 @@ def audit_unit(row: dict, data: dict) -> None:
         high_water = max(high_water, pending)
     if pending or high_water != cell["max_pending"]:
         raise ValueError("M1 outstanding admission high-water differs from K")
-    if (
-        not row["ticks"]
-        or max(s["visible_ns"] for s in row["samples"]) > row["ticks"][-1]["finished_ns"]
+    if not row["ticks"] or (
+        row["samples"]
+        and max(s["visible_ns"] for s in row["samples"]) > row["ticks"][-1]["finished_ns"]
     ):
         raise ValueError("M1 ticks do not cover all result residence")
     previous_finish = row["epoch_ns"]
@@ -938,6 +1183,11 @@ def audit_unit(row: dict, data: dict) -> None:
             or not 0
             <= tick["update_seconds"]
             <= (tick["finished_ns"] - tick["tick_started_ns"]) / 1e9
+            or type(tick.get("gc_pause_ms")) not in (int, float)
+            or type(tick.get("gc_gen2_count")) is not int
+            or type(tick.get("deaths")) is not int
+            or type(tick.get("respawns")) is not int
+            or type(tick.get("food_count")) is not int
         ):
             raise ValueError("M1 tick clock/overrun mismatch")
         previous_finish = tick["finished_ns"]
@@ -952,6 +1202,8 @@ def audit_unit(row: dict, data: dict) -> None:
         raise ValueError("M1 foreign heavy load attested")
     if len(pids) != cell["workers"] or not row.get("host"):
         raise ValueError("M1 worker/host attestation missing")
+    if cell["workers"] and set(row.get("prespawn", {}).get("pids", [])) != pids:
+        raise ValueError("M1 pre-spawn pids differ from fixture workers")
     if cell["cell_id"] == "cpu-w4-k4":
         if len(row.get("contention", [])) != 1:
             raise ValueError("M1 contention block missing")
@@ -972,8 +1224,10 @@ def audit_unit(row: dict, data: dict) -> None:
         raise ValueError("M1 pending wave was not saturated")
 
 
-def reduce_units(units: list[dict], namespace: str, data: dict | None = None) -> dict:
-    """One final look over four same-namespace, complete, distinct cells."""
+def reduce_units(
+    units: list[dict], namespace: str, data: dict | None = None, branch_b: bool = False
+) -> dict:
+    """One final look: controls disclose bare stalls; workers determine admission."""
     ids = [row["cell_id"] for row in units]
     if len(ids) != len(set(ids)) or any(row["namespace"] != namespace for row in units):
         raise ValueError("duplicate or foreign M1 cell")
@@ -984,6 +1238,8 @@ def reduce_units(units: list[dict], namespace: str, data: dict | None = None) ->
             if data is None:
                 raise ValueError("M1 reduction requires raw evidence inputs")
             audit_unit(row, data)
+    worker_units = [row for row in units if row["workers"]]
+    controls = [row for row in units if not row["workers"]]
     statuses = [
         (
             "BLOCKED"
@@ -994,25 +1250,144 @@ def reduce_units(units: list[dict], namespace: str, data: dict | None = None) ->
                 else "INCOMPLETE"
             )
         )
-        for row in units
+        for row in worker_units
+    ]
+    control_statuses = [
+        (
+            "BLOCKED"
+            if row["summary"].get("decided") is True
+            else (
+                row["summary"]["verdict"]
+                if row["summary"].get("complete") or row["summary"].get("verdict") == "INVALID"
+                else "INCOMPLETE"
+            )
+        )
+        for row in controls
     ]
     verdict = (
         "INVALID"
-        if "INVALID" in statuses
+        if "INVALID" in statuses or "INVALID" in control_statuses
         else (
             "INCOMPLETE"
-            if len(units) != 4 or "INCOMPLETE" in statuses
+            if (
+                len(worker_units) != 4
+                or len(controls) != 2
+                or "INCOMPLETE" in statuses
+                or "INCOMPLETE" in control_statuses
+            )
             else ("BLOCKED" if "BLOCKED" in statuses else "PASS")
         )
     )
+    branch_b_report = {"enabled": branch_b, "eligible": False, "verdict": None}
+    bare_controls = {"cells": [row["cell_id"] for row in controls]}
+    if controls and all(row.get("ticks") for row in controls):
+        control_ticks = [tick for row in controls for tick in row["ticks"]]
+        bare_controls.update(
+            ticks=len(control_ticks),
+            tick_overruns=sum(tick["overrun"] for tick in control_ticks),
+            overruns_per_1000_ticks=1000
+            * sum(tick["overrun"] for tick in control_ticks)
+            / len(control_ticks),
+            lateness_max_seconds=max(
+                (tick["finished_ns"] - tick["target_ns"]) / 1e9 for tick in control_ticks
+            ),
+            stall_onset_seconds=next(
+                (index / 24 for index, tick in enumerate(control_ticks) if tick["overrun"]),
+                None,
+            ),
+            stall_onset_clock="concatenated control ticks at 24 Hz; worker-cell gaps excluded",
+            update=l1.distribution(tick["update_seconds"] for tick in control_ticks),
+            gc_pause_ms_total=sum(tick.get("gc_pause_ms", 0.0) for tick in control_ticks),
+            gc_gen2_count=sum(tick.get("gc_gen2_count", 0) for tick in control_ticks),
+            deaths=sum(tick.get("deaths", 0) for tick in control_ticks),
+            respawns=sum(tick.get("respawns", 0) for tick in control_ticks),
+            food_count_last=control_ticks[-1].get("food_count"),
+        )
+    r0 = None
+    if len(controls) == 2 and all(row["summary"]["complete"] for row in controls):
+        r0 = (
+            sum(row["summary"]["tick_overruns"] for row in controls)
+            * 1000
+            / sum(len(row["ticks"]) for row in controls)
+        )
+    branch_b_cells = []
+    for row in worker_units:
+        summary = row["summary"]
+        streak = longest = 0
+        for tick in row.get("ticks", []):
+            streak = streak + 1 if tick["overrun"] else 0
+            longest = max(longest, streak)
+        late = max(
+            (
+                (tick["finished_ns"] - tick["target_ns"]) / 1e6
+                for tick in row.get("ticks", [])
+                if tick["overrun"]
+            ),
+            default=0.0,
+        )
+        rate = summary.get("overruns_per_1000_ticks")
+        update_p95 = summary.get("update", {}).get("p95_seconds")
+        doom = summary.get("doom_p99_seconds")
+        clauses = {
+            "complete": summary["complete"],
+            "integrity_pass": summary["verdict"] != "INVALID" and not summary.get("errors"),
+            "rate_pass": None if r0 is None else rate is not None and rate <= r0 + 5,
+            "lateness_pass": late <= 100,
+            "cascade_pass": longest < 3,
+            "update_pass": update_p95 is not None and update_p95 <= 0.011688,
+            "doom_pass": row["workers"] != 4 or (doom is not None and doom <= 5.0),
+        }
+        branch_b_cells.append(
+            {
+                "cell_id": row["cell_id"],
+                "overruns_per_1000_ticks": rate,
+                "rate_limit_per_1000_ticks": None if r0 is None else r0 + 5,
+                "overrun_lateness_max_ms": late,
+                "max_consecutive_overruns": longest,
+                **clauses,
+                "pass": all(value is True for value in clauses.values()),
+                "reasons": [key for key, value in clauses.items() if value is not True],
+            }
+        )
+    branch_b_report["cells"] = branch_b_cells
+    if r0 is not None:
+        worker_ok = (
+            r0 > 0 and len(branch_b_cells) == 4 and all(row["pass"] for row in branch_b_cells)
+        )
+        branch_b_report.update(
+            eligible=r0 > 0,
+            bare_overruns_per_1000_ticks=r0,
+            verdict="PASS" if worker_ok else "BLOCKED",
+        )
+        if branch_b and verdict not in {"INVALID", "INCOMPLETE"} and worker_ok:
+            verdict = "PASS"
+    elif branch_b and verdict != "INVALID":
+        verdict = "INCOMPLETE"
+    admission = {}
+    if branch_b and branch_b_report["eligible"]:
+        admission = {
+            row["cell_id"]: "PASS" if row["pass"] else "BLOCKED"
+            for row in branch_b_cells
+            if row["complete"] and row["integrity_pass"]
+        }
     return {
         "schema": SCHEMA,
         "namespace": namespace,
         "verdict": verdict,
+        "branch_b": branch_b_report,
+        "bare_controls": bare_controls,
         "cells": [
             {
                 "cell_id": row["cell_id"],
                 **row["summary"],
+                **(
+                    {
+                        "branch_a_verdict": row["summary"]["verdict"],
+                        "verdict": admission[row["cell_id"]],
+                    }
+                    if row["cell_id"] in admission
+                    else {}
+                ),
                 **({"background_load": row["background_load"]} if "background_load" in row else {}),
             }
             for row in units
@@ -1147,6 +1522,7 @@ def main() -> None:
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--ledger", type=Path)
+    parser.add_argument("--branch-b", type=str)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--make-ledger", type=Path)
     mode.add_argument("--run", action="store_true")
@@ -1158,7 +1534,16 @@ def main() -> None:
     recovery.add_argument("--reconciled-precell-stop", type=Path)
     recovery.add_argument("--judged-recovery", type=Path)
     args = parser.parse_args()
-    data = inputs(args.fixtures, args.reference)
+    branch_b = False
+    if args.branch_b is not None:
+        if not RATIFICATION_D1_BRANCH_B_PATH.is_file() or args.branch_b != digest(
+            RATIFICATION_D1_BRANCH_B_PATH
+        ):
+            raise ValueError("M1 Branch B requires the exact pre-data Fable ratification hash")
+        if any(M1_ARTIFACT_EXP_ROOT.glob("bl-m1-attempt-07*/attempt.json")):
+            raise ValueError("M1 Branch B cannot be adopted after attempt-07 data exists")
+        branch_b = True
+    data = inputs(args.fixtures, args.reference, args.branch_b if branch_b else None)
     if args.smoke:
         if any(
             (
@@ -1274,6 +1659,12 @@ def main() -> None:
                 "restart_policy": RESTART_POLICY,
                 "estimand": ESTIMAND,
                 "owner_directive_sha256": OWNER_DIRECTIVE_SHA256,
+                "branch_b_ratification_sha256": args.branch_b if branch_b else None,
+                "remedy_attempt": bool(
+                    args.judged_recovery
+                    and previous is not None
+                    and previous.get("attempt_number") == 5
+                ),
                 "reconciled_precell_stop_sha256": (
                     digest(args.reconciled_precell_stop) if args.reconciled_precell_stop else None
                 ),
@@ -1385,10 +1776,14 @@ def main() -> None:
         except (Exception, KeyboardInterrupt) as exc:
             failure = f"{type(exc).__name__}: {exc}"
             invalid = isinstance(exc, ValueError)
-        receipt = reduce_units(units, data["namespace"], data)
+        receipt = reduce_units(units, data["namespace"], data, branch_b=branch_b)
         receipt.update(
             discarded_runs=discarded_runs, quiet_waits=quiet_waits, restart_policy=RESTART_POLICY
         )
+        receipt["remedy_attempt"] = bool(
+            args.judged_recovery and previous is not None and previous.get("attempt_number") == 5
+        )
+        receipt["branch_b_ratification_sha256"] = args.branch_b if branch_b else None
         quiet_segments = [(q.get("samples", []), q.get("finished_ns", 0)) for q in quiet_waits]
         receipt["background_load"] = background_summary(
             [
