@@ -1,0 +1,109 @@
+{
+  "authority": {
+    "judgment": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/JUDGMENT.md",
+    "qualified_cli_record": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json",
+    "qualified_cli_record_sha256": "967cc5802637a95827a4fd846ddfe97df3cfceed53ace7429088ddbeac2b39a0",
+    "qualified_cli_tree": "553af3f692515b2bf66173356fe4d099acc96942"
+  },
+  "baseline_head": "99ea7cd8d030f62c5690781ae49b3f1984886385",
+  "caps_and_kills": {
+    "allocation": {
+      "gate_frozen": 12,
+      "gate_mixed": 12,
+      "gate_scripted": 8,
+      "watch6": 4
+    },
+    "digest_or_bare_audit_mismatch": "INVALID",
+    "effective_units": 0.2,
+    "effective_wall_minutes": 60,
+    "gpu_units": 0,
+    "horizons": {
+      "gate": 5000,
+      "watch6": 14400
+    },
+    "max_outcome_blind_retries": 2,
+    "rescue_bearing_lives_per_mac_worker_hour_kill_lt": 8
+  },
+  "independent_checks": [
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist research/bl_labels tests/test_t34_shadow.py research/bl_served_search/test_b2_engine.py",
+      "result": "PASS",
+      "seconds": 8.49,
+      "single_process": true,
+      "tests": 46
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist research/bl_labels",
+      "result": "PASS",
+      "seconds": 7.65,
+      "single_process": true,
+      "tests": 26
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist research/bl_labels/test_real_driver.py",
+      "coverage": "Watch6 and gate snapshot/restore digest; four-population bare H300 mass/death/final-length parity; gate disabled-v8 and Watch native-v8 counters",
+      "result": "PASS",
+      "seconds": 6.63,
+      "single_process": true,
+      "tests": 4
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_t34_shadow.py research/bl_served_search/test_b2_engine.py",
+      "result": "PASS",
+      "seconds": 1.43,
+      "single_process": true,
+      "tests": 20
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m black --check --line-length 100 research/bl_labels/test_factory.py research/bl_labels/test_real_driver.py && /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m isort --check-only --profile black research/bl_labels/test_factory.py research/bl_labels/test_real_driver.py && /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m flake8 research/bl_labels/test_factory.py research/bl_labels/test_real_driver.py",
+      "result": "PASS"
+    }
+  ],
+  "live_gates": {
+    "colab_cpu_canary": "NOT_RUN",
+    "mac_64_root_replay_audit": "NOT_RUN",
+    "mac_yield_ruler": "NOT_RUN",
+    "tiny_mac_real_entrypoint": {
+      "artifact": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/mac-smoke-20261023-a/output-b/runtime-result.json",
+      "deaths": 0,
+      "interpretation": "execution smoke only; no yield or audit qualification",
+      "rescue_bearing_lives": 0,
+      "roots": 0,
+      "status": "PASS_EXECUTION_ONLY",
+      "status_observed": "COMPLETE",
+      "units": 4
+    }
+  },
+  "not_run": [
+    "Colab dispatch",
+    "clean-venv import preflight on final commit",
+    "Mac yield timing",
+    "64-root Mac replay",
+    "full canary"
+  ],
+  "remaining_risk": "runtime resume pending selection is keyed by completed session markers; a verified life without its session is still replayed for natural discovery before session completion. Root should resolve or explicitly accept this before dispatch.",
+  "reviewed_files_sha256": {
+    "INTENT.md": "8760a64b71dd4fb8967e6198145a6f6b9d63d32079dcb49d340ae1d9a5470398",
+    "__init__.py": "272d8d65dbc74c10e9c977736886c0e2476b736fd9b8a289326b2f6551537ff1",
+    "colab.sh": "d3c2f0f2b835f4c658585b5ece9d4c115b0f02c2248fb73450b9240984f5c582",
+    "exports.py": "85a5b394ab1ab9a06028d397eb7856f4cca9858c86a94315b6e79463be7d0dee",
+    "factory.py": "3ecbdf044a975be9152656e4a869f361abc6e20d6fc2c1e24d07e2fcaf9000a0",
+    "manifests.py": "9f476ffbbd104d64d921340510a36f111be6e08b90ce8d0c79ae6f96432bea07",
+    "replay_audit.py": "2be5d6143a49f84b938e66e0e8ee51f313974eeeea90bc0b52a9a2b798378e42",
+    "requirements.txt": "ac6a89eba29e384b36ab0f9627c5b554bc0226e100a540d4cd8ca1f4113a5ab1",
+    "runtime.py": "ac1e5b0a9286ad41af6115ddd61fefae73408936b2ff6ddc701e99f36af01867"
+  },
+  "reviewer": "Independent Codex-V verifier",
+  "schema": "bl-labels-f0-codex-v-review/v1",
+  "source_closure_sha256": "03c8f0586d2ee49d3e1799d99de18ba7eafec49f17e45e3861ff717c632603c2",
+  "verdict": "PASS_IMPLEMENTATION_ONLY_PENDING_LIVE_GATES",
+  "verified_behavior": [
+    "Doom root endpoint uses fatal decision e with exclusive endpoint f=e+1; selected roots include the fatal action and 60-stride plus last-30 union is 84, with ordinary roots separate.",
+    "Dead branches use fixed H300 mass with zero tail; alive_steps uses event interval convention.",
+    "Selected natural-tape bare reroll compares survives, frames_executed, death_decision and final_length and raises FactoryInvalid on mismatch.",
+    "H1440 reversal rate above 0.10 derives effective tranche label delay; aggregate payloads are copied with immutable sidecars and are ledger-loadable.",
+    "Watch6 and gate real exact drivers restore to matching full_digest over three steps; bare H300 branch equals uninterrupted natural metrics in all four populations.",
+    "Mac replay audit refuses fewer than 64 roots and duplicate root IDs; audit export retains 64-root selection and source action tapes."
+  ],
+  "working_tree_source": "uncommitted package under review; root must refresh this receipt after final commit"
+}
