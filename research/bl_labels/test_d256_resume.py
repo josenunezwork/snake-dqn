@@ -410,6 +410,8 @@ def test_original_driver_resume_skips_life_then_resumes_again_at_w6(tmp_path, mo
     assert second["prior_elapsed_seconds"] == 100
     assert second["prior_recorded_worker_seconds_denominator"] == 600.00001
     assert second["first_hour_life_seconds_by_workers"]["6"] == [2.0, 3.0]
+    assert all(x < 2.0 for x in second["first_hour_life_seconds"])
+    assert second["baseline_segment_elapsed_seconds"] == second["elapsed_seconds"]
     ledger3 = pack / "union3/verified-ledger.json"
     resume.publish_ledger(pack, [first, output2], ledger3)
     timing.unlink()
@@ -430,6 +432,8 @@ def test_original_driver_resume_skips_life_then_resumes_again_at_w6(tmp_path, mo
     publish_json(output3 / "runtime-result.json", third)
     assert third["status"] == "COMPLETE"
     assert third["prior_worker_seconds_denominator"] == 600 + 12 * second["elapsed_seconds"]
+    assert all(x < 2.0 for x in third["first_hour_life_seconds"])
+    assert third["baseline_segment_elapsed_seconds"] == third["elapsed_seconds"]
     assert original.read_bytes() == before
     resume.attempt_chain(pack, control)
 

@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import d256_w12, frozen_factory, mac_driver, mac_gates, w12_calibration
+from . import d256_w12, frozen_factory, mac_driver, mac_gates, w12_admission, w12_calibration
 from .exports import _verify, load_ledger
 
 OLD_PIN = frozen_factory.OLD_PIN
@@ -248,11 +248,20 @@ def publish_ledger(pack: Path, attempts: list[Path], out: Path) -> dict:
 
 
 def select_workers(receipt: Path, owner: Path, b8: Path, frp3: Path) -> tuple[int, list[str]]:
-    """Missing calibration stays W6; existing evidence follows the sealed rule."""
+    """Select W12 only from an original PASS or the ruled admission record."""
     if not any(Path(str(receipt) + suffix).exists() for suffix in ("", ".sha256", ".complete")):
         return 6, []
-    workers, flags = d256_w12.select_workers(receipt, owner)
-    value = mac_gates._read(receipt)
+    record = mac_gates._read(receipt)
+    if record.get("schema") == w12_admission.SCHEMA:
+        w12_admission.verify(receipt, expected_code_sha=OLD_PIN)
+        value = mac_gates._read(w12_admission.CALIBRATION_RECEIPT)
+        workers = 12
+        flags = ["--owner-w12-ok", "--w12-calibration-receipt", str(receipt.resolve())]
+    else:
+        # Preserve a genuine v1 PASS route.  The legacy FAIL receipt remains a
+        # W6 choice and cannot be silently reinterpreted here.
+        workers, flags = d256_w12.select_workers(receipt, owner)
+        value = record
     if value.get("b8_sha256") != w12_calibration.sha(b8) or value.get(
         "frp3_sha256"
     ) != w12_calibration.sha(frp3):
@@ -263,7 +272,7 @@ def select_workers(receipt: Path, owner: Path, b8: Path, frp3: Path) -> tuple[in
 def require_w12(receipt: Path | None, b8: Path, frp3: Path) -> None:
     """The direct driver route must also enforce the launcher's full sealed rule."""
     if receipt is None or select_workers(receipt, w12_calibration.OWNER_FILE, b8, frp3)[0] != 12:
-        raise ValueError("D256 W12 requires the owner file and sealed calibration PASS; HOLD")
+        raise ValueError("D256 W12 requires a v1 PASS or ruled sealed admission; HOLD")
 
 
 def ensure_frozen_tree(root: Path) -> None:
@@ -289,9 +298,23 @@ def launch(
         raise ValueError("D256 resume requires canonical mac-pack-02; HOLD")
     control = original_control(pack)
     os.environ.update(mac_driver.THREAD_ENV)
+    # A future-stage operational wrapper must never bleed into the historical
+    # D256 science closure inherited by this process.
+    os.environ.pop("F0_OPERATIONAL_COMMIT", None)
+    os.environ.pop("F0_SCIENCE_ROOT", None)
     os.environ.update(F0_COMMIT=OLD_PIN, F1_COMMIT=OLD_PIN, SNAKE_DQN_DEVICE="cpu")
     attempts, elapsed = attempt_chain(pack, control)
-    workers, flags = select_workers(receipt, owner, b8, frp3)
+    requested_workers, flags = select_workers(receipt, owner, b8, frp3)
+    # The runtime policy reads only sealed terminal operational state.  It can
+    # force the next continuation to W6 after a ruled W12 fallback; clear the
+    # W12 authorization flags so accounting and admission width agree.
+    from .w12_runtime import resolve_resume_workers
+
+    workers, width_reasons = resolve_resume_workers(requested_workers, pack / "d256-state-mac-01")
+    if workers != requested_workers:
+        if workers != 6:
+            raise ValueError("D256 runtime width policy returned an unsupported worker count")
+        flags = []
     ensure_frozen_tree(frozen_root)
     verify_frozen_admission(control, frozen_root)
     if mac_driver._timing_armed(mac_driver.DEFAULT_TIMING_ARMED):
@@ -334,6 +357,7 @@ def launch(
             {
                 "event": "d256_resume",
                 "workers": workers,
+                "width_reasons": width_reasons,
                 "prior_elapsed_seconds": elapsed,
                 "output": str(output),
             }
@@ -350,7 +374,9 @@ def main() -> None:
     parser.add_argument("--pack", type=Path, default=PACK)
     parser.add_argument("--frozen-root", type=Path, default=FROZEN_ROOT)
     parser.add_argument(
-        "--calibration-receipt", type=Path, default=PACK.parent / "w12-calibration-01/receipt.json"
+        "--calibration-receipt",
+        type=Path,
+        default=PACK.parent / "w12-admission-01/receipt.json",
     )
     parser.add_argument("--owner-approval", type=Path, default=w12_calibration.OWNER_FILE)
     parser.add_argument("--b8", type=Path, required=True)

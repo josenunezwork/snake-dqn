@@ -11,6 +11,7 @@ import copy
 import hashlib
 import json
 import math
+import os
 import subprocess
 import uuid
 from pathlib import Path
@@ -180,22 +181,49 @@ def require_admission(control: dict) -> None:
 
 
 def _future_source_pin(control: dict) -> str:
-    """Prove the clean current worktree is exactly the sealed speed pin."""
+    """Bind science to its sealed pin and an operational wrapper to its descendant."""
     pin = control.get("source_commit")
     if not isinstance(pin, str) or len(pin) != 40 or any(c not in "0123456789abcdef" for c in pin):
         raise ValueError("future Mac control lacks a full source pin")
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     dirty = subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True)
-    if head != pin or dirty.strip():
+    if dirty.strip():
+        raise ValueError("future Mac executable worktree is dirty")
+    if head == pin:
+        return pin
+    operational = os.environ.get("F0_OPERATIONAL_COMMIT")
+    science_root = os.environ.get("F0_SCIENCE_ROOT")
+    if operational != head or not science_root:
         raise ValueError("future Mac executable is not the clean sealed speed pin")
+    if (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", pin, head], cwd=ROOT, check=False
+        ).returncode
+        != 0
+    ):
+        raise ValueError("future operational wrapper is not descended from sealed science pin")
+    from . import frozen_factory
+
+    root = Path(science_root)
+    if root.resolve() == ROOT.resolve():
+        raise ValueError("future science root must be separate from the operational worktree")
+    frozen_factory._validate(root, pin)
     return pin
 
 
 def _future_calibration(receipt: Path, legacy_pin: str, runner_pin: str) -> str:
-    """Accept only a sealed PASS or measured FAIL from frozen calibration code."""
+    """Accept legacy PASS, ruled admission, or measured W6 fallback evidence."""
     from . import mac_driver
 
     value = _read(receipt)
+    if value.get("schema") == "bl-labels-f0-w12-admission/v1":
+        # The ruling's admission record deliberately binds the original FAIL
+        # calibration rather than changing its status.  Its verifier replays
+        # the cells, source identity, duration and clean host fields.
+        from . import w12_admission
+
+        w12_admission.verify(receipt, expected_code_sha=legacy_pin)
+        return "PASS"
     expected_runner_sha = hashlib.sha256(
         subprocess.check_output(
             ["git", "show", f"{runner_pin}:research/bl_labels/w12_calibration.py"], cwd=ROOT

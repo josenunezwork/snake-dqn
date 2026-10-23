@@ -14,7 +14,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import mac_driver, mac_gates, speed_equiv, w12_calibration
+from . import (
+    frozen_factory,
+    mac_driver,
+    mac_gates,
+    speed_equiv,
+    w12_admission,
+    w12_calibration,
+)
 from .exports import load_ledger
 
 
@@ -29,6 +36,7 @@ def _calibration_workers(receipt: Path, legacy_pin: str) -> tuple[int, list[str]
 
 
 def _validate_inputs(
+    stage: str,
     control: Path,
     speed_receipt: Path,
     calibration_receipt: Path,
@@ -40,8 +48,13 @@ def _validate_inputs(
 ) -> tuple[dict, int, list[str], bool]:
     value = mac_gates._read(control)
     gate = value.get("mac_gate")
-    if not isinstance(gate, dict) or gate.get("stage") != "d1024" or gate.get("status") != "HOLD":
-        raise ValueError("D1024 control must be an unmodified sealed HOLD")
+    if (
+        stage not in {"d1024", "d4096"}
+        or not isinstance(gate, dict)
+        or gate.get("stage") != stage
+        or gate.get("status") != "HOLD"
+    ):
+        raise ValueError(f"{stage.upper()} control must be an unmodified sealed HOLD")
     pin = mac_gates._future_source_pin(value)
     legacy_pin = gate.get("w12_calibration_source_commit")
     if not isinstance(legacy_pin, str):
@@ -49,7 +62,7 @@ def _validate_inputs(
     if os.environ.get("F0_COMMIT", pin) != pin:
         raise ValueError("F0_COMMIT differs from the sealed D1024 speed pin")
     os.environ.update(F0_COMMIT=pin, F1_COMMIT=pin)
-    mac_gates._future_readiness("d1024", f4_control, f4_inputs)
+    mac_gates._future_readiness(stage, f4_control, f4_inputs)
     speed = mac_gates._read(speed_receipt)
     old_fallback = speed.get("status") == "FAIL"
     if old_fallback:
@@ -74,6 +87,10 @@ def _validate_inputs(
         # factory at W6 even if the independent width calibration passed.
         workers, flags = 6, []
     calibration = mac_gates._read(calibration_receipt)
+    if calibration.get("schema") == w12_admission.SCHEMA:
+        # The admission record deliberately has only the ruled operational
+        # facts.  Checkpoint bytes remain bound by its immutable calibration.
+        calibration = mac_gates._read(w12_admission.CALIBRATION_RECEIPT)
     for key, checkpoint in (("b8_sha256", b8), ("frp3_sha256", frp3)):
         if not checkpoint.is_file() or calibration.get(key) != w12_calibration.sha(checkpoint):
             raise ValueError("D1024 checkpoint differs from frozen calibration; HOLD")
@@ -112,8 +129,38 @@ def _check_paths(
             raise ValueError("OLD factory root is not clean detached frozen 61900af2")
 
 
+def _prepare_science_root(control_path: Path, stage: str) -> None:
+    """Separate the immutable science pin from the current operational wrapper."""
+    control = mac_gates._read(control_path)
+    gate = control.get("mac_gate")
+    if not isinstance(gate, dict) or gate.get("stage") != stage or gate.get("status") != "HOLD":
+        raise ValueError(f"{stage.upper()} control must be an unmodified sealed HOLD")
+    if stage == "d4096":
+        raise ValueError(
+            "D4096 remains HOLD pending its registered R6 funding/projection admission"
+        )
+    pin = control.get("source_commit")
+    if not isinstance(pin, str) or len(pin) != 40:
+        raise ValueError("future control lacks a sealed science pin")
+    head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=mac_gates.ROOT, text=True
+    ).strip()
+    if head == pin:
+        return
+    science_root = mac_gates.ROOT.parent / f"snake-dqn-future-science-{pin}.noindex"
+    if not science_root.exists():
+        subprocess.run(
+            ["git", "worktree", "add", "--detach", str(science_root), pin],
+            cwd=mac_gates.ROOT,
+            check=True,
+        )
+    frozen_factory._validate(science_root, pin)
+    os.environ.update(F0_OPERATIONAL_COMMIT=head, F0_SCIENCE_ROOT=str(science_root))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--stage", choices=("d1024", "d4096"), default="d1024")
     parser.add_argument("--control", type=Path, required=True)
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -130,7 +177,9 @@ def main() -> None:
     args = parser.parse_args()
     os.environ.update(mac_driver.THREAD_ENV)
     os.environ["SNAKE_DQN_DEVICE"] = "cpu"
+    _prepare_science_root(args.control, args.stage)
     control, workers, flags, old_fallback = _validate_inputs(
+        args.stage,
         args.control,
         args.speed_equivalence_receipt,
         args.calibration_receipt,
@@ -142,11 +191,29 @@ def main() -> None:
     )
     control["_control_parent"] = str(args.control.parent.resolve())
     _check_paths(control, args.ledger, args.output, args.state_dir, args.old_factory_root)
+    from .w12_runtime import resolve_resume_workers
+
+    requested_workers = workers
+    workers, width_reasons = resolve_resume_workers(workers, args.state_dir)
+    if workers != requested_workers:
+        if workers != 6:
+            raise ValueError("future runtime width policy returned an unsupported worker count")
+        flags = []
     deadline = control["mac_gate"]["deadline_seconds"]
     if args.check:
         if args.admitted_control.exists():
             mac_gates.require_admission(mac_gates._read(args.admitted_control))
-        print(json.dumps({"status": "CHECKED", "workers": workers, "deadline_seconds": deadline}))
+        print(
+            json.dumps(
+                {
+                    "status": "CHECKED",
+                    "stage": args.stage,
+                    "workers": workers,
+                    "width_reasons": width_reasons,
+                    "deadline_seconds": deadline,
+                }
+            )
+        )
         return
     if args.admitted_control.exists():
         admitted = mac_gates._read(args.admitted_control)
@@ -185,7 +252,14 @@ def main() -> None:
     ]
     subprocess.run([*command, "--check"], check=True)
     print(
-        json.dumps({"event": "d1024_selected", "workers": workers, "old_fallback": old_fallback}),
+        json.dumps(
+            {
+                "event": f"{args.stage}_selected",
+                "workers": workers,
+                "width_reasons": width_reasons,
+                "old_fallback": old_fallback,
+            }
+        ),
         flush=True,
     )
     os.execv(sys.executable, command)

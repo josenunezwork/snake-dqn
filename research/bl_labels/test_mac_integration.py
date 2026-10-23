@@ -120,10 +120,18 @@ class _InlineContext:
 
 
 def _patch_inline_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    from research.bl_labels import w12_runtime
+
+    monkeypatch.setattr(
+        w12_runtime,
+        "resolve_w6_parent_rates",
+        lambda _control: {"rates_per_wall_hour": {"watch6": 1.0}, "synthetic": True},
+    )
     monkeypatch.setattr(mac_driver.os, "setpriority", lambda *_args: None)
     monkeypatch.setattr(mac_driver.os, "getpriority", lambda *_args: 10)
     monkeypatch.setattr(mac_driver.mp, "get_context", lambda _name: _InlineContext())
     monkeypatch.setattr(mac_driver, "_guard_snapshot", lambda _output: {"fixture": True})
+    monkeypatch.setattr(mac_driver, "_exclusive_factory_guard", lambda _owned: None)
     monkeypatch.setattr(mac_driver, "_rss_many", lambda _pids: {pid: 0 for pid in _pids})
 
 
