@@ -170,6 +170,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 06:35 PT | Placement ruling | JUDGMENT_PLACEMENT_MAC.md sha 6adf731e49b0fd27... (Opus stand-in): Colab NO_PRODUCTION_PLATFORM through Sun Oct 25 (control-path RPC stalls on CPU and L4). Mac = F0 production platform after a Mac-equivalence package (1/3/6-worker digest+label identity on the 64-root bank; full 36-allocation F0 canary on Mac as the single F0 look, floor 8 rescue-bearing lives/Mac-worker-h). Default 6 workers nice 10 (12 needs owner OK). Forecast 37-56 lives/h at 6 workers (P(fail) ~0.4); D256 6-9 h. Supervisor stall fix commissioned (re-qualify 3+3 one-hour sessions, then F1-bis Mon Oct 26). |
 
+| 2026-10-23 07:10 PT | OWNER standing approval | Verbatim "always gonna- approved" (big-lever/exp/OWNER_STANDING_APPROVAL_20261023.txt): routine operational asks pre-approved; W12 Mac F0 factory approved subject to the registered 30-min calibration (after M-E). Releases and credential entry still owner-only. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
