@@ -51,10 +51,15 @@ def test_canary_manifest_freezes_counts_and_effective_cap(tmp_path):
     manifest = make_manifest(commit, tmp_path / "out", control, ledger, b8, frp3)
     assert len(canary_allocation()) == 36
     assert manifest["requirements"]["gpu"] == "cpu"
-    assert manifest["budget"]["unit_cap"] == 0.2
+    assert manifest["budget"]["unit_cap"] == 0.18
     assert manifest["budget"]["rate_units_per_hour"] == 0.08
     assert manifest["f0"]["allocation"]["watch6_decisions"] == 14400
     assert manifest["resume"]["max_outcome_blind_retries"] == 2
+    probe = manifests.make_family_probe(manifest, tmp_path / "probe-out")
+    assert probe["budget"]["unit_cap"] == 0.02
+    assert probe["timeout_minutes"] == 5
+    assert probe["inputs"] == manifest["inputs"]
+    assert "resume" not in probe and probe["resume_exemption"]["kind"] == "short-canary"
 
 
 def test_fresh_seed_audit_uses_literal_whole_word_rg_and_refuses_hits(monkeypatch):
@@ -99,6 +104,19 @@ def test_fresh_seed_audit_real_whole_word_collision_and_scan_error(monkeypatch, 
     )
     with pytest.raises(RuntimeError, match="fresh seed scan failed"):
         manifests.fresh_seed_audit("d" * 40, [456])
+
+
+def test_family_receipt_binding_requires_qualified_check(monkeypatch, tmp_path):
+    template = tmp_path / "template.json"
+    receipt = tmp_path / "receipt.json"
+    exports.publish_json(template, {"canary": {"template": True}, "commit": "a" * 40})
+    receipt.write_text("receipt")
+    seen = []
+    monkeypatch.setattr(
+        "research.colab_cli.canary.check", lambda value, repo: seen.append((value, repo))
+    )
+    bound = manifests.bind_family_receipt(template, receipt, tmp_path / "bound.json")
+    assert seen and bound["canary"]["receipt"]["sha256"] == manifests._sha(receipt)
 
 
 def test_attempt_aggregator_unions_lives_and_refuses_duplicate(tmp_path):

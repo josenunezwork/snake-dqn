@@ -109,6 +109,7 @@ def run(
     started = time.monotonic()
     namespace, allocation = control["namespace"], control["allocation"]
     done = load_ledger(ledger_path, namespace, allocation)
+    transport_probe = os.environ.get("F0_TRANSPORT_PROBE") == "1"
     requested = control.get("workers", "nproc")
     workers = (
         (os.cpu_count() or 1)
@@ -138,7 +139,11 @@ def run(
                 namespace,
                 output,
                 allocation,
-                done_by_parent.get(item["allocation_id"], set()),
+                (
+                    set(range(int(item["horizon"]) + 1))
+                    if transport_probe
+                    else done_by_parent.get(item["allocation_id"], set())
+                ),
                 item["allocation_id"] in session_parents,
                 deadline,
             )
@@ -158,6 +163,8 @@ def run(
         "completed": completed,
         "skipped_verified": sorted(done),
         "status": status,
+        "transport_probe": transport_probe,
+        "result_class": "EXCLUDED_TRANSPORT_PROBE" if transport_probe else "SCIENCE",
         "invalid_reason": invalid,
         "workers": workers,
         "operational_diagnostics": {

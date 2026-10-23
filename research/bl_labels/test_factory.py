@@ -224,10 +224,10 @@ def test_canary_manifest_binds_cpu_cap_and_resume_contract(tmp_path: Path) -> No
         "gpu": "cpu",
         "allowed_gpus": ["cpu"],
         "min_vcpu": 1,
-        "est_minutes": 30,
+        "est_minutes": 27.5,
     }
-    assert manifest["timeout_minutes"] == 60
-    assert manifest["budget"]["unit_cap"] == 0.2
+    assert manifest["timeout_minutes"] == 55
+    assert manifest["budget"]["unit_cap"] == 0.18
     assert manifest["budget"]["rate_units_per_hour"] == 0.08
     assert manifest["f0"]["base_envelope"] == {"hours": 0.5, "units": 0.1}
     assert manifest["f0"]["effective_envelope"] == {"hours": 1.0, "units": 0.2}

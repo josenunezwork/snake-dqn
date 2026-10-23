@@ -277,8 +277,8 @@ def make_manifest(
             "NUMBA_NUM_THREADS": "1",
             "VECLIB_MAXIMUM_THREADS": "1",
         },
-        "requirements": {"gpu": "cpu", "allowed_gpus": ["cpu"], "min_vcpu": 1, "est_minutes": 30},
-        "timeout_minutes": 60,
+        "requirements": {"gpu": "cpu", "allowed_gpus": ["cpu"], "min_vcpu": 1, "est_minutes": 27.5},
+        "timeout_minutes": 55,
         "output_dir": str(output_dir),
         "inputs": [
             input_row(control, "inputs/control.json"),
@@ -287,9 +287,9 @@ def make_manifest(
             *_pool_inputs(b8, frp3),
         ],
         "budget": {
-            "unit_cap": 0.2,
+            "unit_cap": 0.18,
             "rate_units_per_hour": 0.08,
-            "reserve_units": 0.04,
+            "reserve_units": 0.036,
             "other_assignments": {},
         },
         "lease_seconds": 180,
@@ -308,9 +308,24 @@ def make_manifest(
             "skip_verified": True,
             "max_outcome_blind_retries": 2,
         },
+        "canary": {"template": True, "family": SCRIPT},
         "f0": {
             "base_envelope": {"hours": 0.5, "units": 0.1},
             "effective_envelope": {"hours": 1.0, "units": 0.2},
+            "stages": {
+                "transport_probe": {
+                    "base_minutes": 2.5,
+                    "effective_minutes": 5,
+                    "base_units": 0.01,
+                    "effective_units": 0.02,
+                },
+                "science": {
+                    "base_minutes": 27.5,
+                    "effective_minutes": 55,
+                    "base_units": 0.09,
+                    "effective_units": 0.18,
+                },
+            },
             "gpu": 0,
             "allocation": {
                 "gate": {"frozen": 12, "mixed": 12, "scripted": 8},
@@ -333,6 +348,50 @@ def make_manifest(
         },
     }
     return result
+
+
+def make_family_probe(template: dict[str, Any], output_dir: Path) -> dict[str, Any]:
+    """Build the excluded, same-entrypoint CPU transport-family probe."""
+    probe = json.loads(json.dumps(template))
+    probe["job_id"] = f"bl-f0-family-probe-{template['commit'][:8]}"
+    probe["output_dir"] = str(Path(output_dir).resolve())
+    probe["timeout_minutes"] = 5
+    probe["requirements"]["est_minutes"] = 2.5
+    probe["budget"].update(unit_cap=0.02, reserve_units=0.004)
+    probe["env"].update(
+        F0_TRANSPORT_PROBE="1",
+        F0_RUNTIME_SECONDS="270",
+        SNAKE_COLAB_CANARY="1",
+        SNAKE_COLAB_CANARY_PACKAGE=PACKAGE,
+    )
+    probe["canary"] = {
+        "schema": "colab-family-canary/v1",
+        "mode": "probe",
+        "family": SCRIPT,
+    }
+    probe.pop("resume", None)
+    probe["resume_exemption"] = {
+        "kind": "short-canary",
+        "reason": "excluded F0 same-entrypoint transport probe; no label rows may contribute",
+        "timeout_minutes": 5,
+    }
+    probe["f0"]["stage"] = "EXCLUDED_TRANSPORT_PROBE"
+    return probe
+
+
+def bind_family_receipt(
+    template: Path, receipt: Path, out: Path, *, repo: Path = ROOT
+) -> dict[str, Any]:
+    """Bind only a verified qualified family receipt into a create-only science manifest."""
+    value = json.loads(template.read_text())
+    if value.get("canary", {}).get("template") is not True:
+        raise ValueError("F0 science template is malformed")
+    value["canary"] = {"receipt": {"path": str(receipt.resolve()), "sha256": _sha(receipt)}}
+    from research.colab_cli.canary import check
+
+    check(value, repo)
+    publish_json(out, value)
+    return value
 
 
 def prepare(
@@ -389,19 +448,35 @@ def prepare(
 
     manifest = convert_public_checkpoints(manifest, repo=ROOT)
     assert_upload_budget(manifest, repo=ROOT)
-    path = artifact_dir / "f0-cpu-canary.json"
-    publish_json(path, manifest)
-    return path, control
+    template = artifact_dir / "f0-cpu-canary-template.json"
+    publish_json(template, manifest)
+    probe = artifact_dir / "f0-family-probe.json"
+    publish_json(
+        probe, make_family_probe(manifest, output_dir.with_name(output_dir.name + "-probe"))
+    )
+    return template, control
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--commit", required=True)
-    parser.add_argument("--artifact-dir", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--b8", type=Path, required=True)
-    parser.add_argument("--frp3", type=Path, required=True)
+    parser.add_argument("--commit")
+    parser.add_argument("--artifact-dir", type=Path)
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--b8", type=Path)
+    parser.add_argument("--frp3", type=Path)
+    parser.add_argument("bind", nargs="?")
+    parser.add_argument("--template", type=Path)
+    parser.add_argument("--receipt", type=Path)
+    parser.add_argument("--out", type=Path)
     args = parser.parse_args()
+    if args.bind:
+        if args.bind != "bind" or not all((args.template, args.receipt, args.out)):
+            parser.error("bind requires --template, --receipt, and --out")
+        print(args.out)
+        bind_family_receipt(args.template, args.receipt, args.out)
+        return
+    if not all((args.commit, args.artifact_dir, args.output_dir, args.b8, args.frp3)):
+        parser.error("prepare requires --commit, --artifact-dir, --output-dir, --b8, and --frp3")
     manifest, _ = prepare(args.commit, args.artifact_dir, args.b8, args.frp3, args.output_dir)
     print(manifest)
 

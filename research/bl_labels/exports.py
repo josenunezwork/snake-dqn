@@ -241,6 +241,8 @@ def aggregate_attempts(
         if receipt.exists():
             _verify(receipt)
             state = json.loads(receipt.read_text())
+            if state.get("result_class") == "EXCLUDED_TRANSPORT_PROBE":
+                raise ValueError("excluded F0 transport probe cannot contribute label leaves")
             if state.get("status") == "INVALID":
                 raise ValueError("INVALID F0 attempt cannot contribute any label leaves")
         directory = Path(root) / UNIT_DIR
