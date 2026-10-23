@@ -148,6 +148,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-22 23:40 PT | M1 attempt-07 RESULT = FAIL (BLOCKED, second failure) | receipt sha 7117dd42415f1bc6...: worker cells overruns W1K1 15, W2K2 9, W4K4 12, W4K8 10 (bar 0); latency PASS (W4K4 doom p99 1.38 s, update p95 8.6-9.6 ms). Bare W0 controls (no search, verdict-neutral): pre 43 overruns with update p95 13.2 ms (> 11.688), post 3 (incomplete). Per JUDGMENT_D1 / round-22: M1 FAIL => KEEP_B8 for serving; no further remedy; C15 not built. PRODUCT FINDING for owner: the served B8 Watch game itself misses 24 fps deadlines on this Mac without any search. |
 
+| 2026-10-22 23:50 PT | A100 A2 result (single look) | decision.json sha 045be833616754e9...: scale NOT_CLOSED_EXPLORATORY, target KEEP_SINGLE_HORIZON. T5 D300 AUC @100%: frozen-B8 linear 0.767 > s_b8 0.719 > m_random(6.7M) 0.711 ~ s_random 0.706; data 25->100% +0.02-0.05 for all arms. Bigger model no gain; data volume helps; frozen B8 features beat fine-tuning. Exploratory historical bank, no served-gain claim. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
