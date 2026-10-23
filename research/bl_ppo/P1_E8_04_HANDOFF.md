@@ -84,6 +84,50 @@ An initial root pytest command named nonexistent `test_p1_resume.py` and
 The implementation lane's earlier pytest-7 environment report was not the
 primary venv; root and reviewer verified the primary venv is pytest 9.0.1.
 
+## Published execution pin and review-only packs
+
+Executable pin: `f184c2c7f54e642b5870d6efd4a32b60ffe50496`, pushed to the
+candidate branch and origin/main. Later ledger/review-only commits do not
+change executable bytes or transport. The actual immutable pack directory is
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-latebody-06-e8-04-review-20261022-02`.
+`P1_E8_04_DISPATCH_PACKS.json` binds all payloads and sidecars. Both canary
+and source have top-level and nested `scientific_admission=false` and HOLD
+instructions. No `source-admitted.json` exists. Shared upload inputs are the
+117386-byte archive plus 2409-byte public catalog; source/canary inventories
+are byte-identical while their controls, offsets and empty ledgers differ.
+The first partial preparation used a root-supplied abbreviated commit and
+refused upload qualification. It is preserved at the sibling without `-02`.
+
+## Judgment section 6 checklist
+
+| Item | Status |
+| --- | --- |
+| 1. Code merged; independent receipt every line, PASS and no unresolved; Claude log check | Code published; **NOT MET**: C2 FAIL, review HOLD; Claude verification pending. |
+| 2. Final-code FIT replay with sidecars published | Numerical FIT PASS published; **NOT MET**: stale learner/helper binding and unset thread environment. |
+| 3. Allocation audit, zero collisions, coverage, distinct offsets | Enumerated E16 allocations clear and published; **LIMITED** historical inventory, full acceptance not met. |
+| 4. Qualified proof/current/pin and cuda:0 | Qualified CLI tree/current/pin verified; cuda:0 declared; live family-canary proof remains pending. |
+| 5. Fresh control, source06 namespace/allocation, ledger, artifact review | Review-only dual controls and empty ledgers built; independent review records HOLD. Admission false. |
+| 6. Immediately-before-dispatch usage/sessions/rate/debit and warning | **PENDING** operator live check; no provider query by this task. Judgment7.26u is frozen history; inherited5.55u debit is explicitly stale. WARNING_UNEXPLAINED_DEBIT retained. |
+| 7. Mac windows and never-idle | Local checks finished before Thu20:00 X5; any future timing/window admission remains operator work. No Colab reserved. |
+| 8. Operator-only wrapper, owner release, protected boundaries | **PRESERVED**: no dispatch; B8 s3 unchanged, protected study closed, l2mac untouched. |
+
+No executable dispatch command is authorized under this HOLD. A new judge
+disposition and a fresh accepted preparation are required before an operator
+may dispatch. The exact wrapper invocations below identify the reviewed
+targets but **refuse now** on the immutable HOLD/admission fuses:
+
+The independent `P1_E8_04_CODEX_V_REVIEW.json` (with SHA/completion sidecars)
+records all 26 acceptance clauses and eight preconditions. Its status is
+`HOLD_RETURN_TO_JUDGE`, with unresolved admission findings V1, V2 and V3;
+artifact review passes only for the explicitly blocked review packs.
+
+```bash
+REPO=/Users/josenunez/Projects/ml/snake-dqn-p1snap
+PACK=/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-latebody-06-e8-04-review-20261022-02
+"$REPO/tools/ops/dispatch.sh" p1-e8-04-06-canary "$PACK/canary-manifest.json" --broker "$REPO" --cwd "$REPO" --state-dir "$PACK/state-canary" --dispatch-txt "$PACK/DISPATCH.txt"
+"$REPO/tools/ops/dispatch.sh" p1-e8-04-06-source "$PACK/source-template.json" --broker "$REPO" --cwd "$REPO" --state-dir "$PACK/state-source" --dispatch-txt "$PACK/DISPATCH.txt"
+```
+
 No Colab/provider operation, allocation, dispatch, tmux action, serving pin
 or released-checkpoint change is authorized by this handoff. B8 s3 remains
 served. The protected study stays closed and `snake-dqn-l2mac` is untouched.
