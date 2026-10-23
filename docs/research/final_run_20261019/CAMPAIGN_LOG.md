@@ -176,6 +176,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 07:55 PT | Colab stall fix PARKED | Requal of a18bf6b4: CPU PASS, L4 INCOMPLETE; Sol diagnosis (03d7e841): real bounded L4 control-RPC timeouts (2 x 30 s, one unrecovered), no sizing defect; counts as L4's first failed attempt (§7 C1.3/C1.4). Colab label lanes parked this week; Mac factory is the platform (14.5 lives/worker-h). D256 running at W6 (8/858 parents in 20 min — slower than forecast); round-27 (10 Astras) on factory speed in progress. App update killed tmux waiters; W12 calibration re-queued after round 27. |
 
+| 2026-10-23 08:10 PT | Factory speed ruling (round 27) | JUDGMENT.md sha f3d4e62547718306... (Opus stand-in): measured canary profile = play 47 %, doom alternatives 34 %, ordinary roots 11 %, audits 7 %, restore 1 %. Build from D1024: W12 (>=1.54x; width-change resume), fold 1-4 parent filter (1.25x usable), prepared-decision packet (1 obs + 1 B8 forward per decision; 1.08-1.16x), bare-audit mass check; 4 gated items behind pre-set profile thresholds. Byte-identity vs 61900af2 on a 12-parent bank + 1/64 production recheck. D256 left untouched (ETA ~15:00 PT at W6). Rejected: pruning, warm-start, batched/GPU inference, >12 workers. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
