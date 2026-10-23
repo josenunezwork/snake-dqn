@@ -258,9 +258,12 @@ def _t5_raw(bundle: Path) -> dict[str, np.ndarray]:
                 raise ValueError(f"copied T4e shard hash mismatch: {name}")
             with np.load(path, allow_pickle=False) as z:
                 world = int(name.split("-")[1])
-                for i, decision in enumerate(z["source_decision"]):
+                # NPZ indexing decompresses the whole column: load once per shard.
+                decisions = z["source_decision"]
+                shard_packed, shard_scalars = z["state_packed"], z["state_scalars"]
+                for i, decision in enumerate(decisions):
                     key = (world, int(decision))
-                    value = (z["state_packed"][i].copy(), z["state_scalars"][i].copy())
+                    value = (shard_packed[i].copy(), shard_scalars[i].copy())
                     old = lookup.get(key)
                     if old is not None and (
                         not np.array_equal(old[0], value[0]) or not np.array_equal(old[1], value[1])

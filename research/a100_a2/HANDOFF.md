@@ -26,7 +26,7 @@ Prepared inputs:
 `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a2/inputs-20261022-01`
 
 Generated manifests:
-`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a2/pack-20261022-01`
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a2/pack-20261022-02`
 
 The input archive is 91,491,883 bytes, SHA256
 `6572e096f1e6c08b1b5dab1cc9d829b6931dfe3287491ae3d91c81e32360d68c`.
@@ -45,7 +45,7 @@ P1 Y3 > A1 > A2 > A3; at most three account assignments.
 ```bash
 REPO=/Users/josenunez/Projects/ml/snake-dqn-a2
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
-PACK=/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a2/pack-20261022-01
+PACK=/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a2/pack-20261022-02
 python3 "$REPO/tools/ops/qualification.py" check --repo "$REPO" \
   --record /Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json
 "$REPO/tools/ops/dispatch.sh" a100-a2-canary-20261022-01 "$PACK/canary.json" \
@@ -109,7 +109,8 @@ never a served-gain or gate claim.
 
 ## Verification
 
-- 19 focused A2 tests passed in 2.19s, single process, `-p no:xdist`.
+- 19 focused A2 tests passed in 2.19s, single process, `-p no:xdist`;
+  the final five-test aggregate selection also passed after the T5-agreement regression fix.
 - Four focused existing transport tests passed, 149 deselected (21.91s).
 - Real `bash research/a100_a2/colab.sh`, actual pinned B8 + tiny excluded synthetic
   table, CPU one thread: 8/8 fit units, 0.7205s job /1.36s end-to-end.
