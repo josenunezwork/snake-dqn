@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from research.bl_ppo.exports import export_json, export_torch
-from research.bl_ppo.p1_source_audit import audit
+from research.bl_ppo.exports import digest, export_json, export_torch
+from research.bl_ppo.p1_source_audit import audit, reconcile
 from research.bl_ppo.recovery import SCHEMA
 
 
@@ -86,3 +86,42 @@ def test_audit_refuses_unverified_snapshot_bytes(tmp_path):
     path.write_bytes(b"corrupt")
     with pytest.raises(ValueError, match="digest|SHA|hash"):
         audit(pack, tmp_path / "audit.json")
+
+
+def test_reconcile_keeps_frozen_charge_and_includes_new_exact_pin_canary(tmp_path):
+    pack = tmp_path / "pack"
+    prior = tmp_path / "prior.json"
+    base = {
+        "stop_verified": True,
+        "cleanup_error": None,
+        "elapsed_seconds": 3600,
+        "accounting": {"own_rate_units_per_hour": 1},
+    }
+    export_json(prior, base | {"generation": "prior", "session": "prior"})
+    export_json(
+        pack / "source-output/receipt.json",
+        base
+        | {
+            "generation": "source",
+            "session": "source",
+            "usage_before": {"balance": 100},
+            "usage_after": {"balance": 97.53},
+        },
+    )
+    export_json(
+        pack / "source-dispatch-debit.json",
+        {
+            "attempts": [{"path": str(prior), "sha256": digest(prior), "charged_units": 7.64}],
+            "warning": "WARNING_UNEXPLAINED_DEBIT",
+        },
+    )
+    result = reconcile(pack)
+    assert result["charged_units"] == 10.11
+    assert result["remaining_units"] == 15.39
+    assert result["all_in_liability_units"] == 25.59
+    assert result["envelope_excess_units"] == 0.09
+    assert result["warning"] == "WARNING_UNEXPLAINED_DEBIT"
+    assert result["automatic_retry_authorized"] is False
+    prior.write_bytes(b"changed frozen receipt")
+    with pytest.raises(ValueError):
+        reconcile(pack)
