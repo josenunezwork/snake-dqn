@@ -529,6 +529,57 @@ def _read_trace(path: Path) -> dict[str, Any]:
     return value
 
 
+def _validate_operational_proof(
+    control: dict[str, Any],
+    directory: Path,
+    rows: list[dict[str, Any]],
+    trace_meta: dict[str, Any] | None,
+    final_counters: dict[str, Any],
+) -> None:
+    """Require a real periodic actor anchor and its complete fixed suffix.
+
+    Exact pause snapshots carry execution.phase too; that alone cannot make
+    them operational evidence. Never repair a missing label by inference.
+    """
+    if not rows or not trace_meta:
+        raise ValueError("Y3 source lacks an operational snapshot and fixed suffix proof")
+    latest = max(rows, key=lambda row: int(row["index"]))
+    for row in (latest, trace_meta):
+        name = row.get("path")
+        if not isinstance(name, str) or Path(name).name != name or name in {".", ".."}:
+            raise ValueError("Y3 operational proof requires safe flat names")
+        if verify_export(directory / name) != row.get("sha256"):
+            raise ValueError("Y3 operational proof digest mismatch")
+    state = read_snapshot(directory / latest["path"])
+    metadata = state.get("operational", {})
+    declaration = control["resume"]
+    if (
+        metadata.get("label") != "OPERATIONAL"
+        or metadata.get("namespace") != declaration["namespace"]
+        or metadata.get("allocation") != declaration["allocation"]
+        or metadata.get("index") != latest["index"]
+        or metadata.get("unit_id") != latest.get("unit_id")
+        or metadata.get("execution", {}).get("phase") != "actor"
+    ):
+        raise ValueError("Y3 periodic proof anchor is not the frozen operational actor unit")
+    trace = json.loads((directory / trace_meta["path"]).read_text())
+    start = state["counters"]
+    if (
+        trace.get("schema") != "bl-ppo-p1-operational-trace/v1"
+        or trace.get("snapshot") != latest["path"]
+        or trace.get("actions", 0) < 1000
+        or trace.get("actions") != final_counters["actor_transitions"] - start["actor_transitions"]
+        or trace.get("final_actor_transitions") != final_counters["actor_transitions"]
+        or trace.get("final_actor_updates") != final_counters["actor_updates"]
+        or trace.get("final_episode_boundaries") != final_counters["actor_episode_boundaries"]
+        or final_counters["actor_updates"] - start["actor_updates"] < 3
+        or final_counters["actor_episode_boundaries"] - start["actor_episode_boundaries"] < 1
+        or not isinstance(trace.get("full_tape_sha256"), str)
+        or len(trace["full_tape_sha256"]) != 64
+    ):
+        raise ValueError("Y3 operational trace lacks the registered fixed actor suffix")
+
+
 def _source_continuation_proof(path: Path) -> tuple[dict[str, Any], Path, Path]:
     """Resolve the hash-bound source receipt into trace and final snapshot bytes."""
     verify_export(path)
@@ -785,10 +836,14 @@ def _execute(args: argparse.Namespace, control: dict[str, Any]) -> dict[str, Any
                 *operational,
             ]
         operational_trace = continuation.get("operational_trace")
-        if control.get("operational_replay_required") and (
-            not operational or not operational_trace
-        ):
-            raise ValueError("Y3 source lacks an operational snapshot and fixed suffix proof")
+        if control.get("operational_replay_required"):
+            _validate_operational_proof(
+                control,
+                output / "source-continuation",
+                operational,
+                operational_trace,
+                continuation["counters"],
+            )
         result = {
             "schema": "bl-p1-y3-source/v1",
             "status": "COMPLETE_SOURCE_CONTINUATION",

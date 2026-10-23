@@ -910,14 +910,13 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     actor_updates_at_start = int(counters.get("actor_updates", 0))
     actor_episodes_at_start = int(counters.get("actor_episode_boundaries", 0))
     resume_execution: dict[str, Any] = {}
+    resume_operational: dict[str, Any] = {}
     if p1_runtime and args.resume is not None:
         from research.bl_ppo.recovery import read_snapshot
 
-        resume_execution = (
-            read_snapshot(args.resume)
-            .get("operational", {})
-            .get("execution", read_snapshot(args.resume).get("execution", {}))
-        )
+        resume_state = read_snapshot(args.resume)
+        resume_operational = resume_state.get("operational", {})
+        resume_execution = resume_operational.get("execution", resume_state.get("execution", {}))
     trace_limit = int(getattr(args, "p1_trace_actions", 0))
     trace_state = (
         resume_execution.get("trace_state", {})
@@ -1044,8 +1043,16 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 }
         last_checkpoint = time.monotonic()
 
-    # A resumed latest actor snapshot itself is the anchor, until a later cadence tick.
-    if require_operational and resume_execution.get("phase") == "actor":
+    # An exact pause can also have execution.phase == actor (including the
+    # pre-actor Y3 origin).  Only a labelled operational snapshot may seed the
+    # periodic suffix; otherwise wait for a real actor cadence capture.
+    if (
+        require_operational
+        and resume_operational.get("label") == "OPERATIONAL"
+        and resume_operational.get("namespace") == operational_namespace
+        and resume_operational.get("allocation") == operational_allocation
+        and resume_execution.get("phase") == "actor"
+    ):
         operational_trace = {
             "snapshot": args.resume.name,
             "updates": counters["actor_updates"],
