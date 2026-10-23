@@ -129,6 +129,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-22 19:50 PT | M1 attempt-05 pre-dispatch | JUDGMENT_M1_RESTART_OBJECTION.md sha256 160f5980796a9f0ca21e9282329725594a59522c8ea51cea98e61fd1b813f91c (pre-data): attempt-05 may dispatch as built at 01334e1e; post-data reducer rules R1 carry-forward (overrun / W4 doom S>5s in discarded prefix => BLOCKED) + R2 discard disclosure pre-registered; Sol builds m1_carry.py. Also: A100 program funded (PLAN_A100.md; Sol A0/A2/A3); P1 amendment 04 HOLD (C2 value drift 7.7/14.6/20.4 > PopArt 5.53) -> judge. |
 
+| 2026-10-22 20:35 PT | P1 amendment 04 §6 | Claude history-inventory receipt collection-history-inventory.json sha256 7a182e7369745c423fd3c53b74cad98becc963c71eef973b998d533d8d2b7e14: 21 historical collector controls, all seed 20261021/128 worlds/offset 0 (one root family); new packs offset 3,011,000 with 131,466 burned roots excluded. Qualification B PASS (JUDGMENT_P1_E8_04_B), collision witness justifies +10,000. Next: Sol binds receipt into fresh sibling packs + Codex-V supplement, then canary 2.00 u -> source 9.62 u on L4. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
