@@ -158,6 +158,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 01:40 PT | P1 Y3 critic gate PASS (amendment 04) | source retry05 training-status.json: critic_refit PASS, held-out natural late-body n=163 EV 0.587, MSE 295,944 vs baseline 528,354 (fresh disjoint worlds, offsets 3,010,000/3,011,000). Job ended INCOMPLETE at finalisation (mechanical): 'Y3 source lacks an operational snapshot and fixed suffix proof'; exports intact. Sol diagnosing + offline recovery path. |
 
+| 2026-10-23 02:05 PT | P1 finalisation ruling | JUDGMENT_P1_FINALISATION.md sha fe0584595cca6f6f... (Opus stand-in): critic PASS stands as the registered Y3 critic-gate result (no second look); Y3 not yet PASS. Amendment 06 repair = import verified pre-actor origin, skip refit/gate, actor phase only to a 900-s operational capture + suffix (canary 2.00 u, repair 6.16 u); envelope 25.50 -> 34.50 u (one retry each); replacement 3.86 u with tape check; 1M qualification 4.00 u after full Y3 PASS. Sol building. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
