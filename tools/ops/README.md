@@ -250,3 +250,33 @@ relative durations or explicit operator inputs. No historical research files are
 rewritten to satisfy lint. Regression tests use temporary repositories, fake tmux
 and supervisor commands, and local processes; they do not allocate Colab or run
 research workloads.
+
+## Clean import preflight before packing
+
+Use `tools.ops.import_preflight.check(repo, commit, source_paths, requirements,
+modules)` in a pack builder **before creating its output directory**. A2 calls
+this unconditionally. A0/A1 and A3 builders can use the same function, or invoke
+`python3 -m tools.ops.import_preflight` with `--repo`, `--commit`, repeated
+`--source-path`, `--requirements`, repeated `--module`, and a create-only `--out`.
+The requirements path must be included in the selected pinned source paths.
+Declare bootstrap packages such as `torch==2.9.1` and `numpy==1.26.4` explicitly
+in that requirements file; do not install the project or the Mac requirements.
+
+The checker extracts only the pinned Git archive into a temporary source tree,
+creates a fresh managed Python 3.12 venv with uv, installs only the job's declared
+requirements, and runs Python with `-I` and a scrubbed environment. It recursively
+executes static imports in reachable local modules, including parent package
+initializers and imports inside functions. Direct `TYPE_CHECKING` branches are
+excluded. Optional runtime branches are conservatively included: declare their
+deps/source or use an explicit `module:function` entry seam. Runtime-computed
+import strings require additional explicit module roots. No job functions, labels,
+checkpoints, fits, or aggregators are executed. A GPU family canary still proves
+CUDA and actual workload behavior.
+
+A missing dependency or source file blocks packing. Preserve the returned JSON,
+including commit, source archive and requirements SHA256, checker SHA256, full
+installed distribution inventory and imported local module inventory, and bind
+its digest in the pack receipt. The regression suite uses real clean venvs and
+proves both direct and transitive lazy dependency failures cannot borrow from
+`PYTHONPATH` or the Mac venv. This is an offline package gate; the qualified
+`research/colab_cli` transport is unchanged.

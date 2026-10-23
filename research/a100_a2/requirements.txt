@@ -4,3 +4,10 @@ PyYAML>=6.0
 scipy>=1.11
 scikit-learn>=1.3
 threadpoolctl>=3.2
+# Explicit bootstrap pins make the isolated preflight use the same base versions.
+torch==2.9.1
+# src.model -> obs_spec -> src.core.config_loader (including package __init__).
+pydantic>=2.0.0,<3.0.0
+# Conservative transitive helper import closure (optional branches included).
+psutil>=5.9.0,<6.0.0
+cloudpickle>=3.0,<4.0

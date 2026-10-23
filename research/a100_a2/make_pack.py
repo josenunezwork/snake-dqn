@@ -6,6 +6,7 @@ import argparse
 import copy
 import hashlib
 import json
+import math
 import shutil
 import subprocess
 from pathlib import Path
@@ -22,6 +23,22 @@ from research.bl_ppo.exports import digest, export_json
 ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS = ROOT.parent / "snake-dqn-artifacts"
 CHECKPOINT = ROOT.parent / "snake-dqn/saved_snakes/b8_s3_t7_20261016.pth"
+REQUIREMENTS = "research/a100_a2/requirements.txt"
+# Include both remote modes and the lazy replay/strict constructor/numba seams.
+IMPORT_ROOTS = [
+    "research.a100_a2.job",
+    "research.a100_a2.run",
+    "research.a100_a2.data",
+    "research.t34_exit_b8.replay:_default_observation",
+    "research.t34_exit_b8.trajectory:build_world",
+    "research.phase0_search_20261019.teacher:build_world",
+    "research.redesign_scope_20261007.grid_h5000_identity:_context",
+    "research.t3_rollout_labels_20261015.bank_engine:build_world",
+    "src.simd_env.ego_raster:build_ego_raster",
+    "src.simd_env.grid_sim_nb",
+    "src.simd_env.vector61_nb",
+    "src.simd_env.v8_nb",
+]
 QUALIFIED_TREE = "553af3f692515b2bf66173356fe4d099acc96942"
 SOURCE_PATHS = [
     "src",
@@ -44,6 +61,55 @@ SOURCE_PATHS = [
     "research/fixed_search.py",
     "configs",
     "pyproject.toml",
+    # Conservative transitive lazy-import closure; typing-only branches excluded.
+    "research/apex_veto_strict_20260927/__init__.py",
+    "research/apex_veto_strict_20260927/strict_run.py",
+    "research/bl_evidence/__init__.py",
+    "research/bl_evidence/loader.py",
+    "research/bl_evidence/strict_pins.py",
+    "research/bl_paced_identity/__init__.py",
+    "research/bl_paced_identity/authorization.py",
+    "research/bl_paced_identity/events.py",
+    "research/bl_paced_identity/record.py",
+    "research/bl_paced_identity/replay.py",
+    "research/bl_ppo/__init__.py",
+    "research/compute/thermal_guard.py",
+    "research/redesign_t7_phase_r_20261016/__init__.py",
+    "research/redesign_t7_phase_r_20261016/seed_audit.py",
+    "research/t2_screen_20261015/__init__.py",
+    "research/t2_screen_20261015/banks.py",
+    "research/t33_batched_teacher/__init__.py",
+    "research/t33_batched_teacher/inference.py",
+    "research/t33_batched_teacher/observation_kernels.py",
+    "research/t33_batched_teacher/observations.py",
+    "research/t33_batched_teacher/runtime.py",
+    "research/t33_batched_teacher/teacher.py",
+    "research/t34_pathb/__init__.py",
+    "research/t34_pathb/live.py",
+    "research/t34_shadow/__init__.py",
+    "research/t34_shadow/lad.py",
+    "research/t34_shadow/shadow.py",
+    "research/t34_speed_s2/__init__.py",
+    "research/t34_speed_s2/native_v8.py",
+    "research/t3_screen_20261015/__init__.py",
+    "research/t3_screen_20261015/banks.py",
+    "research/t4e_return_20261016/__init__.py",
+    "research/t4e_return_20261016/seed_audit.py",
+    "research/t4f_return_20261016/__init__.py",
+    "research/t4f_return_20261016/seed_audit.py",
+    "web/backend/__init__.py",
+    "web/backend/checkpoints.py",
+    "web/backend/ego2s_policy.py",
+    "web/backend/pathb.py",
+    "web/backend/pathb_controller.py",
+    "web/backend/raster_policy.py",
+    "web/backend/release_monitoring.py",
+    "web/backend/safety_veto_serving.py",
+    "web/backend/serialize.py",
+    "web/backend/served_checkpoint.py",
+    "web/backend/serving_speed.py",
+    "web/backend/session.py",
+    "web/backend/state_labels.py",
 ]
 
 
@@ -91,8 +157,48 @@ def prepare_inputs(output: Path, existing_bundle: Path | None = None) -> dict[st
     return control
 
 
-def make_pack(inputs: Path, output: Path, commit: str, rates: Path | None = None) -> dict:
+def replacement_envelope(receipt: Path | None) -> dict:
+    """Charge the failed, stopped, zero-export canary to the original series cap."""
+    if receipt is None:
+        return {"main_minutes": 258, "main_units": 45}
+    prior = json.loads(receipt.read_text())
+    if (
+        prior.get("status") != "INCOMPLETE"
+        or prior.get("stop_verified") is not True
+        or prior.get("failure_class") != "CHILD_NONZERO_EXIT"
+        or prior.get("exports") != []
+        or not prior.get("job_id", "").startswith("a100-a2-canary-")
+        or "ModuleNotFoundError" not in prior.get("error", "")
+    ):
+        raise ValueError("replacement requires stopped mechanical zero-export canary evidence")
+    elapsed = float(prior["elapsed_seconds"])
+    if not math.isfinite(elapsed) or elapsed <= 0:
+        raise ValueError("invalid prior canary elapsed time")
+    # Conservative ceiling rate, including setup/export/cleanup; no credit reset.
+    charged_units = elapsed * 10 / 3600
+    minutes = min(258, math.floor(288 - 18 - elapsed / 60))
+    units = min(45, math.floor((48 - 3 - charged_units) * 100) / 100)
+    if minutes < 240 or units <= 8:
+        raise ValueError("remaining original envelope cannot admit the unchanged forecast")
+    return {
+        "main_minutes": minutes,
+        "main_units": units,
+        "prior_canary_receipt": str(receipt.resolve()),
+        "prior_canary_receipt_sha256": digest(receipt),
+        "prior_elapsed_seconds": elapsed,
+        "prior_charged_units_at_ceiling": charged_units,
+    }
+
+
+def make_pack(
+    inputs: Path,
+    output: Path,
+    commit: str,
+    rates: Path | None = None,
+    failed_canary_receipt: Path | None = None,
+) -> dict:
     """Pin published source and qualified tree; keep main refused until live canary."""
+    from tools.ops.import_preflight import check as check_imports
     from tools.ops.qualification import check
 
     registry = ARTIFACTS / "ops/colab-cli-qualified.json"
@@ -110,7 +216,14 @@ def make_pack(inputs: Path, output: Path, commit: str, rates: Path | None = None
         ["git", "rev-parse", "origin/main"], cwd=ROOT, text=True
     ).strip()
     subprocess.run(["git", "merge-base", "--is-ancestor", commit, remote], cwd=ROOT, check=True)
+    envelope = replacement_envelope(failed_canary_receipt)
+    # Probe the pinned sparse archive, never the developer checkout or venv.
+    # This must finish before any pack directory/manifests are published.
+    if output.exists():
+        raise FileExistsError(output)
+    preflight = check_imports(ROOT, commit, SOURCE_PATHS, REQUIREMENTS, IMPORT_ROOTS)
     output.mkdir(parents=True, exist_ok=False)
+    export_json(output / "clean-import-preflight.json", preflight)
     control = json.loads((inputs / "control.json").read_text())
     for name, sha in control["input_hashes"].items():
         if digest(inputs / name) != sha:
@@ -140,13 +253,13 @@ def make_pack(inputs: Path, output: Path, commit: str, rates: Path | None = None
             "min_vcpu": 1,
             "est_minutes": 120,
         },
-        "timeout_minutes": 258,
+        "timeout_minutes": envelope["main_minutes"],
         "output_dir": str(output / "main-output"),
         "inputs": inventory,
         "required_exports": ["receipt.json"],
-        "env": {"A2_DEVICE": "cuda", "COLAB_CLI_REQUIREMENTS": "research/a100_a2/requirements.txt"},
+        "env": {"A2_DEVICE": "cuda", "COLAB_CLI_REQUIREMENTS": REQUIREMENTS},
         "budget": {
-            "unit_cap": 45,
+            "unit_cap": envelope["main_units"],
             "rate_units_per_hour": 10,
             "reserve_units": 8,
             "other_assignments": other,
@@ -170,6 +283,7 @@ def make_pack(inputs: Path, output: Path, commit: str, rates: Path | None = None
             "forecast_hours": 2,
             "forecast_units_at_5_4_per_hour": 10.8,
             "canary_in_series": True,
+            "remaining_envelope": envelope,
             "review_required": "independent Codex-V",
         },
     }
@@ -201,6 +315,7 @@ def make_pack(inputs: Path, output: Path, commit: str, rates: Path | None = None
         "schema": "a2-prepared-pack/v1",
         "commit": commit,
         "transport_tree": QUALIFIED_TREE,
+        "clean_import_preflight_sha256": digest(output / "clean-import-preflight.json"),
         "allocation": control["allocation"],
         "inputs": inventory,
         "canary": str(output / "canary.json"),
@@ -235,6 +350,7 @@ def main() -> None:
     pack.add_argument("--out", type=Path, required=True)
     pack.add_argument("--commit", required=True)
     pack.add_argument("--other-assignments", type=Path)
+    pack.add_argument("--failed-canary-receipt", type=Path)
     admission = sub.add_parser("admit")
     admission.add_argument("--template", type=Path, required=True)
     admission.add_argument("--canary-receipt", type=Path, required=True)
@@ -243,7 +359,9 @@ def main() -> None:
     if args.action == "inputs":
         result = prepare_inputs(args.out, args.bundle)
     elif args.action == "pack":
-        result = make_pack(args.inputs, args.out, args.commit, args.other_assignments)
+        result = make_pack(
+            args.inputs, args.out, args.commit, args.other_assignments, args.failed_canary_receipt
+        )
     else:
         result = admit(args.template, args.canary_receipt, args.out)
     print(
