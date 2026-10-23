@@ -260,3 +260,19 @@ def test_stage_caps_double_once_and_charge_full_session() -> None:
         rate = 0.08 if name.startswith("cpu") else 1.54
         assert rate * limits["minutes"] / 60 + limits["reserve"] <= limits["units"]
         assert limits["minutes"] == 2 * STAGES[name]["minutes"]
+
+
+def test_lossless_transport_preserves_frozen_bank_identity(tmp_path: Path) -> None:
+    import json
+    import lzma
+
+    from research.bl_labels.exports import _write_once
+
+    raw = (json.dumps({"frozen": "bank payload"}) + "\n").encode()
+    path = tmp_path / "bank.json.xz"
+    _write_once(path, lzma.compress(raw, preset=6))
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    _write_once(Path(str(path) + ".sha256"), f"{digest}  {path.name}\n".encode())
+    _write_once(Path(str(path) + ".complete"), b"complete\n")
+    assert f1_ruler.bank_bytes(path) == raw
+    assert f1_ruler.bank_digest(path) == hashlib.sha256(raw).hexdigest()

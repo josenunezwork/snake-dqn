@@ -5,12 +5,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import lzma
 from pathlib import Path
 from typing import Any
 
 from . import manifests
-from .exports import _verify, publish_json
-from .f1_ruler import load_bank
+from .exports import _verify, _write_once, publish_json
+from .f1_ruler import bank_digest, load_bank
 from .f1_units import empty_ledger, load_ledger
 
 SCRIPT = "research/bl_labels/f1_colab.sh"
@@ -92,11 +93,11 @@ def make_template(
 
     if platform == "l4" and not qualified["l4_ready"]:
         raise ValueError("F1 L4 NOT_RUN: stall mitigation is not qualified")
-    bank_sha = _verify(bank)
+    bank_sha = bank_digest(bank)
     saved = load_ledger(ledger, bank_sha, platform, commit)
     stage = f"{platform}-" + ("probe" if is_probe else "science")
     limits = envelope(stage)["effective"]
-    inputs = triplet(bank, "inputs/f1-root-bank.json") + triplet(
+    inputs = triplet(bank, "inputs/f1-root-bank.json.xz") + triplet(
         ledger, "inputs/f1-verified-ledger.json"
     )
     ledger_value = json.loads(ledger.read_text())
@@ -219,6 +220,23 @@ def build(commit: str, bank: Path, b8: Path, frp3: Path, out: Path, output_root:
     manifests.require_source_pin(commit)
     load_bank(bank)
     qualified = qualification()
+    packed = out / "f1-root-bank.json.xz"
+    payload = lzma.compress(bank.read_bytes(), preset=6)
+    _write_once(packed, payload)
+    _write_once(Path(str(packed) + ".sha256"), f"{_sha(packed)}  {packed.name}\n".encode())
+    _write_once(Path(str(packed) + ".complete"), b"complete\n")
+    if bank_digest(packed) != bank_digest(bank):
+        raise ValueError("compressed F1 bank differs after lossless round trip")
+    publish_json(
+        out / "bank-transport.json",
+        {
+            "raw_path": str(bank),
+            "raw_sha256": bank_digest(bank),
+            "compressed_sha256": _sha(packed),
+            "raw_bytes": bank.stat().st_size,
+            "compressed_bytes": packed.stat().st_size,
+        },
+    )
     from tools.ops.import_preflight import check
 
     preflight = check(
@@ -258,7 +276,7 @@ def build(commit: str, bank: Path, b8: Path, frp3: Path, out: Path, output_root:
             )
             continue
         ledger = out / f"f1-{platform}-verified-ledger.json"
-        publish_json(ledger, empty_ledger(_verify(bank), platform, source_commit=commit))
+        publish_json(ledger, empty_ledger(bank_digest(bank), platform, source_commit=commit))
         for is_probe in (True, False):
             name = f"f1-{platform}-" + ("probe.json" if is_probe else "template.json")
             output = output_root / (platform + ("-probe" if is_probe else "-ruler"))
@@ -267,7 +285,7 @@ def build(commit: str, bank: Path, b8: Path, frp3: Path, out: Path, output_root:
                 make_template(
                     commit,
                     output,
-                    bank,
+                    packed,
                     ledger,
                     b8,
                     frp3,

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .exports import _verify, publish_json
+from .f1_ruler import bank_digest, load_bank
 
 LABELS = ("one", "half", "all")
 
@@ -201,8 +202,8 @@ def main() -> None:
     parser.add_argument("--l4-not-run", action="store_true")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    bank_sha256 = _verify(args.bank)
-    bank = json.loads(args.bank.read_text())
+    bank_sha256 = bank_digest(args.bank)
+    bank = load_bank(args.bank)
     attempts = [load_attempt(path, bank_sha256) for path in args.attempt]
     result = decide(attempts, [r["root_id"] for r in bank["roots"]], l4_not_run=args.l4_not_run)
     result["bank_sha256"] = bank_sha256

@@ -13,7 +13,9 @@ selection uses no rescue, decisive, action-label or branch outcome. It retains
 source session hashes, namespaces, allocations and natural six-seat tapes.
 The bank SHA256 is
 `a8c1dc4bbe1fd579d59b69d6ca6ca9dbd2814b088f74277f008f504f6d1bbb0d`.
-The source canary stays INCOMPLETE and its registered aggregate outcomes stay
+The runtime verifies the immutable compressed XZ transport triplet, then hashes
+the decompressed JSON against the ledger's unchanged bank identity. Compression
+changes no roots, action tapes or allocation. The source canary stays INCOMPLETE and its registered aggregate outcomes stay
 sealed. These roots are development timing inputs, never fresh gate worlds.
 
 Each platform replays each selected parent once through the existing F0/B2

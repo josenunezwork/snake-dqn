@@ -6,6 +6,7 @@ import argparse
 import copyreg
 import hashlib
 import json
+import lzma
 import math
 import multiprocessing as mp
 import os
@@ -87,9 +88,18 @@ def build_bank(sessions: list[Path], out: Path) -> dict[str, Any]:
     return value
 
 
-def load_bank(path: Path) -> dict[str, Any]:
+def bank_bytes(path: Path) -> bytes:
     _verify(path)
-    value = json.loads(path.read_text())
+    payload = path.read_bytes()
+    return lzma.decompress(payload) if path.suffix == ".xz" else payload
+
+
+def bank_digest(path: Path) -> str:
+    return hashlib.sha256(bank_bytes(path)).hexdigest()
+
+
+def load_bank(path: Path) -> dict[str, Any]:
+    value = json.loads(bank_bytes(path))
     roots = value.get("roots")
     if (
         value.get("schema") != SCHEMA
@@ -522,7 +532,7 @@ def main() -> None:
             "qualified whole-session budget required (local probes may use --deadline-seconds)"
         )
     bank = load_bank(args.bank)
-    digest = _verify(args.bank)
+    digest = bank_digest(args.bank)
     from .factory import FactoryInvalid
 
     try:
