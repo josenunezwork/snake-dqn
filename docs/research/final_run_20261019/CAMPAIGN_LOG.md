@@ -160,6 +160,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 02:05 PT | P1 finalisation ruling | JUDGMENT_P1_FINALISATION.md sha fe0584595cca6f6f... (Opus stand-in): critic PASS stands as the registered Y3 critic-gate result (no second look); Y3 not yet PASS. Amendment 06 repair = import verified pre-actor origin, skip refit/gate, actor phase only to a 900-s operational capture + suffix (canary 2.00 u, repair 6.16 u); envelope 25.50 -> 34.50 u (one retry each); replacement 3.86 u with tape check; 1M qualification 4.00 u after full Y3 PASS. Sol building. |
 
+| 2026-10-23 04:00 PT | OWNER DECISIONS | Verbatim "yes approved yes to all fri" (big-lever/exp/OWNER_DECISIONS_20261023.txt): (1) publish P1 Y3 origin assets as public GitHub release (incl. disclosed paths; scope incl. replacement/1M) — pending owner gh auth login; (2) GC freeze_startup serving change approved subject to registered qualification (d.2 A1 + Sunday regression) passing; M1-bis re-chartered once, conditional on GC A1 PASS; 120-tick probe retired for >=2,400-tick + 10-min bare qualification. F1 CPU probe INVALID (F0 export digest mismatch) — investigating; L4 probe running. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
