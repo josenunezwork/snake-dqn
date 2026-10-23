@@ -139,6 +139,8 @@ DIFF_PATHS = {
     "e8_04_source_admission.py",
     "p1_kernel_ambiguity_retry.py",
     "p1_next_stage.py",
+    "p1_repair_transport.py",
+    "p1_release_scan.py",
 }
 
 
@@ -238,6 +240,90 @@ def upload_preflight(manifest: dict[str, Any], repo: Path) -> dict[str, Any]:
     return result
 
 
+def release_inputs(
+    manifest: dict[str, Any], root: Path, repo: Path, tag: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Plan descending-size public delivery, including the qualified fallback.
+
+    This function copies bytes locally only. URLs describe the proposed release;
+    their existence and public-fetch timing remain operator gates after consent.
+    """
+    import re
+    import shutil
+
+    from research.bl_ppo.exports import verify_export
+    from research.bl_ppo.p1_repair_transport import public_rows
+    from research.bl_upload import qualification as q
+
+    if tag != "p1-y3-origin-20261023" or not re.fullmatch(r"[a-z0-9-]+", tag):
+        raise ValueError("transport ruling fixes the proposed release tag")
+    rows = q._input_rows(manifest, repo)
+    bootstrap = q._pinned_bootstrap_bytes(repo, manifest["commit"])
+    _, fallback_bytes, _ = q._source_plan(
+        repo, manifest, q._pinned_source_module(repo, manifest["commit"])
+    )
+    total = sum(r["bytes"] for r in rows + bootstrap)
+    count = len(rows)
+    assets, selection = [], []
+    for row in sorted(rows, key=lambda r: (-r["bytes"], r["dest"])):
+        if q._forecast(total + fallback_bytes, count + 1) <= 150:
+            break
+        source = Path(row["path"])
+        if source.name != row["dest"]:
+            raise ValueError("release assets require identical flat file destinations")
+        verify_export(source)
+        target = root / "release-assets" / source.name
+        target.parent.mkdir(exist_ok=True)
+        with source.open("rb") as src, target.open("xb") as dst:
+            shutil.copyfileobj(src, dst, 8 * 1024**2)
+        if digest(target) != row["sha256"]:
+            raise ValueError("release staging changed source bytes")
+        total -= row["bytes"]
+        count -= 1
+        assets.append(
+            dict(
+                name=source.name,
+                size_bytes=row["bytes"],
+                sha256=row["sha256"],
+                source_path=str(source),
+                staged_path=str(target),
+                origin_payload=source.parent.name == "origin-inputs",
+            )
+        )
+        selection.append(
+            dict(
+                asset=source.name,
+                residual_upload_bytes=total,
+                residual_upload_files=count,
+                normal_forecast_seconds=q._forecast(total, count),
+                fallback_forecast_seconds=q._forecast(total + fallback_bytes, count + 1),
+            )
+        )
+    if not assets or q._forecast(total + fallback_bytes, count + 1) > 150:
+        raise ValueError("release selection cannot satisfy the qualified upload forecast")
+    base_url = f"https://github.com/josenunezwork/snake-dqn/releases/download/{tag}"
+    rewritten = public_rows(manifest, assets, base_url)
+    plan = {
+        "schema": "bl-p1-public-release-plan/v1",
+        "status": "PLAN_ONLY_OWNER_PUBLICATION_OK_REQUIRED",
+        "repo": "josenunezwork/snake-dqn",
+        "tag": tag,
+        "target_commit": manifest["commit"],
+        "base_url": base_url,
+        "assets": assets,
+        "total_asset_bytes": sum(a["size_bytes"] for a in assets),
+        "selection": selection,
+        "selection_rule": "descending local input bytes until fallback upload forecast <=150s",
+        "fallback_source_bytes": fallback_bytes,
+        "public_fetch_measured": False,
+        "public_fetch_total_cap_seconds": 300,
+        "release_created": False,
+        "uploads_performed": 0,
+        "immutable_until": "P1 closes; never replace or delete assets; new bytes need a new tag",
+    }
+    return rewritten, plan
+
+
 def prepare_production(
     *,
     source_manifest: Path,
@@ -248,6 +334,7 @@ def prepare_production(
     origin_root: Path,
     failed_receipt: Path,
     offline_audit: Path,
+    public_release_tag: str | None = None,
 ) -> dict[str, Any]:
     """Freeze actual canary/repair inputs and ruled future-stage templates."""
     import copy
@@ -395,6 +482,10 @@ def prepare_production(
         )
     )
     template["bl_p1"]["control"] = control
+    release_plan = None
+    if public_release_tag is not None:
+        template, release_plan = release_inputs(template, root, repo, public_release_tag)
+        export_json(root / "release-plan.json", release_plan)
     canary = canary_manifest(
         template,
         package="bl_ppo",
@@ -442,7 +533,10 @@ def prepare_production(
     median_download_seconds = expected_download_bytes / statistics.median(downloads)
     worst_download_seconds = expected_download_bytes / min(downloads)
     forecast_minutes = (
-        200 + upload["fallback_upload_forecast_seconds"] + 960 + median_download_seconds
+        200
+        + (300 + 150 if release_plan is not None else upload["fallback_upload_forecast_seconds"])
+        + 960
+        + median_download_seconds
     ) / 60
     forecast = {
         "schema": "bl-p1-repair-measured-forecast/v1",
@@ -469,7 +563,22 @@ def prepare_production(
             else "PASS_NOT_DISPATCHED"
         ),
     }
-    export_json(root / "measured-forecast.json", forecast)
+    if release_plan is not None:
+        forecast.update(
+            public_fetch_cap_seconds=300,
+            public_fetch_measured_seconds=None,
+            public_fetch_measured_bytes_per_second=None,
+            residual_upload_budget_seconds=150,
+            transport_ruling="JUDGMENT_P1_REPAIR_TRANSPORT.md option (b)",
+            status="HOLD_OWNER_PUBLICATION_AND_MEASURED_PUBLIC_PREFLIGHT",
+            forecast_ceiling_pass=2 * forecast_minutes <= 200,
+            fill_after_publication=(
+                "Create a new immutable public-fetch-preflight receipt; never edit this receipt"
+            ),
+        )
+    export_json(
+        root / ("measured-forecast-03.json" if release_plan else "measured-forecast.json"), forecast
+    )
     # Preserve separately frozen stage prices, with unmet prerequisite fuses.
     futures = {}
     for stage, cap, reserve, estimate, cadence, retries in [
@@ -525,6 +634,13 @@ def prepare_production(
         "acceptance": {"path": str(acceptance), "sha256": digest(acceptance)},
         "exact_origin_payload_bytes": sum(p.stat().st_size for p in payloads.iterdir()),
     }
+    if release_plan is not None:
+        result.update(
+            release_plan_sha256=digest(root / "release-plan.json"),
+            public_asset_bytes=release_plan["total_asset_bytes"],
+            public_asset_count=len(release_plan["assets"]),
+            forecast_receipt="measured-forecast-03.json",
+        )
     export_json(root / "preparation.json", result)
     return result
 
@@ -543,6 +659,7 @@ def main() -> None:
     ):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--public-release-tag")
     args = parser.parse_args()
     print(json.dumps(prepare_production(**vars(args)), sort_keys=True))
 

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from research.bl_ppo.exports import export_json, export_torch
+from research.bl_ppo.exports import digest, export_bytes, export_json, export_torch
 from research.bl_ppo.p1_source_repair import build_origin_import, diff_scope
 
 
@@ -95,3 +95,29 @@ def test_diff_scope_records_pinned_tools_and_refuses_science(tmp_path, monkeypat
         assert result["repair_commit"] == commit
         assert result["diff_stat"]
         assert result["paths"][0]["path"] == name
+
+
+def test_release_selection_sizes_fallback_and_stops_in_descending_order(tmp_path, monkeypatch):
+    from research.bl_ppo.p1_source_repair import release_inputs
+    from research.bl_upload import qualification as q
+
+    origin = tmp_path / "origin-inputs"
+    inputs = []
+    for name, size in [("large.pt", 4_000_000), ("medium.pt", 2_000_000), ("small.pt", 9)]:
+        path = origin / name
+        export_bytes(path, b"x" * size)
+        inputs.append({"path": str(path), "dest": name, "sha256": digest(path)})
+    manifest = {"inputs": inputs, "commit": "a" * 40}
+    monkeypatch.setattr(q, "_pinned_bootstrap_bytes", lambda *_: [])
+    monkeypatch.setattr(q, "_pinned_source_module", lambda *_: None)
+    monkeypatch.setattr(q, "_source_plan", lambda *_: ({}, 2_000_000, "a" * 64))
+    result, plan = release_inputs(manifest, tmp_path, tmp_path, "p1-y3-origin-20261023")
+    assert [row["name"] for row in plan["assets"]] == ["large.pt", "medium.pt"]
+    assert plan["selection"][0]["fallback_forecast_seconds"] > 150
+    assert plan["selection"][-1]["fallback_forecast_seconds"] <= 150
+    assert "path" in result["inputs"][-1]
+    assert plan["release_created"] is False
+    assert plan["uploads_performed"] == 0
+    for row in plan["assets"]:
+        assert Path(row["staged_path"]).read_bytes() == Path(row["source_path"]).read_bytes()
+    assert all("path" in row for row in manifest["inputs"])

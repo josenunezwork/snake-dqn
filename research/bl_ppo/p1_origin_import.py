@@ -80,6 +80,8 @@ def validate(control: dict[str, Any], root: Path) -> dict[str, Any]:
         "research/bl_ppo/run.py",
         "research/bl_ppo/p1_runtime.py",
         "research/bl_ppo/p1_source_repair.py",
+        "research/bl_ppo/p1_repair_transport.py",
+        "research/bl_ppo/p1_release_scan.py",
         "research/bl_ppo/test_p1_source_repair.py",
         "research/bl_ppo/p1_origin_import.py",
         "research/bl_ppo/test_p1_origin_import.py",
