@@ -142,6 +142,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-22 22:50 PT | D1 RULING | JUDGMENT_D1.md (sha 335dc9e2781b52f4...): M0 GO (L*=72, F=0.944). M1 BLOCKED on overruns only: 6 = harness start-up artefact (240 ms first update + catch-up), 39 = sparse 38-60 ms steady-state game.update stalls (likely GC; never measured for bare game). ONE judged remedy = attempt-07 (last): 200-tick warm-up + pool pre-spawn, two bare W0 control cells, per-tick GC disclosure; Branch A zero bar default; Branch B (relative to bare control) only if Astra->Fable ratify pre-data by Sun 18:00. Verdict by Mon Oct 26 12:00; FAIL => KEEP_B8. Sol building; Astra round 22 on Branch B. A1 STOP_ENGINE; A2 main + A3 L4 running. |
 
+| 2026-10-22 22:55 PT | A100 A3 result | analysis.json sha 721195a1b2fe6dae...: baseline cached actor learning 1.87 s (A100) / 1.81 s (L4) per 16,384-transition rollout, above the 1.6384 s stop line => WP5 paused for learner fix; optimized learner 0.41 s A100 / 0.98 s L4 (passes); collection 9.56 / 9.57 s dominates, full cycle ~10-12 s on both (~1.5k transitions/s). A100 gives no P1 wall-clock gain while collection is host-CPU bound; keep P1 on L4 with the optimized learner. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
