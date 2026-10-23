@@ -44,6 +44,48 @@ JUDGED_SOURCE_SHA256 = "78ae9369780d0f2b9c4f4e3fb2946a743589f625a8afafa622b545d1
 JUDGED_PRECELL_SHA256 = "4ebca231284aac36426f5d7aebe0f2e2e5029f2ed67586caa95f55e69d75d9f7"
 JUDGED_CHARGED_SECONDS = 5.999214000010397
 
+# Fable's second pinned admission; no cell evidence crosses the namespace.
+JUDGED2_RECEIPT_SHA256 = "77e3d9a9274fd1a55697231c4913d100515af7a420d67622bbf46534310944ba"
+JUDGED2_ATTEMPT_SHA256 = "3562923b76f91755acba0c7ff9a5382e73595f4beec882f089537887ef8be79e"
+JUDGED2_LOG_SHA256 = "6b31913c90fd7c493067c66f48632559f1304f537a6dd1854fea35660d8cb683"
+JUDGED2_CELL_SHA256 = {
+    "cpu-w1-k1": "47d73fc1e2836d92299da5ae3221a5d670f421b6196b01fac4f0c9f7f43e7e9f"
+}
+JUDGED2_SOURCE_SHA256 = "ee619dff6ffbb92f3dfd3be5bf5bb336e506e29be23fc80ba7fb69248ee89022"
+JUDGED2_PREVIOUS_JUDGED_SHA256 = "7eae5ceeca340e082e92f78bcec769d97693db452dc6548c437cfe0ed2bb8169"
+JUDGED2_CHARGED_SECONDS = 36.47473570803413
+JUDGED2_JUDGMENT_PATH = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_M1_ATTEMPT5.md"
+)
+MAX_CELL_RESTARTS = 3
+MAX_DISCARDED_RUNS = 8
+MIN_CELL_BUDGET_SECONDS = 600
+RESTART_POLICY = {
+    "trigger": "foreign heavy load during M1",
+    "max_per_cell": MAX_CELL_RESTARTS,
+    "max_per_attempt": MAX_DISCARDED_RUNS,
+    "quiet": {
+        "threshold_percent": 20.0,
+        "consecutive": 3,
+        "interval_seconds": 10.0,
+        "max_wait_seconds": 900.0,
+    },
+}
+
+
+def refuse_consumed(prior_path: Path, field: str, attempt_number: int) -> None:
+    """A historical recovery proof is dispatch-once, including at --check."""
+    roots = {prior_path.parent.parent, JUDGED2_JUDGMENT_PATH.parent}
+    for root in roots:
+        for candidate in root.glob("bl-m1-attempt-*/receipt.json"):
+            newer, _ = l1._read_completed_json(candidate)
+            if (
+                newer.get("schema") == SCHEMA
+                and newer.get(field)
+                and newer.get("attempt_number", 0) > attempt_number
+            ):
+                raise ValueError("M1 recovery proof already consumed by a newer receipt")
+
 
 def cells() -> list[dict[str, Any]]:
     """The four frozen CPU cells, in conservative-to-saturated order."""
@@ -202,46 +244,74 @@ def reconciled_precell_stop(path: Path, data: dict) -> dict:
         or proof.get("charged_seconds") != previous.get("charged_seconds")
     ):
         raise ValueError("M1 reconciliation requires the exact audited empty pre-pool failure")
+    refuse_consumed(prior_path, "reconciled_precell_stop_sha256", 1)
     return previous
 
 
 def judged_recovery(path: Path, data: dict) -> dict:
-    """Carry only debit and attempt count from Fable's exact audited stop."""
+    """Carry only debit and attempt count from either exact judge-pinned stop."""
     error = "M1 judged recovery requires the exact audited attempt-03 foreign-load stop"
     try:
         proof, _ = l1._read_completed_json(path)
+        second = proof.get("judge") == "Fable-M1-attempt5"
+        if second:
+            error = "M1 judged recovery requires the exact audited attempt-04 foreign-load stop"
+        pins = (
+            (
+                JUDGED2_RECEIPT_SHA256,
+                JUDGED2_ATTEMPT_SHA256,
+                JUDGED2_LOG_SHA256,
+                JUDGED2_CELL_SHA256,
+                JUDGED2_SOURCE_SHA256,
+                JUDGED2_CHARGED_SECONDS,
+                3,
+            )
+            if second
+            else (
+                JUDGED_RECEIPT_SHA256,
+                JUDGED_ATTEMPT_SHA256,
+                JUDGED_LOG_SHA256,
+                JUDGED_CELL_SHA256,
+                JUDGED_SOURCE_SHA256,
+                JUDGED_CHARGED_SECONDS,
+                2,
+            )
+        )
+        receipt_pin, attempt_pin, log_pin, cell_pins, source_pin, debit, number = pins
         prior_path = Path(proof["previous_receipt_path"])
         previous, receipt_sha = l1._read_completed_json(prior_path)
         attempt, attempt_sha = l1._read_completed_json(prior_path.parent / "attempt.json")
-        cell_path = prior_path.parent / "cpu-w1-k1.json"
-        cell, cell_sha = l1._read_completed_json(cell_path)
+        cell, cell_sha = l1._read_completed_json(prior_path.parent / "cpu-w1-k1.json")
+        log_path = (
+            Path(proof["previous_log_path"]) if second else prior_path.parent.with_suffix(".log")
+        )
         if (
             proof.get("schema") != SCHEMA + "/judged-recovery"
-            or proof.get("judge") != "Fable-M1-attempt4"
-            or proof.get("status") != "JUDGED_FOREIGN_LOAD_STOP"
+            or proof.get("judge") != ("Fable-M1-attempt5" if second else "Fable-M1-attempt4")
+            or proof.get("status")
+            != ("JUDGED_FOREIGN_LOAD_STOP_2" if second else "JUDGED_FOREIGN_LOAD_STOP")
             or proof.get("target_namespace") != data["namespace"]
             or proof.get("judgment_sha256") != digest(Path(proof["judgment_path"]))
-            or proof.get("next_attempt_number") != 3
+            or proof.get("next_attempt_number") != number + 1
             or proof.get("final_attempt") is not True
-            or receipt_sha != JUDGED_RECEIPT_SHA256
+            or receipt_sha != receipt_pin
             or proof.get("previous_receipt_sha256") != receipt_sha
-            or attempt_sha != JUDGED_ATTEMPT_SHA256
+            or attempt_sha != attempt_pin
             or proof.get("previous_attempt_sha256") != attempt_sha
-            or digest(prior_path.parent.with_suffix(".log")) != JUDGED_LOG_SHA256
-            or proof.get("previous_log_sha256") != JUDGED_LOG_SHA256
-            or cell_sha != JUDGED_CELL_SHA256["cpu-w1-k1"]
-            or proof.get("previous_cell_sha256") != JUDGED_CELL_SHA256
-            or attempt.get("sources", {}).get("research/bl_k1/m1.py") != JUDGED_SOURCE_SHA256
+            or digest(log_path) != log_pin
+            or proof.get("previous_log_sha256") != log_pin
+            or cell_sha != cell_pins["cpu-w1-k1"]
+            or proof.get("previous_cell_sha256") != cell_pins
+            or attempt.get("sources", {}).get("research/bl_k1/m1.py") != source_pin
             or previous.get("schema") != SCHEMA
             or previous.get("namespace") != attempt.get("namespace")
-            or previous.get("attempt_number") != 2
+            or previous.get("attempt_number") != number
             or previous.get("verdict") != "INCOMPLETE"
             or previous.get("verified_stop") is not True
             or previous.get("mechanical_failure") is not True
             or previous.get("completed_unit_exports") != {}
-            or previous.get("reconciled_precell_stop_sha256") != JUDGED_PRECELL_SHA256
-            or previous.get("charged_seconds") != JUDGED_CHARGED_SECONDS
-            or proof.get("charged_seconds") != JUDGED_CHARGED_SECONDS
+            or previous.get("charged_seconds") != debit
+            or proof.get("charged_seconds") != debit
             or len(previous["cells"]) != 1
             or previous["cells"][0].get("cell_id") != "cpu-w1-k1"
             or previous["cells"][0].get("complete") is not False
@@ -249,6 +319,24 @@ def judged_recovery(path: Path, data: dict) -> dict:
             or cell["summary"].get("complete") is not False
         ):
             raise ValueError(error)
+        if second:
+            if (
+                Path(proof["judgment_path"]) != JUDGED2_JUDGMENT_PATH
+                or proof.get("restart_policy_required") is not True
+                or not RESTART_POLICY
+                or data.get("sources", {}).get("research/bl_k1/m1.py") != digest(Path(__file__))
+                or previous.get("final_attempt") is not True
+                or previous.get("judged_recovery_sha256") != JUDGED2_PREVIOUS_JUDGED_SHA256
+                or proof.get("previous_judged_recovery_sha256") != JUDGED2_PREVIOUS_JUDGED_SHA256
+                or proof.get("previous_namespace") != previous["namespace"]
+                or proof.get("remaining_seconds") != CAP_SECONDS - debit
+                or proof.get("transferred_cell_or_timing_evidence") is not False
+                or proof.get("operator_dispatch_once") is not True
+            ):
+                raise ValueError(error)
+        elif previous.get("reconciled_precell_stop_sha256") != JUDGED_PRECELL_SHA256:
+            raise ValueError(error)
+        refuse_consumed(prior_path, "judged_recovery_sha256", number)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         raise ValueError(error) from exc
     return previous
@@ -816,6 +904,96 @@ def reduce_units(units: list[dict], namespace: str, data: dict | None = None) ->
     }
 
 
+def wait_quiet(
+    observe: Callable[[], dict],
+    threshold_percent: float = 20.0,
+    consecutive: int = 3,
+    interval_seconds: float = 10.0,
+    max_wait_seconds: float = 900.0,
+) -> dict:
+    """Record consecutive quiet process screens using the unchanged ownership walk."""
+    started = time.monotonic_ns()
+    deadline = time.monotonic() + max_wait_seconds
+    samples = []
+    streak = 0
+    while time.monotonic() < deadline:
+        row = observe()
+        screen = dict(row["process_screen"])
+        heavy = []
+        for line in screen["processes"].splitlines()[1:]:
+            fields = line.strip().split(None, 3)
+            if len(fields) == 4 and float(fields[2]) >= threshold_percent:
+                heavy.append(
+                    {
+                        "pid": int(fields[0]),
+                        "ppid": int(fields[1]),
+                        "cpu_percent": float(fields[2]),
+                        "command": fields[3],
+                    }
+                )
+        screen["other_heavy_processes"] = heavy
+        foreign = foreign_load(screen, os.getpid())
+        samples.append(
+            {**row, "sampled_ns": time.monotonic_ns(), "foreign_heavy_processes": foreign}
+        )
+        streak = 0 if foreign else streak + 1
+        if streak >= consecutive and time.monotonic() < deadline:
+            return {
+                "started_ns": started,
+                "finished_ns": time.monotonic_ns(),
+                "samples": samples,
+                "quiet": True,
+            }
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(interval_seconds, remaining))
+    return {
+        "started_ns": started,
+        "finished_ns": time.monotonic_ns(),
+        "samples": samples,
+        "quiet": False,
+    }
+
+
+def audit_discarded(out_dir: Path, receipt: dict, units: list[dict]) -> None:
+    """Re-audit every immutable discard; no outcome-based exclusions are legal."""
+    runs = receipt["discarded_runs"]
+    expected = {f"{r['cell_id']}.discarded-{r['n']}.json" for r in runs}
+    if len(expected) != len(runs) or expected != {
+        p.name for p in out_dir.glob("*.discarded-*.json")
+    }:
+        raise ValueError("missing, duplicate or unrecorded M1 discard")
+    counts = {}
+    retained_epochs = {row["epoch_ns"] for row in units}
+    for record in runs:
+        unit_id, n = record["cell_id"], record["n"]
+        row, _ = l1._read_completed_json(out_dir / f"{unit_id}.discarded-{n}.json")
+        if (
+            row.get("stop_reason") != RESTART_POLICY["trigger"]
+            or record.get("stop_reason") != RESTART_POLICY["trigger"]
+        ):
+            raise ValueError("non-foreign discard")
+        counts[unit_id] = counts.get(unit_id, 0) + 1
+        if (
+            unit_id not in {c["cell_id"] for c in cells()}
+            or n != counts[unit_id]
+            or counts[unit_id] > MAX_CELL_RESTARTS
+            or len(runs) > MAX_DISCARDED_RUNS
+            or row.get("namespace") != receipt["namespace"]
+            or row.get("cell_id") != unit_id
+            or row["summary"].get("complete") is not False
+            or row["summary"].get("verdict") == "INVALID"
+            or not row.get("host")
+            or not row["host"][-1].get("foreign_heavy_processes")
+            or row["host"][-1]["foreign_heavy_processes"] != record["foreign_heavy_processes"]
+            or row["epoch_ns"] in retained_epochs
+            or record["ticks"] != len(row["ticks"])
+            or record["samples_count"] != len(row["samples"])
+            or not record["started_ns"] <= row["epoch_ns"] <= record["finished_ns"]
+        ):
+            raise ValueError("invalid M1 discard or shared epoch")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixtures", type=Path, required=True)
@@ -890,6 +1068,7 @@ def main() -> None:
                     "base_seconds": BASE_SECONDS,
                     "cap_seconds": CAP_SECONDS,
                     "remaining_seconds": CAP_SECONDS - charged,
+                    "attempt_number": 1 if previous is None else previous["attempt_number"] + 1,
                     "timed_cells_run": False,
                 }
             )
@@ -915,9 +1094,21 @@ def main() -> None:
         "claude-m1", "PLAN_v3 M1 native co-residency", seconds=CAP_SECONDS - charged
     ) as lease:
         started = time.monotonic()
+        deadline = started + CAP_SECONDS - charged
         idle = snapshot()
         if not idle["quiet"]:
             raise RuntimeError("M1 requires an idle Mac receipt; foreign load observed")
+        quiet_waits = [
+            wait_quiet(
+                observe,
+                **{
+                    **RESTART_POLICY["quiet"],
+                    "max_wait_seconds": min(900.0, max(0.0, deadline - time.monotonic())),
+                },
+            )
+        ]
+        if not quiet_waits[0]["quiet"]:
+            raise RuntimeError("host not quiet for M1 restart")
         args.out.mkdir(parents=True)
         export_json(args.out / "idle.json", idle)
         export_json(
@@ -929,7 +1120,8 @@ def main() -> None:
                 "ledger_sha256": digest(args.ledger),
                 "base_seconds": BASE_SECONDS,
                 "cap_seconds": CAP_SECONDS,
-                "mechanical_retry": "one whole-cell completion attempt; no automatic retry",
+                "mechanical_retry": "bounded whole-cell restart on foreign load only",
+                "restart_policy": RESTART_POLICY,
                 "reconciled_precell_stop_sha256": (
                     digest(args.reconciled_precell_stop) if args.reconciled_precell_stop else None
                 ),
@@ -938,8 +1130,8 @@ def main() -> None:
                 ),
             },
         )
-        deadline = started + CAP_SECONDS - charged
         units = []
+        discarded_runs = []
         completed_exports = dict(ledger)
         stop_state = {"verified_stop": True}
         failure = None
@@ -955,8 +1147,53 @@ def main() -> None:
                     if not row["summary"]["complete"]:
                         raise ValueError("cannot skip an incomplete M1 cell")
                 else:
-                    row = run_cell(cell, data, deadline, observe, stop_state)
-                    row["mac_lease"] = lease.receipt
+                    restarts = 0
+                    while True:
+                        run_started = time.monotonic_ns()
+                        row = run_cell(cell, data, deadline, observe, stop_state)
+                        run_finished = time.monotonic_ns()
+                        row["mac_lease"] = lease.receipt
+                        if not (
+                            row["stop_reason"] == RESTART_POLICY["trigger"]
+                            and row["summary"]["complete"] is False
+                            and row["summary"]["verdict"] != "INVALID"
+                            and stop_state["verified_stop"]
+                            and restarts < MAX_CELL_RESTARTS
+                            and len(discarded_runs) < MAX_DISCARDED_RUNS
+                            and time.monotonic() < deadline - MIN_CELL_BUDGET_SECONDS
+                        ):
+                            break
+                        restarts += 1
+                        export_json(args.out / f"{unit_id}.discarded-{restarts}.json", row)
+                        discarded_runs.append(
+                            {
+                                "cell_id": unit_id,
+                                "n": restarts,
+                                "stop_reason": row["stop_reason"],
+                                "foreign_heavy_processes": row["host"][-1][
+                                    "foreign_heavy_processes"
+                                ],
+                                "started_ns": run_started,
+                                "finished_ns": run_finished,
+                                "ticks": len(row["ticks"]),
+                                "samples_count": len(row["samples"]),
+                            }
+                        )
+                        quiet = wait_quiet(
+                            observe,
+                            **{
+                                **RESTART_POLICY["quiet"],
+                                "max_wait_seconds": min(
+                                    900.0, max(0.0, deadline - time.monotonic())
+                                ),
+                            },
+                        )
+                        quiet_waits.append(quiet)
+                        if not quiet["quiet"]:
+                            failure = "host not quiet for M1 restart"
+                            break
+                    if failure:
+                        break
                     if row["summary"]["complete"]:
                         try:
                             audit_unit(row, data)
@@ -973,6 +1210,13 @@ def main() -> None:
             failure = f"{type(exc).__name__}: {exc}"
             invalid = isinstance(exc, ValueError)
         receipt = reduce_units(units, data["namespace"], data)
+        receipt.update(
+            discarded_runs=discarded_runs, quiet_waits=quiet_waits, restart_policy=RESTART_POLICY
+        )
+        try:
+            audit_discarded(args.out, receipt, units)
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            failure, invalid = str(exc), True
         if failure:
             receipt["verdict"] = "INVALID" if invalid else "INCOMPLETE"
             receipt["reason"] = failure

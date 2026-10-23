@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import queue
 from collections import Counter
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +15,12 @@ from research.bl_mac_latency import l1
 from research.bl_served_search.exports import export_json
 from research.bl_served_search.native_ruler import THREAD_ENV
 from research.bl_served_search.ruler_timing import STAGES
+
+
+@pytest.fixture(autouse=True)
+def isolate_judged2_artifact_root(monkeypatch, tmp_path) -> None:
+    """Never let pinned-proof tests read a live artifact receipt directory."""
+    monkeypatch.setattr(m1, "JUDGED2_JUDGMENT_PATH", tmp_path / "JUDGMENT_M1_ATTEMPT5.md")
 
 
 def fixtures() -> list[dict]:
@@ -540,6 +547,7 @@ def test_prepool_exception_receipt_keeps_verified_stop(monkeypatch, tmp_path) ->
 
     monkeypatch.setattr(mac_lease, "held", held)
     monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(m1, "wait_quiet", lambda *args, **kwargs: {"quiet": True, "samples": []})
     monkeypatch.setattr(m1, "inputs", lambda *args: {"namespace": "n", "sources": {}})
     monkeypatch.setattr(m1, "sources", lambda: {})
     monkeypatch.setattr(m1, "verify_ledger", lambda *args: {})
@@ -761,6 +769,114 @@ def write_judged_case(monkeypatch, case) -> dict:
     }
 
 
+@pytest.fixture
+def judged2_case(monkeypatch, tmp_path):
+    """A complete mock of attempt-04 exercises the second pinned proof path."""
+    prior = tmp_path / "bl-m1-attempt-04"
+    prior.mkdir()
+    judgment = m1.JUDGED2_JUDGMENT_PATH
+    judgment.write_text("Fable attempt-05 judgment")
+    log = tmp_path / "bl-m1-attempt-04.prep2.log"
+    log.write_text("mechanical foreign-load stop")
+    previous = {
+        "schema": m1.SCHEMA,
+        "namespace": "attempt-04-namespace",
+        "attempt_number": 3,
+        "final_attempt": True,
+        "verdict": "INCOMPLETE",
+        "verified_stop": True,
+        "mechanical_failure": True,
+        "completed_unit_exports": {},
+        "judged_recovery_sha256": "prior-judged-proof",
+        "charged_seconds": 36.47473570803413,
+        "cells": [{"cell_id": "cpu-w1-k1", "complete": False}],
+    }
+    attempt = {"namespace": previous["namespace"], "sources": {"research/bl_k1/m1.py": "old"}}
+    cell = {"stop_reason": "foreign heavy load during M1", "summary": {"complete": False}}
+    receipt_sha = export_json(prior / "receipt.json", previous)["sha256"]
+    attempt_sha = export_json(prior / "attempt.json", attempt)["sha256"]
+    cell_sha = export_json(prior / "cpu-w1-k1.json", cell)["sha256"]
+    monkeypatch.setattr(m1, "JUDGED2_RECEIPT_SHA256", receipt_sha)
+    monkeypatch.setattr(m1, "JUDGED2_ATTEMPT_SHA256", attempt_sha)
+    monkeypatch.setattr(m1, "JUDGED2_LOG_SHA256", m1.digest(log))
+    monkeypatch.setattr(m1, "JUDGED2_CELL_SHA256", {"cpu-w1-k1": cell_sha})
+    monkeypatch.setattr(m1, "JUDGED2_SOURCE_SHA256", "old")
+    monkeypatch.setattr(m1, "JUDGED2_PREVIOUS_JUDGED_SHA256", "prior-judged-proof")
+    data = {
+        "namespace": "new",
+        "sources": {"research/bl_k1/m1.py": m1.digest(Path(m1.__file__))},
+    }
+    proof = {
+        "schema": m1.SCHEMA + "/judged-recovery",
+        "judge": "Fable-M1-attempt5",
+        "status": "JUDGED_FOREIGN_LOAD_STOP_2",
+        "judgment_path": str(judgment),
+        "judgment_sha256": m1.digest(judgment),
+        "previous_receipt_path": str(prior / "receipt.json"),
+        "previous_receipt_sha256": receipt_sha,
+        "previous_attempt_sha256": attempt_sha,
+        "previous_log_path": str(log),
+        "previous_log_sha256": m1.digest(log),
+        "previous_cell_sha256": {"cpu-w1-k1": cell_sha},
+        "previous_namespace": previous["namespace"],
+        "previous_judged_recovery_sha256": "prior-judged-proof",
+        "charged_seconds": previous["charged_seconds"],
+        "remaining_seconds": m1.CAP_SECONDS - previous["charged_seconds"],
+        "next_attempt_number": 4,
+        "final_attempt": True,
+        "restart_policy_required": True,
+        "target_namespace": "new",
+        "transferred_cell_or_timing_evidence": False,
+        "operator_dispatch_once": True,
+    }
+    return SimpleNamespace(
+        previous=previous,
+        attempt=attempt,
+        proof=proof,
+        path=tmp_path / "judged2-proof.json",
+        data=data,
+    )
+
+
+def test_judged2_recovery_happy_path(judged2_case) -> None:
+    export_json(judged2_case.path, judged2_case.proof)
+    assert m1.judged_recovery(judged2_case.path, judged2_case.data) == judged2_case.previous
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["hash", "attempt", "final", "judgment", "old_source", "missing_policy"],
+)
+def test_judged2_recovery_refuses_required_boundaries(monkeypatch, judged2_case, change) -> None:
+    case = judged2_case
+    if change == "hash":
+        case.proof["previous_receipt_sha256"] = "wrong"
+    elif change == "attempt":
+        case.previous["attempt_number"] = 2
+    elif change == "final":
+        case.previous.pop("final_attempt")
+    elif change == "judgment":
+        case.proof["judgment_sha256"] = "wrong"
+    elif change == "old_source":
+        case.data["sources"]["research/bl_k1/m1.py"] = "old"
+    elif change == "missing_policy":
+        monkeypatch.setattr(m1, "RESTART_POLICY", {})
+    if change in {"attempt", "final"}:
+        receipt_path = Path(case.proof["previous_receipt_path"])
+        for candidate in (
+            receipt_path,
+            receipt_path.with_suffix(receipt_path.suffix + ".sha256"),
+            receipt_path.with_suffix(receipt_path.suffix + ".complete"),
+        ):
+            candidate.unlink()
+        receipt_sha = export_json(receipt_path, case.previous)["sha256"]
+        case.proof["previous_receipt_sha256"] = receipt_sha
+        monkeypatch.setattr(m1, "JUDGED2_RECEIPT_SHA256", receipt_sha)
+    export_json(case.path, case.proof)
+    with pytest.raises(ValueError, match="exact audited attempt-04 foreign-load stop"):
+        m1.judged_recovery(case.path, case.data)
+
+
 @pytest.mark.parametrize(
     "change",
     [
@@ -887,8 +1003,9 @@ def test_judged_recovery_check_and_final_receipt(monkeypatch, judged_case, capsy
 
     monkeypatch.setattr(mac_lease, "held", held)
     monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(m1, "wait_quiet", lambda *args, **kwargs: {"quiet": True, "samples": []})
     clock = iter([100.0, 102.0])
-    monkeypatch.setattr(m1.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(m1.time, "monotonic", lambda: next(clock, 102.0))
 
     def stop(*args):
         raise RuntimeError("mock mechanical stop; no pool or timing run")
@@ -963,6 +1080,281 @@ def test_judged_recovery_refused_for_smoke(monkeypatch) -> None:
         m1.main()
 
 
+def test_wait_quiet_requires_three_foreign_free_samples(monkeypatch) -> None:
+    """The quiet gate keeps every observed high-load process, including foreign ones."""
+    clock = SimpleNamespace(now_ns=0)
+    monkeypatch.setattr(m1.time, "monotonic_ns", lambda: clock.now_ns)
+    monkeypatch.setattr(m1.time, "monotonic", lambda: clock.now_ns / 1e9)
+    monkeypatch.setattr(
+        m1.time,
+        "sleep",
+        lambda seconds: setattr(clock, "now_ns", clock.now_ns + int(seconds * 1e9)),
+    )
+    screens = iter(
+        [
+            "PID PPID %CPU COMM\n10 1 1 python\n20 1 25 daemon\n",
+            "PID PPID %CPU COMM\n10 1 1 python\n",
+            "PID PPID %CPU COMM\n10 1 1 python\n",
+            "PID PPID %CPU COMM\n10 1 1 python\n",
+        ]
+    )
+    monkeypatch.setattr(m1.os, "getpid", lambda: 10)
+    receipt = m1.wait_quiet(
+        lambda: {"process_screen": {"processes": next(screens)}},
+        threshold_percent=20.0,
+        consecutive=3,
+        interval_seconds=10.0,
+        max_wait_seconds=60.0,
+    )
+    assert receipt["quiet"] is True and len(receipt["samples"]) == 4
+    assert receipt["samples"][0]["foreign_heavy_processes"] == [
+        {"pid": 20, "ppid": 1, "cpu_percent": 25.0, "command": "daemon"}
+    ]
+
+
+def test_audit_discarded_refuses_nonforeign_reason_and_shared_epoch(tmp_path) -> None:
+    """A discard is only a foreign-load diagnostic and can never share a retained epoch."""
+    retained, _ = complete_unit()
+    retained["epoch_ns"] = 200
+    discarded = copy.deepcopy(retained)
+    discarded.update(
+        epoch_ns=100,
+        stop_reason="foreign heavy load during M1",
+        host=[{"foreign_heavy_processes": [{"pid": 99}]}],
+    )
+    discarded["summary"] = m1.summarize(m1.cells()[0], [], [], False)
+    discarded["summary"]["complete"] = False
+    discarded["summary"]["verdict"] = "INCOMPLETE"
+    export_json(tmp_path / "cpu-w1-k1.discarded-1.json", discarded)
+    receipt = {
+        "namespace": "n",
+        "discarded_runs": [
+            {
+                "cell_id": "cpu-w1-k1",
+                "n": 1,
+                "stop_reason": "foreign heavy load during M1",
+                "foreign_heavy_processes": [{"pid": 99}],
+                "started_ns": 1,
+                "finished_ns": 300,
+                "ticks": len(discarded["ticks"]),
+                "samples_count": len(discarded["samples"]),
+            }
+        ],
+    }
+    m1.audit_discarded(tmp_path, receipt, [retained])
+    receipt["discarded_runs"][0]["stop_reason"] = "worker failure"
+    with pytest.raises(ValueError, match="non-foreign discard"):
+        m1.audit_discarded(tmp_path, receipt, [retained])
+    receipt["discarded_runs"][0]["stop_reason"] = "foreign heavy load during M1"
+    retained["epoch_ns"] = 100
+    with pytest.raises(ValueError, match="shared epoch"):
+        m1.audit_discarded(tmp_path, receipt, [retained])
+
+
+@pytest.mark.parametrize(
+    ("constant", "value"), [("MAX_CELL_RESTARTS", 0), ("MAX_DISCARDED_RUNS", 0)]
+)
+def test_audit_discarded_enforces_cell_and_attempt_budgets(
+    monkeypatch, tmp_path, constant, value
+) -> None:
+    """Both restart ceilings are checked again at reduction, not trusted from the loop."""
+    retained, _ = complete_unit()
+    retained["epoch_ns"] = 200
+    discarded = copy.deepcopy(retained)
+    discarded.update(
+        epoch_ns=100,
+        stop_reason="foreign heavy load during M1",
+        host=[{"foreign_heavy_processes": [{"pid": 99}]}],
+    )
+    discarded["summary"] = m1.summarize(m1.cells()[0], [], [], False)
+    export_json(tmp_path / "cpu-w1-k1.discarded-1.json", discarded)
+    receipt = {
+        "namespace": "n",
+        "discarded_runs": [
+            {
+                "cell_id": "cpu-w1-k1",
+                "n": 1,
+                "stop_reason": "foreign heavy load during M1",
+                "foreign_heavy_processes": [{"pid": 99}],
+                "started_ns": 1,
+                "finished_ns": 300,
+                "ticks": len(discarded["ticks"]),
+                "samples_count": len(discarded["samples"]),
+            }
+        ],
+    }
+    monkeypatch.setattr(m1, constant, value)
+    with pytest.raises(ValueError, match="invalid M1 discard"):
+        m1.audit_discarded(tmp_path, receipt, [retained])
+
+
+def test_wait_quiet_timeout_records_foreign_samples(monkeypatch) -> None:
+    clock = SimpleNamespace(now_ns=0)
+    monkeypatch.setattr(m1.time, "monotonic_ns", lambda: clock.now_ns)
+    monkeypatch.setattr(m1.time, "monotonic", lambda: clock.now_ns / 1e9)
+    monkeypatch.setattr(
+        m1.time,
+        "sleep",
+        lambda seconds: setattr(clock, "now_ns", clock.now_ns + int(seconds * 1e9)),
+    )
+    monkeypatch.setattr(m1.os, "getpid", lambda: 10)
+    receipt = m1.wait_quiet(
+        lambda: {
+            "process_screen": {"processes": "PID PPID %CPU COMM\n10 1 1 python\n20 1 25 daemon\n"}
+        },
+        consecutive=3,
+        interval_seconds=10.0,
+        max_wait_seconds=20.0,
+    )
+    assert receipt["quiet"] is False
+    assert len(receipt["samples"]) == 2
+    assert all(sample["foreign_heavy_processes"] for sample in receipt["samples"])
+
+
+@pytest.mark.parametrize("quiet_after_restart", [True, False])
+def test_main_restarts_only_foreign_stop_and_exports_discard(
+    monkeypatch, tmp_path, quiet_after_restart
+) -> None:
+    """A stopped foreign-load epoch is immutable diagnostic output before a whole-cell rerun."""
+    from contextlib import contextmanager
+
+    from research import mac_lease
+    from research.bl_mac_latency import host
+
+    cell = m1.cells()[0]
+    retained, _ = complete_unit()
+    stopped = copy.deepcopy(retained)
+    stopped.update(
+        epoch_ns=100,
+        stop_reason="foreign heavy load during M1",
+        host=[{"foreign_heavy_processes": [{"pid": 99}]}],
+    )
+    stopped["summary"] = m1.summarize(cell, [], [], False)
+    stopped["summary"]["complete"] = False
+    stopped["summary"]["verdict"] = "INCOMPLETE"
+    data = {
+        "namespace": "n",
+        "sources": {},
+        "fixtures": fixtures(),
+        "actions": {fixture["fixture_id"]: 1 for fixture in fixtures()},
+    }
+    ledger = tmp_path / "ledger.json"
+    m1.make_ledger(ledger, "n", [])
+    monkeypatch.setattr(m1, "inputs", lambda *args: data)
+    monkeypatch.setattr(m1, "sources", lambda: {})
+    monkeypatch.setattr(m1, "cells", lambda: [cell])
+    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    quiet = []
+
+    def wait(*args, **kwargs):
+        quiet.append(kwargs)
+        return {"quiet": len(quiet) == 1 or quiet_after_restart, "samples": []}
+
+    monkeypatch.setattr(m1, "wait_quiet", wait)
+    rows = iter([stopped, retained])
+    monkeypatch.setattr(m1, "run_cell", lambda *args: next(rows))
+    clock = SimpleNamespace(value=99)
+    monkeypatch.setattr(m1.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(
+        m1.time,
+        "monotonic_ns",
+        lambda: setattr(clock, "value", clock.value + 1) or clock.value,
+    )
+
+    @contextmanager
+    def held(*args, **kwargs):
+        yield SimpleNamespace(receipt={"id": "test-only"})
+
+    monkeypatch.setattr(mac_lease, "held", held)
+    out = tmp_path / "attempt"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "m1",
+            "--run",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--ledger",
+            str(ledger),
+            "--out",
+            str(out),
+        ],
+    )
+    m1.main()
+    receipt, _ = l1._read_completed_json(out / "receipt.json")
+    assert (out / "cpu-w1-k1.discarded-1.json.complete").exists()
+    if quiet_after_restart:
+        assert receipt["verdict"] == "INCOMPLETE", receipt
+    else:
+        assert receipt["verdict"] == "INCOMPLETE"
+        assert receipt["reason"] == "host not quiet for M1 restart"
+    assert receipt["discarded_runs"][0]["cell_id"] == "cpu-w1-k1"
+    assert len(receipt["quiet_waits"]) == 2 and len(quiet) == 2
+    assert receipt["restart_policy"] == m1.RESTART_POLICY
+
+
+def test_main_does_not_restart_nonforeign_stop(monkeypatch, tmp_path) -> None:
+    """A stop with another reason remains an incomplete attempt, never a discard."""
+    from contextlib import contextmanager
+
+    from research import mac_lease
+    from research.bl_mac_latency import host
+
+    cell = m1.cells()[0]
+    row, _ = complete_unit()
+    row.update(stop_reason="worker failure", host=[], epoch_ns=100)
+    row["summary"] = m1.summarize(cell, [], [], False)
+    row["summary"]["complete"] = False
+    row["summary"]["verdict"] = "INCOMPLETE"
+    ledger = tmp_path / "ledger.json"
+    m1.make_ledger(ledger, "n", [])
+    monkeypatch.setattr(
+        m1,
+        "inputs",
+        lambda *args: {
+            "namespace": "n",
+            "sources": {},
+            "fixtures": fixtures(),
+            "actions": {fixture["fixture_id"]: 1 for fixture in fixtures()},
+        },
+    )
+    monkeypatch.setattr(m1, "sources", lambda: {})
+    monkeypatch.setattr(m1, "cells", lambda: [cell])
+    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(m1, "wait_quiet", lambda *args, **kwargs: {"quiet": True, "samples": []})
+    monkeypatch.setattr(m1, "run_cell", lambda *args: row)
+    monkeypatch.setattr(m1.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(m1.time, "monotonic_ns", lambda: 100)
+
+    @contextmanager
+    def held(*args, **kwargs):
+        yield SimpleNamespace(receipt={"id": "test-only"})
+
+    monkeypatch.setattr(mac_lease, "held", held)
+    out = tmp_path / "attempt"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "m1",
+            "--run",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--ledger",
+            str(ledger),
+            "--out",
+            str(out),
+        ],
+    )
+    m1.main()
+    receipt, _ = l1._read_completed_json(out / "receipt.json")
+    assert receipt["verdict"] == "INCOMPLETE" and receipt["discarded_runs"] == []
+    assert not list(out.glob("*.discarded-*.json"))
+
+
 def test_wrapper_passes_judged_recovery_without_dispatch(tmp_path) -> None:
     import json
     import subprocess
@@ -1008,3 +1400,197 @@ def test_wrapper_passes_judged_recovery_without_dispatch(tmp_path) -> None:
         "--judged-recovery",
         proof,
     ]
+
+
+def run_mock_attempt(
+    monkeypatch,
+    tmp_path: Path,
+    stops: dict[str, int],
+    *,
+    charged: float = 0.0,
+    initial_quiet: bool = True,
+) -> SimpleNamespace:
+    """Exercise main's real loop/reducer/exports with no Watch, workers or host calls."""
+    from contextlib import contextmanager
+
+    from research import mac_lease
+    from research.bl_mac_latency import host
+
+    clock = SimpleNamespace(now=100.0)
+    calls = Counter()
+    waits = []
+    data = {"namespace": "n", "sources": {}}
+    monkeypatch.setattr(m1, "inputs", lambda *args: data)
+    monkeypatch.setattr(m1, "sources", lambda: {})
+    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(m1.time, "monotonic", lambda: clock.now)
+    monkeypatch.setattr(m1.time, "monotonic_ns", lambda: int(clock.now * 1e9))
+    monkeypatch.setattr(m1, "audit_unit", lambda *args: None)
+
+    def quiet(*args, **kwargs):
+        waits.append(kwargs)
+        start = int(clock.now * 1e9)
+        clock.now += min(20.0, kwargs["max_wait_seconds"])
+        return {
+            "quiet": initial_quiet,
+            "started_ns": start,
+            "finished_ns": int(clock.now * 1e9),
+            "samples": [],
+        }
+
+    def run(cell, *args):
+        unit_id = cell["cell_id"]
+        calls[unit_id] += 1
+        stopped = calls[unit_id] <= stops.get(unit_id, 0)
+        clock.now += 0.5
+        epoch = int(clock.now * 1e9)
+        clock.now += 0.5
+        return {
+            **cell,
+            "schema": m1.SCHEMA + "/cell",
+            "namespace": "n",
+            "epoch_ns": epoch,
+            "summary": {"complete": not stopped, "verdict": "INCOMPLETE" if stopped else "PASS"},
+            "stop_reason": m1.RESTART_POLICY["trigger"] if stopped else None,
+            "host": [{"foreign_heavy_processes": [{"pid": 99}] if stopped else []}],
+            "samples": [],
+            "ticks": [],
+        }
+
+    @contextmanager
+    def held(*args, **kwargs):
+        assert kwargs["seconds"] == m1.CAP_SECONDS - charged
+        yield SimpleNamespace(receipt={"id": "mock-only"})
+
+    monkeypatch.setattr(m1, "wait_quiet", quiet)
+    monkeypatch.setattr(m1, "run_cell", run)
+    monkeypatch.setattr(mac_lease, "held", held)
+    ledger, out = tmp_path / "ledger.json", tmp_path / "attempt"
+    m1.make_ledger(ledger, "n", [])
+    argv = [
+        "m1",
+        "--run",
+        "--fixtures",
+        "f",
+        "--reference",
+        "r",
+        "--ledger",
+        str(ledger),
+        "--out",
+        str(out),
+    ]
+    if charged:
+        prior = tmp_path / "previous.json"
+        export_json(
+            prior,
+            {
+                "schema": m1.SCHEMA,
+                "namespace": "n",
+                "attempt_number": 1,
+                "verdict": "INCOMPLETE",
+                "verified_stop": True,
+                "mechanical_failure": True,
+                "completed_unit_exports": {},
+                "charged_seconds": charged,
+            },
+        )
+        argv += ["--previous-attempt", str(prior)]
+    monkeypatch.setattr("sys.argv", argv)
+    if not initial_quiet:
+        with pytest.raises(RuntimeError, match="host not quiet for M1 restart"):
+            m1.main()
+        assert not out.exists()
+        return SimpleNamespace(waits=waits, calls=calls)
+    m1.main()
+    receipt, _ = l1._read_completed_json(out / "receipt.json")
+    assert receipt["charged_seconds"] == charged + clock.now - 100.0
+    return SimpleNamespace(receipt=receipt, waits=waits, calls=calls, out=out)
+
+
+@pytest.mark.parametrize("scope", ["cell", "attempt", "reserve"])
+def test_main_enforces_actual_restart_boundaries(monkeypatch, tmp_path, scope) -> None:
+    if scope == "cell":
+        case = run_mock_attempt(monkeypatch, tmp_path, {"cpu-w1-k1": 99})
+        assert case.calls == {"cpu-w1-k1": 4}
+        assert len(case.receipt["discarded_runs"]) == 3
+    elif scope == "attempt":
+        case = run_mock_attempt(monkeypatch, tmp_path, {c["cell_id"]: 3 for c in m1.cells()})
+        assert list(case.calls.values()) == [4, 4, 3]
+        assert len(case.receipt["discarded_runs"]) == 8
+        assert max(Counter(r["cell_id"] for r in case.receipt["discarded_runs"]).values()) == 3
+    else:
+        case = run_mock_attempt(
+            monkeypatch, tmp_path, {"cpu-w1-k1": 99}, charged=m1.CAP_SECONDS - 610
+        )
+        assert case.calls == {"cpu-w1-k1": 1}
+        assert case.receipt["discarded_runs"] == []
+    assert case.receipt["verdict"] == "INCOMPLETE"
+    assert case.receipt["mechanical_failure"] is True
+
+
+def test_main_charges_preflight_discard_restart_and_quiet_waits(monkeypatch, tmp_path) -> None:
+    case = run_mock_attempt(monkeypatch, tmp_path, {"cpu-w1-k1": 1}, charged=36.0)
+    assert case.receipt["verdict"] == "PASS"
+    assert len(case.receipt["quiet_waits"]) == 2
+    assert case.receipt["charged_seconds"] == 36.0 + 40.0 + 5.0
+
+
+def test_main_preflight_timeout_creates_no_directory_and_clips_cap(monkeypatch, tmp_path) -> None:
+    case = run_mock_attempt(
+        monkeypatch, tmp_path, {}, charged=m1.CAP_SECONDS - 10, initial_quiet=False
+    )
+    assert case.waits[0]["max_wait_seconds"] == 10
+    assert case.calls == {}
+
+
+def test_judged2_check_refuses_nonempty_ledger(monkeypatch, judged2_case) -> None:
+    case = judged2_case
+    export_json(case.path, case.proof)
+    monkeypatch.setattr(m1, "inputs", lambda *args: case.data)
+    monkeypatch.setattr(m1, "verify_ledger", lambda *args: {"cpu-w1-k1": {}})
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "m1",
+            "--check",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--ledger",
+            "l",
+            "--judged-recovery",
+            str(case.path),
+        ],
+    )
+    with pytest.raises(ValueError, match="judged recovery requires an empty new ledger"):
+        m1.main()
+
+
+@pytest.mark.parametrize("kind", ["judged", "precell"])
+def test_consumed_history_is_anchored_despite_relocated_artifacts(
+    monkeypatch, tmp_path, kind
+) -> None:
+    authority_root = tmp_path / "authority"
+    authority_root.mkdir()
+    monkeypatch.setattr(m1, "JUDGED2_JUDGMENT_PATH", authority_root / "judgment.md")
+    field = "judged_recovery_sha256" if kind == "judged" else "reconciled_precell_stop_sha256"
+    export_json(
+        authority_root / "bl-m1-attempt-04/receipt.json",
+        {"schema": m1.SCHEMA, "attempt_number": 3, field: "consumed-proof-sha"},
+    )
+    with pytest.raises(ValueError, match="already consumed"):
+        m1.refuse_consumed(tmp_path / "copied-history/attempt/receipt.json", field, 2)
+
+
+def test_reserialized_judged_proof_cannot_reuse_consumed_debit(monkeypatch, judged_case) -> None:
+    case = judged_case
+    proof = write_judged_case(monkeypatch, case)
+    proof["ignored_metadata"] = "different proof bytes do not reset consumption"
+    export_json(case.proof_path, proof)
+    export_json(
+        case.prior.parent / "bl-m1-attempt-04/receipt.json",
+        {"schema": m1.SCHEMA, "attempt_number": 3, "judged_recovery_sha256": "original-proof-sha"},
+    )
+    with pytest.raises(ValueError, match="exact audited attempt-03"):
+        m1.judged_recovery(case.proof_path, case.data)
