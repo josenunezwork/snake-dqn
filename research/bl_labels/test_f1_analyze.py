@@ -3,12 +3,58 @@
 from __future__ import annotations
 
 import copy
+import json
 
 import pytest
 
+from research.bl_labels import f1_analyze
 from research.bl_labels.f1_analyze import _is_refund_upload_carveout, decide, transport_faults
 
 ROOT_IDS = [f"root-{i:03d}" for i in range(64)]
+
+
+@pytest.mark.parametrize(
+    ("census_digest", "file_digest", "expected_error"),
+    [
+        (
+            f1_analyze.REFUND_RULING_SHA256,
+            f1_analyze.REFUND_RULING_SHA256,
+            "qualification witness is malformed",
+        ),
+        (
+            f1_analyze.REFUND_RULING_SHA256,
+            f1_analyze.REFUND_A1_RULING_SHA256,
+            "qualification witness is malformed",
+        ),
+        (f1_analyze.REFUND_RULING_SHA256, "0" * 64, "not bound to the ruled judgment"),
+        (
+            f1_analyze.REFUND_A1_RULING_SHA256,
+            f1_analyze.REFUND_A1_RULING_SHA256,
+            "not bound to the ruled judgment",
+        ),
+        ("0" * 64, f1_analyze.REFUND_RULING_SHA256, "not bound to the ruled judgment"),
+    ],
+)
+def test_refund_authority_preserves_census_and_accepts_only_ratified_a1(
+    tmp_path, monkeypatch, census_digest: str, file_digest: str, expected_error: str
+) -> None:
+    """Reject foreign authority before the witness or any attempt can be read."""
+    path = tmp_path / "census.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": f1_analyze.REFUND_CENSUS_SCHEMA,
+                "ruling": {"path": str(tmp_path / "ruling.md"), "sha256": census_digest},
+                "qualification_witness": None,
+                "excluded_attempts": [],
+            }
+        )
+    )
+    monkeypatch.setattr(f1_analyze, "_sha", lambda _: file_digest)
+    # Accepted ruling pairs must reach the next independent witness guard;
+    # all other pairs fail at authority binding without examining outcomes.
+    with pytest.raises(ValueError, match=expected_error):
+        f1_analyze._load_refund_census(path, [])
 
 
 def attempt(platform: str, elapsed: float = 100.0) -> dict:

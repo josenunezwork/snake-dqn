@@ -318,3 +318,27 @@ Historical pack-08 spend carried as 0.153 u, separate from fresh 4.04 u caps;
 exact historical failures retained/excluded by SHA-bound refund census; A100
 `NOT_RUN by ruling`. 153 light single-process tests PASS. No Colab dispatch.
 See `research/bl_labels/F1_REFUND_HANDOFF_20261023.md` and sibling Codex-V receipt.
+
+F1 A1 CPU-only preparation (2026-10-23, Sol): post-amendment authority SHA256
+`86e9ca69383d21a45ede31fd721d315ff39ae09736ad538496ce42b1abf1ac72`,
+`big-lever/round-24/JUDGMENT_F1_REFUND.md` Amendment A1. Create-only
+`bl-labels-f0/f1-pack-10a/` corrects the CPU probe's four time fields to
+30 minutes / 1800 seconds, adds the A1 binding, and gives CPU probe/ruler
+fresh `-10a` IDs, outputs, state paths and CPU-only dispatch instructions.
+All unit figures, worker pin `2af48cd0`, bank/ledger/census bytes and qualified
+transport tree `d0d92bdb572b770284a1fea6152417ffa5f06bea` are unchanged.
+CPU probe supervisor validation and both CPU upload qualifications PASS.
+The Mac-only analyzer additionally accepts the exact ratified A1 ruling-file
+hash, while still requiring the original unchanged census authority hash;
+foreign hashes remain refused and no decision rule changes. Five focused
+regression cases cover this compatibility fix. The ruler still requires its actual
+CPU probe PASS receipt. Pack-10, its original dispatch file and L4 lane are
+untouched. See `research/bl_labels/F1_A1_CPU_HANDOFF_20261023.md` and
+`CODEX_V_F1_A1_DELTA_20261023.json` for independent review and exact commands.
+No CPU allocation, dispatch, new science result or serving change by this task.
+Final A1 delta review: `PASS_CPU_A1_DELTA`, zero open findings; receipt SHA256
+`9d1cd980d9bcaf76c6b2bdf3183594e243f70ad5d9f5f320b5c7cab45d5752b8`.
+Final package/family-canary suite: 158 PASS in 8.82 seconds; reviewer independently
+ran 132 F1/canary checks and 24 final analyzer checks. Artifact inventory is
+`research/bl_labels/F1_A1_PACK_20261023.json`, SHA256
+`f537b69a3a097d88f2ea661ec76d16d29fac5404de0561f7789ac914cf6f82fe`.

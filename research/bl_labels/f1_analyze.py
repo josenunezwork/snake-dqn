@@ -19,6 +19,7 @@ LABELS = ("one", "half", "all")
 # this particular ruling preserved two immutable, pre-replay packaging exits.
 REFUND_CENSUS_SCHEMA = "bl-labels-f1-refund-census/v1"
 REFUND_RULING_SHA256 = "f2f35631e65e4234341a5404e3f512a740b43241c9060f4cf8a467673091b6bc"
+REFUND_A1_RULING_SHA256 = "86e9ca69383d21a45ede31fd721d315ff39ae09736ad538496ce42b1abf1ac72"
 REFUND_EXCLUSION = "PACKAGING_INVALID_EXCLUDED (JUDGMENT_F1_REFUND)"
 REFUND_WITNESS_RECEIPT_SHA256 = "3386d25db932cff5835aca7feb4462c7d8af42700700e9ca59b2d8f7d6e0c29d"
 REFUND_PACK08_NAMES = {"cpu-probe", "l4-probe"}
@@ -217,7 +218,13 @@ def _load_refund_census(path: Path, attempt_paths: list[Path]) -> dict[str, Any]
     if not isinstance(ruling, dict) or set(ruling) != {"path", "sha256"}:
         raise ValueError("F1 refund census ruling binding is malformed")
     ruling_path = Path(ruling["path"])
-    if ruling.get("sha256") != REFUND_RULING_SHA256 or _sha(ruling_path) != REFUND_RULING_SHA256:
+    # A1 retains the pre-amendment authority for the census and requires its
+    # bytes unchanged. Only that exact ratified amendment may replace the
+    # on-disk ruling; this does not authorize arbitrary future amendments.
+    if ruling.get("sha256") != REFUND_RULING_SHA256 or _sha(ruling_path) not in {
+        REFUND_RULING_SHA256,
+        REFUND_A1_RULING_SHA256,
+    }:
         raise ValueError("F1 refund census is not bound to the ruled judgment")
     witness = census.get("qualification_witness")
     if not isinstance(witness, dict) or set(witness) != {"path", "receipt_sha256"}:
