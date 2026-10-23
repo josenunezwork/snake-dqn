@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import torch
 
@@ -222,6 +223,188 @@ def test_fixture_rows_are_excluded_from_popart_refit_and_scored_separately() -> 
     assert score["metrics_available"] is True
     assert score["diagnostic_only"] is True
     assert score["actor_admission"] is False
+
+
+def test_amendment_03_solves_natural_fit_rows_in_float64_and_resets_only_head_state() -> None:
+    """The prospective solve is bounded, raw-return, and CPU-installable."""
+    from types import SimpleNamespace
+
+    from research.bl_ppo.learner import PPOLearner
+    from research.bl_ppo.model import PopArtValueHead
+
+    class Policy:
+        def __init__(self) -> None:
+            self.critic = PopArtValueHead(257)
+            self.actor_parameter = torch.nn.Parameter(torch.tensor(2.0))
+
+        def value_from_critic_features(self, features: torch.Tensor) -> torch.Tensor:
+            return self.critic(features)
+
+    policy = Policy()
+    learner = SimpleNamespace(
+        policy=policy,
+        optimizer=torch.optim.Adam([*policy.critic.parameters(), policy.actor_parameter], lr=1e-3),
+    )
+    # Make Adam hold state that the analytic rewrite must discard.
+    (policy.critic.linear.weight.sum() + policy.actor_parameter).backward()
+    learner.optimizer.step()
+    assert learner.optimizer.state
+    actor_state = {
+        key: value.clone() for key, value in learner.optimizer.state[policy.actor_parameter].items()
+    }
+    generator = torch.Generator().manual_seed(41)
+    features = torch.randn((280, 257), generator=generator, dtype=torch.float64)
+    coefficients = torch.linspace(-0.5, 0.5, 258, dtype=torch.float64)
+    returns = torch.cat((torch.ones((280, 1), dtype=torch.float64), features), 1) @ coefficients
+    report = PPOLearner.install_exact_return_critic_solution(learner, features, returns)
+    predictions = policy.value_from_critic_features(features.float()).double()
+    design = torch.cat((torch.ones((280, 1), dtype=torch.float64), features), 1).numpy()
+    coefficients, *_ = np.linalg.lstsq(design, returns.numpy(), rcond=None)
+    stored_mean, stored_scale = float(policy.critic.mean), float(policy.critic.scale)
+    assert report["fit_count"] == 280
+    assert report["rank"] == 258
+    assert report["optimizer_head_state_reset"] is True
+    assert report["installed_fp32_fit_mse"] < 1e-10
+    assert stored_mean != float(returns.mean())
+    assert stored_scale != float(torch.sqrt(((returns - returns.mean()) ** 2).mean()))
+    assert torch.equal(
+        policy.critic.linear.weight,
+        torch.as_tensor(coefficients[1:] / stored_scale, dtype=torch.float32).reshape(1, 257),
+    )
+    assert torch.equal(
+        policy.critic.linear.bias,
+        torch.as_tensor([(coefficients[0] - stored_mean) / stored_scale], dtype=torch.float32),
+    )
+    assert torch.allclose(predictions, returns, atol=2e-5, rtol=2e-5)
+    assert set(learner.optimizer.state) == {policy.actor_parameter}
+    assert learner.optimizer.state[policy.actor_parameter].keys() == actor_state.keys()
+    for key, value in actor_state.items():
+        assert torch.equal(learner.optimizer.state[policy.actor_parameter][key], value)
+
+
+def test_amendment_03_rejects_finite_float64_values_that_overflow_popart_fp32() -> None:
+    from types import SimpleNamespace
+
+    from research.bl_ppo.learner import PPOLearner
+    from research.bl_ppo.model import PopArtValueHead
+
+    critic = PopArtValueHead(257)
+    learner = SimpleNamespace(
+        policy=SimpleNamespace(
+            critic=critic,
+            value_from_critic_features=lambda features: critic(features),
+        ),
+        optimizer=torch.optim.Adam(critic.parameters(), lr=1e-3),
+    )
+    with pytest.raises(FloatingPointError, match="fp32 PopArt installation"):
+        PPOLearner.install_exact_return_critic_solution(
+            learner, torch.zeros((2, 257), dtype=torch.float64), torch.full((2,), 1e30)
+        )
+
+
+def test_amendment_04_zero_sum_solve_is_stable_and_repeatable() -> None:
+    """C1 uses the fixed Helmert basis and retains fp32 PopArt mapping."""
+    from types import SimpleNamespace
+
+    from research.bl_ppo.learner import PPOLearner
+    from research.bl_ppo.model import PopArtValueHead
+
+    class Policy:
+        def __init__(self) -> None:
+            self.critic = PopArtValueHead(257)
+            self.core = SimpleNamespace(norm=torch.nn.LayerNorm(256))
+
+        def value_from_critic_features(self, features):
+            return self.critic(features)
+
+    generator = torch.Generator().manual_seed(20261022)
+    core = torch.randn((300, 256), generator=generator, dtype=torch.float64)
+    core.sub_(core.mean(dim=1, keepdim=True))
+    features = torch.cat((core, torch.linspace(0.0, 1.0, 300).double().unsqueeze(1)), dim=1)
+    returns = core[:, 0] * 2.0 + features[:, -1] * 3.0
+
+    def solve():
+        policy = Policy()
+        learner = SimpleNamespace(
+            policy=policy, optimizer=torch.optim.Adam(policy.critic.parameters())
+        )
+        report = PPOLearner.install_exact_return_critic_solution(
+            learner, features, returns, zero_sum_basis=True
+        )
+        return policy, report
+
+    policy_a, report_a = solve()
+    policy_b, report_b = solve()
+    assert report_a["rank"] == 257
+    assert report_a["basis"] == "helmert-zero-sum-256-v1"
+    assert abs(report_a["common_mode_sensitivity_per_1e-4_bias"]) <= 1.0
+    assert report_a["installed_fp32_fit_mse"] < 1e-8
+    assert torch.equal(policy_a.critic.linear.weight, policy_b.critic.linear.weight)
+    assert torch.equal(policy_a.critic.linear.bias, policy_b.critic.linear.bias)
+    assert report_a == report_b
+
+
+def test_amendment_04_rank_deficient_report_is_json_safe_and_refuses_nonzero_mean() -> None:
+    """C1's rank-deficient path stays finite and the zero-sum guard is strict."""
+    import json
+    from types import SimpleNamespace
+
+    from research.bl_ppo.learner import PPOLearner
+    from research.bl_ppo.model import PopArtValueHead
+
+    critic = PopArtValueHead(257)
+    policy = SimpleNamespace(
+        critic=critic,
+        core=SimpleNamespace(norm=torch.nn.LayerNorm(256)),
+        value_from_critic_features=lambda features: critic(features),
+    )
+    learner = SimpleNamespace(policy=policy, optimizer=torch.optim.Adam(critic.parameters()))
+    features = torch.zeros((8, 257), dtype=torch.float64)
+    report = PPOLearner.install_exact_return_critic_solution(
+        learner, features, torch.arange(8, dtype=torch.float64), zero_sum_basis=True
+    )
+    assert report["rank"] == 1
+    assert report["condition_number"] is None
+    json.dumps(report, allow_nan=False)
+    features[0, 0] = 1e-3
+    with pytest.raises(ValueError, match="not zero-sum"):
+        PPOLearner.install_exact_return_critic_solution(
+            learner, features, torch.arange(8, dtype=torch.float64), zero_sum_basis=True
+        )
+
+
+def test_amendment_03_excludes_supplement_and_preserves_raw_return_dtype() -> None:
+    bank = CompleteLifeRefitBank(samples_per_life=1)
+    bank.add_batch(
+        torch.tensor([1]),
+        torch.zeros((1, 257)),
+        torch.tensor([900.0]),
+        torch.tensor([0.5]),
+        torch.tensor([3.25]),
+        torch.tensor([True]),
+        source="natural",
+    )
+    bank.add_batch(
+        torch.tensor([2]),
+        torch.zeros((1, 257)),
+        torch.tensor([900.0]),
+        torch.tensor([0.5]),
+        torch.tensor([99.0]),
+        torch.tensor([True]),
+        source="refit_long_body_support_supplement",
+    )
+    captured: dict[str, torch.Tensor] = {}
+
+    class Learner:
+        def install_exact_return_critic_solution(self, features, returns):
+            captured["features"] = features
+            captured["returns"] = returns
+            return {"fit_count": int(returns.numel())}
+
+    assert bank.solve_e8_critic_convergence_amendment_03(Learner()) == {"fit_count": 1}
+    assert captured["features"].dtype == torch.float64
+    assert captured["returns"].dtype == torch.float64
+    assert captured["returns"].tolist() == [3.25]
 
 
 def test_bank_uses_complete_gamma_one_lives_and_world_disjoint_baseline() -> None:

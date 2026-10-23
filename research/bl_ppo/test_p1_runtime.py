@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import random
 from pathlib import Path
@@ -226,6 +227,75 @@ def test_source_control_refuses_unbound_late_body_amendment(tmp_path, monkeypatc
         )
 
 
+def test_source_control_requires_a_boolean_and_bound_amendment_03_opt_in(
+    tmp_path, monkeypatch
+) -> None:
+    from research.bl_ppo.exports import digest
+    from research.bl_ppo.p1_runtime import _load_control, _train_args
+
+    with pytest.raises(ValueError, match="convergence flag must be boolean"):
+        _load_control(
+            _control(tmp_path, monkeypatch, e8_critic_convergence_amendment_03=1), "y3-source"
+        )
+    control = _load_control(
+        _control(
+            tmp_path / "enabled",
+            monkeypatch,
+            e8_critic_convergence_amendment_03=True,
+            e8_critic_convergence_amendment_03_sha256=digest(
+                Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_03.md")
+            ),
+            pause_at=0,
+        ),
+        "y3-source",
+    )
+    args = _train_args(
+        control,
+        output=tmp_path / "output",
+        checkpoint=tmp_path / "checkpoint",
+        resume=None,
+        durability=False,
+        snapshot_label="origin",
+    )
+    assert args.e8_critic_convergence_amendment_03 is True
+
+
+def test_source_control_requires_bound_amendment_04_collection_identity(
+    tmp_path, monkeypatch
+) -> None:
+    from research.bl_ppo.exports import digest
+    from research.bl_ppo.p1_collection_allocation import publish_allocation_audit
+    from research.bl_ppo.p1_runtime import _load_control, _train_args
+
+    root = tmp_path / "enabled04"
+    audit = root / "collection-allocation-audit.json"
+    publish_allocation_audit(audit, offset=3_001_000, burned_roots=[], episodes=8)
+    control = _load_control(
+        _control(
+            root,
+            monkeypatch,
+            e8_critic_convergence_amendment_04=True,
+            e8_critic_convergence_amendment_04_sha256=digest(
+                Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_04.md")
+            ),
+            natural_collection_world_id_offset=3_001_000,
+            natural_collection_burned_roots=[],
+            collection_allocation_audit_sha256=digest(audit),
+            pause_at=0,
+        ),
+        "y3-source",
+    )
+    args = _train_args(
+        control,
+        output=root / "out",
+        checkpoint=root / "checkpoint",
+        resume=None,
+        durability=False,
+        snapshot_label="origin",
+    )
+    assert args.natural_collection_world_id_offset == 3_001_000
+
+
 @pytest.mark.parametrize("changes", [{"processes": 6}, {"seed": 7}, {"worlds": 2}])
 def test_source_control_refuses_recipe_substitution(tmp_path, monkeypatch, changes) -> None:
     from research.bl_ppo.p1_runtime import _load_control
@@ -333,3 +403,18 @@ def test_new_y3_cannot_disable_operational_replay(tmp_path, monkeypatch) -> None
     )
     with pytest.raises(ValueError, match="both registered replays"):
         _load_control(control, "y3-source")
+
+
+def test_run_train_dispatches_amendment_04_solver_and_receipt_key() -> None:
+    """Guard the exact pre-gate branch without collecting a full P1 fixture."""
+    source = Path(__file__).with_name("run.py").read_text()
+    tree = ast.parse(source)
+    calls = [
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.attr, str)
+    ]
+    assert "solve_e8_critic_convergence_amendment_04" in calls
+    assert '"convergence_amendment_04"' in source

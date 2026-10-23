@@ -477,6 +477,29 @@ def _identity(args: argparse.Namespace, temperature: float) -> dict[str, Any]:
             ),
             late_body_support=support_identity(excluded, horizon=HORIZON),
         )
+        if bool(getattr(args, "e8_critic_convergence_amendment_03", False)):
+            amendment_digest = getattr(args, "e8_critic_convergence_amendment_03_sha256", None)
+            amendment_path = Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_03.md")
+            if not isinstance(amendment_digest, str) or digest(amendment_path) != amendment_digest:
+                raise ValueError(
+                    "P1 Amendment-03 convergence digest is not bound to current source"
+                )
+            value.update(
+                e8_critic_convergence_amendment_03=True,
+                e8_critic_convergence_amendment_03_sha256=amendment_digest,
+            )
+        if bool(getattr(args, "e8_critic_convergence_amendment_04", False)):
+            amendment_digest = getattr(args, "e8_critic_convergence_amendment_04_sha256", None)
+            amendment_path = Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_04.md")
+            if not isinstance(amendment_digest, str) or digest(amendment_path) != amendment_digest:
+                raise ValueError(
+                    "P1 Amendment-04 convergence digest is not bound to current source"
+                )
+            value.update(
+                e8_critic_convergence_amendment_04=True,
+                e8_critic_convergence_amendment_04_sha256=amendment_digest,
+                natural_collection_world_id_offset=int(args.natural_collection_world_id_offset),
+            )
     return value
 
 
@@ -661,6 +684,28 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
     """
     run_started = time.monotonic()
     p1_runtime = bool(getattr(args, "p1_runtime", False))
+    convergence_enabled = getattr(args, "e8_critic_convergence_amendment_03", False)
+    convergence04_enabled = getattr(args, "e8_critic_convergence_amendment_04", False)
+    if type(convergence_enabled) is not bool:
+        raise ValueError("P1 Amendment-03 convergence flag must be boolean")
+    convergence_digest = getattr(args, "e8_critic_convergence_amendment_03_sha256", None)
+    if convergence_enabled:
+        if not p1_runtime:
+            raise ValueError("P1 Amendment-03 convergence is unavailable outside the P1 runtime")
+        amendment_path = Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_03.md")
+        if not isinstance(convergence_digest, str) or digest(amendment_path) != convergence_digest:
+            raise ValueError("P1 Amendment-03 convergence digest is not bound to current source")
+    if type(convergence04_enabled) is not bool or convergence_enabled and convergence04_enabled:
+        raise ValueError("P1 Amendment-04 convergence flags are malformed or mutually exclusive")
+    if convergence04_enabled:
+        if not p1_runtime:
+            raise ValueError("P1 Amendment-04 convergence is unavailable outside the P1 runtime")
+        amendment_path = Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_04.md")
+        if (
+            not isinstance(getattr(args, "e8_critic_convergence_amendment_04_sha256", None), str)
+            or digest(amendment_path) != args.e8_critic_convergence_amendment_04_sha256
+        ):
+            raise ValueError("P1 Amendment-04 convergence digest is not bound to current source")
     if args.output.exists() and (not args.output.is_dir() or any(args.output.iterdir())):
         raise ValueError("training and explicit recovery require a fresh output directory")
     origin_source_path = getattr(args, "p1_origin_source_path", None)
@@ -815,6 +860,10 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         # Calibration independently reserves these same roots before its peek.
         # The P1 fresh-evaluation seeds are already in ``p1_excluded_seeds``.
         base_excluded_seeds.update(fixed_holdout_seeds(fixture_exclusions, horizon=HORIZON))
+    # C3 applies to the natural collection only.  The frozen diagnostic fixture
+    # keeps its original identity, so calculate it before adding history roots.
+    if convergence04_enabled:
+        base_excluded_seeds.update(getattr(args, "p1_natural_collection_burned_roots", ()))
     config = CollectorConfig(
         worlds=args.worlds,
         processes=args.processes,
@@ -827,6 +876,9 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
         native_v8=args.native_v8,
         preflight=args.preflight,
         excluded_seeds=frozenset(base_excluded_seeds),
+        world_id_offset=(
+            int(args.natural_collection_world_id_offset) if convergence04_enabled else 0
+        ),
     )
     collector = PersistentCollector(config)
     counters: dict[str, Any] = {
@@ -1273,10 +1325,34 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
             # missing/failed complete-target fit must retain numeric refusal
             # evidence rather than erasing the diagnostic rows and counts.
             fit_error = None
+            convergence_report = (
+                {
+                    "enabled": True,
+                    "amendment": "04" if convergence04_enabled else "03",
+                    "amendment_sha256": (
+                        getattr(args, "e8_critic_convergence_amendment_04_sha256", None)
+                        if convergence04_enabled
+                        else convergence_digest
+                    ),
+                }
+                if convergence_enabled or convergence04_enabled
+                else None
+            )
             try:
-                refit_bank.fit_complete_targets(learner)
+                if convergence04_enabled:
+                    convergence_report.update(
+                        refit_bank.solve_e8_critic_convergence_amendment_04(learner)
+                    )
+                elif convergence_enabled:
+                    convergence_report.update(
+                        refit_bank.solve_e8_critic_convergence_amendment_03(learner)
+                    )
+                else:
+                    refit_bank.fit_complete_targets(learner)
             except ValueError as exc:
                 fit_error = str(exc)
+                if convergence_report is not None:
+                    convergence_report["error"] = fit_error
             try:
                 critic_metrics = refit_bank.qualification(
                     learner, require_support_minimum=p1_runtime
@@ -1310,6 +1386,17 @@ def run_train(args: argparse.Namespace) -> dict[str, Any]:
                 "observed_transitions": counters["critic_refit_transitions"],
                 "observed_fit_transitions": counters["critic_refit_fit_transitions"],
                 "popart": True,
+                **(
+                    {
+                        (
+                            "convergence_amendment_04"
+                            if convergence04_enabled
+                            else "convergence_amendment_03"
+                        ): convergence_report
+                    }
+                    if convergence_report is not None
+                    else {}
+                ),
                 "heldout_late_body": {
                     "count": int(critic_metrics.get("late_body_rows", 0)),
                     "explained_variance": critic_metrics.get("explained_variance"),

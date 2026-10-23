@@ -1,0 +1,80 @@
+{
+  "accounting": "legacy conservative debit; gross/own maximum; no refunds; reserves included in cap liability",
+  "authority": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-18/JUDGMENT.md",
+    "sha256": "1d2c058f517c9a90b0e68e24cdc9f56f6a8897a13e72b0a3709712f66ee827d4"
+  },
+  "blockers": [
+    "Judgment preparation kill: C2 first meaningful fixture failed; tuned PASS invalid; sole replay final source/thread binding not met",
+    "Independent Codex-V ticks every section4 line; Claude records verification in campaign log",
+    "Publish replay and collection allocation audit",
+    "Fresh exact-pin family canary before source admission",
+    "Independent review of fresh identity-bound packs",
+    "Immediately-before-dispatch live usage/sessions and debit reconciliation; Mac windows"
+  ],
+  "canary": {
+    "base": {
+      "reserve_units": 0.2,
+      "timeout_minutes": 15,
+      "unit_cap": 1.0
+    },
+    "effective": {
+      "reserve_units": 0.4,
+      "timeout_minutes": 30,
+      "unit_cap": 2.0
+    },
+    "estimate_minutes": 15,
+    "nominal_units": 0.385
+  },
+  "cap_liability_including_reserves_units": 11.62,
+  "charged_plus_proposed_caps_units": 18.88,
+  "combined_estimate_minutes": 90,
+  "dispatch_ready": false,
+  "frozen_envelope_units": 25.5,
+  "frozen_residual_units": 18.24,
+  "generosity_multiplier": 2,
+  "historical_conservative_charge_units": 7.26,
+  "nominal_units": 2.31,
+  "premise": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-latebody-05-snapshot-bounds-staging-repin-20261022/offline-critic-diagnostic-01/DECISION.md",
+    "sha256": "2d5dcde95f3b9841cca4981198381b161dec44893596688e91d64b259563cfa9"
+  },
+  "provider_calls": 0,
+  "rate_tolerance_units_per_hour": 0.0,
+  "rate_units_per_hour": 1.54,
+  "residual_after_proposed_caps_units": 6.62,
+  "residual_if_replacement_also_reserved_units": 2.76,
+  "schema": "bl-p1-e8-04-forecast/v1",
+  "solve": {
+    "basis": "helmert-zero-sum-256-v1",
+    "columns": 257,
+    "cpu_threads": 1,
+    "dtype": "float64",
+    "l4_solve_timing_measured": false,
+    "local_replay_receipt": "P1_E8_04_OFFLINE_REPLAY.json",
+    "max_fit_rows": 10000,
+    "planning_allowance_minutes_inside_source_estimate": 5,
+    "replay_acceptance": "FIT-side only per round18 section4 C1"
+  },
+  "source": {
+    "base": {
+      "reserve_units": 0.96,
+      "timeout_minutes": 150,
+      "unit_cap": 4.81
+    },
+    "effective": {
+      "reserve_units": 1.92,
+      "timeout_minutes": 300,
+      "unit_cap": 9.62
+    },
+    "estimate_minutes": 75,
+    "nominal_units": 1.925
+  },
+  "source_predecessor": {
+    "elapsed_seconds": 3349.5,
+    "estimate_headroom_minutes": 19.175,
+    "gross_charge_units": 1.71
+  },
+  "status": "HOLD_RETURN_TO_JUDGE_NOT_DISPATCHABLE",
+  "unadmitted_replacement_cap_units": 3.86
+}

@@ -1,0 +1,85 @@
+{
+  "accounting": "legacy conservative debit; gross/own maximum; no refunds; reserves included in cap liability",
+  "authority": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_Y3_CRITIC.md",
+    "sha256": "a0acc82d886f443a5f5482bac725b2ea4de5e5fcc3ed23eec98fcf8f4d677c6a"
+  },
+  "blockers": [
+    "Astra review",
+    "Fable judgment ratifying recipe and pricing new canary + source",
+    "fresh exact-pin family canary",
+    "fresh identity-bound control/manifest/ledger and source review",
+    "fresh account assignment inventory and debit reconciliation"
+  ],
+  "canary": {
+    "base": {
+      "reserve_units": 0.2,
+      "timeout_minutes": 15,
+      "unit_cap": 1.0
+    },
+    "effective": {
+      "reserve_units": 0.4,
+      "timeout_minutes": 30,
+      "unit_cap": 2.0
+    },
+    "estimate_minutes": 15,
+    "nominal_units": 0.385
+  },
+  "cap_liability_including_reserves_units": 11.62,
+  "charged_plus_proposed_caps_units": 18.88,
+  "combined_estimate_minutes": 90,
+  "dispatch_ready": false,
+  "frozen_envelope_units": 25.5,
+  "frozen_residual_units": 18.24,
+  "generosity_multiplier": 2,
+  "historical_conservative_charge_units": 7.26,
+  "nominal_units": 2.31,
+  "premise": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-latebody-05-snapshot-bounds-staging-repin-20261022/offline-critic-diagnostic-01/DECISION.md",
+    "sha256": "2d5dcde95f3b9841cca4981198381b161dec44893596688e91d64b259563cfa9"
+  },
+  "provider_calls": 0,
+  "rate_tolerance_units_per_hour": 0.0,
+  "rate_units_per_hour": 1.54,
+  "residual_after_proposed_caps_units": 6.62,
+  "residual_if_replacement_also_reserved_units": 2.76,
+  "schema": "bl-p1-e8-03-forecast/v1",
+  "solve": {
+    "columns": 258,
+    "cpu_threads": 1,
+    "dtype": "float64",
+    "final_local_solve_and_install_seconds": 0.030277540965471417,
+    "final_replay_status": "REPRODUCED_D1",
+    "initial_local_solve_and_install_seconds": 0.03058654099004343,
+    "initial_replay_receipts": [
+      "P1_E8_03_OFFLINE_REPLAY.json",
+      "P1_E8_03_OFFLINE_REPLAY_02.json"
+    ],
+    "l4_solve_timing_measured": false,
+    "local_replay_receipt": "P1_E8_03_OFFLINE_REPLAY_03.json",
+    "local_timing_scope": "single existing 4120-row exported fit reservoir; not L4 or 10000-row timing",
+    "max_fit_rows": 10000,
+    "planning_allowance_minutes_inside_source_estimate": 5
+  },
+  "source": {
+    "base": {
+      "reserve_units": 0.96,
+      "timeout_minutes": 150,
+      "unit_cap": 4.81
+    },
+    "effective": {
+      "reserve_units": 1.92,
+      "timeout_minutes": 300,
+      "unit_cap": 9.62
+    },
+    "estimate_minutes": 75,
+    "nominal_units": 1.925
+  },
+  "source_predecessor": {
+    "elapsed_seconds": 3349.5,
+    "estimate_headroom_minutes": 19.175,
+    "gross_charge_units": 1.71
+  },
+  "status": "PROPOSED_PENDING_ASTRA_AND_FABLE_NOT_ADMITTED",
+  "unadmitted_replacement_cap_units": 3.86
+}

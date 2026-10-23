@@ -13,13 +13,19 @@ export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THRE
 # Required before Python/Torch import for deterministic replacement-L4 Y3.
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 
-control="${COLAB_INPUT_DIR}/p1-control.json"
 checkpoint_root="${COLAB_INPUT_DIR}"
 # Z-9 transport uses one bounded, hash-bound local-input bundle; extraction
 # verifies every member before the runtime reads its control/admission files.
 if [[ -f "${COLAB_INPUT_DIR}/p1-inputs.tar.gz" ]]; then
   python -m research.bl_ppo.p1_inputs \
     --bundle "${COLAB_INPUT_DIR}/p1-inputs.tar.gz" --output "${COLAB_INPUT_DIR}"
+fi
+# Amendment-04's source and transport-only canary ship one identical archive,
+# preserving the family proof's byte-for-byte input inventory.  Their controls
+# and ledgers are still separate, so the canary cannot consume source worlds.
+control="${COLAB_INPUT_DIR}/p1-control.json"
+if [[ "${SNAKE_COLAB_CANARY:-}" == "1" ]]; then
+  control="${COLAB_INPUT_DIR}/canary-control.json"
 fi
 python - "${control}" <<'PY'
 import json, sys

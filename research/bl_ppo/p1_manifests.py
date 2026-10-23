@@ -128,6 +128,8 @@ def _source_identity(commit: str) -> dict[str, str]:
         "E8_AMENDMENT.md",
         "E8_LATE_BODY_AMENDMENT.md",
         "E8_LATE_BODY_AMENDMENT_02.md",
+        "E8_LATE_BODY_AMENDMENT_03.md",
+        "E8_LATE_BODY_AMENDMENT_04.md",
         "collector.py",
         "late_body.py",
         "model.py",
@@ -154,6 +156,8 @@ def _source_identity(commit: str) -> dict[str, str]:
         "p1_canary_runtime.py",
         "p1_resume.py",
         "p1_y3_attempt.py",
+        "p1_collection_allocation.py",
+        "e8_04_preparation.py",
     ]
     import hashlib
 

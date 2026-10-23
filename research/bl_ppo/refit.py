@@ -453,4 +453,29 @@ class CompleteLifeRefitBank:
         returns = torch.tensor([x[2] for x in rows])
         return learner.fit_completed_critic(features, returns)
 
+    def solve_e8_critic_convergence_amendment_03(self, learner: PPOLearner) -> dict[str, object]:
+        """Run the prospective exact-return head solve on natural fit rows only."""
+        rows = [row for row in self._reservoir["fit"] if row[1].source == "natural"]
+        if not rows:
+            raise ValueError("Amendment-03 critic solve requires completed natural fit rows")
+        if len(rows) > self.reservoir_size or len(rows) > 10_000:
+            raise ValueError("Amendment-03 critic solve exceeds the bounded fit reservoir")
+        # Do not route targets through ``_columns``: its historic default dtype
+        # is float32.  Preserve raw stored suffix returns until the solver's
+        # explicit NumPy float64 conversion.
+        features = torch.tensor([row[1].feature for row in rows], dtype=torch.float64)
+        returns = torch.tensor([row[2] for row in rows], dtype=torch.float64)
+        return learner.install_exact_return_critic_solution(features, returns)
+
+    def solve_e8_critic_convergence_amendment_04(self, learner: PPOLearner) -> dict[str, object]:
+        """Run Amendment-04's zero-sum solve on natural fit rows only."""
+        rows = [row for row in self._reservoir["fit"] if row[1].source == "natural"]
+        if not rows:
+            raise ValueError("Amendment-04 critic solve requires completed natural fit rows")
+        if len(rows) > self.reservoir_size or len(rows) > 10_000:
+            raise ValueError("Amendment-04 critic solve exceeds the bounded fit reservoir")
+        features = torch.tensor([row[1].feature for row in rows], dtype=torch.float64)
+        returns = torch.tensor([row[2] for row in rows], dtype=torch.float64)
+        return learner.install_exact_return_critic_solution(features, returns, zero_sum_basis=True)
+
     qualify = qualification

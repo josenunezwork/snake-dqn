@@ -66,6 +66,13 @@ def execute(
         raise ValueError("family canary requires SNAKE_COLAB_CANARY_PACKAGE=research/bl_ppo")
     if control.get("phase") != "y3-source" or control.get("scientific_admission") is not True:
         raise ValueError("family canary requires the validated y3-source control")
+    if control.get("e8_critic_convergence_amendment_04") is not True:
+        raise ValueError("family canary requires Amendment-04 collection controls")
+    from research.bl_ppo.p1_collection_allocation import validate_collection_control
+
+    validate_collection_control(control, control_path.parent, actual_seed=_SEED)
+    if control.get("natural_collection_seed") != _SEED:
+        raise ValueError("canary collection audit must bind the actual canary seed")
     raw = os.environ.get("BL_P1_CANARY_CONFIG")
     if not raw:
         raise ValueError("SNAKE_COLAB_CANARY=1 requires BL_P1_CANARY_CONFIG")
@@ -100,6 +107,7 @@ def execute(
         "processes": 1,
         "rollout_steps": 16,
         "actor_enabled": False,
+        "natural_collection_world_id_offset": control["natural_collection_world_id_offset"],
     }
     collector_config = CollectorConfig(
         worlds=2,
@@ -112,7 +120,11 @@ def execute(
         # two-world shape.  This flag also prevents a tiny transport run from
         # being mistaken for an E2/P1 scientific collection.
         preflight=True,
-        excluded_seeds=frozenset(control["evaluation_excluded_seeds"]),
+        excluded_seeds=frozenset(
+            set(control["evaluation_excluded_seeds"])
+            | set(control["natural_collection_burned_roots"])
+        ),
+        world_id_offset=int(control["natural_collection_world_id_offset"]),
     )
     counters: dict[str, Any] = {
         "actor_transitions": 0,
