@@ -174,6 +174,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 07:40 PT | F0 Mac equivalence PASS; D256 started | mac-pack-02 RUN_ME (W6): F1 1/3/6-worker identity, Canary-B 36 allocations complete in 1,117 s, Canary-A replay audit PASS, single F0 look PASS: 14.5 rescue-bearing lives per Mac-worker-hour (floor 8; forecast was 6-9). D256 dispatched on the Mac at W6 (bl-f0-mac-d256-02; first attempt refused pre-start on a missing approval path — operator error, no data). W12 calibration runner queued (owner standing approval). |
 
+| 2026-10-23 07:55 PT | Colab stall fix PARKED | Requal of a18bf6b4: CPU PASS, L4 INCOMPLETE; Sol diagnosis (03d7e841): real bounded L4 control-RPC timeouts (2 x 30 s, one unrecovered), no sizing defect; counts as L4's first failed attempt (§7 C1.3/C1.4). Colab label lanes parked this week; Mac factory is the platform (14.5 lives/worker-h). D256 running at W6 (8/858 parents in 20 min — slower than forecast); round-27 (10 Astras) on factory speed in progress. App update killed tmux waiters; W12 calibration re-queued after round 27. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
