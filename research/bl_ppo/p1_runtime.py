@@ -97,8 +97,11 @@ def _load_control(path: Path, phase: str) -> dict[str, Any]:
     ):
         raise ValueError("runtime late-body amendment bytes differ from the frozen control")
     convergence_enabled = value.get("e8_critic_convergence_amendment_03", False)
-    if type(convergence_enabled) is not bool:
+    convergence04_enabled = value.get("e8_critic_convergence_amendment_04", False)
+    if type(convergence_enabled) is not bool or type(convergence04_enabled) is not bool:
         raise ValueError("P1 Amendment-03 convergence flag must be boolean")
+    if convergence_enabled and convergence04_enabled:
+        raise ValueError("P1 Amendments 03 and 04 convergence flags are mutually exclusive")
     if convergence_enabled:
         convergence_digest = value.get("e8_critic_convergence_amendment_03_sha256")
         convergence_path = Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_03.md")
@@ -109,6 +112,27 @@ def _load_control(path: Path, phase: str) -> dict[str, Any]:
             or digest(convergence_path) != convergence_digest
         ):
             raise ValueError("runtime Amendment-03 convergence bytes differ from frozen control")
+    if convergence04_enabled:
+        convergence_digest = value.get("e8_critic_convergence_amendment_04_sha256")
+        convergence_path = Path(__file__).with_name("E8_LATE_BODY_AMENDMENT_04.md")
+        if (
+            not isinstance(convergence_digest, str)
+            or len(convergence_digest) != 64
+            or not convergence_path.is_file()
+            or digest(convergence_path) != convergence_digest
+        ):
+            raise ValueError("runtime Amendment-04 convergence bytes differ from frozen control")
+        offset = value.get("natural_collection_world_id_offset")
+        if type(offset) is not int or offset <= 0 or offset % 5:
+            raise ValueError("P1 Amendment-04 requires a positive multiple-of-five world offset")
+        actual_collection_seed = (
+            2026102203 if os.environ.get("SNAKE_COLAB_CANARY") == "1" else 20261021
+        )
+        if value.get("natural_collection_seed", actual_collection_seed) != actual_collection_seed:
+            raise ValueError("P1 source natural collection must preserve seed 20261021")
+        from research.bl_ppo.p1_collection_allocation import validate_collection_control
+
+        validate_collection_control(value, path.parent, actual_seed=actual_collection_seed)
     resume_amendment = value.get("resume_amendment_sha256")
     if resume_amendment is not None:
         if resume_amendment != digest(Path(__file__).with_name("P1_Y3_RESUME_AMENDMENT_05.md")):
@@ -379,6 +403,15 @@ def _train_args(
         e8_critic_convergence_amendment_03_sha256=control.get(
             "e8_critic_convergence_amendment_03_sha256"
         ),
+        e8_critic_convergence_amendment_04=control.get("e8_critic_convergence_amendment_04", False),
+        e8_critic_convergence_amendment_04_sha256=control.get(
+            "e8_critic_convergence_amendment_04_sha256"
+        ),
+        natural_collection_world_id_offset=control.get("natural_collection_world_id_offset", 0),
+        natural_collection_seed=control.get("natural_collection_seed", 20261021),
+        p1_natural_collection_burned_roots=tuple(
+            control.get("natural_collection_burned_roots", ())
+        ),
         p1_excluded_seeds=tuple(control["evaluation_excluded_seeds"]),
         pause_at=pause_at,
         requested_pause_at=int(control.get("requested_pause_at", pause_at)),
@@ -540,12 +573,22 @@ def _validate_resume(control: dict[str, Any], resume: Path, input_dir: Path) -> 
     if any(identity.get(key) != value for key, value in expected_identity.items()):
         raise ValueError("P1 resume identity differs from the frozen trajectory")
     convergence_enabled = control.get("e8_critic_convergence_amendment_03", False)
+    convergence04_enabled = control.get("e8_critic_convergence_amendment_04", False)
     if identity.get("e8_critic_convergence_amendment_03", False) is not convergence_enabled:
         raise ValueError("P1 resume convergence-amendment identity differs from frozen control")
     if convergence_enabled and identity.get(
         "e8_critic_convergence_amendment_03_sha256"
     ) != control.get("e8_critic_convergence_amendment_03_sha256"):
         raise ValueError("P1 resume convergence-amendment digest differs from frozen control")
+    if identity.get("e8_critic_convergence_amendment_04", False) is not convergence04_enabled:
+        raise ValueError("P1 resume Amendment-04 identity differs from frozen control")
+    if convergence04_enabled and (
+        identity.get("e8_critic_convergence_amendment_04_sha256")
+        != control.get("e8_critic_convergence_amendment_04_sha256")
+        or identity.get("natural_collection_world_id_offset")
+        != control.get("natural_collection_world_id_offset")
+    ):
+        raise ValueError("P1 resume Amendment-04 collection identity differs from frozen control")
     phase = control["phase"]
     start = control.get("start_at", 0)
     if snapshot["counters"].get("actor_transitions") != start:

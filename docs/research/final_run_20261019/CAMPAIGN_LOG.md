@@ -197,3 +197,36 @@ _As of 2026-10-20 ~19:25 PT:_
 - Details: `research/bl_ppo/E8_PREFLIGHT.md`, `research/bl_ppo/E9_RULE.md`; authoritative external `big-lever/exp/bl-e2/DISPATCH.txt` points to `dispatch-e8-v2`. Current E2 templates cannot be materialized without genuine E4 evidence and passing prospective E9 admission.
 
 - **2026-10-21 — O2 prospective V2 prepared, NOT DISPATCHED (owner request):** measured-T23 minimum 5097 worlds (joint superiority bound .800179; preceding 5094 .799974); >1000 fallback 1260/420 per mix,149.733333u hard cap including 20% reserve,10 single-runtime jobs<=462min. Capped power bound .339888; retained observed>=40 precludes 80% full-GO at true +40. Round 5 seeds CLEAR after whole-allocation collision rejections; 260-file source pin `f19d3f39050adfedc6eaef001a3364318fbb28bc`, registration `040a6fcd`, Mac serial/pool proof, 77 O2 tests+ 16 targeted transport tests, all 10 local manifest/upload checks pass. See `research/t34_o2_harvest/{REGISTRATION_O2_V2.md,AMENDMENT_O2_V2.md,PREFLIGHT_V2.md}` and O2 artifact-root `DISPATCH.txt`. No Colab or serving change.
+
+## P1 E8 amendment 04 — 2026-10-22, HOLD / return to judge
+
+- Owner requested implementation of round-18 `RATIFY-WITH-CHANGES` on
+  `p1-snapbound-20261022` over `5afeb8d9`, without dispatch. The sibling
+  `research/bl_ppo/E8_LATE_BODY_AMENDMENT_04.md` freezes C1 zero-sum solve,
+  C2 first-step fixture and moments clarification, and C3 fresh allocation.
+- The sole existing-export replay reports rank 257, condition 2516.5907,
+  raw FIT MSE 896460.1646, max installed FIT prediction difference 11.0748
+  return units, common-mode sensitivity -5.0022e-16. Numerical FIT criteria
+  pass, but its source binding predates a rank-deficient report-serialization
+  fix and its thread environment is unset. It is not final-code qualification.
+- C2's initial bias-shift check was vacuous. A corrected full-forward fixture
+  failed; subsequent synthetic target/reward easing produced `_02` PASS,
+  which independent Codex-V rejects as acceptance evidence. The restored
+  original configuration's `_03` FAIL retains three finite actor updates:
+  cumulative held-observation value drift 7.6990/14.6261/20.3876 versus
+  PopArt scale 5.5338. Analytic and actual common-mode checks pass. No
+  thresholds were changed and no accepted C2 stability PASS is claimed.
+- Judgment section 4's preparation kill rule applies: **no spend, no
+  dispatch, return to judge**. Review-only source/canary packs carry explicit
+  admission blockers. Frozen pricing stays canary 2.00u/.40u/30min and source
+  9.62u/1.92u/300min at 1.54u/h, zero tolerance; 2x is not reapplied.
+- The current/manifest Colab CLI tree must remain
+  `553af3f692515b2bf66173356fe4d099acc96942`; registry acceptance receipt
+  hash/PASS/qualified=true were checked. Live inventory, current debit and
+  canary proof are future operator preconditions. The previous
+  `WARNING_UNEXPLAINED_DEBIT` is carried forward; `{}` is not an inventory.
+  Claude's line-by-line receipt check has **not** been performed by Codex.
+- All work is 0u local preparation. No provider/Colab, tmux, serving pin or
+  released-checkpoint action; protected study unopened, `snake-dqn-l2mac`
+  untouched. Detailed evidence and precondition status are in
+  `research/bl_ppo/P1_E8_04_HANDOFF.md` and the independent Codex-V receipt.

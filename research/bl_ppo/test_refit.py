@@ -302,6 +302,77 @@ def test_amendment_03_rejects_finite_float64_values_that_overflow_popart_fp32() 
         )
 
 
+def test_amendment_04_zero_sum_solve_is_stable_and_repeatable() -> None:
+    """C1 uses the fixed Helmert basis and retains fp32 PopArt mapping."""
+    from types import SimpleNamespace
+
+    from research.bl_ppo.learner import PPOLearner
+    from research.bl_ppo.model import PopArtValueHead
+
+    class Policy:
+        def __init__(self) -> None:
+            self.critic = PopArtValueHead(257)
+            self.core = SimpleNamespace(norm=torch.nn.LayerNorm(256))
+
+        def value_from_critic_features(self, features):
+            return self.critic(features)
+
+    generator = torch.Generator().manual_seed(20261022)
+    core = torch.randn((300, 256), generator=generator, dtype=torch.float64)
+    core.sub_(core.mean(dim=1, keepdim=True))
+    features = torch.cat((core, torch.linspace(0.0, 1.0, 300).double().unsqueeze(1)), dim=1)
+    returns = core[:, 0] * 2.0 + features[:, -1] * 3.0
+
+    def solve():
+        policy = Policy()
+        learner = SimpleNamespace(
+            policy=policy, optimizer=torch.optim.Adam(policy.critic.parameters())
+        )
+        report = PPOLearner.install_exact_return_critic_solution(
+            learner, features, returns, zero_sum_basis=True
+        )
+        return policy, report
+
+    policy_a, report_a = solve()
+    policy_b, report_b = solve()
+    assert report_a["rank"] == 257
+    assert report_a["basis"] == "helmert-zero-sum-256-v1"
+    assert abs(report_a["common_mode_sensitivity_per_1e-4_bias"]) <= 1.0
+    assert report_a["installed_fp32_fit_mse"] < 1e-8
+    assert torch.equal(policy_a.critic.linear.weight, policy_b.critic.linear.weight)
+    assert torch.equal(policy_a.critic.linear.bias, policy_b.critic.linear.bias)
+    assert report_a == report_b
+
+
+def test_amendment_04_rank_deficient_report_is_json_safe_and_refuses_nonzero_mean() -> None:
+    """C1's rank-deficient path stays finite and the zero-sum guard is strict."""
+    import json
+    from types import SimpleNamespace
+
+    from research.bl_ppo.learner import PPOLearner
+    from research.bl_ppo.model import PopArtValueHead
+
+    critic = PopArtValueHead(257)
+    policy = SimpleNamespace(
+        critic=critic,
+        core=SimpleNamespace(norm=torch.nn.LayerNorm(256)),
+        value_from_critic_features=lambda features: critic(features),
+    )
+    learner = SimpleNamespace(policy=policy, optimizer=torch.optim.Adam(critic.parameters()))
+    features = torch.zeros((8, 257), dtype=torch.float64)
+    report = PPOLearner.install_exact_return_critic_solution(
+        learner, features, torch.arange(8, dtype=torch.float64), zero_sum_basis=True
+    )
+    assert report["rank"] == 1
+    assert report["condition_number"] is None
+    json.dumps(report, allow_nan=False)
+    features[0, 0] = 1e-3
+    with pytest.raises(ValueError, match="not zero-sum"):
+        PPOLearner.install_exact_return_critic_solution(
+            learner, features, torch.arange(8, dtype=torch.float64), zero_sum_basis=True
+        )
+
+
 def test_amendment_03_excludes_supplement_and_preserves_raw_return_dtype() -> None:
     bank = CompleteLifeRefitBank(samples_per_life=1)
     bank.add_batch(

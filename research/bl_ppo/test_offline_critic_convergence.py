@@ -17,6 +17,8 @@ from research.bl_ppo.test_offline_critic_diagnostic import _rows
 
 def _inputs(tmp_path: Path) -> tuple[Path, Path]:
     fit, heldout = _rows(24, heldout=False), _rows(24, heldout=True)
+    for rows in (fit, heldout):
+        rows["features"][:, :256] -= rows["features"][:, :256].mean(axis=1, keepdims=True)
     fit["world_ids"] = np.arange(24, dtype=np.int64) * 5 + 1
     heldout["world_ids"] = np.arange(24, dtype=np.int64) * 5 + 1000
     arrays = {f"fit_{key}": value for key, value in fit.items()}
@@ -36,10 +38,9 @@ def test_replay_refuses_identity_even_when_synthetic_fit_reproduces(tmp_path) ->
     sidecar, reference = _inputs(tmp_path)
     original_hashes = digest(sidecar), digest(reference)
     result = replay(sidecar, reference)
-    assert result["status"] == "REPLAY_MISMATCH"
-    assert result["identity_i0_passed"] is False  # 24 fixture rows are not the Y3 162.
-    assert result["reproduction"]["ev_absolute_delta"] < 1e-4
-    assert result["reproduction"]["mse_relative_delta"] < 1e-3
+    assert result["status"] == "FIT_ACCEPTANCE_FAIL"
+    assert result["fit_acceptance"]["old_z_h_fit_mse"] >= 0.0
+    assert result["fit_acceptance"]["checks"]["rank"] is False
     assert (digest(sidecar), digest(reference)) == original_hashes
     assert result["actor_transitions"] == result["provider_calls"] == 0
 
