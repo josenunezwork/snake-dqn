@@ -1,4 +1,4 @@
-"""Exact identity exclusions and sampled CPU disclosures; no real timing work."""
+"""Executable-location exclusions and sampled CPU disclosures; no real timing work."""
 
 from types import SimpleNamespace
 
@@ -19,13 +19,24 @@ def screen(command: str, cpu: float = 99.0, identity: dict | None = None) -> dic
     }
 
 
-@pytest.mark.parametrize("command", sorted(bg.SYSTEM_DAEMONS))
-def test_exact_system_daemons_never_foreign(command: str) -> None:
-    assert command.startswith(("/System/", "/usr/libexec/"))
-    value = screen(command, 250.0)
+# Exact process samples from d2-3cbdee1a-r1 plus all authorized roots.
+SYSTEM_SAMPLES = [
+    ("/usr/libexec/runningboardd", 60.5),
+    ("/sbin/launchd", 55.3),
+    ("/System/Library/PrivateFrameworks/Stickers.framework/Support/stickersd", 53.5),
+    ("/usr/sbin/distnoted", 75.0),
+    ("/System/fake/fileproviderd", 60.0),
+    ("/usr/libexec/nsurlsessiond-unknown", 60.0),
+]
+
+
+@pytest.mark.parametrize("command,cpu", SYSTEM_SAMPLES)
+def test_system_locations_never_foreign(command: str, cpu: float) -> None:
+    value = screen(command, cpu)
     assert m1.foreign_load(value, 10) == []
-    assert bg.allowed_background(value)[0]["cpu_percent"] == 250.0
+    assert bg.allowed_background(value)[0]["cpu_percent"] == cpu
     assert bg.allowed_background(screen(command, 4.0))[0]["cpu_percent"] == 4.0
+    assert m1.foreign_load(screen(command, 250.0), 10) == []
 
 
 @pytest.mark.parametrize(
@@ -33,8 +44,18 @@ def test_exact_system_daemons_never_foreign(command: str) -> None:
     [
         "fileproviderd",
         "/tmp/fileproviderd",
-        "/System/fake/fileproviderd",
-        "/usr/libexec/nsurlsessiond-unknown",
+        "/Systematic/fake/fileproviderd",
+        "/usr/libexec-other/runningboardd",
+        "/usr/sbin-other/distnoted",
+        "/sbin-other/launchd",
+        "/System/../Users/owner/python3",
+        "/sbin/../Users/owner/python3",
+        "/usr/sbin/../../Users/owner/python3",
+        "/Users/owner/bin/python3",
+        "/opt/homebrew/bin/python3",
+        "/Applications/Claude.app/Contents/MacOS/Claude",
+        "/Applications/ChatGPT.app/Contents/MacOS/Codex",
+        "/usr/local/bin/codex",
         "/usr/libexec/../libexec/nsurlsessiond",
         "/Applications/Spotlight.app/Contents/MacOS/Spotlight",
         "codex",
@@ -43,7 +64,7 @@ def test_exact_system_daemons_never_foreign(command: str) -> None:
     ],
 )
 def test_names_and_prefixes_do_not_authorize_foreign_load(command: str) -> None:
-    value = screen(command)
+    value = screen(command, 60.0)
     assert m1.foreign_load(value, 10) == value["other_heavy_processes"]
 
 
@@ -184,3 +205,30 @@ def test_snapshot_policy_is_m1_only(monkeypatch) -> None:
     )
     assert host.snapshot()["quiet"] is False
     assert host.snapshot(process_policy=lambda s: m1.foreign_load(s, 10))["quiet"] is True
+
+
+@pytest.mark.parametrize("command,cpu", SYSTEM_SAMPLES[:3])
+def test_monitor_records_system_samples_until_user_python_aborts(command, cpu) -> None:
+    samples = iter(
+        [
+            {"monotonic_ns": 0, "process_screen": screen(command, cpu)},
+            {"monotonic_ns": 2_000_000_000, "process_screen": screen(command, 4.0)},
+            {
+                "monotonic_ns": 4_000_000_000,
+                "process_screen": screen("/Users/owner/bin/python3", 60.0),
+            },
+        ]
+    )
+    monitor = m1.HostMonitor(lambda: next(samples))
+    monitor.stop.wait = lambda _: False
+    monitor._loop()
+    assert len(monitor.rows) == 3
+    assert [row["foreign_heavy_processes"] for row in monitor.rows[:2]] == [[], []]
+    assert monitor.rows[-1]["foreign_heavy_processes"][0]["cpu_percent"] == 60.0
+    assert monitor.error == m1.RESTART_POLICY["trigger"]
+    result = bg.background_summary([(monitor.rows, 6_000_000_000)])
+    assert result["by_command"][command] == {
+        "max_cpu_percent": cpu,
+        "mean_cpu_percent": pytest.approx((cpu + 4.0) / 3),
+        "time_at_or_above_50_seconds": 2.0,
+    }
