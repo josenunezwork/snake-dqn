@@ -1,4 +1,4 @@
-"""Owner-authorized M1 background load: exact identities and sampled disclosure."""
+"""Owner-authorized Mac background load: executable locations and sampled disclosure."""
 
 from __future__ import annotations
 
@@ -11,44 +11,10 @@ OWNER_DIRECTIVE_PATH = Path(
     "OWNER_DIRECTIVE_M1_DAEMONS_20261022.txt"
 )
 
-_METADATA = (
-    "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/"
-    "Metadata.framework/Versions/A/Support/"
-)
-# No basename, substring, directory-prefix, or wildcard daemon exemptions.
-SYSTEM_DAEMONS = frozenset(
-    {
-        *(
-            _METADATA + name
-            for name in (
-                "corespotlightd",
-                "managedcorespotlightd",
-                "mds",
-                "mds_stores",
-                "mdworker",
-                "mdworker_shared",
-            )
-        ),
-        "/System/Library/PrivateFrameworks/FileProvider.framework/Support/fileproviderd",
-        "/System/Library/PrivateFrameworks/MediaAnalysis.framework/Versions/A/mediaanalysisd",
-        "/System/Library/PrivateFrameworks/PhotoAnalysis.framework/Versions/A/Support/"
-        "photoanalysisd",
-        "/System/Library/PrivateFrameworks/CloudKitDaemon.framework/Support/cloudd",
-        "/System/Library/PrivateFrameworks/iCloudDriveCore.framework/Versions/A/Support/bird",
-        "/usr/libexec/nsurlsessiond",
-        "/usr/libexec/spotlightknowledged",
-        "/usr/libexec/spotlightknowledged.importer",
-        "/usr/libexec/spotlightknowledged.updater",
-        "/System/Library/CoreServices/Spotlight.app/Contents/MacOS/Spotlight",
-        "/System/Library/ExtensionKit/Extensions/SpotlightSettingsIntentsExtension.appex/"
-        "Contents/MacOS/SpotlightSettingsIntentsExtension",
-        "/System/Library/ExtensionKit/Extensions/SpotlightPreferenceExtension.appex/"
-        "Contents/MacOS/SpotlightPreferenceExtension",
-        "/System/Applications/Mail.app/Contents/PlugIns/"
-        "com.apple.mail.SpotlightIndexExtension.appex/"
-        "Contents/MacOS/com.apple.mail.SpotlightIndexExtension",
-    }
-)
+# Owner clarification 2026-10-23 generalizes the 2026-10-22 directive to
+# executable locations, independent of daemon name. Keep directory boundaries;
+# user applications and command-line arguments never establish system identity.
+SYSTEM_EXECUTABLE_ROOTS = ("/System/", "/usr/libexec/", "/usr/sbin/", "/sbin/")
 CHECKOUT_PARENT = Path("/Users/josenunez/Projects/ml")
 
 
@@ -67,8 +33,9 @@ def checkout(path: str) -> Path | None:
 
 
 def background_kind(process: dict, identity: dict) -> str | None:
-    """Trust exact system paths or a Python entrypoint in our checkout, never args text."""
-    if process.get("command") in SYSTEM_DAEMONS:
+    """Trust system executable locations or our supervisor entrypoint, never args text."""
+    command = process.get("command", "")
+    if command.startswith(SYSTEM_EXECUTABLE_ROOTS) and ".." not in Path(command).parts:
         return "macos_system_daemon"
     if not re.fullmatch(r"[Pp]ython(?:\d+(?:\.\d+)*)?", Path(process.get("command", "")).name):
         return None

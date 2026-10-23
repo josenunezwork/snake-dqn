@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from research.bl_gc import common
+from research.bl_k1.m1_background import background_summary
 
 SCHEMA = "bl-gc-a1/v1"
 WARMUP_TICKS = 200
@@ -276,6 +277,7 @@ def run(policy: str, seed: int, ticks: int) -> dict[str, Any]:
     finally:
         if monitor.thread.ident is not None:
             monitor.close()
+        host_finished_ns = time.monotonic_ns()
         meter.close()
         session.close(wait=True)
     return {
@@ -293,6 +295,7 @@ def run(policy: str, seed: int, ticks: int) -> dict[str, Any]:
         "attestation": {**initial, "roster": roster},
         "timing_admission": admission,
         "host_observations": monitor.rows,
+        "background_load": background_summary([(monitor.rows, host_finished_ns)]),
         "roster": roster,
         "ticks": rows,
         "final_boundary_gc": final_gc,
@@ -435,7 +438,11 @@ def check_cell(cell: dict[str, Any]) -> dict[str, Any]:
     """Apply frozen bars, recomputing attribution from the measured counters."""
     fault = _validate_cell(cell)
     if fault:
-        return {"verdict": "INCOMPLETE", "reason": fault}
+        return {
+            "verdict": "INCOMPLETE",
+            "reason": fault,
+            "background_load": cell.get("background_load"),
+        }
     rows = cell["ticks"]
     overruns = [row for row in rows if row["overrun"]]
     gc_overruns = [row for row in overruns if row["gc_pause_ms"] >= 20 or row["gc_gen2_count"] > 0]
@@ -479,6 +486,7 @@ def check_cell(cell: dict[str, Any]) -> dict[str, Any]:
         "cell": {key: cell[key] for key in ("policy", "seed", "ticks_requested")},
         "verdict": verdict,
         "overrun_verdict": overrun_verdict,
+        "background_load": cell.get("background_load"),
         "violations": violations,
         "overruns": len(overruns),
         "gc_attributed_overruns": len(gc_overruns),

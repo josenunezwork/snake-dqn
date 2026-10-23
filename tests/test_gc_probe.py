@@ -357,3 +357,62 @@ def test_bar5_negative_counter_is_incomplete(six: list[dict]) -> None:
     cell["ticks"][-1]["gc_freeze_count"] = -1
     cell["final_boundary_gc"]["gc_freeze_count"] = -1
     assert probe.check(cells)["verdict"] == "INCOMPLETE"
+
+
+def test_run_discloses_background_load_without_counting_teardown(monkeypatch) -> None:
+    from research.bl_k1 import m1
+    from research.bl_k1.m1_background import allowed_background
+
+    command = "/usr/libexec/runningboardd"
+    samples = [
+        {
+            "monotonic_ns": index * 2_000_000_000,
+            "allowed_background_processes": allowed_background(
+                {"processes": f"PID PPID %CPU COMM\n20 1 {cpu} {command}\n"}
+            ),
+        }
+        for index, cpu in enumerate((60.5, 4.0, 0.0))
+    ]
+    clock = {"ns": 0}
+    monitor = SimpleNamespace(
+        rows=samples,
+        error=None,
+        thread=SimpleNamespace(start=lambda: None, ident=123),
+        close=lambda: clock.update(ns=6_000_000_000),
+    )
+    session = SimpleNamespace(close=lambda **kw: clock.update(ns=100_000_000_000))
+    meter = SimpleNamespace(drain=lambda: {}, close=lambda: None)
+    monkeypatch.setattr(m1, "HostMonitor", lambda _: monitor)
+    monkeypatch.setattr(m1, "new_watch", lambda _: (session, {}))
+    monkeypatch.setattr(probe, "_timing_admission", lambda: {})
+    monkeypatch.setattr(probe.common, "initialize", lambda *a, **kw: ({}, {}))
+    monkeypatch.setattr(probe, "_meter", lambda: meter)
+    monkeypatch.setattr(probe, "_timed_tick", lambda _: None)
+    monkeypatch.setattr(probe, "_gc_state", lambda _: {})
+    monkeypatch.setattr(probe, "_rss_mb", lambda _: 1.0)
+    monkeypatch.setattr(probe, "_tick_row", lambda *a: {})
+    monkeypatch.setattr(probe.time, "monotonic_ns", lambda: clock["ns"])
+    monkeypatch.setattr(probe.time, "sleep", lambda _: None)
+    monkeypatch.setattr(probe.gc, "get_objects", lambda: [])
+    result = probe.run("default", 2026102300, 2400)
+    assert result["status"] == "COMPLETE"
+    assert result["host_observations"] == samples
+    summary = result["background_load"]
+    assert summary["observed_seconds"] == 6.0
+    assert summary["by_command"][command] == {
+        "max_cpu_percent": 60.5,
+        "mean_cpu_percent": 21.5,
+        "time_at_or_above_50_seconds": 2.0,
+    }
+
+
+def test_background_disclosure_is_report_only(six: list[dict]) -> None:
+    cells, cell = _changed(six)
+    cell["background_load"] = {"total": {"max_cpu_percent": 250.0}}
+    result = probe.check_cell(cell)
+    assert result["verdict"] == "PASS"
+    assert result["background_load"] == cell["background_load"]
+    cell["status"] = "INCOMPLETE"
+    result = probe.check_cell(cell)
+    assert result["verdict"] == "INCOMPLETE"
+    assert result["background_load"] == cell["background_load"]
