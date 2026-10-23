@@ -14,6 +14,7 @@ import gc
 import json
 import statistics
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,24 @@ class RulerError(RuntimeError):
 def _sync(device: str) -> None:
     if device == "cuda":
         torch.cuda.synchronize()
+
+
+def _memory_now(device: str) -> dict[str, int | None]:
+    if device != "cuda" or not torch.cuda.is_available():
+        return {"allocated_bytes": None, "reserved_bytes": None, "free_bytes": None}
+    free, total = torch.cuda.mem_get_info()
+    return {
+        "allocated_bytes": int(torch.cuda.memory_allocated()),
+        "reserved_bytes": int(torch.cuda.memory_reserved()),
+        "free_bytes": int(free),
+        "total_bytes": int(total),
+    }
+
+
+def _release_cell(device: str) -> None:
+    gc.collect()
+    if device == "cuda":
+        torch.cuda.empty_cache()
 
 
 def _p95(values: list[float]) -> float:
@@ -177,67 +196,76 @@ def _measure_cell(
     for repeat in range(repeats):
         if time.perf_counter() >= deadline:
             raise TimeoutError("A1 ruler exhausted its bound before a repeat")
+        _release_cell(device)
+        memory_before = _memory_now(device)
         if device == "cuda":
             torch.cuda.reset_peak_memory_stats()
-        built = time.perf_counter()
-        sim, policy, sim_template, policy_template = _build_case(checkpoint, mix, worlds, device)
-        setup_seconds += time.perf_counter() - built
-        _set_event_path(sim, repaired)
-        _set_instrumented(sim, instrumented)
-        collection = _collection(ticks, worlds, sim.device)
-        for warmup in range(warmups):
-            if time.perf_counter() >= deadline:
-                raise TimeoutError("A1 ruler exhausted its bound during warmup")
-            with sim.stage("reset"):
-                _reset(sim, policy, sim_template, policy_template)
-            _full_tick(sim, policy, {key: value[:1] for key, value in collection.items()}, 0)
-            if instrumented:
-                _consume_instrumentation(sim)
-            if warmup + 1 == warmups:
+        sim = policy = sim_template = policy_template = collection = None
+        try:
+            built = time.perf_counter()
+            sim, policy, sim_template, policy_template = _build_case(
+                checkpoint, mix, worlds, device
+            )
+            setup_seconds += time.perf_counter() - built
+            _set_event_path(sim, repaired)
+            _set_instrumented(sim, instrumented)
+            collection = _collection(ticks, worlds, sim.device)
+            for warmup in range(warmups):
+                if time.perf_counter() >= deadline:
+                    raise TimeoutError("A1 ruler exhausted its bound during warmup")
+                with sim.stage("reset"):
+                    _reset(sim, policy, sim_template, policy_template)
+                _full_tick(sim, policy, {key: value[:1] for key, value in collection.items()}, 0)
+                if instrumented:
+                    _consume_instrumentation(sim)
+                if warmup + 1 == warmups:
+                    _sync(device)
+            tick_seconds: list[float] = []
+            for tick in range(ticks):
+                if time.perf_counter() >= deadline:
+                    raise TimeoutError("A1 ruler exhausted its bound during a measured tick")
+                # A full-tick ruler includes the resident reset.  Start before it
+                # and synchronize after collection, so neither reset nor queued
+                # CUDA work disappears from the endpoint measurement.
+                started = time.perf_counter()
+                with sim.stage("reset"):
+                    _reset(sim, policy, sim_template, policy_template)
+                _full_tick(sim, policy, collection, tick)
                 _sync(device)
-        tick_seconds: list[float] = []
-        for tick in range(ticks):
-            if time.perf_counter() >= deadline:
-                raise TimeoutError("A1 ruler exhausted its bound during a measured tick")
-            # A full-tick ruler includes the resident reset.  Start before it
-            # and synchronize after collection, so neither reset nor queued
-            # CUDA work disappears from the endpoint measurement.
-            started = time.perf_counter()
-            with sim.stage("reset"):
-                _reset(sim, policy, sim_template, policy_template)
-            _full_tick(sim, policy, collection, tick)
-            _sync(device)
-            tick_seconds.append(time.perf_counter() - started)
-            if instrumented:
-                stage_rows.append(_consume_instrumentation(sim))
-        samples.append(
-            {
-                "repeat": repeat,
-                "tick_seconds": tick_seconds,
-                "median_tick_seconds": statistics.median(tick_seconds),
-                "p95_tick_seconds": _p95(tick_seconds),
-                "complete_steps_per_second": worlds * ticks / sum(tick_seconds),
-                "peak_device_memory": realistic._peak_memory(device),
-                "collection_checksum": int(collection["length"].sum().detach().cpu()),
-            }
-        )
-        print(
-            json.dumps(
+                tick_seconds.append(time.perf_counter() - started)
+                if instrumented:
+                    stage_rows.append(_consume_instrumentation(sim))
+            samples.append(
                 {
-                    "event": "a1_ruler_repeat_complete",
-                    "mix": mix,
-                    "worlds": worlds,
-                    "repeat": repeat + 1,
-                    "repeats": repeats,
-                    "complete_steps_per_second": samples[-1]["complete_steps_per_second"],
+                    "repeat": repeat,
+                    "tick_seconds": tick_seconds,
+                    "median_tick_seconds": statistics.median(tick_seconds),
+                    "p95_tick_seconds": _p95(tick_seconds),
+                    "complete_steps_per_second": worlds * ticks / sum(tick_seconds),
+                    "peak_device_memory": realistic._peak_memory(device),
+                    "memory_before_repeat": memory_before,
+                    "collection_checksum": int(collection["length"].sum().detach().cpu()),
                 }
-            ),
-            flush=True,
-        )
-        del collection, policy_template, sim_template, policy, sim
-        if device == "cuda":
-            torch.cuda.empty_cache()
-        gc.collect()
+            )
+            print(
+                json.dumps(
+                    {
+                        "event": "a1_ruler_repeat_complete",
+                        "mix": mix,
+                        "worlds": worlds,
+                        "repeat": repeat + 1,
+                        "repeats": repeats,
+                        "complete_steps_per_second": samples[-1]["complete_steps_per_second"],
+                    }
+                ),
+                flush=True,
+            )
+        finally:
+            # Drop live tensors before empty_cache; the allocator cannot release
+            # referenced storage. This also runs for OOM/warmup/trace failures.
+            del collection, policy_template, sim_template, policy, sim
+            _release_cell(device)
+        samples[-1]["memory_after_release"] = _memory_now(device)
     ticks_all = [value for sample in samples for value in sample["tick_seconds"]]
     result = {
         "mix": mix,
@@ -340,66 +368,7 @@ def classify(
     }
 
 
-def run(args: argparse.Namespace) -> dict[str, Any]:
-    if args.device == "cuda" and not torch.cuda.is_available():
-        raise RulerError("CUDA requested but unavailable")
-    torch.set_num_threads(1)
-    torch.backends.cuda.matmul.allow_tf32 = False
-    torch.backends.cudnn.allow_tf32 = False
-    shapes = (6,) if args.smoke else SHAPES
-    mixes = (MIXES[0],) if args.smoke else MIXES
-    repeats = 1 if args.smoke else 3
-    ticks = 1 if args.smoke else 8
-    warmups = 0 if args.smoke else args.warmup_ticks
-    deadline = time.perf_counter() + args.seconds
-    setup_started = time.perf_counter()
-    rows = [
-        _measure_cell(
-            checkpoint=args.checkpoint,
-            mix=mix,
-            worlds=worlds,
-            device=args.device,
-            repeats=repeats,
-            ticks=ticks,
-            warmups=warmups,
-            repaired=True,
-            instrumented=False,
-            deadline=deadline,
-        )
-        for mix in mixes
-        for worlds in shapes
-    ]
-    measured_wall_seconds = time.perf_counter() - setup_started
-    # An independent pass is required for attribution; no synchronized timing
-    # calls enter the steady-state ruler.
-    trace = [
-        _measure_cell(
-            checkpoint=args.checkpoint,
-            mix=mix,
-            worlds=worlds,
-            device=args.device,
-            repeats=1,
-            ticks=1,
-            warmups=0,
-            repaired=True,
-            instrumented=True,
-            deadline=deadline,
-        )
-        for mix in mixes
-        for worlds in shapes
-    ]
-    control = _measure_cell(
-        checkpoint=args.checkpoint,
-        mix=mixes[0],
-        worlds=6,
-        device=args.device,
-        repeats=1,
-        ticks=1,
-        warmups=0,
-        repaired=False,
-        instrumented=False,
-        deadline=deadline,
-    )
+def _parity_check(args: argparse.Namespace, deadline: float) -> dict[str, Any]:
     # Keep this tiny action-tape classification single-process on the Mac.
     # The reference and candidate have independent simulator/policy state.
     from research.gpu_sim_spike.benchmark import _candidate_json
@@ -429,22 +398,99 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if mechanics_mismatches:
         comparison["classification"] = "bug"
     comparison["same_tape_mechanics_mismatches"] = mechanics_mismatches
-    tape_path = args.output.with_name("decision-0000.json")
-    write_receipt(
-        tape_path,
-        {
+    parity = {
+        "classification": comparison["classification"],
+        "recorded_action_tape": "a1-units/parity-tape.json",
+        "comparison": comparison,
+        "scope": "one tiny H1 tape; classification only, not engine qualification",
+    }
+    return {
+        "parity": parity,
+        "tape": {
             "reference": reference,
             "candidate": candidate,
             "comparison": comparison,
             "cpu_rescored_action_tapes": rescored,
         },
-    )
-    parity = {
-        "classification": comparison["classification"],
-        "recorded_action_tape": tape_path.name,
-        "comparison": comparison,
-        "scope": "one tiny H1 tape; classification only, not engine qualification",
     }
+
+
+def run(args: argparse.Namespace) -> dict[str, Any]:
+    if args.device == "cuda" and not torch.cuda.is_available():
+        raise RulerError("CUDA requested but unavailable")
+    torch.set_num_threads(1)
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    from research.gpu_sim_spike import a1_units
+
+    shapes = (6, 1024) if args.smoke else SHAPES
+    mixes = MIXES
+    repeats = 1 if args.smoke else 3
+    ticks = 1 if args.smoke else 8
+    warmups = 0 if args.smoke else args.warmup_ticks
+    deadline = time.perf_counter() + args.seconds
+    setup_started = time.perf_counter()
+    ns = a1_units.namespace(source_commit(), args.hardware, args.smoke)
+    allocated = a1_units.allocation(args.smoke)
+    prior = a1_units.load_ledger(args.ledger, ns, allocated)
+    rows, trace = [], []
+
+    def unit(unit_id: str, produce: Any) -> dict[str, Any]:
+        args.active_unit = unit_id
+        print(
+            json.dumps({"event": "a1_unit_start", "unit_id": unit_id, "resumed": unit_id in prior}),
+            flush=True,
+        )
+        if unit_id in prior:
+            value = prior[unit_id]
+        else:
+            value = produce()
+            if time.perf_counter() >= deadline:
+                raise TimeoutError("A1 unit exceeded its fixed wall bound")
+        a1_units.publish_unit(args.output.parent, ns, allocated, unit_id, value)
+        _release_cell(args.device)
+        return value
+
+    for mix in mixes:
+        for worlds in shapes:
+
+            def measure() -> dict[str, Any]:
+                common = dict(
+                    checkpoint=args.checkpoint,
+                    mix=mix,
+                    worlds=worlds,
+                    device=args.device,
+                    repaired=True,
+                    deadline=deadline,
+                )
+                measured = _measure_cell(
+                    **common, repeats=repeats, ticks=ticks, warmups=warmups, instrumented=False
+                )
+                attributed = _measure_cell(
+                    **common, repeats=1, ticks=1, warmups=0, instrumented=True
+                )
+                return {"measured": measured, "trace": attributed}
+
+            value = unit(f"cell-{mix.removeprefix('long-')}-e{worlds}", measure)
+            rows.append(value["measured"])
+            trace.append(value["trace"])
+    measured_wall_seconds = time.perf_counter() - setup_started
+    control = unit(
+        "control-e6",
+        lambda: _measure_cell(
+            checkpoint=args.checkpoint,
+            mix=mixes[0],
+            worlds=6,
+            device=args.device,
+            repeats=1,
+            ticks=1,
+            warmups=0,
+            repaired=False,
+            instrumented=False,
+            deadline=deadline,
+        ),
+    )
+    parity = unit("parity-tape", lambda: _parity_check(args, deadline))["parity"]
     receipt: dict[str, Any] = {
         "schema": "gpu-sim-spike-a1-ruler/v1",
         "status": "PREFLIGHT" if args.device == "cpu" else "MEASURED_PENDING_INDEPENDENT_REVIEW",
@@ -465,9 +511,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "source_commit": source_commit(),
         "source_sha256": source_hashes(),
     }
-    receipt["kill_tier"] = (
-        classify(rows, control, parity) if not args.smoke else {"tier": "SMOKE_ONLY"}
-    )
+    receipt["kill_tier"] = {
+        "tier": "SMOKE_ONLY" if args.smoke else "SEALED_PENDING_MAC_AGGREGATION"
+    }
+    receipt["namespace"] = ns
+    receipt["hardware"] = args.hardware
+    receipt["verified_units_reused"] = sorted(prior)
     return receipt
 
 
@@ -479,6 +528,10 @@ def main() -> None:
     parser.add_argument("--warmup-ticks", type=int, default=3)
     parser.add_argument("--seconds", type=float, required=True)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument(
+        "--hardware", choices=("A100-40GB", "A100-80GB", "H100-80GB"), default="A100-40GB"
+    )
+    parser.add_argument("--ledger", type=Path, required=True)
     args = parser.parse_args()
     if args.warmup_ticks < 0 or args.seconds <= 0:
         parser.error("warmup ticks must be nonnegative and seconds must be positive")
@@ -493,6 +546,14 @@ def main() -> None:
             "status": "INCOMPLETE",
             "verdict": "NO_CONTINUE",
             "reason": str(exc),
+            "failure_traceback": traceback.format_exc(),
+            "active_unit": getattr(args, "active_unit", None),
+            "memory_at_failure": _memory_now(args.device),
+            "peak_memory_at_failure": (
+                realistic._peak_memory(args.device)
+                if args.device == "cpu" or torch.cuda.is_available()
+                else None
+            ),
             "device": args.device,
             "source_commit": source_commit(),
             "source_sha256": source_hashes(),

@@ -1,0 +1,173 @@
+{
+  "baseline_commit": "16778391221c09e87658bbd50bd18b5650134b72",
+  "created_utc": "2026-10-23T03:29:14.972308+00:00",
+  "limitations": [
+    "No GPU was used or allocated. Actual A100-40 fit/headroom, CUDA allocator behavior, native extension execution and throughput remain unmeasured until the same-pin real transport canary/main.",
+    "CPU frozen-oracle proof covers nine shuffled rows including masked/dead state, plus existing vector carry/rotated-ring cases; it is not broad engine or cross-platform qualification.",
+    "Explicit duplicate trend-memory callers retain the legacy unchunked path and therefore do not receive the bounded-memory guarantee. A1 produces unique E*S rows.",
+    "Optional A100-80/H100-80 packs are prepared hardware probes only; their results must not be pooled with A100-40 or treated as serving evidence.",
+    "Operator still owns reviewed assignment/rate inventory, mechanical retry eligibility, remaining series accounting and final dispatch."
+  ],
+  "memory_arithmetic": {
+    "bfs_bool_plane_gib": 0.20659446716308594,
+    "chunk_action_delta_bytes": 191692800,
+    "chunk_action_delta_gib": 0.17852783203125,
+    "chunk_row_scratch_allowance_gib": 1.01165771484375,
+    "failed_request_bytes": 18402508800,
+    "failed_request_dtype": "int64",
+    "failed_request_gib": 17.138671875,
+    "failed_request_shape": [
+      6144,
+      3,
+      6,
+      10400,
+      2
+    ],
+    "interpretation": "The matching allocation is inferred to be vector61 per-action body-coordinate subtraction at E=1024; original exception lacks a traceback. PyTorch live locals plus simulator/templates explain allocated memory without assuming an E=256 leak. Process usage includes unused reservations. The next square temporary would add another 17.14 GiB, so allocator configuration alone cannot repair the dense full-row path.",
+    "legacy_named_pre_request_locals_gib": 18.9697265625,
+    "max_shape": {
+      "E": 1024,
+      "S": 6,
+      "board_h": 83,
+      "board_w": 145,
+      "body_capacity": 10400,
+      "rows": 6144
+    },
+    "plan_limit": "Source-level planning allowance includes two body buffers, one body view, conservative row scratch, eight BFS planes and a 2 GiB model/workspace allowance. This is not a measured CUDA maximum or exhaustive opaque-workspace proof.",
+    "receipt_allocated_gib": 21.24,
+    "receipt_process_in_use_gib": 27.9,
+    "receipt_reserved_unused_gib": 6.16,
+    "repaired_source_plan_gib": 7.5208587646484375
+  },
+  "outstanding_findings": [],
+  "platform": {
+    "machine": "arm64",
+    "python": "3.12.3",
+    "system": "Darwin"
+  },
+  "resolved_findings": [
+    {
+      "finding": "Canary/full ledgers originally differed at the same upload destination, preventing real main admission.",
+      "resolution": "Both packs now ship identical full and smoke input inventories at separate prefixes; a nonempty recovery inventory equality regression passes.",
+      "severity": "P1"
+    },
+    {
+      "finding": "Completion pack defaults originally replenished the full series envelope.",
+      "resolution": "Attempts 2 and 3 now require explicit positive remaining minutes and units bounded by the original envelope; attempt ID is frozen into fresh names.",
+      "severity": "P2"
+    },
+    {
+      "finding": "Independent frozen oracle initially exercised only the duplicate-row legacy fallback.",
+      "resolution": "Frozen pre-repair oracle now checks unique shuffled rows across multiple chunks, masked trend memory and a dead row; duplicate memory writes keep the legacy path.",
+      "severity": "P2"
+    },
+    {
+      "finding": "Memory arithmetic originally mixed the failed request into live bytes and used body capacity as board dimensions.",
+      "resolution": "Pre-request live locals, failed request and later BFS are separate; BFS uses the actual 83 x 145 board; repaired source plan is 7.520858765 GiB.",
+      "severity": "P2"
+    }
+  ],
+  "reviewed_branch": "a100-a0-20261022",
+  "reviewed_head_before_commit": "16778391221c09e87658bbd50bd18b5650134b72",
+  "reviewer": "independent Codex-V reviewer subagent",
+  "schema": "gpu-sim-spike-a1-codex-v-memory-review/v1",
+  "scope": "Mechanical A1 OOM repair, immutable per-cell resume, Mac full-matrix aggregation, and optional hardware-specific packs. Source/CPU review; no GPU allocation or runtime dispatch.",
+  "source_closure_hash_encoding": "sha256 of UTF-8 JSON(source_sha256, sort_keys=True, separators=(comma,colon))",
+  "source_closure_sha256": "7720f0313fde44a7f88475cfa1e21bb70cf05ca74e1d2356c30b6bbe4c4fac57",
+  "source_sha256": {
+    "research/gpu_sim_spike/A1_MEMORY_REPAIR_HANDOFF.md": "dbe9e0eb1ab33cceb14dad6809304054cfb4c4c71a8849064827018b261d9aa2",
+    "research/gpu_sim_spike/MEMORY_DIAGNOSIS.md": "44e31d62606cd5fb9ff0628ae00a095e72b6fd931734d4d3670d26c7f52e7dd3",
+    "research/gpu_sim_spike/__init__.py": "fcb40cee284a61293cb72968cdfe17e4908f4d660e74ee65e8b0021e152bb0c1",
+    "research/gpu_sim_spike/a100_ruler.py": "7dc512411feff41814c056bf7e31a8a2bda575775ce7eb38fc6cb5e9d127c1f9",
+    "research/gpu_sim_spike/a100_ruler.sh": "6043ee47d165e2c8c9a99c352921fb9b85f06dbc7ae402a7a7faebed47dffbf4",
+    "research/gpu_sim_spike/a1_analyze.py": "aebf755a6eed96dfd0d650aa6cef3648f7159bec3bd7193e97eeea80f9f8c4e6",
+    "research/gpu_sim_spike/a1_units.py": "e66f82f2b5df7466b87aa6b1230f5b28104d6a33c5c2ef3f5dea6aeeb80c30a1",
+    "research/gpu_sim_spike/anchors_device.py": "bfcd7d5ad2cff748b3a413f562c889fbb160ae788bc8d456e0858b3f6a4ac0c6",
+    "research/gpu_sim_spike/benchmark.py": "63ee90f837e54b2d678b3a31ce755d7ac4e7c7006587b1cf8994336e601d4f41",
+    "research/gpu_sim_spike/canary.py": "769af1e724f3e34b444fc46530a1c35c61e0486e1e0eca1ac9546fe08d0c5813",
+    "research/gpu_sim_spike/colab.sh": "ec1245f57c5792bc84d65b2c173a94e3362c3d8935370d429f3c4e2e51dcb79f",
+    "research/gpu_sim_spike/conftest.py": "537dfd1ec4ff455df837dd519a53586a33c3ef8ae11ec593242517e5c953bfe3",
+    "research/gpu_sim_spike/device_policy.py": "fa265af4b53374a727b2dd341956dec97aa1834fcc6868bb9e4060b4b3d780a0",
+    "research/gpu_sim_spike/device_sim.py": "816ebd5fbd4016bb01eda5fe31ee7739f8cb7bf021b2885684f769ea63dc58ae",
+    "research/gpu_sim_spike/device_sim_frozen.py": "7fbabf67b439c6e8ebf2cbb252abed5dadcc1ce08194a8d6177605ab4bbe8d88",
+    "research/gpu_sim_spike/ego_device.py": "11f133a5cd4d7185ade5a5c9c5de6cbd4c2f99d461186d04ce0e11fff7122e30",
+    "research/gpu_sim_spike/event_cuda.cpp": "55951b333320311baa8065a614a5c64df06cdc091f7c19263717409b49d366cb",
+    "research/gpu_sim_spike/event_cuda.cu": "22639be741aaf8dd8abc4b17b8bb32ce890a73dd872bdd4d5cace3f5c6ad67d9",
+    "research/gpu_sim_spike/event_cuda.py": "5d6fd6d0742f13c9e4005e0cd40cb579ce22a459c1dc4cf7a52cf67217fdcdd4",
+    "research/gpu_sim_spike/fixtures/a1_memory/vector_device_pre_memory.py": "6d32148935b9cccd3d2d2e7bdf1093a2abf9a88349d3e46e48907bb738a4d69d",
+    "research/gpu_sim_spike/flood_cuda.cpp": "56e951d76d8bfc26a8950029b45038a1a2370813e439d50a1c537c7ae5534307",
+    "research/gpu_sim_spike/flood_cuda.cu": "407ee481aa79c4ba869aba63aea037c95dd62a4f311eeec3d823c81ddd88a941",
+    "research/gpu_sim_spike/flood_cuda.py": "174cf8cede4df59de5ef2cae9fac95c16769b34eb155ec8e444629d8dda9d6ce",
+    "research/gpu_sim_spike/make_a1_pack.py": "3e9182d634927fff0f3a32b725c9a3a46bab50a2405dacae7c5024cf33114657",
+    "research/gpu_sim_spike/make_manifests.py": "6e81e8eeedfc18306db719ae5dd34e04c204dc6e8941826990853fc3f44ba0ed",
+    "research/gpu_sim_spike/masks_device.py": "fffb52115044bd74c7e0dd347f241ba9b588ed34587908418d977730e1d8ef71",
+    "research/gpu_sim_spike/memory_sizing.py": "1d88c2125a6920e07063514791214cca89b50bfffae9a38e2e4b0555b5e9318e",
+    "research/gpu_sim_spike/parity.py": "69223249e6359ae60e561f59af0b3e6131111db9f9bfe597f459f56043532c07",
+    "research/gpu_sim_spike/realistic_benchmark.py": "e95edb042f5a5faffb185ecbc4b5f09d51e8c88277513964c482de03ec650665",
+    "research/gpu_sim_spike/reference.py": "af0e23cf17d40d62e3559fbd9d6545346164721d0c0605314349a65ebeef1315",
+    "research/gpu_sim_spike/requirements.txt": "53cd2e2fb72f05be43f9b4c0ed1f1296e97f9ccac0744c6d0a2074a096a71f4d",
+    "research/gpu_sim_spike/rollout.py": "2ba8269dde3cfd98261344438d8aef8c572de6e5c33f67c07cbfbe8a3501d97e",
+    "research/gpu_sim_spike/stage_timing.py": "3a9df1263bf3623ba5c9f37bf1fed19041fca9cf8ffa2487bdf9b6d873133f4c",
+    "research/gpu_sim_spike/test_a0_event_oracle.py": "2dcfced59dc599e1b870210f77bfad3ae4f35e741640a6d90e216b7d101bded2",
+    "research/gpu_sim_spike/test_a1_pack.py": "1e61f3c06bd5fa505e8aaf1da082678bb88f1e84bb02547f2ad48eebbe78c6a6",
+    "research/gpu_sim_spike/test_a1_runner.py": "59e38ead6c0bca5d4a7e2572b7a253ad6e0e29f350f112274188ddfac70e1146",
+    "research/gpu_sim_spike/test_a1_units.py": "96f6d44055e086d01ce586ba6988353b71dd7e6efd1ad510232cf957642c7e21",
+    "research/gpu_sim_spike/test_anchors_device.py": "6437b5236e129b0c2275bd05856f137703bad1676e98dd6cd1d343e62badf673",
+    "research/gpu_sim_spike/test_cuda_dtypes.py": "4cb0df7f7d169668882b11decbe9739a315afbde5fb85f6432d2e1d62470241a",
+    "research/gpu_sim_spike/test_cuda_shape.py": "b9cb06405cbd33ae88af01e742037927e2b5964d49e250aef2fc69e350f0f3c4",
+    "research/gpu_sim_spike/test_device_policy.py": "be8d5b2d76f591a8195eb9e65448bee82a4438ee791dcdd525109ba34f021efc",
+    "research/gpu_sim_spike/test_device_sim.py": "2d496cdf3e05875ef0efb7201446612407f9d9a9177b9b0bf0be5081bc893f6a",
+    "research/gpu_sim_spike/test_ego_device.py": "9c42a877501e9ff218d91ba5a3720d08a04d61ddabaab7fd6cd323b3064535d1",
+    "research/gpu_sim_spike/test_flood_kernels.py": "57a0b7b0a643ccf4039d6d475fe5873aaf2dfa1a71d97e6efb59f1411985318e",
+    "research/gpu_sim_spike/test_harness.py": "2c28329b1f60a6ca0c9ac524fe17901c229aa2eaea701999dd400fe06814ea2c",
+    "research/gpu_sim_spike/test_manifests.py": "927f2e806bc37a8edd7cc2c112c8128da5e24c1e3442deebccdec7eebfa2ca53",
+    "research/gpu_sim_spike/test_masks_device.py": "8876277fb8cbbdd4e6181bfbf3485284a3c8c63537909121fb0c94d44889f093",
+    "research/gpu_sim_spike/test_memory_sizing.py": "57c67e4c3840a7277b14c9919af60e93ade1e764d1de59eb24a84ea4a48eb342",
+    "research/gpu_sim_spike/test_realistic_benchmark.py": "4f2e6b975f4d78c825e99e6af39bdf80ff48bfde0ccede59d7261f16f825feeb",
+    "research/gpu_sim_spike/test_v8_device.py": "1c96705b2b360873dd3a92c6ff5543bef8f9baeabe16185cc5fe4154a648424d",
+    "research/gpu_sim_spike/test_vector_device.py": "58d3d04f9c3faf382dfabd7fb701edd8f762cb009fb14a6f568e909731c0a969",
+    "research/gpu_sim_spike/upload_readiness.py": "ecad8db37fd35725297ffd00a6eeb9acc168e89d51c617f4973f66c265236257",
+    "research/gpu_sim_spike/v8_device.py": "c1c36328d93032afcfd9fd213f267b526d454a7cc23c4e06cf5a62544e6f6bb2",
+    "research/gpu_sim_spike/vector_device.py": "c254015874a26f5f3eea1bcedcbdfdf23f1fe66c3a146ff5bf15b8a7b411df62"
+  },
+  "verdict": "PASS",
+  "verification": [
+    {
+      "command": "SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ../snake-dqn/venv/bin/python -m pytest -q -p no:xdist research/gpu_sim_spike/test_a1_units.py research/gpu_sim_spike/test_a1_runner.py research/gpu_sim_spike/test_a1_pack.py research/gpu_sim_spike/test_memory_sizing.py research/gpu_sim_spike/test_vector_device.py",
+      "gpu_used": false,
+      "passed": 23,
+      "pytest_seconds": 0.7,
+      "result": "PASS",
+      "single_process": true
+    },
+    {
+      "command": "../snake-dqn/venv/bin/python -m research.gpu_sim_spike.memory_sizing",
+      "result": "PASS; exact arithmetic reported, no represented tensors allocated."
+    },
+    {
+      "command": "git diff --check",
+      "result": "PASS"
+    },
+    {
+      "command": "bash -n research/gpu_sim_spike/a100_ruler.sh",
+      "result": "PASS"
+    },
+    {
+      "command": "../snake-dqn/venv/bin/python -m black --check [11 changed Python files]",
+      "result": "PASS; 11 files would be left unchanged."
+    },
+    {
+      "command": "Compare ast.dump(classify) against git show 16778391221c09e87658bbd50bd18b5650134b72:research/gpu_sim_spike/a100_ruler.py",
+      "result": "PASS; AST identical."
+    }
+  ],
+  "verified_contracts": [
+    "classify function AST is identical to baseline; no kill thresholds changed.",
+    "Main retains all nine E=6/256/1024 x three mix cells, three repeats x eight full ticks, separate instrumentation, control and parity.",
+    "Row-local all-body geometry is blocked at 64 rows without partitioning resident worlds or model forward batches; free-space flood executes once per feature invocation.",
+    "Per-repeat finally drops simulator, policy, templates and collection before garbage collection and allocator empty-cache.",
+    "Each combined measurement/trace cell is published create-only with atomic payload, SHA sidecar and completion marker last; prior complete units survive later failure.",
+    "Mac ledger builder selects only path/size/hash/marker-verified units; runtime validates namespace/allocation/wrappers and skips verified units; Mac aggregator refuses incomplete allocation before deserializing cell outcomes.",
+    "Canary exercises E=1024 for all mixes, inputs match main exactly, optional 80GB hardware variants use distinct names/namespaces and runtime memory guards."
+  ]
+}

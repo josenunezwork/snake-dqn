@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from research.gpu_sim_spike import a100_ruler, make_a1_pack
 
 
@@ -45,16 +43,26 @@ def test_a1_main_preserves_plan_acceptance_envelope_and_canary_is_short(
     tmp_path, monkeypatch
 ) -> None:
     commit = "a" * 40
-    ledger = tmp_path / "ledger.json"
-    ledger.write_text(json.dumps(make_a1_pack.empty_ledger(commit)))
+    ledger = tmp_path / "verified-ledger.json"
+    make_a1_pack.a1_units.publish_json(ledger, make_a1_pack.empty_ledger(commit))
+    canary_ledger = tmp_path / "canary" / "verified-ledger.json"
+    make_a1_pack.a1_units.publish_json(canary_ledger, make_a1_pack.empty_ledger(commit, smoke=True))
     monkeypatch.setattr(make_a1_pack, "checkpoint_inputs", lambda: [])
     monkeypatch.setattr(make_a1_pack, "convert_public_checkpoints", lambda value, repo: value)
     monkeypatch.setattr(make_a1_pack, "assert_upload_budget", lambda value, repo: None)
     main = make_a1_pack.manifest(
-        commit=commit, output_dir=tmp_path / "main-output", ledger=ledger, canary=False
+        commit=commit,
+        output_dir=tmp_path / "main-output",
+        ledger=ledger,
+        smoke_ledger=canary_ledger,
+        canary=False,
     )
     canary = make_a1_pack.manifest(
-        commit=commit, output_dir=tmp_path / "canary-output", ledger=ledger, canary=True
+        commit=commit,
+        output_dir=tmp_path / "canary-output",
+        ledger=ledger,
+        smoke_ledger=canary_ledger,
+        canary=True,
     )
     assert main["requirements"]["allowed_gpus"] == ["A100"]
     assert main["env"]["GPU_SIM_SPIKE_COMMIT"] == commit
@@ -65,10 +73,10 @@ def test_a1_main_preserves_plan_acceptance_envelope_and_canary_is_short(
         "reserve_units": 4.0,
         "other_assignments": {},
     }
-    assert main["resume_exemption"]["kind"] == "acceptance"
-    assert "resume" not in main
+    assert main["resume"]["unit_kind"] == "ruler-cell"
+    assert "resume_exemption" not in main
     assert main["required_exports"] == ["a1-ruler.json", "a0-native-oracle.json"]
     assert canary["timeout_minutes"] == 18
     assert canary["budget"]["unit_cap"] == 3.0
-    assert canary["resume_exemption"]["kind"] == "short-canary"
+    assert canary["resume"]["skip_verified"] is True
     assert canary["env"]["A1_RULER_SMOKE"] == "1"

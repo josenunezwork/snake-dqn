@@ -23,6 +23,12 @@ from src.simd_env.vector61_featurizer import (
 
 _CARDINAL = torch.tensor(((0, -1), (1, 0), (0, 1), (-1, 0)), dtype=torch.long)
 
+# ``features`` materializes a long-coordinate distance tensor for every row,
+# action, snake, and stored body cell.  At the A1 ruler maximum this is
+# [6144, 3, 6, 10400, 2] int64: 17.14 GiB before its derived tensors exist.
+# Keep the working set bounded independently of the resident world count.
+FEATURE_ROW_CHUNK = 64
+
 
 class DeviceVectorRuntime:
     """Device equivalent of the CPU vector61 selection/carry lifecycle.
@@ -191,6 +197,34 @@ class DeviceVectorRuntime:
         ).to(torch.float32)
         return (count / cap[..., None]).clamp(max=1.0)
 
+    def _free_space_all(self, sim: Any) -> torch.Tensor:
+        """Compute the full resident flood result once for a feature call.
+
+        Flood planes are world-shaped and modest compared with the row-local
+        all-body distance tensor.  Building them here prevents row chunking
+        from repeating the same E x S x 3 flood for every chunk.
+        """
+        cells, live_body, _self_ok, _other_ok = self._body_view(sim)
+        e = int(sim.E)
+        occupied = torch.zeros((e, sim.grid_h, sim.grid_w), dtype=torch.uint8, device=self.device)
+        all_cells = cells.reshape(e, -1, 2)
+        all_live = live_body.reshape(e, -1)
+        ox, oy = all_cells[..., 0], all_cells[..., 1]
+        inb = all_live & (ox >= 0) & (ox < sim.grid_w) & (oy >= 0) & (oy < sim.grid_h)
+        occupied.flatten(1).scatter_reduce_(
+            1,
+            (oy.clamp(0, sim.grid_h - 1) * sim.grid_w + ox.clamp(0, sim.grid_w - 1)),
+            inb.to(torch.uint8),
+            "amax",
+            include_self=True,
+        )
+        return self._free_space(
+            sim,
+            cells[..., 0, :],
+            sim.direction.to(self.device, dtype=torch.long),
+            occupied != 0,
+        )
+
     def features(
         self,
         sim: Any,
@@ -198,6 +232,75 @@ class DeviceVectorRuntime:
         *,
         update_memory: bool = True,
         memory_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Return vector61 features while bounding row-local scratch memory.
+
+        The resident simulator remains full-shape.  Only the row-local
+        geometry reductions are partitioned, in input order, so the returned
+        rows and per-row trend updates have the same values as one unchunked
+        call.  This is intentionally not a world/episode split.
+        """
+        self._check()
+        assert self.params is not None
+        e, s = int(sim.E), int(sim.S)
+        caller_rows = rows is not None
+        if rows is None:
+            # Fixed E*S rows are essential for CUDA-graph shape checking and
+            # avoid compaction/nonzero synchronization in the rollout loop.
+            er0 = torch.arange(e, device=self.device)[:, None].expand(e, s).reshape(-1)
+            sr0 = torch.arange(s, device=self.device)[None, :].expand(e, s).reshape(-1)
+            rows = torch.stack((er0, sr0), dim=1)
+        rows = torch.as_tensor(rows, device=self.device, dtype=torch.long).reshape(-1, 2)
+        if memory_mask is None:
+            memory_mask = torch.ones((len(rows),), dtype=torch.bool, device=self.device)
+        memory_mask = torch.as_tensor(memory_mask, dtype=torch.bool, device=self.device).reshape(-1)
+        if memory_mask.shape != (len(rows),):
+            raise ValueError("memory_mask must have one entry per feature row")
+        if not len(rows):
+            return torch.zeros((0, self.params.input_size), device=self.device, dtype=torch.float32)
+        # Duplicate indexed CUDA writes have no stable cross-kernel ordering.
+        # The A1 full matrix uses generated, unique E*S rows.  Preserve the
+        # legacy one-kernel path for an explicit duplicate caller instead of
+        # splitting its writes across row blocks.
+        if caller_rows and update_memory and len(rows) > FEATURE_ROW_CHUNK:
+            row_ids = rows[:, 0] * s + rows[:, 1]
+            if int(torch.unique(row_ids).numel()) != len(row_ids):
+                return self._features_rows(
+                    sim, rows, update_memory=update_memory, memory_mask=memory_mask
+                )
+        # Keep this world-shaped BFS result outside the row loop.  The chunked
+        # geometry below is the allocation which caused the A100 OOM.
+        free_space = self._free_space_all(sim) if self.params.use_free_space else None
+        if len(rows) <= FEATURE_ROW_CHUNK:
+            return self._features_rows(
+                sim,
+                rows,
+                update_memory=update_memory,
+                memory_mask=memory_mask,
+                free_space=free_space,
+            )
+        parts = []
+        for start in range(0, len(rows), FEATURE_ROW_CHUNK):
+            stop = min(start + FEATURE_ROW_CHUNK, len(rows))
+            parts.append(
+                self._features_rows(
+                    sim,
+                    rows[start:stop],
+                    update_memory=update_memory,
+                    memory_mask=memory_mask[start:stop],
+                    free_space=free_space,
+                )
+            )
+        return torch.cat(parts, dim=0)
+
+    def _features_rows(
+        self,
+        sim: Any,
+        rows: Optional[torch.Tensor] = None,
+        *,
+        update_memory: bool = True,
+        memory_mask: Optional[torch.Tensor] = None,
+        free_space: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Return every vector61 column for ``(env, slot)`` rows on device.
 
@@ -441,23 +544,9 @@ class DeviceVectorRuntime:
         )
         out[:, 57] = (lrow >= int(self.params.min_boost_length)).float() * valid
         if self.params.use_free_space:
-            occupied = torch.zeros(
-                (e, sim.grid_h, sim.grid_w), dtype=torch.uint8, device=self.device
-            )
-            all_cells = cells.reshape(e, -1, 2)
-            all_live = live_body.reshape(e, -1)
-            ox, oy = all_cells[..., 0], all_cells[..., 1]
-            inb = all_live & (ox >= 0) & (ox < sim.grid_w) & (oy >= 0) & (oy < sim.grid_h)
-            occupied.flatten(1).scatter_reduce_(
-                1,
-                (oy.clamp(0, sim.grid_h - 1) * sim.grid_w + ox.clamp(0, sim.grid_w - 1)),
-                inb.to(torch.uint8),
-                "amax",
-                include_self=True,
-            )
-            out[:, 58:61] = (
-                self._free_space(sim, heads, direction, occupied != 0)[er, sr] * valid[:, None]
-            )
+            if free_space is None:
+                free_space = self._free_space_all(sim)
+            out[:, 58:61] = free_space[er, sr] * valid[:, None]
         return out
 
     def _mask(self, sim: Any) -> torch.Tensor:

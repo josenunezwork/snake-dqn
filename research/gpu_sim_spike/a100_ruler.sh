@@ -6,6 +6,7 @@ set -euo pipefail
 : "${COLAB_INPUT_DIR:?A1 requires supervisor-uploaded inputs}"
 : "${A1_RULER_SECONDS:?manifest must bind a wall budget}"
 
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 input_root="${COLAB_INPUT_DIR}"
 if [[ "${BL_PUBLIC_INPUTS:-0}" == "1" ]]; then
   python -m research.bl_upload.inputs --input-dir "${COLAB_INPUT_DIR}"
@@ -19,10 +20,17 @@ mkdir -p "${output_root}"
 if [[ "${A1_RULER_DEVICE:-cuda}" == "cuda" ]]; then
   actual_gpu=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)
   actual_memory=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
-  [[ "${actual_gpu}" == *"A100"* && "${actual_gpu}" == *"40GB"* &&
-     "${actual_gpu}" != *"80GB"* && "${actual_memory}" -ge 39000 && "${actual_memory}" -le 42000 ]] || {
-    echo "A1 requires a 40GB A100 (39000..42000 usable MiB); got ${actual_gpu} ${actual_memory} MiB" >&2
-    exit 2
+  expected_family="${A1_RULER_EXPECTED_GPU_FAMILY:-A100-40GB}"
+  min_memory="${A1_RULER_MIN_USABLE_MEMORY_MIB:-39000}"
+  max_memory="${A1_RULER_MAX_USABLE_MEMORY_MIB:-42000}"
+  case "${expected_family}" in
+    A100-40GB) [[ "${actual_gpu}" == *A100* && "${actual_gpu}" != *80GB* ]] ;;
+    A100-80GB) [[ "${actual_gpu}" == *A100* && "${actual_gpu}" == *80GB* ]] ;;
+    H100-80GB) [[ "${actual_gpu}" == *H100* ]] ;;
+    *) echo "unsupported A1 hardware family: ${expected_family}" >&2; exit 2 ;;
+  esac || { echo "A1 expected ${expected_family}; got ${actual_gpu}" >&2; exit 2; }
+  [[ "${actual_memory}" -ge "${min_memory}" && "${actual_memory}" -le "${max_memory}" ]] || {
+    echo "A1 expected ${min_memory}..${max_memory} MiB; got ${actual_memory}" >&2; exit 2;
   }
   python -m research.gpu_sim_spike.event_cuda --selfcheck \
     --output "${output_root}/a0-native-oracle.json"
@@ -33,6 +41,8 @@ for name in champion_a5_freespace_20260621.pth best_apex_fs.pth best_apex_stage1
 done
 python -m research.gpu_sim_spike.a100_ruler --device "${A1_RULER_DEVICE:-cuda}" \
   --checkpoint "${checkpoint}" --output "${output_root}/a1-ruler.json" \
+  --ledger "${COLAB_INPUT_DIR}/${A1_RULER_LEDGER_PATH:-inputs/verified-ledger.json}" \
+  --hardware "${A1_RULER_EXPECTED_GPU_FAMILY:-A100-40GB}" \
   --warmup-ticks "${A1_RULER_WARMUP_TICKS:-3}" --seconds "${A1_RULER_SECONDS}" \
   ${A1_RULER_SMOKE:+--smoke}
 [[ -s "${output_root}/a1-ruler.json" ]]

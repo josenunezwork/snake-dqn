@@ -1,10 +1,4 @@
-"""Build the A1 A100-40 ruler transport pack without allocating Colab.
-
-PLAN_A100 §3 explicitly names A1 an ``acceptance`` exemption.  Its effective
-two-hour cap is wider than the generic ops exemption ceiling, so dispatch stays
-blocked until the authoritative-plan-specific ops exception is independently
-reviewed and installed; this pack never disguises that tension as resumability.
-"""
+"""Prepare immutable, cell-resumable A1 memory-repair packs; never allocate."""
 
 from __future__ import annotations
 
@@ -15,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from research.bl_upload import assert_upload_budget, convert_public_checkpoints
+from research.gpu_sim_spike import a1_units
 from research.gpu_sim_spike.make_manifests import (
     ManifestRefused,
     checkpoint_inputs,
@@ -26,7 +21,9 @@ from research.gpu_sim_spike.make_manifests import (
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "research/gpu_sim_spike"
 SCRIPT = f"{PACKAGE}/colab.sh"
-DEFAULT_ARTIFACT_DIR = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-a1")
+DEFAULT_ARTIFACT_DIR = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-a1-memfix-a10040"
+)
 LEDGER_DEST = "inputs/verified-ledger.json"
 
 
@@ -42,20 +39,12 @@ def _git_file(commit: str, relative: str) -> bytes:
 def require_source_pin(commit: str) -> None:
     """Refuse an unpublished/stale source pin or an unqualified transport tree."""
     _require_commit(commit)
-    for name in (
-        "colab.sh",
-        "a100_ruler.sh",
-        "a100_ruler.py",
-        "device_sim.py",
-        "device_policy.py",
-        "device_sim_frozen.py",
-        "stage_timing.py",
-        "event_cuda.py",
-        "event_cuda.cpp",
-        "event_cuda.cu",
-    ):
-        relative = f"{PACKAGE}/{name}"
-        if _git_file(commit, relative) != (ROOT / relative).read_bytes():
+    # Bind the complete engine closure, including allocation fixes and resume.
+    for path in sorted((ROOT / PACKAGE).rglob("*")):
+        if not path.is_file() or path.suffix not in (".py", ".sh", ".cu", ".cpp", ".txt"):
+            continue
+        relative = path.relative_to(ROOT).as_posix()
+        if _git_file(commit, relative) != path.read_bytes():
             raise ManifestRefused(f"reviewed source differs from pinned commit: {relative}")
     published = subprocess.check_output(
         ["git", "branch", "-r", "--contains", commit], cwd=ROOT, text=True
@@ -68,20 +57,28 @@ def require_source_pin(commit: str) -> None:
     check(ROOT, OPS / "colab-cli-qualified.json", ref=commit)
 
 
-def empty_ledger(commit: str) -> dict[str, Any]:
-    """The initial resume ledger contains no outcomes and binds A1's cell namespace."""
-    return {
-        "schema": "gpu-sim-spike-a1-verified-ledger/v1",
-        "namespace": f"a1-ruler-{commit}",
-        "allocation_index": [
-            {"mix": mix, "worlds": worlds, "repeat": repeat}
-            for mix in ("long-scripted", "long-frozen", "long-mixed")
-            for worlds in (6, 256, 1024)
-            for repeat in range(3)
-        ],
-        "verified_units": [],
-        "published_last": "verified_units",
-    }
+def empty_ledger(commit: str, hardware: str = "A100-40GB", smoke: bool = False) -> dict[str, Any]:
+    """An empty, hardware-specific ledger for the frozen cell allocation."""
+    return a1_units.empty_ledger(
+        a1_units.namespace(commit, hardware, smoke), a1_units.allocation(smoke)
+    )
+
+
+def _ledger_inputs(ledger: Path, prefix: str) -> list[dict[str, str]]:
+    """Upload only hash-verified ledger units, using portable relative paths."""
+    value = json.loads(ledger.read_text())
+    paths = [ledger, Path(str(ledger) + ".sha256"), Path(str(ledger) + ".complete")]
+    for row in value["units"]:
+        payload = ledger.parent / row["path"]
+        paths.extend((payload, Path(str(payload) + ".sha256"), Path(str(payload) + ".complete")))
+    return [
+        {
+            "path": str(path.resolve(strict=True)),
+            "sha256": sha256_file(path),
+            "dest": prefix + "/" + path.relative_to(ledger.parent).as_posix(),
+        }
+        for path in paths
+    ]
 
 
 def _source_paths() -> list[str]:
@@ -109,18 +106,55 @@ def _source_paths() -> list[str]:
 
 
 def manifest(
-    *, commit: str, output_dir: Path, ledger: Path, canary: bool, canary_receipt: Path | None = None
+    *,
+    commit: str,
+    output_dir: Path,
+    ledger: Path,
+    canary: bool,
+    canary_receipt: Path | None = None,
+    hardware: str = "A100-40GB",
+    rate: float = 10.0,
+    smoke_ledger: Path,
+    attempt: int = 1,
+    remaining_minutes: float | None = None,
+    remaining_units: float | None = None,
 ) -> dict[str, Any]:
-    """Construct exactly one A100-SXM4-40GB family manifest."""
+    """Construct one explicitly priced hardware family; never pool variants."""
     _require_commit(commit)
     output_dir = output_dir.resolve()
     if not output_dir.is_absolute():
         raise ManifestRefused("output directory must be absolute")
+    if ledger.name != "verified-ledger.json" or smoke_ledger.name != "verified-ledger.json":
+        raise ManifestRefused("portable ledgers must use verified-ledger.json basename")
     if not ledger.is_file():
         raise ManifestRefused("A1 verified ledger is absent")
-    a100_rate = 10.0  # conservative 2x-capped A100-40 planning ceiling
+    if hardware not in ("A100-40GB", "A100-80GB", "H100-80GB"):
+        raise ManifestRefused("unsupported hardware")
+    if not 0 < rate <= 10:
+        raise ManifestRefused(
+            "rate ceiling must be positive and <=10 within frozen 20u/2h envelope"
+        )
+    if type(attempt) is not int or not 1 <= attempt <= 3:
+        raise ManifestRefused("one original plus at most two completion attempts")
+    if attempt > 1 and (remaining_minutes is None or remaining_units is None):
+        raise ManifestRefused("completion requires explicit remaining series minutes and units")
+    minutes = 120.0 if remaining_minutes is None else remaining_minutes
+    units = 20.0 if remaining_units is None else remaining_units
+    if not 10 <= minutes <= 120 or not 0 < units <= 20:
+        raise ManifestRefused("remaining envelope must be positive and within original 120min/20u")
+    if minutes * rate / 60 > units:
+        raise ManifestRefused("remaining whole-session timeout priced above remaining unit cap")
+    a1_units.load_ledger(
+        ledger, a1_units.namespace(commit, hardware, False), a1_units.allocation(False)
+    )
+    a1_units.load_ledger(
+        smoke_ledger, a1_units.namespace(commit, hardware, True), a1_units.allocation(True)
+    )
+    gpu = hardware.split("-")[0]
+    tag = hardware.lower().replace("-", "").replace("gb", "")
+    low, high = (39000, 42000) if hardware == "A100-40GB" else (78000, 84000)
     result: dict[str, Any] = {
-        "job_id": f"bl-a1-{'canary' if canary else 'main'}-{commit[:8]}",
+        "job_id": f"bl-a1-memfix-{tag}-a{attempt}-{'canary' if canary else 'main'}-{commit[:8]}",
         "commit": commit,
         "script": SCRIPT,
         "claim": "A1 throughput ruler; development only; no registered or serving verdict",
@@ -130,34 +164,37 @@ def manifest(
             "GPU_SIM_SPIKE_ENTRYPOINT": "a1-ruler",
             "GPU_SIM_SPIKE_COMMIT": commit,
             "GPU_SIM_SPIKE_DEVICE": "cuda",
-            "GPU_SIM_SPIKE_RATE_UNITS_PER_HOUR": "10.0",
-            "GPU_SIM_SPIKE_SECONDS": "6750" if not canary else "600",
+            "GPU_SIM_SPIKE_RATE_UNITS_PER_HOUR": str(rate),
+            "GPU_SIM_SPIKE_SECONDS": str(int(minutes * 60 - 450)) if not canary else "600",
             "A1_RULER_DEVICE": "cuda",
+            "A1_RULER_LEDGER_PATH": "canary-inputs/verified-ledger.json" if canary else LEDGER_DEST,
             "A1_RULER_WARMUP_TICKS": "3",
-            "A1_RULER_SECONDS": "6750" if not canary else "600",
-            "A1_RULER_EXPECTED_GPU_FAMILY": "A100-40GB",
-            "A1_RULER_MIN_USABLE_MEMORY_MIB": "39000",
-            "A1_RULER_MAX_USABLE_MEMORY_MIB": "42000",
+            "A1_RULER_SECONDS": str(int(minutes * 60 - 450)) if not canary else "600",
+            "A1_RULER_EXPECTED_GPU_FAMILY": hardware,
+            "A1_RULER_MIN_USABLE_MEMORY_MIB": str(low),
+            "A1_RULER_MAX_USABLE_MEMORY_MIB": str(high),
+            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
             "OMP_NUM_THREADS": "1",
             "MKL_NUM_THREADS": "1",
             "OPENBLAS_NUM_THREADS": "1",
             "NUMBA_NUM_THREADS": "1",
         },
         "requirements": {
-            "gpu": "A100",
-            "allowed_gpus": ["A100"],
+            "gpu": gpu,
+            "allowed_gpus": [gpu],
             "min_vcpu": 12,
-            "est_minutes": 9 if canary else 60,
+            "est_minutes": 9 if canary else minutes / 2,
         },
-        "timeout_minutes": 18 if canary else 120,
+        "timeout_minutes": 18 if canary else minutes,
         "output_dir": str(output_dir),
         "inputs": checkpoint_inputs()
-        + [{"path": str(ledger.resolve()), "sha256": sha256_file(ledger), "dest": LEDGER_DEST}],
+        + _ledger_inputs(ledger, "inputs")
+        + _ledger_inputs(smoke_ledger, "canary-inputs"),
         "budget": {
             # The authoritative exception binds a 20-u two-hour execution cap;
             # its separate 4-u reserve is held for accounting/release variance.
-            "unit_cap": 3.0 if canary else 20.0,
-            "rate_units_per_hour": a100_rate,
+            "unit_cap": 3.0 if canary else units,
+            "rate_units_per_hour": rate,
             "reserve_units": 0.6 if canary else 4.0,
             "other_assignments": {},
         },
@@ -170,10 +207,12 @@ def manifest(
             "canary_effective_envelope": {"minutes": 18, "units": 3, "reserve_units": 0.6},
             "base_envelope": {"hours": 1, "units": 10, "reserve_units": 2},
             "effective_envelope": {"hours": 2, "units": 20, "reserve_units": 4},
+            "attempt": attempt,
+            "attempt_effective_envelope": {"minutes": minutes, "units": units},
             "hardware": {
-                "family": "A100-40GB",
-                "min_usable_memory_mib": 39000,
-                "max_usable_memory_mib": 42000,
+                "family": hardware,
+                "min_usable_memory_mib": low,
+                "max_usable_memory_mib": high,
             },
             "shapes": [6, 256, 1024],
             "mixes": ["scripted", "frozen", "mixed"],
@@ -185,10 +224,6 @@ def manifest(
     }
     if canary:
         result["env"]["A1_RULER_SMOKE"] = "1"
-        result["resume_exemption"] = {
-            "kind": "short-canary",
-            "reason": "same-pin A100-40 transport and real-entrypoint proof; no ruler conclusion",
-        }
         result["canary"] = {
             "schema": "colab-family-canary/v1",
             "mode": "probe",
@@ -197,57 +232,59 @@ def manifest(
         result["env"]["SNAKE_COLAB_CANARY"] = "1"
         result["env"]["SNAKE_COLAB_CANARY_PACKAGE"] = PACKAGE
     else:
-        result["resume_exemption"] = {
-            "kind": "acceptance",
-            "authority_sha256": "1c87898be554d8e66788da6f0a09ee7b842a514e530c1d0e1c624bcf58c3962c",
-            "reason": (
-                "PLAN_A100.md sha256-bound A1 full-tick ruler; authoritative effective "
-                "120-minute/20-unit acceptance envelope"
-            ),
-        }
         if canary_receipt is not None:
             receipt = canary_receipt.resolve(strict=True)
             result["canary"] = {"receipt": {"path": str(receipt), "sha256": sha256_file(receipt)}}
+    result["resume"] = {
+        "unit_kind": "ruler-cell",
+        "ledger_path": "canary-inputs/verified-ledger.json" if canary else LEDGER_DEST,
+        "skip_verified": True,
+        "max_outcome_blind_retries": 2,
+    }
+    result["a1"]["attempt_policy"] = (
+        "Mechanical OOM/transport/time-cap only, verified stop and missing units; "
+        "one original + at most two manually dispatched completion attempts, fresh outputs; "
+        "all attempts share remaining original series wall/unit envelope. No automatic retry."
+    )
+    result["a1"]["aggregate"] = "Mac-only a1_analyze; remote summary sealed diagnostics"
     result = convert_public_checkpoints(result, repo=ROOT)
     assert_upload_budget(result, repo=ROOT)
     return result
 
 
-def dispatch_text(canary_path: Path, main_path: Path, commit: str) -> str:
-    return f"""# A1 repaired full-tick ruler — prepared only
-
-Claude dispatches exclusively through tools/ops/dispatch.sh after A0's independent
-oracle receipt is PASS.  The supervisor accepts generic A100, but the real A1
-entrypoint refuses every non-40GB A100, accepting only 39,000–42,000 usable MiB.
-Existing
-qualified transport supports A100; no transport requalification is needed.
-
-Canary: {canary_path}
-Main: {main_path}
-
-The canary is capped at 18 min / 3 u (within the 30-min ceiling) and proves
-same-pin real transport. The main
-manifest deliberately declares the PLAN's `resume_exemption: acceptance` at 120
-minutes / 20 u (first cap wins).  The installed narrow PLAN_A100-SHA keyed ops
-exception is required; ordinary acceptance exemptions remain bounded at 60 minutes.
-
-Before either dispatch, Claude must populate budget.other_assignments from a fresh
-reviewed endpoint/rate inventory, validate the exact manifest, and confirm the
-qualified broker matches its registry.  A kernel-RPC stall makes this attempt
-INCOMPLETE; one outcome-blind mechanical retry is allowed, then Fable judge.
-
+def dispatch_text(
+    canary_path: Path,
+    main_path: Path,
+    commit: str,
+    hardware: str,
+    attempt: int,
+    ledger: Path,
+    minutes: float,
+    units: float,
+    rate: float,
+) -> str:
+    tag = hardware.lower().replace("-", "").replace("gb", "")
+    return rf"""# A1 memory repair — prepared only, Claude dispatches
+# Populate budget.other_assignments from fresh reviewed positive endpoint/rate inventory.
+# Ceiling 10u/h is a refusal threshold, not a claim about live provider price.
+# Same source pin, hardware and inputs required; different GPUs have separate namespaces.
 REPO=/Users/josenunez/Projects/ml/snake-dqn-a0
 ART={canary_path.parent}
 PIN={commit}
+PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 cd "$REPO"
-"$REPO/tools/ops/dispatch.sh" bl-a1-canary "$ART/a1-canary.json" \\
+"$REPO/tools/ops/dispatch.sh" bl-a1-memfix-{tag}-a{attempt}-canary "$ART/a1-canary.json" \
   --broker "$REPO" --cwd "$REPO" --state-dir "$ART/state-canary" --dispatch-txt "$ART/DISPATCH.txt"
-# Wait for terminal PASS, exports and release, then generate/bind main receipt.
-"$REPO/../snake-dqn/venv/bin/python" -m research.gpu_sim_spike.make_a1_pack \\
-  --commit "$PIN" --artifact-dir "$ART" --validate \\
-  --canary-receipt "$ART/canary-output/receipt.json"
-"$REPO/tools/ops/dispatch.sh" bl-a1-main "$ART/a1-main.json" \\
+# Wait for PASS, verified exports and backend release. Bind its immutable receipt:
+"$PY" -m research.gpu_sim_spike.make_a1_pack --commit "$PIN" --artifact-dir "$ART" \
+  --hardware {hardware} --attempt {attempt} --ledger "{ledger}" \
+  --remaining-minutes {minutes} --remaining-units {units} --rate-units-per-hour {rate} \
+  --validate --canary-receipt "$ART/canary-output/receipt.json"
+"$REPO/tools/ops/dispatch.sh" bl-a1-memfix-{tag}-a{attempt}-main "$ART/a1-main.json" \
   --broker "$REPO" --cwd "$REPO" --state-dir "$ART/state-main" --dispatch-txt "$ART/DISPATCH.txt"
+# Mac-only, once ALL frozen units are present (never on partial contents):
+"$PY" -m research.gpu_sim_spike.a1_analyze --exports "$ART/main-output/exports" \
+  --commit "$PIN" --hardware {hardware} --output "$ART/mac-decision.json"
 """
 
 
@@ -256,48 +293,108 @@ def main() -> None:
     parser.add_argument("--commit", default=None)
     parser.add_argument("--artifact-dir", type=Path, default=DEFAULT_ARTIFACT_DIR)
     parser.add_argument("--canary-receipt", type=Path)
+    parser.add_argument(
+        "--ledger", type=Path, help="Mac-verified completion ledger; never outcomes"
+    )
+    parser.add_argument(
+        "--hardware", choices=("A100-40GB", "A100-80GB", "H100-80GB"), default="A100-40GB"
+    )
+    parser.add_argument("--rate-units-per-hour", type=float, default=10.0)
     parser.add_argument("--validate", action="store_true")
+    parser.add_argument("--emit-80gb-variants", action="store_true")
+    parser.add_argument("--attempt", type=int, choices=(1, 2, 3), default=1)
+    parser.add_argument("--remaining-minutes", type=float)
+    parser.add_argument("--remaining-units", type=float)
     args = parser.parse_args()
     commit = args.commit or git_head()
     require_source_pin(commit)
-    artifact_dir = args.artifact_dir.resolve()
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    ledger = artifact_dir / "verified-ledger.json"
-    if not ledger.exists():
-        write_once(ledger, json.dumps(empty_ledger(commit), indent=2, sort_keys=True) + "\n")
-    canary = manifest(
-        commit=commit, output_dir=artifact_dir / "canary-output", ledger=ledger, canary=True
+    variants = (
+        (args.hardware, "A100-80GB", "H100-80GB") if args.emit_80gb_variants else (args.hardware,)
     )
-    main_job = manifest(
-        commit=commit,
-        output_dir=artifact_dir / "main-output",
-        ledger=ledger,
-        canary=False,
-        canary_receipt=args.canary_receipt,
-    )
-    if args.validate:
-        from research.colab_cli.supervisor import validate
-
-        if not args.canary_receipt:
-            validate(canary, repo=ROOT)
-        from tools.ops.dispatch import require_resume_policy
-
-        require_resume_policy(main_job)
-        if args.canary_receipt:
-            validate(main_job, repo=ROOT)
-    canary_path = artifact_dir / "a1-canary.json"
-    main_path = artifact_dir / ("a1-main.json" if args.canary_receipt else "a1-main-template.json")
-    if not canary_path.exists():
-        write_once(canary_path, json.dumps(canary, indent=2, sort_keys=True) + "\n")
-    write_once(main_path, json.dumps(main_job, indent=2, sort_keys=True) + "\n")
-    handoff = artifact_dir / "DISPATCH.txt"
-    if not handoff.exists():
-        write_once(handoff, dispatch_text(canary_path, main_path, commit))
-    print(
-        json.dumps(
-            {"artifact_dir": str(artifact_dir), "commit": commit, "prepared": True}, sort_keys=True
+    for hardware in dict.fromkeys(variants):
+        artifact_dir = args.artifact_dir.resolve()
+        if hardware != args.hardware:
+            artifact_dir /= hardware.lower()
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        ledger = artifact_dir / "verified-ledger.json"
+        if args.ledger and hardware == args.hardware:
+            ledger = args.ledger.resolve(strict=True)
+        if not ledger.exists():
+            a1_units.publish_json(ledger, empty_ledger(commit, hardware))
+        canary_ledger = artifact_dir / "canary-ledger" / "verified-ledger.json"
+        if not canary_ledger.exists():
+            a1_units.publish_json(canary_ledger, empty_ledger(commit, hardware, True))
+        canary = manifest(
+            commit=commit,
+            output_dir=artifact_dir / "canary-output",
+            ledger=ledger,
+            smoke_ledger=canary_ledger,
+            attempt=args.attempt,
+            remaining_minutes=args.remaining_minutes,
+            remaining_units=args.remaining_units,
+            canary=True,
+            hardware=hardware,
+            rate=args.rate_units_per_hour,
         )
-    )
+        canary_receipt = args.canary_receipt if hardware == args.hardware else None
+        main_job = manifest(
+            commit=commit,
+            output_dir=artifact_dir / "main-output",
+            ledger=ledger,
+            smoke_ledger=canary_ledger,
+            attempt=args.attempt,
+            remaining_minutes=args.remaining_minutes,
+            remaining_units=args.remaining_units,
+            canary=False,
+            canary_receipt=canary_receipt,
+            hardware=hardware,
+            rate=args.rate_units_per_hour,
+        )
+        if args.validate:
+            from research.colab_cli.supervisor import validate
+            from tools.ops.dispatch import require_resume_policy
+
+            if not canary_receipt:
+                validate(canary, repo=ROOT)
+            require_resume_policy(main_job)
+            if canary_receipt:
+                validate(main_job, repo=ROOT)
+        canary_path = artifact_dir / "a1-canary.json"
+        main_path = artifact_dir / ("a1-main.json" if canary_receipt else "a1-main-template.json")
+        for path, value in ((canary_path, canary), (main_path, main_job)):
+            content = json.dumps(value, indent=2, sort_keys=True) + "\n"
+            if path.exists():
+                if path.read_text() != content:
+                    raise ManifestRefused(f"immutable pack differs: {path}")
+            else:
+                write_once(path, content)
+        handoff = artifact_dir / "DISPATCH.txt"
+        if not handoff.exists():
+            write_once(
+                handoff,
+                dispatch_text(
+                    canary_path,
+                    main_path,
+                    commit,
+                    hardware,
+                    args.attempt,
+                    ledger,
+                    main_job["timeout_minutes"],
+                    main_job["budget"]["unit_cap"],
+                    args.rate_units_per_hour,
+                ),
+            )
+        print(
+            json.dumps(
+                {
+                    "artifact_dir": str(artifact_dir),
+                    "commit": commit,
+                    "hardware": hardware,
+                    "prepared": True,
+                },
+                sort_keys=True,
+            )
+        )
 
 
 if __name__ == "__main__":
