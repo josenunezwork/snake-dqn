@@ -115,14 +115,29 @@ def _run(input_dir: Path, output: Path, device: str, mode: str) -> dict[str, Any
     export_json(output / "allocation.json", {"namespace": namespace, "allocation": alloc})
     export_json(output / "hardware.json", hw)
     if tiny:
+        if control.get("bundle_name") == "labels.tar.xz":
+            from research.a100_a2.transfer import verify_compact_archive
+
+            verify_compact_archive(input_dir / "labels.tar.xz", control["bindings"]["labels"])
         tables = {"t5": synthetic_table()}
         metadata = {"synthetic": True, "anchors": 10}
     else:
         from research.a100_a2.data import materialize_bundle
 
-        paths = materialize_bundle(
-            input_dir / "labels.tar.gz", output.parent / "tables", input_dir / "b8.pth"
-        )
+        bundle_name = control.get("bundle_name", "labels.tar.gz")
+        if bundle_name == "labels.tar.xz":
+            paths = materialize_bundle(
+                input_dir / bundle_name,
+                output.parent / "tables",
+                input_dir / "b8.pth",
+                source_archive_sha256=control["bindings"]["labels"],
+            )
+        elif bundle_name == "labels.tar.gz":
+            paths = materialize_bundle(
+                input_dir / bundle_name, output.parent / "tables", input_dir / "b8.pth"
+            )
+        else:
+            raise ValueError("unsupported A2 bundle transport")
         metadata = json.loads((output.parent / "tables/materialization.json").read_text())
         tables = {}
         for name in ("t5", "a5"):

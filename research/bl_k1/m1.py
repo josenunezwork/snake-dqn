@@ -8,15 +8,24 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import gc
 import json
 import multiprocessing
 import os
 import queue
+import subprocess
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
 
+from research.bl_k1.carry import carried_violation
+from research.bl_k1.m1_background import (
+    ESTIMAND,
+    OWNER_DIRECTIVE_PATH,
+    allowed_background,
+    background_summary,
+)
 from research.bl_mac_latency import l1
 from research.bl_served_search import native_ruler, ruler
 from research.bl_served_search.exports import digest, export_json, verify_export
@@ -57,6 +66,63 @@ JUDGED2_CHARGED_SECONDS = 36.47473570803413
 JUDGED2_JUDGMENT_PATH = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_M1_ATTEMPT5.md"
 )
+# Third pinned admission: attempt-05 debit only, with in-harness R1 required.
+JUDGED3_RECEIPT_SHA256 = "48dcd2ad67be5a44d563d95af6737be275bb73562e666fcc0080dd2544453f05"
+JUDGED3_ATTEMPT_SHA256 = "91baa2ea072279b3d741b9db08c9a98cf78406eff77dd9996382a706836f305e"
+JUDGED3_LOG_SHA256 = "10adb4136c49b6326631cfd550a572282440016ab03900a44b29d589ce286f0b"
+JUDGED3_IDLE_SHA256 = "241da7f0874bc5f703aafcf2594a3e9d7293978a65a0eed2128efab95cc1f9c9"
+JUDGED3_CELL_SHA256 = {
+    "cpu-w1-k1": "d898970d58943ca52eb1f2dc56c5095e005db15540ca511f52934336982761aa"
+}
+JUDGED3_DISCARDED_SHA256 = {
+    "cpu-w1-k1.discarded-1.json": (
+        "a0bbca217e3ea2edd69e54446410803c06295b11c8adb6e139c74c309668bfbe"
+    ),
+    "cpu-w1-k1.discarded-2.json": (
+        "193fa08922aa7b4101c8ba8dbd5164a3a5e7d3e826e1cd9d124443c1da8f6a11"
+    ),
+    "cpu-w1-k1.discarded-3.json": (
+        "f8358cf9cba573ad72fd6da9969a29dad88c427d33344f8af42d29012b7c83ab"
+    ),
+}
+JUDGED3_SOURCE_SHA256 = "b110cb5b364a7045b698d987e60476a18a76432910c38762d2071a5b6ea21a28"
+JUDGED3_PREVIOUS_JUDGED_SHA256 = "c515d0cac27f0effc365d113bd990d3d4d3a7b2405fc090856e9eb031a814e4a"
+JUDGED3_PREVIOUS_NAMESPACE = "47d211b9fbf1b2313e7d11c36e5966faf6148b7a6509a9de15ec760ce13af3f2"
+JUDGED3_CHARGED_SECONDS = 771.5500928750262
+JUDGED3_JUDGMENT_PATH = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_M1_ATTEMPT6.md"
+)
+JUDGED4_RECEIPT_SHA256 = "3631f67bf5c41284bdcdb0beb4bd77a346f629be3065d70130d30b76e44a75b8"
+JUDGED4_ATTEMPT_SHA256 = "13e2a2de45f75c7f37e37aa335d6517300d1447f61737ce2c320a1c117ae35aa"
+JUDGED4_LOG_SHA256 = "2adaba63fb418649ca8177c3eea82f8e93cedfaf0ed0a714ad3bc36244b5b6bd"
+JUDGED4_IDLE_SHA256 = "f90e0b7ad3ff0cb654ff8b35608c1f7af02c856f5319cb1c473b234645843104"
+JUDGED4_CELL_SHA256 = {
+    "cpu-w1-k1": "0126714048e8ba92f3367d8f42585cd14d0b7f66293ca135cc045ca3b44f454a",
+    "cpu-w2-k2": "5f71629e4a9f9a8a014e4a9f4ac9e2c07c714736099916d0bc92f56105d0160f",
+    "cpu-w4-k4": "e2b78e26aed65590529f57517c327e9697ca7941e0582e23c97f75ba38d07ea3",
+    "cpu-w4-k8": "dbfbd49dd7b3d3c2dbc1ec4813a1ea40297dd73e89b751dc1e38d17754722886",
+}
+JUDGED4_DISCARDED_SHA256 = {
+    "cpu-w4-k4.discarded-1.json": (
+        "56742674b48699aeccc16473b01d69c4b094607be158bde7bdf2669ff7703760"
+    ),
+    "cpu-w4-k4.discarded-2.json": (
+        "3dc9eb0a17f03d8cf23d674d7c0a2f0e34d1e3ce95377d26dcdad83a2a456546"
+    ),
+}
+JUDGED4_SOURCE_SHA256 = "091be22f6d3cadc96b3cbcbb079de1a3339db15ed419a8069debf360c12d2213"
+JUDGED4_PREVIOUS_JUDGED_SHA256 = "96dab74a24d187c999e76482f99c27eab61ec5b3ec73faa90d1a6b96f5182738"
+JUDGED4_PREVIOUS_NAMESPACE = "f301034c0f16ad32506e6e9cafbe8fca718180b6853490754ee697b8a55a2e76"
+JUDGED4_CHARGED_SECONDS = 1294.6058014170267
+JUDGED4_JUDGMENT_PATH = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_D1.md"
+)
+JUDGED4_BRANCH_B_STATUS = "REJECTED"
+JUDGED4_ROUND22_RULING_PATH = "big-lever/round-22/JUDGMENT.md"
+JUDGED4_ROUND22_BLOCK_SHA256 = "4dc7bc164a1199cee40cb0f5a52c19525291f4282ecaf8a80b6def34f8743aa7"
+JUDGED4_ROUND22_RULING_SHA256 = "c85134313f824046cf26cd3060eabfa9df87ea6b2a6b4c25816d0614d5e439f6"
+OWNER_DIRECTIVE_SHA256 = "4480f9a731436f451667e5ad205d4c181c001a5c32e1ef42ad62a1dfad9c8f0f"
+JUDGED4_OWNER_DIRECTIVE_SHA256 = OWNER_DIRECTIVE_SHA256
 MAX_CELL_RESTARTS = 3
 MAX_DISCARDED_RUNS = 8
 MIN_CELL_BUDGET_SECONDS = 600
@@ -71,6 +137,39 @@ RESTART_POLICY = {
         "max_wait_seconds": 900.0,
     },
 }
+WARMUP_TICKS = 200
+CONTROL_TICKS = 2400
+
+
+def verify_round22() -> dict[str, str]:
+    """Verify the immutable ruling and its exact inclusive sed block at runtime."""
+    path = JUDGED4_JUDGMENT_PATH.parents[2] / JUDGED4_ROUND22_RULING_PATH
+    block = subprocess.run(
+        [
+            "sed",
+            "-n",
+            "/^-----BEGIN M1 ATTEMPT-07 ADMISSION RULE/,/^-----END M1 ATTEMPT-07 ADMISSION RULE/p",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    ).stdout
+    if (
+        digest(path) != JUDGED4_ROUND22_RULING_SHA256
+        or ruler.sha256_bytes(block) != JUDGED4_ROUND22_BLOCK_SHA256
+    ):
+        raise ValueError(f"M1 Round 22 ruling/block hash mismatch: {JUDGED4_ROUND22_RULING_PATH}")
+    return {
+        "branch_b_status": JUDGED4_BRANCH_B_STATUS,
+        "ruling_path": JUDGED4_ROUND22_RULING_PATH,
+        "ruling_sha256": JUDGED4_ROUND22_RULING_SHA256,
+        "block_sha256": JUDGED4_ROUND22_BLOCK_SHA256,
+    }
+
+
+def refuse_branch_b() -> None:
+    """Round 22 rejects every Branch B value, before any operational work."""
+    raise ValueError(f"M1 Branch B REJECTED by {JUDGED4_ROUND22_RULING_PATH}; Branch A only")
 
 
 def refuse_consumed(prior_path: Path, field: str, attempt_number: int) -> None:
@@ -88,11 +187,15 @@ def refuse_consumed(prior_path: Path, field: str, attempt_number: int) -> None:
 
 
 def cells() -> list[dict[str, Any]]:
-    """The four frozen CPU cells, in conservative-to-saturated order."""
-    return [
-        {"cell_id": f"cpu-w{w}-k{k}", "device": "cpu", "workers": w, "max_pending": k}
-        for w, k in ((1, 1), (2, 2), (4, 4), (4, 8))
-    ]
+    """Two bare controls bracket the four frozen worker cells."""
+    return (
+        [{"cell_id": "cpu-w0-k0-pre", "device": "cpu", "workers": 0, "max_pending": 0}]
+        + [
+            {"cell_id": f"cpu-w{w}-k{k}", "device": "cpu", "workers": w, "max_pending": k}
+            for w, k in ((1, 1), (2, 2), (4, 4), (4, 8))
+        ]
+        + [{"cell_id": "cpu-w0-k0-post", "device": "cpu", "workers": 0, "max_pending": 0}]
+    )
 
 
 def schedule(fixtures: list[dict]) -> list[tuple[int, dict]]:
@@ -116,11 +219,17 @@ def sources() -> dict[str, str]:
     names += list((root / "research/t15_mixed_roster_20261017").glob("*.py"))
     names += list((root / "research/apex_veto_serving_20261001").glob("*.py"))
     names += [root / "research/bl_k1/run_m1.sh", root / "research/bl_served_search/native_ruler.py"]
+    names += [root / "research/bl_k1/m1_attempt07_rearm.sh"]
     return {**k1_sources(), **{str(p.relative_to(root)): digest(p) for p in names}}
 
 
-def inputs(fixtures_path: Path, reference_path: Path) -> dict[str, Any]:
+def inputs(
+    fixtures_path: Path, reference_path: Path, branch_b_ratification_sha256: str | None = None
+) -> dict[str, Any]:
     """Open immutable Y1 evidence and validate every all/stop batch, untimed."""
+    if branch_b_ratification_sha256 is not None:
+        refuse_branch_b()
+    round22 = verify_round22()
     bank, bank_sha = l1._read_completed_json(fixtures_path)
     fixtures = ruler.validate_fixtures(bank)
     reference, ref_sha = l1._read_completed_json(reference_path)
@@ -158,6 +267,8 @@ def inputs(fixtures_path: Path, reference_path: Path) -> dict[str, Any]:
         "repeats": REPEATS,
         "cap_seconds": CAP_SECONDS,
         "contention_seconds": CONTENTION_SECONDS,
+        "branch_b_ratification_sha256": branch_b_ratification_sha256,
+        "round22": round22,
     }
     return {
         **identity,
@@ -248,33 +359,130 @@ def reconciled_precell_stop(path: Path, data: dict) -> dict:
     return previous
 
 
+def _judged4_recovery(proof: dict, data: dict) -> dict:
+    """Admit only the byte-pinned D1 remedy debit; no prior cell evidence moves."""
+    error = "M1 judged recovery requires the exact audited attempt-06b D1 remedy stop"
+    prior_path = Path(proof["previous_receipt_path"])
+    previous, receipt_sha = l1._read_completed_json(prior_path)
+    attempt, attempt_sha = l1._read_completed_json(prior_path.parent / "attempt.json")
+    idle, idle_sha = l1._read_completed_json(prior_path.parent / "idle.json")
+    cells_sha = {
+        name: l1._read_completed_json(prior_path.parent / f"{name}.json")[1]
+        for name in JUDGED4_CELL_SHA256
+    }
+    discarded = {
+        name: l1._read_completed_json(prior_path.parent / name)[1]
+        for name in JUDGED4_DISCARDED_SHA256
+    }
+    log_path = Path(proof["previous_log_path"])
+    if (
+        proof.get("schema") != SCHEMA + "/judged-recovery"
+        or proof.get("judge") != "Fable-D1"
+        or proof.get("status") != "JUDGED_REMEDY_ATTEMPT_7"
+        or Path(proof.get("judgment_path", "")) != JUDGED4_JUDGMENT_PATH
+        or proof.get("judgment_sha256") != digest(JUDGED4_JUDGMENT_PATH)
+        or proof.get("round22") != verify_round22()
+        or proof.get("target_namespace") != data["namespace"]
+        or proof.get("next_attempt_number") != 6
+        or proof.get("final_attempt") is not True
+        or proof.get("remedy_attempt") is not True
+        or proof.get("carry_forward_required") is not True
+        or proof.get("operator_dispatch_once") is not True
+        or proof.get("restart_policy_required") is not True
+        or proof.get("transferred_cell_or_timing_evidence") is not False
+        or receipt_sha != JUDGED4_RECEIPT_SHA256
+        or attempt_sha != JUDGED4_ATTEMPT_SHA256
+        or digest(log_path) != JUDGED4_LOG_SHA256
+        or idle_sha != JUDGED4_IDLE_SHA256
+        or cells_sha != JUDGED4_CELL_SHA256
+        or discarded != JUDGED4_DISCARDED_SHA256
+        or proof.get("previous_receipt_sha256") != receipt_sha
+        or proof.get("previous_attempt_sha256") != attempt_sha
+        or proof.get("previous_log_sha256") != JUDGED4_LOG_SHA256
+        or proof.get("previous_idle_sha256") != idle_sha
+        or proof.get("previous_cell_sha256") != cells_sha
+        or proof.get("previous_discarded_sha256") != discarded
+        or attempt.get("sources", {}).get("research/bl_k1/m1.py") != JUDGED4_SOURCE_SHA256
+        or previous.get("namespace") != JUDGED4_PREVIOUS_NAMESPACE
+        or previous.get("namespace") != attempt.get("namespace")
+        or previous.get("schema") != SCHEMA
+        or previous.get("attempt_number") != 5
+        or previous.get("verdict") != "BLOCKED"
+        or previous.get("mechanical_failure") is not False
+        or previous.get("verified_stop") is not True
+        or previous.get("final_attempt") is not True
+        or previous.get("judged_recovery_sha256") != JUDGED4_PREVIOUS_JUDGED_SHA256
+        or proof.get("previous_judged_recovery_sha256") != JUDGED4_PREVIOUS_JUDGED_SHA256
+        or proof.get("previous_namespace") != JUDGED4_PREVIOUS_NAMESPACE
+        or previous.get("charged_seconds") != JUDGED4_CHARGED_SECONDS
+        or proof.get("charged_seconds") != JUDGED4_CHARGED_SECONDS
+        or proof.get("remaining_seconds") != CAP_SECONDS - JUDGED4_CHARGED_SECONDS
+        or len(previous.get("discarded_runs", [])) != 2
+        or any(
+            row.get("stop_reason") != RESTART_POLICY["trigger"]
+            for row in previous["discarded_runs"]
+        )
+        or len(previous.get("completed_unit_exports", {})) != 2
+        or previous.get("failure") is not None
+        or proof.get("owner_directive_path") != str(OWNER_DIRECTIVE_PATH)
+        or proof.get("owner_directive_sha256") != JUDGED4_OWNER_DIRECTIVE_SHA256
+        or digest(OWNER_DIRECTIVE_PATH) != JUDGED4_OWNER_DIRECTIVE_SHA256
+        or proof.get("estimand") != ESTIMAND
+        or not idle
+        or data.get("sources", {}).get("research/bl_k1/m1.py") != digest(Path(__file__))
+        or "warmup" not in Path(__file__).read_text()
+        or "cpu-w0-k0-pre" not in Path(__file__).read_text()
+    ):
+        raise ValueError(error)
+    refuse_consumed(prior_path, "judged_recovery_sha256", 5)
+    return previous
+
+
 def judged_recovery(path: Path, data: dict) -> dict:
-    """Carry only debit and attempt count from either exact judge-pinned stop."""
+    """Carry only debit and attempt count from an exact judge-pinned stop."""
     error = "M1 judged recovery requires the exact audited attempt-03 foreign-load stop"
     try:
         proof, _ = l1._read_completed_json(path)
+        if proof.get("judge") == "Fable-D1":
+            error = "M1 judged recovery requires the exact audited attempt-06b D1 remedy stop"
+            return _judged4_recovery(proof, data)
         second = proof.get("judge") == "Fable-M1-attempt5"
+        third = proof.get("judge") == "Fable-M1-attempt6"
         if second:
             error = "M1 judged recovery requires the exact audited attempt-04 foreign-load stop"
+        if third:
+            error = "M1 judged recovery requires the exact audited attempt-05 foreign-load stop"
         pins = (
             (
-                JUDGED2_RECEIPT_SHA256,
-                JUDGED2_ATTEMPT_SHA256,
-                JUDGED2_LOG_SHA256,
-                JUDGED2_CELL_SHA256,
-                JUDGED2_SOURCE_SHA256,
-                JUDGED2_CHARGED_SECONDS,
-                3,
+                JUDGED3_RECEIPT_SHA256,
+                JUDGED3_ATTEMPT_SHA256,
+                JUDGED3_LOG_SHA256,
+                JUDGED3_CELL_SHA256,
+                JUDGED3_SOURCE_SHA256,
+                JUDGED3_CHARGED_SECONDS,
+                4,
             )
-            if second
+            if third
             else (
-                JUDGED_RECEIPT_SHA256,
-                JUDGED_ATTEMPT_SHA256,
-                JUDGED_LOG_SHA256,
-                JUDGED_CELL_SHA256,
-                JUDGED_SOURCE_SHA256,
-                JUDGED_CHARGED_SECONDS,
-                2,
+                (
+                    JUDGED2_RECEIPT_SHA256,
+                    JUDGED2_ATTEMPT_SHA256,
+                    JUDGED2_LOG_SHA256,
+                    JUDGED2_CELL_SHA256,
+                    JUDGED2_SOURCE_SHA256,
+                    JUDGED2_CHARGED_SECONDS,
+                    3,
+                )
+                if second
+                else (
+                    JUDGED_RECEIPT_SHA256,
+                    JUDGED_ATTEMPT_SHA256,
+                    JUDGED_LOG_SHA256,
+                    JUDGED_CELL_SHA256,
+                    JUDGED_SOURCE_SHA256,
+                    JUDGED_CHARGED_SECONDS,
+                    2,
+                )
             )
         )
         receipt_pin, attempt_pin, log_pin, cell_pins, source_pin, debit, number = pins
@@ -283,13 +491,24 @@ def judged_recovery(path: Path, data: dict) -> dict:
         attempt, attempt_sha = l1._read_completed_json(prior_path.parent / "attempt.json")
         cell, cell_sha = l1._read_completed_json(prior_path.parent / "cpu-w1-k1.json")
         log_path = (
-            Path(proof["previous_log_path"]) if second else prior_path.parent.with_suffix(".log")
+            Path(proof["previous_log_path"])
+            if second or third
+            else prior_path.parent.with_suffix(".log")
         )
         if (
             proof.get("schema") != SCHEMA + "/judged-recovery"
-            or proof.get("judge") != ("Fable-M1-attempt5" if second else "Fable-M1-attempt4")
+            or proof.get("judge")
+            != (
+                "Fable-M1-attempt6"
+                if third
+                else "Fable-M1-attempt5" if second else "Fable-M1-attempt4"
+            )
             or proof.get("status")
-            != ("JUDGED_FOREIGN_LOAD_STOP_2" if second else "JUDGED_FOREIGN_LOAD_STOP")
+            != (
+                "JUDGED_FOREIGN_LOAD_STOP_3"
+                if third
+                else "JUDGED_FOREIGN_LOAD_STOP_2" if second else "JUDGED_FOREIGN_LOAD_STOP"
+            )
             or proof.get("target_namespace") != data["namespace"]
             or proof.get("judgment_sha256") != digest(Path(proof["judgment_path"]))
             or proof.get("next_attempt_number") != number + 1
@@ -319,15 +538,19 @@ def judged_recovery(path: Path, data: dict) -> dict:
             or cell["summary"].get("complete") is not False
         ):
             raise ValueError(error)
-        if second:
+        if second or third:
+            prior_judged = (
+                JUDGED3_PREVIOUS_JUDGED_SHA256 if third else JUDGED2_PREVIOUS_JUDGED_SHA256
+            )
             if (
-                Path(proof["judgment_path"]) != JUDGED2_JUDGMENT_PATH
+                Path(proof["judgment_path"])
+                != (JUDGED3_JUDGMENT_PATH if third else JUDGED2_JUDGMENT_PATH)
                 or proof.get("restart_policy_required") is not True
                 or not RESTART_POLICY
                 or data.get("sources", {}).get("research/bl_k1/m1.py") != digest(Path(__file__))
                 or previous.get("final_attempt") is not True
-                or previous.get("judged_recovery_sha256") != JUDGED2_PREVIOUS_JUDGED_SHA256
-                or proof.get("previous_judged_recovery_sha256") != JUDGED2_PREVIOUS_JUDGED_SHA256
+                or previous.get("judged_recovery_sha256") != prior_judged
+                or proof.get("previous_judged_recovery_sha256") != prior_judged
                 or proof.get("previous_namespace") != previous["namespace"]
                 or proof.get("remaining_seconds") != CAP_SECONDS - debit
                 or proof.get("transferred_cell_or_timing_evidence") is not False
@@ -336,6 +559,35 @@ def judged_recovery(path: Path, data: dict) -> dict:
                 raise ValueError(error)
         elif previous.get("reconciled_precell_stop_sha256") != JUDGED_PRECELL_SHA256:
             raise ValueError(error)
+        if third:
+            _, idle_sha = l1._read_completed_json(prior_path.parent / "idle.json")
+            discarded = {
+                name: l1._read_completed_json(prior_path.parent / name)[1]
+                for name in JUDGED3_DISCARDED_SHA256
+            }
+            if (
+                idle_sha != JUDGED3_IDLE_SHA256
+                or proof.get("previous_idle_sha256") != idle_sha
+                or discarded != JUDGED3_DISCARDED_SHA256
+                or proof.get("previous_discarded_sha256") != discarded
+                or previous.get("namespace") != JUDGED3_PREVIOUS_NAMESPACE
+                or previous.get("failure") is not None
+                or len(previous.get("discarded_runs", [])) != 3
+                or any(
+                    r.get("stop_reason") != RESTART_POLICY["trigger"]
+                    for r in previous["discarded_runs"]
+                )
+                or len(previous.get("quiet_waits", [])) != 4
+                or any(q.get("quiet") is not True for q in previous["quiet_waits"])
+                or proof.get("carry_forward_required") is not True
+                or "carried_violation" not in Path(__file__).read_text()
+                or not callable(carried_violation)
+                or proof.get("owner_directive_path") != str(OWNER_DIRECTIVE_PATH)
+                or proof.get("owner_directive_sha256") != OWNER_DIRECTIVE_SHA256
+                or digest(OWNER_DIRECTIVE_PATH) != OWNER_DIRECTIVE_SHA256
+                or proof.get("estimand") != ESTIMAND
+            ):
+                raise ValueError(error)
         refuse_consumed(prior_path, "judged_recovery_sha256", number)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         raise ValueError(error) from exc
@@ -349,6 +601,46 @@ def validate_sample(payload: dict, fixture: dict, action: int) -> None:
         raise ValueError("INVALID chosen action differs from Y1 all-branch reference")
     if payload["execution_environment"]["torch_num_interop_threads"] != 1:
         raise ValueError("INVALID worker interop thread count")
+
+
+def timing_report(ticks: list[dict]) -> dict:
+    """Report measured exposure and both lateness origins without moving any bar."""
+    streak = longest = 0
+    overruns = []
+    epoch = ticks[0]["target_ns"] if ticks else 0
+    for index, tick in enumerate(ticks):
+        streak = streak + 1 if tick["overrun"] else 0
+        longest = max(longest, streak)
+        if tick["overrun"]:
+            deadline = epoch + (index + 1) * 1_000_000_000 // 24
+            overruns.append(
+                {
+                    "tick_index": index,
+                    "late_ms_target": (tick["finished_ns"] - tick["target_ns"]) / 1e6,
+                    "late_ms_deadline": max(0, tick["finished_ns"] - deadline) / 1e6,
+                }
+            )
+    count = sum(tick["overrun"] for tick in ticks)
+    return {
+        "ticks": len(ticks),
+        "tick_overruns": count,
+        "overruns_per_1000_ticks": 1000 * count / len(ticks) if ticks else None,
+        "late_ms_target_max": max(
+            ((tick["finished_ns"] - tick["target_ns"]) / 1e6 for tick in ticks), default=None
+        ),
+        "late_ms_deadline_max": max((row["late_ms_deadline"] for row in overruns), default=0.0),
+        "max_consecutive_overruns": longest,
+        "overrun_ticks": overruns,
+        "stall_onset_seconds": next(
+            ((tick["target_ns"] - epoch) / 1e9 for tick in ticks if tick["overrun"]), None
+        ),
+        "update": l1.distribution(tick["update_seconds"] for tick in ticks),
+        "gc_pause_ms_total": sum(tick.get("gc_pause_ms", 0.0) for tick in ticks),
+        "gc_gen2_count": sum(tick.get("gc_gen2_count", 0) for tick in ticks),
+        "deaths": sum(tick.get("deaths", 0) for tick in ticks),
+        "respawns": sum(tick.get("respawns", 0) for tick in ticks),
+        "food_count_last": ticks[-1].get("food_count") if ticks else None,
+    }
 
 
 def summarize(cell: dict, samples: list[dict], ticks: list[dict], complete: bool) -> dict:
@@ -365,18 +657,31 @@ def summarize(cell: dict, samples: list[dict], ticks: list[dict], complete: bool
     doom = by_fixture.get("frozen-800", {}).get("p99_seconds")
     update = l1.distribution(row["update_seconds"] for row in ticks)
     overrun = sum(row["overrun"] for row in ticks)
-    failed = overrun > 0 or (update["p95_seconds"] is not None and update["p95_seconds"] > 0.011688)
+    lateness = [max(0.0, (row["finished_ns"] - row["target_ns"]) / 1e9) for row in ticks]
+    control = cell["workers"] == 0
+    failed = (not control) and (
+        overrun > 0 or (update["p95_seconds"] is not None and update["p95_seconds"] > 0.011688)
+    )
     if cell["workers"] == 4 and doom is not None and doom > 5.0:
         failed = True
     counts_complete = len(by_fixture) == 9 and all(
         v["count"] == REPEATS for v in by_fixture.values()
     )
-    completed = complete and counts_complete and len(cold) == cell["max_pending"] and bool(ticks)
+    completed = (
+        complete
+        and bool(ticks)
+        and (
+            len(ticks) == CONTROL_TICKS
+            if control
+            else counts_complete and len(cold) == cell["max_pending"]
+        )
+    )
     native_totals = {
         key: sum(s.get("payload", {}).get("native_v8", {}).get(key, 0) for s in warm)
         for key in ("kernel_rows", "stock_rows", "fallback_rows", "calls")
     }
     return {
+        **timing_report(ticks),
         "native_v8_totals_warm": native_totals,
         "verdict": (
             "INVALID"
@@ -391,6 +696,16 @@ def summarize(cell: dict, samples: list[dict], ticks: list[dict], complete: bool
         "doom_fixture_id": "frozen-800",
         "doom_p99_seconds": doom,
         "tick_overruns": overrun,
+        "overruns_per_1000_ticks": 1000 * overrun / len(ticks) if ticks else None,
+        "lateness_max_seconds": max(lateness, default=None),
+        "stall_onset_seconds": next(
+            ((row["target_ns"] - ticks[0]["target_ns"]) / 1e9 for row in ticks if row["overrun"]),
+            None,
+        ),
+        "gc_pause_ms_total": sum(row.get("gc_pause_ms", 0.0) for row in ticks),
+        "gc_gen2_count": sum(row.get("gc_gen2_count", 0) for row in ticks),
+        "deaths": sum(row.get("deaths", 0) for row in ticks),
+        "respawns": sum(row.get("respawns", 0) for row in ticks),
         "update": update,
         "dense_caps_seconds_report_only": {"W2": 0.830, "W3": 1.250, "W4": 1.458},
         "scope": "M1 admits construction only; no L1 qualification or release",
@@ -426,7 +741,12 @@ def foreign_load(screen: dict, coordinator_pid: int) -> list[dict]:
         if children <= owned:
             break
         owned |= children
-    return [row for row in screen.get("other_heavy_processes", []) if row["pid"] not in owned]
+    allowed = {row["pid"] for row in allowed_background(screen)}
+    return [
+        row
+        for row in screen.get("other_heavy_processes", [])
+        if row["pid"] not in owned and row["pid"] not in allowed
+    ]
 
 
 class HostMonitor:
@@ -444,6 +764,7 @@ class HostMonitor:
             try:
                 row = self.observe()
                 row["coordinator_pid"] = os.getpid()
+                row["allowed_background_processes"] = allowed_background(row["process_screen"])
                 row["foreign_heavy_processes"] = foreign_load(row["process_screen"], os.getpid())
                 self.rows.append(row)
                 if row["foreign_heavy_processes"]:
@@ -507,7 +828,7 @@ def smoke(data: dict) -> dict:
         if int(session.game.frame) != before + 1 or session.last_error or not snapshot:
             raise RuntimeError(f"M1 smoke Watch tick failed: {session.last_error!r}")
 
-    for _ in range(3):
+    for _ in range(WARMUP_TICKS):
         tick()
     # Exercise the actual death/respawn lifecycle for both policy classes,
     # including the optional-attribute default that the former mocks hid.
@@ -528,6 +849,7 @@ def smoke(data: dict) -> dict:
         initargs=("cpu", stop, time.monotonic() + 120),
     )
     try:
+        prespawn = prespawn_pool(pool, 1)
         future = pool.submit(l1._worker_batch, fixture)
         for _ in range(3):
             tick()
@@ -545,11 +867,12 @@ def smoke(data: dict) -> dict:
         "timing_evidence": False,
         "timed_cells_run": False,
         "lease_acquired": False,
-        "watch_ticks": 7,
+        "watch_ticks": WARMUP_TICKS + 4,
         "watch_roster": roster["watch_roster"],
         "snakes": len(session.game.snakes),
         "respawned_ids": [snake.id for snake in targets],
         "workers": 1,
+        "prespawn": prespawn,
         "max_pending": 1,
         "fixture_id": fixture["fixture_id"],
         "chosen_action": payload["semantic"]["chosen"],
@@ -567,6 +890,43 @@ def timed_tick(session: Any) -> float:
     return update_ms / 1000
 
 
+def _worker_ping(ready: Any, release: Any) -> dict:
+    """Force one initialized pool worker to report its immutable placement."""
+    # Keep the ping evidence small and non-secret; the initializer owns these settings.
+    import torch
+
+    row = {
+        "pid": os.getpid(),
+        "threads": {key: os.environ.get(key) for key in native_ruler.THREAD_ENV},
+        "torch_num_threads": torch.get_num_threads(),
+        "torch_num_interop_threads": torch.get_num_interop_threads(),
+    }
+    ready.put(row)
+    if not release.wait(30):
+        raise RuntimeError("pre-spawn readiness release timed out")
+    return row
+
+
+def prespawn_pool(pool: Any, workers: int) -> dict:
+    """Prove every declared initialized worker is ready before a live clock."""
+    started = time.monotonic()
+    with multiprocessing.Manager() as manager:
+        ready, release = manager.Queue(), manager.Event()
+        pings = [pool.submit(_worker_ping, ready, release) for _ in range(workers)]
+        reports = [ready.get(timeout=30) for _ in range(workers)]
+        pids = sorted(report["pid"] for report in reports)
+        if len(set(pids)) != workers:
+            raise RuntimeError("pool failed to pre-spawn every declared worker")
+        release.set()
+        for future in pings:
+            future.result()
+    return {
+        "seconds": time.monotonic() - started,
+        "pids": pids,
+        "reports": sorted(reports, key=lambda r: r["pid"]),
+    }
+
+
 def run_cell(
     cell: dict,
     data: dict,
@@ -574,7 +934,7 @@ def run_cell(
     observe: Callable[[], dict],
     stop_state: dict | None = None,
 ) -> dict:
-    """Cold pool start and 270 warm submissions under one absolute Watch clock."""
+    """Warm Watch/pool before the fixed clock; then measure one declared cell."""
     from research.t1_commitment_20261015.replay import configure_cpu
 
     configure_cpu()
@@ -599,17 +959,34 @@ def run_cell(
     contention_rows = []
     load_stop, load_queue = context.Event(), None
     epoch = time.monotonic_ns()
+    warmup_updates: list[float] = []
+    prespawn = {"seconds": 0.0, "pids": [], "reports": []}
+    gc_events: list[tuple[str, int, int]] = []
+    gc_cursor = 0
+    gc_opens: dict[int, int] = {}
+
+    def gc_callback(phase: str, info: dict) -> None:
+        if phase == "start":
+            gc_events.append((phase, int(info["generation"]), time.monotonic_ns()))
+        elif phase == "stop":
+            gc_events.append((phase, int(info["generation"]), time.monotonic_ns()))
+
+    gc.callbacks.append(gc_callback)
     try:
-        # Keep resource setup inside cleanup coverage, including partial setup.
-        # Process construction is cold; no worker starts until the clock is live.
-        pool = concurrent.futures.ProcessPoolExecutor(
-            max_workers=cell["workers"],
-            mp_context=context,
-            initializer=l1._worker_init,
-            initargs=("cpu", stop, deadline),
-        )
-        load_queue = context.Queue()
-        epoch = time.monotonic_ns()  # preserve the original successful-cell clock placement
+        # Production's 200-tick latency-ineligible window precedes the cadence.
+        for _ in range(WARMUP_TICKS):
+            warmup_updates.append(timed_tick(session))
+        if cell["workers"]:
+            pool = concurrent.futures.ProcessPoolExecutor(
+                max_workers=cell["workers"],
+                mp_context=context,
+                initializer=l1._worker_init,
+                initargs=("cpu", stop, deadline),
+            )
+            prespawn = prespawn_pool(pool, cell["workers"])
+            load_queue = context.Queue()
+        epoch = time.monotonic_ns()
+        gc_cursor = len(gc_events)
         monitor.thread.start()
         monitor_started = True
         while True:
@@ -625,6 +1002,7 @@ def run_cell(
             if now < target:
                 time.sleep((target - now) / 1e9)
             tick_started = time.monotonic_ns()
+            prior_dead = {snake.id for snake in session.game.snakes if not snake.is_alive}
             update_seconds = timed_tick(session)
             for future in list(pending):
                 if not future.done():
@@ -660,7 +1038,7 @@ def run_cell(
                     )
                     contention.start()
             total = len(cold_jobs) if phase == "cold" else len(warm_jobs)
-            if reason is None:
+            if reason is None and cell["workers"]:
                 while len(pending) < cell["max_pending"] and admitted < total:
                     repeat, fixture = next(jobs)
                     admission = time.monotonic_ns()
@@ -672,6 +1050,22 @@ def run_cell(
                     )
                     admitted += 1
                     max_pending = max(max_pending, len(pending))
+            gc_pause_ns = 0
+            gc_gen2_count = 0
+            gc_end = len(gc_events)
+            for phase_name, generation, event_ns in gc_events[gc_cursor:gc_end]:
+                if phase_name == "start":
+                    gc_opens[generation] = event_ns
+                elif generation in gc_opens:
+                    gc_pause_ns += event_ns - gc_opens.pop(generation)
+                    gc_gen2_count += generation == 2
+            gc_cursor = gc_end
+            respawns = sum(
+                snake.id in prior_dead
+                and (snake.is_alive or snake.id in session.game.frame_death_causes)
+                for snake in session.game.snakes
+            )
+            # Disclosure belongs to the paced coordinator tick as well.
             finished = time.monotonic_ns()
             ticks.append(
                 {
@@ -680,6 +1074,16 @@ def run_cell(
                     "finished_ns": finished,
                     "update_seconds": update_seconds,
                     "overrun": finished >= epoch + (tick_index + 1) * 1_000_000_000 // 24,
+                    "late_ms_target": (finished - target) / 1e6,
+                    "late_ms_deadline": max(
+                        0, finished - (epoch + (tick_index + 1) * 1_000_000_000 // 24)
+                    )
+                    / 1e6,
+                    "gc_pause_ms": gc_pause_ns / 1e6,
+                    "gc_gen2_count": gc_gen2_count,
+                    "deaths": len(getattr(session.game, "frame_death_causes", {})),
+                    "respawns": respawns,
+                    "food_count": len(session.game.food_manager.food),
                 }
             )
             if tick_index % (24 * 60) == 0:
@@ -694,16 +1098,21 @@ def run_cell(
                     ),
                     flush=True,
                 )
-            if reason or (
-                phase == "warm"
-                and admitted == total
-                and not pending
-                and (contention is None or not contention.is_alive())
+            if (
+                reason
+                or (cell["workers"] == 0 and len(ticks) == CONTROL_TICKS)
+                or (
+                    phase == "warm"
+                    and admitted == total
+                    and not pending
+                    and (contention is None or not contention.is_alive())
+                )
             ):
                 break
     except (Exception, KeyboardInterrupt) as exc:
         reason = f"{type(exc).__name__}: {exc}"
     finally:
+        gc.callbacks.remove(gc_callback)
         stop.set()
         load_stop.set()
         try:
@@ -764,6 +1173,12 @@ def run_cell(
         "host": monitor.rows,
         "contention": contention_rows,
         "pending_at_stop": len(pending),
+        "warmup": {
+            "ticks": WARMUP_TICKS,
+            "update_p95_seconds": l1.distribution(warmup_updates)["p95_seconds"],
+            "update_max_seconds": max(warmup_updates, default=None),
+        },
+        "prespawn": prespawn,
     }
 
 
@@ -778,7 +1193,20 @@ def audit_unit(row: dict, data: dict) -> None:
         raise ValueError("foreign M1 cell content")
     if not row.get("mac_lease", {}).get("id"):
         raise ValueError("missing M1 cell lease")
-    fixture_map = {f["fixture_id"]: f for f in data["fixtures"]}
+    if row.get("warmup", {}).get("ticks") != WARMUP_TICKS:
+        raise ValueError("M1 warm-up placement or count changed")
+    if cell["workers"] == 0:
+        if (
+            row.get("samples")
+            or row.get("contention")
+            or row.get("actual_max_pending") != 0
+            or row.get("prespawn", {}).get("pids") != []
+        ):
+            raise ValueError("bare M1 control contains worker activity")
+        # Controls share the exact tick/host/clock audit below, but no job evidence.
+        fixture_map = {}
+    else:
+        fixture_map = {f["fixture_id"]: f for f in data["fixtures"]}
     seen = set()
     events = []
     ordered_allocations = []
@@ -804,7 +1232,7 @@ def audit_unit(row: dict, data: dict) -> None:
     cold_expected = {
         ("cold", i, data["fixtures"][i % 9]["fixture_id"]) for i in range(cell["max_pending"])
     }
-    if seen != warm_expected | cold_expected:
+    if cell["workers"] and seen != warm_expected | cold_expected:
         raise ValueError("incomplete M1 sample allocations")
     expected_order = [
         ("cold", i, data["fixtures"][i % 9]["fixture_id"]) for i in range(cell["max_pending"])
@@ -812,7 +1240,7 @@ def audit_unit(row: dict, data: dict) -> None:
     expected_order += [
         ("warm", repeat, f["fixture_id"]) for repeat, f in schedule(data["fixtures"])
     ]
-    if [key for _, key in sorted(ordered_allocations)] != expected_order:
+    if cell["workers"] and [key for _, key in sorted(ordered_allocations)] != expected_order:
         raise ValueError("M1 interleaved admission order changed")
     pending = high_water = 0
     for _, delta in sorted(events):
@@ -822,9 +1250,9 @@ def audit_unit(row: dict, data: dict) -> None:
         high_water = max(high_water, pending)
     if pending or high_water != cell["max_pending"]:
         raise ValueError("M1 outstanding admission high-water differs from K")
-    if (
-        not row["ticks"]
-        or max(s["visible_ns"] for s in row["samples"]) > row["ticks"][-1]["finished_ns"]
+    if not row["ticks"] or (
+        row["samples"]
+        and max(s["visible_ns"] for s in row["samples"]) > row["ticks"][-1]["finished_ns"]
     ):
         raise ValueError("M1 ticks do not cover all result residence")
     previous_finish = row["epoch_ns"]
@@ -838,6 +1266,11 @@ def audit_unit(row: dict, data: dict) -> None:
             or not 0
             <= tick["update_seconds"]
             <= (tick["finished_ns"] - tick["tick_started_ns"]) / 1e9
+            or type(tick.get("gc_pause_ms")) not in (int, float)
+            or type(tick.get("gc_gen2_count")) is not int
+            or type(tick.get("deaths")) is not int
+            or type(tick.get("respawns")) is not int
+            or type(tick.get("food_count")) is not int
         ):
             raise ValueError("M1 tick clock/overrun mismatch")
         previous_finish = tick["finished_ns"]
@@ -852,6 +1285,8 @@ def audit_unit(row: dict, data: dict) -> None:
         raise ValueError("M1 foreign heavy load attested")
     if len(pids) != cell["workers"] or not row.get("host"):
         raise ValueError("M1 worker/host attestation missing")
+    if cell["workers"] and set(row.get("prespawn", {}).get("pids", [])) != pids:
+        raise ValueError("M1 pre-spawn pids differ from fixture workers")
     if cell["cell_id"] == "cpu-w4-k4":
         if len(row.get("contention", [])) != 1:
             raise ValueError("M1 contention block missing")
@@ -872,33 +1307,119 @@ def audit_unit(row: dict, data: dict) -> None:
         raise ValueError("M1 pending wave was not saturated")
 
 
-def reduce_units(units: list[dict], namespace: str, data: dict | None = None) -> dict:
-    """One final look over four same-namespace, complete, distinct cells."""
+def reduce_units(
+    units: list[dict], namespace: str, data: dict | None = None, branch_b: bool = False
+) -> dict:
+    """One final look: controls disclose bare stalls; workers determine admission."""
+    if branch_b:
+        refuse_branch_b()
     ids = [row["cell_id"] for row in units]
     if len(ids) != len(set(ids)) or any(row["namespace"] != namespace for row in units):
         raise ValueError("duplicate or foreign M1 cell")
     if set(ids) - {c["cell_id"] for c in cells()}:
         raise ValueError("foreign M1 cell")
     for row in units:
-        if row["summary"]["complete"]:
+        if row["summary"].get("decided") is not True and row["summary"]["complete"]:
             if data is None:
                 raise ValueError("M1 reduction requires raw evidence inputs")
             audit_unit(row, data)
-    statuses = [row["summary"]["verdict"] for row in units]
+    worker_units = [row for row in units if row["workers"]]
+    controls = [row for row in units if not row["workers"]]
+    statuses = [
+        (
+            "BLOCKED"
+            if row["summary"].get("decided") is True
+            else (
+                row["summary"]["verdict"]
+                if row["summary"]["complete"] or row["summary"]["verdict"] == "INVALID"
+                else "INCOMPLETE"
+            )
+        )
+        for row in worker_units
+    ]
+    control_statuses = [
+        (
+            "BLOCKED"
+            if row["summary"].get("decided") is True
+            else (
+                row["summary"]["verdict"]
+                if row["summary"].get("complete") or row["summary"].get("verdict") == "INVALID"
+                else "INCOMPLETE"
+            )
+        )
+        for row in controls
+    ]
     verdict = (
         "INVALID"
-        if "INVALID" in statuses
+        if "INVALID" in statuses or "INVALID" in control_statuses
         else (
             "INCOMPLETE"
-            if len(units) != 4 or "INCOMPLETE" in statuses
+            if (
+                len(worker_units) != 4
+                or len(controls) != 2
+                or "INCOMPLETE" in statuses
+                or "INCOMPLETE" in control_statuses
+            )
             else ("BLOCKED" if "BLOCKED" in statuses else "PASS")
         )
     )
+    control_rows = [
+        {
+            "cell_id": row["cell_id"],
+            "complete": row["summary"]["complete"],
+            **timing_report(row.get("ticks", [])),
+        }
+        for row in controls
+    ]
+    for row in control_rows:
+        row["r0"] = row["overruns_per_1000_ticks"]
+    control_ticks = [tick for row in controls for tick in row.get("ticks", [])]
+    count = sum(tick["overrun"] for tick in control_ticks)
+    r0 = 1000 * count / len(control_ticks) if control_ticks else None
+    bare_controls = {
+        "report_only": True,
+        "cells": control_rows,
+        "pooled": {
+            "complete": len(controls) == 2 and all(row["complete"] for row in control_rows),
+            "ticks": len(control_ticks),
+            "tick_overruns": count,
+            "r0": r0,
+            "overruns_per_1000_ticks": r0,
+        },
+        "overruns_per_1000_ticks": r0,
+    }
+    branch_b_report = {
+        "enabled": False,
+        "status": JUDGED4_BRANCH_B_STATUS,
+        "report_only": True,
+        "ruling_path": JUDGED4_ROUND22_RULING_PATH,
+        "r0": r0,
+        "controls": control_rows,
+        "cells": [
+            {
+                "cell_id": row["cell_id"],
+                "complete": row["summary"]["complete"],
+                **timing_report(row.get("ticks", [])),
+                "r_c": timing_report(row.get("ticks", []))["overruns_per_1000_ticks"],
+            }
+            for row in worker_units
+        ],
+    }
     return {
         "schema": SCHEMA,
         "namespace": namespace,
         "verdict": verdict,
-        "cells": [{"cell_id": row["cell_id"], **row["summary"]} for row in units],
+        "branch_b": branch_b_report,
+        "bare_controls": bare_controls,
+        "cells": [
+            {
+                "cell_id": row["cell_id"],
+                **row["summary"],
+                **({"background_load": row["background_load"]} if "background_load" in row else {}),
+            }
+            for row in units
+        ],
+        "estimand": ESTIMAND,
         "lead_source_cell_id": "cpu-w4-k4",
         "scope": "construction admission only; B8 serving unchanged",
     }
@@ -934,7 +1455,12 @@ def wait_quiet(
         screen["other_heavy_processes"] = heavy
         foreign = foreign_load(screen, os.getpid())
         samples.append(
-            {**row, "sampled_ns": time.monotonic_ns(), "foreign_heavy_processes": foreign}
+            {
+                **row,
+                "sampled_ns": time.monotonic_ns(),
+                "foreign_heavy_processes": foreign,
+                "allowed_background_processes": allowed_background(screen),
+            }
         )
         streak = 0 if foreign else streak + 1
         if streak >= consecutive and time.monotonic() < deadline:
@@ -965,6 +1491,28 @@ def audit_discarded(out_dir: Path, receipt: dict, units: list[dict]) -> None:
         raise ValueError("missing, duplicate or unrecorded M1 discard")
     counts = {}
     retained_epochs = {row["epoch_ns"] for row in units}
+    if len(retained_epochs) != len(units):
+        raise ValueError("shared M1 retained epoch")
+    for row in units:
+        if row["summary"].get("decided") is True:
+            saved, _ = l1._read_completed_json(out_dir / f"{row['cell_id']}.json")
+            carry = carried_violation(saved)
+            expected_carry = {
+                **carry,
+                "run_n": 1 + sum(r["cell_id"] == row["cell_id"] for r in runs),
+                "rule": "R1",
+            }
+            if (
+                saved != row
+                or row["namespace"] != receipt["namespace"]
+                or row["stop_reason"] != RESTART_POLICY["trigger"]
+                or row["summary"].get("complete") is not False
+                or row["summary"].get("verdict") != "BLOCKED"
+                or row["summary"].get("carried_violation") != expected_carry
+                or not (carry["carried_overruns"] or carry["carried_doom"])
+                or not row["host"][-1]["foreign_heavy_processes"]
+            ):
+                raise ValueError("invalid M1 decided-row provenance")
     for record in runs:
         unit_id, n = record["cell_id"], record["n"]
         row, _ = l1._read_completed_json(out_dir / f"{unit_id}.discarded-{n}.json")
@@ -992,6 +1540,7 @@ def audit_discarded(out_dir: Path, receipt: dict, units: list[dict]) -> None:
             or not record["started_ns"] <= row["epoch_ns"] <= record["finished_ns"]
         ):
             raise ValueError("invalid M1 discard or shared epoch")
+        retained_epochs.add(row["epoch_ns"])
 
 
 def main() -> None:
@@ -1000,6 +1549,7 @@ def main() -> None:
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--ledger", type=Path)
+    parser.add_argument("--branch-b", type=str)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--make-ledger", type=Path)
     mode.add_argument("--run", action="store_true")
@@ -1011,7 +1561,10 @@ def main() -> None:
     recovery.add_argument("--reconciled-precell-stop", type=Path)
     recovery.add_argument("--judged-recovery", type=Path)
     args = parser.parse_args()
-    data = inputs(args.fixtures, args.reference)
+    branch_b = False
+    if args.branch_b is not None:
+        refuse_branch_b()
+    data = inputs(args.fixtures, args.reference, args.branch_b if branch_b else None)
     if args.smoke:
         if any(
             (
@@ -1070,6 +1623,8 @@ def main() -> None:
                     "remaining_seconds": CAP_SECONDS - charged,
                     "attempt_number": 1 if previous is None else previous["attempt_number"] + 1,
                     "timed_cells_run": False,
+                    "estimand": ESTIMAND,
+                    "owner_directive_sha256": OWNER_DIRECTIVE_SHA256,
                 }
             )
         )
@@ -1086,7 +1641,7 @@ def main() -> None:
     def observe() -> dict:
         return {
             **check_guard(),
-            "process_screen": process_screen(),
+            "process_screen": process_screen(include_identity=True),
             "load_average": list(os.getloadavg()),
         }
 
@@ -1095,7 +1650,8 @@ def main() -> None:
     ) as lease:
         started = time.monotonic()
         deadline = started + CAP_SECONDS - charged
-        idle = snapshot()
+        idle = snapshot(process_policy=lambda screen: foreign_load(screen, os.getpid()))
+        idle["allowed_background_processes"] = allowed_background(idle.get("process_screen", {}))
         if not idle["quiet"]:
             raise RuntimeError("M1 requires an idle Mac receipt; foreign load observed")
         quiet_waits = [
@@ -1122,6 +1678,14 @@ def main() -> None:
                 "cap_seconds": CAP_SECONDS,
                 "mechanical_retry": "bounded whole-cell restart on foreign load only",
                 "restart_policy": RESTART_POLICY,
+                "estimand": ESTIMAND,
+                "owner_directive_sha256": OWNER_DIRECTIVE_SHA256,
+                "branch_b_ratification_sha256": args.branch_b if branch_b else None,
+                "remedy_attempt": bool(
+                    args.judged_recovery
+                    and previous is not None
+                    and previous.get("attempt_number") == 5
+                ),
                 "reconciled_precell_stop_sha256": (
                     digest(args.reconciled_precell_stop) if args.reconciled_precell_stop else None
                 ),
@@ -1132,6 +1696,8 @@ def main() -> None:
         )
         units = []
         discarded_runs = []
+        run_segments = []
+        cell_segments: dict[str, list] = {}
         completed_exports = dict(ledger)
         stop_state = {"verified_stop": True}
         failure = None
@@ -1152,7 +1718,28 @@ def main() -> None:
                         run_started = time.monotonic_ns()
                         row = run_cell(cell, data, deadline, observe, stop_state)
                         run_finished = time.monotonic_ns()
+                        row["background_load"] = background_summary([(row["host"], run_finished)])
+                        run_segments.append((row["host"], run_finished))
+                        cell_segments.setdefault(unit_id, []).append((row["host"], run_finished))
                         row["mac_lease"] = lease.receipt
+                        if (
+                            row["stop_reason"] == RESTART_POLICY["trigger"]
+                            and row["summary"]["complete"] is False
+                            and row["summary"]["verdict"] != "INVALID"
+                            and stop_state["verified_stop"]
+                        ):
+                            carry = carried_violation(row)
+                            if carry["carried_overruns"] or carry["carried_doom"]:
+                                row["summary"].update(
+                                    carried_violation={
+                                        **carry,
+                                        "run_n": restarts + 1,
+                                        "rule": "R1",
+                                    },
+                                    verdict="BLOCKED",
+                                    decided=True,
+                                )
+                                break
                         if not (
                             row["stop_reason"] == RESTART_POLICY["trigger"]
                             and row["summary"]["complete"] is False
@@ -1177,6 +1764,7 @@ def main() -> None:
                                 "finished_ns": run_finished,
                                 "ticks": len(row["ticks"]),
                                 "samples_count": len(row["samples"]),
+                                "background_load": row["background_load"],
                             }
                         )
                         quiet = wait_quiet(
@@ -1204,15 +1792,32 @@ def main() -> None:
                     if row["summary"]["complete"]:
                         completed_exports[unit_id] = {"unit_id": unit_id, **exported}
                 units.append(row)
-                if not row["summary"]["complete"]:
+                if not row["summary"]["complete"] and not row["summary"].get("decided"):
                     break
         except (Exception, KeyboardInterrupt) as exc:
             failure = f"{type(exc).__name__}: {exc}"
             invalid = isinstance(exc, ValueError)
-        receipt = reduce_units(units, data["namespace"], data)
+        receipt = reduce_units(units, data["namespace"], data, branch_b=branch_b)
         receipt.update(
             discarded_runs=discarded_runs, quiet_waits=quiet_waits, restart_policy=RESTART_POLICY
         )
+        receipt["remedy_attempt"] = bool(
+            args.judged_recovery and previous is not None and previous.get("attempt_number") == 5
+        )
+        receipt["branch_b_ratification_sha256"] = args.branch_b if branch_b else None
+        quiet_segments = [(q.get("samples", []), q.get("finished_ns", 0)) for q in quiet_waits]
+        receipt["background_load"] = background_summary(
+            [
+                ([idle] if "monotonic_ns" in idle else [], idle.get("monotonic_ns", 0)),
+                *quiet_segments,
+                *run_segments,
+            ]
+        )
+        receipt["background_load"]["scope"] = "idle, quiet waits, all retained and discarded runs"
+        receipt["background_load"]["per_cell_including_discards"] = {
+            unit_id: background_summary(segments) for unit_id, segments in cell_segments.items()
+        }
+        receipt["owner_directive_sha256"] = OWNER_DIRECTIVE_SHA256
         try:
             audit_discarded(args.out, receipt, units)
         except (ValueError, KeyError, TypeError, OSError) as exc:

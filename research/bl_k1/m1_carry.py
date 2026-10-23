@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from research.bl_k1 import m1
+from research.bl_k1.carry import _integer, carried_violation
 from research.bl_mac_latency import l1
 from research.bl_served_search.exports import export_json
 
@@ -26,51 +27,23 @@ ESTIMAND = (
 PRECEDENCE = {"PASS": 0, "BLOCKED": 1, "INCOMPLETE": 2, "INVALID": 3}
 
 
-def _integer(value: object) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError("expected non-negative integer timestamp/count")
-    return value
-
-
 def disclose_discard(row: dict, record: dict) -> dict:
     """Compute all prefix statistics, carrying only clean irreversible events."""
     cell = next(c for c in m1.cells() if c["cell_id"] == record["cell_id"])
     if any(row.get(key) != value for key, value in cell.items()):
         raise ValueError("discard cell configuration differs from frozen cells")
-    clean = []
-    for host in row["host"]:
-        timestamp = _integer(host["monotonic_ns"])
-        if not isinstance(host["foreign_heavy_processes"], list):
-            raise ValueError("invalid foreign process list")
-        if host["foreign_heavy_processes"] == []:
-            clean.append(timestamp)
-    t_clean = max(clean) if clean else None  # JSON null represents minus infinity.
-    carried_overruns = 0
-    for tick in row["ticks"]:
-        finished = _integer(tick["finished_ns"])
-        if type(tick["overrun"]) is not bool:
-            raise ValueError("overrun must be boolean")
-        carried_overruns += tick["overrun"] and t_clean is not None and finished <= t_clean
+    carry = carried_violation(row)
     update = l1.distribution(tick["update_seconds"] for tick in row["ticks"])
     warm: dict[str, list[float]] = {}
     all_phases: dict[str, list[float]] = {}
-    carried_doom = 0
     for sample in row["samples"]:
         if "error" in sample or "S_seconds" not in sample:
             continue
         seconds = sample["S_seconds"]
         l1.distribution([seconds])  # Refuse non-finite/negative input.
         all_phases.setdefault(sample["fixture_id"], []).append(seconds)
-        visible = _integer(sample["visible_ns"])
         if sample["phase"] == "warm":
             warm.setdefault(sample["fixture_id"], []).append(seconds)
-            carried_doom += (
-                cell["workers"] == 4
-                and sample["fixture_id"] == "frozen-800"
-                and seconds > 5.0
-                and t_clean is not None
-                and visible <= t_clean
-            )
     started = _integer(record["started_ns"])
     finished = _integer(record["finished_ns"])
     if finished < started:
@@ -85,10 +58,8 @@ def disclose_discard(row: dict, record: dict) -> dict:
         "run_duration_seconds": (finished - started) / 1e9,
         "ticks": len(row["ticks"]),
         "samples_count": len(row["samples"]),
-        "T_clean_ns": t_clean,
+        **carry,
         "T_clean_null_means": "minus infinity; no clean host row; nothing carried",
-        "carried_overruns": carried_overruns,
-        "carried_doom": carried_doom,
         "total_prefix_overruns": sum(tick["overrun"] for tick in row["ticks"]),
         "prefix_update_p95_seconds": update["p95_seconds"],
         "prefix_warm_per_fixture_max_S_seconds": {key: max(value) for key, value in warm.items()},
@@ -106,8 +77,12 @@ def reduce_attempt(out_dir: Path) -> dict:
         raise ValueError("foreign M1 receipt")
     if receipt.get("verdict") not in PRECEDENCE:
         raise ValueError("unknown attempt verdict")
-    frozen = {cell["cell_id"]: index for index, cell in enumerate(m1.cells())}
     retained = receipt["cells"]
+    remedy = receipt.get("remedy_attempt") is True or any(
+        cell["cell_id"].startswith("cpu-w0-") for cell in retained
+    )
+    allocation = [cell for cell in m1.cells() if remedy or cell["workers"] > 0]
+    frozen = {cell["cell_id"]: index for index, cell in enumerate(allocation)}
     ids = [cell["cell_id"] for cell in retained]
     if len(ids) != len(set(ids)) or set(ids) - frozen.keys():
         raise ValueError("duplicate or foreign retained cell")
@@ -152,8 +127,18 @@ def reduce_attempt(out_dir: Path) -> dict:
                 ),
             }
         )
-    statuses = [receipt["verdict"], *(cell["verdict"] for cell in result["cells"])]
-    if len(retained) != 4:
+    # W0 is disclosure, including its R1/R2 carry; it never grants or denies
+    # admission under Branch A. Preserve the original worker carry rule.
+    statuses = [
+        receipt["verdict"],
+        *(
+            cell["verdict"]
+            for cell in result["cells"]
+            if not cell["cell_id"].startswith("cpu-w0-")
+            or cell["verdict"] in ("INVALID", "INCOMPLETE")
+        ),
+    ]
+    if set(ids) != set(frozen):
         statuses.append("INCOMPLETE")
     result.update(
         schema=SCHEMA,
@@ -161,7 +146,7 @@ def reduce_attempt(out_dir: Path) -> dict:
         verdict=max(statuses, key=PRECEDENCE.__getitem__),
         judgment_sha256=JUDGMENT_SHA256,
         input_sha256=input_hashes,
-        estimand=ESTIMAND,
+        estimand=receipt.get("estimand", ESTIMAND),
         discarded_run_disclosures=disclosures,
         retained_cell_disclosures=retained_disclosures,
         discarded_timings_pooled=False,

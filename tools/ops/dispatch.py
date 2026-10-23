@@ -149,6 +149,97 @@ def read_json(path: Path) -> dict:
     return value
 
 
+def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path:
+    """Snapshot live broker-owned prices into a create-only sibling under the lock."""
+    result = command(
+        [str(Path.home() / ".local/bin/colab"), "--auth", "oauth2", "sessions"],
+        deadline=deadline,
+        capture_output=True,
+        text=True,
+    )
+    rows = []
+    for line in result.stdout.splitlines():
+        if not line.startswith("[") or line.startswith("[colab]"):
+            continue
+        match = re.fullmatch(r"\[([^\]]+)\]\s+(\S+)\s+\| Hardware:\s*([^|]+?)(?:\s+\|.*)?", line)
+        if match is None or not match[3].strip():
+            raise Refused("unrecognized account session row")
+        rows.append(match.groups())
+    if not rows and "No active sessions found on server." not in result.stdout:
+        raise Refused("unrecognized account sessions output")
+    if rows and "No active sessions found on server." in result.stdout:
+        raise Refused("contradictory account sessions output")
+    sessions = {endpoint: hardware.strip() for _, endpoint, hardware in rows}
+    if len(sessions) != len(rows):
+        raise Refused("duplicate endpoint in account sessions output")
+    records: dict[str, dict[str, Any]] = {}
+    sources = []
+    account = Path.home() / ".config/colab-cli/snake"
+    for path in sorted(account.glob("active-*.json")):
+        raw = path.read_bytes()
+        record = json.loads(raw)
+        if not isinstance(record, dict):
+            raise Refused(f"broker record is not an object: {path}")
+        endpoint, session = record.get("endpoint"), record.get("session")
+        if (
+            not isinstance(endpoint, str)
+            or not endpoint
+            or not isinstance(session, str)
+            or not session
+            or path.name != f"active-{session}.json"
+            or endpoint in records
+        ):
+            raise Refused(f"ambiguous broker active identity: {path}")
+        records[endpoint] = record
+        sources.append({"path": str(path), "sha256": hashlib.sha256(raw).hexdigest()})
+    foreign = sorted(set(sessions) - set(records))
+    if foreign:
+        raise Refused("live endpoints not owned by our broker: " + ", ".join(foreign))
+    rates = {}
+    for endpoint, hardware in sessions.items():
+        record = records[endpoint]
+        # Match qualified accounting: a reserved ceiling is not a measured price.
+        field = (
+            "observed_rate_units_per_hour"
+            if "priced_rate_units_per_hour" in record
+            else "rate_units_per_hour"
+        )
+        rate = record.get(field)
+        if (
+            isinstance(rate, bool)
+            or not isinstance(rate, (int, float))
+            or not math.isfinite(rate)
+            or rate <= 0
+        ):
+            raise Refused(f"broker endpoint lacks a calibrated positive rate: {endpoint}")
+        registered = {"L4": 1.54, "CPU": 0.08}.get(hardware.upper())
+        if registered is not None and not math.isclose(rate, registered, rel_tol=0, abs_tol=1e-9):
+            raise Refused(f"broker rate differs from registered {hardware} rate: {endpoint}")
+        if hardware.upper() not in ("L4", "CPU", "A100"):
+            raise Refused(f"unregistered live hardware: {hardware}")
+        rates[endpoint] = rate
+    original = manifest.read_bytes()
+    value = json.loads(original)
+    value["budget"]["other_assignments"] = rates
+    refreshed = manifest.with_name(f"{manifest.stem}.live.json")
+    payload = (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
+    with refreshed.open("xb") as stream:
+        stream.write(payload)
+    proof = {
+        "source_manifest": str(manifest),
+        "source_manifest_sha256": hashlib.sha256(original).hexdigest(),
+        "manifest": str(refreshed),
+        "manifest_sha256": hashlib.sha256(payload).hexdigest(),
+        "sessions_stdout": result.stdout,
+        "broker_records": sources,
+        "other_assignments": rates,
+    }
+    with evidence.open("x") as stream:
+        json.dump(proof, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+    return refreshed
+
+
 # Owner's 2026-10-22 A0 work order explicitly selects PLAN_A100 §3's
 # A1 acceptance envelope over the earlier generic 60-minute exemption ceiling.
 A1_AUTHORITY_SHA256 = "1c87898be554d8e66788da6f0a09ee7b842a514e530c1d0e1c624bcf58c3962c"
@@ -331,7 +422,17 @@ def dispatch(args: argparse.Namespace) -> str:
                 raise Refused("manifest changed after validation")
             qualified(broker, ops, deadline)
             qualified(broker, ops, deadline, ref=commit)
-            start(broker, cwd, state, manifest, log, name, deadline)
+            evidence = ops / "dispatch" / args.name / f"{name}.accounting.json"
+            live_manifest = refresh_assignments(manifest, evidence, deadline)
+            validate(
+                broker, cwd, state, live_manifest, ops / "logs" / f"{name}.live.validate", deadline
+            )
+            if (
+                hashlib.sha256(live_manifest.read_bytes()).hexdigest()
+                != read_json(evidence)["manifest_sha256"]
+            ):
+                raise Refused("refreshed manifest changed after validation")
+            start(broker, cwd, state, live_manifest, log, name, deadline)
             outcome = wait_allocation(Path(output), log, deadline, poll)
             if attempt == 1 and outcome == "retry":
                 note(log, "OPS_ALLOCATION_RETRY_EXHAUSTED")

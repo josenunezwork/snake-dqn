@@ -36,6 +36,15 @@ def fixtures() -> list[dict]:
     ]
 
 
+def worker_cells() -> list[dict]:
+    """The four frozen workload cells; W0 controls are exercised separately."""
+    return [cell for cell in m1.cells() if cell["workers"]]
+
+
+def control_cells() -> list[dict]:
+    return [cell for cell in m1.cells() if not cell["workers"]]
+
+
 def payload(fixture: dict) -> dict:
     native = 0 if fixture["mix"] == "scripted" else 1500
     return {
@@ -85,16 +94,128 @@ def sample(fixture: dict, phase: str, repeat: int) -> dict:
 
 def test_frozen_cells_and_interleaved_allocation() -> None:
     assert [(c["workers"], c["max_pending"]) for c in m1.cells()] == [
+        (0, 0),
         (1, 1),
         (2, 2),
         (4, 4),
         (4, 8),
+        (0, 0),
     ]
+    assert [cell["cell_id"] for cell in control_cells()] == ["cpu-w0-k0-pre", "cpu-w0-k0-post"]
     jobs = m1.schedule(fixtures())
     assert len(jobs) == 270
     assert set(Counter(f["fixture_id"] for _, f in jobs).values()) == {30}
     for start in range(0, 270, 9):
         assert len({f["fixture_id"] for _, f in jobs[start : start + 9]}) == 9
+
+
+def _decided_remedy_row(cell: dict, overruns: int, ticks_count: int) -> dict:
+    overrun_indices = {
+        round(index * (ticks_count - 1) / max(1, overruns - 1)) for index in range(overruns)
+    }
+    ticks = [
+        {
+            "target_ns": index * 1_000_000_000 // 24,
+            "finished_ns": index * 1_000_000_000 // 24
+            + (101_000_000 if index in overrun_indices else 1),
+            "update_seconds": 0.001,
+            "overrun": index in overrun_indices,
+            "gc_pause_ms": 0.0,
+            "gc_gen2_count": 0,
+            "deaths": 0,
+            "respawns": 0,
+            "food_count": 1,
+        }
+        for index in range(ticks_count)
+    ]
+    return {
+        **cell,
+        "namespace": "n",
+        "ticks": ticks,
+        "summary": {
+            "decided": True,
+            "complete": True,
+            "verdict": "BLOCKED" if cell["workers"] else "PASS",
+            "tick_overruns": overruns,
+            "overruns_per_1000_ticks": 1000 * overruns / ticks_count,
+            "update": {"p95_seconds": 0.001},
+            "doom_p99_seconds": 1.0,
+        },
+    }
+
+
+def test_branch_a_controls_are_reported_but_never_relax_zero_bar() -> None:
+    rows = [_decided_remedy_row(cell, 1, 100) for cell in control_cells()]
+    rows += [_decided_remedy_row(cell, 14, 1000) for cell in worker_cells()]
+    result = m1.reduce_units(rows, "n")
+    assert result["verdict"] == "BLOCKED"
+    assert result["bare_controls"]["overruns_per_1000_ticks"] == 10
+
+
+def test_branch_b_fields_report_only_with_separate_controls_and_both_origins() -> None:
+    rows = [_decided_remedy_row(control_cells()[0], 1, 100)]
+    rows += [_decided_remedy_row(control_cells()[1], 4, 200)]
+    rows += [_decided_remedy_row(cell, 14, 1000) for cell in worker_cells()]
+    for row in rows[2:]:
+        for index, tick in enumerate(row["ticks"]):
+            tick["overrun"] = index < 3
+            tick["finished_ns"] = tick["target_ns"] + (99_000_000 if index < 3 else 1)
+    result = m1.reduce_units(rows, "n")
+    assert result["verdict"] == "BLOCKED"
+    report = result["branch_b"]
+    assert report["status"] == "REJECTED" and report["report_only"]
+    assert report["enabled"] is False and "verdict" not in report
+    assert report["r0"] == pytest.approx(50 / 3)
+    assert [row["ticks"] for row in report["controls"]] == [100, 200]
+    assert [row["r0"] for row in report["controls"]] == [10, 20]
+    assert result["bare_controls"]["pooled"]["ticks"] == 300
+    assert len(result["bare_controls"]["cells"]) == 2
+    for row in report["cells"]:
+        assert row["r_c"] == 3
+        assert row["max_consecutive_overruns"] == 3
+        assert row["late_ms_target_max"] == 99
+        assert row["late_ms_deadline_max"] == pytest.approx(57.333334)
+        assert row["overrun_ticks"][0] == {
+            "tick_index": 0,
+            "late_ms_target": 99,
+            "late_ms_deadline": 57.333334,
+        }
+    with pytest.raises(ValueError, match="big-lever/round-22/JUDGMENT.md"):
+        m1.reduce_units(rows, "n", branch_b=True)
+
+
+def test_lateness_origins_at_exact_deadline_and_empty_exposure() -> None:
+    ticks = [
+        {
+            "target_ns": 100,
+            "finished_ns": 100 + 1_000_000_000 // 24,
+            "overrun": True,
+            "update_seconds": 0.001,
+        }
+    ]
+    report = m1.timing_report(ticks)
+    assert report["overrun_ticks"][0]["late_ms_target"] == 41.666666
+    assert report["overrun_ticks"][0]["late_ms_deadline"] == 0
+    assert report["max_consecutive_overruns"] == 1
+    assert m1.timing_report([])["overruns_per_1000_ticks"] is None
+
+
+def test_controls_cannot_change_worker_verdict(monkeypatch) -> None:
+    monkeypatch.setattr(m1, "audit_unit", lambda *args: None)
+    workers = [_decided_remedy_row(cell, 0, 100) for cell in worker_cells()]
+    for row in workers:
+        row["summary"].pop("decided")
+        row["summary"]["verdict"] = "PASS"
+    controls = [_decided_remedy_row(cell, 50, 100) for cell in control_cells()]
+    assert m1.reduce_units(workers + controls, "n", {})["verdict"] == "PASS"
+    controls[0]["summary"].update(complete=False, verdict="INCOMPLETE")
+    controls[0]["summary"].pop("decided")
+    result = m1.reduce_units(workers + controls, "n", {})
+    assert result["verdict"] == "INCOMPLETE"
+    controls[1]["summary"].pop("decided")
+    controls[1]["summary"].update(complete=False, verdict="INVALID")
+    assert m1.reduce_units(workers + controls, "n", {})["verdict"] == "INVALID"
+    assert not result["bare_controls"]["pooled"]["complete"]
 
 
 def test_l1_constructs_actual_stop_factory(monkeypatch) -> None:
@@ -132,7 +253,7 @@ def test_scripted_counter_exemption_is_explicit() -> None:
 
 def complete_unit() -> tuple[dict, dict]:
     fs = fixtures()
-    cell = m1.cells()[0]
+    cell = worker_cells()[0]
     samples = [sample(fs[0], "cold", 0)] + [sample(f, "warm", r) for r, f in m1.schedule(fs)]
     for index, item in enumerate(samples):
         admission = index * 200000000
@@ -148,6 +269,11 @@ def complete_unit() -> tuple[dict, dict]:
             "finished_ns": i * 1000000000 // 24 + 1000000,
             "update_seconds": 0.001,
             "overrun": False,
+            "gc_pause_ms": 0.0,
+            "gc_gen2_count": 0,
+            "deaths": 0,
+            "respawns": 0,
+            "food_count": 1,
         }
         for i in range((end * 24) // 1000000000 + 2)
     ]
@@ -160,9 +286,23 @@ def complete_unit() -> tuple[dict, dict]:
         "epoch_ns": 0,
         "stop_reason": None,
         "mac_lease": {"id": "lease"},
-        "host": [{"thermal": "nominal", "process_screen": {}, "coordinator_pid": 1}],
+        "host": [
+            {
+                "monotonic_ns": end,
+                "foreign_heavy_processes": [],
+                "thermal": "nominal",
+                "process_screen": {},
+                "coordinator_pid": 1,
+            }
+        ],
         "actual_max_pending": 1,
         "contention": [],
+        "warmup": {
+            "ticks": m1.WARMUP_TICKS,
+            "update_p95_seconds": 0.001,
+            "update_max_seconds": 0.001,
+        },
+        "prespawn": {"seconds": 0.0, "pids": [7], "reports": []},
     }
     row["summary"] = m1.summarize(cell, samples, ticks, True)
     return row, {"namespace": "n", "fixtures": fs, "actions": {f["fixture_id"]: 1 for f in fs}}
@@ -185,7 +325,7 @@ def test_summary_keeps_cold_separate_dense_caps_descriptive_and_raw_audit() -> N
 )
 def test_frozen_bars_fail_closed(change: str) -> None:
     row, _ = complete_unit()
-    cell = m1.cells()[2]
+    cell = worker_cells()[2]
     samples = row["samples"][:1] * 4 + row["samples"][1:]
     ticks = row["ticks"]
     if change == "overrun":
@@ -254,7 +394,7 @@ def test_legacy_reference_uses_action_not_full_stop_semantic(monkeypatch, tmp_pa
 
 
 @pytest.mark.parametrize("fault", ["none", "counter", "cap", "load_failure"])
-@pytest.mark.parametrize("cell", m1.cells(), ids=lambda c: c["cell_id"])
+@pytest.mark.parametrize("cell", worker_cells(), ids=lambda c: c["cell_id"])
 def test_full_orchestration_synthetic_only(monkeypatch, cell, fault) -> None:
     """Exercise actual queue/clock orchestration with no native processes/timers."""
     fs = fixtures()
@@ -339,7 +479,21 @@ def test_full_orchestration_synthetic_only(monkeypatch, cell, fault) -> None:
 
     pool = Pool()
     monkeypatch.setattr(m1.concurrent.futures, "ProcessPoolExecutor", lambda **kwargs: pool)
-    monkeypatch.setattr(m1, "new_watch", lambda seed: (object(), {"watch_roster": "mixed"}))
+    monkeypatch.setattr(
+        m1,
+        "prespawn_pool",
+        lambda _pool, workers: {
+            "seconds": 0.0,
+            "pids": list(range(10, 10 + workers)),
+            "reports": [],
+        },
+    )
+    session = SimpleNamespace(
+        game=SimpleNamespace(
+            snakes=[], frame_death_causes={}, food_manager=SimpleNamespace(food=[])
+        )
+    )
+    monkeypatch.setattr(m1, "new_watch", lambda seed: (session, {"watch_roster": "mixed"}))
 
     def tick(session):
         clock.ns += 1000000
@@ -351,7 +505,14 @@ def test_full_orchestration_synthetic_only(monkeypatch, cell, fault) -> None:
 
     class Monitor:
         error = None
-        rows = [{"process_screen": {}, "coordinator_pid": 1}]
+        rows = [
+            {
+                "monotonic_ns": 1,
+                "foreign_heavy_processes": [],
+                "process_screen": {},
+                "coordinator_pid": 1,
+            }
+        ]
         thread = SimpleNamespace(start=lambda: None)
 
         def __init__(self, observe):
@@ -364,6 +525,9 @@ def test_full_orchestration_synthetic_only(monkeypatch, cell, fault) -> None:
     monkeypatch.setattr(m1, "HostMonitor", Monitor)
     row = m1.run_cell(cell, data, float("inf"), lambda: {})
     assert monitors[0].closed
+    assert row["warmup"]["ticks"] == 200
+    assert row["prespawn"]["pids"] == list(range(10, 10 + cell["workers"]))
+    assert row["epoch_ns"] > 1_000_000_000  # warm-up and pre-spawn happened before tick zero
     if fault == "load_failure" and cell["cell_id"] == "cpu-w4-k4":
         assert row["summary"]["verdict"] == "INCOMPLETE"
         assert "missing contention" in row["stop_reason"] and pool.joined
@@ -472,7 +636,8 @@ def test_cap_worker_failure_is_incomplete_not_invalid() -> None:
         "mechanical_error": "measurement stopped before next rollout step",
     }
     assert (
-        m1.summarize(m1.cells()[0], row["samples"], row["ticks"], False)["verdict"] == "INCOMPLETE"
+        m1.summarize(worker_cells()[0], row["samples"], row["ticks"], False)["verdict"]
+        == "INCOMPLETE"
     )
 
 
@@ -485,7 +650,7 @@ def test_check_entrypoint_cannot_dispatch_without_explicit_mode(monkeypatch) -> 
 def test_audit_rejects_truncated_tick_residence() -> None:
     row, data = complete_unit()
     row["ticks"] = row["ticks"][:1]
-    row["summary"] = m1.summarize(m1.cells()[0], row["samples"], row["ticks"], True)
+    row["summary"] = m1.summarize(worker_cells()[0], row["samples"], row["ticks"], True)
     with pytest.raises(ValueError, match="cover all result residence"):
         m1.audit_unit(row, data)
 
@@ -505,6 +670,7 @@ def test_host_ancestry_excludes_owned_workers_but_refuses_foreign_load() -> None
 def test_partial_setup_cleanup_truthfully_records_stop(monkeypatch, cleanup_error) -> None:
     """A queue setup exception must still drain an already constructed pool."""
     monkeypatch.setattr(m1, "new_watch", lambda seed: (object(), {}))
+    monkeypatch.setattr(m1, "timed_tick", lambda session: 0.001)
     pool = SimpleNamespace(joined=False)
 
     def shutdown(**kwargs):
@@ -514,6 +680,11 @@ def test_partial_setup_cleanup_truthfully_records_stop(monkeypatch, cleanup_erro
 
     pool.shutdown = shutdown
     monkeypatch.setattr(m1.concurrent.futures, "ProcessPoolExecutor", lambda **kwargs: pool)
+    monkeypatch.setattr(
+        m1,
+        "prespawn_pool",
+        lambda _pool, workers: {"seconds": 0.0, "pids": list(range(workers)), "reports": []},
+    )
     monkeypatch.setattr(
         m1.multiprocessing,
         "get_context",
@@ -526,10 +697,10 @@ def test_partial_setup_cleanup_truthfully_records_stop(monkeypatch, cleanup_erro
     data = {"namespace": "n", "fixtures": fixtures()}
     if cleanup_error:
         with pytest.raises(RuntimeError, match="unverified pool"):
-            m1.run_cell(m1.cells()[0], data, float("inf"), lambda: {}, state)
+            m1.run_cell(worker_cells()[0], data, float("inf"), lambda: {}, state)
         assert state["verified_stop"] is False
     else:
-        row = m1.run_cell(m1.cells()[0], data, float("inf"), lambda: {}, state)
+        row = m1.run_cell(worker_cells()[0], data, float("inf"), lambda: {}, state)
         assert row["summary"]["verdict"] == "INCOMPLETE"
         assert state["verified_stop"] is True and pool.joined
 
@@ -546,7 +717,7 @@ def test_prepool_exception_receipt_keeps_verified_stop(monkeypatch, tmp_path) ->
         yield SimpleNamespace(receipt={"id": "test-only"})
 
     monkeypatch.setattr(mac_lease, "held", held)
-    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(host, "snapshot", lambda **kwargs: {"quiet": True})
     monkeypatch.setattr(m1, "wait_quiet", lambda *args, **kwargs: {"quiet": True, "samples": []})
     monkeypatch.setattr(m1, "inputs", lambda *args: {"namespace": "n", "sources": {}})
     monkeypatch.setattr(m1, "sources", lambda: {})
@@ -1002,7 +1173,7 @@ def test_judged_recovery_check_and_final_receipt(monkeypatch, judged_case, capsy
         yield SimpleNamespace(receipt={"id": "test-only"})
 
     monkeypatch.setattr(mac_lease, "held", held)
-    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(host, "snapshot", lambda **kwargs: {"quiet": True})
     monkeypatch.setattr(m1, "wait_quiet", lambda *args, **kwargs: {"quiet": True, "samples": []})
     clock = iter([100.0, 102.0])
     monkeypatch.setattr(m1.time, "monotonic", lambda: next(clock, 102.0))
@@ -1120,9 +1291,12 @@ def test_audit_discarded_refuses_nonforeign_reason_and_shared_epoch(tmp_path) ->
     discarded.update(
         epoch_ns=100,
         stop_reason="foreign heavy load during M1",
-        host=[{"foreign_heavy_processes": [{"pid": 99}]}],
+        host=[
+            {"monotonic_ns": 99, "foreign_heavy_processes": []},
+            {"monotonic_ns": 101, "foreign_heavy_processes": [{"pid": 99}]},
+        ],
     )
-    discarded["summary"] = m1.summarize(m1.cells()[0], [], [], False)
+    discarded["summary"] = m1.summarize(worker_cells()[0], [], [], False)
     discarded["summary"]["complete"] = False
     discarded["summary"]["verdict"] = "INCOMPLETE"
     export_json(tmp_path / "cpu-w1-k1.discarded-1.json", discarded)
@@ -1164,9 +1338,12 @@ def test_audit_discarded_enforces_cell_and_attempt_budgets(
     discarded.update(
         epoch_ns=100,
         stop_reason="foreign heavy load during M1",
-        host=[{"foreign_heavy_processes": [{"pid": 99}]}],
+        host=[
+            {"monotonic_ns": 99, "foreign_heavy_processes": []},
+            {"monotonic_ns": 101, "foreign_heavy_processes": [{"pid": 99}]},
+        ],
     )
-    discarded["summary"] = m1.summarize(m1.cells()[0], [], [], False)
+    discarded["summary"] = m1.summarize(worker_cells()[0], [], [], False)
     export_json(tmp_path / "cpu-w1-k1.discarded-1.json", discarded)
     receipt = {
         "namespace": "n",
@@ -1221,13 +1398,16 @@ def test_main_restarts_only_foreign_stop_and_exports_discard(
     from research import mac_lease
     from research.bl_mac_latency import host
 
-    cell = m1.cells()[0]
+    cell = worker_cells()[0]
     retained, _ = complete_unit()
     stopped = copy.deepcopy(retained)
     stopped.update(
         epoch_ns=100,
         stop_reason="foreign heavy load during M1",
-        host=[{"foreign_heavy_processes": [{"pid": 99}]}],
+        host=[
+            {"monotonic_ns": 99, "foreign_heavy_processes": []},
+            {"monotonic_ns": 101, "foreign_heavy_processes": [{"pid": 99}]},
+        ],
     )
     stopped["summary"] = m1.summarize(cell, [], [], False)
     stopped["summary"]["complete"] = False
@@ -1243,7 +1423,7 @@ def test_main_restarts_only_foreign_stop_and_exports_discard(
     monkeypatch.setattr(m1, "inputs", lambda *args: data)
     monkeypatch.setattr(m1, "sources", lambda: {})
     monkeypatch.setattr(m1, "cells", lambda: [cell])
-    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(host, "snapshot", lambda **kwargs: {"quiet": True})
     quiet = []
 
     def wait(*args, **kwargs):
@@ -1302,7 +1482,7 @@ def test_main_does_not_restart_nonforeign_stop(monkeypatch, tmp_path) -> None:
     from research import mac_lease
     from research.bl_mac_latency import host
 
-    cell = m1.cells()[0]
+    cell = worker_cells()[0]
     row, _ = complete_unit()
     row.update(stop_reason="worker failure", host=[], epoch_ns=100)
     row["summary"] = m1.summarize(cell, [], [], False)
@@ -1322,7 +1502,7 @@ def test_main_does_not_restart_nonforeign_stop(monkeypatch, tmp_path) -> None:
     )
     monkeypatch.setattr(m1, "sources", lambda: {})
     monkeypatch.setattr(m1, "cells", lambda: [cell])
-    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(host, "snapshot", lambda **kwargs: {"quiet": True})
     monkeypatch.setattr(m1, "wait_quiet", lambda *args, **kwargs: {"quiet": True, "samples": []})
     monkeypatch.setattr(m1, "run_cell", lambda *args: row)
     monkeypatch.setattr(m1.time, "monotonic", lambda: 100.0)
@@ -1409,6 +1589,7 @@ def run_mock_attempt(
     *,
     charged: float = 0.0,
     initial_quiet: bool = True,
+    carried: dict[str, str] | None = None,
 ) -> SimpleNamespace:
     """Exercise main's real loop/reducer/exports with no Watch, workers or host calls."""
     from contextlib import contextmanager
@@ -1419,10 +1600,11 @@ def run_mock_attempt(
     clock = SimpleNamespace(now=100.0)
     calls = Counter()
     waits = []
+    carried = {} if carried is None else carried
     data = {"namespace": "n", "sources": {}}
     monkeypatch.setattr(m1, "inputs", lambda *args: data)
     monkeypatch.setattr(m1, "sources", lambda: {})
-    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(host, "snapshot", lambda **kwargs: {"quiet": True})
     monkeypatch.setattr(m1.time, "monotonic", lambda: clock.now)
     monkeypatch.setattr(m1.time, "monotonic_ns", lambda: int(clock.now * 1e9))
     monkeypatch.setattr(m1, "audit_unit", lambda *args: None)
@@ -1445,17 +1627,83 @@ def run_mock_attempt(
         clock.now += 0.5
         epoch = int(clock.now * 1e9)
         clock.now += 0.5
-        return {
+        control = cell["workers"] == 0
+        ticks = (
+            [
+                {
+                    "target_ns": epoch + index,
+                    "finished_ns": epoch + index,
+                    "update_seconds": 0.001,
+                    "overrun": False,
+                    "gc_pause_ms": 0.0,
+                    "gc_gen2_count": 0,
+                    "deaths": 0,
+                    "respawns": 0,
+                    "food_count": 1,
+                }
+                for index in range(m1.CONTROL_TICKS)
+            ]
+            if control and not stopped
+            else []
+        )
+        row = {
             **cell,
             "schema": m1.SCHEMA + "/cell",
             "namespace": "n",
             "epoch_ns": epoch,
-            "summary": {"complete": not stopped, "verdict": "INCOMPLETE" if stopped else "PASS"},
+            "summary": {
+                "complete": not stopped,
+                "verdict": "INCOMPLETE" if stopped else "PASS",
+                "tick_overruns": 0,
+                "overruns_per_1000_ticks": 0.0,
+                "lateness_max_seconds": 0.0,
+                "stall_onset_seconds": None,
+                "update": {"p95_seconds": 0.001},
+            },
             "stop_reason": m1.RESTART_POLICY["trigger"] if stopped else None,
-            "host": [{"foreign_heavy_processes": [{"pid": 99}] if stopped else []}],
+            "host": [
+                {"monotonic_ns": epoch, "foreign_heavy_processes": []},
+                {
+                    "monotonic_ns": epoch + 1,
+                    "foreign_heavy_processes": [{"pid": 99}] if stopped else [],
+                },
+            ],
             "samples": [],
-            "ticks": [],
+            "ticks": ticks,
         }
+        kind = carried.get(unit_id) if stopped else None
+        if kind == "overrun":
+            row["ticks"] = [
+                {"target_ns": epoch, "finished_ns": epoch, "overrun": True, "update_seconds": 0.001}
+            ]
+        elif kind == "tail_overrun":
+            row["ticks"] = [
+                {
+                    "target_ns": epoch,
+                    "finished_ns": epoch + 1,
+                    "overrun": True,
+                    "update_seconds": 0.001,
+                }
+            ]
+        elif kind == "doom":
+            row["samples"] = [
+                {
+                    "phase": "warm",
+                    "fixture_id": "frozen-800",
+                    "S_seconds": 5.1,
+                    "visible_ns": epoch,
+                }
+            ]
+        elif kind == "p95":
+            row["ticks"] = [
+                {
+                    "target_ns": epoch,
+                    "finished_ns": epoch,
+                    "overrun": False,
+                    "update_seconds": 0.012,
+                }
+            ]
+        return row
 
     @contextmanager
     def held(*args, **kwargs):
@@ -1511,7 +1759,7 @@ def run_mock_attempt(
 def test_main_enforces_actual_restart_boundaries(monkeypatch, tmp_path, scope) -> None:
     if scope == "cell":
         case = run_mock_attempt(monkeypatch, tmp_path, {"cpu-w1-k1": 99})
-        assert case.calls == {"cpu-w1-k1": 4}
+        assert case.calls == {"cpu-w0-k0-pre": 1, "cpu-w1-k1": 4}
         assert len(case.receipt["discarded_runs"]) == 3
     elif scope == "attempt":
         case = run_mock_attempt(monkeypatch, tmp_path, {c["cell_id"]: 3 for c in m1.cells()})
@@ -1522,7 +1770,7 @@ def test_main_enforces_actual_restart_boundaries(monkeypatch, tmp_path, scope) -
         case = run_mock_attempt(
             monkeypatch, tmp_path, {"cpu-w1-k1": 99}, charged=m1.CAP_SECONDS - 610
         )
-        assert case.calls == {"cpu-w1-k1": 1}
+        assert case.calls == {"cpu-w0-k0-pre": 1, "cpu-w1-k1": 1}
         assert case.receipt["discarded_runs"] == []
     assert case.receipt["verdict"] == "INCOMPLETE"
     assert case.receipt["mechanical_failure"] is True
@@ -1532,7 +1780,7 @@ def test_main_charges_preflight_discard_restart_and_quiet_waits(monkeypatch, tmp
     case = run_mock_attempt(monkeypatch, tmp_path, {"cpu-w1-k1": 1}, charged=36.0)
     assert case.receipt["verdict"] == "PASS"
     assert len(case.receipt["quiet_waits"]) == 2
-    assert case.receipt["charged_seconds"] == 36.0 + 40.0 + 5.0
+    assert case.receipt["charged_seconds"] == 36.0 + 40.0 + 7.0
 
 
 def test_main_preflight_timeout_creates_no_directory_and_clips_cap(monkeypatch, tmp_path) -> None:
@@ -1594,3 +1842,457 @@ def test_reserialized_judged_proof_cannot_reuse_consumed_debit(monkeypatch, judg
     )
     with pytest.raises(ValueError, match="exact audited attempt-03"):
         m1.judged_recovery(case.proof_path, case.data)
+
+
+@pytest.fixture
+def judged3_case(monkeypatch, tmp_path):
+    """A complete mock attempt-05 exercises every third-proof pin."""
+    prior = tmp_path / "bl-m1-attempt-05"
+    prior.mkdir()
+    judgment = tmp_path / "JUDGMENT_M1_ATTEMPT6.md"
+    judgment.write_text("Fable attempt-06 judgment")
+    monkeypatch.setattr(m1, "JUDGED3_JUDGMENT_PATH", judgment)
+    log = tmp_path / "bl-m1-attempt-05.try1.log"
+    log.write_text("mechanical foreign-load stop")
+    previous = {
+        "schema": m1.SCHEMA,
+        "namespace": "attempt-05-namespace",
+        "attempt_number": 4,
+        "final_attempt": True,
+        "verdict": "INCOMPLETE",
+        "verified_stop": True,
+        "mechanical_failure": True,
+        "completed_unit_exports": {},
+        "judged_recovery_sha256": "attempt-05-prior-judged-proof",
+        "charged_seconds": 771.5500928750262,
+        "cells": [{"cell_id": "cpu-w1-k1", "complete": False}],
+        "failure": None,
+        "discarded_runs": [{"stop_reason": m1.RESTART_POLICY["trigger"]} for _ in range(3)],
+        "quiet_waits": [{"quiet": True} for _ in range(4)],
+    }
+    attempt = {"namespace": previous["namespace"], "sources": {"research/bl_k1/m1.py": "old"}}
+    cell = {"stop_reason": m1.RESTART_POLICY["trigger"], "summary": {"complete": False}}
+    idle = {"quiet": True}
+    receipt_sha = export_json(prior / "receipt.json", previous)["sha256"]
+    attempt_sha = export_json(prior / "attempt.json", attempt)["sha256"]
+    cell_sha = export_json(prior / "cpu-w1-k1.json", cell)["sha256"]
+    idle_sha = export_json(prior / "idle.json", idle)["sha256"]
+    discarded = {}
+    for n in range(1, 4):
+        name = f"cpu-w1-k1.discarded-{n}.json"
+        discarded[name] = export_json(prior / name, {"n": n})["sha256"]
+    monkeypatch.setattr(m1, "JUDGED3_RECEIPT_SHA256", receipt_sha)
+    monkeypatch.setattr(m1, "JUDGED3_ATTEMPT_SHA256", attempt_sha)
+    monkeypatch.setattr(m1, "JUDGED3_LOG_SHA256", m1.digest(log))
+    monkeypatch.setattr(m1, "JUDGED3_IDLE_SHA256", idle_sha)
+    monkeypatch.setattr(m1, "JUDGED3_CELL_SHA256", {"cpu-w1-k1": cell_sha})
+    monkeypatch.setattr(m1, "JUDGED3_DISCARDED_SHA256", discarded)
+    monkeypatch.setattr(m1, "JUDGED3_SOURCE_SHA256", "old")
+    monkeypatch.setattr(m1, "JUDGED3_PREVIOUS_JUDGED_SHA256", "attempt-05-prior-judged-proof")
+    monkeypatch.setattr(m1, "JUDGED3_PREVIOUS_NAMESPACE", previous["namespace"])
+    data = {
+        "namespace": "new",
+        "sources": {"research/bl_k1/m1.py": m1.digest(Path(m1.__file__))},
+    }
+    proof = {
+        "schema": m1.SCHEMA + "/judged-recovery",
+        "judge": "Fable-M1-attempt6",
+        "owner_directive_path": str(m1.OWNER_DIRECTIVE_PATH),
+        "owner_directive_sha256": m1.OWNER_DIRECTIVE_SHA256,
+        "estimand": m1.ESTIMAND,
+        "status": "JUDGED_FOREIGN_LOAD_STOP_3",
+        "judgment_path": str(judgment),
+        "judgment_sha256": m1.digest(judgment),
+        "previous_receipt_path": str(prior / "receipt.json"),
+        "previous_receipt_sha256": receipt_sha,
+        "previous_attempt_sha256": attempt_sha,
+        "previous_log_path": str(log),
+        "previous_log_sha256": m1.digest(log),
+        "previous_idle_sha256": idle_sha,
+        "previous_cell_sha256": {"cpu-w1-k1": cell_sha},
+        "previous_discarded_sha256": discarded,
+        "previous_namespace": previous["namespace"],
+        "previous_judged_recovery_sha256": "attempt-05-prior-judged-proof",
+        "charged_seconds": previous["charged_seconds"],
+        "remaining_seconds": m1.CAP_SECONDS - previous["charged_seconds"],
+        "next_attempt_number": 5,
+        "final_attempt": True,
+        "restart_policy_required": True,
+        "carry_forward_required": True,
+        "target_namespace": "new",
+        "transferred_cell_or_timing_evidence": False,
+        "operator_dispatch_once": True,
+    }
+    return SimpleNamespace(
+        previous=previous,
+        proof=proof,
+        path=tmp_path / "judged3-proof.json",
+        data=data,
+        prior=prior,
+    )
+
+
+def test_judged3_recovery_happy_path(judged3_case) -> None:
+    export_json(judged3_case.path, judged3_case.proof)
+    assert m1.judged_recovery(judged3_case.path, judged3_case.data) == judged3_case.previous
+
+
+def test_judged4_recovery_pins_d1_receipt_and_refuses_consumed_source(
+    monkeypatch, tmp_path
+) -> None:
+    """D1 admits debit only when every attempt-06b pin and new source support match."""
+    prior = tmp_path / "bl-m1-attempt-06b"
+    prior.mkdir()
+    judgment = tmp_path / "JUDGMENT_D1.md"
+    judgment.write_text("D1")
+    monkeypatch.setattr(m1, "verify_round22", lambda: {"status": "test-ruling"})
+    log = tmp_path / "bl-m1-attempt-06b.try1.log"
+    log.write_text("blocked")
+    previous = {
+        "schema": m1.SCHEMA,
+        "namespace": "old",
+        "attempt_number": 5,
+        "verdict": "BLOCKED",
+        "mechanical_failure": False,
+        "verified_stop": True,
+        "final_attempt": True,
+        "judged_recovery_sha256": "judged3",
+        "charged_seconds": 12.0,
+        "failure": None,
+        "discarded_runs": [{"stop_reason": m1.RESTART_POLICY["trigger"]} for _ in range(2)],
+        "completed_unit_exports": {"a": {}, "b": {}},
+    }
+    attempt = {"namespace": "old", "sources": {"research/bl_k1/m1.py": "old-source"}}
+    receipt_sha = export_json(prior / "receipt.json", previous)["sha256"]
+    attempt_sha = export_json(prior / "attempt.json", attempt)["sha256"]
+    idle_sha = export_json(prior / "idle.json", {"quiet": True})["sha256"]
+    cell_pins = {
+        name: export_json(prior / f"{name}.json", {})["sha256"] for name in m1.JUDGED4_CELL_SHA256
+    }
+    discard_pins = {
+        name: export_json(prior / name, {})["sha256"] for name in m1.JUDGED4_DISCARDED_SHA256
+    }
+    for name, value in {
+        "JUDGED4_RECEIPT_SHA256": receipt_sha,
+        "JUDGED4_ATTEMPT_SHA256": attempt_sha,
+        "JUDGED4_LOG_SHA256": m1.digest(log),
+        "JUDGED4_IDLE_SHA256": idle_sha,
+        "JUDGED4_CELL_SHA256": cell_pins,
+        "JUDGED4_DISCARDED_SHA256": discard_pins,
+        "JUDGED4_SOURCE_SHA256": "old-source",
+        "JUDGED4_PREVIOUS_JUDGED_SHA256": "judged3",
+        "JUDGED4_PREVIOUS_NAMESPACE": "old",
+        "JUDGED4_CHARGED_SECONDS": 12.0,
+        "JUDGED4_JUDGMENT_PATH": judgment,
+    }.items():
+        monkeypatch.setattr(m1, name, value)
+    data = {"namespace": "new", "sources": {"research/bl_k1/m1.py": m1.digest(Path(m1.__file__))}}
+    proof = {
+        "schema": m1.SCHEMA + "/judged-recovery",
+        "judge": "Fable-D1",
+        "round22": {"status": "test-ruling"},
+        "status": "JUDGED_REMEDY_ATTEMPT_7",
+        "judgment_path": str(judgment),
+        "judgment_sha256": m1.digest(judgment),
+        "target_namespace": "new",
+        "next_attempt_number": 6,
+        "final_attempt": True,
+        "remedy_attempt": True,
+        "carry_forward_required": True,
+        "operator_dispatch_once": True,
+        "restart_policy_required": True,
+        "transferred_cell_or_timing_evidence": False,
+        "previous_receipt_path": str(prior / "receipt.json"),
+        "previous_receipt_sha256": receipt_sha,
+        "previous_attempt_sha256": attempt_sha,
+        "previous_log_path": str(log),
+        "previous_log_sha256": m1.digest(log),
+        "previous_idle_sha256": idle_sha,
+        "previous_cell_sha256": cell_pins,
+        "previous_discarded_sha256": discard_pins,
+        "previous_judged_recovery_sha256": "judged3",
+        "previous_namespace": "old",
+        "charged_seconds": 12.0,
+        "remaining_seconds": m1.CAP_SECONDS - 12.0,
+        "owner_directive_path": str(m1.OWNER_DIRECTIVE_PATH),
+        "owner_directive_sha256": m1.JUDGED4_OWNER_DIRECTIVE_SHA256,
+        "estimand": m1.ESTIMAND,
+    }
+    path = tmp_path / "proof.json"
+    export_json(path, proof)
+    assert m1.judged_recovery(path, data) == previous
+    proof["judgment_sha256"] = "wrong"
+    path = tmp_path / "bad-proof.json"
+    export_json(path, proof)
+    with pytest.raises(ValueError, match="exact audited attempt-06b"):
+        m1.judged_recovery(path, data)
+    proof["judgment_sha256"] = m1.digest(judgment)
+    monkeypatch.setattr(m1, "JUDGED4_SOURCE_SHA256", "wrong-source")
+    path = tmp_path / "old-source-proof.json"
+    export_json(path, proof)
+    with pytest.raises(ValueError, match="exact audited attempt-06b"):
+        m1.judged_recovery(path, data)
+    monkeypatch.setattr(m1, "JUDGED4_SOURCE_SHA256", "old-source")
+    consumed = tmp_path / "bl-m1-attempt-07-consumed"
+    consumed.mkdir()
+    export_json(
+        consumed / "receipt.json",
+        {"schema": m1.SCHEMA, "attempt_number": 6, "judged_recovery_sha256": "consumed"},
+    )
+    path = tmp_path / "consumed-proof.json"
+    export_json(path, proof)
+    with pytest.raises(ValueError, match="exact audited attempt-06b"):
+        m1.judged_recovery(path, data)
+
+
+def test_judged4_check_requires_empty_new_ledger(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(m1, "inputs", lambda *args: {"namespace": "n", "sources": {}})
+    monkeypatch.setattr(m1, "verify_ledger", lambda *args: {"cpu-w1-k1": {}})
+    monkeypatch.setattr(
+        m1, "judged_recovery", lambda *args: {"charged_seconds": 12.0, "attempt_number": 5}
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "m1",
+            "--check",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--ledger",
+            "ledger",
+            "--judged-recovery",
+            str(tmp_path / "proof.json"),
+        ],
+    )
+    with pytest.raises(ValueError, match="judged recovery requires an empty new ledger"):
+        m1.main()
+
+
+@pytest.mark.parametrize("value", ["", "wrong", "a" * 64, m1.JUDGED4_ROUND22_RULING_SHA256])
+def test_branch_b_refuses_every_value_before_inputs(monkeypatch, value) -> None:
+    monkeypatch.setattr(m1, "inputs", lambda *args: pytest.fail("must refuse before inputs"))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["m1", "--check", "--fixtures", "f", "--reference", "r", "--branch-b", value],
+    )
+    with pytest.raises(ValueError, match="Branch B REJECTED by big-lever/round-22/JUDGMENT.md"):
+        m1.main()
+
+
+def test_round22_runtime_sed_verification_refuses_changed_file_or_block(
+    monkeypatch, tmp_path
+) -> None:
+    root = tmp_path / "artifacts"
+    ruling = root / m1.JUDGED4_ROUND22_RULING_PATH
+    ruling.parent.mkdir(parents=True)
+    ruling.write_text(
+        "before\n-----BEGIN M1 ATTEMPT-07 ADMISSION RULE-----\nrule\n"
+        "-----END M1 ATTEMPT-07 ADMISSION RULE-----\nafter\n"
+    )
+    monkeypatch.setattr(m1, "JUDGED4_JUDGMENT_PATH", root / "big-lever/exp/JUDGMENT_D1.md")
+    monkeypatch.setattr(m1, "JUDGED4_ROUND22_RULING_SHA256", m1.digest(ruling))
+    block = (
+        b"-----BEGIN M1 ATTEMPT-07 ADMISSION RULE-----\nrule\n"
+        b"-----END M1 ATTEMPT-07 ADMISSION RULE-----\n"
+    )
+    monkeypatch.setattr(m1, "JUDGED4_ROUND22_BLOCK_SHA256", m1.ruler.sha256_bytes(block))
+    assert m1.verify_round22()["branch_b_status"] == "REJECTED"
+    ruling.write_text(ruling.read_text().replace("rule", "changed"))
+    with pytest.raises(ValueError, match="ruling/block hash mismatch"):
+        m1.verify_round22()
+    monkeypatch.setattr(m1, "JUDGED4_ROUND22_RULING_SHA256", m1.digest(ruling))
+    with pytest.raises(ValueError, match="ruling/block hash mismatch"):
+        m1.verify_round22()
+
+
+def test_w0_clock_excludes_slow_warmup_and_retains_gc_disclosure(monkeypatch) -> None:
+    """Bare controls use 2,400 paced ticks, after the 200-tick ineligible warm-up."""
+    import gc
+
+    from research.t1_commitment_20261015 import replay
+
+    clock = SimpleNamespace(ns=1_000_000_000)
+    calls = []
+    session = SimpleNamespace(
+        game=SimpleNamespace(
+            snakes=[], frame_death_causes={}, food_manager=SimpleNamespace(food=[object()])
+        )
+    )
+    monkeypatch.setattr(replay, "configure_cpu", lambda: None)
+    monkeypatch.setattr(m1, "new_watch", lambda seed: (session, {"watch_roster": "mixed"}))
+    monkeypatch.setattr(m1.time, "monotonic_ns", lambda: clock.ns)
+    monkeypatch.setattr(m1.time, "monotonic", lambda: clock.ns / 1e9)
+    monkeypatch.setattr(
+        m1.time, "sleep", lambda seconds: setattr(clock, "ns", clock.ns + int(seconds * 1e9))
+    )
+    monkeypatch.setattr(
+        m1.multiprocessing,
+        "get_context",
+        lambda method: SimpleNamespace(Event=lambda: SimpleNamespace(set=lambda: None)),
+    )
+
+    class Monitor:
+        error = None
+        rows = [{"process_screen": {}, "coordinator_pid": 1, "foreign_heavy_processes": []}]
+        thread = SimpleNamespace(start=lambda: None)
+
+        def __init__(self, observe):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    def tick(_session):
+        calls.append(clock.ns)
+        clock.ns += 1_000_000
+        if len(calls) == m1.WARMUP_TICKS + 2:
+            callback = next(cb for cb in gc.callbacks if cb.__module__ == m1.__name__)
+            callback("start", {"generation": 2})
+            clock.ns += 2_000_000
+            callback("stop", {"generation": 2})
+        return 0.02 if len(calls) <= m1.WARMUP_TICKS else 0.001
+
+    monkeypatch.setattr(m1, "HostMonitor", Monitor)
+    monkeypatch.setattr(m1, "timed_tick", tick)
+    monkeypatch.setattr(
+        m1.concurrent.futures,
+        "ProcessPoolExecutor",
+        lambda **kwargs: pytest.fail("W0 must not construct a worker pool"),
+    )
+    row = m1.run_cell(
+        control_cells()[0],
+        {"namespace": "n", "fixtures": fixtures(), "actions": {}},
+        float("inf"),
+        lambda: {},
+    )
+    assert len(calls) == m1.WARMUP_TICKS + m1.CONTROL_TICKS
+    assert row["epoch_ns"] > calls[m1.WARMUP_TICKS - 1]
+    assert row["warmup"]["update_p95_seconds"] == 0.02
+    assert row["summary"]["update"]["p95_seconds"] == 0.001
+    assert row["summary"]["complete"] and len(row["ticks"]) == m1.CONTROL_TICKS
+    assert row["samples"] == [] and row["prespawn"]["pids"] == []
+    assert row["summary"]["gc_gen2_count"] == 1 and row["summary"]["gc_pause_ms_total"] > 0
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "hash",
+        "attempt4",
+        "discard_count",
+        "old_source",
+        "no_carry_flag",
+        "no_owner",
+        "wrong_estimand",
+    ],
+)
+def test_judged3_recovery_refuses_required_boundaries(monkeypatch, judged3_case, change) -> None:
+    case = judged3_case
+    if change == "hash":
+        case.proof["previous_idle_sha256"] = "wrong"
+    elif change == "attempt4":
+        case.previous["attempt_number"] = 3
+    elif change == "discard_count":
+        case.previous["discarded_runs"].pop()
+    elif change == "old_source":
+        case.data["sources"]["research/bl_k1/m1.py"] = "old"
+    elif change == "no_carry_flag":
+        case.proof["carry_forward_required"] = False
+    elif change == "no_owner":
+        case.proof.pop("owner_directive_sha256")
+    elif change == "wrong_estimand":
+        case.proof["estimand"] = "quiet host"
+    if change in {"attempt4", "discard_count"}:
+        receipt = Path(case.proof["previous_receipt_path"])
+        for artifact in (
+            receipt,
+            receipt.with_suffix(".json.sha256"),
+            receipt.with_suffix(".json.complete"),
+        ):
+            artifact.unlink()
+        receipt_sha = export_json(receipt, case.previous)["sha256"]
+        case.proof["previous_receipt_sha256"] = receipt_sha
+        monkeypatch.setattr(m1, "JUDGED3_RECEIPT_SHA256", receipt_sha)
+    export_json(case.path, case.proof)
+    with pytest.raises(ValueError, match="exact audited attempt-05 foreign-load stop"):
+        m1.judged_recovery(case.path, case.data)
+
+
+def test_judged3_check_refuses_nonempty_ledger(monkeypatch, judged3_case) -> None:
+    case = judged3_case
+    export_json(case.path, case.proof)
+    monkeypatch.setattr(m1, "inputs", lambda *args: case.data)
+    monkeypatch.setattr(m1, "verify_ledger", lambda *args: {"cpu-w1-k1": {}})
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "m1",
+            "--check",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--ledger",
+            "l",
+            "--judged-recovery",
+            str(case.path),
+        ],
+    )
+    with pytest.raises(ValueError, match="judged recovery requires an empty new ledger"):
+        m1.main()
+
+
+def test_judged2_is_consumed_when_attempt05_receipt_exists(monkeypatch, judged2_case) -> None:
+    case = judged2_case
+    export_json(case.path, case.proof)
+    export_json(
+        case.path.parent / "bl-m1-attempt-05/receipt.json",
+        {"schema": m1.SCHEMA, "attempt_number": 4, "judged_recovery_sha256": "attempt-05-proof"},
+    )
+    with pytest.raises(ValueError, match="exact audited attempt-04 foreign-load stop"):
+        m1.judged_recovery(case.path, case.data)
+
+
+def test_main_clean_prefix_overrun_is_decided_blocked_and_continues(monkeypatch, tmp_path) -> None:
+    case = run_mock_attempt(
+        monkeypatch, tmp_path, {"cpu-w1-k1": 1}, carried={"cpu-w1-k1": "overrun"}
+    )
+    assert case.receipt["verdict"] == "BLOCKED"
+    assert case.calls == {cell["cell_id"]: 1 for cell in m1.cells()}
+    assert case.receipt["discarded_runs"] == []
+    saved, _ = l1._read_completed_json(case.out / "cpu-w1-k1.json")
+    assert saved["summary"]["decided"] is True
+    assert saved["summary"]["carried_violation"] == {
+        "T_clean_ns": 121500000000,
+        "carried_overruns": 1,
+        "carried_doom": 0,
+        "run_n": 1,
+        "rule": "R1",
+    }
+
+
+def test_main_four_resolved_carries_yield_blocked(monkeypatch, tmp_path) -> None:
+    carried = {cell["cell_id"]: "overrun" for cell in worker_cells()}
+    case = run_mock_attempt(monkeypatch, tmp_path, {key: 1 for key in carried}, carried=carried)
+    assert case.receipt["verdict"] == "BLOCKED"
+    assert [cell["verdict"] for cell in case.receipt["cells"] if cell["cell_id"] in carried] == [
+        "BLOCKED"
+    ] * 4
+    assert all(cell["decided"] for cell in case.receipt["cells"] if cell["cell_id"] in carried)
+
+
+@pytest.mark.parametrize("kind", ["tail_overrun", "p95"])
+def test_main_restarts_when_prefix_event_is_not_carried(monkeypatch, tmp_path, kind) -> None:
+    case = run_mock_attempt(monkeypatch, tmp_path, {"cpu-w1-k1": 1}, carried={"cpu-w1-k1": kind})
+    assert case.receipt["verdict"] == "PASS"
+    assert case.calls["cpu-w1-k1"] == 2
+    assert len(case.receipt["discarded_runs"]) == 1
+
+
+def test_main_w4_frozen800_51_prefix_carries(monkeypatch, tmp_path) -> None:
+    case = run_mock_attempt(monkeypatch, tmp_path, {"cpu-w4-k4": 1}, carried={"cpu-w4-k4": "doom"})
+    assert case.receipt["verdict"] == "BLOCKED"
+    w4 = next(cell for cell in case.receipt["cells"] if cell["cell_id"] == "cpu-w4-k4")
+    assert w4["carried_violation"]["carried_doom"] == 1

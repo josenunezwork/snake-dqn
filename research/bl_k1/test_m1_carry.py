@@ -39,7 +39,7 @@ def attempt(
     retain: int = 4,
 ) -> dict:
     """Write only synthetic immutable exports in pytest's temporary directory."""
-    cells = m1.cells()
+    cells = [cell for cell in m1.cells() if cell["workers"] > 0]
     cell = cells[index]
     foreign = [{"pid": 1234, "cpu": 75}]
     host = (
@@ -297,3 +297,89 @@ def test_cli_create_only_and_verified_output(tmp_path: Path, capsys) -> None:
     with pytest.raises(FileExistsError):
         m1_carry.main([str(tmp_path)])
     assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("control_status", ["BLOCKED", "INVALID", "INCOMPLETE"])
+def test_remedy_control_carry_is_disclosed_without_blocking(
+    tmp_path: Path, control_status: str
+) -> None:
+    """R2 retains control violations without changing the worker admission bar."""
+    receipt = attempt(tmp_path, discards=0)
+    control = {"cell_id": "cpu-w0-k0-pre", "workers": 0, "max_pending": 0, "device": "cpu"}
+    post = {**control, "cell_id": "cpu-w0-k0-post"}
+    row = {
+        **control,
+        "namespace": "synthetic-only",
+        "summary": {"complete": False, "verdict": "INCOMPLETE"},
+        "stop_reason": m1.RESTART_POLICY["trigger"],
+        "epoch_ns": 1,
+        "host": [
+            {"monotonic_ns": 100, "foreign_heavy_processes": []},
+            {"monotonic_ns": 200, "foreign_heavy_processes": [{"pid": 1234}]},
+        ],
+        "ticks": [tick()],
+        "samples": [],
+    }
+    # Include any frozen control-only fields (such as tick count).
+    row.update(next(c for c in m1.cells() if c["cell_id"] == control["cell_id"]))
+    export_json(tmp_path / "cpu-w0-k0-pre.discarded-1.json", row)
+    receipt["cells"] = [
+        {**control, "verdict": "PASS", "complete": True},
+        *receipt["cells"],
+        {**post, "verdict": control_status, "complete": True},
+    ]
+    receipt["remedy_attempt"] = True
+    receipt["discarded_runs"] = [
+        {
+            "cell_id": control["cell_id"],
+            "n": 1,
+            "stop_reason": row["stop_reason"],
+            "foreign_heavy_processes": [{"pid": 1234}],
+            "started_ns": 0,
+            "finished_ns": 300,
+            "ticks": 1,
+            "samples_count": 0,
+        }
+    ]
+    for suffix in ("", ".complete", ".sha256"):
+        Path(str(tmp_path / "receipt.json") + suffix).unlink()
+    export_json(tmp_path / "receipt.json", receipt)
+    result = m1_carry.reduce_attempt(tmp_path)
+    assert result["verdict"] == ("PASS" if control_status == "BLOCKED" else control_status)
+    assert result["cells"][0]["verdict"] == "BLOCKED"
+    assert result["discarded_run_disclosures"][0]["carried_overruns"] == 1
+
+
+def test_remedy_missing_controls_is_incomplete(tmp_path: Path) -> None:
+    receipt = attempt(tmp_path, discards=0)
+    receipt["remedy_attempt"] = True
+    for suffix in ("", ".complete", ".sha256"):
+        Path(str(tmp_path / "receipt.json") + suffix).unlink()
+    export_json(tmp_path / "receipt.json", receipt)
+    assert m1_carry.reduce_attempt(tmp_path)["verdict"] == "INCOMPLETE"
+
+
+@pytest.mark.parametrize("discards", [0, 1])
+def test_branch_b_effective_admission_preserves_r2_carry(tmp_path: Path, discards: int) -> None:
+    """Effective B admission survives R2; a registered prefix violation still blocks."""
+    receipt = attempt(tmp_path, discards=discards)
+    for cell in receipt["cells"]:
+        cell["branch_a_verdict"] = "BLOCKED"
+    controls = [
+        {"cell_id": cell["cell_id"], "verdict": "PASS", "complete": True}
+        for cell in m1.cells()
+        if cell["workers"] == 0
+    ]
+    receipt["cells"] = [controls[0], *receipt["cells"], controls[1]]
+    receipt["remedy_attempt"] = True
+    receipt["branch_b"] = {"enabled": True, "eligible": True}
+    for suffix in ("", ".complete", ".sha256"):
+        Path(str(tmp_path / "receipt.json") + suffix).unlink()
+    export_json(tmp_path / "receipt.json", receipt)
+    result = m1_carry.reduce_attempt(tmp_path)
+    assert result["verdict"] == ("BLOCKED" if discards else "PASS")
+    assert all(
+        cell["branch_a_verdict"] == "BLOCKED"
+        for cell in result["cells"]
+        if "branch_a_verdict" in cell
+    )
