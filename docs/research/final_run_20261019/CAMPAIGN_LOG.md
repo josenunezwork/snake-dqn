@@ -287,3 +287,12 @@ implementation; synthetic fixtures only, 0 Colab units, no serving change.
 Future packs use qualified CLI tree
 `d0d92bdb572b770284a1fea6152417ffa5f06bea` from `origin/main`; historical packs
 and earlier hash-bound receipts remain unchanged.
+
+F4 implementation closeout (same pre-data scope): Codex-V all eight edits PASS;
+review receipt `research/bl_residual/CODEX_V_F4_REVIEW.json`, SHA256
+`9f7f26efa36e10361a4b66bad00e3df2b1798f9db35d79bf1e1a6f6d8001e890`.
+Published executable/pack pin `efdba0c2cbea91fc408e0597f76ed7ef5864634d`;
+151 light single-process tests passed. Fresh HOLD pack import preflight and
+supervisor validation passed with qualified CLI tree d0d92bdb572b770284a1fea6152417ffa5f06bea.
+No real labels/outcomes opened, no Colab allocation/spend, no operator approval
+file written, and no serving/release authority exercised.

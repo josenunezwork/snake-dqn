@@ -98,3 +98,37 @@ consume actual sealed producer files through `--heldout-receipt` and
 `--go-receipt`; they construct the hash-bound consumer envelopes themselves.
 Canonical reserve claims persist after failure and prevent another look via a
 new output filename. Claude owns any later admitted manifest and dispatch.
+
+## Published source and offline pack
+
+Implementation commit `bbe0bbfb` was merged with current origin/main into the
+published source pin `efdba0c2cbea91fc408e0597f76ed7ef5864634d`.
+The fresh immutable HOLD pack is:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/pack-efdba0c2-20261023`.
+Its canary manifest SHA256 is
+`ed5dea7bcf52b6a0e10e88de77c7ef407cdfd7e51dbc56fef2703e9b1b7d4b24`.
+Clean Python 3.12.15 import preflight passed (65 statements, 23 local modules,
+no system/user site packages), and the actual supervisor `validate` command
+passed with the qualified d0d92 subtree. No allocation or dispatch occurred.
+The manifest is `scientific_admission: false`; its DISPATCH.txt remains HOLD.
+A live same-source L4 family canary is still required for future main admission.
+
+```bash
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_residual.make_pack \
+  --commit efdba0c2cbea91fc408e0597f76ed7ef5864634d \
+  --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/pack-efdba0c2-20261023 \
+  --b8 /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.colab_cli.supervisor \
+  --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/validate-efdba0c2-20261023 \
+  --colab /Users/josenunez/.local/bin/colab validate \
+  /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/pack-efdba0c2-20261023/canary-template.json
+```
+
+These paths are occupied immutable evidence; use fresh paths for any later
+package. The receipt/evidence commit changes no executable source from this pin.
+
+Independent Codex-V passed all eight edits with no remaining blocking findings.
+The create-only review receipt SHA256 is
+`9f7f26efa36e10361a4b66bad00e3df2b1798f9db35d79bf1e1a6f6d8001e890`;
+its `.sha256` and `.complete` sidecars bind the published record to the reviewed
+source and the offline HOLD pack. The operator approval file is still absent.
