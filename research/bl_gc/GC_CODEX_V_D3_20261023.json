@@ -1,0 +1,104 @@
+{
+  "agent_task": "/root/codex_v_d3",
+  "amended_bar5_review": {
+    "bounded_by_receipt": true,
+    "enabled_thresholds_unchanged": true,
+    "non_increasing": true,
+    "ordered_start_ticks_finaldrain_end": true,
+    "other_A1_bars_unchanged": true,
+    "total_decrease_reported": true
+  },
+  "amended_d3_review": {
+    "375_separate_non_gating_diagnostic": true,
+    "I1_non_increasing_receipt_and_previous_bound": true,
+    "I2_wrapper_before_initialize_until_negative_control": true,
+    "I3_after_collect2_before_freeze_no_object_list_retained": true,
+    "I3_explicit_types_subclasses_and_module_prefixes": true,
+    "I4_after_unfreeze_before_collect": true,
+    "actual_head_and_dirty": true,
+    "all20_cycles_after_failed_invariants": true,
+    "all_reached_checks_recorded": true,
+    "negative_control_unchanged": true,
+    "null_only_for_unreached_crash_checks": true,
+    "object_growth_bar_2000_unchanged": true,
+    "trajectory_percycle_deltas_total_decrease": true,
+    "weakrefs_initial_reset_rebuilt_and_session": true
+  },
+  "authority": {
+    "AGENTS.md": "4e291a4454028a0b21b6b58492292a19fcacec1dd4b8ce684fbd8b386420828b",
+    "judgment_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-25/JUDGMENT_D3.md",
+    "judgment_sha256": "e7df7d06ac331cd3da3e807e17c33b7955d8f515494a7dc13d5356010fcee9ac"
+  },
+  "c4_constraints": {
+    "cadence_launchers_frontend_unchanged": true,
+    "default_policy_stays_default": true,
+    "identity_source_closure_byte_unchanged": true,
+    "monitor_health_bars_unchanged": true,
+    "no_serving_gc_changes": true,
+    "registry_pins_obs_opponents_veto_unchanged": true,
+    "src_byte_unchanged": true,
+    "web_backend_byte_unchanged": true
+  },
+  "final_run_directory": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-gc-a1/d3-amended-20261023-r1",
+  "implementation_branch": "serving-gc-freeze-20261023",
+  "implementation_findings": [],
+  "independent": true,
+  "independent_light_tests": [
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q -p no:xdist tests/test_gc_policy.py tests/test_gc_probe.py",
+      "note": "Before final negative-counter hardening; tiny diff independently read.",
+      "result": "33 passed in 7.09s"
+    }
+  ],
+  "merge_to_main_authorized": false,
+  "not_run": [
+    "Full d.1 matrix",
+    "Timed d.2",
+    "Sunday live regression",
+    "Full repository suite",
+    "Release/default flip/main merge"
+  ],
+  "qualification_note": "Development d.3 completed all20 under both policies; I3/I4 fail for RasterObsShapes singleton (src/model/obs_spec.py:153) and SnakeGeometry cache (src/game/snake_geometry.py:28,95-98), correctly included by exact prefix rule. No exclusions. Clean HEAD receipts pending; final external closeout will preserve failures.",
+  "receipt_written_by": "Root from independent Codex-V review payload; historical GC_CODEX_V_20261023.json preserved byte-for-byte",
+  "release_authorized": false,
+  "review_base": "98052f86c4e60d73119bb9ddb02d5e2ced74f283",
+  "reviewed_dirty": true,
+  "reviewed_head": "98052f86c4e60d73119bb9ddb02d5e2ced74f283",
+  "reviewed_worktree": "/Users/josenunez/Projects/ml/snake-dqn-gcfix",
+  "reviewer": "Codex-V",
+  "reviewer_files_changed": [],
+  "root_light_tests": [
+    {
+      "result": "77 passed, 2 deselected in 12.00s",
+      "selection": "test_gc_policy.py test_gc_lifecycle.py test_gc_probe.py test_b8_release_monitoring.py -k not watch_session_replacements"
+    },
+    {
+      "result": "23 passed in 6.76s",
+      "selection": "test_gc_probe.py after negative-counter hardening"
+    }
+  ],
+  "schema": "bl-gc-freeze/v1/codex-v-d3",
+  "sources_sha256": {
+    "research/bl_gc/README.md": "caab64703f0a078ef6a580c0ca2216920883a601191fbea3a3b316d5f40e0d3b",
+    "research/bl_gc/lifecycle.py": "bec1964390080ffee175542ef5fec31be87ac3dfb88af86acb016032ff17f387",
+    "research/bl_gc/probe.py": "71f334b471a7e04295041517d44c27cf9eb7d4ba9a765ca82bbf4a5c60281303",
+    "tests/test_gc_lifecycle.py": "66b95992e792c0db3ec668edf088a714254140730be81393d4d243c38a844a99",
+    "tests/test_gc_policy.py": "cd65a848f3d1ee1051b1e1d0f04baf6623df679885422647e23f80517b36c4db",
+    "tests/test_gc_probe.py": "c8bb98c2634f30c5de76e196984cadab126ddb3dc2807a0f46532f5d745efd5a"
+  },
+  "static_verification": [
+    "git diff --check: passed",
+    "git diff --exit-code 98052f86 -- web/backend src web/serve.py web/frontend research/bl_gc/common.py research/bl_gc/identity.py scripts/monitor_b8_release.py: exit0",
+    "black/isort/flake8 changed Python files: passed"
+  ],
+  "status": "IMPLEMENTATION_ACCEPTED_QUALIFICATION_PENDING_D3_RERUN",
+  "tests_reviewed": [
+    "test_i1_real_frozen_decrease_passes_and_second_freeze_fails",
+    "test_failed_invariant_records_all_twenty_cycles_in_subprocess",
+    "test_crash_preserves_reached_checks_and_nulls_only_unreached",
+    "test_census_detects_explicit_subclasses_and_module_prefixes",
+    "test_bar5_decreasing_ordered_cell_passes",
+    "test_bar5_rejects_increase_even_below_startup",
+    "test_bar5_negative_counter_is_incomplete"
+  ]
+}

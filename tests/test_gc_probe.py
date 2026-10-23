@@ -239,3 +239,48 @@ def test_mechanical_incomplete_cli_exits_nonzero(monkeypatch: pytest.MonkeyPatch
         ]
     )
     assert status == 2
+
+
+@pytest.mark.parametrize("policy", ["default", "freeze_startup"])
+def test_bar5_decreasing_ordered_cell_passes(six: list[dict], policy: str) -> None:
+    cells, cell = _changed(six, int(policy == "freeze_startup"))
+    cell["start_state"]["gc_freeze_count"] = 99
+    for row in cell["ticks"]:
+        row["gc_freeze_count"] = 98
+    cell["final_boundary_gc"]["gc_freeze_count"] = 97
+    cell["end_state"]["gc_freeze_count"] = 96
+    result = probe.check_cell(cell)
+    assert result["verdict"] == "PASS"
+    assert result["gc_freeze_count_total_decrease"] == 3
+    assert result["gc_freeze_count_decrease_since_startup"] == 4
+    assert probe.check(cells)["verdict"] == "PASS"
+
+
+@pytest.mark.parametrize("where", ["start", "tick", "final_boundary", "end"])
+def test_bar5_rejects_increase_even_below_startup(six: list[dict], where: str) -> None:
+    cells, cell = _changed(six)
+    cell["start_state"]["gc_freeze_count"] = 90
+    for row in cell["ticks"]:
+        row["gc_freeze_count"] = 89
+    cell["final_boundary_gc"]["gc_freeze_count"] = 88
+    cell["end_state"]["gc_freeze_count"] = 87
+    if where == "start":
+        cell["start_state"]["gc_freeze_count"] = 101
+    elif where == "tick":
+        cell["ticks"][1]["gc_freeze_count"] = 90
+    elif where == "final_boundary":
+        cell["final_boundary_gc"]["gc_freeze_count"] = 90
+    else:
+        cell["end_state"]["gc_freeze_count"] = 89
+    assert probe.check(cells)["verdict"] == "FAIL"
+    assert (
+        "gc_freeze_count is not non-increasing since startup"
+        in probe.check_cell(cell)["violations"]
+    )
+
+
+def test_bar5_negative_counter_is_incomplete(six: list[dict]) -> None:
+    cells, cell = _changed(six)
+    cell["ticks"][-1]["gc_freeze_count"] = -1
+    cell["final_boundary_gc"]["gc_freeze_count"] = -1
+    assert probe.check(cells)["verdict"] == "INCOMPLETE"

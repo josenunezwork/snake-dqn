@@ -347,7 +347,11 @@ def _validate_cell(cell: dict[str, Any]) -> str | None:
             return "freeze_startup has no frozen objects"
         final_gc = cell["final_boundary_gc"]
         for row in [*rows, final_gc]:
-            if row["gc_policy"] != cell["policy"] or type(row["gc_freeze_count"]) is not int:
+            if (
+                row["gc_policy"] != cell["policy"]
+                or type(row["gc_freeze_count"]) is not int
+                or row["gc_freeze_count"] < 0
+            ):
                 return "invalid GC policy/counter"
             total_pause = 0.0
             for generation in range(3):
@@ -447,10 +451,15 @@ def check_cell(cell: dict[str, Any]) -> dict[str, Any]:
         violations.append("gc_pause_ms >= 20")
     receipt = cell["gc_policy_receipt"]
     baseline = receipt["frozen_count"]
-    counts = [r["gc_freeze_count"] for r in all_gc]
-    counts += [cell["start_state"]["gc_freeze_count"], cell["end_state"]["gc_freeze_count"]]
-    if any(count != baseline for count in counts):
-        violations.append("gc_freeze_count changed since startup")
+    # Chronological observations, including the drain after the final sleep.
+    counts = [cell["start_state"]["gc_freeze_count"]]
+    counts += [r["gc_freeze_count"] for r in all_gc]
+    counts.append(cell["end_state"]["gc_freeze_count"])
+    if any(
+        current > previous or current > baseline
+        for previous, current in zip([baseline, *counts], counts)
+    ):
+        violations.append("gc_freeze_count is not non-increasing since startup")
     if any(
         not state["enabled"] or state["thresholds"] != [700, 10, 10]
         for state in [receipt, cell["start_state"], cell["end_state"]]
@@ -479,6 +488,8 @@ def check_cell(cell: dict[str, Any]) -> dict[str, Any]:
             }
             for g in range(3)
         },
+        "gc_freeze_count_total_decrease": counts[0] - counts[-1],
+        "gc_freeze_count_decrease_since_startup": baseline - counts[-1],
         "gc_gen2_count": sum(r["gc_gen2_count"] for r in all_gc),
         "gc_gen2_intervals": [b - a for a, b in zip(gen2_ticks, gen2_ticks[1:])],
         "gc_pause_max_ms": max(pauses),

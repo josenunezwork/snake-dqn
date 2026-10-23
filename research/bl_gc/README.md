@@ -6,12 +6,18 @@ This branch keeps `SNAKE_SERVE_GC_POLICY=default`. Rollback is that selector plu
 a process restart. No serving default, cadence, model, observation, or game rule
 changes here. Workers never apply the serving lifespan's policy.
 
-**Qualification is blocked at d.3.** The untimed 600-tick identity control passes;
-the exact frozen-object-count invariant fails under `freeze_startup`, despite
-cleared gameplay weakrefs. The assertion stays unchanged. Full d.1 (three seeds,
-5,000 ticks, three fresh processes per seed) has not run. A1 and Sunday have not
-run. Consult `GC_CODEX_V_20261023.json` for final source/evidence hashes. Do not
-advance the qualification chain on a failed predecessor or release this change.
+**d.3 and A1 bar 5 are amended prospectively by**
+[`big-lever/round-25/JUDGMENT_D3.md`](/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-25/JUDGMENT_D3.md).
+The freeze count must be non-increasing after startup and bounded by the startup
+receipt; exactly one startup freeze (zero for default), a clean birth census and
+a clean pre-collect census after unfreeze are required. The lifecycle receipt
+records all 20 cycles, all checks, the count trajectory/decrease, actual HEAD and
+the dirty flag. Weakref, object-growth and RSS bars are unchanged. The historical
+default count of 375 is unexplained and non-gating; `--diagnose` characterizes it
+and the types of missing birth IDs in a separate process. Its output cannot fail
+d.3 or d.2. See `GC_CODEX_V_D3_20261023.json` for the amendment review; the prior
+review and failed receipts remain historical evidence. Full d.1 and amended d.3
+must pass before d.2; nothing here admits a release or default flip.
 
 `identity.py` exports the per-tick SHA-256 chain and final hash. Its `--check`
 verifies immutable exports, the default/freeze/default order, source identity,
@@ -21,8 +27,7 @@ reset/rebuild/close/weakref test and the deliberately frozen negative control;
 failures retain a JSON receipt and return nonzero. All exports are create-only
 JSON + `.sha256` + `.complete` (completion marker last).
 
-The commands below are for Claude, after the blocking d.3 finding has been
-resolved through the governing process. Preserve order: d.1, d.3, A1, owner
+The commands below are for Claude under the amended ruling. Preserve order: d.1, d.3, A1, owner
 report/approval, Sunday. All commands use this worktree, the primary venv, CPU
 and one native thread. Outputs go outside Git. Never reuse an output name; the
 A1 `.started` fence survives a mechanical interruption. Mechanical recovery is
@@ -47,8 +52,9 @@ for S in 2026102300 2026102301 2026102302; do
     "$GC_OUT/identity-default-$S.json" "$GC_OUT/identity-freeze_startup-$S.json" \
     "$GC_OUT/identity-default-control-$S.json" --out "$GC_OUT/identity-check-$S.json"
 done
-./venv/bin/python -m pytest -q tests/test_gc_policy.py tests/test_gc_lifecycle.py \
-  tests/test_gc_identity.py tests/test_b8_release_monitoring.py
+./venv/bin/python -m pytest -q -p no:xdist tests/test_gc_policy.py tests/test_gc_lifecycle.py \
+  tests/test_gc_identity.py tests/test_b8_release_monitoring.py tests/test_gc_probe.py
+./venv/bin/python -m research.bl_gc.lifecycle --diagnose --out "$GC_OUT/D3_DIAGNOSTIC.json"
 ```
 
 A1 uses the actual M1 `new_watch`, T15 `_timed_tick`, and M1's exact absolute
@@ -58,7 +64,9 @@ collection histograms from fixed integer callback counters, per-tick attribution
 block trends, 1 Hz RSS, and tracked-object census in sleep slack. Baseline and
 final memory samples are outside the clock; both are retained. The separate
 checker requires exactly six immutable cells, identical source/build bindings,
-paired seeds, all original bars, and a complete last-five-minute RSS window.
+paired seeds, the amended non-increasing bar 5 (ordered start → ticks → final
+drain → end, bounded by startup receipt, total decrease reported), the unchanged
+other bars, and a complete last-five-minute RSS window.
 Default-policy failures remain baseline diagnostics; only the three frozen
 cells decide the candidate's A1 bars. Missing evidence is INCOMPLETE.
 
