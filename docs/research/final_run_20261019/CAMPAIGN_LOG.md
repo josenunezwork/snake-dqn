@@ -138,6 +138,14 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-22 22:05 PT | A100 A1 decision | Repaired GPU engine (corpse loop fix, 313d27eb) on A100-40: E6 speedup 190.9x (event-path hypothesis PASS) but E1024 complete steps/s = 158 frozen / 163 mixed / 166 scripted << 2,000 => pre-registered STOP_ENGINE. GPU label factory (WP2) not funded; A2/A3/P1 continue. |
 
+| 2026-10-22 22:30 PT | M1 attempt-06b RESULT | BLOCKED (not mechanical; owner-authorized daemon-tolerant estimand; daemons ~0 %). receipt sha 3631f67bf5c41284bdcdb0beb4bd77a346f629be3065d70130d30b76e44a75b8. Latency bars PASS: W4K4 frozen-800 doom p99 1.46 s (<=5), update p95 4.6-10.2 ms (<=11.688); FAIL: tick overruns W1K1 6, W2K2 26, W4K4 5, W4K8 8 (bar 0). M0 with p99 1.4586 => L*=72, F(72)=0.944 => not CLOSED. D1 judge ruling on the one judged remedy pending. |
+
+| 2026-10-22 22:50 PT | D1 RULING | JUDGMENT_D1.md (sha 335dc9e2781b52f4...): M0 GO (L*=72, F=0.944). M1 BLOCKED on overruns only: 6 = harness start-up artefact (240 ms first update + catch-up), 39 = sparse 38-60 ms steady-state game.update stalls (likely GC; never measured for bare game). ONE judged remedy = attempt-07 (last): 200-tick warm-up + pool pre-spawn, two bare W0 control cells, per-tick GC disclosure; Branch A zero bar default; Branch B (relative to bare control) only if Astra->Fable ratify pre-data by Sun 18:00. Verdict by Mon Oct 26 12:00; FAIL => KEEP_B8. Sol building; Astra round 22 on Branch B. A1 STOP_ENGINE; A2 main + A3 L4 running. |
+
+| 2026-10-22 22:55 PT | A100 A3 result | analysis.json sha 721195a1b2fe6dae...: baseline cached actor learning 1.87 s (A100) / 1.81 s (L4) per 16,384-transition rollout, above the 1.6384 s stop line => WP5 paused for learner fix; optimized learner 0.41 s A100 / 0.98 s L4 (passes); collection 9.56 / 9.57 s dominates, full cycle ~10-12 s on both (~1.5k transitions/s). A100 gives no P1 wall-clock gain while collection is host-CPU bound; keep P1 on L4 with the optimized learner. |
+
+| 2026-10-22 23:00 PT | M1 Branch B REJECTED | big-lever/round-22/JUDGMENT.md sha256 c85134313f824046cf26cd3060eabfa9df87ea6b2a6b4c25816d0614d5e439f6; admission-rule block sha256 4dc7bc164a1199cee40cb0f5a52c19525291f4282ecaf8a80b6def34f8743aa7. Attempt-07 = Branch A only (zero overruns in every worker cell, other bars unchanged); W0 controls verdict-neutral, report-only; --branch-b refuses. Pre-data. Dispatch by Sun 20:00, verdict by Mon 12:00; FAIL => KEEP_B8. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |

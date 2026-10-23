@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import subprocess
@@ -31,9 +32,29 @@ def fixture(tmp_path):
     home = tmp_path / "home"
     binaries = home / ".local/bin"
     binaries.mkdir(parents=True)
-    # Any accidental provider command is a test failure and leaves evidence.
+    # Only the read-only inventory is allowed; prove it runs inside the ops lock.
     colab = binaries / "colab"
-    colab.write_text('#!/bin/sh\necho unexpected > "$HOME/real-colab-called"\nexit 99\n')
+    colab.write_text(f"#!{sys.executable}\n" + """import fcntl, json, os, sys
+from pathlib import Path
+if sys.argv[1:] != ['--auth', 'oauth2', 'sessions']:
+    Path(os.environ['HOME'], 'real-colab-called').touch()
+    raise SystemExit(99)
+with (Path(os.environ['OPS_DIR'])/'alloc.lock').open('a') as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        pass
+    else:
+        raise SystemExit('inventory outside allocation lock')
+if 'INVENTORY_RAW' in os.environ:
+    print(os.environ['INVENTORY_RAW'])
+    raise SystemExit(0)
+sessions=json.loads(Path(os.environ['INVENTORY']).read_text())
+for endpoint, hardware in sessions.items():
+    print(f'[?] {endpoint} | Hardware: {hardware} | Shape: Standard | Variant: GPU')
+if not sessions:
+    print('No active sessions found on server.')
+""")
     colab.chmod(0o755)
     tmux = binaries / "tmux"
     tmux.write_text(f"#!{sys.executable}\n" + """import os, subprocess, sys
@@ -56,12 +77,18 @@ state=Path(args[args.index('--state-dir')+1])
 action=args[-2]; manifest=json.loads(Path(args[-1]).read_text())
 job=manifest['job_id']; output=Path(manifest['output_dir'])
 with open(os.environ['TRACE'], 'a') as trace:
-    trace.write(json.dumps({'action':action, 'job':job, 'output':str(output)})+'\\n')
+    trace.write(json.dumps({'action':action, 'job':job, 'output':str(output),
+                           'manifest':sys.argv[-1],
+                           'other':manifest['budget']['other_assignments']})+'\\n')
 if action == 'validate':
     if os.environ.get('MUTATE_SOURCE'):
         Path(os.environ['MUTATE_SOURCE']).write_text('{}')
+    if os.environ.get('MUTATE_LIVE') and sys.argv[-1].endswith('.live.json'):
+        Path(sys.argv[-1]).write_text('{}')
     raise SystemExit(3 if os.environ.get('VALIDATE_FAIL') else 0)
 assert action == 'run', action
+if os.environ.get('NEXT_INVENTORY') and not job.endswith('-retry-1'):
+    Path(os.environ['INVENTORY']).write_text(os.environ['NEXT_INVENTORY'])
 output.mkdir()
 (state/job).mkdir(parents=True)
 (state/job/'assignment.json').write_text('{}')
@@ -130,7 +157,19 @@ raise SystemExit(1)
         PATH=f'{binaries}:{os.environ["PATH"]}',
         OPS_ALLOC_POLL_INTERVAL_SECONDS=".01",
         OPS_ALLOC_LOCK_TIMEOUT_SECONDS="3",
+        INVENTORY=str(tmp_path / "inventory.json"),
     )
+    (tmp_path / "inventory.json").write_text("{}")
+
+    def inventory(sessions, records):
+        (tmp_path / "inventory.json").write_text(json.dumps(sessions))
+        account = home / ".config/colab-cli/snake"
+        account.mkdir(parents=True, exist_ok=True)
+        for path in account.glob("active-*.json"):
+            path.unlink()
+        for record in records:
+            path = account / f"active-{record['session']}.json"
+            path.write_text(json.dumps(record))
 
     def invoke(name="lane", *, capture=True):
         argv = [str(SCRIPT), name, str(manifest), "--broker", str(broker), "--cwd", str(broker)]
@@ -154,6 +193,7 @@ raise SystemExit(1)
         "change": change,
         "tmp": tmp_path,
         "git": git,
+        "inventory": inventory,
     }
     # Drain only fixture jobs; each has a short finite workload and no provider.
     logs = list((ops / "logs").glob("*.log")) if (ops / "logs").exists() else []
@@ -173,6 +213,142 @@ def runs(f):
         if trace.exists()
         else []
     )
+
+
+def active(endpoint, rate, **fields):
+    return {
+        "endpoint": endpoint,
+        "session": f"snake-{endpoint}",
+        "rate_units_per_hour": rate,
+        **fields,
+    }
+
+
+@pytest.mark.parametrize(
+    "declared,sessions,records,expected",
+    [
+        ({"departed": 1.54}, {}, [], {}),
+        (
+            {"departed": 1.54},
+            {"new": "L4"},
+            [active("new", 2.0, priced_rate_units_per_hour=2.0, observed_rate_units_per_hour=1.54)],
+            {"new": 1.54},
+        ),
+        (
+            {},
+            {"a100": "A100", "cpu": "CPU"},
+            [
+                active("a100", 10, priced_rate_units_per_hour=10, observed_rate_units_per_hour=5.3),
+                active("cpu", 0.08),
+            ],
+            {"a100": 5.3, "cpu": 0.08},
+        ),
+    ],
+)
+def test_refreshes_departed_and_new_owned_endpoints(fixture, declared, sessions, records, expected):
+    f = fixture
+    f["change"](budget={"other_assignments": declared, "unit_cap": 3, "reserve_units": 1})
+    original = f["manifest"].read_bytes()
+    f["inventory"](sessions, records)
+    result = f["invoke"]()
+    assert result.returncode == 0, result.stderr
+    assert "allocation=success" in result.stdout
+    run = runs(f)[0]
+    assert run["other"] == expected
+    live = Path(run["manifest"])
+    assert live.name == "lane.live.json"
+    source = json.loads(original)
+    source["budget"]["other_assignments"] = expected
+    assert json.loads(live.read_bytes()) == source
+    assert f["manifest"].read_bytes() == original
+    assert (f["ops"] / "manifests/lane.json").read_bytes() == original
+    proof = json.loads((f["ops"] / "dispatch/lane/lane.accounting.json").read_bytes())
+    assert proof["manifest_sha256"] == hashlib.sha256(live.read_bytes()).hexdigest()
+    assert proof["source_manifest_sha256"] == hashlib.sha256(original).hexdigest()
+    for row in proof["broker_records"]:
+        assert row["sha256"] == hashlib.sha256(Path(row["path"]).read_bytes()).hexdigest()
+    traces = [json.loads(row) for row in (f["tmp"] / "trace").read_text().splitlines()]
+    assert [row["action"] for row in traces] == ["validate", "validate", "run"]
+    assert traces[1]["manifest"] == run["manifest"]
+
+
+@pytest.mark.parametrize("declared", [{}, {"foreign": 1.54}])
+def test_refuses_foreign_endpoint_even_if_manifest_declares_it(fixture, declared):
+    f = fixture
+    f["change"](budget={"other_assignments": declared})
+    f["inventory"]({"foreign": "L4"}, [])
+    result = f["invoke"]()
+    assert result.returncode == 1 and "not owned by our broker: foreign" in result.stderr
+    assert not runs(f)
+    assert not (f["ops"] / "watch-logs.txt").exists()
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        "[?] foreign | Hardware:",
+        "[?] foreign | Unexpected: L4",
+        "No active sessions found on server.",
+    ],
+)
+def test_refuses_mixed_valid_and_unparsed_inventory(fixture, tail):
+    f = fixture
+    f["inventory"]({"owned": "L4"}, [active("owned", 1.54)])
+    f["env"]["INVENTORY_RAW"] = "[?] owned | Hardware: L4 | Shape: Standard\n" + tail
+    result = f["invoke"]()
+    assert result.returncode == 1 and "account session" in result.stderr
+    assert not runs(f)
+
+
+@pytest.mark.parametrize(
+    "hardware,record",
+    [
+        ("L4", active("owned", 2, priced_rate_units_per_hour=2, observed_rate_units_per_hour=None)),
+        ("L4", active("owned", 2)),
+        ("CPU", active("owned", 0)),
+        ("A100", active("owned", True)),
+        ("A100", active("owned", float("nan"))),
+        ("H100", active("owned", 8)),
+    ],
+)
+def test_refuses_unpriced_or_unregistered_owned_endpoint(fixture, hardware, record):
+    f = fixture
+    f["inventory"]({"owned": hardware}, [record])
+    result = f["invoke"]()
+    assert result.returncode == 1
+    assert not runs(f)
+
+
+def test_live_manifest_is_create_only(fixture):
+    f = fixture
+    # Refuse a preexisting sibling even when its contents would be identical.
+    target = f["ops"] / "manifests/lane.live.json"
+    target.parent.mkdir()
+    target.write_text("immutable evidence")
+    result = f["invoke"]()
+    assert result.returncode == 1 and "File exists" in result.stderr
+    assert target.read_text() == "immutable evidence"
+    assert not runs(f)
+
+
+def test_live_manifest_tampering_after_validation_refuses_launch(fixture):
+    f = fixture
+    f["env"]["MUTATE_LIVE"] = "1"
+    result = f["invoke"]()
+    assert result.returncode == 1 and "refreshed manifest changed" in result.stderr
+    assert not runs(f)
+
+
+def test_exact_retry_refreshes_inventory_again(fixture):
+    f = fixture
+    f["change"](test_mode="retry_success")
+    f["inventory"]({}, [active("arriving", 1.54)])
+    f["env"]["NEXT_INVENTORY"] = json.dumps({"arriving": "L4"})
+    result = f["invoke"]()
+    assert result.returncode == 0, result.stderr
+    assert [row["other"] for row in runs(f)] == [{}, {"arriving": 1.54}]
+    proof = f["ops"] / "dispatch/lane/lane-retry-1.accounting.json"
+    assert json.loads(proof.read_text())["other_assignments"] == {"arriving": 1.54}
 
 
 def test_lock_held_after_early_assignment_until_calibration(fixture):

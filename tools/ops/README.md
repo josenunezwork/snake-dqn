@@ -26,6 +26,25 @@ canaries, budgets, leases, verified exports, and release.
 Dispatch serializes account allocation using `ops/alloc.lock` with POSIX `flock`
 (via Python `fcntl`, so the macOS host needs no external `flock` binary). The lock
 covers launch through allocation success/failure, with a maximum ten-minute hold.
+Immediately before each launch (including the one authorized allocation retry),
+dispatch reads `colab --auth oauth2 sessions` under that lock and joins every live
+endpoint to `~/.config/colab-cli/snake/active-*.json`. A manifest declaration alone
+cannot establish broker ownership. Unknown endpoints, ambiguous records, missing
+calibrated prices, or unregistered hardware refuse launch. L4 is registered at
+1.54 u/hour and CPU at 0.08 u/hour; A100 uses its broker-record rate. For records
+with a priced ceiling, the observed calibrated rate is required; the ceiling is
+never substituted for the observed rate.
+
+The wrapper replaces only `budget.other_assignments` in a create-only
+`ops/manifests/NAME.live.json` sibling, validates that exact sibling, and checks
+its hash before submitting it. `ops/dispatch/NAME/ATTEMPT.accounting.json` records
+the original and refreshed manifest paths/SHA256, raw inventory, active-record
+hashes, and refreshed rates. The original snapshot and source pack remain
+unchanged. Departed manifest declarations disappear and new broker-owned endpoints
+are included. The supervisor still checks account count, baseline provider rate,
+balance/reserves, stale broker records, and membership changes during allocation;
+this refresh does not relax those refusals or modify the qualified transport.
+
 An unconfirmed allocation reaches the time limit without authorizing a retry; the
 supervisor continues to own cleanup. A submitted job records its `EXIT=` marker
 when the supervisor exits; an uncertain tmux submission is labelled in the log.
