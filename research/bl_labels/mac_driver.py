@@ -509,7 +509,7 @@ def run(
 ) -> dict[str, Any]:
     """Run admitted parents until complete, guard stop, or cooperative preemption."""
     started = time.monotonic() if started_monotonic is None else started_monotonic
-    if workers == MAX_WORKERS and state_dir is not None:
+    if state_dir is not None and workers in RESUME_WIDTHS:
         from .w12_runtime import resolve_resume_workers
 
         allowed, reasons = resolve_resume_workers(workers, state_dir)
@@ -603,6 +603,10 @@ def run(
     prior_sanity_elapsed = 0.0
     prior_sanity_counts: dict[str, int] = {}
     prior_sanity_checked = False
+    prior_terminals: list[dict[str, Any]] = []
+    from .slowdown_state import RULING_SHA256, build_guards, persist_baselines
+
+    slowdown_guards = None
     expected_control = hashlib.sha256(
         json.dumps(control, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -735,9 +739,11 @@ def run(
                     (x[0], x[1], x[2] if len(x) == 3 else start_workers)
                     for x in json.loads(Path(sealed_path).read_text())["events"]
                 ]
+            prior_terminals.append(terminal_value)
             prior_attempts.append(terminal.name)
         if deadline_seconds is not None and prior_elapsed >= deadline_seconds:
             raise MacGuardError("prior Mac factory attempts exhausted the frozen wall cap; HOLD")
+        slowdown_guards = build_guards(control, workers, started, prior_terminals, state_dir)
         attempt_id = uuid.uuid4().hex
         output.mkdir(parents=True, exist_ok=True)
         publish_json(
@@ -793,9 +799,13 @@ def run(
     registered_stop_reason: str | None = None
     operational_width_fallback: str | None = None
     preempt_started: float | None = None
-    life_started: dict[str, float] = {}
-    # A width switch starts a new first-hour baseline.  A same-width completion
-    # resume continues that width's first-hour window only.
+    if slowdown_guards is None:
+        slowdown_guards = build_guards(control, workers, started, prior_terminals, state_dir)
+    slowdown_trip_records: list[dict[str, Any]] = []
+    slowdown_trips = 0
+    slowdown_stop_reason: str | None = None
+    # Retain the old receipt fields for compatibility. The immutable
+    # per-stream baselines above alone govern the repaired slowdown guard.
     width_changed = prior_workers is not None and prior_workers != workers
     width_elapsed_before = 0.0 if width_changed else prior_baseline_segment_elapsed
     baseline_lives = [] if width_changed else prior_baselines.setdefault(workers, [])
@@ -807,6 +817,10 @@ def run(
         # A width change begins admissions at the requested width.  A recent
         # thermal event is the sole registered exception.
         admission_workers = min(DEFAULT_WORKERS, workers) if thermal_trips else workers
+    # Thermal stepdowns preserve the historical accounting width but the
+    # slowdown guard measures the actual admission width of each life.
+    for guard in slowdown_guards.values():
+        guard.switch(admission_workers, time.monotonic())
     thermal_epoch_seen = False
     next_report = time.monotonic() + 110
     next_soft_rss_sample = time.monotonic()  # Include a startup sample, then every five minutes.
@@ -849,8 +863,39 @@ def run(
             admission_workers = max(1, admission_workers - 3)
         telemetry.append({"event": "thermal_pause", "workers_next": admission_workers})
 
+    def note_slowdown(stream: str, event: dict[str, Any], now: float) -> None:
+        nonlocal stop_reason, preempted, slowdown_trips, slowdown_stop_reason
+        stop_reason = event.get("stop_reason", "slowdown guard: window median > 1.30 x baseline")
+        slowdown_stop_reason = stop_reason
+        telemetry.append({**event, "stream": stream})
+        if event["event"] == "slowdown_guard":
+            slowdown_trips += 1
+            slowdown_trip_records.append(
+                {
+                    "stream": stream,
+                    "width": event["width"],
+                    "wall_seconds": sum(
+                        slowdown_guards[stream].snapshot(now)["width_wall_seconds"].values()
+                    ),
+                    "epoch": time.time(),
+                }
+            )
+        if stop_reason == "slowdown baseline sanity" and workers == MAX_WORKERS:
+            fall_back_to_w6("slowdown baseline sanity")
+            stop_reason = "slowdown baseline sanity"
+        preempted = True
+        stop_event.set()
+
     try:
         while pending or active or not queue.empty():
+            if not preempted and not stop_event.is_set():
+                now = time.monotonic()
+                for stream, guard in slowdown_guards.items():
+                    event = guard.tick(now)
+                    persist_baselines(slowdown_guards, state_dir, control, now)
+                    if event is not None:
+                        note_slowdown(stream, event, now)
+                        break
             if time.monotonic() >= next_exclusive_sample:
                 next_exclusive_sample = time.monotonic() + 5
                 try:
@@ -926,9 +971,17 @@ def run(
                         queue,
                     ),
                 )
+                slowdown_guards[job.allocation["stream"]].admit(
+                    job.allocation["allocation_id"],
+                    has_prior=bool(job.skip_lives)
+                    or any(
+                        job.allocation.get(key) is not None
+                        for key in ("partial_life", "prefix_state")
+                    ),
+                    now=time.monotonic(),
+                )
                 process.start()
                 active[process.pid] = process
-                life_started[job.allocation["allocation_id"]] = time.monotonic()
             try:
                 messages = [queue.get(timeout=1.0)]
                 while True:
@@ -940,6 +993,15 @@ def run(
                     kind = message.pop("kind")
                     rescue_bearing = bool(message.pop("_rescue_bearing", False))
                     telemetry.append({"event": kind, "at_monotonic": time.monotonic(), **message})
+                    if kind in {"complete", "preempted"}:
+                        stream = next(
+                            a["stream"]
+                            for a in allocation
+                            if a["allocation_id"] == str(message["allocation_id"])
+                        )
+                        slowdown_guards[stream].complete(
+                            str(message["allocation_id"]), time.monotonic()
+                        )
                     if kind == "complete":
                         completed.append(str(message["allocation_id"]))
                         stream = next(
@@ -957,23 +1019,18 @@ def run(
                     elif kind == "life_boundary":
                         allocation_id = str(message["allocation_id"])
                         sealed_lives.append((time.time(), rescue_bearing, workers))
-                        elapsed = time.monotonic() - life_started.get(allocation_id, started)
-                        width_elapsed = width_elapsed_before + time.monotonic() - started
-                        if width_elapsed <= 3600:
-                            baseline_lives.append(elapsed)
-                        life_started[allocation_id] = time.monotonic()
-                        # First-hour observations are the factory's local baseline.
-                        if width_elapsed > 3600 and baseline_lives:
-                            baseline = sum(baseline_lives) / len(baseline_lives)
-                            if elapsed > baseline * 1.30:
-                                preempted = True
-                                telemetry.append(
-                                    {
-                                        "event": "slowdown_guard",
-                                        "elapsed": elapsed,
-                                        "baseline": baseline,
-                                    }
-                                )
+                        stream = next(
+                            a["stream"] for a in allocation if a["allocation_id"] == allocation_id
+                        )
+                        guard = slowdown_guards[stream]
+                        now = time.monotonic()
+                        event = guard.boundary(
+                            allocation_id, now, stopped=preempted or stop_event.is_set()
+                        )
+                        persist_baselines(slowdown_guards, state_dir, control, now)
+                        width_elapsed = width_elapsed_before + now - started
+                        if event is not None:
+                            note_slowdown(stream, event, now)
                         if width_elapsed >= 6 * 3600 and not any(
                             time.time() - at <= 6 * 3600 for at in thermal_trips
                         ):
@@ -1125,11 +1182,22 @@ def run(
         "completed_parents": completed,
         "pending_parents": [job.allocation["allocation_id"] for job in pending],
         "invalid_reason": invalid,
-        "stop_reason": stop_reason,
+        "stop_reason": slowdown_stop_reason or stop_reason,
+        "post_slowdown_stop_reason": (
+            stop_reason
+            if slowdown_stop_reason is not None and stop_reason != slowdown_stop_reason
+            else None
+        ),
         "registered_stop_reason": registered_stop_reason,
         "thermal_trip_count_24h": len(thermal_trips),
         "thermal_trip_epochs": thermal_trips,
         "thermal_clean_intervals": thermal_clean_intervals,
+        "slowdown_guard_ruling_sha256": RULING_SHA256,
+        "slowdown_trips": slowdown_trips,
+        "slowdown_trip_records": slowdown_trip_records,
+        "slowdown_state_by_stream": {
+            stream: guard.snapshot(time.monotonic()) for stream, guard in slowdown_guards.items()
+        },
         "first_hour_life_seconds": baseline_lives,
         "first_hour_life_seconds_by_workers": {
             str(width): samples for width, samples in sorted(prior_baselines.items())

@@ -383,6 +383,11 @@ def main() -> None:
     parser.add_argument("--frp3", type=Path, required=True)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--ledger-out", type=Path)
+    parser.add_argument(
+        "--host-check",
+        action="store_true",
+        help="log the required host check before this operator-requested resume",
+    )
     args = parser.parse_args()
     if args.ledger_out:
         control = original_control(args.pack)
@@ -390,6 +395,13 @@ def main() -> None:
         publish_ledger(args.pack, attempts, args.ledger_out)
         print(json.dumps({"status": "PUBLISHED", "out": str(args.ledger_out)}))
     else:
+        if args.host_check:
+            from .slowdown_resume import record_host_check
+
+            if args.pack.resolve() != PACK.resolve():
+                raise ValueError("D256 host check requires canonical mac-pack-02; HOLD")
+            original_control(args.pack)
+            record_host_check(args.pack / "d256-state-mac-01")
         launch(
             args.pack,
             args.frozen_root,

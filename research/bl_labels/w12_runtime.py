@@ -127,8 +127,16 @@ def resolve_resume_workers(
     if requested_workers not in (W6, W12):
         raise ValueError("W12 runtime accepts only W6 or W12")
     pairs = _attempt_pairs(state_dir)
+    # The slowdown ruling is independent from the thermal statistic but uses
+    # the same immutable attempt chain.  Its W6 host-check HOLD must happen
+    # before this function permits any continuation at either width.
+    from . import slowdown_resume
+
+    slowdown_workers, slowdown_reasons = slowdown_resume.resume_policy(
+        requested_workers, state_dir, now=now
+    )
     if requested_workers == W6:
-        return W6, []
+        return slowdown_workers, slowdown_reasons
     sticky, thermal_epochs, clean_intervals = [], [], []
     for _start_path, _start, _terminal_path, terminal in pairs:
         reason = _fallback_reason(terminal.get("operational_width_fallback"))
@@ -142,6 +150,7 @@ def resolve_resume_workers(
     # Thermal return is factory-wide: a new future-dose state directory may
     # not bypass a trip in its canonical sibling series.  RSS/sanity remains
     # sticky only for the resumed state whose operational fallback recorded it.
+    slowdown_epochs = []
     for related in _canonical_series_state_dirs(state_dir):
         if related == state_dir.resolve():
             related_pairs = pairs
@@ -154,8 +163,18 @@ def resolve_resume_workers(
             if not isinstance(intervals, list):
                 raise ValueError("W12 thermal clean history is malformed; HOLD")
             clean_intervals.extend(_clean_thermal_interval(interval) for interval in intervals)
+        # Like thermal, a qualifying W12 slowdown pair belongs to the factory
+        # series.  A later D1024/D4096 state directory cannot bypass D256's
+        # sealed cooldown by changing roots.
+        epoch = slowdown_resume.escalation(related)["w12_epoch"]
+        if epoch is not None:
+            slowdown_epochs.append(float(epoch))
     if sticky:
         return W6, [f"operational_width_fallback:{reason}" for reason in sorted(set(sticky))]
+    # A qualifying pair of W12 slowdown trips has the same 24-hour clean
+    # return rule as a thermal trip.  Add its epoch to the shared evidence
+    # path so an isolated W12 cooldown cannot bypass the verified clean proof.
+    thermal_epochs.extend(slowdown_epochs)
     if thermal_epochs:
         current = time.time() if now is None else _finite_positive(now, "current epoch")
         latest = max(thermal_epochs)
@@ -165,7 +184,7 @@ def resolve_resume_workers(
         )
         if current < latest + THERMAL_CLEAN_SECONDS or not clean:
             return W6, ["thermal_clean_window_incomplete"]
-    return W12, []
+    return slowdown_workers, slowdown_reasons
 
 
 def _provenance(path: Path) -> dict[str, str]:

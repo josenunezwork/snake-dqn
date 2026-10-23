@@ -371,6 +371,10 @@ def test_preempted_life_is_immutable_and_resume_skips_verified_unit(
             "semantic_label_sha256"
         ]
     )
+    for unit in load_ledger(ledger_after_resume, control["namespace"], control["allocation"]):
+        assert (ledger_after_root / "lives" / f"{unit}.json").read_bytes() == (
+            baseline / "lives" / f"{unit}.json"
+        ).read_bytes()
 
 
 def test_future_width_resume_preserves_prefix_and_sums_worker_seconds(
