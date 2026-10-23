@@ -14,7 +14,7 @@ if [[ "${1:-}" == --run ]]; then
 fi
 # Untimed operations are explicit. A missing --run cannot dispatch by accident.
 case " $* " in
-  *" --check "*|*" --make-ledger "*|*" --help "*) ;;
-  *) echo 'use --check, --make-ledger PATH, or --run' >&2; exit 2 ;;
+  *" --check "*|*" --smoke "*|*" --make-ledger "*|*" --help "*) ;;
+  *) echo 'use --check, --smoke, --make-ledger PATH, or --run' >&2; exit 2 ;;
 esac
 exec /usr/bin/nice -n 10 "$PY" -m research.bl_k1.m1 "$@"

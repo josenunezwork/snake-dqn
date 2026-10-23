@@ -378,9 +378,14 @@ def test_watch_disables_inherited_pathb_and_requires_no_transform(monkeypatch) -
 
     from research.t15_mixed_roster_20261017 import episodes
 
-    snake = SimpleNamespace(auto_respawn=True)
+    # Match ordinary AISnake: the optional respawn opt-out is absent.
+    snake = SimpleNamespace()
     session = SimpleNamespace(
-        speed=24, game=SimpleNamespace(snakes=[snake] * 6), set_speed=lambda speed: None
+        mode="watch",
+        playing=True,
+        speed=24,
+        game=SimpleNamespace(snakes=[snake] * 6),
+        set_speed=lambda speed: None,
     )
     observed = []
 
@@ -393,6 +398,10 @@ def test_watch_disables_inherited_pathb_and_requires_no_transform(monkeypatch) -
     monkeypatch.setattr(episodes, "roster_identity", lambda session: {"watch_roster": "mixed"})
     assert m1.new_watch(123)[0] is session
     assert observed == ["0"] and os.environ["SNAKE_SERVE_PATHB"] == "true"
+    snake.auto_respawn = False
+    with pytest.raises(ValueError, match="continuous-respawn"):
+        m1.new_watch(123)
+    del snake.auto_respawn
     snake.action_transform = object()
     with pytest.raises(ValueError, match="assisted"):
         m1.new_watch(123)
@@ -483,3 +492,205 @@ def test_host_ancestry_excludes_owned_workers_but_refuses_foreign_load() -> None
         "other_heavy_processes": [{"pid": 11}, {"pid": 12}, {"pid": 13}],
     }
     assert m1.foreign_load(screen, 10) == [{"pid": 13}]
+
+
+@pytest.mark.parametrize("cleanup_error", [False, True])
+def test_partial_setup_cleanup_truthfully_records_stop(monkeypatch, cleanup_error) -> None:
+    """A queue setup exception must still drain an already constructed pool."""
+    monkeypatch.setattr(m1, "new_watch", lambda seed: (object(), {}))
+    pool = SimpleNamespace(joined=False)
+
+    def shutdown(**kwargs):
+        if cleanup_error:
+            raise RuntimeError("unverified pool cleanup")
+        pool.joined = True
+
+    pool.shutdown = shutdown
+    monkeypatch.setattr(m1.concurrent.futures, "ProcessPoolExecutor", lambda **kwargs: pool)
+    monkeypatch.setattr(
+        m1.multiprocessing,
+        "get_context",
+        lambda method: SimpleNamespace(
+            Event=lambda: SimpleNamespace(set=lambda: None),
+            Queue=lambda: (_ for _ in ()).throw(RuntimeError("queue setup")),
+        ),
+    )
+    state = {"verified_stop": True}
+    data = {"namespace": "n", "fixtures": fixtures()}
+    if cleanup_error:
+        with pytest.raises(RuntimeError, match="unverified pool"):
+            m1.run_cell(m1.cells()[0], data, float("inf"), lambda: {}, state)
+        assert state["verified_stop"] is False
+    else:
+        row = m1.run_cell(m1.cells()[0], data, float("inf"), lambda: {}, state)
+        assert row["summary"]["verdict"] == "INCOMPLETE"
+        assert state["verified_stop"] is True and pool.joined
+
+
+def test_prepool_exception_receipt_keeps_verified_stop(monkeypatch, tmp_path) -> None:
+    from contextlib import contextmanager
+
+    from research import mac_lease
+    from research.bl_mac_latency import host
+    from research.bl_served_search.exports import verify_export
+
+    @contextmanager
+    def held(*args, **kwargs):
+        yield SimpleNamespace(receipt={"id": "test-only"})
+
+    monkeypatch.setattr(mac_lease, "held", held)
+    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    monkeypatch.setattr(m1, "inputs", lambda *args: {"namespace": "n", "sources": {}})
+    monkeypatch.setattr(m1, "sources", lambda: {})
+    monkeypatch.setattr(m1, "verify_ledger", lambda *args: {})
+
+    def fail(seed):
+        raise AttributeError("pre-pool Watch construction failure")
+
+    monkeypatch.setattr(m1, "new_watch", fail)
+    ledger = tmp_path / "empty.json"
+    ledger.write_text("{}")
+    out = tmp_path / "attempt"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "m1",
+            "--run",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--ledger",
+            str(ledger),
+            "--out",
+            str(out),
+        ],
+    )
+    m1.main()
+    verify_export(out / "receipt.json")
+    import json
+
+    receipt = json.loads((out / "receipt.json").read_text())
+    assert receipt["verified_stop"] is True
+    assert receipt["mechanical_failure"] is True
+    assert receipt["verdict"] == "INCOMPLETE"
+    assert receipt["cells"] == [] and receipt["completed_unit_exports"] == {}
+
+
+def test_reconciliation_refuses_other_failure_or_target(monkeypatch, tmp_path) -> None:
+    """A generic asserted PASS/stop certificate cannot authorize a retry."""
+    proof = {
+        "schema": m1.SCHEMA + "/precell-reconciliation",
+        "previous_receipt_path": str(tmp_path / "receipt.json"),
+        "reviewer": "Codex-V",
+        "status": "VERIFIED_PRECELL_MECHANICAL_STOP",
+        "target_namespace": "n",
+        "previous_receipt_sha256": "other",
+    }
+    monkeypatch.setattr(l1, "_read_completed_json", lambda path: (proof, "other"))
+    with pytest.raises(ValueError, match="exact audited"):
+        m1.reconciled_precell_stop(tmp_path / "proof.json", {"namespace": "n"})
+
+
+@pytest.mark.parametrize("change", [None, "namespace", "cells", "retry", "debit", "source"])
+def test_reconciliation_is_empty_only_and_keeps_cumulative_debit(
+    monkeypatch, tmp_path, change
+) -> None:
+    import json
+
+    previous = {
+        "schema": m1.SCHEMA,
+        "namespace": "old",
+        "attempt_number": 1,
+        "verdict": "INCOMPLETE",
+        "verified_stop": False,
+        "mechanical_failure": True,
+        "reason": "AttributeError: 'AISnake' object has no attribute 'auto_respawn'",
+        "cells": [],
+        "completed_unit_exports": {},
+        "charged_seconds": 0.82,
+    }
+    if change == "cells":
+        previous["cells"] = [{"cell_id": "cpu-w1-k1"}]
+    if change == "retry":
+        previous["attempt_number"] = 2
+    prior = tmp_path / "attempt"
+    prior.mkdir()
+    receipt_sha = export_json(prior / "receipt.json", previous)["sha256"]
+    attempt = {"namespace": "old", "sources": {"research/bl_k1/m1.py": "old-source"}}
+    attempt_sha = export_json(prior / "attempt.json", attempt)["sha256"]
+    log = tmp_path / "attempt.log"
+    log.write_text("mechanical failure")
+    monkeypatch.setattr(m1, "PRECELL_RECEIPT_SHA256", receipt_sha)
+    monkeypatch.setattr(m1, "PRECELL_ATTEMPT_SHA256", attempt_sha)
+    monkeypatch.setattr(m1, "PRECELL_LOG_SHA256", m1.digest(log))
+    monkeypatch.setattr(
+        m1, "PRECELL_SOURCE_SHA256", "wrong" if change == "source" else "old-source"
+    )
+    proof = {
+        "schema": m1.SCHEMA + "/precell-reconciliation",
+        "reviewer": "Codex-V",
+        "status": "VERIFIED_PRECELL_MECHANICAL_STOP",
+        "target_namespace": "wrong" if change == "namespace" else "new",
+        "previous_receipt_path": str(prior / "receipt.json"),
+        "previous_receipt_sha256": receipt_sha,
+        "previous_attempt_sha256": attempt_sha,
+        "previous_log_sha256": m1.digest(log),
+        "charged_seconds": 0 if change == "debit" else 0.82,
+    }
+    path = tmp_path / "proof.json"
+    export_json(path, proof)
+    if change:
+        with pytest.raises(ValueError, match="exact audited"):
+            m1.reconciled_precell_stop(path, {"namespace": "new"})
+        return
+    data = {"namespace": "new", "sources": {}}
+    assert m1.reconciled_precell_stop(path, data) == previous
+    monkeypatch.setattr(m1, "inputs", lambda *args: data)
+    ledger = tmp_path / "ledger.json"
+    m1.make_ledger(ledger, "new", [])
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "m1",
+            "--check",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--ledger",
+            str(ledger),
+            "--reconciled-precell-stop",
+            str(path),
+        ],
+    )
+    m1.main()
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "m1",
+            "--run",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--out",
+            str(tmp_path / "new-attempt"),
+            "--ledger",
+            str(ledger),
+            "--reconciled-precell-stop",
+            str(path),
+        ],
+    )
+
+    # Stop before the lease; prove recovery cannot reset the debit/envelope.
+    def reject_lease(*args, **kwargs):
+        assert kwargs["seconds"] == m1.CAP_SECONDS - 0.82
+        raise RuntimeError("test refuses lease")
+
+    from research import mac_lease
+
+    monkeypatch.setattr(mac_lease, "held", reject_lease)
+    with pytest.raises(RuntimeError, match="test refuses lease"):
+        m1.main()
+    assert json.loads(path.read_text())["charged_seconds"] == 0.82

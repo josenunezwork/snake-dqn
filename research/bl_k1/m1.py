@@ -28,6 +28,11 @@ REPEATS = 30
 CONTENTION_SECONDS = 30
 Y1_FIXTURES_SHA256 = "bbe6975642512091ba279d9ff7c870000d68faa18e30063807f47af1352e8574"
 Y1_REFERENCE_SHA256 = "b97f73d2384a95455beb3c0d243caba513f5f307edc85d0a8da4b81f5e1ac791"
+# The single historical pre-pool failure audited against frozen 3708063b.
+PRECELL_RECEIPT_SHA256 = "5ee5b1629ad11b7e4c181455846f9591ec2be67dc71549501a3f4336fba6a29c"
+PRECELL_ATTEMPT_SHA256 = "d917e555b79d54b245733b66db309546dbd5c6e91ed9b3d916b7e162612b8bc0"
+PRECELL_LOG_SHA256 = "64b160641243f014550c86650092077f8f2aefc41e8401f5059fdfa3555d062c"
+PRECELL_SOURCE_SHA256 = "3aff0cf6c037fb5b4597bddbc5707b5e23b36146bc2a7e34b0a07fcf579d0e57"
 
 
 def cells() -> list[dict[str, Any]]:
@@ -150,6 +155,44 @@ def make_ledger(out: Path, namespace: str, paths: list[Path]) -> None:
     if len({row["unit_id"] for row in units}) != len(units):
         raise ValueError("duplicate M1 ledger allocations")
     export_json(out, {"schema": SCHEMA + "/ledger", "namespace": namespace, "units": units})
+
+
+def reconciled_precell_stop(path: Path, data: dict) -> dict:
+    """Admit only the independently audited 3708063b pre-pool exception.
+
+    This carries debit/retry count, never cell evidence, across the bug-fix
+    namespace. It cannot reconcile an arbitrary unverified stop.
+    """
+    proof, _ = l1._read_completed_json(path)
+    prior_path = Path(proof["previous_receipt_path"])
+    previous, receipt_sha = l1._read_completed_json(prior_path)
+    attempt, attempt_sha = l1._read_completed_json(prior_path.parent / "attempt.json")
+    if (
+        proof.get("schema") != SCHEMA + "/precell-reconciliation"
+        or proof.get("reviewer") != "Codex-V"
+        or proof.get("status") != "VERIFIED_PRECELL_MECHANICAL_STOP"
+        or proof.get("target_namespace") != data["namespace"]
+        or proof.get("previous_receipt_sha256") != receipt_sha
+        or receipt_sha != PRECELL_RECEIPT_SHA256
+        or attempt_sha != PRECELL_ATTEMPT_SHA256
+        or proof.get("previous_attempt_sha256") != attempt_sha
+        or digest(prior_path.parent.with_suffix(".log")) != PRECELL_LOG_SHA256
+        or proof.get("previous_log_sha256") != PRECELL_LOG_SHA256
+        or attempt.get("sources", {}).get("research/bl_k1/m1.py") != PRECELL_SOURCE_SHA256
+        or previous.get("schema") != SCHEMA
+        or previous.get("namespace") != attempt.get("namespace")
+        or previous.get("attempt_number") != 1
+        or previous.get("verdict") != "INCOMPLETE"
+        or previous.get("verified_stop") is not False
+        or previous.get("mechanical_failure") is not True
+        or previous.get("reason")
+        != "AttributeError: 'AISnake' object has no attribute 'auto_respawn'"
+        or previous.get("cells") != []
+        or previous.get("completed_unit_exports") != {}
+        or proof.get("charged_seconds") != previous.get("charged_seconds")
+    ):
+        raise ValueError("M1 reconciliation requires the exact audited empty pre-pool failure")
+    return previous
 
 
 def validate_sample(payload: dict, fixture: dict, action: int) -> None:
@@ -288,9 +331,85 @@ def new_watch(seed: int) -> tuple[Any, dict]:
     ):
         raise ValueError("M1 refuses assisted Watch or an action transform")
     session.set_speed(24)
-    if session.speed != 24 or any(not snake.auto_respawn for snake in session.game.snakes):
+    # Watch.step passes allow_respawn=True. GameState's per-snake hook is
+    # opt-out: ordinary AISnake objects have no auto_respawn attribute.
+    from web.backend.session import MODE_WATCH
+
+    if (
+        session.mode != MODE_WATCH
+        or not session.playing
+        or session.speed != 24
+        or len(session.game.snakes) != 6
+        or any(not getattr(snake, "auto_respawn", True) for snake in session.game.snakes)
+    ):
         raise ValueError("M1 requires real continuous-respawn mixed Watch6 at 24fps")
     return session, roster_identity(session)
+
+
+def smoke(data: dict) -> dict:
+    """Real, unpaced API/IPC check; never a cell, lease, or timing export."""
+    from research.t1_commitment_20261015.replay import configure_cpu
+
+    configure_cpu()
+    session, roster = new_watch(2026102300)
+
+    def tick() -> None:
+        before = int(session.game.frame)
+        session.step()
+        snapshot = session.snapshot()
+        if int(session.game.frame) != before + 1 or session.last_error or not snapshot:
+            raise RuntimeError(f"M1 smoke Watch tick failed: {session.last_error!r}")
+
+    for _ in range(3):
+        tick()
+    # Exercise the actual death/respawn lifecycle for both policy classes,
+    # including the optional-attribute default that the former mocks hid.
+    targets = session.game.snakes[:2]
+    for snake in targets:
+        snake.die()
+        snake.respawn_timer = 1
+    tick()
+    if any(not snake.is_alive or snake.respawn_timer != 0 for snake in targets):
+        raise RuntimeError("M1 smoke did not respawn hero and opponent through Watch.step")
+    context = multiprocessing.get_context("spawn")
+    stop = context.Event()
+    fixture = next(f for f in data["fixtures"] if f["fixture_id"] == "frozen-800")
+    pool = concurrent.futures.ProcessPoolExecutor(
+        max_workers=1,
+        mp_context=context,
+        initializer=l1._worker_init,
+        initargs=("cpu", stop, time.monotonic() + 120),
+    )
+    try:
+        future = pool.submit(l1._worker_batch, fixture)
+        for _ in range(3):
+            tick()
+        payload = future.result(timeout=120)
+        validate_sample(payload, fixture, data["actions"][fixture["fixture_id"]])
+        if payload["worker_pid"] == os.getpid() or not payload["placement"]:
+            raise RuntimeError("M1 smoke requires real spawned policy placement")
+    finally:
+        stop.set()
+        pool.shutdown(wait=True, cancel_futures=True)
+    # Worker internals include diagnostic clocks. Discard all of them: this
+    # output has no S/update distributions, deadlines, bars or cell payloads.
+    return {
+        "status": "SMOKE_OK",
+        "timing_evidence": False,
+        "timed_cells_run": False,
+        "lease_acquired": False,
+        "watch_ticks": 7,
+        "watch_roster": roster["watch_roster"],
+        "snakes": len(session.game.snakes),
+        "respawned_ids": [snake.id for snake in targets],
+        "workers": 1,
+        "max_pending": 1,
+        "fixture_id": fixture["fixture_id"],
+        "chosen_action": payload["semantic"]["chosen"],
+        "native_v8": payload["native_v8"],
+        "worker_threads": payload["worker_threads"],
+        "verified_stop": True,
+    }
 
 
 def timed_tick(session: Any) -> float:
@@ -301,7 +420,13 @@ def timed_tick(session: Any) -> float:
     return update_ms / 1000
 
 
-def run_cell(cell: dict, data: dict, deadline: float, observe: Callable[[], dict]) -> dict:
+def run_cell(
+    cell: dict,
+    data: dict,
+    deadline: float,
+    observe: Callable[[], dict],
+    stop_state: dict | None = None,
+) -> dict:
     """Cold pool start and 270 warm submissions under one absolute Watch clock."""
     from research.t1_commitment_20261015.replay import configure_cpu
 
@@ -310,13 +435,10 @@ def run_cell(cell: dict, data: dict, deadline: float, observe: Callable[[], dict
     context = multiprocessing.get_context("spawn")
     stop = context.Event()
     monitor = HostMonitor(observe)
-    # Process construction is cold; no worker is started until the clock is live.
-    pool = concurrent.futures.ProcessPoolExecutor(
-        max_workers=cell["workers"],
-        mp_context=context,
-        initializer=l1._worker_init,
-        initargs=("cpu", stop, deadline),
-    )
+    if stop_state is not None:
+        stop_state["verified_stop"] = False
+    pool = None
+    monitor_started = False
     pending: dict[Any, tuple] = {}
     samples: list[dict] = []
     ticks: list[dict] = []
@@ -328,10 +450,21 @@ def run_cell(cell: dict, data: dict, deadline: float, observe: Callable[[], dict
     reason = None
     contention = None
     contention_rows = []
-    load_stop, load_queue = context.Event(), context.Queue()
+    load_stop, load_queue = context.Event(), None
     epoch = time.monotonic_ns()
-    monitor.thread.start()
     try:
+        # Keep resource setup inside cleanup coverage, including partial setup.
+        # Process construction is cold; no worker starts until the clock is live.
+        pool = concurrent.futures.ProcessPoolExecutor(
+            max_workers=cell["workers"],
+            mp_context=context,
+            initializer=l1._worker_init,
+            initargs=("cpu", stop, deadline),
+        )
+        load_queue = context.Queue()
+        epoch = time.monotonic_ns()  # preserve the original successful-cell clock placement
+        monitor.thread.start()
+        monitor_started = True
         while True:
             tick_index = len(ticks)
             target = epoch + tick_index * 1_000_000_000 // 24
@@ -428,7 +561,8 @@ def run_cell(cell: dict, data: dict, deadline: float, observe: Callable[[], dict
         load_stop.set()
         try:
             try:
-                pool.shutdown(wait=True, cancel_futures=True)
+                if pool is not None:
+                    pool.shutdown(wait=True, cancel_futures=True)
             finally:
                 if contention is not None:
                     contention.join()
@@ -438,9 +572,13 @@ def run_cell(cell: dict, data: dict, deadline: float, observe: Callable[[], dict
                         reason = reason or "missing contention process telemetry"
         finally:
             try:
-                load_queue.close()
+                if load_queue is not None:
+                    load_queue.close()
             finally:
-                monitor.close()
+                if monitor_started:
+                    monitor.close()
+    if stop_state is not None:
+        stop_state["verified_stop"] = True
     reason = reason or monitor.error
     if not monitor.rows:
         reason = reason or "missing host telemetry"
@@ -630,9 +768,19 @@ def main() -> None:
     mode.add_argument("--run", action="store_true")
     parser.add_argument("--unit", type=Path, action="append", default=[])
     mode.add_argument("--check", action="store_true")
-    parser.add_argument("--previous-attempt", type=Path)
+    mode.add_argument("--smoke", action="store_true")
+    recovery = parser.add_mutually_exclusive_group()
+    recovery.add_argument("--previous-attempt", type=Path)
+    recovery.add_argument("--reconciled-precell-stop", type=Path)
     args = parser.parse_args()
     data = inputs(args.fixtures, args.reference)
+    if args.smoke:
+        if any(
+            (args.out, args.ledger, args.previous_attempt, args.reconciled_precell_stop, args.unit)
+        ):
+            parser.error("--smoke is standalone; no attempt, ledger or recovery options")
+        print(json.dumps(smoke(data)))
+        return
     if args.make_ledger:
         make_ledger(args.make_ledger, data["namespace"], args.unit)
         return
@@ -651,6 +799,10 @@ def main() -> None:
             raise ValueError("M1 recovery requires one verified mechanical stop in this namespace")
         if ledger != previous.get("completed_unit_exports"):
             raise ValueError("recovery ledger must skip exactly all verified completed cells")
+    elif args.reconciled_precell_stop:
+        previous = reconciled_precell_stop(args.reconciled_precell_stop, data)
+        if ledger:
+            raise ValueError("reconciled pre-cell stop requires an empty new ledger")
     elif ledger:
         raise ValueError("nonempty recovery ledger requires --previous-attempt")
     charged = 0.0 if previous is None else previous["charged_seconds"]
@@ -707,12 +859,15 @@ def main() -> None:
                 "base_seconds": BASE_SECONDS,
                 "cap_seconds": CAP_SECONDS,
                 "mechanical_retry": "one whole-cell completion attempt; no automatic retry",
+                "reconciled_precell_stop_sha256": (
+                    digest(args.reconciled_precell_stop) if args.reconciled_precell_stop else None
+                ),
             },
         )
         deadline = started + CAP_SECONDS - charged
         units = []
         completed_exports = dict(ledger)
-        active_cell = False
+        stop_state = {"verified_stop": True}
         failure = None
         invalid = False
         try:
@@ -726,9 +881,7 @@ def main() -> None:
                     if not row["summary"]["complete"]:
                         raise ValueError("cannot skip an incomplete M1 cell")
                 else:
-                    active_cell = True
-                    row = run_cell(cell, data, deadline, observe)
-                    active_cell = False
+                    row = run_cell(cell, data, deadline, observe, stop_state)
                     row["mac_lease"] = lease.receipt
                     if row["summary"]["complete"]:
                         try:
@@ -756,7 +909,9 @@ def main() -> None:
         receipt["attempt_number"] = 1 if previous is None else 2
         receipt["charged_seconds"] = charged + time.monotonic() - started
         receipt["completed_unit_exports"] = completed_exports
-        receipt["verified_stop"] = not active_cell  # no owned pool escaped an unverified cleanup
+        receipt["verified_stop"] = stop_state["verified_stop"]
+        if args.reconciled_precell_stop:
+            receipt["reconciled_precell_stop_sha256"] = digest(args.reconciled_precell_stop)
         receipt["mechanical_failure"] = receipt["verdict"] == "INCOMPLETE" and (
             bool(failure) or any(row.get("stop_reason") for row in units)
         )
