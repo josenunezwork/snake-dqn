@@ -230,3 +230,13 @@ _As of 2026-10-20 ~19:25 PT:_
   released-checkpoint action; protected study unopened, `snake-dqn-l2mac`
   untouched. Detailed evidence and precondition status are in
   `research/bl_ppo/P1_E8_04_HANDOFF.md` and the independent Codex-V receipt.
+- Final independent receipt `P1_E8_04_CODEX_V_REVIEW.json` explicitly records
+  all 26 section-4 acceptance lines and all eight section-6 preconditions:
+  **HOLD_RETURN_TO_JUDGE**, unresolved admission findings V1 C2 drift, V2
+  replay final-code/thread binding, V3 limited history. Software regressions
+  pass (root 108, independent reviewer 87); these are not admission PASS.
+  Actual review-only source06 packs are pinned to
+  `f184c2c7f54e642b5870d6efd4a32b60ffe50496`, independently checked and indexed
+  by `P1_E8_04_DISPATCH_PACKS.json`. Both top-level admission flags are false.
+  This records Codex's receipt publication, **not** Claude's required
+  line-by-line verification or a judge disposition. No dispatch occurred.
