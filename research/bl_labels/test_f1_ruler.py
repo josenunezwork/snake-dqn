@@ -276,3 +276,94 @@ def test_lossless_transport_preserves_frozen_bank_identity(tmp_path: Path) -> No
     _write_once(Path(str(path) + ".complete"), b"complete\n")
     assert f1_ruler.bank_bytes(path) == raw
     assert f1_ruler.bank_digest(path) == hashlib.sha256(raw).hexdigest()
+
+
+@pytest.mark.parametrize("platform", ["cpu", "l4"])
+def test_triplet_upload_preserves_verifier_basename(tmp_path: Path, platform: str) -> None:
+    import shutil
+
+    from research.bl_labels.exports import _verify
+    from research.bl_labels.f1_manifests import triplet
+    from research.bl_labels.f1_units import empty_ledger, load_ledger
+
+    old = tmp_path / f"f1-{platform}-verified-ledger.json"
+    publish_json(old, empty_ledger("a" * 64, platform))
+    remote = tmp_path / "remote/inputs/f1-verified-ledger.json"
+    remote.parent.mkdir(parents=True)
+    # Pack-08 verified the local triplet, then renamed only its upload paths.
+    for suffix in ("", ".sha256", ".complete"):
+        shutil.copyfile(str(old) + suffix, str(remote) + suffix)
+    with pytest.raises(ValueError, match="F0 export digest mismatch"):
+        load_ledger(remote, "a" * 64, platform)
+    with pytest.raises(ValueError, match="preserve basename"):
+        triplet(old, "inputs/f1-verified-ledger.json")
+    fixed = tmp_path / platform / "f1-verified-ledger.json"
+    publish_json(fixed, empty_ledger("a" * 64, platform))
+    for row in triplet(fixed, "inputs/f1-verified-ledger.json"):
+        shutil.copyfile(row["path"], tmp_path / "remote" / row["dest"])
+    assert _verify(remote) == hashlib.sha256(old.read_bytes()).hexdigest()
+    assert load_ledger(remote, "a" * 64, platform) == {}
+
+
+def test_real_canary05_exports_and_failed_pack_destination_regression(tmp_path: Path) -> None:
+    """Opt-in offline reproduction using immutable real F0 artifacts, no model jobs."""
+    import json
+    import os
+    import shutil
+
+    from research.bl_labels.exports import _verify
+    from research.bl_labels.f1_manifests import charge_failed_probe, triplet
+    from research.bl_labels.f1_units import empty_ledger, load_ledger
+
+    artifact_root = os.environ.get("F1_REAL_ARTIFACT_ROOT")
+    if not artifact_root:
+        pytest.skip("set F1_REAL_ARTIFACT_ROOT to the immutable bl-labels-f0 artifact root")
+    artifacts = Path(artifact_root)
+    bank = tmp_path / "f1-root-bank.json"
+    sessions = sorted((artifacts / "canary-output-05/exports/lives").glob("*--session.json"))
+    assert len(sessions) == 31
+    f1_ruler.build_bank(sessions, bank)
+    packed = artifacts / "f1-pack-08/f1-root-bank.json.xz"
+    assert bank.read_bytes() == f1_ruler.bank_bytes(packed)
+    digest = f1_ruler.bank_digest(bank)
+    assert digest == "a8c1dc4bbe1fd579d59b69d6ca6ca9dbd2814b088f74277f008f504f6d1bbb0d"
+    for platform in ("cpu", "l4"):
+        manifest = json.loads((artifacts / f"f1-pack-08/f1-{platform}-probe.json").read_text())
+        runtime = tmp_path / f"runtime-{platform}"
+        for row in manifest["inputs"]:
+            if not row["dest"].startswith("inputs/"):
+                continue
+            source, target = Path(row["path"]), runtime / row["dest"]
+            assert hashlib.sha256(source.read_bytes()).hexdigest() == row["sha256"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+        assert f1_ruler.bank_digest(runtime / "inputs/f1-root-bank.json.xz") == digest
+        remote = runtime / "inputs/f1-verified-ledger.json"
+        assert _verify(
+            Path(
+                next(
+                    r["path"]
+                    for r in manifest["inputs"]
+                    if r["dest"] == "inputs/f1-verified-ledger.json"
+                )
+            )
+        )
+        with pytest.raises(ValueError, match="F0 export digest mismatch"):
+            load_ledger(remote, digest, platform, manifest["commit"])
+        fixed = tmp_path / platform / "f1-verified-ledger.json"
+        publish_json(fixed, empty_ledger(digest, platform, source_commit=manifest["commit"]))
+        for row in triplet(fixed, "inputs/f1-verified-ledger.json"):
+            shutil.copyfile(row["path"], runtime / row["dest"])
+        assert load_ledger(remote, digest, platform, manifest["commit"]) == {}
+        estimate = manifest["requirements"]["est_minutes"]
+        charged = charge_failed_probe(
+            manifest, artifacts / f"f1-output-08/{platform}-probe/receipt.json"
+        )
+        assert manifest["requirements"]["est_minutes"] == estimate
+        assert manifest["timeout_minutes"] < 2 * estimate
+        assert charged["headroom_admitted"] is False
+        assert manifest["budget"]["unit_cap"] + charged["units_charged"] == pytest.approx(
+            0.04 if platform == "cpu" else 0.36
+        )
+        with pytest.raises(ValueError, match="verified stopped packaging failure"):
+            charge_failed_probe(manifest, artifacts / f"f1-output-08/{platform}-probe/receipt.json")

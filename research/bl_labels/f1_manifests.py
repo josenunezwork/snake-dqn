@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import lzma
+import math
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,10 @@ def _input(path: Path, dest: str) -> dict[str, str]:
 
 def triplet(path: Path, dest: str) -> list[dict[str, str]]:
     _verify(path)
+    # F0 sidecars bind the payload basename as well as its content digest.
+    # Uploading unchanged sidecar bytes under a renamed payload breaks _verify.
+    if Path(dest).name != path.name:
+        raise ValueError(f"F1 triplet upload must preserve basename: {path.name} -> {dest}")
     return [
         _input(Path(str(path) + suffix), dest + suffix) for suffix in ("", ".sha256", ".complete")
     ]
@@ -235,10 +240,90 @@ def bind(template: Path, receipt: Path, out: Path) -> None:
     publish_json(out, value)
 
 
-def build(commit: str, bank: Path, b8: Path, frp3: Path, out: Path, output_root: Path) -> None:
+def charge_failed_probe(value: dict[str, Any], receipt_path: Path) -> dict[str, Any]:
+    """Carry the verified packaging failure into its original frozen stage caps.
+
+    Preserve measured estimates: insufficient remaining headroom is an admission
+    refusal, never a reason to lower a forecast or reset the series envelope.
+    """
+    receipt = json.loads(receipt_path.read_text())
+    manifest_path = receipt_path.parent / "manifest.json"
+    previous = json.loads(manifest_path.read_text())
+    runtime_path = receipt_path.parent / "exports/runtime-result.json"
+    runtime_sha = _verify(runtime_path)
+    runtime = json.loads(runtime_path.read_text())
+    platform = value["env"]["F1_PLATFORM"]
+    stage = f"{platform}-probe"
+    if (
+        receipt.get("manifest_sha256") != _sha(manifest_path)
+        or receipt.get("job_id") != previous.get("job_id")
+        or receipt.get("status") != "INCOMPLETE"
+        or receipt.get("stop_verified") is not True
+        or receipt.get("failure_class") != "CHILD_NONZERO_EXIT"
+        or previous.get("f1", {}).get("stage") != stage
+        or previous["f1"].get("prior_attempts")
+        or value["f1"].get("stage") != stage
+        or value["f1"].get("prior_attempts")
+        or previous["f1"].get("bank_sha256") != value["f1"]["bank_sha256"]
+        or runtime.get("bank_sha256") != value["f1"]["bank_sha256"]
+        or runtime.get("status") != "INVALID"
+        or runtime.get("reason") != "F0 export digest mismatch"
+        or runtime.get("platform") != platform
+        or not any(
+            row.get("path") == "runtime-result.json" and row.get("sha256") == runtime_sha
+            for row in receipt.get("exports", [])
+        )
+    ):
+        raise ValueError("F1 prior probe is not a verified stopped packaging failure")
+    elapsed = receipt.get("elapsed_seconds")
+    if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed <= 0:
+        raise ValueError("F1 prior probe elapsed time is unverified")
+    limits = envelope(stage)["effective"]
+    rate = value["budget"]["rate_units_per_hour"]
+    # Conservatively charge the whole supervisor lifetime, including setup and stop.
+    charged = elapsed * rate / 3600
+    remaining_seconds = math.floor(limits["minutes"] * 60 - elapsed)
+    remaining_units = limits["units"] - charged
+    if remaining_seconds <= 0 or remaining_units <= 0:
+        raise ValueError("F1 prior probe exhausted its frozen envelope")
+    value["timeout_minutes"] = remaining_seconds / 60
+    value["budget"]["unit_cap"] = remaining_units
+    value["env"]["F1_SESSION_SECONDS"] = str(remaining_seconds)
+    evidence = {
+        "receipt": str(receipt_path.resolve()),
+        "receipt_sha256": _sha(receipt_path),
+        "manifest_sha256": _sha(manifest_path),
+        "elapsed_seconds_charged": elapsed,
+        "units_charged": charged,
+        "remaining_seconds": remaining_seconds,
+        "remaining_units": remaining_units,
+        "reserve_units_inside_remaining_cap": value["budget"]["reserve_units"],
+        "completion_attempt": 1,
+        "max_completion_retries": 2,
+        "headroom_admitted": remaining_seconds >= 120 * value["requirements"]["est_minutes"],
+    }
+    value["f1"]["prior_attempts"] = [evidence]
+    return evidence
+
+
+def build(
+    commit: str,
+    bank: Path,
+    b8: Path,
+    frp3: Path,
+    out: Path,
+    output_root: Path,
+    prior_probe_receipts: list[Path] | None = None,
+) -> None:
     manifests.require_source_pin(commit)
     load_bank(bank)
     qualified = qualification()
+    prior = {}
+    for receipt in prior_probe_receipts or []:
+        platform = json.loads((receipt.parent / "manifest.json").read_text())["env"]["F1_PLATFORM"]
+        if platform not in {"cpu", "l4"} or platform in prior:
+            raise ValueError("duplicate or foreign prior F1 probe platform")
+        prior[platform] = receipt
     packed = out / "f1-root-bank.json.xz"
     payload = lzma.compress(bank.read_bytes(), preset=6)
     _write_once(packed, payload)
@@ -294,25 +379,25 @@ def build(commit: str, bank: Path, b8: Path, frp3: Path, out: Path, output_root:
                 {"status": "NOT_RUN", "reason": "stall mitigation qualification absent"},
             )
             continue
-        ledger = out / f"f1-{platform}-verified-ledger.json"
+        ledger = out / platform / "f1-verified-ledger.json"
         publish_json(ledger, empty_ledger(bank_digest(bank), platform, source_commit=commit))
         for is_probe in (True, False):
             name = f"f1-{platform}-" + ("probe.json" if is_probe else "template.json")
             output = output_root / (platform + ("-probe" if is_probe else "-ruler"))
-            publish_json(
-                out / name,
-                make_template(
-                    commit,
-                    output,
-                    packed,
-                    ledger,
-                    b8,
-                    frp3,
-                    platform=platform,
-                    qualified=qualified,
-                    is_probe=is_probe,
-                ),
+            value = make_template(
+                commit,
+                output,
+                packed,
+                ledger,
+                b8,
+                frp3,
+                platform=platform,
+                qualified=qualified,
+                is_probe=is_probe,
             )
+            if is_probe and platform in prior:
+                charge_failed_probe(value, prior[platform])
+            publish_json(out / name, value)
 
 
 def main() -> None:
@@ -320,6 +405,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     prepare = sub.add_parser("build")
     prepare.add_argument("--commit", required=True)
+    prepare.add_argument("--prior-probe-receipt", type=Path, action="append", default=[])
     for name in ("bank", "b8", "frp3", "out", "output-root"):
         prepare.add_argument("--" + name, type=Path, required=True)
     binder = sub.add_parser("bind")
@@ -329,7 +415,15 @@ def main() -> None:
     if args.command == "bind":
         bind(args.template, args.receipt, args.out)
     else:
-        build(args.commit, args.bank, args.b8, args.frp3, args.out, args.output_root)
+        build(
+            args.commit,
+            args.bank,
+            args.b8,
+            args.frp3,
+            args.out,
+            args.output_root,
+            args.prior_probe_receipt,
+        )
 
 
 if __name__ == "__main__":
