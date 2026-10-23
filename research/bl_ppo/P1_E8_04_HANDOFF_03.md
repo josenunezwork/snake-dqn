@@ -131,3 +131,13 @@ and only when actual charged +9.62+3.86 <=25.50 after reconciliation.
 The generic resume retry maximum2 is not extra funding or retry authorization.
 Exported convergence is ledger-only. B8 served, protected study closed,
 l2mac and live tmux/jobs untouched. No spend or dispatch performed by Codex.
+
+Independent Codex-V review03 completed: replay rules1–5, C2-prime, witness,
+manifest five-file equality, selected allocation, namespace/ledger, input hashes,
+L4 pricing, external qualified transport and final-02 upload preflights PASS.
+Final status **HOLD_PENDING_CLAUDE_HISTORY_INVENTORY**, sole unresolved finding
+`V3-INVENTORY`; no READY claim. Reviewer independently reproduced the collision
+and verified every indexed final artifact. See `P1_E8_04_CODEX_V_REVIEW_03.json`.
+Sol evidence commit64777e18 was published; origin/main merge9bfd0e53 imported
+unrelated A2/import-preflight files. P1 bound files and Colab tree stayed identical;
+no broadened tests were run for that unrelated merge. No local job remains active.
