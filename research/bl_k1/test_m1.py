@@ -694,3 +694,317 @@ def test_reconciliation_is_empty_only_and_keeps_cumulative_debit(
     with pytest.raises(RuntimeError, match="test refuses lease"):
         m1.main()
     assert json.loads(path.read_text())["charged_seconds"] == 0.82
+
+
+@pytest.fixture
+def judged_case(monkeypatch, tmp_path):
+    """Completed mock exports exercise the real sidecar readers without workers."""
+    previous = {
+        "schema": m1.SCHEMA,
+        "namespace": "old",
+        "attempt_number": 2,
+        "verdict": "INCOMPLETE",
+        "verified_stop": True,
+        "mechanical_failure": True,
+        "completed_unit_exports": {},
+        "reconciled_precell_stop_sha256": m1.JUDGED_PRECELL_SHA256,
+        "charged_seconds": m1.JUDGED_CHARGED_SECONDS,
+        "cells": [{"cell_id": "cpu-w1-k1", "complete": False}],
+    }
+    prior = tmp_path / "attempt-03"
+    prior.mkdir()
+    attempt = {
+        "namespace": "old",
+        "sources": {"research/bl_k1/m1.py": m1.JUDGED_SOURCE_SHA256},
+    }
+    cell = {"stop_reason": "foreign heavy load during M1", "summary": {"complete": False}}
+    judgment = tmp_path / "judgment.md"
+    judgment.write_text("Fable judgment")
+    log = prior.with_suffix(".log")
+    log.write_text("mechanical stop")
+    return SimpleNamespace(
+        previous=previous,
+        attempt=attempt,
+        cell=cell,
+        prior=prior,
+        judgment=judgment,
+        log=log,
+        proof_path=tmp_path / "proof.json",
+        data={"namespace": "new", "sources": {}},
+    )
+
+
+def write_judged_case(monkeypatch, case) -> dict:
+    """Pin mock artifacts as the historical constants, preserving real IO checks."""
+    receipt_sha = export_json(case.prior / "receipt.json", case.previous)["sha256"]
+    attempt_sha = export_json(case.prior / "attempt.json", case.attempt)["sha256"]
+    cell_sha = export_json(case.prior / "cpu-w1-k1.json", case.cell)["sha256"]
+    monkeypatch.setattr(m1, "JUDGED_RECEIPT_SHA256", receipt_sha)
+    monkeypatch.setattr(m1, "JUDGED_ATTEMPT_SHA256", attempt_sha)
+    monkeypatch.setattr(m1, "JUDGED_LOG_SHA256", m1.digest(case.log))
+    monkeypatch.setattr(m1, "JUDGED_CELL_SHA256", {"cpu-w1-k1": cell_sha})
+    return {
+        "schema": m1.SCHEMA + "/judged-recovery",
+        "judge": "Fable-M1-attempt4",
+        "status": "JUDGED_FOREIGN_LOAD_STOP",
+        "target_namespace": "new",
+        "judgment_path": str(case.judgment),
+        "judgment_sha256": m1.digest(case.judgment),
+        "previous_receipt_path": str(case.prior / "receipt.json"),
+        "previous_receipt_sha256": receipt_sha,
+        "previous_attempt_sha256": attempt_sha,
+        "previous_log_sha256": m1.digest(case.log),
+        "previous_cell_sha256": {"cpu-w1-k1": cell_sha},
+        "charged_seconds": m1.JUDGED_CHARGED_SECONDS,
+        "next_attempt_number": 3,
+        "final_attempt": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "receipt_hash",
+        "attempt_hash",
+        "log_hash",
+        "cell_hash",
+        "missing_cell",
+        "missing_complete",
+        "attempt_number",
+        "verified_stop",
+        "completed_exports",
+        "target_namespace",
+        "judgment_hash",
+        "schema",
+        "judge",
+        "status",
+        "next_attempt",
+        "final_attempt",
+        "source",
+        "previous_schema",
+        "namespace",
+        "verdict",
+        "mechanical_failure",
+        "precell",
+        "debit",
+        "proof_debit",
+        "cells_count",
+        "cell_id",
+        "cell_complete",
+        "stop_reason",
+        "summary_complete",
+    ],
+)
+def test_judged_recovery_refusals(monkeypatch, judged_case, change) -> None:
+    case = judged_case
+    previous_changes = {
+        "attempt_number": ("attempt_number", 1),
+        "verified_stop": ("verified_stop", False),
+        "completed_exports": ("completed_unit_exports", {"cpu-w1-k1": {}}),
+        "previous_schema": ("schema", "foreign"),
+        "namespace": ("namespace", "foreign"),
+        "verdict": ("verdict", "PASS"),
+        "mechanical_failure": ("mechanical_failure", False),
+        "precell": ("reconciled_precell_stop_sha256", "wrong"),
+        "debit": ("charged_seconds", 0.82),
+        "cells_count": ("cells", []),
+        "cell_id": ("cells", [{"cell_id": "cpu-w2-k2", "complete": False}]),
+        "cell_complete": ("cells", [{"cell_id": "cpu-w1-k1", "complete": True}]),
+    }
+    if change in previous_changes:
+        key, value = previous_changes[change]
+        case.previous[key] = value
+    if change == "source":
+        case.attempt["sources"]["research/bl_k1/m1.py"] = "wrong"
+    if change == "stop_reason":
+        case.cell["stop_reason"] = "other stop"
+    if change == "summary_complete":
+        case.cell["summary"]["complete"] = True
+    proof = write_judged_case(monkeypatch, case)
+    proof_changes = {
+        "receipt_hash": ("previous_receipt_sha256", "wrong"),
+        "attempt_hash": ("previous_attempt_sha256", "wrong"),
+        "log_hash": ("previous_log_sha256", "wrong"),
+        "cell_hash": ("previous_cell_sha256", {}),
+        "target_namespace": ("target_namespace", "foreign"),
+        "judgment_hash": ("judgment_sha256", "wrong"),
+        "schema": ("schema", "foreign"),
+        "judge": ("judge", "other"),
+        "status": ("status", "other"),
+        "next_attempt": ("next_attempt_number", 4),
+        "final_attempt": ("final_attempt", False),
+        "proof_debit": ("charged_seconds", 0.82),
+    }
+    if change in proof_changes:
+        key, value = proof_changes[change]
+        proof[key] = value
+    if change == "missing_cell":
+        (case.prior / "cpu-w1-k1.json").unlink()
+    if change == "missing_complete":
+        (case.prior / "cpu-w1-k1.json.complete").unlink()
+    export_json(case.proof_path, proof)
+    with pytest.raises(ValueError, match="exact audited attempt-03 foreign-load stop"):
+        m1.judged_recovery(case.proof_path, case.data)
+
+
+def test_judged_recovery_check_and_final_receipt(monkeypatch, judged_case, capsys) -> None:
+    import json
+    from contextlib import contextmanager
+
+    from research import mac_lease
+    from research.bl_mac_latency import host
+
+    case = judged_case
+    proof = write_judged_case(monkeypatch, case)
+    export_json(case.proof_path, proof)
+    assert m1.judged_recovery(case.proof_path, case.data) == case.previous
+    monkeypatch.setattr(m1, "inputs", lambda *args: case.data)
+    monkeypatch.setattr(m1, "sources", lambda: {})
+    ledger = case.prior.parent / "empty-ledger.json"
+    m1.make_ledger(ledger, "new", [])
+    argv = [
+        "m1",
+        "--check",
+        "--fixtures",
+        "f",
+        "--reference",
+        "r",
+        "--ledger",
+        str(ledger),
+        "--judged-recovery",
+        str(case.proof_path),
+    ]
+    monkeypatch.setattr("sys.argv", argv)
+    m1.main()
+    check = json.loads(capsys.readouterr().out)
+    assert check["skipped"] == [] and check["timed_cells_run"] is False
+    assert check["remaining_seconds"] == pytest.approx(14394.000786, abs=1e-6)
+
+    @contextmanager
+    def held(*args, **kwargs):
+        assert kwargs["seconds"] == m1.CAP_SECONDS - m1.JUDGED_CHARGED_SECONDS
+        yield SimpleNamespace(receipt={"id": "test-only"})
+
+    monkeypatch.setattr(mac_lease, "held", held)
+    monkeypatch.setattr(host, "snapshot", lambda: {"quiet": True})
+    clock = iter([100.0, 102.0])
+    monkeypatch.setattr(m1.time, "monotonic", lambda: next(clock))
+
+    def stop(*args):
+        raise RuntimeError("mock mechanical stop; no pool or timing run")
+
+    monkeypatch.setattr(m1, "run_cell", stop)
+    out = case.prior.parent / "attempt-04"
+    monkeypatch.setattr("sys.argv", [argv[0], "--run", *argv[2:], "--out", str(out)])
+    m1.main()
+    attempt, _ = l1._read_completed_json(out / "attempt.json")
+    receipt, _ = l1._read_completed_json(out / "receipt.json")
+    assert attempt["judged_recovery_sha256"] == m1.digest(case.proof_path)
+    assert receipt["judged_recovery_sha256"] == m1.digest(case.proof_path)
+    assert receipt["attempt_number"] == 3 and receipt["final_attempt"] is True
+    assert receipt["charged_seconds"] == pytest.approx(m1.JUDGED_CHARGED_SECONDS + 2)
+    assert receipt["completed_unit_exports"] == {} and receipt["cells"] == []
+    assert receipt["mechanical_failure"] is True
+
+
+def test_judged_recovery_refuses_nonempty_ledger(monkeypatch, judged_case) -> None:
+    case = judged_case
+    proof = write_judged_case(monkeypatch, case)
+    export_json(case.proof_path, proof)
+    monkeypatch.setattr(m1, "inputs", lambda *args: case.data)
+    monkeypatch.setattr(m1, "verify_ledger", lambda *args: {"cpu-w1-k1": {}})
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "m1",
+            "--check",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--ledger",
+            "l",
+            "--judged-recovery",
+            str(case.proof_path),
+        ],
+    )
+    with pytest.raises(ValueError, match="judged recovery requires an empty new ledger"):
+        m1.main()
+
+
+@pytest.mark.parametrize("other", ["--previous-attempt", "--reconciled-precell-stop"])
+def test_judged_recovery_is_mutually_exclusive(monkeypatch, other) -> None:
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "m1",
+            "--check",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--judged-recovery",
+            "proof",
+            other,
+            "other",
+        ],
+    )
+    with pytest.raises(SystemExit):
+        m1.main()
+
+
+def test_judged_recovery_refused_for_smoke(monkeypatch) -> None:
+    monkeypatch.setattr(m1, "inputs", lambda *args: {})
+    monkeypatch.setattr(
+        "sys.argv",
+        ["m1", "--smoke", "--fixtures", "f", "--reference", "r", "--judged-recovery", "p"],
+    )
+    with pytest.raises(SystemExit):
+        m1.main()
+
+
+def test_wrapper_passes_judged_recovery_without_dispatch(tmp_path) -> None:
+    import json
+    import subprocess
+    from pathlib import Path
+
+    root = tmp_path / "repo with spaces"
+    script = root / "research/bl_k1/run_m1.sh"
+    script.parent.mkdir(parents=True)
+    python = tmp_path / "fake-python"
+    python.write_text("#!/usr/bin/env python3\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n")
+    python.chmod(0o755)
+    original = Path(m1.__file__).with_name("run_m1.sh").read_text()
+    script.write_text(
+        original.replace(
+            "PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python", f'PY="{python}"'
+        )
+    )
+    proof = str(tmp_path / "proof with spaces.json")
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--check",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--judged-recovery",
+            proof,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(result.stdout) == [
+        "-m",
+        "research.bl_k1.m1",
+        "--check",
+        "--fixtures",
+        "f",
+        "--reference",
+        "r",
+        "--judged-recovery",
+        proof,
+    ]

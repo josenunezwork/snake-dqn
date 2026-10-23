@@ -13,6 +13,7 @@ if [[ "${1:-}" == --run ]]; then
   exec /usr/bin/nice -n 10 /usr/bin/caffeinate -dims "$PY" -m research.bl_k1.m1 --run "$@"
 fi
 # Untimed operations are explicit. A missing --run cannot dispatch by accident.
+# Both exec paths preserve recovery flags (including --judged-recovery PROOF) in "$@".
 case " $* " in
   *" --check "*|*" --smoke "*|*" --make-ledger "*|*" --help "*) ;;
   *) echo 'use --check, --smoke, --make-ledger PATH, or --run' >&2; exit 2 ;;

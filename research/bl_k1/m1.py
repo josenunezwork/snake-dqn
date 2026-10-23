@@ -33,6 +33,16 @@ PRECELL_RECEIPT_SHA256 = "5ee5b1629ad11b7e4c181455846f9591ec2be67dc71549501a3f43
 PRECELL_ATTEMPT_SHA256 = "d917e555b79d54b245733b66db309546dbd5c6e91ed9b3d916b7e162612b8bc0"
 PRECELL_LOG_SHA256 = "64b160641243f014550c86650092077f8f2aefc41e8401f5059fdfa3555d062c"
 PRECELL_SOURCE_SHA256 = "3aff0cf6c037fb5b4597bddbc5707b5e23b36146bc2a7e34b0a07fcf579d0e57"
+# Fable's final, outcome-blind completion admission for the attempt-03 stop.
+JUDGED_RECEIPT_SHA256 = "53e45bff4145c26c7b507037d960baf47e5e293c9bca7b59c8a3180694562063"
+JUDGED_ATTEMPT_SHA256 = "40372be149d99b7c8d34010bf0a7d569541819de3bf85af883de83e9d3113604"
+JUDGED_LOG_SHA256 = "c7d0780e55a21b002ed4648069bc569f8e3f39de736ec9c89bcf6f156115e8de"
+JUDGED_CELL_SHA256 = {
+    "cpu-w1-k1": "c76921b70835d1c6dc24b543d26d86721ac389b99b042f547b3bed9988a874e1"
+}
+JUDGED_SOURCE_SHA256 = "78ae9369780d0f2b9c4f4e3fb2946a743589f625a8afafa622b545d1c4f27c7a"
+JUDGED_PRECELL_SHA256 = "4ebca231284aac36426f5d7aebe0f2e2e5029f2ed67586caa95f55e69d75d9f7"
+JUDGED_CHARGED_SECONDS = 5.999214000010397
 
 
 def cells() -> list[dict[str, Any]]:
@@ -192,6 +202,55 @@ def reconciled_precell_stop(path: Path, data: dict) -> dict:
         or proof.get("charged_seconds") != previous.get("charged_seconds")
     ):
         raise ValueError("M1 reconciliation requires the exact audited empty pre-pool failure")
+    return previous
+
+
+def judged_recovery(path: Path, data: dict) -> dict:
+    """Carry only debit and attempt count from Fable's exact audited stop."""
+    error = "M1 judged recovery requires the exact audited attempt-03 foreign-load stop"
+    try:
+        proof, _ = l1._read_completed_json(path)
+        prior_path = Path(proof["previous_receipt_path"])
+        previous, receipt_sha = l1._read_completed_json(prior_path)
+        attempt, attempt_sha = l1._read_completed_json(prior_path.parent / "attempt.json")
+        cell_path = prior_path.parent / "cpu-w1-k1.json"
+        cell, cell_sha = l1._read_completed_json(cell_path)
+        if (
+            proof.get("schema") != SCHEMA + "/judged-recovery"
+            or proof.get("judge") != "Fable-M1-attempt4"
+            or proof.get("status") != "JUDGED_FOREIGN_LOAD_STOP"
+            or proof.get("target_namespace") != data["namespace"]
+            or proof.get("judgment_sha256") != digest(Path(proof["judgment_path"]))
+            or proof.get("next_attempt_number") != 3
+            or proof.get("final_attempt") is not True
+            or receipt_sha != JUDGED_RECEIPT_SHA256
+            or proof.get("previous_receipt_sha256") != receipt_sha
+            or attempt_sha != JUDGED_ATTEMPT_SHA256
+            or proof.get("previous_attempt_sha256") != attempt_sha
+            or digest(prior_path.parent.with_suffix(".log")) != JUDGED_LOG_SHA256
+            or proof.get("previous_log_sha256") != JUDGED_LOG_SHA256
+            or cell_sha != JUDGED_CELL_SHA256["cpu-w1-k1"]
+            or proof.get("previous_cell_sha256") != JUDGED_CELL_SHA256
+            or attempt.get("sources", {}).get("research/bl_k1/m1.py") != JUDGED_SOURCE_SHA256
+            or previous.get("schema") != SCHEMA
+            or previous.get("namespace") != attempt.get("namespace")
+            or previous.get("attempt_number") != 2
+            or previous.get("verdict") != "INCOMPLETE"
+            or previous.get("verified_stop") is not True
+            or previous.get("mechanical_failure") is not True
+            or previous.get("completed_unit_exports") != {}
+            or previous.get("reconciled_precell_stop_sha256") != JUDGED_PRECELL_SHA256
+            or previous.get("charged_seconds") != JUDGED_CHARGED_SECONDS
+            or proof.get("charged_seconds") != JUDGED_CHARGED_SECONDS
+            or len(previous["cells"]) != 1
+            or previous["cells"][0].get("cell_id") != "cpu-w1-k1"
+            or previous["cells"][0].get("complete") is not False
+            or cell.get("stop_reason") != "foreign heavy load during M1"
+            or cell["summary"].get("complete") is not False
+        ):
+            raise ValueError(error)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise ValueError(error) from exc
     return previous
 
 
@@ -772,11 +831,19 @@ def main() -> None:
     recovery = parser.add_mutually_exclusive_group()
     recovery.add_argument("--previous-attempt", type=Path)
     recovery.add_argument("--reconciled-precell-stop", type=Path)
+    recovery.add_argument("--judged-recovery", type=Path)
     args = parser.parse_args()
     data = inputs(args.fixtures, args.reference)
     if args.smoke:
         if any(
-            (args.out, args.ledger, args.previous_attempt, args.reconciled_precell_stop, args.unit)
+            (
+                args.out,
+                args.ledger,
+                args.previous_attempt,
+                args.reconciled_precell_stop,
+                args.judged_recovery,
+                args.unit,
+            )
         ):
             parser.error("--smoke is standalone; no attempt, ledger or recovery options")
         print(json.dumps(smoke(data)))
@@ -803,6 +870,10 @@ def main() -> None:
         previous = reconciled_precell_stop(args.reconciled_precell_stop, data)
         if ledger:
             raise ValueError("reconciled pre-cell stop requires an empty new ledger")
+    elif args.judged_recovery:
+        previous = judged_recovery(args.judged_recovery, data)
+        if ledger:
+            raise ValueError("judged recovery requires an empty new ledger")
     elif ledger:
         raise ValueError("nonempty recovery ledger requires --previous-attempt")
     charged = 0.0 if previous is None else previous["charged_seconds"]
@@ -862,6 +933,9 @@ def main() -> None:
                 "reconciled_precell_stop_sha256": (
                     digest(args.reconciled_precell_stop) if args.reconciled_precell_stop else None
                 ),
+                "judged_recovery_sha256": (
+                    digest(args.judged_recovery) if args.judged_recovery else None
+                ),
             },
         )
         deadline = started + CAP_SECONDS - charged
@@ -906,12 +980,15 @@ def main() -> None:
             receipt["verdict"] = "INVALID"
             receipt["reason"] = "source drift during measurement"
         receipt["mac_lease"] = lease.receipt
-        receipt["attempt_number"] = 1 if previous is None else 2
+        receipt["attempt_number"] = 1 if previous is None else previous["attempt_number"] + 1
         receipt["charged_seconds"] = charged + time.monotonic() - started
         receipt["completed_unit_exports"] = completed_exports
         receipt["verified_stop"] = stop_state["verified_stop"]
         if args.reconciled_precell_stop:
             receipt["reconciled_precell_stop_sha256"] = digest(args.reconciled_precell_stop)
+        if args.judged_recovery:
+            receipt["judged_recovery_sha256"] = digest(args.judged_recovery)
+            receipt["final_attempt"] = True
         receipt["mechanical_failure"] = receipt["verdict"] == "INCOMPLETE" and (
             bool(failure) or any(row.get("stop_reason") for row in units)
         )
