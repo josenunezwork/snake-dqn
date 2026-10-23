@@ -308,3 +308,13 @@ Published executable/pack pin `efdba0c2cbea91fc408e0597f76ed7ef5864634d`;
 supervisor validation passed with qualified CLI tree d0d92bdb572b770284a1fea6152417ffa5f06bea.
 No real labels/outcomes opened, no Colab allocation/spend, no operator approval
 file written, and no serving/release authority exercised.
+
+F1 refund pack-10 preparation (2026-10-23, Sol): **HOLD**. Exact caps and repaired
+worker pin `2af48cd0b98a2063f46871cf4d320a5541b789af` preserved; qualified CLI tree
+`d0d92bdb572b770284a1fea6152417ffa5f06bea` unchanged. Four upload qualifications
+PASS; L4 probe validates, but CPU's ruled 40-minute probe is refused by the
+qualified 30-minute family-canary maximum. Both rulers await actual family PASS.
+Historical pack-08 spend carried as 0.153 u, separate from fresh 4.04 u caps;
+exact historical failures retained/excluded by SHA-bound refund census; A100
+`NOT_RUN by ruling`. 153 light single-process tests PASS. No Colab dispatch.
+See `research/bl_labels/F1_REFUND_HANDOFF_20261023.md` and sibling Codex-V receipt.
