@@ -73,6 +73,51 @@ def test_sitecustomize_hook_forces_hash_writes_nonsecret_durable_identity(
     assert client._issue_request("unused", timeout=None) == {"timeout": (30, 120)}
 
 
+@pytest.mark.parametrize("hash_form", ["hex", "hyphenated"])
+def test_assignment_then_first_exec_replays_cpu_uuid_refusal(
+    tmp_path: Path, hash_form: str
+) -> None:
+    """Replay acceptance-1792737517: new and exec are separate CLI processes."""
+    from research.colab_cli import supervisor
+
+    fixture = Path(__file__).with_name("fixtures") / "colab_identity_replay.py"
+    binary = tmp_path / "replay-colab"
+    binary.write_text(f'#!/bin/sh\nexec "{sys.executable}" -S "{fixture}" "$@"\n')
+    binary.chmod(0o700)
+    cli = supervisor.CLI(str(binary), tmp_path / "sessions.json", "owned-session")
+    # Exact UUID retained in the failed CPU arm's durable assignment record.
+    identity = uuid.UUID("8a64755c-57f4-43d1-92d9-59159b2cb7a0")
+    if hash_form == "hyphenated":
+        cli.notebook_hash = str(identity)
+    else:
+        cli.notebook_hash = identity.hex  # CLI.__init__'s production format
+    cli.call("new", timeout=10)
+    assert json.loads(cli.assignment_record.read_text())["notebook_hash"] == str(identity)
+    cli.call("exec", "-s", cli.session, "pass", timeout=10)
+    assert json.loads(cli.config.read_text())["kernel_id"] == "created-by-us"
+    # A fresh subprocess must honor the durable ID and never create a duplicate.
+    with pytest.raises(supervisor.Refused, match="kernel already exists"):
+        cli.call("exec", "-s", cli.session, "pass", timeout=10)
+    events = [
+        json.loads(line)
+        for line in cli.config.with_suffix(".events.jsonl").read_text().splitlines()
+    ]
+    assert events == [
+        {"assign_uuid": str(identity)},
+        {"post": "https://owned.example//api/kernels"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "recorded", [None, "", "foreign", 123, {}, "00000000-0000-0000-0000-000000000001"]
+)
+def test_uuid_identity_comparison_refuses_missing_malformed_and_foreign(recorded: object) -> None:
+    guard = _load("guard_uuid_identity_test")
+    assert not guard._same_notebook_uuid(recorded, "8a64755c57f443d192d959159b2cb7a0")
+    assert not guard._same_notebook_uuid(recorded, None)
+    assert not guard._same_notebook_uuid(recorded, "malformed")
+
+
 def test_helpers_use_bounded_private_python_and_validate_json(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

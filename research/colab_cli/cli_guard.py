@@ -148,6 +148,16 @@ def install_hooks() -> None:
     Client._snake_guard_installed = True
 
 
+def _same_notebook_uuid(recorded: Any, expected: str | None) -> bool:
+    """Compare UUID identities across hex env and hyphenated durable records."""
+    if not isinstance(recorded, str) or not isinstance(expected, str):
+        return False
+    try:
+        return uuid.UUID(recorded) == uuid.UUID(expected)
+    except ValueError:
+        return False
+
+
 def _kernel_creation_target(url: str, kwargs: dict[str, Any], record_path: Path) -> Any:
     """Bind a creation response to this process's exact tracked assignment.
 
@@ -175,7 +185,9 @@ def _kernel_creation_target(url: str, kwargs: dict[str, Any], record_path: Path)
         or url not in {state.url.rstrip("/") + "/api/kernels", state.url + "/api/kernels"}
         or not state.endpoint
         or state.endpoint != record.get("endpoint")
-        or record.get("notebook_hash") != os.environ.get("SNAKE_COLAB_NOTEBOOK_HASH")
+        or not _same_notebook_uuid(
+            record.get("notebook_hash"), os.environ.get("SNAKE_COLAB_NOTEBOOK_HASH")
+        )
         or headers.get("X-Colab-Runtime-Proxy-Token") != state.token
     ):
         raise GuardError("kernel creation does not match tracked runtime identity")
