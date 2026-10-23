@@ -10,6 +10,79 @@ import pytest
 from research.bl_gc import probe
 
 
+@pytest.mark.parametrize(
+    "name, argv, forbidden",
+    [
+        (
+            "Codex (Service)",
+            [
+                "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/"
+                "Versions/155.0.8059.80/Helpers/Codex (Service).app/Contents/MacOS/"
+                "Codex (Service)",
+                "--type=gpu-process",
+            ],
+            False,
+        ),
+        (
+            "codex",
+            [
+                "/Applications/ChatGPT.app/Contents/Resources/codex-cli/"
+                "CodexCLI.app/Contents/MacOS/codex",
+                "-c",
+                "features.code_mode_host=true",
+                "app-server",
+                "--analytics-default-enabled",
+                "-c",
+                "plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled=true",
+                "-c",
+                "plugins.code-review@openai-bundled.mcp_servers.code-review.enabled=true",
+            ],
+            False,
+        ),
+        (
+            "codex-code-mode-host",
+            ["/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex-code-mode-host"],
+            False,
+        ),
+        (
+            "codex",
+            [
+                "/Applications/ChatGPT.app/Contents/Resources/codex-cli/"
+                "CodexCLI.app/Contents/MacOS/codex",
+                "exec",
+                "job",
+            ],
+            True,
+        ),
+        ("codex", ["/opt/homebrew/bin/codex", "app-server"], False),
+        ("codex-code-mode-host", ["/opt/homebrew/bin/codex-code-mode-host"], False),
+        ("codex", [], False),
+        ("codex", ["/opt/homebrew/bin/codex", "exec", "--cd", "/tmp/job"], True),
+        ("node", ["node", "/opt/homebrew/bin/codex", "exec", "job"], True),
+        (
+            "bash",
+            ["bash", "/Users/josenunez/.claude/bin/codex-handoff.sh", "-C", "/tmp/job"],
+            True,
+        ),
+        ("python", ["python", "-m", "research.colab_cli.supervisor", "run"], True),
+        ("python", ["python", "research/colab_cli/supervisor.py", "run"], True),
+        ("colab", ["/opt/homebrew/bin/colab", "run", "job"], True),
+        ("colab", ["/opt/homebrew/bin/colab", "sessions"], False),
+        ("python", ["python", "-c", "print('codex exec codex-handoff.sh')"], False),
+        ("bash", ["bash", "/tmp/codex-handoff.sh.backup"], False),
+    ],
+)
+def test_forbidden_processes_matches_jobs_not_desktop_helpers(
+    monkeypatch: pytest.MonkeyPatch, name: str, argv: list[str], forbidden: bool
+) -> None:
+    import psutil
+
+    process = SimpleNamespace(pid=123, info={"name": name, "cmdline": argv})
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs: iter((process,)))
+    expected = [{"pid": 123, "name": name.lower(), "argv": argv}] if forbidden else []
+    assert probe.forbidden_processes() == expected
+
+
 def _gc(policy: str) -> dict:
     return {
         "gc_policy": policy,

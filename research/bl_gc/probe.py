@@ -111,7 +111,7 @@ def _rss_mb(process: Any) -> float:
 
 
 def forbidden_processes() -> list[dict[str, Any]]:
-    """Find executable Codex and local Colab supervisors, never arbitrary path text."""
+    """Find Codex handoff/exec jobs and local Colab supervisors, excluding app helpers."""
     import psutil
 
     found = []
@@ -120,11 +120,14 @@ def forbidden_processes() -> list[dict[str, Any]]:
             name = str(process.info["name"] or "").lower()
             argv = process.info["cmdline"] or []
             if (
-                name.startswith("codex")
+                any(
+                    Path(token).name == "codex" and following == "exec"
+                    for token, following in zip(argv, argv[1:])
+                )
                 or any(
                     "research.colab_cli" in token
                     or "research/colab_cli/" in token
-                    or Path(token).name.startswith("codex-handoff")
+                    or Path(token).name == "codex-handoff.sh"
                     for token in argv
                 )
                 or (name == "colab" and "run" in argv)
