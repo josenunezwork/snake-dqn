@@ -136,6 +136,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-22 22:00 PT | M1 owner directive | Owner: "let them run during test" — macOS system daemons (fileproviderd, corespotlightd, mds/mdworker, mediaanalysisd, photoanalysisd, cloudd, bird) and our Colab supervisors no longer abort M1; their per-sample CPU is recorded and every cell discloses max/mean daemon load; estimand relabelled 'served-Mac timing under normal macOS background load (owner-authorized)'. Any other foreign process (codex, other python) still aborts/restarts as before. Sol implements; attempt-06 waiter replaced. |
 
+| 2026-10-22 22:05 PT | A100 A1 decision | Repaired GPU engine (corpse loop fix, 313d27eb) on A100-40: E6 speedup 190.9x (event-path hypothesis PASS) but E1024 complete steps/s = 158 frozen / 163 mixed / 166 scripted << 2,000 => pre-registered STOP_ENGINE. GPU label factory (WP2) not funded; A2/A3/P1 continue. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
