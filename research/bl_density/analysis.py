@@ -782,14 +782,27 @@ def _identity_replay(
         }
 
     def canonical(record: dict[str, Any]) -> Any:
+        from os.path import basename
+
         # Merge provenance is Mac-local bookkeeping, not gameplay identity.
-        return semantic(
-            {
-                key: value
-                for key, value in record.items()
-                if key not in {"_merge_completion_source", "_merge_source_tree"}
-            }
-        )
+        value = {
+            key: value
+            for key, value in record.items()
+            if key not in {"_merge_completion_source", "_merge_source_tree"}
+        }
+        # Checkpoint bytes are pinned by PUBLIC_INPUTS.json, not session staging paths.
+        for parent, field in (("plan", "specs"), ("construction", "roster_specs")):
+            if field in value.get(parent, {}):
+                value[parent] = dict(value[parent])
+                value[parent][field] = [
+                    (
+                        ["checkpoint", basename(spec[1])]
+                        if isinstance(spec, list) and len(spec) == 2 and spec[0] == "checkpoint"
+                        else spec
+                    )
+                    for spec in value[parent][field]
+                ]
+        return semantic(value)
 
     mismatches = [
         episode_id
