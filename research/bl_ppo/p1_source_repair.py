@@ -299,8 +299,9 @@ def prepare_production(
         y3_origin_import=block,
         checkpoint_every_seconds=900,
     )
+    attempt_tag = hashlib.sha256(str(root).encode()).hexdigest()[:12]
     control["resume"].update(
-        namespace="bl_p1_y3_pack04_repair06_attempt01",
+        namespace=f"bl_p1_y3_pack04_repair06_{attempt_tag}",
         allocation="source_latebody_06_e8_04_pack04",
         max_outcome_blind_retries=1,
     )
@@ -332,7 +333,7 @@ def prepare_production(
         checkpoint_every_seconds=900,
     )
     canary_control["resume"].update(
-        namespace="bl_p1_canary_repair06_attempt01", max_outcome_blind_retries=1
+        namespace=f"bl_p1_canary_repair06_{attempt_tag}", max_outcome_blind_retries=1
     )
     freeze_control_budget(
         canary_control, timeout_minutes=30, max_export_bytes=original["max_export_bytes"]
@@ -365,7 +366,7 @@ def prepare_production(
     template.pop("canary", None)
     template.update(
         commit=commit,
-        job_id="bl-p1-source-repair-10-attempt01",
+        job_id=f"bl-p1-source-repair-10-{attempt_tag}",
         output_dir=str(root / "repair-output"),
         inputs=inputs,
         timeout_minutes=200,
@@ -398,7 +399,7 @@ def prepare_production(
         template,
         package="bl_ppo",
         output=root / "canary-output",
-        job_id="bl-p1-source-repair-10-canary01",
+        job_id=f"bl-p1-source-repair-10-canary-{attempt_tag}",
         timeout_minutes=30,
         env={"BL_P1_CANARY_CONFIG": '{"pause_at":32,"processes":1,"rollout_steps":16,"worlds":2}'},
     )
@@ -480,7 +481,7 @@ def prepare_production(
         future["env"]["BL_P1_MODE"] = phase
         future["requirements"]["est_minutes"] = estimate
         future.update(
-            job_id=f"bl-p1-repair10-{stage}",
+            job_id=f"bl-p1-repair10-{stage}-{attempt_tag}",
             timeout_minutes=120,
             output_dir=str(root / f"{stage}-output"),
         )
