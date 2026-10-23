@@ -14,6 +14,15 @@ from .exports import empty_ledger, publish_json
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "research/bl_labels"
 SCRIPT = f"{PACKAGE}/colab.sh"
+RUNTIME_ROOTS = (
+    "research.bl_labels.runtime",
+    "research.bl_labels.factory",
+    "research.bl_labels.replay_audit",
+    "research.bl_upload.inputs",
+    "src.simd_env.grid_sim_nb",
+    "src.simd_env.vector61_nb",
+    "src.simd_env.v8_nb",
+)
 QUALIFIED_RECORD = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json"
 )
@@ -176,12 +185,7 @@ def source_paths() -> list[str]:
     """Return the exact static import closure plus declared dynamic seams."""
     from tools.ops.import_preflight import import_closure, module_path
 
-    roots = [
-        "research.bl_labels.runtime",
-        "research.bl_labels.factory",
-        "research.bl_labels.replay_audit",
-    ]
-    modules, _statements = import_closure(ROOT, roots)
+    modules, _statements = import_closure(ROOT, list(RUNTIME_ROOTS))
     paths = {
         module_path(ROOT, module).relative_to(ROOT).as_posix()
         for module in modules
@@ -197,6 +201,7 @@ def source_paths() -> list[str]:
             "src/simd_env/v8_nb.py",
             "configs",
             "research/colab_cli",
+            "research/bl_upload",
             "research/t34_exit_b8/PUBLIC_INPUTS.json",
             "research/apex_safety_20260926",
             "requirements.txt",
@@ -233,12 +238,7 @@ def clean_import_preflight(commit: str, out: Path, *, repo: Path = ROOT) -> dict
         commit,
         source_paths(),
         f"{PACKAGE}/requirements.txt",
-        [
-            "research.bl_labels.runtime",
-            "research.bl_labels.factory",
-            "research.bl_labels.replay_audit",
-            "research.bl_upload.inputs",
-        ],
+        list(RUNTIME_ROOTS),
     )
     publish_json(out, result)
     return result
