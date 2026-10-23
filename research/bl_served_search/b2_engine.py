@@ -387,6 +387,8 @@ def collect(
             deaths.append(event)
     parent_stats = driver_stats(driver)
     attest(parent_stats)
+    parent_seconds = clock() - started
+    serial_replay_seconds = 0.0
     # No alternative outcome has been computed before final bottom-k selection.
     roots = []
     for _, metadata, snapshot in selected:
@@ -400,7 +402,9 @@ def collect(
             alternatives = ordered_branches(tasks, workers, pulse=pulse)
             # Excluded real family canary proves actual policy serial == parallel.
             if os.environ.get("BL_B2_CANARY") == "1":
+                serial_started = clock()
                 serial = ordered_branches(tasks, 1, pulse=pulse)
+                serial_replay_seconds += clock() - serial_started
                 if ceiling.canonical(serial) != ceiling.canonical(alternatives):
                     raise ValueError("INVALID B2 serial/parallel branch bytes differ")
         else:
@@ -434,6 +438,12 @@ def collect(
             else 0
         ),
         "native_v8": parent_stats,
+        "phase_timings": {
+            "parent_seconds": parent_seconds,
+            "parent_frames": spec["trajectory_frames"],
+            "serial_replay_seconds": serial_replay_seconds,
+            "collect_seconds": clock() - started,
+        },
         "deaths": deaths,
         "trajectory": trajectory,
         "candidate_roots": candidates,

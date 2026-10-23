@@ -1,11 +1,12 @@
 """Synthetic sidecar-only coverage for the DENSITY-2 Mac merge."""
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
 
-from research.bl_density.analysis import merge
+from research.bl_density.analysis import _identity_replay, merge
 from research.bl_density.completion import SCIENCE_COMMIT
 from research.bl_density.runner import _seed
 from research.bl_ppo.exports import digest, export_json
@@ -187,6 +188,50 @@ def _complete_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[
             replay = _record("A", mix, index, cpu=0.5)
             _write(completion, replay, replay=True)
     return original, completion
+
+
+def _session_identity_records(session: str) -> list[dict]:
+    records = []
+    for mix in MIXES:
+        for index in range(4):
+            row = _record("A", mix, index)
+            specs = [
+                ["checkpoint", f"/content/snake-cli/{session}/inputs/checkpoints/opponent.pth"],
+                ["scripted", "random_safe"],
+            ]
+            row["plan"]["specs"] = specs
+            row["construction"] = {"roster_specs": deepcopy(specs)}
+            records.append(row)
+    return records
+
+
+def test_identity_replay_ignores_only_checkpoint_session_prefixes() -> None:
+    original = _session_identity_records("11111111-1111-4111-8111-111111111111")
+    replay = _session_identity_records("22222222-2222-4222-8222-222222222222")
+    before = deepcopy((original, replay))
+    value = _identity_replay(original, replay, NAMESPACE)
+    assert value["status"] == "IDENTICAL"
+    assert value["matched_episodes"] == 12
+    assert value["mismatched_episode_ids"] == []
+    assert (original, replay) == before
+
+
+@pytest.mark.parametrize("changed", ["plan_basename", "roster_basename", "decisions", "scripted"])
+def test_identity_replay_refuses_basename_or_gameplay_changes(changed: str) -> None:
+    original = _session_identity_records("11111111-1111-4111-8111-111111111111")
+    replay = _session_identity_records("22222222-2222-4222-8222-222222222222")
+    if changed == "plan_basename":
+        replay[0]["plan"]["specs"][0][1] = "/content/snake-cli/other/different.pth"
+    elif changed == "roster_basename":
+        replay[0]["construction"]["roster_specs"][0][1] = "/content/snake-cli/other/different.pth"
+    elif changed == "decisions":
+        replay[0]["decisions"] += 1
+    else:
+        replay[0]["plan"]["specs"][1][1] = "greedy_food"
+    value = _identity_replay(original, replay, NAMESPACE)
+    assert value["status"] == "IDENTITY_FAIL"
+    assert value["matched_episodes"] == 11
+    assert value["mismatched_episode_ids"] == [replay[0]["episode_id"]]
 
 
 def test_merge_requires_verified_union_and_applies_session_confound_rule(
