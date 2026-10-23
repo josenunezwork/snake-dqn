@@ -162,6 +162,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 04:00 PT | OWNER DECISIONS | Verbatim "yes approved yes to all fri" (big-lever/exp/OWNER_DECISIONS_20261023.txt): (1) publish P1 Y3 origin assets as public GitHub release (incl. disclosed paths; scope incl. replacement/1M) — pending owner gh auth login; (2) GC freeze_startup serving change approved subject to registered qualification (d.2 A1 + Sunday regression) passing; M1-bis re-chartered once, conditional on GC A1 PASS; 120-tick probe retired for >=2,400-tick + 10-min bare qualification. F1 CPU probe INVALID (F0 export digest mismatch) — investigating; L4 probe running. |
 
+| 2026-10-23 05:05 PT | GC A1 (d.2) VERDICT = FAIL | A1_VERDICT.json sha d1ff26d47edb58df... at 85aa7cf5 (all 6 cells COMPLETE; hashes published e68de0d3). Overruns default 117/113 (2,400) & 813 (14,400); freeze 100/105 & 1,138. freeze cut max GC pause (87/52/67 -> 11/12/28 ms) but gen-2 collections ~4x more often; non-GC overruns dominate (70-739/cell); update p95 13.8-23.3 ms (> 11.688) under BOTH policies; RSS slope 15.5 MiB/min (fail). Host noisier than attempt-07 (bare 43/2,400 then). Per owner approval terms: GC serving change NOT adopted; M1-bis NOT chartered; KEEP_B8; C15 stays closed. Product finding: served Watch game cannot hold 24 fps on this Mac under normal background load. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
