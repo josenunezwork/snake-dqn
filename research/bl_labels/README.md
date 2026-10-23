@@ -13,6 +13,11 @@ See [CANARY_RESULT_20261023.md](CANARY_RESULT_20261023.md) and
 look and Mac-equivalent yield decision remain pending; this result does not
 admit tranche 1.
 
+The prepared CPU-runtime versus 12-vCPU L4-host placement ruler is in
+[F1_HANDOFF.md](F1_HANDOFF.md), with its frozen workload, caps and decision rules
+in [F1_PLACEMENT_RULER.md](F1_PLACEMENT_RULER.md). Its probes and receipt-bound
+rulers are separate from F0's pending admission and Mac equivalence measurement.
+
 ## Exact execution and exported evidence
 
 `factory.py` composes B2 `WatchDriver.snapshot/restore`, the T3 gate-world
