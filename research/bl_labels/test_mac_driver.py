@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,81 @@ def test_worker_ceiling_requires_owner_approval_and_calibration() -> None:
     with pytest.raises(ValueError, match="passing 30-minute"):
         mac_driver._validate_workers(12, True, False)
     mac_driver._validate_workers(12, True, True)
+
+
+def test_width_resume_is_limited_to_future_stages_and_w6_w12() -> None:
+    d1024 = {"mac_gate": {"stage": "d1024"}}
+    d4096 = {"mac_gate": {"stage": "d4096"}}
+    d256 = {"mac_gate": {"stage": "d256"}}
+    assert mac_driver._width_change_allowed(d1024, 6, 12)
+    assert mac_driver._width_change_allowed(d1024, 12, 6)
+    assert mac_driver._width_change_allowed(d4096, 6, 12)
+    assert not mac_driver._width_change_allowed(d256, 6, 12)
+    assert not mac_driver._width_change_allowed(d1024, 1, 2)
+    assert not mac_driver._width_change_allowed(d1024, 6, 8)
+
+
+def test_frozen_collector_fallback_is_future_stage_w6_only() -> None:
+    control = {
+        "mac_gate": {
+            "stage": "d1024",
+            "collector_root": "/tmp/frozen-factory",
+            "collector_source_commit": "c" * 40,
+        }
+    }
+    assert mac_driver._collector_fallback(control, 6) == (Path("/tmp/frozen-factory"), "c" * 40)
+    with pytest.raises(ValueError, match="future-stage W6"):
+        mac_driver._collector_fallback(control, 12)
+    with pytest.raises(ValueError, match="future-stage W6"):
+        mac_driver._collector_fallback(
+            {"mac_gate": {"stage": "d1024", "collector_root": "/tmp/frozen-factory"}}, 6
+        )
+
+
+def test_w12_authorization_requires_owner_receipt_and_bound_calibration_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    receipt = tmp_path / "calibration.json"
+    receipt.write_text("{}")
+    seen: dict[str, object] = {}
+
+    def verify(path: Path, *, expected_code_sha: str | None = None) -> str:
+        seen["path"], seen["pin"] = path, expected_code_sha
+        return "a" * 64
+
+    monkeypatch.setattr(mac_driver, "_verify_w12_calibration", verify)
+    control = {"mac_gate": {"w12_calibration_source_commit": "f" * 40}}
+    assert mac_driver._require_w12_authorization(control, True, receipt) == "a" * 64
+    assert seen == {"path": receipt, "pin": "f" * 40}
+    with pytest.raises(ValueError, match="sealed calibration receipt"):
+        mac_driver._require_w12_authorization(control, True, None)
+    with pytest.raises(ValueError, match="sealed calibration receipt"):
+        mac_driver._require_w12_authorization(control, False, receipt)
+
+
+def test_w12_calibration_uses_explicit_frozen_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The calibration pin remains the frozen executor, not the speed candidate."""
+    receipt = tmp_path / "receipt.json"
+    frozen = "1" * 40
+    candidate = "2" * 40
+    value = {
+        "schema": "bl-labels-f0-w12-calibration/v1",
+        "status": "PASS",
+        "duration_seconds": 1800,
+        "w12_w6_wall_ratio": 1.2,
+        "thermal_not_ok": 0,
+        "slowdown_trips": 0,
+        "platform": "darwin-arm64",
+        "code_sha": frozen,
+    }
+    receipt.write_text(json.dumps(value))
+    monkeypatch.setattr("research.bl_labels.exports._verify", lambda path: "b" * 64)
+    monkeypatch.setenv("F0_COMMIT", candidate)
+    assert mac_driver._verify_w12_calibration(receipt, expected_code_sha=frozen) == "b" * 64
+    with pytest.raises(ValueError, match="frozen Mac admission"):
+        mac_driver._verify_w12_calibration(receipt, expected_code_sha=candidate)
 
 
 def test_resume_refuses_foreign_leaf_before_worker_admission(tmp_path: Path) -> None:

@@ -350,3 +350,36 @@ Final package/family-canary suite: 158 PASS in 8.82 seconds; reviewer independen
 ran 132 F1/canary checks and 24 final analyzer checks. Artifact inventory is
 `research/bl_labels/F1_A1_PACK_20261023.json`, SHA256
 `f537b69a3a097d88f2ea661ec76d16d29fac5404de0561f7789ac914cf6f82fe`.
+
+Round-27 F0 speed package prepared (2026-10-23, Sol): authority SHA256
+`f3d4e6254771830625ec25938f9eb6dd5a9750e383cb12b34a7a04b687b8518c`,
+base `2a0821a9f5c6cd5f7b45ba6b22352e48e349b451`. WP-3 W6↔W12 continuation,
+summed worker-seconds and per-width baselines; WP-4 fold-1--4 prospective
+D1024/D4096 banks with frozen OLD D256/cross-tranche seed audits; WP-2 immutable
+prepared decisions, forced-step inference skip, sparse production Q/action
+recheck and bare mass audit; WP-1 isolated OLD/NEW W1/W6/F1 identity runner,
+origin/main-published metadata before comparison, and profile-only threshold
+instrumentation. Registered 40 h / 130 h future caps retained. Parent reserves
+2160 / 7020 use the documented D256 cap/floor method, are prospective operational
+windows rather than selected-life doses, and cannot be refilled after outcomes.
+D4096 admission stays HOLD pending its R6 funding/projection route. D1024 requires
+immutable fault-free D256 F4 predecessor-fit metadata, actual T-EQ PASS and the
+sealed calibration; measured calibration FAIL gives W6, unknown/HOLD refuses.
+T-EQ FAIL has an explicit W6 entire-frozen-OLD-closure contingency.
+
+Two independent personas (science identity and operations) report no remaining
+concrete blocker. Codex-V's integrated single-process/capped verification:
+94 passed, 1 intentionally skipped; final runner checks: 5 passed. Real
+three-parent width proof, W12 calibration, B-EQ/F1 identity, interleaved timing,
+profile and production are NOT RUN by Sol. The running D256 worktree, outputs,
+lease, tmux, and frozen `61900af2` pin are untouched. Ranks 5--8 remain unbuilt;
+profile thresholds stay 20%/8%/5%/4%, at most one builder day, each needing T-EQ.
+Implementation evidence: `research/bl_labels/CODEX_V_ROUND27_FINAL_20261023.json`;
+operator commands and explicit pending phase publication:
+`research/bl_labels/ROUND27_HANDOFF_20261023.md`. Actual qualification receipt
+paths/pins/hashes must be logged after Claude's post-D256 runs and before adoption.
+No release, serving, F4 registration or strict-gate change.
+Final round-27 implementation Codex-V: `PASS_IMPLEMENTATION_LIGHT_VERIFICATION`,
+receipt SHA256 `19713e3929a00c601042405903dc34a3bcd92d728898d8155aebcf473ebe4f07`.
+The initial style-blocked receipt is retained unchanged; its import-order finding
+is corrected and the final receipt supersedes it. Heavy qualification is pending.

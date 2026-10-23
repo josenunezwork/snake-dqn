@@ -21,7 +21,13 @@ from typing import Any, Callable, Iterable
 import numpy as np
 
 from research.bl_served_search import ceiling, exact_stop
-from research.bl_served_search.b2_engine import FRP3, WatchDriver, attest, driver_stats
+from research.bl_served_search.b2_engine import (
+    FRP3,
+    PreparedDecision,
+    WatchDriver,
+    attest,
+    driver_stats,
+)
 from research.bl_served_search.exports import digest
 from research.t34_shadow.shadow import full_digest
 
@@ -137,6 +143,7 @@ class GateDriver(WatchDriver):
         self.decision = 0
         self.life = 0
         self.awaiting_respawn = False
+        self._prepare_generation = 0
 
     @classmethod
     def restore(cls, payload: bytes) -> "GateDriver":
@@ -146,11 +153,13 @@ class GateDriver(WatchDriver):
         value.__class__ = cls
         return value
 
-    def step(self, forced: int | None = None) -> dict[str, Any]:
+    def step(
+        self, forced: int | None = None, packet: PreparedDecision | None = None
+    ) -> dict[str, Any]:
         # The frozen gate roster is inherited unchanged from L2'. Its policies
         # have no enabled v8 veto seats; count only actual eligible v8 rows.
         before = self.eligible_opponent_rows
-        event = super().step(forced)
+        event = super().step(forced, packet)
         self.eligible_opponent_rows = before
         return event
 
@@ -186,6 +195,19 @@ def _selection_hash(namespace: str, *parts: object) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+def _prepared_shadow_selected(namespace: str, life: int, decision: int) -> bool:
+    """Select the fixed one-in-64 production packet equivalence checks."""
+    payload = "/".join((namespace, "shadow", str(life), str(decision)))
+    return int(hashlib.sha256(payload.encode()).hexdigest(), 16) % 64 == 0
+
+
+def _assert_prepared_shadow(driver: WatchDriver, packet: PreparedDecision) -> None:
+    """Fail closed when the selected legacy packet equivalence check differs."""
+    shadow_action, shadow_q = driver.shadow_action_and_q(packet)
+    if shadow_action != packet.bare or shadow_q != packet.q_bytes:
+        raise FactoryInvalid(f"prepared decision shadow mismatch at {packet.decision}")
+
+
 def _digest_driver(driver: WatchDriver, checkpoint: str) -> str:
     """Use the shared full digest with the B2 driver's actual carry objects.
 
@@ -218,11 +240,17 @@ def _digest_driver(driver: WatchDriver, checkpoint: str) -> str:
     )
 
 
-def _raw_observation(driver: WatchDriver) -> dict[str, np.ndarray]:
+def _raw_observation(packet: PreparedDecision | WatchDriver) -> dict[str, np.ndarray]:
+    """Copy packet raster, retaining the old driver seam for frozen F1 callers."""
+    if isinstance(packet, PreparedDecision):
+        return {
+            key: np.asarray(packet.observation[key]).copy()
+            for key in ("local", "global", "scalars")
+        }
     from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
 
     value = build_ego_raster(
-        driver.sim, EgoRasterConfig(version="bv8"), backend="numba", rows=np.array([[0, 0]])
+        packet.sim, EgoRasterConfig(version="bv8"), backend="numba", rows=np.array([[0, 0]])
     )
     return {key: np.asarray(value[key][0]).copy() for key in ("local", "global", "scalars")}
 
@@ -444,6 +472,9 @@ def collect_unit(
     }
     stream = public["stream"]
     selection_namespace = namespace + "/" + public["allocation_id"]
+    # D1024/D4096 manifests opt in explicitly.  Existing D256 bytes and its
+    # running process therefore retain their historical collection behaviour.
+    prepared_shadow = public.get("prepared_decision_shadow") is True
     parent_split = (
         "audit-sealed"
         if int(_selection_hash(namespace, "split", public["allocation_id"]), 16) % 5 == 0
@@ -537,17 +568,21 @@ def collect_unit(
         alive = bool(driver.sim.alive[0, 0])
         entry = None
         if alive:
-            legal, bare = driver.legal_and_bare()
+            packet = driver.prepared_decision()
+            if prepared_shadow and _prepared_shadow_selected(
+                namespace, driver.life, driver.decision
+            ):
+                _assert_prepared_shadow(driver, packet)
             entry = _TapeEntry(
                 driver.decision,
                 driver.life,
                 int(driver.sim.frame[0]),
                 int(driver.sim.length[0, 0]),
-                bare,
-                tuple(float(x) for x in driver.last_root_q),
-                tuple(legal),
+                packet.bare,
+                tuple(float(x) for x in packet.q_values()),
+                packet.legal,
                 _digest_driver(driver, checkpoint),
-                _raw_observation(driver),
+                _raw_observation(packet),
             )
             ring[entry.decision] = entry
             if driver.decision % SNAPSHOT_STRIDE == 0 or not snapshots:
@@ -579,7 +614,7 @@ def collect_unit(
                     )
                     if len(safe) > PRESERVATION_ROOTS:
                         del safe[worst]
-        event = driver.step()
+        event = driver.step(packet=packet) if entry is not None else driver.step()
         all_actions.append(
             {
                 "decision": int(event["decision"]),
@@ -604,8 +639,11 @@ def collect_unit(
         stages["play"] += time.monotonic() - play_start
         # Ring plus ordinary reservoirs: storage independent of session length.
         cutoff = driver.decision - 420
-        ring = {d: value for d, value in ring.items() if d >= cutoff}
-        snapshots = {d: value for d, value in snapshots.items() if d >= cutoff - SNAPSHOT_STRIDE}
+        while ring and next(iter(ring)) < cutoff:
+            ring.pop(next(iter(ring)))
+        snapshot_cutoff = cutoff - SNAPSHOT_STRIDE
+        while snapshots and next(iter(snapshots)) < snapshot_cutoff:
+            snapshots.pop(next(iter(snapshots)))
         max_snapshots = max(max_snapshots, len(snapshots) + len(safe))
         if entry is None or event["death_cause"] == "none":
             continue
@@ -706,6 +744,7 @@ def collect_unit(
                                 "frames_executed",
                                 "death_decision",
                                 "final_length",
+                                "mass_integral",
                             )
                         ):
                             raise FactoryInvalid(f"bare audit mismatch at {root.decision}")

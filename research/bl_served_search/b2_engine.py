@@ -17,8 +17,10 @@ import os
 import pickle
 import random
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from types import MappingProxyType
+from typing import Any, Callable, Mapping
 
 import numpy as np
 
@@ -29,6 +31,23 @@ from research.bl_served_search.exports import digest
 
 FRP3 = "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
 CAUSES = {0: "none", 1: "wall", 2: "self", 3: "head", 4: "body"}
+
+
+@dataclass(frozen=True)
+class PreparedDecision:
+    """One immutable B8 decision made for one prepared simulator state."""
+
+    sim: Any
+    decision: int
+    prepare_generation: int
+    observation: Mapping[str, np.ndarray]
+    q_bytes: bytes
+    legal: tuple[int, ...]
+    bare: int
+
+    def q_values(self) -> np.ndarray:
+        """Return a fresh float32 view of the exact forward bytes."""
+        return np.frombuffer(self.q_bytes, dtype=np.float32).copy()
 
 
 class WatchDriver:
@@ -50,42 +69,102 @@ class WatchDriver:
         self.eligible_opponent_rows = 0
         self.decision, self.life = 0, 0
         self.awaiting_respawn = False
+        # This is intentionally not snapshotted: packets are process-local and
+        # must never survive a restore into a different simulator object.
+        self._prepare_generation = 0
 
     def prepare(self) -> None:
         """The real maintenance/respawn seam; exactly one runtime prepare per tick."""
         from research.bl_ppo.collector import _prepare_sim
 
         _prepare_sim(self.sim)
+        self._prepare_generation += 1
         if self.awaiting_respawn and bool(self.sim.alive[0, 0]):
             self.life += 1
             self.awaiting_respawn = False
 
-    def legal_and_bare(self) -> tuple[list[int], int]:
-        """Game-legal alternatives and B8's unchanged advisory bare action."""
-        from src.simd_env.ego2s_policy import student_q
+    def prepared_decision(self) -> PreparedDecision:
+        """Build exactly one observation and rowwise B8 forward for this decision."""
+        from src.simd_env.ego2s_policy import ego_config_for, forward_q
+        from src.simd_env.ego_raster import build_ego_raster
 
+        if not getattr(self.sim, "_policy_phase_prepared", False):
+            raise RuntimeError("B2 decision requires a prepared selector")
+        if not bool(self.sim.alive[0, 0]):
+            raise RuntimeError("B2 decision requires a living hero")
+        value = build_ego_raster(
+            self.sim, ego_config_for(self.hero.net), backend="numba", rows=np.array([[0, 0]])
+        )
+        observation = {}
+        for key in ("local", "global", "scalars"):
+            item = np.asarray(value[key][0]).copy()
+            # Bytes-backed arrays stay read-only even if a caller tries to
+            # re-enable writes, unlike an owned array with WRITEABLE cleared.
+            item = np.frombuffer(item.tobytes(), dtype=item.dtype).reshape(item.shape)
+            observation[key] = item
+        q = np.asarray(forward_q(self.hero.net, value, "rowwise").numpy()[0], dtype=np.float32)
+        q_bytes = q.tobytes()
         advisory = self.sim.get_advisory_action_mask()[0, 0]
-        q = student_q(self.hero.net, self.sim, np.array([[0, 0]]), "rowwise").numpy()[0]
         _mask, bare = ceiling._legal(q, advisory)
-        self.last_root_q = q.copy()
         # B2 explicitly labels all game-legal alternatives, including actions
         # excluded by the advisory safety mask. Bare retains its own convention.
-        legal = np.flatnonzero(self.sim.get_legal_action_mask()[0, 0]).tolist()
-        if bare not in legal:
-            # In a doomed state the bare policy can choose a collision action;
-            # retain its control branch independently of the legal alternatives.
-            return legal, bare
-        return legal, bare
+        legal = tuple(np.flatnonzero(self.sim.get_legal_action_mask()[0, 0]).tolist())
+        return PreparedDecision(
+            self.sim,
+            self.decision,
+            self._prepare_generation,
+            MappingProxyType(observation),
+            q_bytes,
+            legal,
+            int(bare),
+        )
 
-    def step(self, forced: int | None = None) -> dict[str, Any]:
+    def legal_and_bare(self) -> tuple[list[int], int]:
+        """Compatibility adapter; callers collecting labels use the packet directly."""
+        packet = self.prepared_decision()
+        self.last_root_q = packet.q_values()
+        return list(packet.legal), packet.bare
+
+    def _validate_packet(self, packet: PreparedDecision) -> None:
+        if (
+            packet.sim is not self.sim
+            or packet.decision != self.decision
+            or packet.prepare_generation != self._prepare_generation
+        ):
+            raise RuntimeError("stale B2 prepared decision")
+
+    def shadow_action_and_q(self, packet: PreparedDecision) -> tuple[int, bytes]:
+        """Run the legacy path for the sparse production equivalence assertion."""
+        self._validate_packet(packet)
+        rows = np.array([[0, 0]], dtype=np.int64)
+        action = int(self.hero.actions(None, self.sim, rows)[0])
+        # ``actions`` does not expose Q, so reproduce its pre-mask rowwise
+        # forward to compare the complete float32 result as required by F0.
+        from src.simd_env.ego2s_policy import student_q
+
+        q = np.asarray(
+            student_q(self.hero.net, self.sim, rows, "rowwise").numpy()[0], dtype=np.float32
+        )
+        return action, q.tobytes()
+
+    def step(
+        self, forced: int | None = None, packet: PreparedDecision | None = None
+    ) -> dict[str, Any]:
         """Advance a prepared selector, then observe actual transition/death events."""
         if not getattr(self.sim, "_policy_phase_prepared", False):
             raise RuntimeError("B2 transition requires a prepared selector")
+        if packet is not None:
+            self._validate_packet(packet)
         actions = np.ones((1, 6), dtype=np.int64)
-        rows = np.array([[0, 0]], dtype=np.int64)
         if bool(self.sim.alive[0, 0]):
-            actions[0, 0] = int(self.hero.actions(None, self.sim, rows)[0])
-        if forced is not None:
+            if forced is not None:
+                actions[0, 0] = forced
+            elif packet is not None:
+                actions[0, 0] = packet.bare
+            else:
+                rows = np.array([[0, 0]], dtype=np.int64)
+                actions[0, 0] = int(self.hero.actions(None, self.sim, rows)[0])
+        elif forced is not None:
             actions[0, 0] = forced
         # _FrozenRoster owns independent policy carry per slot. Its nested
         # S2 scope is routed to the K1 kernel; no stock fallback is accepted.
@@ -171,6 +250,7 @@ class WatchDriver:
         torch.set_rng_state(state["torch_rng"])
         driver.stats = RowStats()
         driver.eligible_opponent_rows = 0
+        driver._prepare_generation = 0
         return driver
 
 

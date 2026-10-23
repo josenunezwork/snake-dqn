@@ -236,9 +236,13 @@ rate accounting, not a claim about final provider billing.
 ## Run a pinned Mac job
 
 ```bash
-"$REPO/tools/ops/mac_run.sh" --repo "$REPO" NAME FULL_COMMIT_SHA -- \
+"$REPO/tools/ops/dispatch.sh" --mac --repo "$REPO" NAME FULL_COMMIT_SHA -- \
   /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python research/example/job.py --help
 ```
+
+The explicit `--mac` route delegates unchanged arguments to `mac_run.sh`;
+Colab dispatch keeps its existing admission and accounting checks. The workload
+must acquire the shared research lease before doing work.
 
 The runner creates `../snake-dqn-run-NAME.noindex` detached at the resolved commit,
 verifies it is clean and pinned, atomically writes `.IN_USE_LOCK`, and launches the

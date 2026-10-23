@@ -46,6 +46,8 @@ THREAD_ENV = {
 }
 MAX_WORKERS = 12
 DEFAULT_WORKERS = 6
+RESUME_WIDTH_STAGES = frozenset({"d1024", "d4096"})
+RESUME_WIDTHS = frozenset({DEFAULT_WORKERS, MAX_WORKERS})
 MAX_WORKER_RSS_BYTES = 4 * 1024**3
 MAX_TOTAL_RSS_BYTES = 40 * 1024**3
 MIN_FREE_DISK_BYTES = 50 * 1024**3
@@ -250,6 +252,8 @@ def _worker(
     frp3: Path,
     output: Path,
     timing_armed: Path,
+    collector_root: Path | None,
+    collector_source_commit: str | None,
     stop_event: Any,
     queue: Any,
 ) -> None:
@@ -262,7 +266,19 @@ def _worker(
     except OSError as error:
         queue.put({"kind": "error", "error": f"setting nice 10 failed: {error}"})
         return
-    from .factory import FactoryInvalid, FactoryPreempted, collect_unit
+    if collector_root is None:
+        from .factory import FactoryInvalid, FactoryPreempted, collect_unit
+    else:
+        # T-EQ FAIL fallback only: load the frozen worker closure after spawn,
+        # never into the candidate coordinator or another worker's imports.
+        from . import frozen_factory
+
+        os.environ["F0_COMMIT"] = collector_source_commit or ""
+        os.environ["BL_FROZEN_FACTORY_WORKER"] = "1"
+        frozen = frozen_factory.activate(collector_root, collector_source_commit or "")
+        FactoryInvalid = frozen.FactoryInvalid
+        FactoryPreempted = frozen.FactoryPreempted
+        collect_unit = frozen.collect_unit
 
     def publish(value: dict[str, Any]) -> None:
         if value.get("schema") == "bl-labels-f0-session/v1":
@@ -334,16 +350,19 @@ def _validate_workers(workers: int, owner_w12_ok: bool, calibration_passed: bool
         )
 
 
-def _verify_w12_calibration(path: Path) -> None:
+def _verify_w12_calibration(path: Path, *, expected_code_sha: str | None = None) -> str:
     """Require a sealed calibration receipt before W12 admission."""
     from .exports import _verify
 
     _verify(path)
     value = json.loads(path.read_text())
     duration, ratio = value.get("duration_seconds"), value.get("w12_w6_wall_ratio")
-    code_sha = os.environ.get("F0_COMMIT", "")
+    code_sha = (
+        expected_code_sha if expected_code_sha is not None else os.environ.get("F0_COMMIT", "")
+    )
     if not (
         value.get("schema") == "bl-labels-f0-w12-calibration/v1"
+        and value.get("status") == "PASS"
         and isinstance(duration, (int, float))
         and not isinstance(duration, bool)
         and math.isfinite(duration)
@@ -355,11 +374,66 @@ def _verify_w12_calibration(path: Path) -> None:
         and value.get("thermal_not_ok") == 0
         and value.get("slowdown_trips") == 0
         and value.get("platform") == "darwin-arm64"
-        and value.get("code_sha") == os.environ.get("F0_COMMIT")
+        and value.get("code_sha") == code_sha
         and len(code_sha) == 40
         and all(c in "0123456789abcdef" for c in code_sha)
     ):
         raise ValueError("W12 calibration receipt does not satisfy the frozen Mac admission rule")
+    return _verify(path)
+
+
+def _w12_calibration_source(control: dict[str, Any]) -> str | None:
+    """Read the separately pinned calibration source from a future-stage admission."""
+    gate = control.get("mac_gate")
+    if not isinstance(gate, dict):
+        return None
+    value = gate.get("w12_calibration_source_commit")
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) != 40:
+        raise ValueError("admitted W12 calibration source pin is malformed")
+    return value
+
+
+def _require_w12_authorization(
+    control: dict[str, Any], owner_w12_ok: bool, receipt: Path | None
+) -> str:
+    """Return the sealed receipt digest; booleans alone never authorize W12."""
+    if not owner_w12_ok or receipt is None:
+        raise ValueError("W12 requires explicit owner approval and a sealed calibration receipt")
+    return _verify_w12_calibration(receipt, expected_code_sha=_w12_calibration_source(control))
+
+
+def _width_change_allowed(control: dict[str, Any], prior_workers: int, workers: int) -> bool:
+    """Allow only the D1024/D4096 W6<->W12 operational transition."""
+    if prior_workers == workers:
+        return True
+    gate = control.get("mac_gate")
+    return (
+        isinstance(gate, dict)
+        and gate.get("stage") in RESUME_WIDTH_STAGES
+        and {prior_workers, workers} <= RESUME_WIDTHS
+    )
+
+
+def _collector_fallback(control: dict[str, Any], workers: int) -> tuple[Path | None, str | None]:
+    """Validate the admitted OLD-factory fallback without loading it in the parent."""
+    gate = control.get("mac_gate")
+    if not isinstance(gate, dict):
+        return None, None
+    root, source = gate.get("collector_root"), gate.get("collector_source_commit")
+    if root is None and source is None:
+        return None, None
+    if (
+        gate.get("stage") not in RESUME_WIDTH_STAGES
+        or workers != DEFAULT_WORKERS
+        or not isinstance(root, str)
+        or not root
+        or not isinstance(source, str)
+        or len(source) != 40
+    ):
+        raise ValueError("frozen collector fallback requires admitted future-stage W6 bindings")
+    return Path(root), source
 
 
 def run(
@@ -374,12 +448,21 @@ def run(
     deadline_seconds: float | None = None,
     owner_w12_ok: bool = False,
     calibration_passed: bool = False,
+    w12_calibration_receipt: Path | None = None,
     state_dir: Path | None = None,
     started_monotonic: float | None = None,
 ) -> dict[str, Any]:
     """Run admitted parents until complete, guard stop, or cooperative preemption."""
     started = time.monotonic() if started_monotonic is None else started_monotonic
-    _validate_workers(workers, owner_w12_ok, calibration_passed)
+    _validate_workers(
+        workers, owner_w12_ok, calibration_passed or w12_calibration_receipt is not None
+    )
+    w12_receipt_sha256: str | None = None
+    if workers == MAX_WORKERS:
+        w12_receipt_sha256 = _require_w12_authorization(
+            control, owner_w12_ok, w12_calibration_receipt
+        )
+    collector_root, collector_source_commit = _collector_fallback(control, workers)
     output = output.resolve()
     if output.exists() and any(output.iterdir()):
         raise ValueError("F0 Mac output directory must be fresh and empty")
@@ -399,6 +482,18 @@ def run(
         expected_state = pack / (
             "canary-state-mac-01" if stage == "canary-b" else "d256-state-mac-01"
         )
+        # New post-D256 stages bind their own immutable path and cap into the
+        # admitted control.  D256 retains its historical hard-coded contract.
+        if stage in RESUME_WIDTH_STAGES:
+            if workers not in RESUME_WIDTHS:
+                raise ValueError("future Mac production stages require W6 or W12")
+            expected_cap = control["mac_gate"].get("deadline_seconds")
+            expected_state_value = control["mac_gate"].get("state_dir")
+            if not isinstance(expected_cap, (int, float)) or isinstance(expected_cap, bool):
+                raise ValueError("future Mac admission needs a fixed deadline_seconds")
+            if not isinstance(expected_state_value, str) or not expected_state_value:
+                raise ValueError("future Mac admission needs a fixed state_dir")
+            expected_state = Path(expected_state_value)
         if (
             deadline_seconds != expected_cap
             or state_dir is None
@@ -412,10 +507,13 @@ def run(
     namespace, allocation, jobs = _prepare_jobs(control, ledger)
     attempt_id: str | None = None
     prior_elapsed = 0.0
+    prior_worker_seconds = 0.0
     prior_attempts: list[str] = []
     prior_thermal: list[float] = []
     prior_admission_workers = workers
-    prior_baseline: list[float] = []
+    prior_workers: int | None = None
+    prior_baseline_segment_elapsed = 0.0
+    prior_baselines: dict[int, list[float]] = {}
     prior_rate_events: list[tuple[float, bool]] = []
     expected_control = hashlib.sha256(
         json.dumps(control, sort_keys=True, separators=(",", ":")).encode()
@@ -442,7 +540,6 @@ def run(
             start_value = json.loads(start_receipt.read_text())
             if (
                 start_value.get("namespace") != namespace
-                or start_value.get("workers") != workers
                 or start_value.get("control_sha256") != expected_control
                 or start_value.get("output") == str(output)
                 or start_value.get("deadline_seconds") != deadline_seconds
@@ -450,6 +547,18 @@ def run(
                 or start_value.get("state_dir") != str(state_dir.resolve())
             ):
                 raise MacGuardError("prior Mac factory start identity differs; HOLD")
+            start_workers = start_value.get("workers")
+            if type(start_workers) is not int or not 1 <= start_workers <= MAX_WORKERS:
+                raise MacGuardError("prior Mac factory worker width is invalid; HOLD")
+            if not _width_change_allowed(control, start_workers, workers):
+                raise MacGuardError("prior Mac factory worker width differs; HOLD")
+            if start_workers == MAX_WORKERS and not (
+                start_value.get("owner_w12_ok") is True
+                and isinstance(start_value.get("w12_calibration_receipt_sha256"), str)
+            ):
+                raise MacGuardError(
+                    "prior W12 attempt lacks sealed owner/receipt authorization; HOLD"
+                )
             terminal = start_receipt.with_name(
                 start_receipt.name.replace(".start.json", ".terminal.json")
             )
@@ -461,7 +570,7 @@ def run(
             terminal_value = json.loads(terminal.read_text())
             if (
                 terminal_value.get("namespace") != namespace
-                or terminal_value.get("workers") != workers
+                or terminal_value.get("workers") != start_workers
                 or terminal_value.get("output") != start_value.get("output")
                 or terminal_value.get("start_sha256") != _verify(start_receipt)
             ):
@@ -474,10 +583,47 @@ def run(
                 or elapsed <= 0
             ):
                 raise MacGuardError("invalid prior Mac wall charge; HOLD")
+            expected_worker_seconds = start_workers * elapsed
+            if terminal_value.get("worker_seconds_denominator") != expected_worker_seconds:
+                raise MacGuardError("prior Mac worker-second accounting differs; HOLD")
+            if start_workers == MAX_WORKERS and (
+                terminal_value.get("w12_calibration_receipt_sha256")
+                != start_value.get("w12_calibration_receipt_sha256")
+                or terminal_value.get("w12_calibration_source_commit")
+                != start_value.get("w12_calibration_source_commit")
+            ):
+                raise MacGuardError("prior W12 terminal authorization differs; HOLD")
             prior_elapsed += elapsed
+            prior_worker_seconds += start_workers * elapsed
             prior_thermal.extend(terminal_value.get("thermal_trip_epochs", []))
             prior_admission_workers = terminal_value.get("admission_workers_final", workers)
-            prior_baseline = terminal_value.get("first_hour_life_seconds", [])
+            if prior_workers != start_workers:
+                prior_baseline_segment_elapsed = 0.0
+            prior_baseline_segment_elapsed += elapsed
+            prior_workers = start_workers
+            raw_baselines = terminal_value.get("first_hour_life_seconds_by_workers")
+            if raw_baselines is None:
+                raw_baselines = {
+                    str(start_workers): terminal_value.get("first_hour_life_seconds", [])
+                }
+            if not isinstance(raw_baselines, dict):
+                raise MacGuardError("prior Mac factory baseline is malformed; HOLD")
+            for raw_width, samples in raw_baselines.items():
+                try:
+                    width = int(raw_width)
+                except (TypeError, ValueError) as error:
+                    raise MacGuardError(
+                        "prior Mac factory baseline width is malformed; HOLD"
+                    ) from error
+                if type(samples) is not list or any(
+                    isinstance(sample, bool)
+                    or not isinstance(sample, (int, float))
+                    or not math.isfinite(sample)
+                    or sample <= 0
+                    for sample in samples
+                ):
+                    raise MacGuardError("prior Mac factory baseline is malformed; HOLD")
+                prior_baselines[width] = list(samples)
             sealed_path = terminal_value.get("rate_sealed_path")
             if sealed_path:
                 _verify(Path(sealed_path))
@@ -497,6 +643,9 @@ def run(
                     json.dumps(allocation, sort_keys=True, separators=(",", ":")).encode()
                 ).hexdigest(),
                 "workers": workers,
+                "owner_w12_ok": owner_w12_ok,
+                "w12_calibration_receipt_sha256": w12_receipt_sha256,
+                "w12_calibration_source_commit": _w12_calibration_source(control),
                 "deadline_seconds": deadline_seconds,
                 "original_wall_cap_seconds": deadline_seconds,
                 "started_epoch": time.time(),
@@ -531,10 +680,19 @@ def run(
     stop_reason: str | None = None
     preempt_started: float | None = None
     life_started: dict[str, float] = {}
-    baseline_lives: list[float] = prior_baseline
+    # A width switch starts a new first-hour baseline.  A same-width completion
+    # resume continues that width's first-hour window only.
+    width_changed = prior_workers is not None and prior_workers != workers
+    width_elapsed_before = 0.0 if width_changed else prior_baseline_segment_elapsed
+    baseline_lives = [] if width_changed else prior_baselines.setdefault(workers, [])
+    prior_baselines[workers] = baseline_lives
     sealed_lives: list[tuple[float, bool]] = prior_rate_events
     thermal_trips = sorted({at for at in prior_thermal if time.time() - at <= 86400})
     admission_workers = prior_admission_workers
+    if width_changed:
+        # A width change begins admissions at the requested width.  A recent
+        # thermal event is the sole registered exception.
+        admission_workers = max(1, workers - 3) if thermal_trips else workers
     thermal_epoch_seen = False
     next_report = time.monotonic() + 110
 
@@ -608,6 +766,8 @@ def run(
                         frp3,
                         output,
                         timing_armed,
+                        collector_root,
+                        collector_source_commit,
                         stop_event,
                         queue,
                     ),
@@ -632,11 +792,12 @@ def run(
                         allocation_id = str(message["allocation_id"])
                         sealed_lives.append((time.time(), rescue_bearing))
                         elapsed = time.monotonic() - life_started.get(allocation_id, started)
-                        if prior_elapsed + time.monotonic() - started <= 3600:
+                        width_elapsed = width_elapsed_before + time.monotonic() - started
+                        if width_elapsed <= 3600:
                             baseline_lives.append(elapsed)
                         life_started[allocation_id] = time.monotonic()
                         # First-hour observations are the factory's local baseline.
-                        if prior_elapsed + time.monotonic() - started > 3600 and baseline_lives:
+                        if width_elapsed > 3600 and baseline_lives:
                             baseline = sum(baseline_lives) / len(baseline_lives)
                             if elapsed > baseline * 1.30:
                                 preempted = True
@@ -728,11 +889,16 @@ def run(
         _stop_workers(active)
         active.clear()
     status = "INVALID" if invalid else ("PREEMPTED" if preempted else "COMPLETE")
+    attempt_elapsed = time.monotonic() - started
     result = {
         "schema": "bl-labels-f0-mac-driver/v1",
         "status": status,
         "namespace": namespace,
         "workers": workers,
+        "owner_w12_ok": owner_w12_ok,
+        "w12_calibration_receipt_sha256": w12_receipt_sha256,
+        "w12_calibration_source_commit": _w12_calibration_source(control),
+        "collector_source_commit": collector_source_commit,
         "admission_workers_final": admission_workers,
         "nice": 10,
         "thread_env": THREAD_ENV,
@@ -743,12 +909,17 @@ def run(
         "thermal_trip_count_24h": len(thermal_trips),
         "thermal_trip_epochs": thermal_trips,
         "first_hour_life_seconds": baseline_lives,
-        "elapsed_seconds": time.monotonic() - started,
+        "first_hour_life_seconds_by_workers": {
+            str(width): samples for width, samples in sorted(prior_baselines.items())
+        },
+        "elapsed_seconds": attempt_elapsed,
         "prior_elapsed_seconds": prior_elapsed,
-        "cumulative_elapsed_seconds": prior_elapsed + (time.monotonic() - started),
-        "worker_seconds_denominator": workers * (time.monotonic() - started),
-        "cumulative_worker_seconds_denominator": workers
-        * (prior_elapsed + (time.monotonic() - started)),
+        "prior_worker_seconds_denominator": prior_worker_seconds,
+        "baseline_segment_workers": workers,
+        "baseline_segment_elapsed_seconds": width_elapsed_before + attempt_elapsed,
+        "cumulative_elapsed_seconds": prior_elapsed + attempt_elapsed,
+        "worker_seconds_denominator": workers * attempt_elapsed,
+        "cumulative_worker_seconds_denominator": prior_worker_seconds + workers * attempt_elapsed,
         "platform_attestation": platform_attestation(),
         "telemetry_sealed_no_outcomes": telemetry,
     }
@@ -798,6 +969,8 @@ def main() -> None:
         require_admission(control)
         _prepare_jobs(control, args.ledger)
         _validate_workers(args.workers, args.owner_w12_ok, args.w12_calibration_receipt is not None)
+        if args.workers == MAX_WORKERS:
+            _require_w12_authorization(control, args.owner_w12_ok, args.w12_calibration_receipt)
         _guard_snapshot(args.output.parent)
         print(
             json.dumps({"status": "CHECKED", "workers": args.workers, "output": str(args.output)})
@@ -806,7 +979,7 @@ def main() -> None:
     if args.workers > DEFAULT_WORKERS:
         if args.w12_calibration_receipt is None:
             parser.error("W12 requires --w12-calibration-receipt")
-        _verify_w12_calibration(args.w12_calibration_receipt)
+        _require_w12_authorization(control, args.owner_w12_ok, args.w12_calibration_receipt)
     lease_seconds = args.deadline_seconds or 16 * 3600
     with held(
         args.lease_owner,
@@ -826,6 +999,7 @@ def main() -> None:
                 deadline_seconds=args.deadline_seconds,
                 owner_w12_ok=args.owner_w12_ok,
                 calibration_passed=args.w12_calibration_receipt is not None,
+                w12_calibration_receipt=args.w12_calibration_receipt,
                 state_dir=args.state_dir,
                 started_monotonic=entry_started,
             )
