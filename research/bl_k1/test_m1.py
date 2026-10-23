@@ -160,7 +160,15 @@ def complete_unit() -> tuple[dict, dict]:
         "epoch_ns": 0,
         "stop_reason": None,
         "mac_lease": {"id": "lease"},
-        "host": [{"thermal": "nominal", "process_screen": {}, "coordinator_pid": 1}],
+        "host": [
+            {
+                "monotonic_ns": end,
+                "foreign_heavy_processes": [],
+                "thermal": "nominal",
+                "process_screen": {},
+                "coordinator_pid": 1,
+            }
+        ],
         "actual_max_pending": 1,
         "contention": [],
     }
@@ -351,7 +359,14 @@ def test_full_orchestration_synthetic_only(monkeypatch, cell, fault) -> None:
 
     class Monitor:
         error = None
-        rows = [{"process_screen": {}, "coordinator_pid": 1}]
+        rows = [
+            {
+                "monotonic_ns": 1,
+                "foreign_heavy_processes": [],
+                "process_screen": {},
+                "coordinator_pid": 1,
+            }
+        ]
         thread = SimpleNamespace(start=lambda: None)
 
         def __init__(self, observe):
@@ -1120,7 +1135,10 @@ def test_audit_discarded_refuses_nonforeign_reason_and_shared_epoch(tmp_path) ->
     discarded.update(
         epoch_ns=100,
         stop_reason="foreign heavy load during M1",
-        host=[{"foreign_heavy_processes": [{"pid": 99}]}],
+        host=[
+            {"monotonic_ns": 99, "foreign_heavy_processes": []},
+            {"monotonic_ns": 101, "foreign_heavy_processes": [{"pid": 99}]},
+        ],
     )
     discarded["summary"] = m1.summarize(m1.cells()[0], [], [], False)
     discarded["summary"]["complete"] = False
@@ -1164,7 +1182,10 @@ def test_audit_discarded_enforces_cell_and_attempt_budgets(
     discarded.update(
         epoch_ns=100,
         stop_reason="foreign heavy load during M1",
-        host=[{"foreign_heavy_processes": [{"pid": 99}]}],
+        host=[
+            {"monotonic_ns": 99, "foreign_heavy_processes": []},
+            {"monotonic_ns": 101, "foreign_heavy_processes": [{"pid": 99}]},
+        ],
     )
     discarded["summary"] = m1.summarize(m1.cells()[0], [], [], False)
     export_json(tmp_path / "cpu-w1-k1.discarded-1.json", discarded)
@@ -1227,7 +1248,10 @@ def test_main_restarts_only_foreign_stop_and_exports_discard(
     stopped.update(
         epoch_ns=100,
         stop_reason="foreign heavy load during M1",
-        host=[{"foreign_heavy_processes": [{"pid": 99}]}],
+        host=[
+            {"monotonic_ns": 99, "foreign_heavy_processes": []},
+            {"monotonic_ns": 101, "foreign_heavy_processes": [{"pid": 99}]},
+        ],
     )
     stopped["summary"] = m1.summarize(cell, [], [], False)
     stopped["summary"]["complete"] = False
@@ -1409,6 +1433,7 @@ def run_mock_attempt(
     *,
     charged: float = 0.0,
     initial_quiet: bool = True,
+    carried: dict[str, str] | None = None,
 ) -> SimpleNamespace:
     """Exercise main's real loop/reducer/exports with no Watch, workers or host calls."""
     from contextlib import contextmanager
@@ -1419,6 +1444,7 @@ def run_mock_attempt(
     clock = SimpleNamespace(now=100.0)
     calls = Counter()
     waits = []
+    carried = {} if carried is None else carried
     data = {"namespace": "n", "sources": {}}
     monkeypatch.setattr(m1, "inputs", lambda *args: data)
     monkeypatch.setattr(m1, "sources", lambda: {})
@@ -1445,17 +1471,40 @@ def run_mock_attempt(
         clock.now += 0.5
         epoch = int(clock.now * 1e9)
         clock.now += 0.5
-        return {
+        row = {
             **cell,
             "schema": m1.SCHEMA + "/cell",
             "namespace": "n",
             "epoch_ns": epoch,
             "summary": {"complete": not stopped, "verdict": "INCOMPLETE" if stopped else "PASS"},
             "stop_reason": m1.RESTART_POLICY["trigger"] if stopped else None,
-            "host": [{"foreign_heavy_processes": [{"pid": 99}] if stopped else []}],
+            "host": [
+                {"monotonic_ns": epoch, "foreign_heavy_processes": []},
+                {
+                    "monotonic_ns": epoch + 1,
+                    "foreign_heavy_processes": [{"pid": 99}] if stopped else [],
+                },
+            ],
             "samples": [],
             "ticks": [],
         }
+        kind = carried.get(unit_id) if stopped else None
+        if kind == "overrun":
+            row["ticks"] = [{"finished_ns": epoch, "overrun": True, "update_seconds": 0.001}]
+        elif kind == "tail_overrun":
+            row["ticks"] = [{"finished_ns": epoch + 1, "overrun": True, "update_seconds": 0.001}]
+        elif kind == "doom":
+            row["samples"] = [
+                {
+                    "phase": "warm",
+                    "fixture_id": "frozen-800",
+                    "S_seconds": 5.1,
+                    "visible_ns": epoch,
+                }
+            ]
+        elif kind == "p95":
+            row["ticks"] = [{"finished_ns": epoch, "overrun": False, "update_seconds": 0.012}]
+        return row
 
     @contextmanager
     def held(*args, **kwargs):
@@ -1594,3 +1643,200 @@ def test_reserialized_judged_proof_cannot_reuse_consumed_debit(monkeypatch, judg
     )
     with pytest.raises(ValueError, match="exact audited attempt-03"):
         m1.judged_recovery(case.proof_path, case.data)
+
+
+@pytest.fixture
+def judged3_case(monkeypatch, tmp_path):
+    """A complete mock attempt-05 exercises every third-proof pin."""
+    prior = tmp_path / "bl-m1-attempt-05"
+    prior.mkdir()
+    judgment = tmp_path / "JUDGMENT_M1_ATTEMPT6.md"
+    judgment.write_text("Fable attempt-06 judgment")
+    monkeypatch.setattr(m1, "JUDGED3_JUDGMENT_PATH", judgment)
+    log = tmp_path / "bl-m1-attempt-05.try1.log"
+    log.write_text("mechanical foreign-load stop")
+    previous = {
+        "schema": m1.SCHEMA,
+        "namespace": "attempt-05-namespace",
+        "attempt_number": 4,
+        "final_attempt": True,
+        "verdict": "INCOMPLETE",
+        "verified_stop": True,
+        "mechanical_failure": True,
+        "completed_unit_exports": {},
+        "judged_recovery_sha256": "attempt-05-prior-judged-proof",
+        "charged_seconds": 771.5500928750262,
+        "cells": [{"cell_id": "cpu-w1-k1", "complete": False}],
+        "failure": None,
+        "discarded_runs": [{"stop_reason": m1.RESTART_POLICY["trigger"]} for _ in range(3)],
+        "quiet_waits": [{"quiet": True} for _ in range(4)],
+    }
+    attempt = {"namespace": previous["namespace"], "sources": {"research/bl_k1/m1.py": "old"}}
+    cell = {"stop_reason": m1.RESTART_POLICY["trigger"], "summary": {"complete": False}}
+    idle = {"quiet": True}
+    receipt_sha = export_json(prior / "receipt.json", previous)["sha256"]
+    attempt_sha = export_json(prior / "attempt.json", attempt)["sha256"]
+    cell_sha = export_json(prior / "cpu-w1-k1.json", cell)["sha256"]
+    idle_sha = export_json(prior / "idle.json", idle)["sha256"]
+    discarded = {}
+    for n in range(1, 4):
+        name = f"cpu-w1-k1.discarded-{n}.json"
+        discarded[name] = export_json(prior / name, {"n": n})["sha256"]
+    monkeypatch.setattr(m1, "JUDGED3_RECEIPT_SHA256", receipt_sha)
+    monkeypatch.setattr(m1, "JUDGED3_ATTEMPT_SHA256", attempt_sha)
+    monkeypatch.setattr(m1, "JUDGED3_LOG_SHA256", m1.digest(log))
+    monkeypatch.setattr(m1, "JUDGED3_IDLE_SHA256", idle_sha)
+    monkeypatch.setattr(m1, "JUDGED3_CELL_SHA256", {"cpu-w1-k1": cell_sha})
+    monkeypatch.setattr(m1, "JUDGED3_DISCARDED_SHA256", discarded)
+    monkeypatch.setattr(m1, "JUDGED3_SOURCE_SHA256", "old")
+    monkeypatch.setattr(m1, "JUDGED3_PREVIOUS_JUDGED_SHA256", "attempt-05-prior-judged-proof")
+    monkeypatch.setattr(m1, "JUDGED3_PREVIOUS_NAMESPACE", previous["namespace"])
+    data = {
+        "namespace": "new",
+        "sources": {"research/bl_k1/m1.py": m1.digest(Path(m1.__file__))},
+    }
+    proof = {
+        "schema": m1.SCHEMA + "/judged-recovery",
+        "judge": "Fable-M1-attempt6",
+        "status": "JUDGED_FOREIGN_LOAD_STOP_3",
+        "judgment_path": str(judgment),
+        "judgment_sha256": m1.digest(judgment),
+        "previous_receipt_path": str(prior / "receipt.json"),
+        "previous_receipt_sha256": receipt_sha,
+        "previous_attempt_sha256": attempt_sha,
+        "previous_log_path": str(log),
+        "previous_log_sha256": m1.digest(log),
+        "previous_idle_sha256": idle_sha,
+        "previous_cell_sha256": {"cpu-w1-k1": cell_sha},
+        "previous_discarded_sha256": discarded,
+        "previous_namespace": previous["namespace"],
+        "previous_judged_recovery_sha256": "attempt-05-prior-judged-proof",
+        "charged_seconds": previous["charged_seconds"],
+        "remaining_seconds": m1.CAP_SECONDS - previous["charged_seconds"],
+        "next_attempt_number": 5,
+        "final_attempt": True,
+        "restart_policy_required": True,
+        "carry_forward_required": True,
+        "target_namespace": "new",
+        "transferred_cell_or_timing_evidence": False,
+        "operator_dispatch_once": True,
+    }
+    return SimpleNamespace(
+        previous=previous,
+        proof=proof,
+        path=tmp_path / "judged3-proof.json",
+        data=data,
+        prior=prior,
+    )
+
+
+def test_judged3_recovery_happy_path(judged3_case) -> None:
+    export_json(judged3_case.path, judged3_case.proof)
+    assert m1.judged_recovery(judged3_case.path, judged3_case.data) == judged3_case.previous
+
+
+@pytest.mark.parametrize(
+    "change", ["hash", "attempt4", "discard_count", "old_source", "no_carry_flag"]
+)
+def test_judged3_recovery_refuses_required_boundaries(monkeypatch, judged3_case, change) -> None:
+    case = judged3_case
+    if change == "hash":
+        case.proof["previous_idle_sha256"] = "wrong"
+    elif change == "attempt4":
+        case.previous["attempt_number"] = 3
+    elif change == "discard_count":
+        case.previous["discarded_runs"].pop()
+    elif change == "old_source":
+        case.data["sources"]["research/bl_k1/m1.py"] = "old"
+    elif change == "no_carry_flag":
+        case.proof["carry_forward_required"] = False
+    if change in {"attempt4", "discard_count"}:
+        receipt = Path(case.proof["previous_receipt_path"])
+        for artifact in (
+            receipt,
+            receipt.with_suffix(".json.sha256"),
+            receipt.with_suffix(".json.complete"),
+        ):
+            artifact.unlink()
+        receipt_sha = export_json(receipt, case.previous)["sha256"]
+        case.proof["previous_receipt_sha256"] = receipt_sha
+        monkeypatch.setattr(m1, "JUDGED3_RECEIPT_SHA256", receipt_sha)
+    export_json(case.path, case.proof)
+    with pytest.raises(ValueError, match="exact audited attempt-05 foreign-load stop"):
+        m1.judged_recovery(case.path, case.data)
+
+
+def test_judged3_check_refuses_nonempty_ledger(monkeypatch, judged3_case) -> None:
+    case = judged3_case
+    export_json(case.path, case.proof)
+    monkeypatch.setattr(m1, "inputs", lambda *args: case.data)
+    monkeypatch.setattr(m1, "verify_ledger", lambda *args: {"cpu-w1-k1": {}})
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "m1",
+            "--check",
+            "--fixtures",
+            "f",
+            "--reference",
+            "r",
+            "--ledger",
+            "l",
+            "--judged-recovery",
+            str(case.path),
+        ],
+    )
+    with pytest.raises(ValueError, match="judged recovery requires an empty new ledger"):
+        m1.main()
+
+
+def test_judged2_is_consumed_when_attempt05_receipt_exists(monkeypatch, judged2_case) -> None:
+    case = judged2_case
+    export_json(case.path, case.proof)
+    export_json(
+        case.path.parent / "bl-m1-attempt-05/receipt.json",
+        {"schema": m1.SCHEMA, "attempt_number": 4, "judged_recovery_sha256": "attempt-05-proof"},
+    )
+    with pytest.raises(ValueError, match="exact audited attempt-04 foreign-load stop"):
+        m1.judged_recovery(case.path, case.data)
+
+
+def test_main_clean_prefix_overrun_is_decided_blocked_and_continues(monkeypatch, tmp_path) -> None:
+    case = run_mock_attempt(
+        monkeypatch, tmp_path, {"cpu-w1-k1": 1}, carried={"cpu-w1-k1": "overrun"}
+    )
+    assert case.receipt["verdict"] == "BLOCKED"
+    assert case.calls == {cell["cell_id"]: 1 for cell in m1.cells()}
+    assert case.receipt["discarded_runs"] == []
+    saved, _ = l1._read_completed_json(case.out / "cpu-w1-k1.json")
+    assert saved["summary"]["decided"] is True
+    assert saved["summary"]["carried_violation"] == {
+        "T_clean_ns": 120500000000,
+        "carried_overruns": 1,
+        "carried_doom": 0,
+        "run_n": 1,
+        "rule": "R1",
+    }
+
+
+def test_main_four_resolved_carries_yield_blocked(monkeypatch, tmp_path) -> None:
+    carried = {cell["cell_id"]: "overrun" for cell in m1.cells()}
+    case = run_mock_attempt(monkeypatch, tmp_path, {key: 1 for key in carried}, carried=carried)
+    assert case.receipt["verdict"] == "BLOCKED"
+    assert [cell["verdict"] for cell in case.receipt["cells"]] == ["BLOCKED"] * 4
+    assert all(cell["decided"] for cell in case.receipt["cells"])
+
+
+@pytest.mark.parametrize("kind", ["tail_overrun", "p95"])
+def test_main_restarts_when_prefix_event_is_not_carried(monkeypatch, tmp_path, kind) -> None:
+    case = run_mock_attempt(monkeypatch, tmp_path, {"cpu-w1-k1": 1}, carried={"cpu-w1-k1": kind})
+    assert case.receipt["verdict"] == "PASS"
+    assert case.calls["cpu-w1-k1"] == 2
+    assert len(case.receipt["discarded_runs"]) == 1
+
+
+def test_main_w4_frozen800_51_prefix_carries(monkeypatch, tmp_path) -> None:
+    case = run_mock_attempt(monkeypatch, tmp_path, {"cpu-w4-k4": 1}, carried={"cpu-w4-k4": "doom"})
+    assert case.receipt["verdict"] == "BLOCKED"
+    w4 = next(cell for cell in case.receipt["cells"] if cell["cell_id"] == "cpu-w4-k4")
+    assert w4["carried_violation"]["carried_doom"] == 1

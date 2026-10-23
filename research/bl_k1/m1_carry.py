@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from research.bl_k1 import m1
+from research.bl_k1.carry import _integer, carried_violation
 from research.bl_mac_latency import l1
 from research.bl_served_search.exports import export_json
 
@@ -26,51 +27,23 @@ ESTIMAND = (
 PRECEDENCE = {"PASS": 0, "BLOCKED": 1, "INCOMPLETE": 2, "INVALID": 3}
 
 
-def _integer(value: object) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError("expected non-negative integer timestamp/count")
-    return value
-
-
 def disclose_discard(row: dict, record: dict) -> dict:
     """Compute all prefix statistics, carrying only clean irreversible events."""
     cell = next(c for c in m1.cells() if c["cell_id"] == record["cell_id"])
     if any(row.get(key) != value for key, value in cell.items()):
         raise ValueError("discard cell configuration differs from frozen cells")
-    clean = []
-    for host in row["host"]:
-        timestamp = _integer(host["monotonic_ns"])
-        if not isinstance(host["foreign_heavy_processes"], list):
-            raise ValueError("invalid foreign process list")
-        if host["foreign_heavy_processes"] == []:
-            clean.append(timestamp)
-    t_clean = max(clean) if clean else None  # JSON null represents minus infinity.
-    carried_overruns = 0
-    for tick in row["ticks"]:
-        finished = _integer(tick["finished_ns"])
-        if type(tick["overrun"]) is not bool:
-            raise ValueError("overrun must be boolean")
-        carried_overruns += tick["overrun"] and t_clean is not None and finished <= t_clean
+    carry = carried_violation(row)
     update = l1.distribution(tick["update_seconds"] for tick in row["ticks"])
     warm: dict[str, list[float]] = {}
     all_phases: dict[str, list[float]] = {}
-    carried_doom = 0
     for sample in row["samples"]:
         if "error" in sample or "S_seconds" not in sample:
             continue
         seconds = sample["S_seconds"]
         l1.distribution([seconds])  # Refuse non-finite/negative input.
         all_phases.setdefault(sample["fixture_id"], []).append(seconds)
-        visible = _integer(sample["visible_ns"])
         if sample["phase"] == "warm":
             warm.setdefault(sample["fixture_id"], []).append(seconds)
-            carried_doom += (
-                cell["workers"] == 4
-                and sample["fixture_id"] == "frozen-800"
-                and seconds > 5.0
-                and t_clean is not None
-                and visible <= t_clean
-            )
     started = _integer(record["started_ns"])
     finished = _integer(record["finished_ns"])
     if finished < started:
@@ -85,10 +58,8 @@ def disclose_discard(row: dict, record: dict) -> dict:
         "run_duration_seconds": (finished - started) / 1e9,
         "ticks": len(row["ticks"]),
         "samples_count": len(row["samples"]),
-        "T_clean_ns": t_clean,
+        **carry,
         "T_clean_null_means": "minus infinity; no clean host row; nothing carried",
-        "carried_overruns": carried_overruns,
-        "carried_doom": carried_doom,
         "total_prefix_overruns": sum(tick["overrun"] for tick in row["ticks"]),
         "prefix_update_p95_seconds": update["p95_seconds"],
         "prefix_warm_per_fixture_max_S_seconds": {key: max(value) for key, value in warm.items()},

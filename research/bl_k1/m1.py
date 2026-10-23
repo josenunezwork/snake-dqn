@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from research.bl_k1.carry import carried_violation
 from research.bl_mac_latency import l1
 from research.bl_served_search import native_ruler, ruler
 from research.bl_served_search.exports import digest, export_json, verify_export
@@ -56,6 +57,32 @@ JUDGED2_PREVIOUS_JUDGED_SHA256 = "7eae5ceeca340e082e92f78bcec769d97693db452dc654
 JUDGED2_CHARGED_SECONDS = 36.47473570803413
 JUDGED2_JUDGMENT_PATH = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_M1_ATTEMPT5.md"
+)
+# Third pinned admission: attempt-05 debit only, with in-harness R1 required.
+JUDGED3_RECEIPT_SHA256 = "48dcd2ad67be5a44d563d95af6737be275bb73562e666fcc0080dd2544453f05"
+JUDGED3_ATTEMPT_SHA256 = "91baa2ea072279b3d741b9db08c9a98cf78406eff77dd9996382a706836f305e"
+JUDGED3_LOG_SHA256 = "10adb4136c49b6326631cfd550a572282440016ab03900a44b29d589ce286f0b"
+JUDGED3_IDLE_SHA256 = "241da7f0874bc5f703aafcf2594a3e9d7293978a65a0eed2128efab95cc1f9c9"
+JUDGED3_CELL_SHA256 = {
+    "cpu-w1-k1": "d898970d58943ca52eb1f2dc56c5095e005db15540ca511f52934336982761aa"
+}
+JUDGED3_DISCARDED_SHA256 = {
+    "cpu-w1-k1.discarded-1.json": (
+        "a0bbca217e3ea2edd69e54446410803c06295b11c8adb6e139c74c309668bfbe"
+    ),
+    "cpu-w1-k1.discarded-2.json": (
+        "193fa08922aa7b4101c8ba8dbd5164a3a5e7d3e826e1cd9d124443c1da8f6a11"
+    ),
+    "cpu-w1-k1.discarded-3.json": (
+        "f8358cf9cba573ad72fd6da9969a29dad88c427d33344f8af42d29012b7c83ab"
+    ),
+}
+JUDGED3_SOURCE_SHA256 = "b110cb5b364a7045b698d987e60476a18a76432910c38762d2071a5b6ea21a28"
+JUDGED3_PREVIOUS_JUDGED_SHA256 = "c515d0cac27f0effc365d113bd990d3d4d3a7b2405fc090856e9eb031a814e4a"
+JUDGED3_PREVIOUS_NAMESPACE = "47d211b9fbf1b2313e7d11c36e5966faf6148b7a6509a9de15ec760ce13af3f2"
+JUDGED3_CHARGED_SECONDS = 771.5500928750262
+JUDGED3_JUDGMENT_PATH = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_M1_ATTEMPT6.md"
 )
 MAX_CELL_RESTARTS = 3
 MAX_DISCARDED_RUNS = 8
@@ -249,32 +276,47 @@ def reconciled_precell_stop(path: Path, data: dict) -> dict:
 
 
 def judged_recovery(path: Path, data: dict) -> dict:
-    """Carry only debit and attempt count from either exact judge-pinned stop."""
+    """Carry only debit and attempt count from an exact judge-pinned stop."""
     error = "M1 judged recovery requires the exact audited attempt-03 foreign-load stop"
     try:
         proof, _ = l1._read_completed_json(path)
         second = proof.get("judge") == "Fable-M1-attempt5"
+        third = proof.get("judge") == "Fable-M1-attempt6"
         if second:
             error = "M1 judged recovery requires the exact audited attempt-04 foreign-load stop"
+        if third:
+            error = "M1 judged recovery requires the exact audited attempt-05 foreign-load stop"
         pins = (
             (
-                JUDGED2_RECEIPT_SHA256,
-                JUDGED2_ATTEMPT_SHA256,
-                JUDGED2_LOG_SHA256,
-                JUDGED2_CELL_SHA256,
-                JUDGED2_SOURCE_SHA256,
-                JUDGED2_CHARGED_SECONDS,
-                3,
+                JUDGED3_RECEIPT_SHA256,
+                JUDGED3_ATTEMPT_SHA256,
+                JUDGED3_LOG_SHA256,
+                JUDGED3_CELL_SHA256,
+                JUDGED3_SOURCE_SHA256,
+                JUDGED3_CHARGED_SECONDS,
+                4,
             )
-            if second
+            if third
             else (
-                JUDGED_RECEIPT_SHA256,
-                JUDGED_ATTEMPT_SHA256,
-                JUDGED_LOG_SHA256,
-                JUDGED_CELL_SHA256,
-                JUDGED_SOURCE_SHA256,
-                JUDGED_CHARGED_SECONDS,
-                2,
+                (
+                    JUDGED2_RECEIPT_SHA256,
+                    JUDGED2_ATTEMPT_SHA256,
+                    JUDGED2_LOG_SHA256,
+                    JUDGED2_CELL_SHA256,
+                    JUDGED2_SOURCE_SHA256,
+                    JUDGED2_CHARGED_SECONDS,
+                    3,
+                )
+                if second
+                else (
+                    JUDGED_RECEIPT_SHA256,
+                    JUDGED_ATTEMPT_SHA256,
+                    JUDGED_LOG_SHA256,
+                    JUDGED_CELL_SHA256,
+                    JUDGED_SOURCE_SHA256,
+                    JUDGED_CHARGED_SECONDS,
+                    2,
+                )
             )
         )
         receipt_pin, attempt_pin, log_pin, cell_pins, source_pin, debit, number = pins
@@ -283,13 +325,24 @@ def judged_recovery(path: Path, data: dict) -> dict:
         attempt, attempt_sha = l1._read_completed_json(prior_path.parent / "attempt.json")
         cell, cell_sha = l1._read_completed_json(prior_path.parent / "cpu-w1-k1.json")
         log_path = (
-            Path(proof["previous_log_path"]) if second else prior_path.parent.with_suffix(".log")
+            Path(proof["previous_log_path"])
+            if second or third
+            else prior_path.parent.with_suffix(".log")
         )
         if (
             proof.get("schema") != SCHEMA + "/judged-recovery"
-            or proof.get("judge") != ("Fable-M1-attempt5" if second else "Fable-M1-attempt4")
+            or proof.get("judge")
+            != (
+                "Fable-M1-attempt6"
+                if third
+                else "Fable-M1-attempt5" if second else "Fable-M1-attempt4"
+            )
             or proof.get("status")
-            != ("JUDGED_FOREIGN_LOAD_STOP_2" if second else "JUDGED_FOREIGN_LOAD_STOP")
+            != (
+                "JUDGED_FOREIGN_LOAD_STOP_3"
+                if third
+                else "JUDGED_FOREIGN_LOAD_STOP_2" if second else "JUDGED_FOREIGN_LOAD_STOP"
+            )
             or proof.get("target_namespace") != data["namespace"]
             or proof.get("judgment_sha256") != digest(Path(proof["judgment_path"]))
             or proof.get("next_attempt_number") != number + 1
@@ -319,15 +372,19 @@ def judged_recovery(path: Path, data: dict) -> dict:
             or cell["summary"].get("complete") is not False
         ):
             raise ValueError(error)
-        if second:
+        if second or third:
+            prior_judged = (
+                JUDGED3_PREVIOUS_JUDGED_SHA256 if third else JUDGED2_PREVIOUS_JUDGED_SHA256
+            )
             if (
-                Path(proof["judgment_path"]) != JUDGED2_JUDGMENT_PATH
+                Path(proof["judgment_path"])
+                != (JUDGED3_JUDGMENT_PATH if third else JUDGED2_JUDGMENT_PATH)
                 or proof.get("restart_policy_required") is not True
                 or not RESTART_POLICY
                 or data.get("sources", {}).get("research/bl_k1/m1.py") != digest(Path(__file__))
                 or previous.get("final_attempt") is not True
-                or previous.get("judged_recovery_sha256") != JUDGED2_PREVIOUS_JUDGED_SHA256
-                or proof.get("previous_judged_recovery_sha256") != JUDGED2_PREVIOUS_JUDGED_SHA256
+                or previous.get("judged_recovery_sha256") != prior_judged
+                or proof.get("previous_judged_recovery_sha256") != prior_judged
                 or proof.get("previous_namespace") != previous["namespace"]
                 or proof.get("remaining_seconds") != CAP_SECONDS - debit
                 or proof.get("transferred_cell_or_timing_evidence") is not False
@@ -336,6 +393,31 @@ def judged_recovery(path: Path, data: dict) -> dict:
                 raise ValueError(error)
         elif previous.get("reconciled_precell_stop_sha256") != JUDGED_PRECELL_SHA256:
             raise ValueError(error)
+        if third:
+            _, idle_sha = l1._read_completed_json(prior_path.parent / "idle.json")
+            discarded = {
+                name: l1._read_completed_json(prior_path.parent / name)[1]
+                for name in JUDGED3_DISCARDED_SHA256
+            }
+            if (
+                idle_sha != JUDGED3_IDLE_SHA256
+                or proof.get("previous_idle_sha256") != idle_sha
+                or discarded != JUDGED3_DISCARDED_SHA256
+                or proof.get("previous_discarded_sha256") != discarded
+                or previous.get("namespace") != JUDGED3_PREVIOUS_NAMESPACE
+                or previous.get("failure") is not None
+                or len(previous.get("discarded_runs", [])) != 3
+                or any(
+                    r.get("stop_reason") != RESTART_POLICY["trigger"]
+                    for r in previous["discarded_runs"]
+                )
+                or len(previous.get("quiet_waits", [])) != 4
+                or any(q.get("quiet") is not True for q in previous["quiet_waits"])
+                or proof.get("carry_forward_required") is not True
+                or "carried_violation" not in Path(__file__).read_text()
+                or not callable(carried_violation)
+            ):
+                raise ValueError(error)
         refuse_consumed(prior_path, "judged_recovery_sha256", number)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         raise ValueError(error) from exc
@@ -880,11 +962,22 @@ def reduce_units(units: list[dict], namespace: str, data: dict | None = None) ->
     if set(ids) - {c["cell_id"] for c in cells()}:
         raise ValueError("foreign M1 cell")
     for row in units:
-        if row["summary"]["complete"]:
+        if row["summary"].get("decided") is not True and row["summary"]["complete"]:
             if data is None:
                 raise ValueError("M1 reduction requires raw evidence inputs")
             audit_unit(row, data)
-    statuses = [row["summary"]["verdict"] for row in units]
+    statuses = [
+        (
+            "BLOCKED"
+            if row["summary"].get("decided") is True
+            else (
+                row["summary"]["verdict"]
+                if row["summary"]["complete"] or row["summary"]["verdict"] == "INVALID"
+                else "INCOMPLETE"
+            )
+        )
+        for row in units
+    ]
     verdict = (
         "INVALID"
         if "INVALID" in statuses
@@ -965,6 +1058,28 @@ def audit_discarded(out_dir: Path, receipt: dict, units: list[dict]) -> None:
         raise ValueError("missing, duplicate or unrecorded M1 discard")
     counts = {}
     retained_epochs = {row["epoch_ns"] for row in units}
+    if len(retained_epochs) != len(units):
+        raise ValueError("shared M1 retained epoch")
+    for row in units:
+        if row["summary"].get("decided") is True:
+            saved, _ = l1._read_completed_json(out_dir / f"{row['cell_id']}.json")
+            carry = carried_violation(saved)
+            expected_carry = {
+                **carry,
+                "run_n": 1 + sum(r["cell_id"] == row["cell_id"] for r in runs),
+                "rule": "R1",
+            }
+            if (
+                saved != row
+                or row["namespace"] != receipt["namespace"]
+                or row["stop_reason"] != RESTART_POLICY["trigger"]
+                or row["summary"].get("complete") is not False
+                or row["summary"].get("verdict") != "BLOCKED"
+                or row["summary"].get("carried_violation") != expected_carry
+                or not (carry["carried_overruns"] or carry["carried_doom"])
+                or not row["host"][-1]["foreign_heavy_processes"]
+            ):
+                raise ValueError("invalid M1 decided-row provenance")
     for record in runs:
         unit_id, n = record["cell_id"], record["n"]
         row, _ = l1._read_completed_json(out_dir / f"{unit_id}.discarded-{n}.json")
@@ -992,6 +1107,7 @@ def audit_discarded(out_dir: Path, receipt: dict, units: list[dict]) -> None:
             or not record["started_ns"] <= row["epoch_ns"] <= record["finished_ns"]
         ):
             raise ValueError("invalid M1 discard or shared epoch")
+        retained_epochs.add(row["epoch_ns"])
 
 
 def main() -> None:
@@ -1153,6 +1269,24 @@ def main() -> None:
                         row = run_cell(cell, data, deadline, observe, stop_state)
                         run_finished = time.monotonic_ns()
                         row["mac_lease"] = lease.receipt
+                        if (
+                            row["stop_reason"] == RESTART_POLICY["trigger"]
+                            and row["summary"]["complete"] is False
+                            and row["summary"]["verdict"] != "INVALID"
+                            and stop_state["verified_stop"]
+                        ):
+                            carry = carried_violation(row)
+                            if carry["carried_overruns"] or carry["carried_doom"]:
+                                row["summary"].update(
+                                    carried_violation={
+                                        **carry,
+                                        "run_n": restarts + 1,
+                                        "rule": "R1",
+                                    },
+                                    verdict="BLOCKED",
+                                    decided=True,
+                                )
+                                break
                         if not (
                             row["stop_reason"] == RESTART_POLICY["trigger"]
                             and row["summary"]["complete"] is False
@@ -1204,7 +1338,7 @@ def main() -> None:
                     if row["summary"]["complete"]:
                         completed_exports[unit_id] = {"unit_id": unit_id, **exported}
                 units.append(row)
-                if not row["summary"]["complete"]:
+                if not row["summary"]["complete"] and not row["summary"].get("decided"):
                     break
         except (Exception, KeyboardInterrupt) as exc:
             failure = f"{type(exc).__name__}: {exc}"
