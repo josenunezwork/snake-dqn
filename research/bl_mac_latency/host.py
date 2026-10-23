@@ -8,7 +8,7 @@ import platform
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from research.compute.thermal_guard import parse_pmset_therm, thermal_reasons
 
@@ -26,12 +26,25 @@ class GuardError(RuntimeError):
         super().__init__(f"host guard: {observation.get('reasons')}")
 
 
-def process_screen() -> dict[str, Any]:
+def process_screen(*, include_identity: bool = False) -> dict[str, Any]:
     """Record a point-in-time CPU screen, excluding only this measurement PID."""
-    raw = _read(["ps", "-Ao", "pid,ppid,%cpu,comm", "-r"])
+    raw = _read(["ps", "-ww", "-Ao", "pid,ppid,%cpu,comm", "-r"])
     heavy = []
+    identities = {}
     for line in raw.splitlines()[1:]:
         fields = line.strip().split(None, 3)
+        if (
+            include_identity
+            and len(fields) == 4
+            and Path(fields[3]).name.lower().startswith("python")
+        ):
+            import psutil
+
+            try:
+                process = psutil.Process(int(fields[0]))
+                identities[fields[0]] = {"argv": process.cmdline(), "cwd": process.cwd()}
+            except (psutil.Error, OSError):
+                pass  # Unreadable/disappeared identities receive no exemption.
         if len(fields) == 4 and int(fields[0]) != os.getpid() and float(fields[2]) >= 50:
             heavy.append(
                 {
@@ -46,6 +59,7 @@ def process_screen() -> dict[str, Any]:
         "other_heavy_processes": heavy,
         "measurement_pid_excluded": os.getpid(),
         "threshold_percent_one_core": 50,
+        **({"process_identity": identities} if include_identity else {}),
     }
 
 
@@ -74,22 +88,12 @@ def check_guard() -> dict[str, Any]:
     return value
 
 
-def snapshot() -> dict[str, Any]:
+def snapshot(*, process_policy: Callable[[dict], list[dict]] | None = None) -> dict[str, Any]:
     """Keep measured occupancy distinct from the owner's Phase-0 completion."""
     value = check_guard()
-    processes = _read(["ps", "-Ao", "pid,ppid,%cpu,comm", "-r"])
-    heavy = []
-    for line in processes.splitlines()[1:]:
-        fields = line.strip().split(None, 3)
-        if len(fields) == 4 and int(fields[0]) != os.getpid() and float(fields[2]) >= 50.0:
-            heavy.append(
-                {
-                    "pid": int(fields[0]),
-                    "ppid": int(fields[1]),
-                    "cpu_percent": float(fields[2]),
-                    "command": fields[3],
-                }
-            )
+    screen = process_screen(include_identity=process_policy is not None)
+    processes = screen["processes"]
+    heavy = screen["other_heavy_processes"] if process_policy is None else process_policy(screen)
     tmux = subprocess.run(["tmux", "ls"], capture_output=True, text=True, timeout=10)
     value.update(
         schema="bl-mac-host/v1",
@@ -99,6 +103,7 @@ def snapshot() -> dict[str, Any]:
         cpu_count=os.cpu_count(),
         top=_read(["top", "-l", "1", "-n", "0"]),
         processes=processes,
+        process_screen=screen,
         heavy_processes=heavy,
         quiet=not heavy,
         tmux=tmux.stdout,

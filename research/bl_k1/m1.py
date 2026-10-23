@@ -18,6 +18,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from research.bl_k1.carry import carried_violation
+from research.bl_k1.m1_background import (
+    ESTIMAND,
+    OWNER_DIRECTIVE_PATH,
+    allowed_background,
+    background_summary,
+)
 from research.bl_mac_latency import l1
 from research.bl_served_search import native_ruler, ruler
 from research.bl_served_search.exports import digest, export_json, verify_export
@@ -84,6 +90,7 @@ JUDGED3_CHARGED_SECONDS = 771.5500928750262
 JUDGED3_JUDGMENT_PATH = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_M1_ATTEMPT6.md"
 )
+OWNER_DIRECTIVE_SHA256 = "4480f9a731436f451667e5ad205d4c181c001a5c32e1ef42ad62a1dfad9c8f0f"
 MAX_CELL_RESTARTS = 3
 MAX_DISCARDED_RUNS = 8
 MIN_CELL_BUDGET_SECONDS = 600
@@ -143,6 +150,7 @@ def sources() -> dict[str, str]:
     names += list((root / "research/t15_mixed_roster_20261017").glob("*.py"))
     names += list((root / "research/apex_veto_serving_20261001").glob("*.py"))
     names += [root / "research/bl_k1/run_m1.sh", root / "research/bl_served_search/native_ruler.py"]
+    names += [root / "research/bl_k1/m1_attempt06_rearm.sh"]
     return {**k1_sources(), **{str(p.relative_to(root)): digest(p) for p in names}}
 
 
@@ -416,6 +424,10 @@ def judged_recovery(path: Path, data: dict) -> dict:
                 or proof.get("carry_forward_required") is not True
                 or "carried_violation" not in Path(__file__).read_text()
                 or not callable(carried_violation)
+                or proof.get("owner_directive_path") != str(OWNER_DIRECTIVE_PATH)
+                or proof.get("owner_directive_sha256") != OWNER_DIRECTIVE_SHA256
+                or digest(OWNER_DIRECTIVE_PATH) != OWNER_DIRECTIVE_SHA256
+                or proof.get("estimand") != ESTIMAND
             ):
                 raise ValueError(error)
         refuse_consumed(prior_path, "judged_recovery_sha256", number)
@@ -508,7 +520,12 @@ def foreign_load(screen: dict, coordinator_pid: int) -> list[dict]:
         if children <= owned:
             break
         owned |= children
-    return [row for row in screen.get("other_heavy_processes", []) if row["pid"] not in owned]
+    allowed = {row["pid"] for row in allowed_background(screen)}
+    return [
+        row
+        for row in screen.get("other_heavy_processes", [])
+        if row["pid"] not in owned and row["pid"] not in allowed
+    ]
 
 
 class HostMonitor:
@@ -526,6 +543,7 @@ class HostMonitor:
             try:
                 row = self.observe()
                 row["coordinator_pid"] = os.getpid()
+                row["allowed_background_processes"] = allowed_background(row["process_screen"])
                 row["foreign_heavy_processes"] = foreign_load(row["process_screen"], os.getpid())
                 self.rows.append(row)
                 if row["foreign_heavy_processes"]:
@@ -991,7 +1009,15 @@ def reduce_units(units: list[dict], namespace: str, data: dict | None = None) ->
         "schema": SCHEMA,
         "namespace": namespace,
         "verdict": verdict,
-        "cells": [{"cell_id": row["cell_id"], **row["summary"]} for row in units],
+        "cells": [
+            {
+                "cell_id": row["cell_id"],
+                **row["summary"],
+                **({"background_load": row["background_load"]} if "background_load" in row else {}),
+            }
+            for row in units
+        ],
+        "estimand": ESTIMAND,
         "lead_source_cell_id": "cpu-w4-k4",
         "scope": "construction admission only; B8 serving unchanged",
     }
@@ -1027,7 +1053,12 @@ def wait_quiet(
         screen["other_heavy_processes"] = heavy
         foreign = foreign_load(screen, os.getpid())
         samples.append(
-            {**row, "sampled_ns": time.monotonic_ns(), "foreign_heavy_processes": foreign}
+            {
+                **row,
+                "sampled_ns": time.monotonic_ns(),
+                "foreign_heavy_processes": foreign,
+                "allowed_background_processes": allowed_background(screen),
+            }
         )
         streak = 0 if foreign else streak + 1
         if streak >= consecutive and time.monotonic() < deadline:
@@ -1186,6 +1217,8 @@ def main() -> None:
                     "remaining_seconds": CAP_SECONDS - charged,
                     "attempt_number": 1 if previous is None else previous["attempt_number"] + 1,
                     "timed_cells_run": False,
+                    "estimand": ESTIMAND,
+                    "owner_directive_sha256": OWNER_DIRECTIVE_SHA256,
                 }
             )
         )
@@ -1202,7 +1235,7 @@ def main() -> None:
     def observe() -> dict:
         return {
             **check_guard(),
-            "process_screen": process_screen(),
+            "process_screen": process_screen(include_identity=True),
             "load_average": list(os.getloadavg()),
         }
 
@@ -1211,7 +1244,8 @@ def main() -> None:
     ) as lease:
         started = time.monotonic()
         deadline = started + CAP_SECONDS - charged
-        idle = snapshot()
+        idle = snapshot(process_policy=lambda screen: foreign_load(screen, os.getpid()))
+        idle["allowed_background_processes"] = allowed_background(idle.get("process_screen", {}))
         if not idle["quiet"]:
             raise RuntimeError("M1 requires an idle Mac receipt; foreign load observed")
         quiet_waits = [
@@ -1238,6 +1272,8 @@ def main() -> None:
                 "cap_seconds": CAP_SECONDS,
                 "mechanical_retry": "bounded whole-cell restart on foreign load only",
                 "restart_policy": RESTART_POLICY,
+                "estimand": ESTIMAND,
+                "owner_directive_sha256": OWNER_DIRECTIVE_SHA256,
                 "reconciled_precell_stop_sha256": (
                     digest(args.reconciled_precell_stop) if args.reconciled_precell_stop else None
                 ),
@@ -1248,6 +1284,8 @@ def main() -> None:
         )
         units = []
         discarded_runs = []
+        run_segments = []
+        cell_segments: dict[str, list] = {}
         completed_exports = dict(ledger)
         stop_state = {"verified_stop": True}
         failure = None
@@ -1268,6 +1306,9 @@ def main() -> None:
                         run_started = time.monotonic_ns()
                         row = run_cell(cell, data, deadline, observe, stop_state)
                         run_finished = time.monotonic_ns()
+                        row["background_load"] = background_summary([(row["host"], run_finished)])
+                        run_segments.append((row["host"], run_finished))
+                        cell_segments.setdefault(unit_id, []).append((row["host"], run_finished))
                         row["mac_lease"] = lease.receipt
                         if (
                             row["stop_reason"] == RESTART_POLICY["trigger"]
@@ -1311,6 +1352,7 @@ def main() -> None:
                                 "finished_ns": run_finished,
                                 "ticks": len(row["ticks"]),
                                 "samples_count": len(row["samples"]),
+                                "background_load": row["background_load"],
                             }
                         )
                         quiet = wait_quiet(
@@ -1347,6 +1389,19 @@ def main() -> None:
         receipt.update(
             discarded_runs=discarded_runs, quiet_waits=quiet_waits, restart_policy=RESTART_POLICY
         )
+        quiet_segments = [(q.get("samples", []), q.get("finished_ns", 0)) for q in quiet_waits]
+        receipt["background_load"] = background_summary(
+            [
+                ([idle] if "monotonic_ns" in idle else [], idle.get("monotonic_ns", 0)),
+                *quiet_segments,
+                *run_segments,
+            ]
+        )
+        receipt["background_load"]["scope"] = "idle, quiet waits, all retained and discarded runs"
+        receipt["background_load"]["per_cell_including_discards"] = {
+            unit_id: background_summary(segments) for unit_id, segments in cell_segments.items()
+        }
+        receipt["owner_directive_sha256"] = OWNER_DIRECTIVE_SHA256
         try:
             audit_discarded(args.out, receipt, units)
         except (ValueError, KeyError, TypeError, OSError) as exc:
