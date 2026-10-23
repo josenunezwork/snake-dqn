@@ -19,7 +19,7 @@ def empty_ledger(
     root_ids: list[str] | None = None,
     source_commit: str = "local-functional",
 ) -> dict[str, Any]:
-    if not re.fullmatch("[0-9a-f]{64}", bank_sha256) or platform not in {"cpu", "l4"}:
+    if not re.fullmatch("[0-9a-f]{64}", bank_sha256) or platform not in {"cpu", "l4", "mac"}:
         raise ValueError("F1 ledger requires frozen bank digest and platform")
     return {
         "schema": SCHEMA,
@@ -118,7 +118,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exports", type=Path, action="append", required=True)
     parser.add_argument("--bank-sha256", required=True)
-    parser.add_argument("--platform", choices=("cpu", "l4"), required=True)
+    parser.add_argument("--platform", choices=("cpu", "l4", "mac"), required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--source-commit", required=True)
     args = parser.parse_args()

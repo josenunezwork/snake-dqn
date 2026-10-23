@@ -13,6 +13,7 @@ import os
 import pickle
 import platform
 import re
+import subprocess
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -26,6 +27,7 @@ from .f1_units import LABELS, load_ledger
 SCHEMA = "bl-labels-f1-root-bank/v1"
 RECEIPT_SCHEMA = "bl-labels-f1-ruler-receipt/v1"
 ROOTS = 64
+MAC_BANK_SHA256 = "a8c1dc4bbe1fd579d59b69d6ca6ca9dbd2814b088f74277f008f504f6d1bbb0d"
 
 
 class WorkerStall(RuntimeError):
@@ -38,7 +40,16 @@ def cpu_model() -> str:
         for line in path.read_text().splitlines():
             if line.lower().startswith("model name") and ":" in line:
                 return line.split(":", 1)[1].strip() or "UNKNOWN"
-    return (platform.processor() or "UNKNOWN") if platform.system() == "Darwin" else "UNKNOWN"
+    if platform.system() == "Darwin":
+        result = subprocess.run(
+            ["/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+        return result.stdout.strip() or "UNKNOWN"
+    return "UNKNOWN"
 
 
 def build_bank(sessions: list[Path], out: Path) -> dict[str, Any]:
@@ -259,6 +270,12 @@ def _label_root(job: tuple[str, float]) -> dict[str, Any]:
         value["checkpoint"],
         restore=value["restore"],
     )
+    # This established simulator digest omits policy/runtime carry, checkpoint
+    # provenance and process-global Python/NumPy/Torch RNG. Full restore identity
+    # above remains mandatory; this is a separate diagnostic, never its replacement.
+    state_digest = hashlib.sha256(
+        ("grid-h5000-env/v1\0" + factory._env_digest(restored.sim)).encode()
+    ).hexdigest()
     snapshot = restored.snapshot()
     namespace = root["source_namespace"] + "/" + root["initial_allocation"]["allocation_id"]
     selected = (
@@ -294,6 +311,13 @@ def _label_root(job: tuple[str, float]) -> dict[str, Any]:
         forced_complete=complete,
         audit_selected=complete_audit,
     )
+    row.update(
+        a_star=int(chosen),
+        digest=entry.digest,
+        sampling_prob=1.0,
+        sampling_kind="doom",
+        natural_prevalence_weight=1.0,
+    )
     bare_audit = selected("bare-audit")
     if bare_audit:
         actual = factory._branch(
@@ -305,13 +329,19 @@ def _label_root(job: tuple[str, float]) -> dict[str, Any]:
         ):
             raise ValueError("INVALID F1 bare audit mismatch")
     if row["decisive"] and selected("extended"):
-        factory._branch(
+        long = factory._branch(
             snapshot, int(chosen), factory.EXTENDED_HORIZON, restore=value["restore"], pulse=pulse
         )
+        row["h1440"] = {"action": int(chosen), "survives": long["extended"]["survives"]}
     return {
         "root_id": root["root_id"],
         "elapsed_seconds": time.monotonic() - started,
         "digest": entry.digest,
+        "state_digest": state_digest,
+        "state_digest_schema": "sha256:grid-h5000-env/v1",
+        "label_sha256": hashlib.sha256(
+            json.dumps(row, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+        ).hexdigest(),
         "source_digest": root["root_digest"],
         "source_digest_matches_local": entry.digest == root["root_digest"],
         "digest_checks": 1,
@@ -362,9 +392,17 @@ def run(
     local_workers: int | None = None,
 ) -> dict[str, Any]:
     nproc = os.cpu_count() or 1
+    if platform_label == "mac" and (
+        platform.system() != "Darwin" or platform.machine().lower() != "arm64"
+    ):
+        raise ValueError("Mac equivalence requires native darwin-arm64")
+    if platform_label == "mac" and not probe and bank_sha256 != MAC_BANK_SHA256:
+        raise ValueError("Mac equivalence requires the frozen 64-root F1 bank")
     if platform_label == "l4" and nproc != 12:
         raise ValueError("F1 L4 host must have exactly 12 vCPU")
     source_commit = os.environ.get("F1_COMMIT", "local-functional")
+    if platform_label == "mac" and not probe and not re.fullmatch("[0-9a-f]{40}", source_commit):
+        raise ValueError("Mac equivalence requires a full frozen F1 source commit")
     verified = load_ledger(ledger, bank_sha256, platform_label, source_commit)
     source_verified = verified
     if probe:
@@ -383,7 +421,7 @@ def run(
             selected = [r for r in roots if r["source_session"] == source["name"]]
             if selected:
                 jobs.append((source, selected, b8, frp3, cache, deadline))
-        prep_workers = min(local_workers or nproc, len(jobs))
+        prep_workers = min(local_workers or (6 if platform_label == "mac" else nproc), len(jobs))
         if prep_workers == 1:
             for job in jobs:
                 paths.update(_prepare_source_job(job))
@@ -409,6 +447,8 @@ def run(
             configs.append(verified[label])
             continue
         workers = {"one": 1, "half": max(1, nproc // 2), "all": nproc}[label]
+        if platform_label == "mac":
+            workers = {"one": 1, "half": 3, "all": 6}[label]
         if local_workers is not None:
             if not probe:
                 raise ValueError("local worker override is functional-probe-only")
@@ -469,7 +509,7 @@ def run(
             f"F1_CONFIG platform={platform_label} label={label} roots={len(roots)} complete=1",
             flush=True,
         )
-    return {
+    result = {
         "schema": RECEIPT_SCHEMA,
         "status": "COMPLETE",
         "platform": platform_label,
@@ -481,6 +521,59 @@ def run(
         "cpu": {"nproc": nproc, "model": model},
         "outcome_exports": False,
         "skipped_verified": sorted(verified),
+    }
+    if platform_label == "mac" and not probe:
+        result["mac_equivalence"] = compare_mac_configs(configs, expected_ids)
+    return result
+
+
+def compare_mac_configs(configs: list[dict], root_ids: list[str]) -> dict[str, Any]:
+    """Require all 64 frozen roots at W1/3/6, including full and label identity."""
+    if len(root_ids) != ROOTS or len(set(root_ids)) != ROOTS or len(configs) != 3:
+        raise ValueError("INVALID Mac worker invariance requires three complete 64-root cells")
+    baseline = None
+    rates = {}
+    for label, workers, config in zip(LABELS, (1, 3, 6), configs):
+        records = config.get("records", [])
+        if (
+            config.get("status") != "COMPLETE"
+            or config.get("platform") != "mac"
+            or config.get("transport_probe") is not False
+            or config.get("schedule_label") != label
+            or config.get("workers") != workers
+            or config.get("root_count") != ROOTS
+            or [r.get("root_id") for r in records] != root_ids
+            or any(r.get("bare_audit_mismatches") != 0 for r in records)
+        ):
+            raise ValueError("INVALID Mac worker invariance has incomplete or foreign cell")
+        semantic = []
+        for record in records:
+            values = tuple(record.get(key) for key in ("digest", "label_sha256", "state_digest"))
+            if any(not isinstance(v, str) or not re.fullmatch("[0-9a-f]{64}", v) for v in values):
+                raise ValueError("INVALID Mac worker invariance missing digest/label hash")
+            semantic.append(values)
+        if baseline is not None and semantic != baseline:
+            raise ValueError("INVALID Mac worker-count digest or label identity mismatch")
+        baseline = semantic
+        rate = config.get("roots_per_hour")
+        if (
+            isinstance(rate, bool)
+            or not isinstance(rate, (int, float))
+            or not math.isfinite(rate)
+            or rate <= 0
+        ):
+            raise ValueError("INVALID Mac worker invariance has unmeasured rate")
+        rates[str(workers)] = rate
+    return {
+        "status": "PASS",
+        "root_count": ROOTS,
+        "workers": [1, 3, 6],
+        "digest_and_label_identity": True,
+        "state_digest_identity": True,
+        "roots_per_hour": rates,
+        "reference_l4_roots_per_hour": 6194,
+        "mac_w6_to_l4_ratio": rates["6"] / 6194,
+        "scope": "Mac worker invariance only; F0 Canary-B admission remains separate",
     }
 
 
@@ -511,7 +604,7 @@ def main() -> None:
     job = sub.add_parser("run")
     for name in ("bank", "ledger", "b8", "frp3", "output"):
         job.add_argument("--" + name, type=Path, required=True)
-    job.add_argument("--platform", choices=("cpu", "l4"), required=True)
+    job.add_argument("--platform", choices=("cpu", "l4", "mac"), required=True)
     job.add_argument("--session-seconds", type=float)
     job.add_argument("--finalize-seconds", type=float)
     job.add_argument("--deadline-seconds", type=float)
@@ -525,7 +618,7 @@ def main() -> None:
         budget = session_deadline(args.session_seconds, args.finalize_seconds)
         deadline = budget["collection_deadline_monotonic"]
         publish_json(args.output / "session-budget.json", budget)
-    elif args.deadline_seconds and args.probe:
+    elif args.deadline_seconds and (args.probe or args.platform == "mac"):
         deadline = time.monotonic() + args.deadline_seconds
     else:
         parser.error(

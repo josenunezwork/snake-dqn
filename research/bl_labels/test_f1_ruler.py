@@ -169,8 +169,9 @@ def test_label_workload_uses_natural_bare_and_only_registered_audits(
     monkeypatch.setattr(
         factory,
         "_restore_root",
-        lambda *_args, **_kwargs: SimpleNamespace(snapshot=lambda: b"restored"),
+        lambda *_args, **_kwargs: SimpleNamespace(snapshot=lambda: b"restored", sim=None),
     )
+    monkeypatch.setattr(factory, "_env_digest", lambda _sim: "e" * 64)
     monkeypatch.setattr(
         factory, "_selection_hash", lambda *_args: ("0" if audit_selected else "1") * 64
     )
@@ -195,6 +196,17 @@ def test_label_workload_uses_natural_bare_and_only_registered_audits(
     assert record["bare_audits"] == int(audit_selected)
     assert record["bare_audit_mismatches"] == 0
     assert not {"decisive", "outcomes", "a_star", "mass", "survives"} & record.keys()
+    if audit_selected:
+
+        def changed_extension(snapshot, action, depth, **kwargs):
+            result = branch(snapshot, action, depth, **kwargs)
+            if depth == 1440:
+                result["extended"] = {"survives": False}
+            return result
+
+        monkeypatch.setattr(factory, "_branch", changed_extension)
+        changed = f1_ruler._label_root((str(path), time.monotonic() + 10))
+        assert changed["label_sha256"] != record["label_sha256"]
 
 
 def test_verified_worker_schedules_are_not_recomputed(
