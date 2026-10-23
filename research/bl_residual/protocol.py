@@ -10,12 +10,14 @@ from typing import Any
 from research.bl_ppo.exports import digest, export_json, verify_export
 
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
-QUALIFIED_TREE = "553af3f692515b2bf66173356fe4d099acc96942"
+QUALIFIED_TREE = "d0d92bdb572b770284a1fea6152417ffa5f06bea"
 QUALIFICATION_RECORD = (
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json"
 )
 NAMESPACE = "bl-residual-f3-20261023-v1"
 DOSES = (256, 1024, 4096)
+F4_REGISTRATION_SHA = "66388c795b3bec5bd014fa03d700994527b67763479143f7c3e5f35d1bb2fd65"
+ROUND_26_JUDGMENT_SHA = "0fe1a103384035839cb143a6df9193abf8269197e6d02f44bf7dceb000ab8362"
 
 
 def canonical_sha(value: Any) -> str:
@@ -23,10 +25,18 @@ def canonical_sha(value: Any) -> str:
 
 
 def allocation_hash(control: dict) -> str:
-    """Bind all scientific controls; only resume metadata varies per attempt."""
-    return canonical_sha(
-        {k: v for k, v in control.items() if k not in ("allocation", "ledger_sha256")}
-    )
+    """Bind scientific inputs while keeping later create-only stage evidence non-circular."""
+    value = {
+        k: v
+        for k, v in control.items()
+        if k not in ("allocation", "ledger_sha256", "stage_receipts")
+    }
+    stage_names = set(control.get("stage_receipts", {}).values())
+    if isinstance(value.get("input_hashes"), dict):
+        value["input_hashes"] = {
+            name: sha for name, sha in value["input_hashes"].items() if name not in stage_names
+        }
+    return canonical_sha(value)
 
 
 def empty_ledger(namespace: str, allocation: str) -> dict[str, Any]:
@@ -104,15 +114,25 @@ def build_ledger(roots: list[Path], output: Path, namespace: str, allocation: st
 
 
 def require_judgment(approval: Path, registration: Path, recipe_sha: str) -> dict:
-    """No environment token or draft can authorize a factory-label fit."""
+    """Accept only the judge-extracted registration and its exact approval binding."""
     review = json.loads(approval.read_text())
+    expected = {
+        "schema": "bl-residual-f4-judgment/v1",
+        "decision": "APPROVE",
+        "judgment_sha256": ROUND_26_JUDGMENT_SHA,
+        "registration_sha256": F4_REGISTRATION_SHA,
+        "recipe_sha256": recipe_sha,
+    }
     if (
-        registration.name == "F4_DRAFT.md"
-        or "UNRATIFIED" in registration.read_text()
-        or review.get("schema") != "bl-residual-f4-judgment/v1"
-        or review.get("decision") != "APPROVE"
-        or review.get("registration_sha256") != digest(registration)
-        or review.get("recipe_sha256") != recipe_sha
+        approval.name != "judgment.json"
+        or registration.name != "F4_REGISTRATION.md"
+        or digest(registration) != F4_REGISTRATION_SHA
+        or set(review) != set(expected)
+        or review != expected
     ):
         raise ValueError("F4_UNRATIFIED: factory-label fits forbidden")
-    return {"review_sha256": digest(approval), "registration_sha256": digest(registration)}
+    return {
+        "judgment_sha256": ROUND_26_JUDGMENT_SHA,
+        "review_sha256": digest(approval),
+        "registration_sha256": F4_REGISTRATION_SHA,
+    }

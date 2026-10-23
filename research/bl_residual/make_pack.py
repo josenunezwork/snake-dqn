@@ -18,6 +18,7 @@ from research.bl_residual.fit import FitRecipe
 from research.bl_residual.protocol import (
     B8_SHA,
     DOSES,
+    F4_REGISTRATION_SHA,
     NAMESPACE,
     QUALIFICATION_RECORD,
     QUALIFIED_TREE,
@@ -46,13 +47,21 @@ def prepare_inputs(output: Path, b8: Path, *, doses: tuple[int, ...] = DOSES) ->
         raise ValueError("B8 checkpoint identity differs")
     output.mkdir(parents=True, exist_ok=False)
     shutil.copyfile(b8, output / "b8.pth")
+    registration = ROOT / "research/bl_residual/F4_REGISTRATION.md"
+    if digest(registration) != F4_REGISTRATION_SHA:
+        raise ValueError("judge-extracted F4 registration digest differs")
+    # This canonical basename is part of require_judgment's admission boundary.
+    shutil.copyfile(registration, output / "F4_REGISTRATION.md")
     value = {
         "schema": "bl-residual-control/v1",
         "synthetic": True,
         "namespace": NAMESPACE + "-synthetic",
         "doses": list(doses),
         "recipe_sha256": canonical_sha(dataclasses.asdict(FitRecipe())),
-        "input_hashes": {"b8.pth": B8_SHA},
+        "input_hashes": {
+            "b8.pth": B8_SHA,
+            "F4_REGISTRATION.md": F4_REGISTRATION_SHA,
+        },
     }
     value["allocation"] = allocation_hash(value)
     export_json(
@@ -63,8 +72,15 @@ def prepare_inputs(output: Path, b8: Path, *, doses: tuple[int, ...] = DOSES) ->
     return value
 
 
-def make_pack(output: Path, commit: str, b8: Path) -> dict:
+def make_pack(output: Path, commit: str, b8: Path, *, main_input_dir: Path | None = None) -> dict:
     """Require the published source, qualified CLI tree and clean-venv imports."""
+    if main_input_dir is not None:
+        # Never let the synthetic/HOLD template become a main manifest by
+        # accident.  Admission is deliberately offline and pre-dispatch.
+        from research.bl_residual.job import preflight_main_dispatch
+
+        preflight_main_dispatch(main_input_dir)
+        raise ValueError("main manifest construction is unavailable in the F3 synthetic template")
     from tools.ops.import_preflight import check as imports
     from tools.ops.qualification import check as qualification
 
@@ -92,7 +108,7 @@ def make_pack(output: Path, commit: str, b8: Path) -> dict:
             "dest": n,
             "sha256": digest(output / "inputs" / n),
         }
-        for n in ("b8.pth", "control.json", "verified-ledger.json")
+        for n in ("b8.pth", "F4_REGISTRATION.md", "control.json", "verified-ledger.json")
     ]
     manifest = {
         "job_id": f"bl-f3-canary-{commit[:8]}",
@@ -169,12 +185,17 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--b8", type=Path, required=True)
     parser.add_argument("--commit", default="HEAD")
+    parser.add_argument("--main-input-dir", type=Path)
     parser.add_argument("--local-smoke-inputs-only", action="store_true")
     args = parser.parse_args()
     if args.local_smoke_inputs_only:
         prepare_inputs(args.out, args.b8)
     else:
-        print(json.dumps(make_pack(args.out, args.commit, args.b8)))
+        print(
+            json.dumps(
+                make_pack(args.out, args.commit, args.b8, main_input_dir=args.main_input_dir)
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import subprocess
 from pathlib import Path
@@ -9,13 +10,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from research.bl_ppo.exports import digest
+from research.bl_ppo.exports import digest, verify_export
 from research.bl_residual import job
 from research.bl_residual.data import allocate_lives, validate_rows, world_fold
+from research.bl_residual.fit import FitRecipe
 from research.bl_residual.make_pack import prepare_inputs
 from research.bl_residual.protocol import (
+    F4_REGISTRATION_SHA,
+    ROUND_26_JUDGMENT_SHA,
     allocation_hash,
     build_ledger,
+    canonical_sha,
     read_ledger,
     require_judgment,
 )
@@ -63,20 +68,30 @@ def test_insufficient_holdout_never_shrinks_N() -> None:
     assert value["doses"]["4096"]["train_lives"] == []
 
 
-def test_draft_cannot_authorize_factory_fit(tmp_path: Path) -> None:
-    registration = tmp_path / "F4_DRAFT.md"
-    registration.write_text("UNRATIFIED")
-    approval = tmp_path / "approval.json"
+def test_only_exact_judged_registration_can_authorize_factory_fit(tmp_path: Path) -> None:
+    registration = Path(__file__).resolve().parents[1] / "research/bl_residual/F4_REGISTRATION.md"
+    assert digest(registration) == F4_REGISTRATION_SHA
+    approval = tmp_path / "judgment.json"
     approval.write_text(
         json.dumps(
             {
                 "schema": "bl-residual-f4-judgment/v1",
                 "decision": "APPROVE",
-                "registration_sha256": digest(registration),
+                "judgment_sha256": ROUND_26_JUDGMENT_SHA,
+                "registration_sha256": F4_REGISTRATION_SHA,
                 "recipe_sha256": "f" * 64,
             }
         )
     )
+    assert (
+        require_judgment(approval, registration, "f" * 64)["registration_sha256"]
+        == F4_REGISTRATION_SHA
+    )
+    copied = tmp_path / "F4_COPY.md"
+    copied.write_bytes(registration.read_bytes())
+    with pytest.raises(ValueError, match="UNRATIFIED"):
+        require_judgment(approval, copied, "f" * 64)
+    approval.write_text(json.dumps({"schema": "bl-residual-f4-judgment/v1"}))
     with pytest.raises(ValueError, match="UNRATIFIED"):
         require_judgment(approval, registration, "f" * 64)
 
@@ -114,11 +129,47 @@ def test_real_synthetic_entrypoint_resume_skips_exact_units(
         )
 
 
+@pytest.mark.skipif(not B8.exists(), reason="local pinned B8 fixture unavailable")
+def test_fit_fault_seals_terminal_receipt_and_stops_later_doses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inputs = tmp_path / "inputs"
+    prepare_inputs(inputs, B8, doses=(256, 1024))
+    from research.bl_residual.fit import FitFault
+
+    calls: list[int] = []
+
+    def fault(*_args: object, **_kwargs: object) -> object:
+        calls.append(1)
+        raise FitFault("synthetic numerical tripwire")
+
+    monkeypatch.setattr(job, "fit_residual", fault)
+    output = tmp_path / "fault"
+    with pytest.raises(FitFault, match="synthetic numerical tripwire"):
+        job.run(inputs, output, mode="smoke")
+    assert calls == [1]
+    fault_receipt = output / "fault-0000.json"
+    assert verify_export(fault_receipt) == digest(fault_receipt)
+    assert json.loads(fault_receipt.read_text())["kind"] == "KILL_FIT"
+    assert not (output / "fit-0000.pth").exists()
+
+
 def test_all_scientific_controls_are_allocation_bound() -> None:
     control = {"namespace": "test", "doses": [256], "train_lives": {"256": ["a"]}}
     original = allocation_hash(control)
     control["train_lives"]["256"] = ["b"]
     assert original != allocation_hash(control)
+
+
+def test_d4096_staging_refuses_without_prior_fits_and_receipts(tmp_path: Path) -> None:
+    control = {
+        "synthetic": False,
+        "namespace": "f4-series",
+        "stage_receipts": {},
+        "input_hashes": {},
+    }
+    with pytest.raises(ValueError, match="D4096 requires passed D256 and D1024"):
+        job._validate_staging(tmp_path, control, [4096], "a" * 64, set())
 
 
 def test_pinned_entrypoint_device_resolves_without_shell_execution(tmp_path: Path) -> None:
@@ -165,7 +216,7 @@ def test_heldout_refuses_synthetic_foreign_and_changed_reserve(tmp_path: Path) -
         "synthetic": False,
         "doses": [256],
         "namespace": "series",
-        "recipe_sha256": "a" * 64,
+        "recipe_sha256": canonical_sha(dataclasses.asdict(FitRecipe())),
         "input_hashes": {"life-allocation.json": digest(allocation)},
     }
     control["allocation"] = allocation_hash(control)
@@ -176,7 +227,7 @@ def test_heldout_refuses_synthetic_foreign_and_changed_reserve(tmp_path: Path) -
         "index": 0,
         "updates": 2000,
         "namespace": "series",
-        "recipe_sha256": "a" * 64,
+        "recipe_sha256": control["recipe_sha256"],
         "allocation": control["allocation"],
     }
     validate_candidate(meta, control, allocation)

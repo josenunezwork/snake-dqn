@@ -267,3 +267,23 @@ _As of 2026-10-20 ~19:25 PT:_
   by `P1_E8_04_DISPATCH_PACKS.json`. Both top-level admission flags are false.
   This records Codex's receipt publication, **not** Claude's required
   line-by-line verification or a judge disposition. No dispatch occurred.
+
+### 2026-10-23 — F4 round-26 implementation binding (pre-data)
+
+Authority: round-26 `RATIFY-WITH-CHANGES`, judgment file
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-26/JUDGMENT.md`,
+SHA256 `0fe1a103384035839cb143a6df9193abf8269197e6d02f44bf7dceb000ab8362`.
+Extracted the exact 129-line §3.1 block into
+`research/bl_residual/F4_REGISTRATION.md`; its SHA256 matches the judge:
+`66388c795b3bec5bd014fa03d700994527b67763479143f7c3e5f35d1bb2fd65`.
+Post-change FitRecipe canonical SHA256:
+`49d12f486bffa455adcedbc318e88f1524f5c502894d0c1ace47daa84b9d3a5a`.
+The independent implementation receipt is
+`research/bl_residual/CODEX_V_F4_REVIEW.json`. Claude must accept that receipt
+and create the exact five-field `judgment.json` in `F4_HANDOFF.md` before any
+factory-label fit, reserve opening or screen allocation. This entry records
+bindings, not operator approval. No real labels or outcomes were opened by the
+implementation; synthetic fixtures only, 0 Colab units, no serving change.
+Future packs use qualified CLI tree
+`d0d92bdb572b770284a1fea6152417ffa5f06bea` from `origin/main`; historical packs
+and earlier hash-bound receipts remain unchanged.
