@@ -19,7 +19,10 @@ import time
 from pathlib import Path
 from typing import Any, Iterator
 
-from qualification import OPS
+if __package__:
+    from .qualification import OPS
+else:
+    from qualification import OPS
 
 HERE = Path(__file__).resolve().parent
 EXACT_ERROR = "AccountingError('assignment endpoints changed during allocation')"
@@ -146,6 +149,28 @@ def read_json(path: Path) -> dict:
     return value
 
 
+# Owner's 2026-10-22 A0 work order explicitly selects PLAN_A100 §3's
+# A1 acceptance envelope over the earlier generic 60-minute exemption ceiling.
+A1_AUTHORITY_SHA256 = "1c87898be554d8e66788da6f0a09ee7b842a514e530c1d0e1c624bcf58c3962c"
+
+
+def a1_acceptance_limit(manifest: dict[str, Any], exemption: dict[str, Any]) -> bool:
+    """Recognize only the source-bound A1 ruler's authorized 2 h / 20 u envelope."""
+    return (
+        exemption.get("kind") == "acceptance"
+        and exemption.get("authority_sha256") == A1_AUTHORITY_SHA256
+        and manifest.get("script") == "research/gpu_sim_spike/colab.sh"
+        and manifest.get("env", {}).get("GPU_SIM_SPIKE_ENTRYPOINT") == "a1-ruler"
+        and manifest.get("requirements", {}).get("gpu") == "A100"
+        and manifest.get("requirements", {}).get("allowed_gpus") == ["A100"]
+        and manifest.get("budget", {}).get("unit_cap") == 20
+        and manifest.get("a1", {}).get("shapes") == [6, 256, 1024]
+        and manifest.get("a1", {}).get("mixes") == ["scripted", "frozen", "mixed"]
+        and manifest.get("a1", {}).get("repeats") == 3
+        and manifest.get("a1", {}).get("ticks_per_repeat") == 8
+    )
+
+
 def require_resume_policy(manifest: dict[str, Any]) -> None:
     """Require a resume contract or a declared, bounded operational exemption."""
     if "resume" in manifest and "resume_exemption" in manifest:
@@ -170,6 +195,8 @@ def require_resume_policy(manifest: dict[str, Any]) -> None:
             raise Refused("resume exemption requires a finite positive timeout_minutes")
         # Owner's 2x rule: ruling's 20-minute canary; acceptance's 30-minute maximum.
         limit = 40 if exemption["kind"] == "short-canary" else 60
+        if a1_acceptance_limit(manifest, exemption):
+            limit = 120
         if timeout > limit:
             raise Refused(
                 f"{exemption['kind']} resume exemption requires timeout_minutes <= {limit}"

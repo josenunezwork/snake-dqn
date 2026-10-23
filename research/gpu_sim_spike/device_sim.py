@@ -1,9 +1,10 @@
 """Torch implementation of the rollout-state portion of the GPU sim spike.
 
 ``DeviceSim`` keeps all mutable rollout state in fixed-shape tensors.  In
-particular, :meth:`step` neither transfers tensors to the host nor asks Python
-for a tensor value; this lets a dense-search branch be cloned and advanced on
-one CUDA stream.  It intentionally uses a counter RNG, so it is expected to
+particular, event dispatch compacts actual death candidates on device. Event
+reduction/compaction introduces explicit scalar synchronization; detailed stage
+synchronization and profiling are enabled only by the instrumentation mode.
+It intentionally uses a counter RNG, so it is expected to
 diverge from GridBatchSim's MT stream.  The parity harness measures that
 divergence; this module must never be used as a promotion or serving simulator.
 """
@@ -16,6 +17,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from research.gpu_sim_spike.stage_timing import StageTiming
 from src.core.mechanics_constants import HEADON_SIZE_RATIO, corpse_food_cap
 from src.core.reward_events import PHI_LENGTH_DIVISOR
 from src.simd_env.batch_sim import DEATH_BODY, DEATH_HEAD, DEATH_SELF, DEATH_WALL
@@ -105,6 +107,7 @@ class DeviceSim:
             "until the parity harness classifies every disagreement."
         )
         self._prepared = False
+        self._timing = StageTiming(self.device)
 
     @classmethod
     def from_reference(
@@ -393,6 +396,22 @@ class DeviceSim:
 
     def _append_many(self, cells: torch.Tensor, mask: torch.Tensor, corpse: bool) -> None:
         """Append candidates with an exact, fixed-shape tagged FIFO corpse path."""
+        # Meta checks retain the static tensor path. Real execution rejects an
+        # empty event and packs only actual candidates, in original stream order.
+        if self.device.type != "meta":
+            indices = mask.nonzero(as_tuple=False)
+            if indices.shape[0] == 0:
+                return
+            counts = mask.sum(dim=1)
+            width = int(counts.max().item())
+            packed = torch.zeros((self.E, width, 2), dtype=cells.dtype, device=self.device)
+            packed_mask = torch.zeros((self.E, width), dtype=torch.bool, device=self.device)
+            ranks = mask.long().cumsum(dim=1) - 1
+            er, col = indices.unbind(dim=1)
+            dest = ranks[er, col]
+            packed[er, dest] = cells[er, col]
+            packed_mask[er, dest] = True
+            cells, mask = packed, packed_mask
         n = cells.shape[1]
         x, y = cells[..., 0], cells[..., 1]
         inb = mask & (x >= 0) & (x < self.grid_w) & (y >= 0) & (y < self.grid_h)
@@ -437,25 +456,30 @@ class DeviceSim:
         )
         cell_id = y.clamp(0, self.grid_h - 1) * self.grid_w + x.clamp(0, self.grid_w - 1)
         accepted = torch.zeros((self.E, n), dtype=torch.bool, device=self.device)
-        for col in range(n):
-            cid = cell_id[:, col]
-            accept = inb[:, col] & (tag[rows, cid] == 0)
-            accepted[:, col] = accept
-            if corpse:
-                full = accept & (count >= cap)
-                evicted = queue[rows, head].clamp_min(1) - 1
-                tag[rows, evicted] = torch.where(
-                    full, torch.zeros_like(evicted), tag[rows, evicted]
-                )
-                slot = torch.where(full, head, (head + count).remainder(cap))
-                queue[rows, slot] = torch.where(accept, cid + 1, queue[rows, slot])
-                head = torch.where(full, (head + 1).remainder(cap), head)
-                count = torch.where(accept & ~full, count + 1, count)
-                tag[rows, cid] = torch.where(
-                    accept, torch.full_like(cid, old_f + col + 1), tag[rows, cid]
-                )
-            else:
-                tag[rows, cid] = torch.where(accept, torch.full_like(cid, -1), tag[rows, cid])
+        if self.device.type == "cuda":
+            from research.gpu_sim_spike.event_cuda import append_fifo
+
+            append_fifo(tag, queue, count, cell_id, inb, accepted, old_f, cap, corpse)
+        else:
+            for col in range(n):
+                cid = cell_id[:, col]
+                accept = inb[:, col] & (tag[rows, cid] == 0)
+                accepted[:, col] = accept
+                if corpse:
+                    full = accept & (count >= cap)
+                    evicted = queue[rows, head].clamp_min(1) - 1
+                    tag[rows, evicted] = torch.where(
+                        full, torch.zeros_like(evicted), tag[rows, evicted]
+                    )
+                    slot = torch.where(full, head, (head + count).remainder(cap))
+                    queue[rows, slot] = torch.where(accept, cid + 1, queue[rows, slot])
+                    head = torch.where(full, (head + 1).remainder(cap), head)
+                    count = torch.where(accept & ~full, count + 1, count)
+                    tag[rows, cid] = torch.where(
+                        accept, torch.full_like(cid, old_f + col + 1), tag[rows, cid]
+                    )
+                else:
+                    tag[rows, cid] = torch.where(accept, torch.full_like(cid, -1), tag[rows, cid])
         old_keep = old_live & torch.where(
             self.corpse_food, tag.gather(1, old_id) == old_stamp, tag.gather(1, old_id) == -1
         )
@@ -496,18 +520,63 @@ class DeviceSim:
         self._compact_food()
 
     def _maintain_food(self) -> None:
+        with self.stage("food"):
+            self._maintain_food_impl()
+
+    def _maintain_food_impl(self) -> None:
+        """Refill needy worlds while consuming exactly the old fixed RNG budget."""
+        trials = int(self.cfg.max_food)
+        if self.device.type == "meta":
+            # Static shape-only oracle; no data-dependent scalar extraction.
+            for _ in range(trials):
+                want = (self.food_present & ~self.corpse_food).sum(1) < trials
+                candidate = self._random_cells()
+                occ = self.occupancy()
+                e = torch.arange(self.E, device=self.device)
+                self._append_food(
+                    candidate, want & (occ[e, candidate[:, 1], candidate[:, 0]] < 0), False
+                )
+            return
         ambient = (self.food_present & ~self.corpse_food).sum(dim=1)
-        # Bounded rejection sampling stays entirely on device.  The fixed number
-        # of trials is intentional: exhaustion is recorded as divergence rather
-        # than silently falling back to host RNG.
-        for _ in range(int(self.cfg.max_food)):
-            ambient = (self.food_present & ~self.corpse_food).sum(dim=1)
-            want = ambient < int(self.cfg.max_food)
-            candidate = self._random_cells()
-            occ = self.occupancy()
-            e = torch.arange(self.E, device=self.device)
+        active = (ambient < trials).nonzero(as_tuple=False).flatten()
+        if active.numel() == 0:
+            self.rng_counter += trials
+            return
+        # Select only worlds needing refill. All fields have independent storage;
+        # bodies/occupancy do not change during maintenance, so build it once.
+        sub = object.__new__(DeviceSim)
+        sub.__dict__ = self.__dict__.copy()
+        for name, value in self.__dict__.items():
+            if isinstance(value, torch.Tensor) and value.ndim and value.shape[0] == self.E:
+                setattr(sub, name, value.index_select(0, active))
+        sub.E = active.numel()
+        occ = sub.occupancy()
+        e = torch.arange(sub.E, device=self.device)
+        ambient = ambient.index_select(0, active)
+        used = 0
+        for used in range(1, trials + 1):
+            candidate = sub._random_cells()
+            want = ambient < trials
+            before = sub.food_count.clone()
             free = occ[e, candidate[:, 1], candidate[:, 0]] < 0
-            self._append_food(candidate, want & free, False)
+            sub._append_food(candidate, want & free, False)
+            ambient += sub.food_count - before
+            if bool((ambient >= trials).all().item()):
+                break
+        # The reference draws max_food candidates for EVERY world on every call,
+        # including full worlds and trials after the final successful insertion.
+        self.rng_counter += trials
+        for name in ("food_cells", "food_present", "corpse_food", "food_count"):
+            getattr(self, name)[active] = getattr(sub, name)
+
+    def set_instrumentation(self, enabled: bool) -> None:
+        self._timing = StageTiming(self.device, enabled=enabled)
+
+    def stage(self, name: str) -> Any:
+        return self._timing.stage(name)
+
+    def consume_timing(self) -> dict[str, Any]:
+        return self._timing.consume()
 
     def _compact_food(self) -> None:
         # Stable sort avoids dynamic-shape boolean indexing, including FakeTensor.
@@ -627,17 +696,20 @@ class DeviceSim:
         self.frame += 1
         self._maintain_food()
         if self.allow_respawn:
-            self._respawn()
+            with self.stage("movement"):
+                self._respawn()
         self._prepared = True
 
     def step(self, actions: torch.Tensor) -> None:
-        """Advance all environments with no host transfer or scalar extraction."""
+        """Advance all environments, compacting event candidates before dispatch."""
         if actions.shape != (self.E, self.S):
             raise ValueError(f"actions must have shape {(self.E, self.S)}")
         if actions.device != self.device:
             raise ValueError("actions must be on the DeviceSim device")
         actions = actions.long().clamp(0, 5)
         self.prepare()
+        movement_stage = self.stage("movement")
+        movement_stage.__enter__()
         acted, prev_length = self.alive.clone(), self._reward_prev_length.clone()
         new_dir = (
             self.direction
@@ -708,8 +780,11 @@ class DeviceSim:
         self.food_present &= ~picked
         self.corpse_food &= self.food_present
         self._compact_food()
+        movement_stage.__exit__(None, None, None)
         if self.train_mode:
             self._maintain_food()
+        death_stage = self.stage("deaths_corpse")
+        death_stage.__enter__()
         # Collisions use the post-move ring.  This is all tensor work, including
         # boost traversals and head swaps.
         in_arena = ((~traversed_valid) | self._in_arena(traversed)).all(dim=2)
@@ -829,20 +904,26 @@ class DeviceSim:
                 )
                 rank += 1
         died = dead
-        # Reorder corpse candidates by recorded resolution order, not snake id.
-        snake_order = death_rank.argsort(dim=1, stable=True)
-        body = body.gather(1, snake_order[:, :, None, None].expand(-1, -1, self.cap, 2))
-        died_ordered = died.gather(1, snake_order)
-        seg_ordered = self.seg_count.gather(1, snake_order)
-        offsets = torch.arange(self.cap, device=self.device)[None, None, :]
-        corpse_mask = died_ordered[..., None] & (offsets < seg_ordered[..., None])
-        if not self.v2:
-            corpse_mask &= offsets.remainder(2) == 0
-        self._append_many(
-            body.reshape(self.E, self.S * self.cap, 2),
-            corpse_mask.reshape(self.E, self.S * self.cap),
-            self.v2,
-        )
+        # A single reduction rejects empty death events before body reordering,
+        # candidate compaction, or native corpse dispatch. Meta retains shapes.
+        if self.device.type == "meta" or bool(died.any().item()):
+            # Reorder corpse candidates by recorded resolution order, not snake id.
+            snake_order = death_rank.argsort(dim=1, stable=True)
+            body = body.gather(1, snake_order[:, :, None, None].expand(-1, -1, self.cap, 2))
+            died_ordered = died.gather(1, snake_order)
+            seg_ordered = self.seg_count.gather(1, snake_order)
+            offsets = torch.arange(self.cap, device=self.device)[None, None, :]
+            corpse_mask = died_ordered[..., None] & (offsets < seg_ordered[..., None])
+            if not self.v2:
+                corpse_mask &= offsets.remainder(2) == 0
+            self._append_many(
+                body.reshape(self.E, self.S * self.cap, 2),
+                corpse_mask.reshape(self.E, self.S * self.cap),
+                self.v2,
+            )
+        death_stage.__exit__(None, None, None)
+        reward_stage = self.stage("movement")
+        reward_stage.__enter__()
         phi_prev = prev_length.float() / PHI_LENGTH_DIVISOR
         phi_new = torch.where(
             died, torch.zeros_like(phi_prev), self.length.float() / PHI_LENGTH_DIVISOR
@@ -881,3 +962,4 @@ class DeviceSim:
         self._last_corpse_food_ate = ate_corpse
         self._last_transition_valid = acted
         self._prepared = False
+        reward_stage.__exit__(None, None, None)
