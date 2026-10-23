@@ -110,3 +110,19 @@ def test_complete_factorial_one_look_with_synthetic_units(tmp_path, monkeypatch)
     monkeypatch.setattr(agg, "TABLE_COUNTS", {"t5": (11, 5), "a5": (10, 5)})
     with pytest.raises(ValueError, match="coverage"):
         agg.analyze(tmp_path / "ledger", "allocation", tmp_path / "must-not-exist.json", n_boot=8)
+
+
+def test_missing_teacher_action_never_becomes_zero_agreement():
+    y = np.array([[0, 1, 0, 1, 0, 1]] * 3)
+    row = dict(
+        world=np.array(["a", "b", "c"]),
+        died=y,
+        legal=np.ones_like(y, bool),
+        observed=np.ones_like(y, bool),
+        p_d300=y * 0.6 + 0.2,
+        decisive=np.ones(3, bool),
+        a_star=np.full(3, -1),
+        q=np.full((3, 6), np.nan),
+    )
+    summary, _ = _bootstrap({"t5": row}, 4)
+    assert summary["t5"]["decisive_agreement"] is None

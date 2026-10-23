@@ -96,7 +96,12 @@ def _bootstrap(rows: dict[str, dict[str, np.ndarray]], n: int) -> tuple[dict, di
         point["decisive_rows"] = int(row["decisive"].sum())
         decisive = row["decisive"].astype(bool)
         point["rescue_bearing_worlds"] = len(np.unique(row["world"][decisive]))
-        if decisive.any():
+        teacher_choices = (
+            decisive.any()
+            and (row["a_star"][decisive] >= 0).all()
+            and np.isfinite(row["q"][decisive]).all()
+        )
+        if teacher_choices:
             agree = _agreement(row)
             dw = wi[decisive]
             agreement_draws = np.asarray(
@@ -104,6 +109,9 @@ def _bootstrap(rows: dict[str, dict[str, np.ndarray]], n: int) -> tuple[dict, di
             )
             point["decisive_agreement"] = float(agree.mean())
             point["agreement_ci95"] = np.nanpercentile(agreement_draws, [2.5, 97.5]).tolist()
+        else:
+            point["decisive_agreement"] = None
+            point["agreement_status"] = "unavailable: no recorded teacher choice/Q on this table"
         if "p_hazards" in row:
             scores = []
             for h, horizon in enumerate(HORIZONS):
