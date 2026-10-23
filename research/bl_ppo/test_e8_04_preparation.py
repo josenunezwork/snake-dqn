@@ -8,7 +8,6 @@ from pathlib import Path
 
 from research.bl_ppo.exports import digest, export_json
 from research.bl_ppo.manifests import input_row
-from research.bl_ppo.p1_collection_allocation import publish_allocation_audit
 from research.bl_ppo.p1_manifests import bundle_inputs
 
 
@@ -35,16 +34,27 @@ def _control(audit: Path) -> dict:
     }
 
 
+def _legacy_audit(path: Path, *, offset: int, seed: int = 20261021) -> None:
+    export_json(
+        path,
+        {
+            "schema": "bl-p1-collection-allocation-audit/v1",
+            "seed": seed,
+            "natural_collection_world_id_offset": offset,
+            "collision_count": 0,
+            "burned_roots": [],
+        },
+    )
+
+
 def test_preparation_ships_one_archive_with_two_disjoint_controls(tmp_path, monkeypatch) -> None:
     from research.bl_ppo import e8_04_preparation as prep
     from research.bl_ppo.p1_inputs import unpack_bundle
 
     source_audit = tmp_path / "collection-allocation-audit.json"
     canary_audit = tmp_path / "canary-collection-allocation-audit.json"
-    publish_allocation_audit(source_audit, offset=prep.SOURCE_OFFSET, burned_roots=[])
-    publish_allocation_audit(
-        canary_audit, offset=prep.CANARY_OFFSET, burned_roots=[], seed=2026102203
-    )
+    _legacy_audit(source_audit, offset=prep.SOURCE_OFFSET)
+    _legacy_audit(canary_audit, offset=prep.CANARY_OFFSET, seed=2026102203)
     control = tmp_path / "p1-control.json"
     ledger = tmp_path / "verified-ledger.json"
     export_json(control, _control(source_audit))
@@ -135,3 +145,34 @@ def test_entrypoint_selects_the_canary_control_only_under_family_canary() -> Non
     assert script.index('control="${COLAB_INPUT_DIR}/canary-control.json"') < script.index(
         "python - \"${control}\" <<'PY'"
     )
+
+
+def test_v3_audit_requires_fixed_enumeration_and_cross_lane_proof(tmp_path) -> None:
+    from research.bl_ppo import e8_04_preparation as prep
+
+    audit = tmp_path / "collection-allocation-audit.json"
+    value = {
+        "schema": "bl-p1-collection-allocation-audit/v3",
+        "natural_collection_world_id_offset": prep.SOURCE_OFFSET,
+        "collision_count": 0,
+        "burned_roots": [],
+        "enumeration": {
+            "episode_start": 0,
+            "episode_end": 127,
+            "attempt_start": 0,
+            "attempt_end": 1,
+        },
+        "cross_lane": {
+            "raw_root_intersection_count": 0,
+            "allocated_root_intersection_count": 0,
+        },
+        "offset_advance_rule": {"advance_both_offsets_by": 10_000, "lane_separation": 1_000},
+    }
+    export_json(audit, value)
+    control = _control(audit)
+    prep._require_audit(audit, offset=prep.SOURCE_OFFSET, control=control)
+    invalid = tmp_path / "invalid-audit.json"
+    value["cross_lane"]["allocated_root_intersection_count"] = 1
+    export_json(invalid, value)
+    with __import__("pytest").raises(ValueError, match="collision proof"):
+        prep._require_audit(invalid, offset=prep.SOURCE_OFFSET, control=_control(invalid))

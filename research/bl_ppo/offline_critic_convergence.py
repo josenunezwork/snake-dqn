@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -101,8 +102,19 @@ def replay(sidecar: Path, reference: Path) -> dict[str, Any]:
         <= 1.0,
     }
     reproduced = all(fit_acceptance.values())
+    try:
+        from threadpoolctl import threadpool_info
+    except ImportError:
+        pools = None
+    else:
+        pools = threadpool_info()
+    replayed_pin = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[2], text=True
+    ).strip()
     return {
         "schema": "bl-p1-e8-04-offline-replay/v1",
+        "replayed_pin": replayed_pin,
+        "threadpool_info": pools,
         "status": "FIT_ACCEPTANCE_PASS" if reproduced else "FIT_ACCEPTANCE_FAIL",
         "purpose": "FIT-side C1 acceptance only; held-out output is non-selection ledger evidence",
         "forward_selection": "natural heldout L>=800 before fp32 forward; same as qualification",
