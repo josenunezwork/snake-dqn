@@ -14,6 +14,35 @@ from .f1_ruler import bank_digest, load_bank
 
 LABELS = ("one", "half", "all")
 
+# This is deliberately a byte binding, rather than a policy selected by a
+# caller-provided JSON file.  The narrow exception below exists only because
+# this particular ruling preserved two immutable, pre-replay packaging exits.
+REFUND_CENSUS_SCHEMA = "bl-labels-f1-refund-census/v1"
+REFUND_RULING_SHA256 = "f2f35631e65e4234341a5404e3f512a740b43241c9060f4cf8a467673091b6bc"
+REFUND_EXCLUSION = "PACKAGING_INVALID_EXCLUDED (JUDGMENT_F1_REFUND)"
+REFUND_WITNESS_RECEIPT_SHA256 = "3386d25db932cff5835aca7feb4462c7d8af42700700e9ca59b2d8f7d6e0c29d"
+REFUND_PACK08_NAMES = {"cpu-probe", "l4-probe"}
+REFUND_PACK08_EVIDENCE = {
+    "cpu-probe": {
+        "receipt_sha256": "3a0ec4f8e4049fd73646057484296710f5539d0a233b781641bf163006e78707",
+        "manifest_sha256": "85f35b6b52b27b7323ae679570277bffe89937afa6bffec167244cbdef25d570",
+        "runtime_sha256": "a394fbc0e8dbeeb03090994eb28eebb1ee57a243e4845b0ec53a57abc89fccc9",
+        "runtime_size": 197,
+    },
+    "l4-probe": {
+        "receipt_sha256": "0361d20d462932408ebb85875dd9df66184007298a500c52781402d636a0b751",
+        "manifest_sha256": "e0d48465b7ec945e6e026687802951a8949dd3f6e0b42a5e90099fa12d2fea97",
+        "runtime_sha256": "37235e03b93e2f182c8029f5b8e7c035d0b8928e610583faa20de03718db9fb8",
+        "runtime_size": 196,
+    },
+}
+REFUND_PACK08_SOURCE_COMMIT = "70ead024c3552d104d4916ea38db667df87fc285"
+REFUND_PACK08_BANK_SHA256 = "a8c1dc4bbe1fd579d59b69d6ca6ca9dbd2814b088f74277f008f504f6d1bbb0d"
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
 
 def _positive(value: Any) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -23,7 +52,60 @@ def _positive(value: Any) -> float:
     return float(value)
 
 
-def transport_faults(receipt: dict[str, Any]) -> list[dict[str, Any]]:
+def _is_refund_upload_carveout(receipt: dict[str, Any], index: int, call: dict[str, Any]) -> bool:
+    """Return whether this is the qualified recovered pre-delivery upload.
+
+    The identity is intentionally much narrower than "a failed upload": it is
+    the zero-based index-6 first-attempt upload in its registered 60-second
+    slot, and it must have returned before that slot timed out.  This exact
+    signature is present in the hash-bound qualified canary witness.
+    """
+    generation = receipt.get("generation")
+    transfers = receipt.get("contents_transfers")
+    if not isinstance(generation, str) or not generation or not isinstance(transfers, list):
+        return False
+    if len(transfers) < 2 or not all(isinstance(item, dict) for item in transfers[:2]):
+        return False
+    calls = receipt.get("cli_calls")
+    expected_prefix = ("version", "sessions", "usage", "new", "exec", "upload", "upload", "exec")
+    if (
+        not isinstance(calls, list)
+        or len(calls) < len(expected_prefix)
+        or any(not isinstance(item, dict) for item in calls[: len(expected_prefix)])
+        or tuple(item.get("command") for item in calls[: len(expected_prefix)]) != expected_prefix
+    ):
+        return False
+    release, heartbeat = transfers[:2]
+    if (
+        release.get("direction") != "upload"
+        or release.get("status") != "completed"
+        or release.get("remote") != f"/content/snake-cli-{generation}-release.json"
+        or heartbeat.get("direction") != "upload"
+        or heartbeat.get("status") != "failed"
+        or heartbeat.get("size_bytes") is not None
+        or heartbeat.get("remote") != f"/content/snake-cli/{generation}/lease-heartbeat.json"
+        or not isinstance(heartbeat.get("elapsed_seconds"), (int, float))
+        or isinstance(heartbeat.get("elapsed_seconds"), bool)
+    ):
+        return False
+    return (
+        index == 6
+        and call.get("attempt") == 1
+        and call.get("command") == "upload"
+        and call.get("status") == "failed"
+        and isinstance(call.get("timeout_seconds"), (int, float))
+        and not isinstance(call.get("timeout_seconds"), bool)
+        and 59.0 <= float(call["timeout_seconds"]) <= 60.0
+        and isinstance(call.get("elapsed_seconds"), (int, float))
+        and not isinstance(call.get("elapsed_seconds"), bool)
+        and 0.0 <= float(call["elapsed_seconds"]) < float(call["timeout_seconds"])
+        and abs(float(call["elapsed_seconds"]) - float(heartbeat["elapsed_seconds"])) < 0.1
+    )
+
+
+def transport_faults(
+    receipt: dict[str, Any], *, allow_refund_upload_carveout: bool = False
+) -> list[dict[str, Any]]:
     """Exclude any observed failed/budget-exhausting CLI call, even if recovered.
 
     This conservative operational rule also excludes unresolved transport faults;
@@ -33,7 +115,9 @@ def transport_faults(receipt: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(calls, list) or not calls:
         raise ValueError("F1 needs the supervisor CLI call census")
     faults = []
-    for call in calls:
+    for index, call in enumerate(calls):
+        if not isinstance(call, dict):
+            raise ValueError("F1 CLI census is malformed")
         elapsed = call.get("elapsed_seconds")
         timeout = _positive(call.get("timeout_seconds"))
         if (
@@ -44,16 +128,20 @@ def transport_faults(receipt: dict[str, Any]) -> list[dict[str, Any]]:
             or call.get("status") not in {"completed", "failed"}
         ):
             raise ValueError("F1 CLI census is malformed")
+        if allow_refund_upload_carveout and _is_refund_upload_carveout(receipt, index, call):
+            continue
         if call["status"] != "completed" or elapsed >= timeout:
             faults.append(call)
     return faults
 
 
-def load_attempt(path: Path, bank_sha256: str) -> dict[str, Any]:
+def load_attempt(
+    path: Path, bank_sha256: str, *, allow_refund_upload_carveout: bool = False
+) -> dict[str, Any]:
     """Bind an immutable runtime export to its terminal supervisor receipt."""
     receipt_path = path / "receipt.json"
     receipt = json.loads(receipt_path.read_text())
-    faults = transport_faults(receipt)
+    faults = transport_faults(receipt, allow_refund_upload_carveout=allow_refund_upload_carveout)
     manifest_path = path / "manifest.json"
     if hashlib.sha256(manifest_path.read_bytes()).hexdigest() != receipt.get("manifest_sha256"):
         raise ValueError("F1 canonical manifest differs from receipt")
@@ -111,6 +199,134 @@ def load_attempt(path: Path, bank_sha256: str) -> dict[str, Any]:
     result["configs"] = [] if result["transport_probe"] else runtime.get("configs", [runtime])
     result["runtime_sha256"] = digest
     return result
+
+
+def _load_refund_census(path: Path, attempt_paths: list[Path]) -> dict[str, Any]:
+    """Validate the one ruled F1 exception before reading any attempt outcome."""
+    census = json.loads(path.read_text())
+    if not isinstance(census, dict) or set(census) != {
+        "schema",
+        "ruling",
+        "qualification_witness",
+        "excluded_attempts",
+    }:
+        raise ValueError("F1 refund census schema differs from the ruling")
+    if census.get("schema") != REFUND_CENSUS_SCHEMA:
+        raise ValueError("F1 refund census has a foreign schema")
+    ruling = census.get("ruling")
+    if not isinstance(ruling, dict) or set(ruling) != {"path", "sha256"}:
+        raise ValueError("F1 refund census ruling binding is malformed")
+    ruling_path = Path(ruling["path"])
+    if ruling.get("sha256") != REFUND_RULING_SHA256 or _sha(ruling_path) != REFUND_RULING_SHA256:
+        raise ValueError("F1 refund census is not bound to the ruled judgment")
+    witness = census.get("qualification_witness")
+    if not isinstance(witness, dict) or set(witness) != {"path", "receipt_sha256"}:
+        raise ValueError("F1 refund census qualification witness is malformed")
+    witness_path = Path(witness["path"])
+    if (
+        witness.get("receipt_sha256") != REFUND_WITNESS_RECEIPT_SHA256
+        or _sha(witness_path) != REFUND_WITNESS_RECEIPT_SHA256
+    ):
+        raise ValueError("F1 refund upload carve-out lacks its qualified PASS witness")
+    witness_receipt = json.loads(witness_path.read_text())
+    if witness_receipt.get("status") != "PASS" or witness_receipt.get("stop_verified") is not True:
+        raise ValueError("F1 refund upload witness is not a verified PASS")
+    witness_calls = witness_receipt.get("cli_calls")
+    if not isinstance(witness_calls, list) or len(witness_calls) <= 6:
+        raise ValueError("F1 refund upload witness lacks the qualified call census")
+    if not _is_refund_upload_carveout(witness_receipt, 6, witness_calls[6]):
+        raise ValueError("F1 refund upload witness does not contain the ruled call identity")
+
+    excluded = census.get("excluded_attempts")
+    if not isinstance(excluded, list) or len(excluded) != 2:
+        raise ValueError("F1 refund census must preserve exactly both pack-08 probes")
+    expected_paths = {item.resolve() for item in attempt_paths}
+    seen: set[Path] = set()
+    for item in excluded:
+        if not isinstance(item, dict) or set(item) != {
+            "path",
+            "receipt_sha256",
+            "manifest_sha256",
+            "runtime_sha256",
+            "classification",
+        }:
+            raise ValueError("F1 refund census excluded attempt is malformed")
+        attempt_path = Path(item["path"]).resolve()
+        if attempt_path not in expected_paths or attempt_path.name not in REFUND_PACK08_NAMES:
+            raise ValueError("F1 refund census has a foreign or omitted pack-08 attempt")
+        if attempt_path in seen:
+            raise ValueError("F1 refund census duplicates a pack-08 attempt")
+        seen.add(attempt_path)
+        if item.get("classification") != REFUND_EXCLUSION:
+            raise ValueError("F1 refund census altered the ruled classification")
+        receipt_path = attempt_path / "receipt.json"
+        manifest_path = attempt_path / "manifest.json"
+        runtime_path = attempt_path / "exports" / "runtime-result.json"
+        pinned = REFUND_PACK08_EVIDENCE[attempt_path.name]
+        if (
+            item.get("receipt_sha256") != _sha(receipt_path)
+            or item.get("manifest_sha256") != _sha(manifest_path)
+            or item.get("runtime_sha256") != _sha(runtime_path)
+            or any(item.get(key) != value for key, value in pinned.items() if key != "runtime_size")
+        ):
+            raise ValueError("F1 refund census excluded evidence hash differs")
+        receipt = json.loads(receipt_path.read_text())
+        manifest = json.loads(manifest_path.read_text())
+        runtime = json.loads(runtime_path.read_text())
+        inventory = [
+            row for row in receipt.get("exports", []) if row.get("path") == "runtime-result.json"
+        ]
+        if (
+            receipt.get("status") != "INCOMPLETE"
+            or receipt.get("failure_class") != "CHILD_NONZERO_EXIT"
+            or receipt.get("stop_verified") is not True
+            or receipt.get("cleanup_error")
+            or receipt.get("manifest_sha256") != _sha(manifest_path)
+            or manifest.get("commit") != REFUND_PACK08_SOURCE_COMMIT
+            or runtime.get("bank_sha256") != REFUND_PACK08_BANK_SHA256
+            or runtime.get("status") != "INVALID"
+            or runtime.get("reason") != "F0 export digest mismatch"
+            or runtime.get("platform") != attempt_path.name.removesuffix("-probe")
+            or _verify(runtime_path) != pinned["runtime_sha256"]
+            or len(inventory) != 1
+            or inventory[0].get("sha256") != pinned["runtime_sha256"]
+            or inventory[0].get("size") != pinned["runtime_size"]
+        ):
+            raise ValueError("F1 refund census attempt is not the ruled packaging INVALID")
+    if {path.name for path in seen} != REFUND_PACK08_NAMES:
+        raise ValueError("F1 refund census omitted a ruled pack-08 probe")
+    return census
+
+
+def _load_ruled_excluded_attempt(
+    path: Path, census_entry: dict[str, Any], bank_sha256: str
+) -> dict[str, Any]:
+    """Represent a preserved pack-08 INVALID without admitting it as timing data."""
+    receipt_path = path / "receipt.json"
+    manifest_path = path / "manifest.json"
+    runtime_path = path / "exports" / "runtime-result.json"
+    receipt = json.loads(receipt_path.read_text())
+    manifest = json.loads(manifest_path.read_text())
+    runtime = json.loads(runtime_path.read_text())
+    if _verify(runtime_path) != census_entry["runtime_sha256"]:
+        raise ValueError("F1 refund excluded runtime sidecar differs from census")
+    platform = manifest.get("env", {}).get("F1_PLATFORM")
+    if (
+        platform not in {"cpu", "l4"}
+        or runtime.get("platform") != platform
+        or runtime.get("bank_sha256") != bank_sha256
+        or receipt.get("manifest_sha256") != _sha(manifest_path)
+    ):
+        raise ValueError("F1 refund excluded attempt has foreign bank or platform")
+    return {
+        "platform": platform,
+        "receipt_sha256": _sha(receipt_path),
+        "runtime_sha256": _verify(runtime_path),
+        "classification": REFUND_EXCLUSION,
+        "complete": False,
+        "configs": [],
+        "transport_faults": [],
+    }
 
 
 def decide(
@@ -202,12 +418,39 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bank", type=Path, required=True)
     parser.add_argument("--attempt", type=Path, action="append", required=True)
+    parser.add_argument("--refund-census", type=Path)
     parser.add_argument("--l4-not-run", action="store_true")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     bank_sha256 = bank_digest(args.bank)
     bank = load_bank(args.bank)
-    attempts = [load_attempt(path, bank_sha256) for path in args.attempt]
+    attempt_paths = [path.resolve() for path in args.attempt]
+    if len(attempt_paths) != len(set(attempt_paths)):
+        raise ValueError("duplicate F1 attempt path")
+    excluded_by_path: dict[Path, dict[str, Any]] = {}
+    if args.refund_census:
+        census = _load_refund_census(args.refund_census, attempt_paths)
+        excluded_by_path = {
+            Path(item["path"]).resolve(): item for item in census["excluded_attempts"]
+        }
+        if len(attempt_paths) < 6:
+            raise ValueError(
+                "F1 refund analysis requires both pack-08 and all four pack-10 attempts"
+            )
+        initial_pack10 = {"cpu-probe", "cpu-ruler", "l4-probe", "l4-ruler"}
+        normal_names = {path.name for path in attempt_paths if path not in excluded_by_path}
+        if not initial_pack10 <= normal_names:
+            raise ValueError("F1 refund analysis omitted an initial pack-10 probe or ruler")
+    attempts = [
+        (
+            _load_ruled_excluded_attempt(path, excluded_by_path[path], bank_sha256)
+            if path in excluded_by_path
+            else load_attempt(
+                path, bank_sha256, allow_refund_upload_carveout=bool(args.refund_census)
+            )
+        )
+        for path in attempt_paths
+    ]
     result = decide(attempts, [r["root_id"] for r in bank["roots"]], l4_not_run=args.l4_not_run)
     result["bank_sha256"] = bank_sha256
     result["attempts"] = attempts

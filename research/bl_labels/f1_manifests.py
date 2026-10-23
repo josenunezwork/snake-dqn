@@ -18,6 +18,15 @@ from .f1_units import empty_ledger, load_ledger
 SCRIPT = "research/bl_labels/f1_colab.sh"
 QUALIFIED_TREE = "d0d92bdb572b770284a1fea6152417ffa5f06bea"
 QUALIFIED_RECORD = manifests.QUALIFIED_RECORD
+REFUND_SHA256 = "f2f35631e65e4234341a5404e3f512a740b43241c9060f4cf8a467673091b6bc"
+REFUND_SOURCE = "2af48cd0b98a2063f46871cf4d320a5541b789af"
+# Exact fresh F1-R caps; the ruling has already applied the owner's factor.
+REFUND_CAPS = {
+    "cpu-probe": (40, 0.07),
+    "cpu-science": (180, 0.30),
+    "l4-probe": (20, 0.65),
+    "l4-science": (94, 3.02),
+}
 # Base forecasts/caps; owner factor applies once, including reserves/timeouts.
 STAGES = {
     "cpu-probe": {"minutes": 10, "units": 0.02, "reserve": 0.004, "finalize": 60},
@@ -65,8 +74,24 @@ def triplet(path: Path, dest: str) -> list[dict[str, str]]:
     ]
 
 
-def envelope(stage: str) -> dict[str, Any]:
+def envelope(stage: str, *, refund: bool = False) -> dict[str, Any]:
     base = STAGES[stage]
+    if refund:
+        minutes, units = REFUND_CAPS[stage]
+        return {
+            "base": {"minutes": minutes / 2, "units": units / 2, "reserve": units / 10},
+            "effective": {
+                "minutes": minutes,
+                "units": units,
+                "reserve": units / 5,
+                "finalize": 2 * base["finalize"],
+            },
+            "owner_multiplier": 2,
+            "authority_sha256": REFUND_SHA256,
+            "further_doubling": False,
+            "estimate_minutes_unchanged": base["minutes"],
+            "reserve_basis": "20 percent of rounded cap, inside cap",
+        }
     return {
         "base": dict(base),
         "effective": {k: 2 * v for k, v in base.items()},
@@ -112,6 +137,7 @@ def make_template(
     platform: str,
     qualified: dict[str, Any],
     is_probe: bool = False,
+    refund: bool = False,
 ) -> dict[str, Any]:
     from research.bl_upload import assert_upload_budget, convert_public_checkpoints
 
@@ -120,7 +146,7 @@ def make_template(
     bank_sha = bank_digest(bank)
     saved = load_ledger(ledger, bank_sha, platform, commit)
     stage = f"{platform}-" + ("probe" if is_probe else "science")
-    limits = envelope(stage)["effective"]
+    limits = envelope(stage, refund=refund)["effective"]
     inputs = triplet(bank, "inputs/f1-root-bank.json.xz") + triplet(
         ledger, "inputs/f1-verified-ledger.json"
     )
@@ -133,7 +159,7 @@ def make_template(
     inputs += checkpoints
     timeout = limits["minutes"]
     rate = 1.54 if platform == "l4" else 0.08
-    if rate * timeout / 60 + limits["reserve"] > limits["units"]:
+    if rate * timeout / 60 + limits["reserve"] > limits["units"] + 1e-12:
         raise ValueError("F1 whole-session forecast plus reserve exceeds cap")
     value = {
         "job_id": f"bl-f1-{platform}-" + ("probe-" if is_probe else "ruler-") + commit[:8],
@@ -193,12 +219,12 @@ def make_template(
         "f1": {
             "bank_sha256": bank_sha,
             "stage": stage,
-            "envelope": envelope(stage),
+            "envelope": envelope(stage, refund=refund),
             "schedules": ["one", "half", "all"],
             "workers": "1,max(1,nproc//2),nproc",
-            "series_base_units": 1.04,
-            "series_effective_units": 2.08,
-            "effective_ruling_ceiling_units": 2.5,
+            "series_base_units": 2.02 if refund else 1.04,
+            "series_effective_units": 4.04 if refund else 2.08,
+            "effective_ruling_ceiling_units": 5.0 if refund else 2.5,
             "retry_policy": (
                 "original plus at most two manual mechanical completions; "
                 "all attempts share stage and series caps; "
@@ -222,7 +248,19 @@ def make_template(
                 "One frozen root through the actual F1/F0 entrypoint; "
                 "excluded from timing comparison"
             ),
+            "timeout_minutes": timeout,
         }
+    if refund:
+        value["f1"].update(
+            refund_authority_sha256=REFUND_SHA256,
+            lifetime_account_cap_units=4.20,
+            max_completion_retries=1,
+            retry_policy=(
+                "original plus at most one manual outcome-blind mechanical completion; "
+                "all attempts share this fresh stage cap; verified stop and missing units; "
+                "any further INVALID requires HOLD and a new ruling; no automatic job retry"
+            ),
+        )
     value = convert_public_checkpoints(value, repo=manifests.ROOT)
     assert_upload_budget(value, repo=manifests.ROOT)
     return value
@@ -314,8 +352,14 @@ def build(
     out: Path,
     output_root: Path,
     prior_probe_receipts: list[Path] | None = None,
+    refund_ruling: Path | None = None,
 ) -> None:
     manifests.require_source_pin(commit)
+    refund = refund_ruling is not None
+    if refund and (_sha(refund_ruling) != REFUND_SHA256 or commit != REFUND_SOURCE):
+        raise ValueError("F1 refund requires the exact judgment and repaired source pin")
+    if out.exists() or output_root.exists():
+        raise ValueError("F1 pack and output root must be fresh")
     load_bank(bank)
     qualified = qualification()
     prior = {}
@@ -324,6 +368,70 @@ def build(
         if platform not in {"cpu", "l4"} or platform in prior:
             raise ValueError("duplicate or foreign prior F1 probe platform")
         prior[platform] = receipt
+    if refund and set(prior) != {"cpu", "l4"}:
+        raise ValueError("F1 refund must preserve both failed pack-08 probes")
+    census = None
+    if refund:
+        from .f1_analyze import (
+            REFUND_CENSUS_SCHEMA,
+            REFUND_EXCLUSION,
+            REFUND_PACK08_EVIDENCE,
+            REFUND_WITNESS_RECEIPT_SHA256,
+        )
+
+        witness = output_root.parent / "canary-output-05-probe/receipt.json"
+        if _sha(witness) != REFUND_WITNESS_RECEIPT_SHA256:
+            raise ValueError("F1 refund qualified witness differs")
+        excluded = []
+        for platform, receipt in prior.items():
+            paths = {
+                "receipt_sha256": receipt,
+                "manifest_sha256": receipt.parent / "manifest.json",
+                "runtime_sha256": receipt.parent / "exports/runtime-result.json",
+            }
+            pinned = REFUND_PACK08_EVIDENCE[f"{platform}-probe"]
+            if any(_sha(path) != pinned[key] for key, path in paths.items()):
+                raise ValueError("F1 refund only covers the exact ruled pack-08 failures")
+            excluded.append(
+                {
+                    "path": str(receipt.parent.resolve()),
+                    **{key: _sha(path) for key, path in paths.items()},
+                    "classification": REFUND_EXCLUSION,
+                }
+            )
+        census = {
+            "schema": REFUND_CENSUS_SCHEMA,
+            "ruling": {"path": str(refund_ruling.resolve()), "sha256": REFUND_SHA256},
+            "qualification_witness": {
+                "path": str(witness.resolve()),
+                "receipt_sha256": REFUND_WITNESS_RECEIPT_SHA256,
+            },
+            "excluded_attempts": excluded,
+        }
+    prior_spend = []
+    for platform, receipt in prior.items():
+        old = json.loads((receipt.parent / "manifest.json").read_text())
+        if old["f1"]["bank_sha256"] != bank_digest(bank):
+            raise ValueError("F1 refund prior bank differs")
+        evidence = charge_failed_probe(old, receipt)
+        prior_spend.append(
+            {
+                "platform": platform,
+                **{
+                    key: evidence[key]
+                    for key in (
+                        "receipt",
+                        "receipt_sha256",
+                        "manifest_sha256",
+                        "elapsed_seconds_charged",
+                        "units_charged",
+                    )
+                },
+                "classification": "PACKAGING_INVALID_EXCLUDED (JUDGMENT_F1_REFUND)",
+            }
+        )
+    if refund and 4.04 + sum(row["units_charged"] for row in prior_spend) > 4.20:
+        raise ValueError("F1 refund lifetime account exceeds 4.20 units")
     packed = out / "f1-root-bank.json.xz"
     payload = lzma.compress(bank.read_bytes(), preset=6)
     _write_once(packed, payload)
@@ -355,14 +463,14 @@ def build(
         out / "budget-plan.json",
         {
             "schema": "bl-labels-f1-budget/v1",
-            "stages": {k: envelope(k) for k in STAGES},
-            "base_series_units": 1.04,
-            "effective_series_units": 2.08,
-            "base_series_reserve": 0.208,
-            "effective_series_reserve": 0.416,
+            "stages": {k: envelope(k, refund=refund) for k in STAGES},
+            "base_series_units": 2.02 if refund else 1.04,
+            "effective_series_units": 4.04 if refund else 2.08,
+            "base_series_reserve": 0.404 if refund else 0.208,
+            "effective_series_reserve": 0.808 if refund else 0.416,
             "reserves_are_inside_caps": True,
-            "effective_ruling_ceiling": 2.5,
-            "max_completion_retries": 2,
+            "effective_ruling_ceiling": 5.0 if refund else 2.5,
+            "max_completion_retries": 1 if refund else 2,
             "retry_liability": "shared stage caps, never additive or reset",
             "basis": (
                 "F0 observed setup116.8s and original qualified-session guards; "
@@ -370,8 +478,28 @@ def build(
                 "timing-only rate excludes separately reported replay setup"
             ),
             "qualified": qualified,
+            "refund_authority": (
+                {"path": str(refund_ruling.resolve()), "sha256": REFUND_SHA256} if refund else None
+            ),
+            "prior_spend": prior_spend,
+            "prior_spent_units": sum(row["units_charged"] for row in prior_spend),
+            "prior_spend_charged_against_fresh_stages": not refund,
+            "lifetime_account_cap_units": 4.20 if refund else 2.5,
+            "lifetime_worst_case_units": (
+                4.04 + sum(row["units_charged"] for row in prior_spend) if refund else 2.08
+            ),
         },
     )
+    if refund:
+        publish_json(out / "refund-census.json", census)
+        publish_json(
+            out / "f1-a100-NOT_RUN.json",
+            {
+                "status": "NOT_RUN",
+                "reason": "NOT_RUN by ruling: CPU-only labeller; no A100 arm",
+                "authority_sha256": REFUND_SHA256,
+            },
+        )
     for platform in ("cpu", "l4"):
         if platform == "l4" and not qualified["l4_ready"]:
             publish_json(
@@ -394,9 +522,15 @@ def build(
                 platform=platform,
                 qualified=qualified,
                 is_probe=is_probe,
+                refund=refund,
             )
-            if is_probe and platform in prior:
+            if is_probe and platform in prior and not refund:
                 charge_failed_probe(value, prior[platform])
+            if refund:
+                value["f1"]["refund_census"] = {
+                    "path": str((out / "refund-census.json").resolve()),
+                    "sha256": _sha(out / "refund-census.json"),
+                }
             publish_json(out / name, value)
 
 
@@ -406,6 +540,7 @@ def main() -> None:
     prepare = sub.add_parser("build")
     prepare.add_argument("--commit", required=True)
     prepare.add_argument("--prior-probe-receipt", type=Path, action="append", default=[])
+    prepare.add_argument("--refund-ruling", type=Path)
     for name in ("bank", "b8", "frp3", "out", "output-root"):
         prepare.add_argument("--" + name, type=Path, required=True)
     binder = sub.add_parser("bind")
@@ -423,6 +558,7 @@ def main() -> None:
             args.out,
             args.output_root,
             args.prior_probe_receipt,
+            args.refund_ruling,
         )
 
 

@@ -6,7 +6,7 @@ import copy
 
 import pytest
 
-from research.bl_labels.f1_analyze import decide, transport_faults
+from research.bl_labels.f1_analyze import _is_refund_upload_carveout, decide, transport_faults
 
 ROOT_IDS = [f"root-{i:03d}" for i in range(64)]
 
@@ -86,6 +86,95 @@ def test_transport_census_requires_evidence_and_counts_budget_exhaustion() -> No
     assert transport_faults({"cli_calls": [call]}) == [call]
     call["elapsed_seconds"] = 1.0
     assert transport_faults({"cli_calls": [call]}) == []
+
+
+def refund_heartbeat_receipt() -> dict:
+    generation = "a" * 32
+    return {
+        "generation": generation,
+        "contents_transfers": [
+            {
+                "direction": "upload",
+                "status": "completed",
+                "remote": f"/content/snake-cli-{generation}-release.json",
+            },
+            {
+                "direction": "upload",
+                "status": "failed",
+                "remote": f"/content/snake-cli/{generation}/lease-heartbeat.json",
+                "size_bytes": None,
+                "elapsed_seconds": 0.4,
+            },
+        ],
+        "cli_calls": [
+            {
+                "attempt": 1,
+                "command": command,
+                "status": "completed",
+                "elapsed_seconds": 0.1,
+                "timeout_seconds": 120.0,
+            }
+            for command in ("version", "sessions", "usage", "new", "exec", "upload")
+        ]
+        + [
+            {
+                "attempt": 1,
+                "command": "upload",
+                "status": "failed",
+                "elapsed_seconds": 0.4,
+                "timeout_seconds": 60.0,
+            },
+            {
+                "attempt": 1,
+                "command": "exec",
+                "status": "completed",
+                "elapsed_seconds": 0.1,
+                "timeout_seconds": 120.0,
+            },
+        ],
+    }
+
+
+def test_refund_carveout_is_only_the_initial_lease_heartbeat_upload() -> None:
+    receipt = refund_heartbeat_receipt()
+    call = receipt["cli_calls"][6]
+    assert _is_refund_upload_carveout(receipt, 6, call)
+    assert transport_faults(receipt) == [call]
+    assert transport_faults(receipt, allow_refund_upload_carveout=True) == []
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda receipt: receipt["contents_transfers"][1].update(
+            {"remote": "/content/snake-cli/foreign/lease-heartbeat.json"}
+        ),
+        lambda receipt: receipt["contents_transfers"][1].update({"size_bytes": 1}),
+        lambda receipt: receipt["cli_calls"][6].update({"timeout_seconds": 61.0}),
+        lambda receipt: receipt["cli_calls"][6].update({"elapsed_seconds": 60.0}),
+        lambda receipt: receipt["cli_calls"][4].update({"command": "upload"}),
+    ],
+)
+def test_refund_carveout_refuses_any_nonidentical_call(change) -> None:
+    receipt = refund_heartbeat_receipt()
+    change(receipt)
+    assert transport_faults(receipt, allow_refund_upload_carveout=True) == [receipt["cli_calls"][6]]
+
+
+def test_refund_carveout_does_not_hide_a_later_or_different_fault() -> None:
+    receipt = refund_heartbeat_receipt()
+    receipt["cli_calls"].append(
+        {
+            "attempt": 1,
+            "command": "exec",
+            "status": "failed",
+            "elapsed_seconds": 0.2,
+            "timeout_seconds": 120.0,
+        }
+    )
+    assert transport_faults(receipt, allow_refund_upload_carveout=True) == [
+        receipt["cli_calls"][-1]
+    ]
 
 
 def test_probe_receipt_contributes_fault_census_without_scoring(tmp_path) -> None:

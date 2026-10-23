@@ -262,6 +262,30 @@ def test_stage_caps_double_once_and_charge_full_session() -> None:
         assert limits["minutes"] == 2 * STAGES[name]["minutes"]
 
 
+def test_refund_exact_caps_keep_estimates_and_single_completion() -> None:
+    from research.bl_labels.f1_manifests import REFUND_CAPS, STAGES, envelope
+
+    assert REFUND_CAPS == {
+        "cpu-probe": (40, 0.07),
+        "cpu-science": (180, 0.30),
+        "l4-probe": (20, 0.65),
+        "l4-science": (94, 3.02),
+    }
+    assert sum(units for _, units in REFUND_CAPS.values()) == pytest.approx(4.04)
+    for stage, (minutes, units) in REFUND_CAPS.items():
+        value = envelope(stage, refund=True)
+        effective = value["effective"]
+        assert effective["minutes"] == minutes
+        assert effective["units"] == units
+        assert value["base"]["minutes"] * 2 == minutes
+        assert value["base"]["units"] * 2 == units
+        assert value["further_doubling"] is False
+        assert value["estimate_minutes_unchanged"] == STAGES[stage]["minutes"]
+        assert effective["finalize"] == envelope(stage)["effective"]["finalize"]
+        rate = 0.08 if stage.startswith("cpu") else 1.54
+        assert rate * minutes / 60 + effective["reserve"] <= units + 1e-12
+
+
 def test_lossless_transport_preserves_frozen_bank_identity(tmp_path: Path) -> None:
     import json
     import lzma
