@@ -119,11 +119,21 @@ def attempt_chain(
     elapsed_total = 0.0
     worker_total = 0.0
     previous_terminal = None
+    delegation_path = None
     for index, path in enumerate(starts, 1):
         terminal_path = path.with_name(path.name.replace(".start.json", ".terminal.json"))
         if not terminal_path.is_file():
             raise ValueError("prior D4096 attempt lacks a verified terminal receipt; HOLD")
         start, terminal = _read(path), _read(terminal_path)
+        current_delegation = terminal.get("delegation_dir")
+        if current_delegation is not None:
+            if not isinstance(current_delegation, str) or not current_delegation:
+                raise ValueError("D4096 delegation directory is malformed; HOLD")
+            current_delegation = str(Path(current_delegation).resolve())
+        if delegation_path is not None and current_delegation != delegation_path:
+            raise ValueError("D4096 delegation directory changed within the attempt chain; HOLD")
+        if current_delegation is not None:
+            delegation_path = current_delegation
         output = pack / f"d4096-output-mac-{index:02d}"
         workers = _verify_start(start, control, state, output)
         if previous_terminal is not None and previous_terminal["workers"] != workers:
@@ -234,6 +244,19 @@ def require_boundary_change(pack: Path, workers: int) -> None:
     terminal = _read(starts[-1].with_name(starts[-1].name.replace(".start.json", ".terminal.json")))
     if terminal.get("workers") != workers and terminal.get("life_boundary_drained") is not True:
         raise ValueError("D4096 width change requires a verified life-boundary drain; HOLD")
+
+
+def require_delegation_directory(pack: Path, directory: Path | None) -> None:
+    """Once attached, keep the verified delegated-index skip on every continuation."""
+    found = set()
+    for path in (pack / "d4096-state-mac-01").glob("attempt-*.terminal.json"):
+        value = _read(path).get("delegation_dir")
+        if value is not None:
+            if not isinstance(value, str) or not value:
+                raise ValueError("D4096 prior delegation directory is malformed; HOLD")
+            found.add(str(Path(value).resolve()))
+    if len(found) > 1 or (found and (directory is None or str(directory.resolve()) not in found)):
+        raise ValueError("D4096 resume must retain its original delegation directory; HOLD")
 
 
 def verify_union(ledger: Path, control: dict[str, Any], attempts: list[Path]) -> None:
@@ -353,6 +376,7 @@ def launch(
         )
     attempts, elapsed = attempt_chain(pack, admitted)
     require_boundary_change(pack, workers)
+    require_delegation_directory(pack, delegation_dir)
     ledger = (
         initial_ledger(pack, admitted)
         if not attempts

@@ -484,6 +484,7 @@ def _require_d4096_operation(
     if delegation_dir is not None:
         d4096_sealed.require_funding_receipt(funding_receipt)
     attempts, _elapsed = d4096_resume.attempt_chain(pack, control)
+    d4096_resume.require_delegation_directory(pack, delegation_dir)
     if workers is not None:
         d4096_resume.require_boundary_change(pack, workers)
     expected_output = pack / f"d4096-output-mac-{len(attempts) + 1:02d}"

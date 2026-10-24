@@ -275,6 +275,11 @@ def test_mac_complete_delegated_terminal_requires_verified_old_tail_record(tmp_p
     )
     assert resume.attempt_chain(pack, control)[1] == 100
     assert resume.attempt_chain(pack, control, final=True)[1] == 100
+    resume.require_delegation_directory(pack, directory)
+    with pytest.raises(ValueError, match="original delegation directory"):
+        resume.require_delegation_directory(pack, None)
+    with pytest.raises(ValueError, match="original delegation directory"):
+        resume.require_delegation_directory(pack, pack / "different-delegation")
 
 
 def _patch_launch(monkeypatch, pack: Path, control: dict, *, effective: int = 6) -> list[list[str]]:
