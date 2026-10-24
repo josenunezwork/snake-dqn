@@ -66,6 +66,22 @@ def run(root: Path, commit: str) -> dict:
         output / "cpu-discrepancies.json",
         output / "discrepancy-register.json",
     )
+    if not receipt.is_file():
+        result = {
+            "status": "INVALID",
+            "failure_class": "MECHANICAL_ENTRYPOINT",
+            "reason": "entrypoint did not publish a complete benchmark receipt",
+            "commit": commit,
+            "device": "cpu",
+            "exit_code": process.returncode,
+            "entrypoint_command": command,
+            "entrypoint_run_wall_seconds": time.perf_counter() - started,
+            "log_path": str(root / "entrypoint.log"),
+            "native_cuda": "NOT_RUN",
+            "gpu_units_spent": 0,
+        }
+        move2_units.publish_json(root / "mac-preflight.json", result)
+        return result
     receipt_sha = move2_units._verify(receipt)
     diagnostic_sha = move2_units._verify(diagnostic)
     register_sha = move2_units._verify(register)

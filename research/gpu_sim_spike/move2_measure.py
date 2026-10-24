@@ -14,6 +14,11 @@ import torch
 from research.gpu_sim_spike import move2_parity as parity
 
 
+def _sync(device: str) -> None:
+    if device == "cuda":
+        torch.cuda.synchronize()
+
+
 def restore(sim: Any, template: Any) -> None:
     """Restore exact fields and dtypes, removing state first created by warmup.
 
@@ -111,10 +116,10 @@ def measure(
                     recorded = arm_input
                 elif json.dumps(recorded, sort_keys=True) != json.dumps(arm_input, sort_keys=True):
                     raise bench.Move2Terminal("REFERENCE_INDEXED_RECORDED_INPUTS_DIFFER")
-                bench._sync(device)
+                _sync(device)
                 started = time.perf_counter()
                 sim.step(actions)
-                bench._sync(device)
+                _sync(device)
                 samples[backend].append(time.perf_counter() - started)
                 pair[backend] = sim
                 # Attribution is a separate pass on the uninstrumented current
