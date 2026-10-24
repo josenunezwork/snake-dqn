@@ -458,6 +458,110 @@ def require_funding_receipt(path: Path | None) -> dict[str, Any]:
     return value
 
 
+def seal_i3_mac_projection(
+    output: Path, mac_projection: Path, d256_collection: Path, d1024_collection: Path
+) -> dict[str, Any]:
+    """Bind B2 to I3's strict ledger-based interface without changing either rule."""
+    from research.bl_residual.collection_receipts import (
+        COLLECTION_SCHEMA,
+        MAC_PROJECTION_SCHEMA,
+        validate_mac_projection,
+    )
+
+    _fresh_receipt(output)
+    original = validate_projection(mac_projection)
+    collections = [_metadata(path)[0] for path in (d256_collection, d1024_collection)]
+    walls = {
+        "256": original["d256_cumulative_wall_seconds"],
+        "1024": original["d1024_cumulative_wall_seconds"],
+    }
+    for value, dose in zip(collections, (256, 1024)):
+        if (
+            value.get("schema") != COLLECTION_SCHEMA
+            or value.get("dose") != dose
+            or value.get("cumulative_wall_seconds") != walls[str(dose)]
+            or value.get("placement") != "mac"
+            or value.get("charged_units") != 0
+        ):
+            raise ValueError("I3 collection wall metadata differs from the pre-dispatch B2 seal")
+    result = {
+        "schema": MAC_PROJECTION_SCHEMA,
+        "judgment_sha256": JUDGMENT_SHA256,
+        "placement": "mac",
+        "verdict": "PASS",
+        "selected_lives": 1024,
+        "increment_lives": 3072,
+        "margin": 1.2,
+        "wall_cap_hours": 130,
+        "collection_ledger_sha256": {
+            str(c["dose"]): c["collection_ledger_sha256"] for c in collections
+        },
+        "cumulative_wall_seconds": walls,
+        "projected_mac_hours": original["projected_mac_hours"],
+        "pre_dispatch_b2": {
+            "path": str(mac_projection.resolve()),
+            "sha256": _verify(mac_projection),
+        },
+        "collection_receipts": [_metadata(path)[1] for path in (d256_collection, d1024_collection)],
+    }
+    validate_mac_projection(result, collections)
+    publish_json(output, result)
+    return result
+
+
+def seal_collection_release(
+    output: Path, ledger: Path, funding_receipt: Path, *, pack: Path, code_commit: str
+) -> dict[str, Any]:
+    """Release exactly one complete funded union to I3, after canonical B6 checks."""
+    from . import d4096_final, d4096_resume, mac_driver
+
+    _fresh_receipt(output)
+    require_not_discarded(pack / "d4096-not-run-by-rule.json")
+    funding = require_funding_receipt(funding_receipt)
+    commit = d4096_final.require_pinned_source(code_commit)
+    control = d4096_resume.original_control(pack)
+    attempts, elapsed = d4096_resume.attempt_chain(pack, control, final=True)
+    value, binding = _metadata(ledger)
+    if value.get("attempt_exports") is not None:
+        d4096_resume.verify_union(ledger, control, attempts)
+    else:
+        closed, _ = _metadata(ledger.parent / "union-close.json")
+        if (
+            closed.get("schema") != "bl-labels-f0-union-close/v1"
+            or closed.get("verdict") != "CLEAN"
+            or closed.get("declared_pending") != []
+            or closed.get("prefix_length") != len(control["allocation"])
+            or closed.get("prefix_ledger_sha256") != binding["sha256"]
+            or closed.get("mac_attempt_exports") != [str(p.resolve()) for p in attempts]
+            or closed.get("cumulative_mac_elapsed_seconds") != elapsed
+            or closed.get("funding_receipt_sha256") != _verify(funding_receipt)
+        ):
+            raise ValueError("D4096 release requires its verified complete Mac/L4 union close")
+    _, _, pending = mac_driver._prepare_jobs(control, ledger)
+    if pending:
+        raise ValueError("D4096 release cannot open an incomplete union for fitting")
+    result = {
+        "schema": "bl-labels-d4096-collection-disposition/v1",
+        "disposition": "RELEASED",
+        "judgment_sha256": JUDGMENT_SHA256,
+        **{
+            key: funding[key]
+            for key in (
+                "series_id",
+                "registration_sha256",
+                "reserve_allocation_sha256",
+                "recipe_sha256",
+            )
+        },
+        "collection_ledger_sha256": binding["sha256"],
+        "funding_receipt_sha256": _verify(funding_receipt),
+        "collection_ledger": binding,
+        "code_commit": commit,
+    }
+    publish_json(output, result)
+    return result
+
+
 def _fit_receipts(values: list[str]) -> dict[str, Path]:
     result: dict[str, Path] = {}
     for value in values:
@@ -484,6 +588,17 @@ def main() -> None:
     projection.add_argument("--readiness", type=Path, required=True)
     projection.add_argument("--d256-terminal", type=Path, required=True)
     projection.add_argument("--d1024-terminal", type=Path, required=True)
+    adapter = commands.add_parser("seal-i3-projection")
+    adapter.add_argument("--out", type=Path, required=True)
+    adapter.add_argument("--mac-projection", type=Path, required=True)
+    adapter.add_argument("--d256-collection", type=Path, required=True)
+    adapter.add_argument("--d1024-collection", type=Path, required=True)
+    release = commands.add_parser("release-collection")
+    release.add_argument("--out", type=Path, required=True)
+    release.add_argument("--ledger", type=Path, required=True)
+    release.add_argument("--funding-receipt", type=Path, required=True)
+    release.add_argument("--pack", type=Path, default=CANONICAL_PACK)
+    release.add_argument("--code-commit", required=True)
     discard = commands.add_parser("seal-not-run")
     discard.add_argument("--out", type=Path, required=True)
     discard.add_argument("--readiness", type=Path, required=True)
@@ -506,6 +621,18 @@ def main() -> None:
     elif args.command == "seal-projection":
         result = seal_mac_h_projection(
             args.out, args.readiness, args.d256_terminal, args.d1024_terminal
+        )
+    elif args.command == "seal-i3-projection":
+        result = seal_i3_mac_projection(
+            args.out, args.mac_projection, args.d256_collection, args.d1024_collection
+        )
+    elif args.command == "release-collection":
+        result = seal_collection_release(
+            args.out,
+            args.ledger,
+            args.funding_receipt,
+            pack=args.pack,
+            code_commit=args.code_commit,
         )
     else:
         result = seal_not_run_by_rule(

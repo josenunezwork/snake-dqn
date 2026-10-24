@@ -338,6 +338,12 @@ def union_close(
         },
         "import_records": {p.name: file_sha256(p) for p in imports},
     }
+    if d4096:
+        result.update(
+            mac_attempt_exports=[str(path.resolve()) for path in attempts],
+            cumulative_mac_elapsed_seconds=_elapsed,
+            funding_receipt_sha256=_verify(funding_receipt),
+        )
     out_dir = Path(out_dir)
     if not breaches:
         rows = []

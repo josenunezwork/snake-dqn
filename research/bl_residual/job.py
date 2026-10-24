@@ -107,6 +107,8 @@ def _require_collection_release(
         or value.get("funding_receipt_sha256") != digest(input_dir / funding_name)
     ):
         raise ValueError("HOLD: foreign D4096 collection release binding")
+
+
 # B6 is deliberately a canonical package path, not an optional control field:
 # a discarded early D4096 collection must not be made fit-eligible by omitting
 # a binding from a later input control.
