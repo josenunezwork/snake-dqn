@@ -282,6 +282,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-24 PT | Next-step triage after R2 | F1-bis/L4 D4096 lane check (read-only): F1-bis (round-24 JUDGMENT_PLACEMENT_MAC §4, §7 C1.4) can't start before Mon 10-26 and needs an L4 six-session re-qualification PASS (first attempt already INCOMPLETE; a second failure closes the L4 label lane for October); advisor B's Mac-vs-L4 payload identity criterion isn't in that ruling. D4096 projects ~43–70 Mac-h under its 130 h cap, so L4 would save ~1 day at ~100+ u. **Operator: L4 lane not funded now.** Critical path is the D1024 fit pack + archive-census freeze + Look R-A prep (unbuilt); Claude implementer commissioned (target ready ~14:30 PT, before D1024 ends ~15:30 PT). A100 released: no admitted GPU work. |
 
+| 2026-10-24 PT | **Owner standing rule: units never block** | Owner: 'is it stupid to budget compute if we think it could speed up our work? i have a shit ton of colab credits that expire' → 'yes' to: units alone never decline/delay speed-up work; caps = runaway guards; fund L4 lane for D4096 now (six-session re-qualification attempt 2); put A100 on GPU RNG + food-timing CPU-compatibility (design → Claude judge while Astra is out, Astra retro-audit later); run R2 step 5 E2048/E4096 (~8 u, within R6 12 u row). Pre-registered science caps (e.g. F4) unchanged. Added to STATUS.md/AGENTS.md. Same time: JUDGMENT_D1024_FIT_TRANSPORT_20261024.md (4beccde2…8618) KEEP_QUALIFIED_UPLOAD_FOR_LABELS_MOVE_B8_TO_EXISTING_PUBLIC_URL (236 s estimate wrong — per-file model ~110 s with B8 via URL vs 150 s bar; label data never public). |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
