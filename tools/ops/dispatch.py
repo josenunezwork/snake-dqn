@@ -1045,13 +1045,26 @@ def dispatch(args: argparse.Namespace) -> str:
     output = str(Path(output).resolve())
     if not isinstance(value.get("job_id"), str) or not value["job_id"]:
         raise Refused("manifest job_id must be nonempty")
-    for subdir in ("logs", "state", "manifests", "dispatch"):
-        (ops / subdir).mkdir(parents=True, exist_ok=True)
     commit = value.get("commit")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise Refused("manifest commit must be a full published SHA")
     qualified(broker, ops)
     qualified(broker, ops, ref=commit)
+    if getattr(args, "dry_run", False):
+        for candidate in (
+            ops / "dispatch" / args.name,
+            ops / "logs" / f"{args.name}.log",
+            ops / "manifests" / f"{args.name}.json",
+            state,
+            Path(output),
+        ):
+            if candidate.exists():
+                raise Refused(f"dispatch identity already used: {candidate}")
+        with tempfile.TemporaryDirectory(prefix="dispatch-validate-") as temporary:
+            validate(broker, cwd, Path(temporary) / "state", manifest, Path(temporary) / "log")
+        return f"PASS_DRY_RUN {args.name} allocations=0 live_accounting=NOT_CHECKED"
+    for subdir in ("logs", "state", "manifests", "dispatch"):
+        (ops / subdir).mkdir(parents=True, exist_ok=True)
     # Create-only name reservation also fences two clients dispatched concurrently.
     (ops / "dispatch" / args.name).mkdir()
     log = ops / "logs" / f"{args.name}.log"
@@ -1172,9 +1185,14 @@ def main() -> int:
     parser.add_argument("--retention-acceptance", type=Path)
     parser.add_argument("--boundary-admission", type=Path)
     parser.add_argument("--review-token")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="validate without reserving or allocating"
+    )
     args = parser.parse_args()
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(143))
     try:
+        if args.dry_run and (args.chain_manifest or args.retention_acceptance is not None):
+            raise Refused("dry-run supports only the ordinary single-job path")
         if args.colab_control_nice0 and (
             args.retention_acceptance is not None or args.chain_manifest
         ):

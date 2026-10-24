@@ -155,15 +155,24 @@ def binding(path: Path, commit: str, repo: Path = ROOT) -> dict[str, str]:
     terminal = receipt.get("terminal") or {}
     if terminal.get("returncode") != 0 or terminal.get("job_id") != receipt.get("job_id"):
         raise ValueError("native compile terminal is absent or failed")
-    exports = {row["path"]: row for row in receipt.get("exports", [])}
-    for name in (
-        "native-compile.json",
-        "native-compile.json.sha256",
-        "native-compile.json.complete",
-    ):
+    rows = receipt.get("exports")
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError("native compile export inventory is malformed")
+    # runtime._exports inventories payloads only. Sidecars are transferred and
+    # checked separately; they must never be invented as receipt inventory rows.
+    exports = {row.get("path"): row for row in rows}
+    if set(exports) != {"native-compile.json"}:
+        raise ValueError("native compile export inventory differs")
+    if terminal.get("exports") != rows:
+        raise ValueError("native compile terminal export inventory differs")
+    for name in exports:
         payload = path.parent / "exports" / name
         row = exports.get(name, {})
-        if row.get("sha256") != digest(payload) or row.get("size") != payload.stat().st_size:
+        if (
+            payload.is_symlink()
+            or row.get("sha256") != digest(payload)
+            or row.get("size") != payload.stat().st_size
+        ):
             raise ValueError("native compile export inventory differs")
     report_path = path.parent / "exports/native-compile.json"
     from research.gpu_sim_spike.sparse_units import _verify

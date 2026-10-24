@@ -1,0 +1,40 @@
+{
+  "artifact_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0-20261024-03/compile-proof-verification/VALIDATION.json": "7c6b65474bb11ef316d523c92c752a43d2a3cb24af619fb15ae31e2053f60103",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0-20261024-03/dispatch-canary.before-compile.sh": "cc5923700e660318606f1f9ccb37ee51bf7090ae0116cb8096095e318e88df34",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0-20261024-03/dispatch-canary.sh": "9979f094aacbb96cd94058fe38c168f48c5c8263ded69e773146478266f5a0da",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0-20261024-03/dispatch-compile.sh": "c2577dce50ad86ed267cd923d46153270fcac73b669fae46767ba737b8129e53",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0-20261024-03/packet/integration-canary.json": "e7c42c0f7d8e9a9f3d1c9e0f0b2fe7eb194e6225e9b326aebab18713c1df6d63",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0-20261024-03/packet/metadata-canary.tar": "350f4de106285510fcb611fd974ac2b3801bc28b104cdddd851987937bdcb327",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0-20261024-03/packet/native-compile/native-compile.json": "dbca05b6bfff32d6b0a14ce4036c3438e61149c50338126dd92424873dc5d62f"
+  },
+  "broker": "/Users/josenunez/Projects/ml/snake-dqn-gpuint-qualified-03.noindex",
+  "dispatched": false,
+  "findings": [],
+  "immutable_originals_preserved": true,
+  "not_done": [
+    "Colab dispatch",
+    "native compilation",
+    "canary execution",
+    "live accounting admission"
+  ],
+  "reviewer": "/root/codex_v_light",
+  "runtime_pin": "968f02765f7c86ca27d2947347896e2fe4e6ce23",
+  "scope": "Codex-V LIGHT: I0 same-pin compiler prerequisite and host receipt/dispatch controls",
+  "source_sha256": {
+    "research/gpu_sim_spike/native_compile.py": "6084ee272df0aaae8b565b626a89372d2f09433c0a142f9bccf8b6280d963ae4",
+    "research/gpu_sim_spike/test_native_compile.py": "52f48fee1881af1646388a64a6350e7a990ca6c0e82449d5b1fd3007eedfc202",
+    "tests/test_integration_compile.py": "772ac3437506efe52d3c20c06d6e4ae367e8bb5717e12a9cf41606abbe5d9957",
+    "tests/test_ops_dispatch.py": "0f264c1b863bb7e79a886e734a6d96db5e531cb5a9bf894f1eab4bfa958f6295",
+    "tools/ops/dispatch.py": "8c5abae7d799b2afb869cf3bd71804bd7b8b6324ad0cd77be395e1bb22c88666",
+    "tools/ops/integration_compile.py": "4048c75835ef90c74be6eaa050729fc97dd260eb6a3392f00f885d35495f5040"
+  },
+  "status": "ACCEPT_OFFLINE",
+  "verification": {
+    "independent_acceptance": "1 passed in 59.84s; artifacts held fixed",
+    "lint": "Black/isort/flake8, Bash syntax and git diff --check passed",
+    "local_acceptance_rerun": "2 passed in 59.05s; exact generated wrappers; artifacts held fixed",
+    "native_ops_suite": "96 passed; initial final helper snapshot check failed due concurrent diagnostic writes (both helper validations passed)",
+    "supervisor_validation_schema": "7 passed, 83 deselected in 57.85s"
+  }
+}
