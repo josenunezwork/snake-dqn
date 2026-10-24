@@ -14,19 +14,24 @@ AUTHORITY_SHA256 = "738a367bec2c3399ed8bd9383811d7fa643109a8aaba384a775f1c028a72
 FAULT_AUTHORITY_SHA256 = "fe8579c2aec5489ea25149b5d88036cb22daad0faa5310913231f3388716728e"
 FAULT_DEFINITION = "l4-label-faults/v2"
 WORKER_PIN = "2af48cd0b98a2063f46871cf4d320a5541b789af"
-# Rebound to the v2 recovery-fix commit (judgment §4 step 1c); a18bf6b4 was attempt 1.
-TRANSPORT_PIN = "411b5890c3f9e2822192e943bc02c3460183d3ec"
-TRANSPORT_TREE = "364c5d4b3276102f6ca907dfadcf28774854d076"
+# Evidence-only successor authorized by the prerequisite-refusal ruling, steps 2-4.
+# The previous recovery/transport behavior remains fixed by differential proof.
+TRANSPORT_PIN = "d68ba07c350d3f642879ee6df2cf9af9d34f0601"
+TRANSPORT_TREE = "6415984f6cedc17a828a6a0d8fffc4519f7cb273"
 # The independent reviewer's create-only ACCEPT lives outside the repository so
 # recording it never moves the pack's pinned source commit.
 REVIEW_PATH = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/"
-    "CLAUDE_V_L4_REQUAL_02_20261024.json"
+    "ASTRA_L4_V2_REPAIR_REVIEW07_ACCEPT_20261024.json"
 )
 ARTIFACT_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts")
-PACK_ROOT = ARTIFACT_ROOT / "big-lever/round-24/rpc-qualification-08"
-PROOF_RELATIVE = "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_08.json"
+PACK_ROOT = ARTIFACT_ROOT / "big-lever/round-24/rpc-qualification-09"
+PROOF_RELATIVE = "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_09.json"
 AUTHORITY_FILES = {
+    "prerequisite_refusal": (
+        ARTIFACT_ROOT / "big-lever/exp/astra-20261024/JUDGMENT_L4_V2_PREREQUISITE_REFUSAL.md",
+        "b8ffb06bc9d91a2e6dd57720a08cdb880141b50debb9c051d188e51db82d7261",
+    ),
     "R": (
         ARTIFACT_ROOT / "bl-labels-f0/JUDGMENT_L4_FAULT_DEFINITION_20261024.md",
         FAULT_AUTHORITY_SHA256,
@@ -80,6 +85,7 @@ def review_source_inventory(repo: Path, package_commit: str | None = None) -> di
         "tools/ops/dispatch.sh",
         "tools/ops/watchd.sh",
         "tests/test_l4_cpu_acceptance_classifier.py",
+        "tests/test_l4_prerequisite_evidence.py",
         "tests/test_colab_cli_acceptance_stall_diagnosis.py",
         "tests/test_colab_cli_rpc_recovery.py",
         "tests/test_l4_faults_v2.py",
@@ -105,6 +111,7 @@ def review_source_inventory(repo: Path, package_commit: str | None = None) -> di
         for path in tracked
         if (
             path in explicit
+            or path.startswith("tests/fixtures/l4_prerequisite_refusal/")
             or (path.startswith("research/colab_cli/") and path.endswith((".py", ".sh")))
             or (path.startswith("research/rpc_qualification/") and path.endswith((".py", ".sh")))
         )
@@ -164,7 +171,7 @@ def review_artifact_bindings(repo: Path, package_commit: str) -> dict[str, Any]:
         "plan": PACK_ROOT / "plan.json",
         "proof": repo / PROOF_RELATIVE,
         "trace": PACK_ROOT / "DIFFERENTIAL_TRACE.json",
-        "helper": PACK_ROOT / "GUARDED_OPERATOR_COMMANDS_V5.sh",
+        "helper": PACK_ROOT / "GUARDED_OPERATOR_COMMANDS_V6.sh",
     }
     for name in ("plan", "proof", "trace"):
         _verify(paths[name])

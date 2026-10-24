@@ -582,9 +582,93 @@ def _run_transfers(root, scenario):
     }
 
 
+def _run_observer(root, scenario):
+    from research.colab_cli import acceptance_faults, injection_manifest
+    from types import SimpleNamespace
+    clock = Clock()
+    acceptance_faults.time.monotonic = clock.monotonic
+    acceptance_faults.time.sleep = clock.sleep
+    external = []
+    payload = b'watchdog-checkpoint'
+    digest = hashlib.sha256(payload).hexdigest()
+    class ObserverCLI:
+        session = 'observer-session'
+        deadline = 600.0
+        priced_deadline = 600.0
+        accounting = SimpleNamespace(endpoint='endpoint')
+        def __init__(self):
+            self.call_records = []
+            self.transfer_records = []
+            self.contents_transfers = []
+            self.polls = 0
+            self.payload_polls = 0
+        def stop_lease(self, wait):
+            external.append({'stop_lease': wait, 'at':clock.now})
+        def poll_rpc(self, code):
+            external.append({'poll_rpc': hashlib.sha256(code.encode()).hexdigest(), 'at':clock.now})
+        def collect_marker_census(self):
+            external.append({'census': True, 'at':clock.now})
+        def call(self, *args, timeout):
+            remote = args[-2]
+            external.append({'args':[_normal_arg(v) for v in args],
+                             'timeout':timeout, 'at':clock.now})
+            row = {'command':'download','remote':remote,'timeout_seconds':timeout,
+                   'operation_id':f'call-{len(self.call_records)}',
+                   'attempt_id':f'call-{len(self.call_records)}:1',
+                   'started_monotonic':clock.now,'status':'failed'}
+            self.call_records.append(row)
+            try:
+                if remote.endswith('.sha256'):
+                    self.polls += 1
+                    if self.polls == 1 or scenario == 'observer_deadline':
+                        raise supervisor.Refused(
+                            '[colab] Download failed: File or directory not found: '+remote)
+                    if self.polls == 2 and scenario == 'observer_timeout':
+                        clock.now += timeout
+                        raise subprocess.TimeoutExpired('download',timeout)
+                if not remote.endswith('.sha256'):
+                    self.payload_polls += 1
+                    if self.payload_polls == 1 and scenario == 'observer_payload_timeout':
+                        clock.now += timeout
+                        raise subprocess.TimeoutExpired('download', timeout)
+                if remote.endswith('.sha256'):
+                    Path(args[-1]).write_text(digest)
+                else:
+                    value = b'changed' if scenario == 'observer_hash' else payload
+                    Path(args[-1]).write_bytes(value)
+                row['status']='completed'
+                return ''
+            except BaseException as exc:
+                row['error']=repr(exc)
+                if isinstance(exc,subprocess.TimeoutExpired):
+                    row['failure_class']='RPC_EXEC_POLL_TIMEOUT'
+                raise
+            finally:
+                row.update(finished_monotonic=clock.now,elapsed_seconds=clock.now-row['started_monotonic'])
+        def sessions(self, timeout):
+            external.append({'sessions':timeout,'at':clock.now})
+            return {} if clock.now >= 182 else {'endpoint':self.session}
+    cli=ObserverCLI()
+    manifest={'lease_seconds':180,'job_id':'observer-job'}
+    injections={'observer-job':{'schema':injection_manifest.SCHEMA,'written_before_dispatch':True,'session_job_id':'observer-job','entries':injection_manifest.acceptance_entries('L4')}}
+    observer=acceptance_faults.AcceptanceObserver('unused',injections=injections)
+    observer._state=lambda context: {}
+    try:
+        observer._watchdog({'cli':cli,'manifest':manifest,'root':'/content/observer',
+                            'generation':'generation','output':root})
+        outcome={'kind':'return'}
+    except BaseException as exc:
+        outcome={'kind':'exception','error':_exception(exc)}
+    return {'behavior':{'external':external,'sleeps':clock.sleeps,'outcome':outcome,
+                        'deadline':cli.deadline,'priced_deadline':cli.priced_deadline,
+                        'watchdog':observer.records.get('mac-loss-watchdog-unassign')},
+            'calls':cli.call_records,'transfers':cli.transfer_records}
+
 def main():
     scenario, root = sys.argv[1], Path(sys.argv[2])
-    if scenario in {"chunks", "chunks_retry"}:
+    if scenario.startswith("observer_"):
+        result = _run_observer(root, scenario)
+    elif scenario in {"chunks", "chunks_retry"}:
         result = _run_transfers(root, scenario)
     elif scenario.startswith("lifecycle_"):
         result = _run_broker_cleanup(root, scenario)
@@ -602,9 +686,9 @@ if __name__ == "__main__":
 """
 
 
-def _materialize_baseline(destination: Path) -> None:
+def _materialize_baseline(destination: Path, tree: str = TRANSPORT_TREE) -> None:
     archive = subprocess.run(
-        ["git", "archive", "--format=tar", TRANSPORT_TREE],
+        ["git", "archive", "--format=tar", tree],
         cwd=REPO,
         check=True,
         capture_output=True,
@@ -721,6 +805,26 @@ def _differential_trace(tmp_path: Path) -> dict:
                     + "\nBASELINE="
                     + json.dumps(_strip_evidence(baseline), sort_keys=True)
                 )
+        with tempfile.TemporaryDirectory(prefix="observer-frozen-86d58c05-") as frozen:
+            frozen_root = Path(frozen)
+            _materialize_baseline(
+                frozen_root, "86d58c05ce4fbb6028d0f257267e643ca193921f:research/colab_cli"
+            )
+            for scenario in (
+                "observer_absence",
+                "observer_timeout",
+                "observer_hash",
+                "observer_deadline",
+                "observer_payload_timeout",
+            ):
+                baseline = _run_worker(frozen_root, frozen_root, scenario)
+                current = _run_worker(REPO, current_root, scenario)
+                assert baseline["behavior"] == current["behavior"], scenario
+                trace["scenarios"][scenario] = {
+                    "baseline": baseline,
+                    "current": current,
+                    "reference_commit": "86d58c05ce4fbb6028d0f257267e643ca193921f",
+                }
         return trace
 
 
@@ -748,6 +852,11 @@ def differential_trace(tmp_path_factory: pytest.TempPathFactory) -> dict:
         "lifecycle_census_failed",
         "lifecycle_near_deadline_cleanup",
         "lifecycle_watchdog_release",
+        "observer_absence",
+        "observer_timeout",
+        "observer_hash",
+        "observer_deadline",
+        "observer_payload_timeout",
     ],
 )
 def test_current_transport_matches_reviewed_tree_under_fake_clock(
@@ -756,7 +865,9 @@ def test_current_transport_matches_reviewed_tree_under_fake_clock(
     """Each ruling scenario has identical behavior after evidence is stripped."""
     trace = differential_trace
     row = trace["scenarios"][scenario]
-    if scenario.startswith("lifecycle_"):
+    if scenario.startswith("observer_"):
+        assert row["baseline"]["behavior"] == row["current"]["behavior"]
+    elif scenario.startswith("lifecycle_"):
         assert row["baseline"]["behavior"] == row["current"]["behavior"]
         assert row["authorized_observation_delta"]["baseline"] == "absent"
     elif scenario == "probe_policy":

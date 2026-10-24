@@ -46,7 +46,9 @@ FAKE_PROOF_TESTS = (
     "tests/test_rpc_qualification_profile.py",
     "tests/test_ops_qualification.py",
 )
+SUPPLEMENTAL_PROOF_TESTS = ("tests/test_l4_prerequisite_evidence.py",)
 FAKE_PROOF_EXTRA_SOURCES = (
+    *SUPPLEMENTAL_PROOF_TESTS,
     "tests/fixtures/fake_colab.py",
     "tests/test_colab_cli_dispatch_warmup.py",
     "research/bl_labels/l4_faults_v2.py",
@@ -87,6 +89,7 @@ def fake_proof_source_inventory(repo: Path) -> dict[str, str]:
             "research/rpc_qualification",
             *FAKE_PROOF_EXTRA_SOURCES,
             *FAKE_PROOF_TESTS,
+            "tests/fixtures/l4_prerequisite_refusal",
         ],
         cwd=repo,
         text=True,
@@ -98,6 +101,7 @@ def fake_proof_source_inventory(repo: Path) -> dict[str, str]:
         if name.endswith((".py", ".sh"))
         or name in FAKE_PROOF_EXTRA_SOURCES
         or name in FAKE_PROOF_TESTS
+        or name.startswith("tests/fixtures/l4_prerequisite_refusal/")
     ]
     expected = set(FAKE_PROOF_EXTRA_SOURCES) | set(FAKE_PROOF_TESTS)
     if not expected <= set(names):
@@ -121,6 +125,8 @@ def validate_fake_proof(fake_path: Path, repo: Path, package_commit: str) -> dic
     expected = fake_proof_source_inventory(repo)
     if value["source_sha256"] != expected:
         raise ValueError("fake-CLI proof source map is incomplete or stale")
+    if value.get("supplemental_tests") != list(SUPPLEMENTAL_PROOF_TESTS):
+        raise ValueError("fake-CLI proof lacks the refused-output regressions")
     trace = value.get("differential_trace")
     if not isinstance(trace, dict) or trace.get("transport_tree") != (
         "4eefe6b10345f0a7b53c22f3158ce1c131093bfe"
@@ -169,11 +175,23 @@ def validate_fake_proof(fake_path: Path, repo: Path, package_commit: str) -> dic
         "lifecycle_census_failed",
         "lifecycle_near_deadline_cleanup",
         "lifecycle_watchdog_release",
+        "observer_absence",
+        "observer_timeout",
+        "observer_hash",
+        "observer_deadline",
+        "observer_payload_timeout",
     }
     if set(trace.get("scenarios", {})) != required_scenarios:
         raise ValueError("fake-CLI differential scenario coverage is incomplete")
     for name, row in trace["scenarios"].items():
-        if name.startswith("lifecycle_"):
+        if name.startswith("observer_"):
+            if (
+                row.get("reference_commit") != "86d58c05ce4fbb6028d0f257267e643ca193921f"
+                or not isinstance(row.get("baseline", {}).get("behavior"), dict)
+                or row["baseline"]["behavior"] != row.get("current", {}).get("behavior")
+            ):
+                raise ValueError(f"observer differential behavior differs: {name}")
+        elif name.startswith("lifecycle_"):
             baseline, current = row.get("baseline", {}), row.get("current", {})
             failed = name == "lifecycle_census_failed"
             if (

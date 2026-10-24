@@ -13,7 +13,11 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from research.bl_labels.exports import publish_json
-from research.rpc_qualification.checker import FAKE_PROOF_TESTS, fake_proof_source_inventory
+from research.rpc_qualification.checker import (
+    FAKE_PROOF_TESTS,
+    SUPPLEMENTAL_PROOF_TESTS,
+    fake_proof_source_inventory,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 TESTS = FAKE_PROOF_TESTS
@@ -55,6 +59,7 @@ def generate(out: Path) -> None:
         "-p",
         "no:cacheprovider",
         *TESTS,
+        *SUPPLEMENTAL_PROOF_TESTS,
     ]
     with tempfile.TemporaryDirectory(prefix="l4-fake-proof-") as temporary:
         report = Path(temporary) / "junit.xml"
@@ -96,6 +101,7 @@ def generate(out: Path) -> None:
             "command_argv": command,
             "passed": counts["tests"],
             "tests": list(TESTS),
+            "supplemental_tests": list(SUPPLEMENTAL_PROOF_TESTS),
             "source_sha256": before,
             "transport_tree": subprocess.check_output(
                 ["git", "rev-parse", "HEAD:research/colab_cli"],
