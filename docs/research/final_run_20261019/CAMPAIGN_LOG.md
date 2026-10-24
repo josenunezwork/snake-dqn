@@ -738,3 +738,57 @@ F4's recipe remains `49d12f486bffa455adcedbc318e88f1524f5c502894d0c1ace47daa84b9
 and registration `66388c795b3bec5bd014fa03d700994527b67763479143f7c3e5f35d1bb2fd65`.
 All actual fit/speed/D1024 jobs wait for the exclusive P1 window to close;
 preparation confers no dispatch, scientific-look or serving authority.
+
+
+## F4 D256 post-P1 preparation — 2026-10-23, no fit or outcome look
+
+The outcome-blind D256 union was pushed in `483c8f56`, then local, portable and
+`origin/main` ledger bytes were confirmed identical at SHA256
+`30919209b62307f8d4392b4e5925a7c4b0c4a21a2abd55a5e647428453eeb809`.
+F4 implementation `6549f84d` prepares a strict mechanical partition, exact
+registered D256-only L4 fit, same-input/source synthetic family canary, fit-phase
+publication gate and fault-free D1024 collection staging. No factory payload
+outcome, fit, held-out/reserve statistic, funding or gameplay result was examined.
+
+Qualified F4 source pin `e01f3a96c9fa861b16c0708c500ca29c67b48bd5`, clean detached
+`/Users/josenunez/Projects/ml/snake-dqn-f4-d256-qualified-01.noindex`, uses exactly
+qualified CLI tree `d0d92bdb572b770284a1fea6152417ffa5f06bea`. Actual registry check
+passed. Relative to `6549f84d`, only the CLI launcher's bytes return to the
+qualified version; explicit ours merge `e23451f0` publishes this source while
+preserving main's existing `7d4f2df30382c7808d5c96d1787e84b50bee9f5a` transport.
+This follows the existing round-33 source-snapshot pattern and changes no registry.
+
+Light independent Codex-V static review has no remaining static blockers;
+create-only review receipt SHA256
+`bf64e7eca74bf30d1890eca6201e1053716f584ebc7677b3a7fe3aa4ac556cae` at
+`research/bl_residual/CODEX_V_D256_PREP_STATIC_20261023.json`.
+Python AST/heredoc syntax, Black/isort/flake8, shell syntax and diff checks passed.
+The P1 quiet-window arm already existed; both prepared entrypoints refused it
+before numerical execution. Therefore no numerical tests, import preflight,
+training NPZ conversion, live canary or finalized production manifest is claimed.
+The operator's first post-P1 phase must pass the bounded serial no-fit inverse,
+package and current executable-relevance tests; preparation enforces that receipt
+before opening label payloads. Full qualified CLI/main input/live canary validation
+are subsequent mandatory gates, not waived by this static review.
+
+Prospective D256 reservations, doubled once: canary base/effective 0.5/1 u,
+reserve 0.1/0.2 u, timeout 10/20 min; main 2/4 u, reserve 0.4/0.8 u,
+timeout 60/120 min. Total 6 u within the registered whole-fit-series 10/20 u;
+14 u remains uncommitted. L4 ceiling 1.54 u/h is rechecked at live admission.
+The main 30-minute estimate is a conservative envelope, not measured fit speed.
+No attempt, cap, dose, threshold, seed or scientific look is extended.
+
+Exact phased commands are in `research/bl_residual/RUN_D256_NEXT.sh` and
+`D256_NEXT_HANDOFF_20261023.md`. All wait for the entire P1 exclusive window
+and verified release. Fit and Colab release finish before round-27 timing, then
+D1024: speed pin `bf8ac97dc66d1b4515e4c5510db3ad5886fa695d`, operational wrapper
+`3c5fc403e5167a47ebb8b2fd090fd1e024da8e76`, existing W12 ruled admission SHA
+`65ea988e086ea1c26fc13dba505f4aae7ba524d443095def77ba10c1b80fa4fe`.
+The prospective ALLOW_COLAB_CONTROL_NICE0 ruling is not activated by this lane;
+paid overlap remains behind its own qualification. No calibration rerun, W11,
+unqualified companion monitor or baseline reset is introduced. R-A remains the
+single joint D256/D1024 reserve look after both immutable fits; it is unprepared
+and unrun here. Serving, released checkpoints, existing receipts, tmux and live
+process priorities were untouched.
+
+Final independent static command/snapshot review: `research/bl_residual/CODEX_V_D256_COMMANDS_STATIC_20261023.json`, SHA256 `b6becbee73779912c9bc6b911505a7f16576d58e0718046de61de3dfd85b5ccf`; no remaining static blockers, mandatory post-P1 runtime gates retained.
