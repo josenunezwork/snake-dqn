@@ -165,9 +165,60 @@ def record_census_verified_download(
     if type(local_size) is not int or not re.fullmatch(r"[0-9a-f]{64}", local_sha256):
         raise TransferError("local client marker observation is invalid")
     matched = local_size == observed["size"] and local_sha256 == expected
+    row = rows[0]
+    # The acceptance observer may have already assigned prospective IDs to
+    # every direct poll, including failed reads.  Keep that evidence lineage
+    # when the later same-census verification succeeds; never reset its raw
+    # ordinal or attach this digest to an earlier failed row.
+    parent_id, child_id = row.get("parent_transfer_id"), row.get("transfer_id")
+    if isinstance(parent_id, str) and parent_id and isinstance(child_id, str) and child_id:
+        existing = next(
+            (
+                parent
+                for parent in cli.transfer_records
+                if isinstance(parent, dict)
+                and parent.get("transfer_id") == parent_id
+                and parent.get("direction") == "download"
+                and parent.get("remote") == remote
+            ),
+            None,
+        )
+        if existing is None:
+            return False
+        children = existing.get("children")
+        child = (
+            next(
+                (
+                    candidate
+                    for candidate in children
+                    if isinstance(candidate, dict) and candidate.get("transfer_id") == child_id
+                ),
+                None,
+            )
+            if isinstance(children, list)
+            else None
+        )
+        if child is None:
+            return False
+        existing.update(
+            status="verified" if matched else "mismatch",
+            sha256=expected,
+            verification_kind="census-file-digest",
+            local_size=local_size,
+            local_sha256=local_sha256,
+            finished_monotonic=row["finished_monotonic"],
+            elapsed_seconds=row["finished_monotonic"] - existing["started_monotonic"],
+        )
+        child.update(status="completed")
+        if matched:
+            row["verified_sha256"] = expected
+            child["verified_sha256"] = expected
+            existing["verified_sha256"] = expected
+        else:
+            existing["observed_size"] = observed["size"]
+        return matched
     parent_id = f"transfer-{next(_TRANSFER_IDS)}"
     child_id = f"contents-{next(_TRANSFER_IDS)}"
-    row = rows[0]
     child = {
         "transfer_id": child_id,
         "parent_transfer_id": parent_id,

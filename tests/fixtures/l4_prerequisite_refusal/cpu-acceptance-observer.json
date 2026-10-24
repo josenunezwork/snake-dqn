@@ -1,0 +1,94 @@
+{
+  "gates": {
+    "account-assignment-spend": {
+      "arms": [
+        {
+          "arm": "cpu",
+          "assignments": [
+            {
+              "endpoint": "gpu-l4-s-ass1b0-3iecx7mzdn0xk",
+              "rate_units_per_hour": 1.54,
+              "session": "?",
+              "source": "broker.active"
+            }
+          ],
+          "baseline_balance_units": 1076.26,
+          "baseline_rate_units_per_hour": 1.54,
+          "declared_other_rate_units_per_hour": 1.54,
+          "unaccounted_endpoints": []
+        }
+      ]
+    },
+    "backend-stop-disappearance": {
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/rpc-qualification-08/prerequisite-state/requalify-jpkn4_pg/acceptance-1792878940/outputs/cpu/receipt.json"
+    },
+    "client-loss-reconnect": {
+      "finished": {
+        "finished_at": 1792879133.6676288,
+        "request": "2d36e7f1c1a04a1d91b94510098ded8c"
+      },
+      "job": {
+        "execution_id": "4f1e980441091ba7b21b7f46c7b4bcd4",
+        "pid": 905
+      },
+      "kernel_request": "2d36e7f1c1a04a1d91b94510098ded8c",
+      "killed_client_pid": 92912,
+      "sessions": {
+        "gpu-l4-s-ass1b0-3iecx7mzdn0xk": "?",
+        "m-s-kkb-usw1c1-2fnq9a39wxb8a": "snake-acceptance-1792878940-cpu-427ba60fe926"
+      }
+    },
+    "cold-kernel-metadata-recovery": {
+      "arms": [
+        {
+          "arm": "cpu",
+          "first_upload_transfer": {
+            "attempts": 1,
+            "elapsed_seconds": 0.49068795901257545,
+            "remote": "/content/snake-cli-427ba60fe9264096bfed886d7227b9eb-release.json",
+            "size_bytes": 468,
+            "status": "completed"
+          },
+          "metadata_recovery": {
+            "idle_proven_by": "cli_guard.kernel_idle GET-only helper",
+            "original_kernel_id": "d4d8a3b3-afba-4517-94d7-8e3fc9004af8",
+            "recovered_kernel_id": "d4d8a3b3-afba-4517-94d7-8e3fc9004af8",
+            "same_kernel_id": true,
+            "tracked_metadata_unchanged": true
+          }
+        }
+      ],
+      "status": "INCOMPLETE"
+    },
+    "failure-and-corrupt-export": {
+      "corrupt_export_rejected": true,
+      "intentional_child_exit": 23
+    },
+    "fresh-oauth-refresh": {
+      "refreshed_in_memory": true,
+      "usage": {
+        "assignments": 2.0,
+        "balance": 1076.26,
+        "rate": 1.62
+      }
+    },
+    "silence-timeout": {
+      "rpc_timeout_seconds": 30.0,
+      "rpc_value": {
+        "after_silence": true
+      },
+      "silence_seconds": 68.39750874997117
+    },
+    "url-no-second-allocation": {
+      "sessions_after": {
+        "gpu-l4-s-ass1b0-3iecx7mzdn0xk": "?",
+        "m-s-kkb-usw1c1-2fnq9a39wxb8a": "snake-acceptance-1792878940-cpu-427ba60fe926"
+      },
+      "sessions_before": {
+        "gpu-l4-s-ass1b0-3iecx7mzdn0xk": "?",
+        "m-s-kkb-usw1c1-2fnq9a39wxb8a": "snake-acceptance-1792878940-cpu-427ba60fe926"
+      }
+    }
+  },
+  "profile": "final-only"
+}

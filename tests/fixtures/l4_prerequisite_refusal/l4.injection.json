@@ -1,0 +1,47 @@
+{
+  "entries": [
+    {
+      "command": "download",
+      "failure_type": "NOT_FOUND",
+      "injection_id": "watchdog-checkpoint-marker-absent",
+      "max_calls": 390,
+      "realized_event_required": true,
+      "selector": {
+        "kind": "planned_absence_probe",
+        "remote_suffix": "/output/lease-checkpoint.pkl.sha256"
+      },
+      "type": "absence-probe"
+    },
+    {
+      "command": "download",
+      "failure_type": "NOT_FOUND",
+      "injection_id": "watchdog-checkpoint-absent",
+      "max_calls": 390,
+      "realized_event_required": true,
+      "selector": {
+        "kind": "planned_absence_probe",
+        "remote_suffix": "/output/lease-checkpoint.pkl"
+      },
+      "type": "absence-probe"
+    },
+    {
+      "command": "terminal",
+      "error_contains": "supervised assignment disappeared",
+      "failure_class": "ACCOUNTING",
+      "injection_id": "watchdog-designed-backend-release",
+      "max_calls": 1,
+      "type": "designed-mac-loss-release",
+      "watchdog_event_id": "mac-loss-watchdog-unassign",
+      "watchdog_plan": {
+        "checkpoint_exported_during_grace": true,
+        "lease_seconds": 180,
+        "release_bound_seconds": 300,
+        "renewal_suppressed": true
+      }
+    }
+  ],
+  "purpose": "final-only acceptance L4 arm deliberate faults",
+  "schema": "l4-label-faults-injection-manifest/v1",
+  "session_job_id": "acceptance-1792878940-l4",
+  "written_before_dispatch": true
+}

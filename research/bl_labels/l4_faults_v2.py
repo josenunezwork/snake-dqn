@@ -459,6 +459,7 @@ def _verified_transfer(
                 candidate.get("command") == direction
                 and candidate.get("parent_transfer_id") == parent_id
                 and candidate.get("transfer_id") == child_id
+                and candidate.get("remote") == remote
                 and candidate.get("status") == "completed"
             ):
                 continue
@@ -472,12 +473,14 @@ def _verified_transfer(
                 or finished < started
                 or not isinstance(verified, str)
                 or parent.get("status") != "verified"
+                or parent.get("direction") != direction
                 or parent.get("sha256") != verified
                 or parent.get("verified_sha256") != verified
                 or not any(
                     isinstance(child, dict)
                     and child.get("transfer_id") == child_id
                     and child.get("parent_transfer_id") == parent_id
+                    and child.get("remote") == remote
                     and child.get("verified_sha256") == verified
                     for child in parent.get("children", [])
                 )
@@ -565,6 +568,7 @@ def _completed_transfer_verified(
                     isinstance(child, dict)
                     and child.get("transfer_id") == child_id
                     and child.get("parent_transfer_id") == parent_id
+                    and child.get("remote") == remote
                     and child.get("verified_sha256") == verified
                     for child in parent.get("children", [])
                 )
@@ -1231,6 +1235,26 @@ def classify_session(
     for index, row in enumerate(receipt.get("transfers") or []):
         if not isinstance(row, dict):
             raise ValueError("malformed transfers row")
+        if (
+            row.get("status") == "unverified"
+            and row.get("verification_kind") == "census-file-digest"
+            and any(
+                call.get("command") == "download"
+                and call.get("status") == "completed"
+                and call.get("parent_transfer_id") == row.get("transfer_id")
+                and call.get("remote") == row.get("remote")
+                and _census_transfer_observation_missing(receipt, call, call["remote"])
+                for call in calls
+            )
+        ):
+            evidence_missing.append(
+                {
+                    "kind": "client_file_census",
+                    "transfers_index": index,
+                    "detail": "prospective client marker parent lacks census digest observation",
+                }
+            )
+            continue
         if row.get("status") != "verified":
             entry = _matched_failed_transfer_entry(
                 row, entries, allow_retroactive=allow_retroactive_manifest

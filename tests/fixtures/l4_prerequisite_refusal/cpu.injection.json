@@ -1,0 +1,53 @@
+{
+  "entries": [
+    {
+      "command": "exec",
+      "failure_type": "CONTROL_RPC_TIMEOUT",
+      "injection_id": "silence-timeout",
+      "max_calls": 1,
+      "request_id": "3ed822639cec409293766a5cc70f751c",
+      "request_sha256": "6d8eca481a42966ea38a065c55325f0685e35388250a8b75047e98624dfe1533",
+      "type": "deliberate-65s-kernel-silence"
+    },
+    {
+      "command": "download",
+      "failure_type": "NOT_FOUND",
+      "injection_id": "client-loss-start-absent",
+      "max_calls": 150,
+      "realized_event_required": true,
+      "selector": {
+        "kind": "planned_absence_probe",
+        "remote_suffix": "/client-start.json"
+      },
+      "type": "absence-probe"
+    },
+    {
+      "command": "download",
+      "failure_type": "NOT_FOUND",
+      "injection_id": "client-loss-finished-absent",
+      "max_calls": 302,
+      "realized_event_required": true,
+      "selector": {
+        "kind": "planned_absence_probe",
+        "remote_suffix": "/client-finished.json"
+      },
+      "type": "absence-probe"
+    },
+    {
+      "command": "download",
+      "failure_type": "HASH_MISMATCH",
+      "injection_id": "corrupt-export-rejection",
+      "max_calls": 1,
+      "realized_event_required": true,
+      "selector": {
+        "kind": "planned_hash_rejection",
+        "remote_suffix": "-fault/output/acceptance-corrupt.bin"
+      },
+      "type": "deliberate-hash-mismatch-export"
+    }
+  ],
+  "purpose": "final-only acceptance cpu arm deliberate faults",
+  "schema": "l4-label-faults-injection-manifest/v1",
+  "session_job_id": "acceptance-1792878940-cpu",
+  "written_before_dispatch": true
+}

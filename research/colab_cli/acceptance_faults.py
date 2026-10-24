@@ -8,6 +8,7 @@ raises so the broker retains its normal cleanup and writes an INCOMPLETE receipt
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -24,7 +25,6 @@ from research.colab_cli import policy, supervisor
 from research.colab_cli.transfers import (
     CONTENTS_ATTEMPTS,
     _contents_call,
-    record_verified_downloads,
     upload_contents,
     upload_file,
 )
@@ -36,6 +36,146 @@ WATCHDOG_CHECKPOINT_GRACE_SECONDS = 15
 # checkpoint window. These tiny files need fresh reads during grace even when
 # a preceding missing-file response stalls at the provider.
 WATCHDOG_CHECKPOINT_READ_SECONDS = 3
+
+
+class DirectObserverDownloadEvidence:
+    """Correlate every direct observer download in one bounded operation.
+
+    The observer's polling reads predate the transfer helper because they are
+    deliberately tiny, direct CLI reads.  They still consume provider work and
+    must therefore retain a prospective identity even when a poll fails.  This
+    class only annotates evidence already emitted by ``CLI.call``; it neither
+    performs a transfer nor changes the watchdog's retry, deadline, or release
+    decisions.
+    """
+
+    def __init__(
+        self,
+        cli: supervisor.CLI,
+        remotes: set[str],
+        *,
+        verification_kind: str = "observed-checkpoint-sidecar",
+    ) -> None:
+        self.cli = cli
+        self.remotes = frozenset(remotes)
+        self.verification_kind = verification_kind
+        # This derives only an evidence namespace.  It must not consume the
+        # UUID stream used by live request creation or otherwise perturb the
+        # observed transport sequence.
+        namespace = "\0".join(
+            (str(getattr(cli, "session", "")), str(len(cli.call_records)), *sorted(self.remotes))
+        )
+        self.operation_id = hashlib.sha256(namespace.encode("utf-8")).hexdigest()[:32]
+        self._seen: set[str] = set()
+        self._parents: dict[str, dict[str, Any]] = {}
+
+    def observe_since(self, first_call: int) -> None:
+        """Give each newly observed direct download its stable raw ordinal."""
+        for row in self.cli.call_records[first_call:]:
+            remote = row.get("remote")
+            if row.get("command") != "download" or remote not in self.remotes:
+                continue
+            row_key = row.get("attempt_id") or row.get("operation_id")
+            if not isinstance(row_key, str) or not row_key or row_key in self._seen:
+                continue
+            self._seen.add(row_key)
+            parent = self._parent_for(remote)
+            child = parent["children"][0]
+            ordinal = child["attempts"] + 1
+            child["attempts"] = ordinal
+            child["status"] = row.get("status", "failed")
+            child["finished_monotonic"] = row.get("finished_monotonic")
+            if child.get("started_monotonic") is None:
+                child["started_monotonic"] = row.get("started_monotonic")
+                parent["started_monotonic"] = row.get("started_monotonic")
+            parent["finished_monotonic"] = row.get("finished_monotonic")
+            parent["elapsed_seconds"] = self._elapsed(parent)
+            row.update(
+                parent_transfer_id=parent["transfer_id"],
+                transfer_id=child["transfer_id"],
+                transfer_attempt=ordinal,
+                transfer_role="consumed",
+            )
+            # A pure declared-absence sequence has no transfer record to
+            # manufacture a C6 failure. Once a real completion occurs, retain
+            # the complete preceding lineage for its later verification.
+            if row.get("status") == "completed" and parent not in self.cli.transfer_records:
+                self.cli.transfer_records.append(parent)
+
+    def bind_verified(self, remote: str, digest: str) -> bool:
+        """Bind only the completed direct read to bytes verified in this operation."""
+        if remote not in self.remotes or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            return False
+        parent = self._parents.get(remote)
+        if parent is None:
+            return False
+        child = parent["children"][0]
+        matched = [
+            row
+            for row in self.cli.call_records
+            if row.get("command") == "download"
+            and row.get("remote") == remote
+            and row.get("parent_transfer_id") == parent["transfer_id"]
+            and row.get("transfer_id") == child["transfer_id"]
+            and row.get("status") == "completed"
+        ]
+        if not matched:
+            return False
+        # Only the final read supplied the sidecar/payload pair just checked.
+        # Earlier successful reads retain their raw identity without a future digest.
+        row = matched[-1]
+        row["verified_sha256"] = digest
+        child.update(status="completed", verified_sha256=digest)
+        parent.update(
+            status="verified",
+            sha256=digest,
+            verified_sha256=digest,
+            verification_kind=self.verification_kind,
+            finished_monotonic=row.get("finished_monotonic"),
+            elapsed_seconds=self._elapsed(parent, row),
+        )
+        if parent not in self.cli.transfer_records:
+            self.cli.transfer_records.append(parent)
+        return True
+
+    def _parent_for(self, remote: str) -> dict[str, Any]:
+        parent = self._parents.get(remote)
+        if parent is not None:
+            return parent
+        suffix = hashlib.sha256(remote.encode("utf-8")).hexdigest()[:16]
+        parent_id = f"observer-download-{self.operation_id}-{suffix}"
+        child_id = f"observer-contents-{self.operation_id}-{suffix}"
+        child = {
+            "transfer_id": child_id,
+            "parent_transfer_id": parent_id,
+            "remote": remote,
+            "direction": "download",
+            "attempts": 0,
+            "status": "unverified",
+            "started_monotonic": None,
+            "finished_monotonic": None,
+        }
+        parent = {
+            "transfer_id": parent_id,
+            "direction": "download",
+            "remote": remote,
+            "status": "unverified",
+            "verification_kind": self.verification_kind,
+            "children": [child],
+            "started_monotonic": None,
+            "finished_monotonic": None,
+        }
+        self._parents[remote] = parent
+        return parent
+
+    @staticmethod
+    def _elapsed(parent: dict[str, Any], final_row: dict[str, Any] | None = None) -> float | None:
+        started = parent.get("started_monotonic")
+        finished = (final_row or parent).get("finished_monotonic")
+        if isinstance(started, (int, float)) and isinstance(finished, (int, float)):
+            return finished - started
+        return None
+
 
 # These snippets intentionally run in the installed CLI interpreter.  The Mac
 # environment does not import ``colab_cli.state``: that would turn a missing
@@ -504,6 +644,11 @@ class AcceptanceObserver:
     def _busy_transfer_and_client_loss(self, context: dict[str, Any]) -> None:
         """Kill one owned CLI client; observe completion via Contents, never resubmit."""
         cli, root, output = context["cli"], context["root"], context["output"]
+        marker_remotes = {root + "/client-start.json", root + "/client-finished.json"}
+        marker_evidence = DirectObserverDownloadEvidence(
+            cli, marker_remotes, verification_kind="census-file-digest"
+        )
+        declared_absences = self._declared_absence_selectors(context["manifest"].get("job_id"))
         probe = self._wait_phase(context, "transfer_ready")
         identity = {key: probe[key] for key in ("pid", "execution_id")}
         before = cli.sessions(timeout=policy.READ_SECONDS)
@@ -606,6 +751,8 @@ class AcceptanceObserver:
                     started_file,
                     began + 150,
                     phase="client-loss start",
+                    declared_selectors=declared_absences,
+                    evidence=marker_evidence,
                 )
                 started = json.loads(started_file.read_text())
                 if client.poll() is not None:
@@ -617,6 +764,7 @@ class AcceptanceObserver:
                     raise supervisor.Refused("owned client termination was not confirmed")
                 finished_file = directory / "finished.json"
                 try:
+                    finished_probe_first = len(cli.call_records)
                     _contents_call(
                         cli,
                         (
@@ -633,11 +781,17 @@ class AcceptanceObserver:
                 except supervisor.Refused as exc:
                     if "not found" not in str(exc).lower() and "404" not in str(exc):
                         raise
-                    self._tag_observed_absence(cli, root + "/client-finished.json")
+                    self._tag_observed_absence(
+                        cli,
+                        root + "/client-finished.json",
+                        declared_selectors=declared_absences,
+                    )
                 else:
                     raise supervisor.Refused(
                         "kernel became idle before the client-loss observation"
                     )
+                finally:
+                    marker_evidence.observe_since(finished_probe_first)
                 release = directory / "release.json"
                 release.write_text(json.dumps({"request": request}))
                 upload_contents(cli, release, root + "/client-release.json", deadline=began + 300)
@@ -647,6 +801,8 @@ class AcceptanceObserver:
                     finished_file,
                     began + 300,
                     phase="client-loss completion",
+                    declared_selectors=declared_absences,
+                    evidence=marker_evidence,
                 )
                 finished = json.loads(finished_file.read_text())
                 if started["request"] != request or finished["request"] != request:
@@ -729,33 +885,97 @@ class AcceptanceObserver:
             f"from pathlib import Path\nPath({root + '/acceptance-finish'!r}).touch()\nresult=True"
         )
 
+    def _declared_absence_selectors(self, job_id: Any) -> dict[str, str]:
+        manifest = self.injections.get(job_id) if isinstance(job_id, str) else None
+        if not isinstance(manifest, dict) or manifest.get("written_before_dispatch") is not True:
+            return {}
+        selectors: dict[str, str] = {}
+        for entry in manifest.get("entries", []):
+            selector = entry.get("selector") if isinstance(entry, dict) else None
+            if (
+                isinstance(entry, dict)
+                and entry.get("command") == "download"
+                and entry.get("failure_type") == "NOT_FOUND"
+                and entry.get("realized_event_required") is True
+                and isinstance(entry.get("injection_id"), str)
+                and isinstance(selector, dict)
+                and selector.get("kind") == "planned_absence_probe"
+                and isinstance(selector.get("remote_suffix"), str)
+                and selector["remote_suffix"]
+            ):
+                selectors[selector["remote_suffix"]] = entry["injection_id"]
+        return selectors
+
     @staticmethod
-    def _tag_observed_absence(cli: supervisor.CLI, remote: str) -> None:
-        """Record only a realized 404, never infer an error from a planned path."""
-        selectors = {
-            "/client-start.json": "client-loss-start-absent",
-            "/client-finished.json": "client-loss-finished-absent",
-            "/output/lease-checkpoint.pkl.sha256": "watchdog-checkpoint-marker-absent",
-            "/output/lease-checkpoint.pkl": "watchdog-checkpoint-absent",
-        }
+    def _tag_observed_absence(
+        cli: supervisor.CLI,
+        remote: str,
+        *,
+        declared_selectors: dict[str, str] | None = None,
+    ) -> None:
+        """Record only a declared terminal CLI missing-file response for its exact remote.
+
+        ``None`` retains the original static test-helper call shape. Runtime
+        observer paths pass the pre-dispatch manifest-derived mapping.
+        """
+        selectors = (
+            declared_selectors
+            if declared_selectors is not None
+            else {
+                "/client-start.json": "client-loss-start-absent",
+                "/client-finished.json": "client-loss-finished-absent",
+                "/output/lease-checkpoint.pkl.sha256": "watchdog-checkpoint-marker-absent",
+                "/output/lease-checkpoint.pkl": "watchdog-checkpoint-absent",
+            }
+        )
+        identity = next(
+            (ident for suffix, ident in selectors.items() if remote.endswith(suffix)), None
+        )
+        if not isinstance(identity, str) or not identity:
+            return
         for row in reversed(cli.call_records):
             if row.get("command") != "download" or row.get("remote") != remote:
                 continue
-            error = str(row.get("error", "")).lower()
-            # A path or traceback can itself contain "404". Only a terminal
-            # status-bearing absence is evidence; a 5xx never realizes it.
-            terminal = re.findall(r"(?:^|\n)(?:cli_guard: )?guarderror: ([^\n]+)", error)
-            if terminal:
-                error = terminal[-1]
-            absent = re.search(
-                r"\b(?:http(?:error)?|status(?: code)?)[ :=]*404\b|"
-                r"\b404\s+(?:client error:\s*)?not found\b|^not found\b",
+            error = str(row.get("error", ""))
+            terminal = re.search(
+                r"(?:^|\n)\[colab\] Download failed: File or directory not found: ([^\r\n]+)\s*\Z",
                 error,
-            ) and not re.search(r"\b(?:http|status)[ :=]*5\d\d\b|\b5\d\d service", error)
-            if row.get("status") != "completed" and absent:
-                for suffix, ident in selectors.items():
-                    if remote.endswith(suffix):
-                        row.update(failure_type="NOT_FOUND", realized_selector_id=ident)
+            )
+            lower = error.lower()
+            terminal_text = error.strip().splitlines()[-1] if error.strip() else ""
+            terminal_status = terminal_text.lower()
+            if terminal_status.startswith("cli_guard: guarderror: "):
+                terminal_status = terminal_status.removeprefix("cli_guard: guarderror: ")
+            http_404 = bool(
+                re.match(
+                    r"(?:http(?:error)?|status(?: code)?)[ :=]*404\b|"
+                    r"404\s+(?:client error:\s*)?not found\b",
+                    terminal_status,
+                )
+            )
+            reported_paths = re.findall(r"/[^\s\"']+", terminal_text)
+            http_404 = http_404 and all(path == remote for path in reported_paths)
+            has_5xx = bool(
+                re.search(
+                    r"\b(?:http(?:error)?|status)[ :=]*5\d\d\b|\b5\d\d (?:service|server)", lower
+                )
+            )
+            timeout = (
+                "TIMEOUT" in str(row.get("failure_class", "")).upper()
+                or "timed out" in lower
+                or "timeoutexpired" in lower
+            )
+            exact_cli = (
+                declared_selectors is not None
+                and terminal is not None
+                and terminal.group(1) == remote
+            )
+            exact_cli = exact_cli and "traceback" not in lower
+            # Retain the prior terminal HTTP-404 recognition. The new CLI
+            # wording needs both this exact remote and a manifest selector.
+            absent = (http_404 or exact_cli) and "traceback" not in lower
+            if row.get("status") != "completed" and absent and not has_5xx and not timeout:
+                row.update(failure_type="NOT_FOUND", realized_selector_id=identity)
             break
 
     @staticmethod
@@ -766,6 +986,8 @@ class AcceptanceObserver:
         deadline: float,
         *,
         phase: str = "kernel completion",
+        declared_selectors: dict[str, str] | None = None,
+        evidence: DirectObserverDownloadEvidence | None = None,
     ) -> int:
         started = time.monotonic()
         deadline = min(
@@ -776,14 +998,18 @@ class AcceptanceObserver:
         while time.monotonic() < deadline:
             try:
                 first_call = len(cli.call_records)
-                cli.call(
-                    "download",
-                    "-s",
-                    cli.session,
-                    remote,
-                    str(local),
-                    timeout=min(policy.READ_SECONDS, deadline - time.monotonic()),
-                )
+                try:
+                    cli.call(
+                        "download",
+                        "-s",
+                        cli.session,
+                        remote,
+                        str(local),
+                        timeout=min(policy.READ_SECONDS, deadline - time.monotonic()),
+                    )
+                finally:
+                    if evidence is not None:
+                        evidence.observe_since(first_call)
                 return first_call
             except (supervisor.Refused, OSError, subprocess.SubprocessError) as exc:
                 missing = "404" in str(exc) or "not found" in str(exc).lower()
@@ -793,7 +1019,9 @@ class AcceptanceObserver:
                         f"{time.monotonic() - started:.3f}s: {exc}; refusing exec resubmission"
                     ) from exc
                 if missing:
-                    AcceptanceObserver._tag_observed_absence(cli, remote)
+                    AcceptanceObserver._tag_observed_absence(
+                        cli, remote, declared_selectors=declared_selectors
+                    )
                 time.sleep(min(2, max(0, deadline - time.monotonic())))
         raise supervisor.Refused(
             f"{phase}: remote file {remote!r} not observed after "
@@ -970,6 +1198,12 @@ class AcceptanceObserver:
         )
         checkpoint_hash = None
         last_checkpoint_error = None
+        checkpoint_remotes = {
+            context["root"] + "/output/lease-checkpoint.pkl.sha256",
+            context["root"] + "/output/lease-checkpoint.pkl",
+        }
+        checkpoint_evidence = DirectObserverDownloadEvidence(cli, checkpoint_remotes)
+        declared_absences = self._declared_absence_selectors(context["manifest"].get("job_id"))
         with tempfile.TemporaryDirectory(dir=context["output"], prefix=".watchdog-") as temp:
             marker = Path(temp) / "checkpoint.sha256"
             local = Path(temp) / "checkpoint.pkl"
@@ -1001,15 +1235,12 @@ class AcceptanceObserver:
                     )
                     if supervisor.sha256(local) != candidate:
                         raise supervisor.Refused("watchdog checkpoint hash mismatch")
-                    record_verified_downloads(
-                        cli,
-                        first_call=first_call,
-                        remote=context["root"] + "/output/lease-checkpoint.pkl",
-                        digest=candidate,
-                        remotes={
-                            context["root"] + "/output/lease-checkpoint.pkl" + suffix
-                            for suffix in ("", ".sha256")
-                        },
+                    checkpoint_evidence.observe_since(first_call)
+                    checkpoint_evidence.bind_verified(
+                        context["root"] + "/output/lease-checkpoint.pkl.sha256", candidate
+                    )
+                    checkpoint_evidence.bind_verified(
+                        context["root"] + "/output/lease-checkpoint.pkl", candidate
                     )
                     checkpoint_hash = candidate
                     break
@@ -1020,11 +1251,17 @@ class AcceptanceObserver:
                             "/output/lease-checkpoint.pkl.sha256",
                             "/output/lease-checkpoint.pkl",
                         ):
-                            self._tag_observed_absence(cli, context["root"] + suffix)
+                            self._tag_observed_absence(
+                                cli,
+                                context["root"] + suffix,
+                                declared_selectors=declared_absences,
+                            )
                     if not missing and not policy.transient_error(exc):
                         raise
                     last_checkpoint_error = supervisor.redact(repr(exc))
                     time.sleep(min(1, max(0, checkpoint_deadline - time.monotonic())))
+                finally:
+                    checkpoint_evidence.observe_since(first_call)
             if checkpoint_hash is None:
                 raise supervisor.Refused(
                     "watchdog checkpoint was not observed during grace; "

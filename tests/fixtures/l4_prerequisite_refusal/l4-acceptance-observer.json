@@ -1,0 +1,152 @@
+{
+  "gates": {
+    "account-assignment-spend": {
+      "arms": [
+        {
+          "arm": "cpu",
+          "assignments": [
+            {
+              "endpoint": "gpu-l4-s-ass1b0-3iecx7mzdn0xk",
+              "rate_units_per_hour": 1.54,
+              "session": "?",
+              "source": "broker.active"
+            }
+          ],
+          "baseline_balance_units": 1076.26,
+          "baseline_rate_units_per_hour": 1.54,
+          "declared_other_rate_units_per_hour": 1.54,
+          "unaccounted_endpoints": []
+        },
+        {
+          "arm": "L4",
+          "assignments": [
+            {
+              "endpoint": "gpu-l4-s-ass1b0-3iecx7mzdn0xk",
+              "rate_units_per_hour": 1.54,
+              "session": "?",
+              "source": "broker.active"
+            }
+          ],
+          "baseline_balance_units": 1076.13,
+          "baseline_rate_units_per_hour": 1.54,
+          "declared_other_rate_units_per_hour": 1.54,
+          "unaccounted_endpoints": []
+        }
+      ]
+    },
+    "backend-stop-disappearance": {
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/rpc-qualification-08/prerequisite-state/requalify-jpkn4_pg/acceptance-1792878940/outputs/cpu/receipt.json"
+    },
+    "client-loss-reconnect": {
+      "finished": {
+        "finished_at": 1792879133.6676288,
+        "request": "2d36e7f1c1a04a1d91b94510098ded8c"
+      },
+      "job": {
+        "execution_id": "4f1e980441091ba7b21b7f46c7b4bcd4",
+        "pid": 905
+      },
+      "kernel_request": "2d36e7f1c1a04a1d91b94510098ded8c",
+      "killed_client_pid": 92912,
+      "sessions": {
+        "gpu-l4-s-ass1b0-3iecx7mzdn0xk": "?",
+        "m-s-kkb-usw1c1-2fnq9a39wxb8a": "snake-acceptance-1792878940-cpu-427ba60fe926"
+      }
+    },
+    "cold-kernel-metadata-recovery": {
+      "arms": [
+        {
+          "arm": "cpu",
+          "first_upload_transfer": {
+            "attempts": 1,
+            "elapsed_seconds": 0.49068795901257545,
+            "remote": "/content/snake-cli-427ba60fe9264096bfed886d7227b9eb-release.json",
+            "size_bytes": 468,
+            "status": "completed"
+          },
+          "metadata_recovery": {
+            "idle_proven_by": "cli_guard.kernel_idle GET-only helper",
+            "original_kernel_id": "d4d8a3b3-afba-4517-94d7-8e3fc9004af8",
+            "recovered_kernel_id": "d4d8a3b3-afba-4517-94d7-8e3fc9004af8",
+            "same_kernel_id": true,
+            "tracked_metadata_unchanged": true
+          }
+        },
+        {
+          "arm": "L4",
+          "first_upload_transfer": {
+            "attempts": 1,
+            "elapsed_seconds": 1.3041230000089854,
+            "remote": "/content/snake-cli-93ed48c9f1ee4a35b923db6a50fad8f1-release.json",
+            "size_bytes": 470,
+            "status": "completed"
+          },
+          "metadata_recovery": {
+            "idle_proven_by": "cli_guard.kernel_idle GET-only helper",
+            "original_kernel_id": "9848d2bd-fd0a-4a5e-8e55-f705b7b33304",
+            "recovered_kernel_id": "9848d2bd-fd0a-4a5e-8e55-f705b7b33304",
+            "same_kernel_id": true,
+            "tracked_metadata_unchanged": true
+          }
+        }
+      ],
+      "status": "PASS"
+    },
+    "failure-and-corrupt-export": {
+      "corrupt_export_rejected": true,
+      "intentional_child_exit": 23
+    },
+    "final-artifact-download": {
+      "bytes_per_second_lower_bound": 1214437,
+      "elapsed_seconds": 55.259233791031875,
+      "exported_bytes": 67108864,
+      "hardware": "L4",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/rpc-qualification-08/prerequisite-state/requalify-jpkn4_pg/acceptance-1792878940/outputs/l4/exports/final-artifact.bin",
+      "profile": "final-only",
+      "scope": "end-to-end immutable final export including Mac verification",
+      "sha256": "e76d9ed177e324ccd255454e9b0a9d27fc96527698a19670eff8c2ebafb872af",
+      "status": "PASS",
+      "verified_on_mac": true
+    },
+    "fresh-oauth-refresh": {
+      "refreshed_in_memory": true,
+      "usage": {
+        "assignments": 2.0,
+        "balance": 1076.26,
+        "rate": 1.62
+      }
+    },
+    "mac-loss-watchdog-unassign": {
+      "assignment_disappeared_within_bound": true,
+      "checkpoint_exported_during_grace": true,
+      "checkpoint_sha256": "50931f64fafcc1ff4e62580b0cb8037484302cd13b8dc4ee099e9f29b2c5f9de",
+      "endpoint": "gpu-l4-s-asso1b0-3epyufjhcmife",
+      "job_id": "acceptance-1792878940-l4",
+      "lease_expiry_uncertainty_seconds": 7.166208832990378,
+      "lease_seconds": 180,
+      "observed_after_lease_seconds": 27.275801665964536,
+      "planned_event_id": "mac-loss-watchdog-unassign",
+      "release_bound_seconds": 300,
+      "renewal_suppressed": true,
+      "sessions_after": {}
+    },
+    "silence-timeout": {
+      "rpc_timeout_seconds": 30.0,
+      "rpc_value": {
+        "after_silence": true
+      },
+      "silence_seconds": 68.39750874997117
+    },
+    "url-no-second-allocation": {
+      "sessions_after": {
+        "gpu-l4-s-ass1b0-3iecx7mzdn0xk": "?",
+        "m-s-kkb-usw1c1-2fnq9a39wxb8a": "snake-acceptance-1792878940-cpu-427ba60fe926"
+      },
+      "sessions_before": {
+        "gpu-l4-s-ass1b0-3iecx7mzdn0xk": "?",
+        "m-s-kkb-usw1c1-2fnq9a39wxb8a": "snake-acceptance-1792878940-cpu-427ba60fe926"
+      }
+    }
+  },
+  "profile": "final-only"
+}
