@@ -669,3 +669,19 @@ def test_canary_name_and_env_do_not_implicitly_exempt_manifest(fixture):
     result = f["invoke"]("short-canary")
     assert result.returncode == 1 and "requires a resume block" in result.stderr
     assert not runs(f)
+
+
+@pytest.mark.parametrize(
+    "requirements", [{"gpu": "A100"}, {"gpu": "L4", "allowed_gpus": ["L4", "A100"]}]
+)
+def test_a100_gpu_canary_missing_compile_pass_refuses_before_side_effects(fixture, requirements):
+    fixture["change"](
+        requirements=requirements,
+        script="research/gpu_sim_spike/colab.sh",
+        canary={"mode": "probe"},
+    )
+    result = fixture["invoke"]()
+    assert result.returncode != 0
+    assert "requires native CUDA compile PASS" in result.stderr
+    assert not (fixture["ops"] / "dispatch").exists()
+    assert not (fixture["tmp"] / "trace").exists()

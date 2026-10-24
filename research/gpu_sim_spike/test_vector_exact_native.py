@@ -29,9 +29,9 @@ def test_native_feature_scalars_use_explicit_round_to_nearest_double_operations(
     assert "static_cast<float>(" not in source
     # Integer deltas/squares must be retained until the single rounded sqrt.
     assert "double distance_from_squared(long long squared)" in source
-    assert "return dsqrt(static_cast<double>(squared));" in source
+    assert "return vector_rn_sqrt(static_cast<double>(squared));" in source
     # No implicit device sqrt expression remains in the feature kernel; all
-    # square roots flow through the explicit ``dsqrt`` wrapper.
+    # square roots flow through the explicit ``vector_rn_sqrt`` wrapper.
     assert " = sqrt(" not in source
 
 
@@ -45,11 +45,24 @@ def test_native_source_keeps_cpu_feature_operation_order_at_reported_boundaries(
     """
     source = _source()
     assert "const double expected_per_sector = fmax(" in source
-    assert "ddiv(static_cast<double>(food_capacity), static_cast<double>(sectors))" in source
-    assert "ddiv(static_cast<double>(food_counts[sec]), expected_per_sector)" in source
     assert (
-        "const double bonus = dmul(fmin(1.0, ddiv(static_cast<double>(count[sec]), 5.0)), .2);"
-        in source
+        "vector_rn_div(static_cast<double>(food_capacity), static_cast<double>(sectors))" in source
     )
-    assert "danger[sec] = fmin(2.0, dadd(danger[sec], bonus));" in source
-    assert "const double val = dmul(fmax(0.0, dsub(1.0, ddiv(dist, maxd))), 1.5);" in source
+    assert "vector_rn_div(static_cast<double>(food_counts[sec]), expected_per_sector)" in source
+    assert (
+        "const double bonus = vector_rn_mul(fmin(1.0, "
+        "vector_rn_div(static_cast<double>(count[sec]), 5.0)), .2);" in source
+    )
+    assert "danger[sec] = fmin(2.0, vector_rn_add(danger[sec], bonus));" in source
+    assert (
+        "const double val = vector_rn_mul(fmax(0.0, "
+        "vector_rn_sub(1.0, vector_rn_div(dist, maxd))), 1.5);" in source
+    )
+
+
+def test_native_sources_do_not_shadow_cuda_double_intrinsic_aliases() -> None:
+    """These names collide with CUDA header overloads even inside a namespace."""
+    import re
+
+    for path in _CUDA_SOURCE.parent.glob("*.cu"):
+        assert not re.search(r"\b(?:dadd|dsub|dmul|ddiv|dsqrt)\s*\(", path.read_text()), path
