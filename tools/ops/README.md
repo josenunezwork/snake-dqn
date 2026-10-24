@@ -62,6 +62,39 @@ The `resume` declaration does not expand this automatic retry or launch completi
 jobs. The package/operator owns the separately registered outcome-blind completion
 attempts and accounts for every attempt against the registered series envelope.
 
+## Prepare a fresh allocation after a kernel-creation failure
+
+```bash
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python \
+  "$REPO/tools/ops/redispatch_fresh.py" /absolute/failed-gpu-sprint-package \
+  --broker /absolute/qualified-broker
+```
+
+This helper prepares only; it never dispatches, allocates, stops, or retries a
+kernel RPC. It accepts only GPU-sprint packages with the exact kernel-creation
+guard failure on the first readiness probe, a hash-bound executed manifest,
+verified stop, no terminal workload record, no admitted GPU accounting, no
+transfers, and no exports or later runtime evidence. Missing or contradictory
+proof refuses preparation. Legacy receipts lack a GPU-seconds counter: zero
+**useful workload** GPU seconds is derived from this pre-work evidence; elapsed
+allocation spend is recorded separately and is not zero billing.
+
+The helper validates the resume declaration, broker/pin transport qualification,
+and the real supervisor manifest offline before creating an exclusive sibling.
+Only `job_id` and `output_dir` change; pin, inputs (including original paths and
+hashes), environment, caps, and scientific namespace stay unchanged. The sibling
+contains the selected manifest, `PREPARATION.json`, and `DISPATCH.txt`, each with
+SHA and completion sidecars. State and output paths are fresh and remain absent
+until operator dispatch. Original package evidence is retained unchanged.
+
+The final printed line is the exact operator dispatch command. `--manifest
+BASENAME` selects an attempt when multiple manifests have receipts. `--suffix
+fresh-01` chooses an explicit unused suffix; the default combines UTC time with a
+random suffix. Existing namespaces refuse reuse. Packages with `backup_dir` or
+blocking dispatch instructions require separate operator preparation. This helper
+does not authorize workload completion retries or dispatch a main job; a passing
+same-pin canary is still required.
+
 ## Resume-by-default
 
 [Resume policy ruling (2)](../../docs/research/advice/2026-10-21_big_lever/JUDGMENT_RESUME_POLICY.md#2-standing-requirement--idempotent-completed-units--verified-ledger-resume-skip)
