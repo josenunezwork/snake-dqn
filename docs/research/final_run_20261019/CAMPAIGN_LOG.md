@@ -274,6 +274,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-24 PT | R2 padding package | Claude-V stand-in **ACCEPT** (CLAUDE_V_STANDIN_R2_REVIEW.json e42b4da3…f8a9; 0 blocking; N1 missing-block crash → record INCOMPLETE, no post-data patch; N2 R2_STOP+PASS_SPEED → STOP_SPEED; N3 L4 compile debit separate). Runtime pin e66a701f (L1/L2/L3 only; Mac byte-identity 12/12 vs pinned tree; Mac E16 −13/−13/−20%). Headroom check before admission: worst case 11.2 u (compile 1.2 + canary 2 + main 8) vs first_wave 32.79 / q4 160.63 / r2 48 / global 1,011.8 → fits. L4 compile native-compile-l4-e66a701f-r2 DISPATCHED. Canary only after compile PASS; main only after canary PASS + Claude-V canary acceptance; latest main dispatch 2026-10-27 00:00 UTC (Mon 17:00 PT). |
 
+| 2026-10-24 PT | **R2 main: R2_ADVANCE + PASS_SPEED** (A100, gpu-r2-main-e66a701f, receipt PASS stop-verified) | Frozen Mac reduction run once: R2_ANALYSIS.json sha 0b253f33…158c; identity_errors [] missing_units []. E1024 I→I′ tick: frozen 0.716→0.179 s (−75%), mixed 0.616→0.161 (−74%), scripted 0.452→0.126 (−72%); I′ continuous ≈6,010 / 6,595 / 7,640 world-steps/s vs 2,000 bar (I0S was 1,433/1,655/2,233). Exception packet ratio 0.449 (bar ≤1.1). Per-world slope 5.9e-4→6.6e-5 s (≈9×); remaining cost is the ~0.07–0.12 s per-tick floor. Spend: compile + canary a1 0.057 + a2 ~1.59 + main (settle pending). Engineering evidence only; Q5/Q6/Q7 remain CLOSED (identity by construction + food-timing defect), so no label consumer. Claude-V stand-in result review pending; Astra/Codex-V retro-audit when quota returns. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
