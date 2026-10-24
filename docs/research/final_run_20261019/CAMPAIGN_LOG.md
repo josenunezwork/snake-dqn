@@ -236,6 +236,9 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 2026-10-24 00:08 PT | F4 D256 canary-02 INCOMPLETE: UPLOAD_CAP on factory-verified-ledger.json (fifth UPLOAD_CAP tonight; mechanical, no fit ran, no look). **Operator call: pause new Colab dispatches until Sol uploaddiag's root cause and fix land**, to avoid burning setup and units on a systematically failing upload path. The L4 compile check (past upload) is allowed to finish. |
 | 2026-10-24 00:10 PT | The Mac is otherwise idle while Colab is paused, so the round-27 speed byte-identity equivalence (independent of the F4 fit) was DISPATCHED: bl-f0-speed-equiv-r27 @bf8ac97d (runbook step 'speed'), and it is running. |
 | 2026-10-24 00:15 PT | **UPLOAD_CAP diagnosis** (Sol uploaddiag; t34-sol/uploaddiag/UPLOAD_CAP_DIAGNOSIS.md): the failing jobs had 2–4 failed Colab exec/control calls (~120 s each with recovery) that exhausted the staging clock; passing jobs had 0. Bytes are trivial (P1 canary 74 KB in 113.8 s). The root cause is the per-call count on an intermittently failing control path (same class as the parked control-RPC stall work). Top fix: bundle small inputs into ONE verified archive per job (package-level, no transport requalification); Sol bundleinputs is building it, F4 first. **L4 native compile check (uploadfix03) PASS.** The sparse canary helper then refused: 'native compile export inventory differs' (packaging mismatch; to be fixed with the bundled rebuild). Round-27 speed equivalence running on the Mac. |
+| 2026-10-24 00:45 PT | Input bundling (Sol bundleinputs 13af8afa): one verified metadata tar per job; staged files F4 18→5 (all 16 F4 inputs byte-identical after unpack), V8 split 13→4, MOVE2 12→4, sparse 10→4; 66 + 203 checks; no transport change. **DISPATCHED: F4 D256 canary bl-f4-d256-metadata-canary-02 (L4) and V8 split canary 669405e2 (A100).** Round-27 speed equivalence: the first run failed on a harness bug (speed_worker step wrapper arity vs the NEW factory signature; OLD ran fine). Fixed at 111c4781 (17 tests incl. a real OLD+NEW parent; T-EQ rules unchanged; 151 equiv-01 files preserved); **re-run bl-f0-speed-equiv-r27-02 DISPATCHED on the Mac** (equiv-02). COLAB_CLI_UNQUALIFIED alarm: main colab_cli changed by 6f941942 (Sol colabnice0's separately versioned nice-0 launcher candidate); live dispatches stay on qualified pins. |
+| 2026-10-24 00:53 PT | **F4 D256 canary PASS** with bundled inputs (bl-f4-d256-metadata-canary-02), which supports the round-trip diagnosis. Main manifest sealed (d256-metadata-pack-02/main.json sha 69df54af…be4a). **Registered F4 D256 FIT DISPATCHED** (bl-f4-d256-metadata-fit-02, L4, allocation success): single registered look, FitRecipe and registration unchanged. Next: publish-fit, then stage-d1024. V8 split canary running on the A100; speed equivalence -02 running on the Mac. |
+| 2026-10-24 01:02 PT | **Registered F4 D256 FIT COMPLETE** (bl-f4-d256-metadata-fit-02, EXIT=0). The outcome is NOT opened. The metadata runbook lacks publish-fit/stage-d1024 (the old runbook points at d256-pack-02), so Sol f4publish is adding them for the metadata pack; publication precedes any look. V8 split canary PASS (669405e2), but its main manifest was refused because the canary timing cannot support the 20-min bound; Sol v8mainsize is resizing it within 72 min / 12 u. MOVE2 canary fe404912 running on the A100; speed-equiv -02 running on the Mac. The guard hook now exempts the bl-f0-speed-equiv (byte-identity) lease. |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -802,3 +805,46 @@ Final independent static command/snapshot review: `research/bl_residual/CODEX_V_
 
 
 Round-27 speed repair equiv-02: round-27 speed equivalence phase ledger 02. Ledger `research/bl_labels/ledger/ROUND27_SPEED_EQUIV_PHASES_02.json`, SHA256 `2d2e5ea4486e4cb8eb0c501c09b26906e9222f41aae99482e1c7c4afdf003541`. equiv-01 retained unchanged.
+### 2026-10-23 — Colab control normal-priority preparation
+
+Binding authority: `ALLOW_COLAB_CONTROL_NICE0`, policy
+`factory-colab-control-nice0/v1`, ruling SHA256
+`2ec03d85be07d4d9264e8aba105567ee23b40e364313c0da91fd57c215b0d64a`.
+Operational implementation and exact source/CLI pins are recorded by the independent
+create-only receipt at
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/CODEX_V_COLAB_CONTROL_NICE0_20261023.json`.
+Its focused result is implementation evidence only. Status remains
+**PREPARED_NOT_QUALIFIED_FOR_OVERLAP** until the next already-authorized eligible
+exact-pin transport canary proves staging, renewal, verified export and stop under
+ordinary lawful W12. No canary, factory or paid job was run by this implementation.
+P1 remains quiet through verified release and cannot supply the overlap probe.
+The existing qualified broker/registry and historical receipts are preserved;
+launcher revision is prepared in a separate prospective broker checkout. Main's
+independent transport-retention work is not substituted for that broker closure.
+The unchanged legacy scientific pin is `61900af28932e47e22e332840fc4406559adb062`;
+this patch leaves the operational base's science loader, collection/export rules,
+slowdown/baselines, W12, health/timing, accounting and resume byte rules unchanged.
+The policy adds exact admitted process identity and recovery host-check v4 only.
+See `research/bl_labels/COLAB_CONTROL_NICE0_HANDOFF_20261023.md` for the canary and
+D1024 dispatch forms, factory continuation, renicer restart, and failure rules.
+The owner is informed through the final operator handoff; release/serving authority
+is unchanged. Failure retains evidence and stops new overlap admission without
+changing deadlines, width, baselines, retry authority or existing cleanup duties.
+
+The real `ops/renicer.sh` is now a source-pinned wrapper for the shared classifier
+(SHA256 `3640228e636c66f633230b74dfffef8f246bec10a490fb24e5401d361d30e100`),
+with its former bytes preserved create-only. No old loop was restarted; native
+operator activation is a mandatory canary precondition. Focused serial checks
+and any inert local actual-priority fixture are indexed in the independent
+receipt; neither is provider qualification or the authorized overlap canary.
+
+Independent inert local priority proof passed at code revision `a6114e24`:
+actual native pane/bootstrap/launch-shell/supervisor/caffeinate/CLI/mint identities
+were observed at nice 0, the shared renicer agreed, the owned fixture exited 0
+and its processes/session were gone. Durable evidence is under
+`big-lever/exp/colab-control-nice0-20261023/codex-v-native-pass-a6114e24/`;
+result SHA256 `2a19da839b3d7794100bd8bdcc9bedef1f28e6ac66e84bf9ac854e5b9555e944`.
+The first failed fixture exposed and fixed Darwin caffeinate's same-PID utility
+exec; its evidence remains alongside the passing fixture. All fixture payloads
+were inert local stubs with a synthetic qualification witness: zero provider
+calls, no factory, no scientific payload, and no transport/overlap qualification.

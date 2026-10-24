@@ -491,6 +491,8 @@ def valid_receipt(tmp_path, monkeypatch):
         "policy_id": fp.POLICY_ID,
         "ruling_sha256": fp.RULING_SHA256,
         "interim_ruling_sha256": fp.INTERIM_RULING_SHA256,
+        "control_policy_id": sr.CONTROL_POLICY_ID,
+        "control_ruling_sha256": sr.CONTROL_RULING_SHA256,
         "operational_pin": "a" * 40,
         "for_trip_epoch": 100,
         "checked_epoch": 101,
@@ -507,6 +509,9 @@ def valid_receipt(tmp_path, monkeypatch):
     "field,value",
     [
         ("schema", "bl-labels-f0-slowdown-host-check-nice-interim/v2"),
+        ("schema", "bl-labels-f0-slowdown-host-check-persistence/v3"),
+        ("control_policy_id", "foreign"),
+        ("control_ruling_sha256", "0" * 64),
         ("policy_id", "foreign"),
         ("policy", "ALLOW_NICE15_INTERIM"),
         ("ruling_sha256", "0" * 64),
@@ -517,7 +522,7 @@ def valid_receipt(tmp_path, monkeypatch):
         ("process_window", {}),
     ],
 )
-def test_foreign_or_v2_receipt_cannot_prove_v3(tmp_path, monkeypatch, field, value):
+def test_foreign_or_old_receipt_cannot_prove_v4(tmp_path, monkeypatch, field, value):
     receipt = valid_receipt(tmp_path, monkeypatch)
     receipt[field] = value
     path = tmp_path / "slowdown-host-check-101.json"

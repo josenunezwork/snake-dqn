@@ -16,10 +16,14 @@ import re
 import subprocess
 import time
 from contextvars import ContextVar
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from research.compute import colab_control
+from research.compute.colab_control import POLICY_ID as CONTROL_POLICY_ID
+from research.compute.colab_control import RULING_SHA256 as CONTROL_RULING_SHA256
 from research.compute.factory_companion_native import _tick_seconds, usage
 
 POLICY_ID = "factory-nice15-persistence30/v1"
@@ -46,7 +50,9 @@ class ObservationFault(ValueError):
 
     def __init__(self, reason: str, row: dict[str, Any]) -> None:
         super().__init__(reason)
-        self.context = {key: value for key, value in row.items() if key != "argv"}
+        self.context = {
+            key: value for key, value in row.items() if key not in {"argv", "argv_vector"}
+        }
         self.context["argv_sha256"] = _digest(row.get("argv", ""))
 
 
@@ -206,6 +212,42 @@ def process_rows(
     if not rows:
         raise ValueError("empty full process observation")
     relevant = {pid for pid, row in rows.items() if _seed(row["argv"])}
+    records = colab_control.load_admissions()
+    # Establish registered root birth identities before expanding their trees.
+    # A reused PID must not make unrelated generic descendants relevant.
+    observed_roots = {}
+    live_records = {}
+    for identity, record in records.items():
+        pid, birth = identity
+        if pid not in rows:
+            continue
+        try:
+            observed_roots[pid] = _native_identity(pid)
+        except (OSError, RuntimeError) as error:
+            if _confirmed_absent(pid) or _confirmed_zombie(pid, read):
+                continue
+            raise ObservationFault("unreadable registered live root identity", rows[pid]) from error
+        if observed_roots[pid].get("birth") == birth:
+            live_records[identity] = record
+            pane = record.pane_pid
+            if pane in rows and rows[pid]["ppid"] == pane:
+                try:
+                    metadata = _native_identity(pane)
+                except (OSError, RuntimeError) as error:
+                    if _confirmed_absent(pane) or _confirmed_zombie(pane, read):
+                        continue
+                    raise ObservationFault(
+                        "unreadable registered live pane identity", rows[pane]
+                    ) from error
+                if metadata.get("birth") == record.pane_birth:
+                    observed_roots[pane] = metadata
+                    rows[pane].update(metadata)
+    records = live_records
+    control_candidates = colab_control.candidate_pids(rows.values(), records)
+    retained_control = {
+        pid for (pid, _), value in known.items() if value.get("control_tree") and pid in rows
+    }
+    relevant.update(control_candidates | retained_control)
     relevant.update(pid for pid, _ in known if pid in rows)
     resolved: set[int] = set()
     excluded: set[int] = set()
@@ -215,7 +257,7 @@ def process_rows(
             row = rows[pid]
             resolved.add(pid)
             try:
-                metadata = _native_identity(pid)
+                metadata = observed_roots.get(pid) or _native_identity(pid)
             except (OSError, RuntimeError) as error:
                 try:
                     absent = _confirmed_absent(pid) or _confirmed_zombie(pid, read)
@@ -232,11 +274,85 @@ def process_rows(
             row.update(metadata)
             if Path(row["executable"]).name == "tmux":
                 if _verified_tmux_server(row, read):
+                    row["verified_tmux_server"] = True
                     excluded.add(pid)
                     continue
             row["relevance_reason"] = _seed(row["argv"], row["executable"])
+            if (pid, row["birth"]) in known:
+                row["relevance_reason"] = row["relevance_reason"] or "retained_foreign_identity"
+            retained = known.get((pid, row["birth"]), {}).get("control_tree")
+            if pid in control_candidates or retained:
+                row["control_tree"] = True
+                row["relevance_reason"] = "colab_control_tree"
             if row["relevance_reason"] is None:
                 excluded.add(pid)
+    # A reused root PID cannot turn an unrelated generic tree into control work.
+    live_records = {
+        key: record
+        for key, record in records.items()
+        if rows.get(key[0], {}).get("birth") == key[1]
+    }
+    control_candidates = colab_control.candidate_pids(rows.values(), live_records)
+    for pid in relevant - excluded:
+        row = rows[pid]
+        retained = known.get((pid, row["birth"]), {}).get("control_tree")
+        if row.get("control_tree") and pid not in control_candidates and not retained:
+            row.pop("control_tree", None)
+            row["relevance_reason"] = _seed(row["argv"], row["executable"])
+            if (pid, row["birth"]) in known:
+                row["relevance_reason"] = row["relevance_reason"] or "retained_foreign_identity"
+            if row["relevance_reason"] is None:
+                excluded.add(pid)
+    # Every descendant of the admitted control tree is independently visible,
+    # including arbitrary native executables and previously seen reparented work.
+    control_live = {pid for pid in relevant - excluded if rows[pid].get("control_tree")}
+    while True:
+        children = {pid for pid, row in rows.items() if row["ppid"] in control_live}
+        if children <= control_live:
+            break
+        for pid in children - control_live:
+            row = rows[pid]
+            try:
+                row.update(_native_identity(pid))
+            except (OSError, RuntimeError) as error:
+                if _confirmed_absent(pid) or _confirmed_zombie(pid, read):
+                    excluded.add(pid)
+                    continue
+                raise ObservationFault("unreadable live control descendant", row) from error
+            row.update(control_tree=True, relevance_reason="colab_control_tree")
+            relevant.add(pid)
+        control_live.update(children)
+    try:
+        annotations = colab_control.annotate(
+            [row for pid, row in rows.items() if pid not in excluded], live_records
+        )
+    except colab_control.IdentitySensorError as error:
+        raise ValueError("unreadable Colab control identity") from error
+    for pid, identity in annotations.items():
+        rows[pid]["control_identity"] = asdict(identity)
+        rows[pid]["scheduling"] = {"observation": "unavailable"}
+    if annotations:
+        # Supplemental state is telemetry, never evidence that other background
+        # throttling is absent. Required nice/birth/executable sensors above
+        # retain their fail-closed behavior.
+        try:
+            scheduling = read(["/bin/ps", "-A", "-o", "pid=,stat=,pri=,flags="])
+            for line in scheduling.splitlines():
+                fields = line.split()
+                if len(fields) == 4 and fields[0].isdigit() and int(fields[0]) in annotations:
+                    try:
+                        priority = int(fields[2])
+                        flags = int(fields[3], 16)
+                    except ValueError:
+                        continue
+                    rows[int(fields[0])]["scheduling"] = {
+                        "state": fields[1],
+                        "priority": priority,
+                        "flags_hex": hex(flags),
+                        "background_throttling_absent_proven": False,
+                    }
+        except (OSError, subprocess.SubprocessError):
+            pass
     # Keep the full ancestry table for ownership without requiring native
     # reads of unrelated system processes (which may legitimately deny them).
     for pid, row in rows.items():
@@ -271,6 +387,8 @@ class PersistenceTracker:
             "policy_id": POLICY_ID,
             "ruling_sha256": RULING_SHA256,
             "interim_ruling_sha256": INTERIM_RULING_SHA256,
+            "control_policy_id": CONTROL_POLICY_ID,
+            "control_ruling_sha256": CONTROL_RULING_SHA256,
             "attempt_id": self.attempt_id,
             "utc": datetime.now(timezone.utc).isoformat(),
             "sample_monotonic": now,
@@ -307,7 +425,11 @@ class PersistenceTracker:
         # A foreign live identity is never adopted through later ancestry or
         # an ownership-list collision. Relevance and accountability survive
         # reparenting throughout this attempt.
-        foreign_pids = {r["pid"] for r in rows if (r["pid"], r.get("birth")) in self.known}
+        foreign_pids = {
+            r["pid"]
+            for r in rows
+            if (r["pid"], r.get("birth")) in self.known or r.get("control_tree")
+        }
         owned = {os.getpid(), *owned_pids} - foreign_pids
         while True:
             descendants = {
@@ -331,15 +453,23 @@ class PersistenceTracker:
                 ):
                     raise ValueError("unknown relevant metadata")
                 identity = row["pid"], row["birth"]
-                safe = {key: value for key, value in row.items() if key != "argv"}
+                safe = {
+                    key: value for key, value in row.items() if key not in {"argv", "argv_vector"}
+                }
                 safe.update(ownership_reason="non_owned", argv_sha256=_digest(row.get("argv", "")))
                 self.known[identity] = safe
                 current[identity] = safe
         except (KeyError, TypeError, ValueError):
             self.fault(now, "unknown relevant metadata", ObservationFault("metadata", row).context)
         for identity, previous in list(self.pending.items()):
-            if identity not in current or current[identity]["nice"] >= 15:
+            if (
+                identity not in current
+                or current[identity]["nice"] >= 15
+                or current[identity].get("control_identity")
+            ):
                 decision = "clear_absent" if identity not in current else "clear_priority"
+                if current.get(identity, {}).get("control_identity"):
+                    decision = "clear_control"
                 cleared = {
                     **previous,
                     **current.get(identity, {}),
@@ -363,6 +493,9 @@ class PersistenceTracker:
                 },
             )
             history["last_sighting"] = now
+            if safe.get("control_identity"):
+                self._record("admitted_control", now, {**safe, "priority_drift": safe["nice"] != 0})
+                continue
             if safe["nice"] >= 15:
                 if identity not in self.pending:
                     self._record(
@@ -427,6 +560,8 @@ class PersistenceTracker:
             "policy_id": POLICY_ID,
             "ruling_sha256": RULING_SHA256,
             "interim_ruling_sha256": INTERIM_RULING_SHA256,
+            "control_policy_id": CONTROL_POLICY_ID,
+            "control_ruling_sha256": CONTROL_RULING_SHA256,
             "attempt_id": self.attempt_id,
             "window_start_monotonic": self.first_sample,
             "window_end_monotonic": self.last_sample,

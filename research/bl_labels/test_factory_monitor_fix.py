@@ -66,9 +66,12 @@ def test_system_and_other_user_rows_need_no_native_access(monkeypatch, args):
 
 def test_empty_args_relevant_descendant_keeps_identity_and_priority(monkeypatch):
     monkeypatch.setattr(fp, "_native_identity", native)
-    rows = fp.process_rows(lambda _: "123 1 15 codex exec task\n124 123 20\n", {})
+    # Pin 3c5fc403 removed ancestry-only discovery. Start from a previously
+    # observed foreign native identity, as required by the new ruling.
+    known = {(124, "12400"): {"relevance_reason": "previously_observed_foreign"}}
+    rows = fp.process_rows(lambda _: "123 1 15 codex exec task\n124 123 20\n", known)
     assert {r["pid"] for r in rows if r["relevant"]} == {123, 124}
-    assert rows[1]["argv"] == "" and rows[1]["relevance_reason"] == "relevant_descendant"
+    assert rows[1]["argv"] == "" and rows[1]["relevance_reason"] == "retained_foreign_identity"
     known = {(124, rows[1]["birth"]): rows[1]}
     reparented = fp.process_rows(lambda _: "124 1 20\n", known)
     assert reparented[0]["relevant"] and reparented[0]["birth"] == rows[1]["birth"]
@@ -127,7 +130,10 @@ def test_zombie_root_does_not_hide_its_live_high_priority_child(monkeypatch):
             return "18774 18737 20 <defunct>\n18775 18774 14 opaque-child\n"
         return "18774 Z\n"
 
-    known = {(18774, "old-birth"): {"relevance_reason": "agent"}}
+    known = {
+        (18774, "old-birth"): {"relevance_reason": "agent"},
+        (18775, "1877500"): {"relevance_reason": "previously_observed_foreign"},
+    }
     rows = fp.process_rows(read, known)
     tracker = fp.PersistenceTracker("3cc0134838a94e12810f297348c71286")
     tracker.observe(rows, 0, set())

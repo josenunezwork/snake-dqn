@@ -205,10 +205,12 @@ def test_honest_receipt_binds_ruling_and_exact_operational_pin(tmp_path, monkeyp
     pin = _host(monkeypatch, "123 1 15 codex exec task\n")
     path = sr.record_host_check(tmp_path, checked_epoch=2001)
     receipt = json.loads(path.read_text())
-    assert receipt["schema"] == "bl-labels-f0-slowdown-host-check-persistence/v3"
+    assert receipt["schema"] == "bl-labels-f0-slowdown-host-check-colab-control/v4"
     assert receipt["policy"] == "ALLOW_PERSISTENCE_30S"
     assert receipt["policy_id"] == "factory-nice15-persistence30/v1"
     assert receipt["ruling_sha256"] == RULING_SHA
+    assert receipt["control_policy_id"] == sr.CONTROL_POLICY_ID
+    assert receipt["control_ruling_sha256"] == sr.CONTROL_RULING_SHA256
     assert receipt["process_window"]["observation_count"] >= 7
     assert receipt["operational_pin"] == pin
     assert "no_sol_codex" not in receipt

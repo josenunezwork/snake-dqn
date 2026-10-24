@@ -110,7 +110,7 @@ def bundle_inputs(
         path = Path(row["path"])
         if path.is_symlink() or not path.is_file() or sha256(path) != row["sha256"]:
             raise ValueError("metadata source hash/type differs")
-        if path.stat().st_size > MAX_FILE_BYTES or path.name == "public-inputs.json":
+        if path.stat().st_size > MAX_FILE_BYTES or row["dest"] == "public-inputs.json":
             retained.append(dict(row))
         else:
             selected.append((row["dest"], path, row["sha256"], path.stat().st_size))

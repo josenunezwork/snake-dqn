@@ -161,14 +161,17 @@ def test_large_payload_and_public_catalog_stay_direct(tmp_path: Path) -> None:
     payload.write_bytes(b"x" * (bundle.MAX_FILE_BYTES + 1))
     Path(str(payload) + ".sha256").write_text(f"{bundle.sha256(payload)}  model.bin\n")
     Path(str(payload) + ".complete").write_bytes(b"complete\n")
-    (source / "public-inputs.json").write_bytes(b"[]\n")
+    (source / "PUBLIC_INPUTS.json").write_bytes(b"[]\n")
     direct_url = {"url": "https://example.invalid/frozen", "dest": "remote.pth", "sha256": "f" * 64}
     rows = _inputs(source)
+    for row in rows:
+        if row["dest"] == "PUBLIC_INPUTS.json":
+            row["dest"] = "public-inputs.json"
     archive = tmp_path / "metadata.tar"
     result = bundle.bundle_inputs([*rows, direct_url], archive)
     assert [r["dest"] for r in result] == [
-        "model.bin",
         "public-inputs.json",
+        "model.bin",
         "remote.pth",
         "metadata.tar",
     ]

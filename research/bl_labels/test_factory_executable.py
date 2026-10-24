@@ -73,8 +73,8 @@ def test_exact_tail_identity_does_not_preempt_guard_or_recovery(tmp_path, monkey
         assert sr._host_check_after(tmp_path, 100)
     else:
         tracker = fp.PersistenceTracker("dd949d8d50bd473dbe2c54ff604eea79")
-        # Even an earlier inherited classification cannot make a tool relevant.
-        tracker.known[(44334, birth)] = {"relevance_reason": "relevant_descendant"}
+        # A stale prior birth cannot make a PID-reused generic tool relevant.
+        tracker.known[(44334, "earlier-birth")] = {"relevance_reason": "relevant_descendant"}
         for elapsed in [
             0,
             5.57126625,
@@ -115,7 +115,7 @@ def test_existing_agent_matcher_is_preserved_for_launch_shells(command):
     assert fp._seed(f"/bin/bash {command}", "/bin/bash") == "agent"
 
 
-def test_exec_to_generic_tool_clears_existing_identity(monkeypatch):
+def test_exec_to_generic_tool_retains_known_live_foreign_identity(monkeypatch):
     tracker = fp.PersistenceTracker("exec")
     monkeypatch.setattr(
         fp,
@@ -133,8 +133,8 @@ def test_exec_to_generic_tool_clears_existing_identity(monkeypatch):
         "_native_identity",
         lambda _: {"birth": "same", "birth_precision": "fixture", "executable": "/usr/bin/tail"},
     )
-    tracker.observe(
-        fp.process_rows(lambda _: "123 1 0 tail research/x.log\n", tracker.known), 30, set()
-    )
-    assert not tracker.pending and tracker.latched is None
-    assert tracker.records[-2]["decision"] == "clear_absent"
+    with pytest.raises(fp.ProcessMonitorStop, match="pid 123"):
+        tracker.observe(
+            fp.process_rows(lambda _: "123 1 0 tail research/x.log\n", tracker.known), 30, set()
+        )
+    assert tracker.latched and tracker.pending[(123, "same")]["count"] == 7
