@@ -827,7 +827,7 @@ is unchanged. Failure retains evidence and stops new overlap admission without
 changing deadlines, width, baselines, retry authority or existing cleanup duties.
 
 The real `ops/renicer.sh` is now a source-pinned wrapper for the shared classifier
-(SHA256 `eb71e2b8e35e33c5662c56837feb68e9048a05f90cd778df356f860f10d17ec7`),
+(SHA256 `3640228e636c66f633230b74dfffef8f246bec10a490fb24e5401d361d30e100`),
 with its former bytes preserved create-only. No old loop was restarted; native
 operator activation is a mandatory canary precondition. Focused serial checks
 and any inert local actual-priority fixture are indexed in the independent
