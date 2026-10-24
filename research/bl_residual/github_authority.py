@@ -1,7 +1,7 @@
 """Read-only GitHub publication and HTTPS time authority for I2 admission.
 
 No Git dates authorize publication. All requests use a fixed HTTPS API host,
-GET, no gh cache, and bounded execution. Credentials never enter receipts/logs.
+GET, no proxies or redirects, and bounded execution. Credentials never enter receipts/logs.
 """
 
 from __future__ import annotations
@@ -9,15 +9,24 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import http.client
 import json
 import math
+import os
+import signal
+import ssl
 import subprocess
+import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from email.utils import parsedate_to_datetime
+from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import parse_qs, urlparse
+
+import yaml
 
 from research.bl_ppo.exports import digest, export_json, verify_export
 from research.bl_residual import f2
@@ -39,68 +48,197 @@ class AuthorityUnavailable(ValueError):
     """No verifiable server evidence; never substitute local or Git time."""
 
 
-def _gh_environment() -> dict[str, str]:
-    env = f2._git_environment()
-    # gh is not separately logged in on the operator's Mac. Reuse only the
-    # existing HTTPS Git credential in memory, without changing auth config.
-    if not (env.get("GH_TOKEN") or env.get("GITHUB_TOKEN")):
-        credential = subprocess.run(
-            ["git", "-c", "credential.interactive=false", "credential", "fill"],
-            cwd=f2.ROOT,
-            input="protocol=https\nhost=github.com\n\n",
-            text=True,
-            capture_output=True,
-            timeout=10,
-            env={**env, "GIT_TERMINAL_PROMPT": "0"},
-        )
-        fields = dict(line.split("=", 1) for line in credential.stdout.splitlines() if "=" in line)
-        if credential.returncode == 0 and fields.get("password"):
-            env["GH_TOKEN"] = fields["password"]
-    return env
+HOST = "api.github.com"
+PORT = 443
+MAX_RESPONSE_BYTES = 8_000_000
+_OVERRIDE_ENV = {
+    "GH_CONFIG_DIR",
+    "GH_HOST",
+    "GH_API_URL",
+    "GITHUB_API_URL",
+    "GITHUB_GRAPHQL_URL",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+}
 
 
-def _request(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
-    """Observe an uncached HTTPS response and independently check clock skew."""
-    if not endpoint.startswith(API + "/") or "://" in endpoint:
-        raise AuthorityUnavailable("foreign GitHub authority endpoint")
-    try:
-        env = _gh_environment()
-        local_before, tick = time.time(), time.monotonic()
-        response = subprocess.run(
-            [
-                "gh",
-                "api",
-                "--hostname",
-                "github.com",
-                "--method",
-                "GET",
-                "--include",
-                "-H",
-                "Accept: application/vnd.github+json",
-                "-H",
-                "X-GitHub-Api-Version: 2022-11-28",
-                "-H",
-                "Cache-Control: no-cache",
-                endpoint,
-            ],
+def _reject_transport_overrides() -> None:
+    """Fail closed on caller routing/trust overrides; never log their values."""
+    if any(key.upper() in _OVERRIDE_ENV or key.upper().endswith("_PROXY") for key in os.environ):
+        raise AuthorityUnavailable("GitHub transport environment override detected")
+    config_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "gh"
+
+    seen: set[int] = set()
+
+    def check(value: Any, depth: int = 0) -> None:
+        if depth > 32 or id(value) in seen:
+            raise AuthorityUnavailable("GitHub configuration cannot be verified")
+        if isinstance(value, (dict, list)):
+            seen.add(id(value))
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if str(key).lower() == "http_unix_socket" and item:
+                    raise AuthorityUnavailable("GitHub Unix socket override detected")
+                check(item, depth + 1)
+        elif isinstance(value, list):
+            for item in value:
+                check(item, depth + 1)
+
+    # These files are inspected only for forbidden transport settings. They are
+    # never used by the HTTPS client. hosts.yml may contain secrets: no logging.
+    for name in ("config.yml", "hosts.yml"):
+        path = config_dir / name
+        if path.exists():
+            if path.stat().st_size > 1_000_000:
+                raise AuthorityUnavailable("GitHub configuration cannot be verified")
+            try:
+                seen.clear()
+                check(yaml.safe_load(path.read_bytes()))
+            except (yaml.YAMLError, RecursionError):
+                raise AuthorityUnavailable("GitHub configuration cannot be verified") from None
+
+
+@lru_cache(maxsize=1)
+def _token() -> str:
+    """Read credentials once per process, without any API call or Git helper."""
+    token = os.environ.get("GITHUB_TOKEN")
+    if token is None:
+        # Only credential discovery uses gh; no inherited GH_*, GIT_*, proxy,
+        # trust, debug or alternate-host settings enter this subprocess.
+        env = {
+            key: os.environ[key]
+            for key in ("PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "XDG_CONFIG_HOME")
+            if key in os.environ
+        }
+        env["GH_PROMPT_DISABLED"] = "1"
+        result = subprocess.run(
+            ["gh", "auth", "token", "--hostname", "github.com"],
             env=env,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=10,
         )
-        elapsed, local_after = time.monotonic() - tick, time.time()
-        if response.returncode:
-            raise AuthorityUnavailable("GitHub GET unavailable (no local-time fallback)")
-        header, body = response.stdout.replace("\r\n", "\n").split("\n\n", 1)
-        if header.splitlines()[0].split()[1] != "200":
-            raise AuthorityUnavailable("GitHub authority requires HTTP 200")
+        if result.returncode:
+            raise AuthorityUnavailable("GitHub credential unavailable")
+        token = result.stdout.strip()
+    if not token or any(ord(char) < 33 or ord(char) > 126 for char in token):
+        raise AuthorityUnavailable("GitHub credential unavailable")
+    return token
+
+
+def _system_tls_context() -> ssl.SSLContext:
+    """Load OpenSSL's system roots explicitly, bypassing all CA environment vars."""
+    paths = ssl.get_default_verify_paths()
+    cafile = paths.openssl_cafile if Path(paths.openssl_cafile).is_file() else None
+    capath = paths.openssl_capath if Path(paths.openssl_capath).is_dir() else None
+    # python.org macOS builds may have no compiled CA path. Use the OS bundle,
+    # never certifi or a caller-supplied bundle, as the explicit fallback.
+    if cafile is None and Path("/etc/ssl/cert.pem").is_file():
+        cafile = "/etc/ssl/cert.pem"
+    if cafile is None and capath is None:
+        raise AuthorityUnavailable("system TLS trust roots unavailable")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.check_hostname = True
+    context.load_verify_locations(cafile=cafile, capath=capath)
+    return context
+
+
+@contextmanager
+def _deadline() -> Iterator[None]:
+    """Bound DNS, handshake, headers and body without workers or extra threads."""
+    if threading.current_thread() is not threading.main_thread() or any(
+        signal.getitimer(signal.ITIMER_REAL)
+    ):
+        raise AuthorityUnavailable("GitHub wall-clock deadline cannot be installed")
+    previous = signal.getsignal(signal.SIGALRM)
+
+    def expired(_signum: int, _frame: Any) -> None:
+        raise AuthorityUnavailable("GitHub response deadline exceeded")
+
+    signal.signal(signal.SIGALRM, expired)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, 30)
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def _request(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
+    with _deadline():
+        return _request_https(endpoint)
+
+
+def _request_https(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
+    """GET directly from the pinned TLS host; no gh API, proxies or redirects."""
+    if (
+        not endpoint.startswith(API + "/")
+        or "://" in endpoint
+        or "#" in endpoint
+        or any(ord(char) <= 32 or ord(char) >= 127 for char in endpoint)
+    ):
+        raise AuthorityUnavailable("foreign GitHub authority endpoint")
+    connection = None
+    try:
+        _reject_transport_overrides()
+        token = _token()
+        context = _system_tls_context()
+        if context.verify_mode != ssl.CERT_REQUIRED or not context.check_hostname:
+            raise AuthorityUnavailable("TLS verification is required")
+        local_before, tick = time.time(), time.monotonic()
+        # http.client has no proxy/environment discovery and never follows 3xx.
+        connection = http.client.HTTPSConnection(HOST, PORT, timeout=30, context=context)
+        connection.connect()
+        peer = connection.sock
+        if (
+            connection.host != HOST
+            or connection.port != PORT
+            or peer is None
+            or peer.context is not context
+            or peer.server_hostname != HOST
+            or not peer.getpeercert()
+            or not peer.version()
+        ):
+            raise AuthorityUnavailable("GitHub TLS peer cannot be verified")
+        tls_version = peer.version()
+        connection.request(
+            "GET",
+            "/" + endpoint,
+            headers={
+                "Host": HOST,
+                "Authorization": "Bearer " + token,
+                "User-Agent": "snake-dqn-i2-authority",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Cache-Control": "no-cache",
+                "Connection": "close",
+            },
+        )
+        response = connection.getresponse()
+        if response.status != 200:
+            raise AuthorityUnavailable("GitHub authority requires HTTP 200; redirects refused")
         headers: dict[str, str] = {}
-        for line in header.splitlines()[1:]:
-            name, value = line.split(":", 1)
+        for name, value in response.getheaders():
             key = name.lower()
             if key in headers:
                 raise AuthorityUnavailable("ambiguous GitHub response header")
             headers[key] = value.strip()
+        body = bytearray()
+        while True:
+            remaining = 30 - (time.monotonic() - tick)
+            if remaining <= 0:
+                raise AuthorityUnavailable("GitHub response deadline exceeded")
+            peer.settimeout(remaining)
+            chunk = response.read1(min(65536, MAX_RESPONSE_BYTES + 1 - len(body)))
+            body.extend(chunk)
+            if len(body) > MAX_RESPONSE_BYTES:
+                raise AuthorityUnavailable("GitHub response exceeds size limit")
+            if not chunk:
+                break
+        elapsed, local_after = time.monotonic() - tick, time.time()
         date = parsedate_to_datetime(headers["date"])
         epoch = date.timestamp()
         if (
@@ -115,7 +253,11 @@ def _request(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
         ):
             raise AuthorityUnavailable("unverifiable GitHub time or clock skew > 120 seconds")
         observation = {
-            "endpoint": f"https://api.github.com/{endpoint}",
+            "endpoint": f"https://{HOST}/{endpoint}",
+            "verified_peer_host": HOST,
+            "peer_port": PORT,
+            "tls_verified": True,
+            "tls_version": tls_version,
             "date": headers["date"],
             "epoch": epoch,
             "request_id": headers["x-github-request-id"],
@@ -126,8 +268,12 @@ def _request(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
         return json.loads(body), headers, observation
     except AuthorityUnavailable:
         raise
-    except (OSError, ValueError, KeyError, IndexError, subprocess.SubprocessError) as exc:
-        raise AuthorityUnavailable("unverifiable GitHub API/time response") from exc
+    except (OSError, ValueError, KeyError, http.client.HTTPException, subprocess.SubprocessError):
+        # Neither token subprocess output nor server payloads enter exceptions.
+        raise AuthorityUnavailable("unverifiable GitHub API/time response") from None
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def trusted_time() -> dict[str, Any]:

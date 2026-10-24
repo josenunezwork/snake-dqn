@@ -6,6 +6,9 @@ import base64
 import hashlib
 import json
 import os
+import shutil
+import socket
+import ssl
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -450,53 +453,301 @@ def test_foreign_activity_pagination_is_unverifiable(
         authority.first_publication(commit)
 
 
-def _http_response(*, date: str | None, payload: object = None, status: int = 200) -> str:
-    headers = [f"HTTP/1.1 {status} OK", "X-GitHub-Request-Id: synthetic"]
-    if date is not None:
-        headers.append(f"Date: {date}")
-    return "\r\n".join(headers) + "\r\n\r\n" + json.dumps({} if payload is None else payload)
+class _HTTPSProbe:
+    """Fake only the wire, exercising the real policy, credential and Date checks."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.calls = []
+        self.headers = [
+            ("Date", "Thu, 01 Jan 1970 00:16:40 GMT"),
+            ("X-GitHub-Request-Id", "synthetic"),
+        ]
+        self.payload = {"ref": authority.REF, "object": {"type": "commit", "sha": "a" * 40}}
+        self.status = 200
+        self.failure = None
+        self.bad_peer = False
+        self.closed = False
+        monkeypatch.setattr(authority.http.client, "HTTPSConnection", self.connection)
+        monkeypatch.setattr(authority, "_token", lambda: "secret-test-token")
+        monkeypatch.setattr(authority.time, "time", lambda: 1000.0)
+        monkeypatch.setattr(authority.time, "monotonic", lambda: 10.0)
+
+    def connection(self, host, port, *, timeout, context):
+        assert (host, port, timeout) == ("api.github.com", 443, 30)
+        assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+        self.calls.append((host, port))
+        probe = self
+
+        class Connection:
+            def __init__(self):
+                self.host, self.port = host, port
+                self.sock = SimpleNamespace(
+                    context=context,
+                    server_hostname="foreign.invalid" if probe.bad_peer else host,
+                    getpeercert=lambda: {"subjectAltName": (("DNS", host),)},
+                    version=lambda: "TLSv1.3",
+                    settimeout=lambda seconds: None,
+                )
+
+            def connect(self):
+                if probe.failure:
+                    raise probe.failure
+
+            def request(self, method, path, *, headers):
+                assert method == "GET" and path.startswith("/" + authority.API + "/")
+                assert headers["Host"] == host
+                assert headers["Authorization"] == "Bearer secret-test-token"
+                probe.calls.append((method, path))
+
+            def getresponse(self):
+                chunks = iter((json.dumps(probe.payload).encode(), b""))
+                return SimpleNamespace(
+                    status=probe.status,
+                    getheaders=lambda: probe.headers,
+                    read1=lambda size: next(chunks),
+                )
+
+            def close(self):
+                probe.closed = True
+
+        return Connection()
+
+
+@pytest.fixture
+def clean_transport(tmp_path, monkeypatch):
+    # Hermetic policy tests: do not inherit developer-machine proxies or config.
+    for key in list(os.environ):
+        if key.upper() in authority._OVERRIDE_ENV or key.upper().endswith("_PROXY"):
+            monkeypatch.delenv(key)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    token = authority._token
+    token.cache_clear()
+    yield
+    token.cache_clear()
 
 
 def test_request_accepts_fresh_https_date_and_refuses_clock_or_transport_failures(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, clean_transport
 ) -> None:
-    date = "Thu, 01 Jan 1970 00:16:40 GMT"
-
-    def run_good(*_args, **_kwargs):
-        return SimpleNamespace(returncode=0, stdout=_http_response(date=date))
-
-    monkeypatch.setattr(authority, "_gh_environment", lambda: {})
-    monkeypatch.setattr(authority.subprocess, "run", run_good)
-    monkeypatch.setattr(authority.time, "time", lambda: 1000.0)
-    ticks = iter((10.0, 10.2))
-    monkeypatch.setattr(authority.time, "monotonic", lambda: next(ticks))
+    probe = _HTTPSProbe(monkeypatch)
     _, _, observed = authority._request(f"{authority.API}/git/ref/heads/main")
     assert observed["epoch"] == 1000.0
+    assert observed["verified_peer_host"] == "api.github.com"
+    assert observed["peer_port"] == 443
+    assert observed["tls_verified"] is True
+    assert observed["tls_version"] == "TLSv1.3"
+    assert observed["request_id"] == "synthetic"
+    assert "secret-test-token" not in json.dumps(observed)
+    assert probe.closed
 
-    for response, wall, ticks in [
-        (_http_response(date=None), 1000.0, (10.0, 10.2)),
-        (_http_response(date="not a date"), 1000.0, (10.0, 10.2)),
-        (_http_response(date=date), 1121.0, (10.0, 10.2)),
-        (_http_response(date=date), 879.0, (10.0, 10.2)),
-        (_http_response(date=date), 1000.0, (10.0, 41.0)),
+    for date, wall, duration in [
+        (None, 1000.0, 0.2),
+        ("not a date", 1000.0, 0.2),
+        ("Thu, 01 Jan 1970 00:16:40 GMT", 1121.0, 0.2),
+        ("Thu, 01 Jan 1970 00:16:40 GMT", 879.0, 0.2),
+        ("Thu, 01 Jan 1970 00:16:40 GMT", 1000.0, 31.0),
     ]:
-        monkeypatch.setattr(
-            authority.subprocess,
-            "run",
-            lambda *_a, r=response, **_k: SimpleNamespace(returncode=0, stdout=r),
-        )
+        probe.headers = [("X-GitHub-Request-Id", "synthetic")]
+        if date is not None:
+            probe.headers.append(("Date", date))
         monkeypatch.setattr(authority.time, "time", lambda w=wall: w)
-        monotonic = iter(ticks)
-        monkeypatch.setattr(authority.time, "monotonic", lambda m=monotonic: next(m))
+        ticks = iter((10.0, 10.0, 10.0, 10.0 + duration))
+        monkeypatch.setattr(authority.time, "monotonic", lambda: next(ticks))
         with pytest.raises(authority.AuthorityUnavailable):
             authority._request(f"{authority.API}/git/ref/heads/main")
 
-    monkeypatch.setattr(
-        authority.subprocess, "run", lambda *_a, **_k: SimpleNamespace(returncode=1, stdout="")
-    )
+    probe.failure = OSError("synthetic connection failure")
     monkeypatch.setattr(authority.time, "monotonic", lambda: 50.0)
     with pytest.raises(authority.AuthorityUnavailable):
         authority._request(f"{authority.API}/git/ref/heads/main")
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "GH_CONFIG_DIR",
+        "GH_HOST",
+        "GH_API_URL",
+        "GITHUB_API_URL",
+        "GITHUB_GRAPHQL_URL",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+    ],
+)
+def test_transport_environment_override_refuses_time_and_publication(
+    tmp_path, monkeypatch, clean_transport, key
+):
+    probe = _HTTPSProbe(monkeypatch)
+    monkeypatch.setenv(key, "sensitive-override-value")
+    with pytest.raises(authority.AuthorityUnavailable, match="override") as exc:
+        authority.trusted_time()
+    assert "sensitive-override-value" not in str(exc.value)
+    # Exercise actual publication adapter, without any real F2 paths or payload.
+    binding = {"path": str(tmp_path / "synthetic-receipt"), "publication_ref": "a" * 40}
+    export_json(authority.evidence_path(binding), {})
+    monkeypatch.setattr(authority, "_identity", lambda _: authority.trusted_time())
+    assert authority.publication_evidence(binding) is None
+    assert probe.calls == []
+
+
+def test_real_gh_unix_socket_configuration_refuses_before_network(
+    tmp_path, monkeypatch, clean_transport
+):
+    # The installed CLI writes its actual supported config format. No gh API
+    # call, network listener thread, or extra probe process is needed.
+    gh = shutil.which("gh")
+    if not gh:
+        pytest.skip("gh CLI not installed")
+    probe = _HTTPSProbe(monkeypatch)
+    directory = Path(os.environ["XDG_CONFIG_HOME"]) / "gh"
+    directory.mkdir(parents=True)
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+        # AF_UNIX paths on macOS are limited to 104 bytes.
+        unix_path = str(Path("/tmp") / ("i2-" + str(os.getpid()) + ".sock"))
+        listener.bind(unix_path)
+        listener.listen()
+        listener.setblocking(False)
+        subprocess.run(
+            [gh, "config", "set", "http_unix_socket", unix_path],
+            env={
+                "PATH": os.environ["PATH"],
+                "GH_CONFIG_DIR": str(directory),
+                "HOME": str(tmp_path),
+                "XDG_STATE_HOME": str(tmp_path / "state"),
+            },
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        with pytest.raises(authority.AuthorityUnavailable, match="Unix socket"):
+            authority.trusted_time()
+        with pytest.raises(BlockingIOError):
+            listener.accept()
+    Path(unix_path).unlink()
+    assert probe.calls == []
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_cross_host_redirect_is_never_followed_or_given_credentials(
+    monkeypatch, clean_transport, status
+):
+    probe = _HTTPSProbe(monkeypatch)
+    probe.status = status
+    probe.headers.append(("Location", "https://foreign.invalid/stolen"))
+    with pytest.raises(authority.AuthorityUnavailable, match="redirects refused"):
+        authority.trusted_time()
+    assert len(probe.calls) == 2  # one connection and one GET, no redirect request
+    assert probe.closed
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ssl.SSLCertVerificationError("certificate verify failed"),
+        ssl.SSLError("TLS failure"),
+    ],
+)
+def test_tls_failure_is_unavailable(monkeypatch, clean_transport, failure):
+    probe = _HTTPSProbe(monkeypatch)
+    probe.failure = failure
+    with pytest.raises(authority.AuthorityUnavailable):
+        authority.trusted_time()
+    assert probe.closed
+    assert len(probe.calls) == 1  # no Authorization header sent before verified TLS
+
+
+def test_foreign_peer_is_unavailable_before_credentials_sent(monkeypatch, clean_transport):
+    probe = _HTTPSProbe(monkeypatch)
+    probe.bad_peer = True
+    with pytest.raises(authority.AuthorityUnavailable, match="peer"):
+        authority.trusted_time()
+    assert len(probe.calls) == 1
+    assert probe.closed
+
+
+def test_system_tls_context_loads_explicit_system_paths(monkeypatch, clean_transport):
+    context = authority._system_tls_context()
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+    assert context.cert_store_stats()["x509_ca"] > 0
+    # An injected env-resolved path is not used by the trust loader.
+    paths = ssl.get_default_verify_paths()
+    monkeypatch.setattr(
+        authority.ssl,
+        "get_default_verify_paths",
+        lambda: SimpleNamespace(
+            cafile="/foreign/cert.pem",
+            capath="/foreign/certs",
+            openssl_cafile=paths.openssl_cafile,
+            openssl_capath=paths.openssl_capath,
+        ),
+    )
+    assert authority._system_tls_context().cert_store_stats() == context.cert_store_stats()
+
+
+def test_token_uses_sanitized_auth_only_once(monkeypatch, clean_transport, capsys):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    for key in ("GH_TOKEN", "GH_DEBUG", "GIT_CONFIG_COUNT", "GH_ENTERPRISE_TOKEN"):
+        monkeypatch.setenv(key, "must-not-be-forwarded")
+    calls = []
+
+    def run(args, **kwargs):
+        assert args == ["gh", "auth", "token", "--hostname", "github.com"]
+        assert kwargs["capture_output"] and kwargs["timeout"] == 10
+        assert kwargs["env"]["GH_PROMPT_DISABLED"] == "1"
+        assert not any(
+            key in kwargs["env"]
+            for key in (
+                "GH_TOKEN",
+                "GH_DEBUG",
+                "GIT_CONFIG_COUNT",
+                "GH_ENTERPRISE_TOKEN",
+            )
+        )
+        calls.append(args)
+        return SimpleNamespace(returncode=0, stdout="secret-test-token\n")
+
+    monkeypatch.setattr(authority.subprocess, "run", run)
+    assert authority._token() == authority._token() == "secret-test-token"
+    assert len(calls) == 1
+    assert capsys.readouterr() == ("", "")
+
+
+def test_github_token_preferred_and_never_logged(monkeypatch, clean_transport, capsys):
+    monkeypatch.setenv("GITHUB_TOKEN", "secret-github-token")
+    monkeypatch.setattr(authority.subprocess, "run", lambda *a, **k: pytest.fail("gh invoked"))
+    assert authority._token() == "secret-github-token"
+    monkeypatch.setenv("GITHUB_TOKEN", "different-token")
+    assert authority._token() == "secret-github-token"
+    assert capsys.readouterr() == ("", "")
+
+
+def test_failed_auth_never_logs_token_or_subprocess_output(monkeypatch, clean_transport, capsys):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(
+        authority.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(
+            returncode=1,
+            stdout="sensitive-output",
+            stderr="sensitive-error",
+        ),
+    )
+    with pytest.raises(authority.AuthorityUnavailable) as exc:
+        authority.trusted_time()
+    assert "sensitive" not in str(exc.value)
+    assert capsys.readouterr() == ("", "")
 
 
 def _result_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -777,3 +1028,48 @@ def test_local_identity_git_strips_environment_overrides(tmp_path, monkeypatch) 
     assert authority.f2._git(root, "rev-parse", "HEAD").decode().strip() == commit
     assert authority.f2._git(root, "merge-base", before, commit).decode().strip() == before
     assert authority.f2._git(root, "show", f"{commit}:{authority.f2.RESULT_LEDGER}")
+
+
+def test_cyclic_gh_configuration_is_unavailable(tmp_path, monkeypatch, clean_transport):
+    directory = Path(os.environ["XDG_CONFIG_HOME"]) / "gh"
+    directory.mkdir(parents=True)
+    (directory / "config.yml").write_text("loop: &loop {loop: *loop}\n")
+    probe = _HTTPSProbe(monkeypatch)
+    with pytest.raises(authority.AuthorityUnavailable, match="configuration"):
+        authority.trusted_time()
+    assert probe.calls == []
+
+
+def test_deadline_covers_stalled_header_and_restores_signal(monkeypatch, clean_transport):
+    import signal
+
+    probe = _HTTPSProbe(monkeypatch)
+    original_connection = probe.connection
+
+    def connection(*args, **kwargs):
+        conn = original_connection(*args, **kwargs)
+
+        def stalled():
+            # Deliver the exact installed timer handler without a 30-second wait.
+            signal.getsignal(signal.SIGALRM)(signal.SIGALRM, None)
+
+        conn.getresponse = stalled
+        return conn
+
+    previous = signal.getsignal(signal.SIGALRM)
+    monkeypatch.setattr(authority.http.client, "HTTPSConnection", connection)
+    with pytest.raises(authority.AuthorityUnavailable, match="deadline"):
+        authority.trusted_time()
+    assert signal.getsignal(signal.SIGALRM) == previous
+    assert signal.getitimer(signal.ITIMER_REAL) == (0, 0)
+    assert probe.closed
+
+
+def test_normal_two_file_gh_configuration_is_not_a_cycle(monkeypatch, clean_transport):
+    directory = Path(os.environ["XDG_CONFIG_HOME"]) / "gh"
+    directory.mkdir(parents=True)
+    (directory / "config.yml").write_text("git_protocol: https\n")
+    (directory / "hosts.yml").write_text("github.com: {user: synthetic}\n")
+    probe = _HTTPSProbe(monkeypatch)
+    assert authority.trusted_time()["tls_verified"] is True
+    assert probe.closed
