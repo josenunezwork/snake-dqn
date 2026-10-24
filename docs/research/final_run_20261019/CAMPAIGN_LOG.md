@@ -859,3 +859,62 @@ Round-27 speed repair equiv-02: round-27 speed equivalence and W12 receipts 02. 
 
 
 Outcome-blind phase publication: F4 D256 metadata-pack fit. Ledger `research/bl_residual/ledger/F4_D256_FIT_PHASE_20261023.json`, SHA256 `82b53a3b8ccd4dfd49bac71e77d80e9926946a6225855553390ec4db21686abc`. Receipt/manifest binding `research/bl_residual/ledger/F4_D256_METADATA_FIT_BINDING_20261024.json`, SHA256 `65731d8bf2a4d63e81b18ad5024359604d38fa9e36253ae97bef1f94913d9cba`, fit pin `6313fe8fce990915ef1c3702ff1687169513b624`. Published before metadata staging or the deferred joint R-A look; no fit/reserve/gameplay outcomes opened by publication.
+
+
+### 2026-10-24 — V8 split initial-main cap amendment prepared
+
+Binding Astra verdict: **APPROVE_ONE_BOUNDED_MAIN_CAP_AMENDMENT**,
+`big-lever/exp/JUDGMENT_V8_SPLIT_MAIN_20261024.md` under the artifact root,
+SHA256 `f8c1386dc6b82c3cd0f0b74a491b18433d78da48cd3fb28472f16c3a68db22b4`.
+The new immutable sibling `tools/V8_SPLIT_MAIN_CAP_AMENDMENT_20261024.md`
+records the precise prospective supersession: initial-main admitted estimate
+20 -> 50 minutes, effective main 48 min / 8 u -> 120 min / 20 u,
+effective packet 72 min / 12 u -> 144 min / 24 u, and producer deadline
+1200 -> 5400 seconds. Main base 60 min / 10 u and packet base 72 min / 12 u
+are doubled once; included main reserve is 20 min / 10/3 u. Canary 24 min / 4 u
+is unchanged, already partly consumed, with no reset balance or series clock.
+The unchanged canary formula gives 49.23401820446816 minutes, rounded up to 50.
+
+Fresh prepared package:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01`.
+Runtime remains `669405e2bef629f7f69bc951cf49486d8b0a87bf`, with the exact
+qualified broker `snake-dqn-v8-metadata-qualified-02.noindex`, source paths,
+script, public input and metadata archive. Archive SHA256 remains
+`770fd1daa01a0100d1e84551d1d34c483ba615234b5fe976824256e6b636f315`;
+passed canary receipt SHA256 remains
+`57339dc463486a947ca23301e1d4ac13bf21b6089fcd69844c1581dfe1fae288`.
+All nine cells, scientific rules, parity/native/discrepancy checks and empty
+main ledger remain unchanged. Local package/broker history inspection found
+no same-pin main reservation, output/state or completed main unit; this must
+be reconfirmed by the operator before allocation. Old STOP_ROUTE, original
+rulings/protocol, archive, receipts and frozen packer/broker bytes are preserved.
+The amendment authority is local admission evidence, never an uploaded input.
+
+Mac-only companion `tools/v8_split_main_amend.py` reruns the complete frozen
+package acceptance path with only the 20 -> 50 timing guard replaced, binds its
+source/tests/amendment in create-only PREPARATION.json, and validates the actual
+final manifest with the unchanged supervisor and wrapper resume/qualification
+checks. The 47 focused offline cases pass, including exact field-delta proof,
+forged/missing canary evidence, changed archive, foreign pin/ledger/allocation,
+altered coverage/rules, oversized caps, absent/wrong amendment authority and
+static-review/current-accounting gates. Independent Codex-V light reviews the
+exact artifact in its sibling CODEX_V_LIGHT.json; it grants offline acceptance
+only. Manifest SHA256:
+`e3cc191d7d12059dfbaf98c552b31a3f15f13a0f3996af8ee0677238cdf7a5a9`;
+preparation SHA256:
+`5ae17186666c59c0e76413286c00d7805f2f402cec454857dcea98bb14ceb611`.
+
+**Prepared, not allocated or live-admitted.** Claude/operator must supply the
+independently accepted OPERATOR_ADMISSION.json before dispatch: original T0,
+historical expenditure, all liabilities/reservations, remaining Q2/Q4 and
+V8-series allowances from their original accounting point, live unencumbered
+units, assignments/rates, prior endpoint release and applicable calendar
+limit. Reserve the full 120 min / 20 u within every remaining allowance plus
+outstanding release liabilities. The old remaining 216 min / 36 u is not a new
+grant. No clock restart or T0+48/+72/+120 extension. The generated dispatch
+script requires exact static review and unexpired accounting, then uses only
+the qualified tools/ops/dispatch.sh. Serial A100, first-limit stop and ordinary
+account checks remain mandatory. No continuation is authorized by this
+amendment; mechanical/cap failure preserves verified units and reports
+INCOMPLETE. This preparation does not authorize labels, training, integrated
+speed claims, CPU closed-loop qualification or release/serving changes.
