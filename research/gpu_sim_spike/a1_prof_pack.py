@@ -222,7 +222,7 @@ def manifest(
             "A1_PROF_LEDGER_PATH": CANARY_LEDGER_DEST if canary else LEDGER_DEST,
             "A1_PROF_SECONDS": str(seconds),
             "A1_PROF_CANARY": "1" if canary else "0",
-            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+            "PYTORCH_ALLOC_CONF": "expandable_segments:True",
             "OMP_NUM_THREADS": "1",
             "MKL_NUM_THREADS": "1",
             "OPENBLAS_NUM_THREADS": "1",
@@ -300,7 +300,10 @@ def manifest(
     return result
 
 
-def dispatch_text(canary_path: Path, commit: str) -> str:
+def dispatch_text(canary_path: Path, commit: str, suffix: str = "") -> str:
+    if suffix and (not suffix.isascii() or not suffix.isdigit()):
+        raise ManifestRefused("dispatch suffix must contain ASCII digits only")
+    attempt = "-" + suffix if suffix else ""
     heading = (
         "# A1-PROF is prepared only; refresh account assignment/rate evidence before dispatch."
     )
@@ -310,12 +313,12 @@ ART={canary_path.parent}
 PIN={commit}
 PY="$REPO/venv/bin/python"
 cd "$REPO"
-"$REPO/tools/ops/dispatch.sh" a1-prof-a100-canary "$ART/{canary_path.name}" \\
+"$REPO/tools/ops/dispatch.sh" a1-prof-a100-canary{attempt} "$ART/{canary_path.name}" \\
   --broker "$REPO" --cwd "$REPO" --state-dir "$ART/state-canary" --dispatch-txt "$ART/DISPATCH.txt"
 # Require PASS, verified exports, and verified release; then bind that exact receipt.
 "$PY" -m research.gpu_sim_spike.a1_prof_pack --commit "$PIN" --artifact-dir "$ART" \\
   --canary-receipt "$ART/canary-output/receipt.json" --validate
-"$REPO/tools/ops/dispatch.sh" a1-prof-a100-main "$ART/a1-prof-main.json" \\
+"$REPO/tools/ops/dispatch.sh" a1-prof-a100-main{attempt} "$ART/a1-prof-main.json" \\
   --broker "$REPO" --cwd "$REPO" --state-dir "$ART/state-main" --dispatch-txt "$ART/DISPATCH.txt"
 """
 
@@ -328,6 +331,7 @@ def main() -> None:
     parser.add_argument("--ledger", type=Path)
     parser.add_argument("--preflight", type=Path)
     parser.add_argument("--rate-units-per-hour", type=float, default=10.0)
+    parser.add_argument("--dispatch-suffix", default="")
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
     commit = args.commit or git_head()
@@ -397,7 +401,7 @@ def main() -> None:
             write_once(path, content)
     handoff = artifact_dir / "DISPATCH.txt"
     if not handoff.exists():
-        write_once(handoff, dispatch_text(canary_path, commit))
+        write_once(handoff, dispatch_text(canary_path, commit, args.dispatch_suffix))
     print(
         json.dumps(
             {"artifact_dir": str(artifact_dir), "commit": commit, "prepared": True}, sort_keys=True

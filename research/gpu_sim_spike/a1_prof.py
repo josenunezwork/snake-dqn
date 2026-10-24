@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import math
 import platform
 import statistics
 import time
@@ -20,6 +21,9 @@ from research.gpu_sim_spike import a100_ruler as ruler
 from research.gpu_sim_spike.benchmark import source_commit, source_hashes
 
 PREFIX = "a1prof::"
+# Bound stage attribution uncertainty to two percentage points of kernel time.
+# This does not gate or adjust uninstrumented throughput or CUDA-event timing.
+MAX_UNATTRIBUTED_KERNEL_TIME_SHARE = 0.02
 STAGE_MAP = {
     "movement": "movement_collision_events",
     "deaths_corpse": "movement_collision_events",
@@ -154,6 +158,7 @@ def profiler_summary(events: Any, device: str) -> dict[str, Any]:
     ancestors' inclusive device totals must not be summed with these activities.
     CPU runtime events carry the linked op's thread and therefore scope ancestry.
     """
+    events = list(events)
     stages: dict[str, Any] = {
         stage: {
             "kernel_count": 0,
@@ -164,7 +169,7 @@ def profiler_summary(events: Any, device: str) -> dict[str, Any]:
             "self_device_memory_net_bytes": 0,
             "self_device_allocation_bytes": 0,
         }
-        for stage in STAGES
+        for stage in (*STAGES, "unattributed")
     }
     copies: dict[str, Any] = {}
     kernel_names: dict[str, Any] = {}
@@ -197,20 +202,67 @@ def profiler_summary(events: Any, device: str) -> dict[str, Any]:
                 row["count"] += 1
                 row["seconds"] += kernel.duration / 1e6
     observed = sum(row["kernel_count"] for row in stages.values())
-    raw = sum(
-        event.device_type == torch.autograd.DeviceType.CUDA
+    raw_events = [
+        event
+        for event in events
+        if event.device_type == torch.autograd.DeviceType.CUDA
         and event.name != "[memory]"
         and not event.name.startswith(("Memcpy", "Memset"))
-        for event in events
-    )
-    if device == "cuda" and (observed == 0 or observed != raw):
+    ]
+    raw = len(raw_events)
+    attributed_seconds = sum(row["kernel_seconds"] for row in stages.values())
+    raw_seconds = sum(event.time_range.elapsed_us() for event in raw_events) / 1e6
+    if device == "cuda" and (
+        raw == 0
+        or observed > raw
+        or not math.isfinite(raw_seconds)
+        or not math.isfinite(attributed_seconds)
+        or raw_seconds <= 0
+        or attributed_seconds < 0
+        or attributed_seconds > raw_seconds + max(1e-12, raw_seconds * 1e-9)
+    ):
         raise RuntimeError(
-            f"profiler kernel correlation incomplete: attributed={observed}, raw={raw}"
+            "profiler kernel correlation invalid: "
+            f"attributed={observed}, raw={raw}, "
+            f"attributed_seconds={attributed_seconds}, raw_seconds={raw_seconds}"
+        )
+    missing = raw - observed if device == "cuda" else 0
+    missing_seconds = max(0.0, raw_seconds - attributed_seconds) if device == "cuda" else 0.0
+    missing_share = missing_seconds / raw_seconds if raw_seconds > 0 else 0.0
+    stages["unattributed"].update(kernel_count=missing, kernel_seconds=missing_seconds)
+    if missing or missing_seconds:
+        kernel_names["unattributed:correlation_remainder"] = {
+            "count": missing,
+            "seconds": missing_seconds,
+        }
+    # Subtraction of second-valued floats can put an exact 2% gap a few ulps
+    # above 0.02. Ignore only rounding at the boundary (absolute share 1e-12).
+    if (
+        device == "cuda"
+        and missing_share > MAX_UNATTRIBUTED_KERNEL_TIME_SHARE
+        and not math.isclose(
+            missing_share, MAX_UNATTRIBUTED_KERNEL_TIME_SHARE, rel_tol=0, abs_tol=1e-12
+        )
+    ):
+        raise RuntimeError(
+            "profiler kernel correlation gap exceeds time threshold: "
+            f"attributed={observed}, raw={raw}, unattributed={missing}, "
+            f"unattributed_seconds={missing_seconds}, raw_seconds={raw_seconds}, "
+            f"unattributed_time_share={missing_share:.9f}, "
+            f"maximum={MAX_UNATTRIBUTED_KERNEL_TIME_SHARE}"
         )
     return {
         "stages": stages,
-        "kernel_count": observed,
+        "kernel_count": observed + missing,
+        "attributed_cuda_kernel_count": observed,
         "raw_cuda_kernel_count": raw,
+        "unattributed_cuda_kernel_count": missing,
+        "unattributed_cuda_kernel_count_share": missing / raw if raw else 0.0,
+        "attributed_cuda_kernel_seconds": attributed_seconds,
+        "raw_cuda_kernel_seconds": raw_seconds,
+        "unattributed_cuda_kernel_seconds": missing_seconds,
+        "unattributed_cuda_kernel_time_share": missing_share,
+        "max_unattributed_cuda_kernel_time_share": MAX_UNATTRIBUTED_KERNEL_TIME_SHARE,
         "device_activities": copies,
         "host_device_transfers": {
             key: value
@@ -220,7 +272,10 @@ def profiler_summary(events: Any, device: str) -> dict[str, Any]:
         "kernel_inventory": kernel_names,
         "cuda_available": device == "cuda",
         "notes": (
-            "Python gap is scope self CPU time; launch API is separate, not added to GPU" " time."
+            "Python gap is scope self CPU time; launch API is separate, not added to GPU time. "
+            "Unattributed is the raw minus correlated kernel remainder, never assigned to a stage. "
+            "At most 2% unattributed kernel time bounds stage-share uncertainty to 2 percentage "
+            "points; uninstrumented throughput and CUDA-event timings are independent."
         ),
     }
 

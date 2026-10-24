@@ -71,15 +71,100 @@ def test_profiler_correlations_are_exclusive_and_copy_separate() -> None:
     launch = SimpleNamespace(
         name="cudaLaunchKernel", cpu_parent=child, device_type=cpu, cpu_time_total=2, kernels=[]
     )
-    raw = SimpleNamespace(device_type=cuda, name="pad_kernel")
+    raw = SimpleNamespace(
+        device_type=cuda, name="pad_kernel", time_range=SimpleNamespace(elapsed_us=lambda: 20)
+    )
     summary = prof.profiler_summary([scope, child, copy, launch, raw], "cuda")
     stage = summary["stages"]["vector61_flood_fill"]
     assert stage["kernel_count"] == summary["kernel_count"] == 1
     assert stage["kernel_seconds"] == 20 / 1e6
     assert stage["launch_api_count"] == 1
     assert summary["host_device_transfers"]["Memcpy DtoH"]["count"] == 1
-    with pytest.raises(RuntimeError, match="correlation incomplete"):
+    assert summary["attributed_cuda_kernel_count"] == summary["raw_cuda_kernel_count"] == 1
+    assert summary["unattributed_cuda_kernel_time_share"] == 0
+    with pytest.raises(RuntimeError, match="correlation invalid"):
         prof.profiler_summary([scope, child], "cuda")
+
+
+@pytest.mark.parametrize(
+    "attributed,raw,attributed_us,raw_us",
+    [(17843, 17910, 17843, 17910), (9, 10, 999, 1000), (1, 2, 980, 1000)],
+)
+def test_profiler_accepts_bounded_time_gap_and_reconciles_export(
+    attributed, raw, attributed_us, raw_us
+) -> None:
+    cpu, cuda = torch.autograd.DeviceType.CPU, torch.autograd.DeviceType.CUDA
+    # Count coverage alone is not the gate: the second row has 10% missing
+    # kernels but only 0.1% missing time; exactly 2% time remains admissible.
+    child = SimpleNamespace(
+        name="aten::pad",
+        cpu_parent=None,
+        device_type=cpu,
+        kernels=[
+            SimpleNamespace(name="pad_kernel", duration=attributed_us / attributed)
+            for _ in range(attributed)
+        ],
+    )
+    raw_event = SimpleNamespace(
+        device_type=cuda,
+        name="pad_kernel",
+        time_range=SimpleNamespace(elapsed_us=lambda: raw_us / raw),
+    )
+    summary = prof.profiler_summary(iter([child] + [raw_event] * raw), "cuda")
+    assert summary["kernel_count"] == summary["raw_cuda_kernel_count"] == raw
+    assert summary["attributed_cuda_kernel_count"] == attributed
+    assert summary["unattributed_cuda_kernel_count"] == raw - attributed
+    assert summary["unattributed_cuda_kernel_count_share"] == (raw - attributed) / raw
+    assert summary["unattributed_cuda_kernel_time_share"] == pytest.approx(
+        (raw_us - attributed_us) / raw_us
+    )
+    assert sum(row["kernel_count"] for row in summary["stages"].values()) == raw
+    assert sum(row["kernel_seconds"] for row in summary["stages"].values()) == pytest.approx(
+        raw_us / 1e6
+    )
+    assert summary["stages"]["unattributed"]["kernel_seconds"] == pytest.approx(
+        (raw_us - attributed_us) / 1e6
+    )
+    assert sum(row["seconds"] for row in summary["kernel_inventory"].values()) == pytest.approx(
+        raw_us / 1e6
+    )
+    assert "unattributed" not in prof.STAGES  # No extra CUDA-event boundaries.
+
+
+@pytest.mark.parametrize("attributed_us", [979.99, 970, 0])
+def test_profiler_refuses_gap_above_two_percent_time(attributed_us) -> None:
+    cpu, cuda = torch.autograd.DeviceType.CPU, torch.autograd.DeviceType.CUDA
+    child = SimpleNamespace(
+        name="aten::pad",
+        cpu_parent=None,
+        device_type=cpu,
+        kernels=[SimpleNamespace(name="pad_kernel", duration=attributed_us)],
+    )
+    raw = SimpleNamespace(
+        device_type=cuda,
+        name="pad_kernel",
+        time_range=SimpleNamespace(elapsed_us=lambda: 1000),
+    )
+    with pytest.raises(RuntimeError, match="gap exceeds time threshold.*maximum=0.02"):
+        prof.profiler_summary([child, raw], "cuda")
+
+
+def test_profiler_refuses_missing_raw_trace_and_overcounted_time() -> None:
+    with pytest.raises(RuntimeError, match="correlation invalid"):
+        prof.profiler_summary([], "cuda")
+    child = SimpleNamespace(
+        name="aten::pad",
+        cpu_parent=None,
+        device_type=torch.autograd.DeviceType.CPU,
+        kernels=[SimpleNamespace(name="pad_kernel", duration=101)],
+    )
+    raw = SimpleNamespace(
+        device_type=torch.autograd.DeviceType.CUDA,
+        name="pad_kernel",
+        time_range=SimpleNamespace(elapsed_us=lambda: 100),
+    )
+    with pytest.raises(RuntimeError, match="correlation invalid"):
+        prof.profiler_summary([child, raw], "cuda")
 
 
 def test_metrics_use_full_world_steps_and_observation_union() -> None:

@@ -40,6 +40,8 @@ def test_a1_prof_main_and_canary_preserve_doubled_envelope_and_inventory(tmp_pat
         "other_assignments": {},
     }
     assert main["env"]["A1_PROF_SECONDS"] == "2400"
+    assert main["env"]["PYTORCH_ALLOC_CONF"] == "expandable_segments:True"
+    assert "PYTORCH_CUDA_ALLOC_CONF" not in main["env"]
     assert main["resume"]["unit_kind"] == "profile-cell"
     assert main["required_exports"] == ["a1-prof.json"]
     assert main["a1_prof"]["matrix"]["worlds"] == [64, 256, 1024]
@@ -49,6 +51,18 @@ def test_a1_prof_main_and_canary_preserve_doubled_envelope_and_inventory(tmp_pat
     assert canary["budget"]["unit_cap"] == 5.0
     assert canary["env"]["A1_PROF_CANARY"] == "1"
     assert canary["canary"]["mode"] == "probe"
+    assert canary["env"]["PYTORCH_ALLOC_CONF"] == "expandable_segments:True"
+
+
+def test_fresh_dispatch_names_and_main_receipt_binding(tmp_path):
+    text = a1_prof_pack.dispatch_text(tmp_path / "a1-prof-canary.json", COMMIT, "02")
+    assert "a1-prof-a100-canary-02" in text
+    assert "a1-prof-a100-main-02" in text
+    assert '--canary-receipt "$ART/canary-output/receipt.json" --validate' in text
+    assert '"$ART/a1-prof-main.json"' in text
+    assert '"$ART/a1-prof-main-template.json"' not in text
+    with pytest.raises(a1_prof_pack.ManifestRefused, match="ASCII digits"):
+        a1_prof_pack.dispatch_text(tmp_path / "canary.json", COMMIT, "bad;name")
 
 
 def test_a1_prof_refuses_rate_above_live_calibration_ceiling(tmp_path, monkeypatch):
