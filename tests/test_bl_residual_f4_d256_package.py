@@ -140,7 +140,13 @@ def test_stage_d1024_refuses_unpublished_fit_phase_before_checkpoint_or_labels(
         package.stage_d1024(tmp_path / "pack", publication, tmp_path / "out")
 
 
-def test_canary_covers_main_transport_and_caps_leave_series_headroom(tmp_path) -> None:
+def test_canary_covers_main_transport_and_caps_leave_series_headroom(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.colab_cli.canary import job_device
+
+    entrypoint = (package.ROOT / "research/bl_residual/f4_d256_colab.sh").read_text()
+    monkeypatch.setattr("research.colab_cli.canary._entrypoint", lambda *_: entrypoint)
     inventory = [{"path": "/fixture", "dest": "b8.pth", "sha256": "a" * 64}]
     main, canary = package.manifests(tmp_path, "b" * 40, inventory)
     assert canary["inputs"] == main["inputs"] == inventory
@@ -149,6 +155,11 @@ def test_canary_covers_main_transport_and_caps_leave_series_headroom(tmp_path) -
     assert main["output_dir"] != canary["output_dir"]
     liability = 0
     for manifest in (main, canary):
+        assert manifest["device"] == manifest["env"]["F4_DEVICE"] == "cuda:0"
+        # Exercise the qualified parser against the real shell bytes, including
+        # its required-variable guard and manifest-bound --device argument.
+        assert job_device(manifest) == "cuda"
+        assert job_device(manifest, package.ROOT) == "cuda"
         limits, budget = manifest["f4"], manifest["budget"]
         assert budget["unit_cap"] == 2 * limits["base_units"]
         assert budget["reserve_units"] == 2 * limits["base_reserve_units"]
