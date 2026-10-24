@@ -104,3 +104,34 @@ env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREAD
 
 No provider mutation, Colab dispatch, tmux operation, model fitting, gameplay
 outcome evaluation, checkpoint/pin edit or serving change was performed.
+
+## Final verification and publication
+
+Implementation and initial handoff commit:
+`f48bb67813b08dbd4480940fb56acad6cd128df9`, pushed to `origin/main` and
+`t34-gpu-flood-20261023`. The later verification record changes no bound
+implementation bytes. Final package review is
+`tools/ops/CODEX_V_FLOOD_SPARSE_MAIN_03_20261024.json` (ACCEPT_OFFLINE, no open
+P1/P2); the unsuffixed review is retained superseded `-02` evidence.
+
+Executed from `/Users/josenunez/Projects/ml/snake-dqn-gpufix`:
+
+```bash
+export SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
+nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -I /Users/josenunez/Projects/ml/snake-dqn-gpufix/tools/ops/flood_sparse_main.py prepare
+nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_flood_sparse_main.py research/gpu_sim_spike/test_sparse_bench.py tests/test_colab_cli_canary.py tests/test_colab_cli_supervisor.py tests/test_receipt_dispatch.py tests/test_ops_dispatch.py
+nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_flood_sparse_main.py
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m black --check --line-length 100 tools/ops/flood_sparse_main.py tests/test_flood_sparse_main.py
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m isort --check-only --profile black tools/ops/flood_sparse_main.py tests/test_flood_sparse_main.py
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m flake8 tools/ops/flood_sparse_main.py tests/test_flood_sparse_main.py
+bash -n /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-flood-sparse-main-20261024-03/dispatch-main.sh
+git diff --check
+```
+
+Results: broad bundle **263 passed in 853.86 s**; final current host package
+**12 passed in 2.08 s**; all style/syntax/diff checks PASS. The broad bundle
+started before final host-only refinements; the current host package was rerun
+separately after those refinements. Actual generated helper dry-run above:
+`PASS_DRY_RUN`, `allocations=0`, `live_accounting=NOT_CHECKED`. No provider
+mutation or main run. `VERIFICATION.json` in the artifact root and its committed
+copy bind the commands, counts, source, review, manifest and dry-run log hashes.
