@@ -19,11 +19,12 @@ import subprocess
 import threading
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from email.utils import parsedate_to_datetime
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 from urllib.parse import parse_qs, urlparse
 
 import yaml
@@ -51,6 +52,54 @@ class AuthorityUnavailable(ValueError):
 HOST = "api.github.com"
 PORT = 443
 MAX_RESPONSE_BYTES = 8_000_000
+# Anonymous GitHub core quota is shared by source IP. Leave room for check-time
+# and other readers. Token mode retains the full existing 100-page scan bound:
+# 20,000 unique activity tips + 100 pages + head/ancestry and seven blob checks.
+ANONYMOUS_REQUEST_BUDGET = 50
+TOKEN_REQUEST_BUDGET = 20_110
+_CAPTURE: ContextVar[dict[str, Any] | None] = ContextVar("github_capture", default=None)
+
+
+def _accounting(state: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in state.items() if key != "observations"}
+
+
+@contextmanager
+def _capture() -> Iterator[dict[str, Any]]:
+    """Share a bounded request ledger across all nested calls in one capture."""
+    current = _CAPTURE.get()
+    if current is not None:
+        yield current
+        return
+    state = {
+        "auth_mode": None,
+        "request_count": 0,
+        "request_budget": None,
+        "rate_limit_remaining": None,
+        "repository_public": None,
+        "observations": [],
+    }
+    handle = _CAPTURE.set(state)
+    try:
+        yield state
+    except AuthorityUnavailable as exc:
+        exc.capture = _accounting(state)
+        raise
+    finally:
+        for observation in state["observations"]:
+            observation.update(_accounting(state))
+        _CAPTURE.reset(handle)
+
+
+def _captured(function: Callable) -> Callable:
+    @wraps(function)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        with _capture():
+            return function(*args, **kwargs)
+
+    return wrapped
+
+
 _OVERRIDE_ENV = {
     "GH_CONFIG_DIR",
     "GH_HOST",
@@ -101,10 +150,10 @@ def _reject_transport_overrides() -> None:
 
 
 @lru_cache(maxsize=1)
-def _token() -> str:
+def _token() -> str | None:
     """Read credentials once per process, without any API call or Git helper."""
     token = os.environ.get("GITHUB_TOKEN")
-    if token is None:
+    if not token:
         # Only credential discovery uses gh; no inherited GH_*, GIT_*, proxy,
         # trust, debug or alternate-host settings enter this subprocess.
         env = {
@@ -113,17 +162,22 @@ def _token() -> str:
             if key in os.environ
         }
         env["GH_PROMPT_DISABLED"] = "1"
-        result = subprocess.run(
-            ["gh", "auth", "token", "--hostname", "github.com"],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+        try:
+            result = subprocess.run(
+                ["gh", "auth", "token", "--hostname", "github.com"],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
         if result.returncode:
-            raise AuthorityUnavailable("GitHub credential unavailable")
+            return None
         token = result.stdout.strip()
-    if not token or any(ord(char) < 33 or ord(char) > 126 for char in token):
+    if not token:
+        return None
+    if any(ord(char) < 33 or ord(char) > 126 for char in token):
         raise AuthorityUnavailable("GitHub credential unavailable")
     return token
 
@@ -167,24 +221,65 @@ def _deadline() -> Iterator[None]:
         signal.signal(signal.SIGALRM, previous)
 
 
-def _request(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
-    with _deadline():
-        return _request_https(endpoint)
-
-
-def _request_https(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
-    """GET directly from the pinned TLS host; no gh API, proxies or redirects."""
+def _validate_endpoint(endpoint: str) -> None:
     if (
-        not endpoint.startswith(API + "/")
+        (endpoint != API and not endpoint.startswith(API + "/"))
         or "://" in endpoint
         or "#" in endpoint
         or any(ord(char) <= 32 or ord(char) >= 127 for char in endpoint)
     ):
         raise AuthorityUnavailable("foreign GitHub authority endpoint")
+
+
+def _request(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
+    with _capture() as state:
+        _validate_endpoint(endpoint)
+        try:
+            with _deadline():
+                _reject_transport_overrides()
+                mode = "token" if _token() else "anonymous"
+        except AuthorityUnavailable:
+            raise
+        except (OSError, ValueError, subprocess.SubprocessError):
+            raise AuthorityUnavailable("unverifiable GitHub configuration") from None
+        if state["auth_mode"] is None:
+            state["auth_mode"] = mode
+            state["request_budget"] = (
+                TOKEN_REQUEST_BUDGET if mode == "token" else ANONYMOUS_REQUEST_BUDGET
+            )
+        if mode != state["auth_mode"]:
+            raise AuthorityUnavailable("GitHub authentication changed during capture")
+        if mode == "anonymous" and state["repository_public"] is not True:
+            with _deadline():
+                repo, _, _ = _request_https(API)
+            if (
+                not isinstance(repo, dict)
+                or repo.get("full_name") != REPOSITORY
+                or repo.get("private") is not False
+                or repo.get("visibility") != "public"
+            ):
+                raise AuthorityUnavailable(
+                    "anonymous GitHub authority requires a public repository"
+                )
+            state["repository_public"] = True
+        with _deadline():
+            return _request_https(endpoint)
+
+
+def _request_https(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
+    """GET directly from the pinned TLS host; no gh API, proxies or redirects."""
+    _validate_endpoint(endpoint)
     connection = None
     try:
         _reject_transport_overrides()
         token = _token()
+        state = _CAPTURE.get()
+        if state is None:
+            raise AuthorityUnavailable("GitHub request requires capture accounting")
+        if state["request_count"] >= state["request_budget"]:
+            raise AuthorityUnavailable("GitHub capture request budget exhausted")
+        if state["rate_limit_remaining"] == 0:
+            raise AuthorityUnavailable("GitHub rate limit exhausted")
         context = _system_tls_context()
         if context.verify_mode != ssl.CERT_REQUIRED or not context.check_hostname:
             raise AuthorityUnavailable("TLS verification is required")
@@ -204,28 +299,36 @@ def _request_https(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
         ):
             raise AuthorityUnavailable("GitHub TLS peer cannot be verified")
         tls_version = peer.version()
-        connection.request(
-            "GET",
-            "/" + endpoint,
-            headers={
-                "Host": HOST,
-                "Authorization": "Bearer " + token,
-                "User-Agent": "snake-dqn-i2-authority",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Cache-Control": "no-cache",
-                "Connection": "close",
-            },
-        )
+        request_headers = {
+            "Host": HOST,
+            "User-Agent": "snake-dqn-i2-authority",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Cache-Control": "no-cache",
+            "Connection": "close",
+        }
+        if token:
+            request_headers["Authorization"] = "Bearer " + token
+        state["request_count"] += 1
+        connection.request("GET", "/" + endpoint, headers=request_headers)
         response = connection.getresponse()
-        if response.status != 200:
-            raise AuthorityUnavailable("GitHub authority requires HTTP 200; redirects refused")
         headers: dict[str, str] = {}
         for name, value in response.getheaders():
             key = name.lower()
             if key in headers:
                 raise AuthorityUnavailable("ambiguous GitHub response header")
             headers[key] = value.strip()
+        quota = headers.get("x-ratelimit-remaining")
+        if quota is not None:
+            if not quota.isascii() or not quota.isdecimal():
+                raise AuthorityUnavailable("unverifiable GitHub rate limit")
+            state["rate_limit_remaining"] = int(quota)
+            if state["rate_limit_remaining"] == 0:
+                raise AuthorityUnavailable("GitHub rate limit exhausted")
+        elif token is None:
+            raise AuthorityUnavailable("anonymous GitHub rate limit unavailable")
+        if response.status != 200:
+            raise AuthorityUnavailable("GitHub authority requires HTTP 200; redirects refused")
         body = bytearray()
         while True:
             remaining = 30 - (time.monotonic() - tick)
@@ -236,7 +339,9 @@ def _request_https(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
             body.extend(chunk)
             if len(body) > MAX_RESPONSE_BYTES:
                 raise AuthorityUnavailable("GitHub response exceeds size limit")
-            if not chunk:
+            # HTTPResponse closes its socket when Content-Length is consumed.
+            # Do not set a timeout on that closed peer just to read EOF again.
+            if not chunk or response.isclosed():
                 break
         elapsed, local_after = time.monotonic() - tick, time.time()
         date = parsedate_to_datetime(headers["date"])
@@ -265,6 +370,8 @@ def _request_https(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
             "local_after_epoch": local_after,
             "elapsed_seconds": elapsed,
         }
+        observation.update(_accounting(state))
+        state["observations"].append(observation)
         return json.loads(body), headers, observation
     except AuthorityUnavailable:
         raise
@@ -276,6 +383,7 @@ def _request_https(endpoint: str) -> tuple[Any, dict[str, str], dict[str, Any]]:
             connection.close()
 
 
+@_captured
 def trusted_time() -> dict[str, Any]:
     """Fresh server Date observation, required even for the strikes branch."""
     value, _, observation = _request(f"{API}/git/ref/heads/main")
@@ -356,6 +464,7 @@ def _server_export(commit: str, relative: str, root: Path) -> bytes:
     return ledger
 
 
+@_captured
 def first_publication(commit: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Find the first server push transition that made this exact commit reachable.
 
@@ -528,10 +637,12 @@ def _identity(binding: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@_captured
 def capture_publication(binding: dict[str, Any]) -> dict[str, Any]:
     """Create-only metadata receipt after real publication; no semantic outcome read."""
     identity = _identity(binding)
     event, observation = first_publication(identity["commit"])
+    observation.update(_accounting(_CAPTURE.get()))
     return export_json(
         evidence_path(binding),
         {
@@ -542,6 +653,7 @@ def capture_publication(binding: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+@_captured
 def publication_evidence(binding: dict[str, Any]) -> dict[str, Any] | None:
     """Revalidate the sealed receipt against live GitHub; absent proof means strikes."""
     try:
@@ -567,14 +679,46 @@ def publication_evidence(binding: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
+@_captured
+def check_publication(relative: str) -> dict[str, Any]:
+    """Dry-check a published metadata ledger and sidecars; never open a result."""
+    if relative not in (f2.INPUT_LEDGER, f2.RESULT_LEDGER):
+        raise AuthorityUnavailable("invalid committed export identity")
+    commit = f2._published(f2.ROOT / relative, relative, f2.ROOT)
+    payload = _server_export(commit, relative, f2.ROOT)
+    event, observation = first_publication(commit)
+    return {
+        "status": "available",
+        "dry_run": True,
+        "ledger": relative,
+        "commit": commit,
+        "ledger_sha256": hashlib.sha256(payload).hexdigest(),
+        "activity": event,
+        "captured_time_observation": observation,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("check-time", "capture-publication"))
+    parser.add_argument(
+        "action", choices=("check-time", "capture-publication", "check-publication")
+    )
+    parser.add_argument(
+        "--ledger", choices=(f2.INPUT_LEDGER, f2.RESULT_LEDGER), default=f2.INPUT_LEDGER
+    )
     args = parser.parse_args()
-    if args.action == "check-time":
-        result = trusted_time()
-    else:
-        result = capture_publication(published_receipt_binding(f2.RECEIPT))
+    try:
+        if args.action == "check-time":
+            result = trusted_time()
+        elif args.action == "check-publication":
+            result = check_publication(args.ledger)
+        else:
+            result = capture_publication(published_receipt_binding(f2.RECEIPT))
+    except AuthorityUnavailable as exc:
+        print(
+            json.dumps({"status": "unavailable", "reason": str(exc), **getattr(exc, "capture", {})})
+        )
+        raise SystemExit(1) from None
     print(json.dumps(result, sort_keys=True))
 
 

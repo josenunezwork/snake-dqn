@@ -461,12 +461,15 @@ class _HTTPSProbe:
         self.headers = [
             ("Date", "Thu, 01 Jan 1970 00:16:40 GMT"),
             ("X-GitHub-Request-Id", "synthetic"),
+            ("X-RateLimit-Remaining", "59"),
         ]
         self.payload = {"ref": authority.REF, "object": {"type": "commit", "sha": "a" * 40}}
         self.status = 200
         self.failure = None
         self.bad_peer = False
         self.closed = False
+        self.anonymous = False
+        self.repo = {"full_name": authority.REPOSITORY, "private": False, "visibility": "public"}
         monkeypatch.setattr(authority.http.client, "HTTPSConnection", self.connection)
         monkeypatch.setattr(authority, "_token", lambda: "secret-test-token")
         monkeypatch.setattr(authority.time, "time", lambda: 1000.0)
@@ -494,17 +497,25 @@ class _HTTPSProbe:
                     raise probe.failure
 
             def request(self, method, path, *, headers):
-                assert method == "GET" and path.startswith("/" + authority.API + "/")
+                assert method == "GET" and (
+                    path == "/" + authority.API or path.startswith("/" + authority.API + "/")
+                )
                 assert headers["Host"] == host
-                assert headers["Authorization"] == "Bearer secret-test-token"
+                if probe.anonymous:
+                    assert "Authorization" not in headers
+                else:
+                    assert headers["Authorization"] == "Bearer secret-test-token"
+                self.path = path
                 probe.calls.append((method, path))
 
             def getresponse(self):
-                chunks = iter((json.dumps(probe.payload).encode(), b""))
+                payload = probe.repo if self.path == "/" + authority.API else probe.payload
+                chunks = iter((json.dumps(payload).encode(), b""))
                 return SimpleNamespace(
                     status=probe.status,
                     getheaders=lambda: probe.headers,
                     read1=lambda size: next(chunks),
+                    isclosed=lambda: False,
                 )
 
             def close(self):
@@ -744,9 +755,7 @@ def test_failed_auth_never_logs_token_or_subprocess_output(monkeypatch, clean_tr
             stderr="sensitive-error",
         ),
     )
-    with pytest.raises(authority.AuthorityUnavailable) as exc:
-        authority.trusted_time()
-    assert "sensitive" not in str(exc.value)
+    assert authority._token() is None
     assert capsys.readouterr() == ("", "")
 
 
@@ -1073,3 +1082,242 @@ def test_normal_two_file_gh_configuration_is_not_a_cycle(monkeypatch, clean_tran
     probe = _HTTPSProbe(monkeypatch)
     assert authority.trusted_time()["tls_verified"] is True
     assert probe.closed
+
+
+def _anonymous_probe(monkeypatch):
+    probe = _HTTPSProbe(monkeypatch)
+    probe.anonymous = True
+    monkeypatch.setattr(authority, "_token", lambda: None)
+    return probe
+
+
+def test_anonymous_capture_checks_public_repo_once_and_records_all_requests(
+    monkeypatch, clean_transport
+):
+    probe = _anonymous_probe(monkeypatch)
+    observed = authority.trusted_time()
+    assert observed["auth_mode"] == "anonymous"
+    assert observed["repository_public"] is True
+    assert observed["request_count"] == 2
+    assert observed["request_budget"] == authority.ANONYMOUS_REQUEST_BUDGET
+    assert observed["rate_limit_remaining"] == 59
+    assert observed["tls_verified"] is True
+    assert probe.calls[1] == ("GET", "/" + authority.API)
+    assert probe.calls[3] == ("GET", "/" + authority.API + "/git/ref/heads/main")
+    # Public status and quota are fresh for every capture, never process-cached.
+    assert authority.trusted_time()["request_count"] == 2
+    assert len(probe.calls) == 8
+
+
+@pytest.mark.parametrize(
+    "repo",
+    [
+        {"full_name": authority.REPOSITORY, "private": True, "visibility": "private"},
+        {"full_name": authority.REPOSITORY, "private": False},
+        {"full_name": "foreign/repo", "private": False, "visibility": "public"},
+        {"full_name": authority.REPOSITORY, "private": 0, "visibility": "public"},
+    ],
+)
+def test_anonymous_private_or_unverifiable_repository_is_unavailable(
+    monkeypatch, clean_transport, repo
+):
+    probe = _anonymous_probe(monkeypatch)
+    probe.repo = repo
+    with pytest.raises(authority.AuthorityUnavailable, match="public repository") as error:
+        authority.trusted_time()
+    assert len(probe.calls) == 2
+    assert error.value.capture["request_count"] == 1
+    assert error.value.capture["auth_mode"] == "anonymous"
+
+
+@pytest.mark.parametrize("anonymous", [False, True])
+@pytest.mark.parametrize("status", [200, 403, 429])
+def test_rate_limit_exhaustion_is_unavailable_without_further_requests(
+    monkeypatch, clean_transport, anonymous, status
+):
+    probe = _anonymous_probe(monkeypatch) if anonymous else _HTTPSProbe(monkeypatch)
+    probe.status = status
+    probe.headers[-1] = ("X-RateLimit-Remaining", "0")
+    with pytest.raises(authority.AuthorityUnavailable, match="rate limit exhausted") as error:
+        authority.trusted_time()
+    assert error.value.capture["request_count"] == 1
+    assert error.value.capture["rate_limit_remaining"] == 0
+    assert len(probe.calls) == 2
+    assert probe.closed
+
+
+@pytest.mark.parametrize("quota", [None, "-1", "nonsense", "1.5", "١"])
+def test_anonymous_missing_or_invalid_quota_is_unavailable(monkeypatch, clean_transport, quota):
+    probe = _anonymous_probe(monkeypatch)
+    probe.headers = probe.headers[:-1]
+    if quota is not None:
+        probe.headers.append(("X-RateLimit-Remaining", quota))
+    with pytest.raises(authority.AuthorityUnavailable, match="rate limit"):
+        authority.trusted_time()
+    assert len(probe.calls) == 2
+
+
+def test_anonymous_budget_bounds_entire_nested_capture(monkeypatch, clean_transport):
+    probe = _anonymous_probe(monkeypatch)
+    monkeypatch.setattr(authority, "ANONYMOUS_REQUEST_BUDGET", 3)
+    with pytest.raises(authority.AuthorityUnavailable, match="request budget") as error:
+        with authority._capture():
+            authority.trusted_time()  # metadata + ref
+            authority.trusted_time()  # ref only, public check shared within capture
+            authority.trusted_time()  # refused before connection
+    assert error.value.capture["request_count"] == 3
+    assert error.value.capture["request_budget"] == 3
+    assert len(probe.calls) == 6
+
+
+def test_token_capture_keeps_one_request_and_existing_authorization(monkeypatch, clean_transport):
+    probe = _HTTPSProbe(monkeypatch)
+    observed = authority.trusted_time()
+    assert observed["auth_mode"] == "token"
+    assert observed["request_count"] == 1
+    assert observed["request_budget"] == authority.TOKEN_REQUEST_BUDGET
+    assert observed["repository_public"] is None
+    assert len(probe.calls) == 2
+
+
+@pytest.mark.parametrize(
+    "failure", [None, FileNotFoundError(), subprocess.TimeoutExpired("gh", 10)]
+)
+def test_missing_gh_credential_falls_back_once_without_output(
+    monkeypatch, clean_transport, capsys, failure
+):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    calls = []
+
+    def run(*args, **kwargs):
+        calls.append(args)
+        if failure is not None:
+            raise failure
+        return SimpleNamespace(returncode=0, stdout=" \n", stderr="sensitive")
+
+    monkeypatch.setattr(authority.subprocess, "run", run)
+    assert authority._token() is None
+    assert authority._token() is None
+    assert len(calls) == 1
+    assert capsys.readouterr() == ("", "")
+
+
+def test_anonymous_foreign_endpoint_refused_before_network(monkeypatch, clean_transport):
+    probe = _anonymous_probe(monkeypatch)
+    with pytest.raises(authority.AuthorityUnavailable, match="foreign"):
+        authority._request("https://foreign.invalid/")
+    assert not probe.calls
+
+
+@pytest.mark.parametrize("fault", ["proxy", "tls", "peer", "redirect", "clock"])
+def test_anonymous_transport_protections_remain_intact(monkeypatch, clean_transport, fault):
+    probe = _anonymous_probe(monkeypatch)
+    if fault == "proxy":
+        monkeypatch.setenv("HTTPS_PROXY", "https://foreign.invalid")
+    elif fault == "tls":
+        probe.failure = ssl.SSLCertVerificationError("certificate verify failed")
+    elif fault == "peer":
+        probe.bad_peer = True
+    elif fault == "redirect":
+        probe.status = 302
+        probe.headers.append(("Location", "https://foreign.invalid"))
+    else:
+        monkeypatch.setattr(authority.time, "time", lambda: 1121.0)
+    with pytest.raises(authority.AuthorityUnavailable):
+        authority.trusted_time()
+    assert len(probe.calls) <= 2
+
+
+def test_read_only_publication_check_uses_published_ledger_and_both_sidecars(tmp_path, monkeypatch):
+    root, before, commit, _ = _result_fixture(tmp_path, monkeypatch)
+    _stub_activity(monkeypatch, commit, [_event(commit, before, "1970-01-01T00:01:00Z")], epoch=100)
+    snapshot = {str(path): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    result = authority.check_publication(authority.f2.RESULT_LEDGER)
+    assert result["status"] == "available"
+    assert result["dry_run"] is True
+    assert result["commit"] == commit
+    assert result["activity"]["after"] == commit
+    assert snapshot == {str(path): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+
+def test_completed_http_body_does_not_reuse_closed_peer(monkeypatch, clean_transport):
+    probe = _anonymous_probe(monkeypatch)
+    original = probe.connection
+
+    def connection(*args, **kwargs):
+        conn = original(*args, **kwargs)
+        getresponse = conn.getresponse
+        closed = False
+
+        def settimeout(seconds):
+            if closed:
+                raise OSError("Bad file descriptor")
+
+        conn.sock.settimeout = settimeout
+
+        def response():
+            wire = getresponse()
+            read = wire.read1
+
+            def read1(size):
+                nonlocal closed
+                payload = read(size)
+                closed = True
+                return payload
+
+            wire.read1 = read1
+            wire.isclosed = lambda: closed
+            return wire
+
+        conn.getresponse = response
+        return conn
+
+    monkeypatch.setattr(authority.http.client, "HTTPSConnection", connection)
+    assert authority.trusted_time()["request_count"] == 2
+
+
+def test_serialized_publication_observation_includes_entire_anonymous_capture(
+    tmp_path, monkeypatch, clean_transport
+):
+    _anonymous_probe(monkeypatch)
+    binding = {"path": str(tmp_path / "synthetic-receipt"), "publication_ref": "a" * 40}
+
+    def identity(value):
+        authority._request(f"{authority.API}/git/ref/heads/main")
+        authority._request(f"{authority.API}/git/ref/heads/main")
+        return {"commit": value["publication_ref"]}
+
+    def publication(commit):
+        _, _, observation = authority._request(f"{authority.API}/git/ref/heads/main")
+        authority._request(f"{authority.API}/git/ref/heads/main")
+        return {"id": "synthetic"}, observation
+
+    monkeypatch.setattr(authority, "_identity", identity)
+    monkeypatch.setattr(authority, "first_publication", publication)
+    authority.capture_publication(binding)
+    receipt = json.loads(authority.evidence_path(binding).read_text())
+    observation = receipt["captured_time_observation"]
+    assert observation["request_count"] == 5  # one public check plus four ordinary GETs
+    assert observation["request_budget"] == authority.ANONYMOUS_REQUEST_BUDGET
+    assert observation["auth_mode"] == "anonymous"
+    assert observation["repository_public"] is True
+
+
+def test_credential_decode_failure_is_sanitized_before_network(
+    monkeypatch, clean_transport, capsys
+):
+    token = authority._token
+    probe = _HTTPSProbe(monkeypatch)
+    monkeypatch.setattr(authority, "_token", token)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    def invalid(*args, **kwargs):
+        raise UnicodeDecodeError("utf-8", b"sensitive\xff", 9, 10, "invalid")
+
+    monkeypatch.setattr(authority.subprocess, "run", invalid)
+    with pytest.raises(authority.AuthorityUnavailable, match="configuration") as error:
+        authority.trusted_time()
+    assert "sensitive" not in str(error.value)
+    assert error.value.capture["request_count"] == 0
+    assert not probe.calls
+    assert capsys.readouterr() == ("", "")
