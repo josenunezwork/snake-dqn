@@ -6,7 +6,9 @@
 set -euo pipefail
 
 SOURCE=${SOURCE:-/Users/josenunez/Projects/ml/snake-dqn-f4fix}
-Q=${Q:-/Users/josenunez/Projects/ml/snake-dqn-f4-d1024-qualified-01.noindex}
+# Prepare-attempt suffix for Q, preflight, pack and the prepare job (01 = original).
+ATTEMPT=${F4_D1024_ATTEMPT:-01}
+Q=${Q:-/Users/josenunez/Projects/ml/snake-dqn-f4-d1024-qualified-${ATTEMPT}.noindex}
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 ART=/Users/josenunez/Projects/ml/snake-dqn-artifacts
 F4="$ART/big-lever/exp/f4"
@@ -15,8 +17,8 @@ D256_UNION="$ART/bl-labels-f0/d256-union-final-01/verified-ledger.json"
 D1024_UNION="$ART/bl-labels-f0-speed/d1024-union-final-01/verified-ledger.json"
 D1024_UNION_PUB=research/bl_labels/ledger/D1024_UNION_FINAL_20261024.json
 D256_PACK="$F4/d256-metadata-pack-02"
-PACK="$F4/d1024-pack-01"
-PREFLIGHT="$F4/d1024-preflight-01.json"
+PACK="$F4/d1024-pack-${ATTEMPT}"
+PREFLIGHT="$F4/d1024-preflight-${ATTEMPT}.json"
 CENSUS="$F4/r-a-archive-census-01"
 RA="$F4/r-a-01"
 FIT_PHASE=research/bl_residual/ledger/F4_D1024_FIT_PHASE_20261024.json
@@ -171,7 +173,7 @@ PY
   prepare)
     check_q
     need D1024_UNION_SHA
-    dispatch_mac bl-f4-d1024-prepare-01 "$PIN" -m research.bl_residual.f4_d1024_package \
+    dispatch_mac "bl-f4-d1024-prepare-${ATTEMPT}" "$PIN" -m research.bl_residual.f4_d1024_package \
       --out "$PACK" --d256-ledger "$D256_UNION" --d1024-ledger "$D1024_UNION" \
       --d1024-union-sha256 "$D1024_UNION_SHA" --preflight-receipt "$PREFLIGHT" --commit "$PIN"
     ;;
