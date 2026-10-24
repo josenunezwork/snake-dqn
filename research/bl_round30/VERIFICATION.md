@@ -1,6 +1,11 @@
 # R30 implementation verification
 
-Disposition: **PREPARED_NOT_QUALIFIED / HOLD**.
+Initial disposition: **PREPARED_NOT_QUALIFIED / HOLD**, preserved below.
+
+The 2026-10-24 qualification adds an R30-only ordinary-W6 check route.
+Current qualification is established by the new immutable preflight/review
+receipts and the sibling docs/research/round30_qualification_20261024.md handoff.
+The historical refusal and receipts below remain unchanged.
 
 Implemented in the isolated `snake-dqn-r30` worktree on `t34-r30-20261023`.
 Initial clean baseline: `918c4680`. The binding ruling is SHA256

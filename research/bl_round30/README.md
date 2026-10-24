@@ -6,9 +6,10 @@ Authority: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-30/
 Ruling and QUESTION, all three R30 memos, four R29 origin memos, R27/R28 judgments,
 and the nice-15 interim policy were read. Advice is subordinate to the ruling.
 
-**PREPARED_NOT_QUALIFIED: the factory's exclusive lease refused the Mac check
-before pytest started. No numerical test or tiny Mac preflight has run.** All
-generated manifests remain blocked until a current-source Mac preflight passes.
+**Qualification is source-bound.** The original preparation remained HOLD because
+the exclusive launcher refused before pytest. The R30-only ordinary-W6 route
+now supports the interim ruling; its immutable current-source receipt determines
+Mac qualification. Generated manifests remain blocked until that receipt passes.
 No Colab/Mac scientific jobs dispatched. No existing corpus admitted or opened. Claude
 owns corpus reuse authority, account reservation, F4 terminal disposition and
 dispatch. Codex-V reviews provenance before numerical data. Sol owns only this
@@ -108,10 +109,16 @@ PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 PIN=$(git rev-parse HEAD)
 R=/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-30
 B8=/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth
-# First, in a separately admitted quiet Mac gap (never baseline/rearming/W12 sanity):
-/usr/bin/nice -n 15 "$PY" -m research.bl_round30.local_check \
+# First, use the existing quiet-gap route, or supply --factory-start and
+# --factory-pid for a live fresh W6 D1024 attempt with its own frozen baseline.
+# Both routes refuse baseline/rearming/W12 sanity and never retry automatically.
+env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 \
+  OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 \
+  VECLIB_MAXIMUM_THREADS=1 "$PY" -m research.bl_round30.local_check \
   --output "$R/sol-verification/gap-check-01"
-# The existing launcher owns the shared lock/lease, nice>=15, CPU/thread caps
+# Caller must already be nice>=15. Both routes own the shared serial lock;
+# the ordinary route preserves the factory lease and checks its live identities.
+# CPU/thread caps
 # and 120-second complete deadline. A refusal remains HOLD; no automatic retry.
 # Only after Claude's reuse authority and Codex-V metadata approval:
 "$PY" -m research.bl_round30.prepare --output "$R/admitted-r301-01" \
