@@ -6,8 +6,19 @@ from pathlib import Path
 
 import pytest
 
-from research.bl_labels import slowdown_resume, w12_runtime
+from research.bl_labels import mac_driver, slowdown_resume, w12_runtime
 from research.bl_labels.exports import publish_json
+
+_actual_operational_pin = slowdown_resume._operational_pin
+
+
+@pytest.fixture(autouse=True)
+def _isolated_test_slot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep synthetic receipt probes separate from the reviewer's outer lane."""
+    from research.compute import factory_interim_launcher
+
+    monkeypatch.setattr(factory_interim_launcher, "TEST_SLOT_PATH", tmp_path / "test-slot.lock")
+    monkeypatch.setattr(slowdown_resume, "_operational_pin", lambda: "1" * 40)
 
 
 def _attempt(
@@ -43,15 +54,21 @@ def _host_check(state: Path, epoch: float) -> None:
         state / "slowdown-host-check-999.json",
         {
             "schema": slowdown_resume.HOST_CHECK_SCHEMA,
+            "policy": slowdown_resume.INTERIM_POLICY,
+            "ruling_sha256": slowdown_resume.INTERIM_RULING_SHA256,
+            "operational_pin": slowdown_resume._operational_pin(),
             "for_trip_epoch": epoch,
             "checked_epoch": epoch + 1,
             "pmset_therm": "CPU_Speed_Limit = 100\n",
             "top_cpu_consumers": [],
-            "no_sol_codex": True,
+            "no_disallowed_competing_compute": True,
+            "serial_test_lane_stopped": True,
+            "host_health": {"ac_power": True, "lid_open": True},
         },
     )
 
 
+@pytest.mark.parametrize("nice", [-5, 0, 14, 15, 19])
 @pytest.mark.parametrize(
     ("argv", "blocked"),
     [
@@ -72,47 +89,101 @@ def _host_check(state: Path, epoch: float) -> None:
         ),
         ("/Applications/ChatGPT.app/Contents/Frameworks/Codex (Service)", False),
         ("/Applications/ChatGPT.app/Contents/Frameworks/Codex (Renderer)", False),
+        (
+            "/Users/josenunez/.codex/computer-use/Codex Computer Use.app/Contents/"
+            "SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient",
+            False,
+        ),
+        (str(Path.home() / ".codex/computer-use/codex") + " exec task", False),
+        (
+            str(Path.home() / "Library/Application Support/Codex/codex") + " exec task",
+            False,
+        ),
+        (
+            str(Path.home() / "Library/Application Support/Codex/Codex (Service)"),
+            False,
+        ),
+        (
+            str(Path.home() / "Library/Application Support/Codex/Codex (Renderer)"),
+            False,
+        ),
+        (
+            "/Applications/ChatGPT.app/Contents/MacOS/codex exec CODEX_MODEL=gpt-6.1-sol",
+            False,
+        ),
+        (
+            str(Path.home() / ".codex/computer-use/codex-handoff.sh"),
+            False,
+        ),
         ("/bin/bash /Users/owner/bin/codex-handoff.sh -C /tmp/worktree", True),
         ("/opt/homebrew/bin/codex exec --model gpt-6.1-sol task", True),
         ("/opt/homebrew/lib/node_modules/@openai/codex/bin/codex exec task", True),
         ("codex exec task", True),
         ("env CODEX_MODEL=gpt-6.1-sol /usr/local/bin/worker", True),
         ("/opt/homebrew/bin/codex app-server", False),
+        ("/opt/homebrew/bin/codex exec-server", False),
+        ("/opt/homebrew/bin/codex", False),
         ("/usr/local/bin/sol unrelated", False),
+        ("python -m pytest tests", True),
+        ("pytest research/bl_labels/test_slowdown_resume.py", True),
+        ("python research/study/train.py", True),
     ],
 )
-def test_record_host_check_matches_job_argv_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: str, blocked: bool
+def test_process_checks_match_job_argv_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: str, blocked: bool, nice: int
 ) -> None:
+    blocked = blocked and nice < 15
+    process_calls = []
+
+    def command_output(command):
+        process_calls.append(command)
+        return f"123 1 {nice} {argv}\n"
+
+    monkeypatch.setattr(mac_driver, "_command_output", command_output)
+    if blocked:
+        with pytest.raises(mac_driver.MacGuardError, match="concurrent compute pid 123"):
+            mac_driver._exclusive_factory_guard(set())
+    else:
+        mac_driver._exclusive_factory_guard(set())
     _attempt(tmp_path, "one", workers=6, records=[_trip("watch6", 6, 100, 1000)])
     _attempt(tmp_path, "two", workers=6, records=[_trip("watch6", 6, 200, 2000)])
     calls = []
 
-    def check_output(command: list[str], *, text: bool) -> str:
+    def check_output(command: list[str], *, text: bool, timeout: int) -> str:
         assert text is True
+        assert timeout == 10
         calls.append(command)
         if command == ["/usr/bin/pmset", "-g", "therm"]:
             return "CPU_Speed_Limit = 100\n"
         if command == ["/bin/ps", "-axo", "pid=,pcpu=,comm="]:
             return " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex\n"
-        assert command == ["/bin/ps", "-axo", "pid=,args="]
-        return f" 123 {argv}\n"
+        raise AssertionError(command)
 
     monkeypatch.setattr(slowdown_resume.subprocess, "check_output", check_output)
+    monkeypatch.setattr(
+        mac_driver,
+        "_guard_snapshot",
+        lambda _: {"ac_power": True, "lid_open": True, "thermal": "CPU_Speed_Limit = 100\n"},
+    )
     if blocked:
-        with pytest.raises(ValueError, match="host check found Sol/Codex process; HOLD"):
+        with pytest.raises(ValueError, match="host check found unsafe process observation; HOLD"):
             slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
         assert not list(tmp_path.glob("slowdown-host-check-*"))
     else:
         path = slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
         receipt = slowdown_resume._read_triplet(path)
-        assert receipt["no_sol_codex"] is True
+        assert "no_sol_codex" not in receipt
+        assert receipt["no_disallowed_competing_compute"] is True
+        assert receipt["serial_test_lane_stopped"] is True
+        assert receipt["ruling_sha256"] == slowdown_resume.INTERIM_RULING_SHA256
+        assert receipt["operational_pin"] == slowdown_resume._operational_pin()
         assert receipt["pmset_therm"] == "CPU_Speed_Limit = 100\n"
         assert receipt["top_cpu_consumers"] == [
             " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex"
         ]
         assert slowdown_resume.resume_policy(6, tmp_path) == (6, [])
-    assert calls[-1] == ["/bin/ps", "-axo", "pid=,args="]
+    assert calls[-1] == ["/bin/ps", "-axo", "pid=,pcpu=,comm="]
+    assert process_calls == [["/bin/ps", "-A", "-o", "pid=,ppid=,nice=,args="]] * 2
 
 
 def test_w12_pair_uses_common_verified_24_hour_clean_return_rule(tmp_path: Path) -> None:
@@ -212,3 +283,97 @@ def test_legacy_telemetry_counts_only_without_explicit_record_list(tmp_path: Pat
         )
     assert slowdown_resume.escalation(tmp_path)["w6_epoch"] == pytest.approx(2001.0)
     assert len(slowdown_resume.slowdown_trip_records(tmp_path)) == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "foreign"),
+    [
+        ("schema", "bl-labels-f0-slowdown-host-check/v1"),
+        ("schema", "foreign/v1"),
+        ("policy", "ALLOW_BOUNDED_CONCURRENCY"),
+        ("ruling_sha256", "0" * 64),
+        ("operational_pin", "0" * 40),
+        ("operational_pin", None),
+        ("no_disallowed_competing_compute", False),
+        ("serial_test_lane_stopped", False),
+        ("host_health", None),
+        ("no_sol_codex", True),
+    ],
+)
+def test_recovery_refuses_unbound_or_foreign_interim_receipt(
+    tmp_path: Path, field: str, foreign: object
+) -> None:
+    _attempt(tmp_path, "one", workers=6, records=[_trip("watch6", 6, 100, 1000)])
+    _attempt(tmp_path, "two", workers=6, records=[_trip("watch6", 6, 200, 2000)])
+    valid = tmp_path / "valid"
+    _host_check(valid, 2000)
+    value = slowdown_resume._read_triplet(valid / "slowdown-host-check-999.json")
+    value[field] = foreign
+    publish_json(tmp_path / "slowdown-host-check-foreign.json", value)
+    for width in (6, 12):
+        with pytest.raises(ValueError, match="host check required"):
+            slowdown_resume.resume_policy(width, tmp_path)
+
+
+def test_host_check_refuses_running_serial_test_lane(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from research.compute.factory_interim_launcher import InterimLaunchError, serial_test_slot
+
+    _attempt(tmp_path, "one", workers=6, records=[_trip("watch6", 6, 100, 1000)])
+    _attempt(tmp_path, "two", workers=6, records=[_trip("watch6", 6, 200, 2000)])
+    monkeypatch.setattr(
+        mac_driver, "_guard_snapshot", lambda _: pytest.fail("must not observe health under tests")
+    )
+    with serial_test_slot():
+        with pytest.raises(InterimLaunchError, match=".+"):
+            slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
+    assert not list(tmp_path.glob("slowdown-host-check-*"))
+
+
+def test_host_check_requires_actual_health_before_publishing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _attempt(tmp_path, "one", workers=6, records=[_trip("watch6", 6, 100, 1000)])
+    _attempt(tmp_path, "two", workers=6, records=[_trip("watch6", 6, 200, 2000)])
+
+    def unsafe(_: Path) -> None:
+        raise mac_driver.MacGuardError("refusing F0 admission on battery")
+
+    monkeypatch.setattr(mac_driver, "_guard_snapshot", unsafe)
+    with pytest.raises(mac_driver.MacGuardError, match="battery"):
+        slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
+    assert not list(tmp_path.glob("slowdown-host-check-*"))
+
+
+@pytest.mark.parametrize("dirty", [" M research/bl_labels/slowdown_resume.py\n", "?? foreign.py\n"])
+def test_operational_receipt_pin_refuses_dirty_checkout(
+    monkeypatch: pytest.MonkeyPatch, dirty: str
+) -> None:
+    from types import SimpleNamespace
+
+    def git(command, **kwargs):
+        assert command == ["git", "status", "--porcelain", "--untracked-files=all"]
+        assert kwargs["timeout"] == 10
+        return SimpleNamespace(stdout=dirty)
+
+    monkeypatch.setattr(slowdown_resume.subprocess, "run", git)
+    with pytest.raises(ValueError, match="checkout is dirty"):
+        _actual_operational_pin()
+
+
+@pytest.mark.parametrize("tool", ['python -c "import numpy"', "/usr/bin/native-tool"])
+@pytest.mark.parametrize("nice", [14, 15, 19])
+def test_foreign_agent_descendants_are_individually_priority_checked(
+    monkeypatch: pytest.MonkeyPatch, tool: str, nice: int
+) -> None:
+    monkeypatch.setattr(
+        mac_driver,
+        "_command_output",
+        lambda _: f"123 1 15 codex exec task\n124 123 {nice} {tool}\n",
+    )
+    if nice < 15:
+        with pytest.raises(mac_driver.MacGuardError, match="concurrent compute pid 124"):
+            mac_driver._exclusive_factory_guard(set())
+    else:
+        mac_driver._exclusive_factory_guard(set())

@@ -192,6 +192,21 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 2026-10-23 17:47 PT | Sol guardfix done at 10:28 PT (0d187a2f, Codex-V PASS, 81 tests), but the operator missed it, so the Mac sat idle about 7 h. D256 W12 resume (bl-f0-d256-guard-w12-01, with --host-check and the w12-admission-01 record) is queued to start 2 min after the P1 Codex-V run exits. |
 | 2026-10-23 17:58 PT | P1 Codex-V _12 FINAL: FAIL on procedure only. Byte bindings PASS (36 URL edits + 20 attempt-identity fields, URL↔ID match, preflight bound). The single finding is F1_A3_3_SQLITE_SUBSTITUTION_UNRATIFIED; the receipt is preserved. Astra judge asked (JUDGMENT_P1_A3_3_SQLITE_20261023.md). D256 W12 dispatch HOLD: the host check matched the ChatGPT app's bundled codex binary by comm name. Sol hostcheck fix (argv match) is launched. |
 | 2026-10-23 18:05 PT | Astra judge RATIFY (JUDGMENT_P1_A3_3_SQLITE_20261023.md): the SQLite ID read is accepted for this pack. Conditions: _12 FAIL preserved; a new create-only Codex-V _13 FINAL must bind the ruling and resolve F1; usual admission/live checks; the VM canary stays mandatory; no restaging. Sol hostcheck fix ca8ad8ab (argv match, ChatGPT app ignored; Codex-V PASS). Codex-V _13 running; D256 W12 (bl-f0-d256-guard-w12-02 @ca8ad8ab) queued 2 min after it exits. |
+| 2026-10-23 18:25 PT | Codex-V _13 FINAL PASS (P1 ready for Claude checks and admission). D256 W12 dispatch -02 HOLD: _exclusive_factory_guard matched ~/.codex/computer-use/Codex Computer Use.app (split at a space gives 'Codex'). Sol exclguard fix launched. The OWNER asked for Astra shortcuts on the GPU-engine rewrite (round-24 estimate 10–15 days / 100–300 u): round-28 Astra panel (8 personas) launched. The exclusive guard also preempts the factory every 5 s whenever any Codex job runs, so an Astra ruling on factory-window concurrency is requested (JUDGMENT_FACTORY_CONCURRENCY_20261023.md). D256 dispatch waits for these to finish. |
+| 2026-10-23 18:45 PT | OWNER STANDING RULE: "i want to have an a100 running always and us trying to make it work using astra advisors". The A100 GPU-engine lane is reopened by owner direction; this supersedes the round-24 §5 reopen conditions. Astra panels choose the experiments, Astra judges, Sol builds, Codex-V verifies; engine outputs never become gate evidence without exact CPU verification. First job: Sol is building A1-PROF (per-stage A100 profile at E64/256/1024, all three rosters; outcome-free) to feed the round-28 panel. Sol exclguard fix 5dfd4a74 is in; D256 waits for the factory-concurrency ruling. |
+| 2026-10-23 18:55 PT | Astra ruling ALLOW_BOUNDED_CONCURRENCY (JUDGMENT_FACTORY_CONCURRENCY_20261023.md): during factory windows Astra/Sol may run at nice ≥15 on a shared 0.25-core budget, plus one test lane at nice 19, 1 thread, ≤120 s wall and ≤90 CPU-s per test (≤300 CPU-s per 30 min). The test lane is revoked when the window median exceeds 1.15×B. Existing guards and timing exclusivity stay binding. Sol 'concurrency' is implementing it; D256 dispatches after that. |
+| 2026-10-23 18:55 PT | Round-28 Astra panel (8 memos) on shortening the GPU engine: consensus 3–5 days and ~25–75 u (vs 10–15 days / 100–300 u). Repair, not rewrite. Main tricks: reuse the existing CUDA sparse-flood/component kernels that vector61 bypasses; remove the 96 repeated body gathers per feature call (2 calls per tick); cache free-space sufficiency proofs; a CPU-authoritative hybrid with batched GPU inference. First test is 0 u stage attribution, with a kill if the remainder exceeds 512 ms per E1024 tick. Dissent (Astra 06): keep STOP unless the end-to-end useful throughput gain is ≥4×. Astra judge is ruling on the 5-day A100 queue. |
+| 2026-10-23 18:57 PT | A1-PROF prepared for the standing owner A100 engine lane; source `557ad8a66677acd14bf78b0acc087020fa42a7c4` published on main, no Colab dispatch. E64/256/1024 x scripted/frozen/mixed, separate uninstrumented full ticks, exclusive CUDA-event segments and profiler kernel/copy/launch/Python/memory attribution; dense vector61 flood isolated, broad and conservative non-observation remainders reported beside descriptive 0.512 s E1024 reference. Published-pin real Mac entrypoint preflight 19.955589 s, 3/3 E1 rosters with progress and immutable sidecars; supervisor canary validation PASS. Codex-V LIGHT: no outstanding findings, 18 package tests passed/1 CUDA skip, 20 source/export tests passed; broader bounded canary/schema/ops selection 178 passed/1 skip. Receipt `research/gpu_sim_spike/CODEX_V_A1_PROF_20261023.json` SHA256 `dc6356244b32674a5f8b2e64ee6838f2228a4107bd22f0b46ac7ec39d311b495`. Forecast 40 min / 5.13-6.67 u total; effective doubled main90min/20u+4reserve and canary30min/5u+1reserve, first cap wins. Same-pin A100 canary mandatory before main; main remains an unbound template. Exact commands in `research/gpu_sim_spike/A1_PROF_HANDOFF_20261023.md`; pinned operational checkout `snake-dqn-a1-prof-run`. Outcome-free diagnostics only, no labels/gate/release evidence; engine, transport, serving and legacy workers unchanged. |
+| 2026-10-23 19:12 PT | OWNER: open-ended speed-up review. Round-29 Astra (4 generalists: RL research lead, ML infra, process/statistics, outsider red team) gets the full list of speed-ups already in place and is asked what is missing. The specialist round-30 panels will follow the directions it raises. |
+| 2026-10-23 19:25 PT | Round-28 Astra JUDGMENT (round-28/JUDGMENT.md): run A1-PROF first, since the 0 u receipt audit cannot establish exclusive stage shares. Then: sparse CUDA floods; remove repeated body gathers; exact geometry; measured residual bottlenecks; cached proofs. A CPU-authoritative batched-inference fallback is built in parallel. Bar: ≥2,000 complete world-steps/s on every roster by hour 72. Day-5 falsifier: ≥4× verified useful lives/h. A ready A100 queue runs within 120 h / ≤1,100 u. A1-PROF (pin 557ad8a6; Mac preflight PASS 20 s; Codex-V PASS) A100 canary DISPATCHED 19:22 PT (cap 5+1 u; main 20+4 u). |
+| 2026-10-23 19:25 PT | Full concurrency implementation 22c0db2f = PREPARED_NOT_QUALIFIED (activation HOLD). Owner-directed interim is being built (sol-interimconc on 5dfd4a74): the factory ignores nice ≥15 processes, and agents/tests are launched via agent_nice.sh. Astra quick ruling requested (JUDGMENT_FACTORY_CONCURRENCY_INTERIM_20261023.md). D256 dispatches after both. |
+| 2026-10-23 19:35 PT | A1-PROF canary INCOMPLETE: the strict profiler-correlation check aborted at 17,843/17,910 kernels attributed (99.6%); the CUDA flood self-check passed on A100-SXM4-40GB. Sol a100prof2 fix running. Interim concurrency ruling ALLOW_NICE15_INTERIM (JUDGMENT_FACTORY_CONCURRENCY_INTERIM_20261023.md); Sol pin 4b46454d (191 tests, Codex-V light PASS); a focused Codex-V (condition 3) is running before the D256 dispatch. run_round.sh and all agent launches now go through ~/.claude/bin/agent_nice.sh. |
+| 2026-10-23 19:40 PT | Round 29 (open-ended, 4 Astras) raised five directions: (1) converting search to policy, using existing labels first; (2) hindsight leaking privileged future randomness; (3) rehearsing the full decision path plus separating 'beats B8' from 'data caused it' and adaptive Mac episode allocation; (4) ops throughput and never-idle; (5) remote verification capacity. Specialist rounds 30 (search→policy), 31 (privileged-randomness leakage), 32 (rehearsal plus sequential/adaptive gates), 33 (ops throughput) launched with 3 experts each. |
+| 2026-10-23 19:50 PT | A1-PROF canary-02 (fix 2edf7ed6: tolerant profiler correlation plus an explicit unattributed share) DISPATCHED to A100. Focused Codex-V of interim pin 4b46454d = FAIL: recovery receipts lack interim ruling/pin identity, and the test lane has no serialization or 120 s deadline. Sol interimfix running; D256 still HOLD. Rounds 30–33 complete (3 memos each); four Astra judges are ruling. |
+| 2026-10-23 19:58 PT | P1 Claude line checks (canary): manifest canary-manifest.json sha fa398a8e…9c726e; Codex-V _13 FINAL sha f6b9b17b…3245a, READY_FOR_CLAUDE_CHECK, 0 unresolved, ruling fe058459…ebfc, commit 03e0af75. Both the _12 FAIL receipt and the Astra A3.3 RATIFY are on record. Live gates: broker = P1 pin = qualified research/colab_cli tree d0d92bdb; Colab 0 assignments / 0 sessions; rate 1.54 u/h; balance 1,099.64 u. Admission and dispatch of p1-repair10-04-canary follow (2.00 u + 0.40 reserve, 30 min, zero retries). Rounds 30–33 Astra judges adopted cheap checks; Sol builders r30–r33 running. A1-PROF canary-02 aborted again: 68 unattributed kernels = 77% of kernel time (the finding itself); Sol a100prof3 now reports per kernel name. |
+| 2026-10-23 20:02 PT | P1 canary ADMITTED (canary-admission/manifest.json via p1_repair_admission canary, Codex-V _13 + Claude line check) and DISPATCHED: p1-repair10-04-canary (2.00 u + 0.40, 30 min, zero retries). Repair (6.16 u) follows only after every canary bar passes, debit is reconciled and the live gates are run fresh. |
+| 2026-10-23 20:06 PT | OWNER: "have astras look at this" (the A1-PROF finding: 68 unattributed kernels = 1.14 s of 1.48 s, 77% of kernel time, ~17 ms per launch). Round-34 Astra panel launched (CUDA perf, PyTorch extension internals, GPU graph algorithms, red team), asking what the kernels are, why correlation fails, the exact next-run profiling setup, and the first fix with a kill rule. |
+| 2026-10-23 19:54 PT | Time correction: rows logged earlier today as 19:50–20:06 PT ran between about 19:25 and 19:45 PT (operator estimate error). D256 W12 RUNNING (bl-f0-d256-guard-w12-04 @387b1dde; interim Codex-V-02 PASS, 99 tests). Workers 12, 815 parents pending, prior elapsed 4,866 s, output d256-output-mac-03. The -03 dispatch was refused by the host check because the tmux parent shell of the agent launches (argv contains codex-handoff.sh) ran at nice 0; those shells were reniced to 15, and agent launches now renice their own shell. P1 canary terminal PASS by the supervisor (523 s, debit 0.15 u, balance 1,099.49); bar mapping is under independent Codex-V (upload_elapsed 208.65 s vs the residual ≤150 / staging ≤300 bars) before any repair. A1-PROF canary-03 DISPATCHED (per-kernel-name export). Round-34 Astras: the 68 kernels are real native-extension launches without profiler scopes (suspects: sparse_frontier, component union/count, event FIFO); the capture was E64 scripted, not E1024. Sol gpuflood is building FUNCTION scopes, per-launch events, matched E1024 ticks, and an exact capped sparse BFS for vector61 with CPU parity and a kill rule. |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -413,3 +428,78 @@ with materialized plans. Packages:
 Use that immutable implementation SHA for every NEW-run command, including after
 later metadata publication commits; the handoff now spells it out literally.
 Actual T-EQ and calibration receipts do not yet exist from this task.
+F0 bounded-concurrency candidate (2026-10-23, Sol): **PREPARED_NOT_QUALIFIED /
+ACTIVATION HOLD**, under ruling `ALLOW_BOUNDED_CONCURRENCY`, SHA256
+`af117cd98d51f428cd83d6e33138fcd13def0b4d7c7cf63a8b2e2b83db99105f`.
+Prepared an operations-only supervisor, argv/desktop-helper recognition,
+absolute-priority wrappers, global test-slot/duty/protected-period policy,
+v2 resume host receipts, 1.15 companion warning, and production integration.
+The mandatory qualification fence refuses monitor/client/tool allocation,
+production admission and host-check publication; no environment/manual PASS
+override exists. Independent Codex-V light review permits publication only as
+a disabled candidate, not activation or a completed implementation of the ruling.
+Native arbitrary-descendant ownership/stable topology, cross-group native CPU
+transfer credits/wrapper overhead, independent watchdog, complete cooperative
+recovery and downstream exclusive-launch proof remain blocking requirements.
+
+Root verification: 200 serial tests passed in 36.30 seconds, plus Black/isort/
+flake8 on all 24 changed Python files and bounded shell checks. Native tests
+validated counter units, waited-child accounting, PID/start/argv identity,
+owned cleanup and an excluded frozen-collector payload/SHA/preempt/resume
+fixture with an admitted nice-15 control command. These are partial evidence,
+not global concurrency qualification. Frozen science remains clean at
+`61900af28932e47e22e332840fc4406559adb062`; scientific source, cumulative
+accounting, caps, allocation, ledger and serving are unchanged. No factory,
+production monitor/client, calibration, timing/strict/serving or long job ran.
+Evidence: `research/bl_labels/CODEX_V_FACTORY_CONCURRENCY_20261023.json`, SHA256
+`3872b77235af797155a0480c26e51992409808cbb1f47a8c603213e1d69a9b4a`;
+operational closure SHA256
+`4b2270d7b70f2a66c6dca137e28def079b0f139b46c1d585fbc383817e54aae0`.
+Operator commands are future protocol only in
+`research/bl_labels/FACTORY_CONCURRENCY_HANDOFF_20261023.md`; do not dispatch
+`bl-f0-d256-guard-w12-03` under this candidate while the fence is HOLD.
+
+R33 bounded ops repair (2026-10-23, Sol preparation): adopted judgment
+`big-lever/round-33/JUDGMENT.md`, SHA256
+`7db57b262f1bfa4ae70597772d79e2904f8d6a885ea530c54178d869911cf07a`.
+Ownership recorded before implementation in `research/r33_ops/OWNERSHIP.md`:
+Sol-O owns watcher/journal/proof dependencies; Sol-P owns package/CI adapters;
+independent Codex-V owns adversarial verification. Existing A1-PROF owner retains
+row 4 exclusively (`research/r33_ops/A1_OWNER_HANDOFF.md`). Claude owns three
+separate next actions: D256-successor evidence/admission, A100 Q1 repair/canary,
+and P1 current-package canary admission. Unknown evidence remains a typed blocker;
+no unrelated scientific dependency or READY is inferred. Engineering timebox is
+3 Sol builder-days + 1 Codex-V day, scope frozen after three calendar days.
+CPU pilot forecast 2 h / 0.16 u; base 2.4 h / 0.192 u; effective shared-series
+4.8 h / 0.384 u (included reserve 0.8 h / 0.064 u), no dispatch by Sol.
+R28 row-4 1.2 h / 12 u is only a sub-envelope of its remaining Q1 authority,
+not new funding. No live balance/capacity, native qualification, operational
+handoff sample, serving or science conclusion is asserted by this preparation.
+
+F0 nice interim mechanical repair / independent Codex-V 02 (2026-10-23):
+**PASS** conditions 1–3 of `ALLOW_NICE15_INTERIM`, ruling SHA256
+`ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd`, at exact
+published operational pin `387b1dde8241c9c24ea352eb92de802b66fc798f`.
+Truthful recovery v2 receipts bind ruling/policy/clean operational HEAD and refuse
+legacy-unbound or foreign authority. Individual relevant descendants must meet
+nice >=15. The real agent launcher now requires light/reviewed-test routes;
+CPU/all six thread limits/Torch intra/inter one are enforced, the canonical
+shared test slot serializes checks, and a <=120 s elapsed deadline covers
+admission, execution, owned cleanup and Mac-lease release. Tests conservatively
+refuse every active factory lease, protecting baseline/rearming/W12 sanity.
+Independent exact-pin product-route review: **99 passed, 0 failed, 0 skipped**,
+pytest 8.19 s, full elapsed 9.699733915971592 s, nice 15; actual numerical nice-15
+and nice-19 probes ran. Initial reviewer-only fixture/harness errors are retained
+and documented; corrected review changed no product bytes. Create-only verdict
+`big-lever/exp/CODEX_V_FACTORY_INTERIM_02_20261023.json`, SHA256
+`d9a0313377cbc617777062df8ce172fdfef2f3d104662e9c093deff0be89cf75`, plus immutable
+sidecar/completion and identical repo triplet. Exact future `-03` dispatch command
+and full ruling/pin/results are in
+`research/bl_labels/NICE_INTERIM_02_OPERATOR_20261023.md`; this record permits the
+normal operator-requested ledger continuation at the reviewed pin, launches
+nothing, and does not qualify the full supervisor. Science stays clean/detached
+at `61900af28932e47e22e332840fc4406559adb062`; accounting and eight applicable
+slowdown/determinism evidence source hashes are unchanged. No actual production
+host check, factory, calibration, outcome look or long job was run. Owner notice:
+the narrow interim is now independently qualified; all real timing/health/
+slowdown/accounting stops remain binding.

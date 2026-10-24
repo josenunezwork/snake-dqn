@@ -36,6 +36,7 @@ from .exports import (
     publish_life,
     publish_session,
 )
+from .slowdown_resume import _sol_codex_job
 
 DEFAULT_TIMING_ARMED = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/mac-timing-armed")
 THREAD_ENV = {
@@ -140,29 +141,45 @@ def _rss_many(pids: list[int]) -> dict[int, int]:
 
 
 def _exclusive_factory_guard(owned_pids: set[int]) -> None:
-    """Refuse concurrent local agents or research compute; never kill them."""
-    table = _command_output(["/bin/ps", "-A", "-o", "pid=,ppid=,args="])
+    """Refuse competing compute below nice 15; never kill non-owned jobs."""
+    table = _command_output(["/bin/ps", "-A", "-o", "pid=,ppid=,nice=,args="])
     rows = []
     for line in table.splitlines():
-        fields = line.strip().split(None, 2)
-        if len(fields) != 3 or not all(x.isdigit() for x in fields[:2]):
+        fields = line.strip().split(None, 3)
+        if len(fields) != 4 or not all(x.isdigit() for x in fields[:2]):
             raise MacGuardError("cannot parse exclusive factory process observation")
-        rows.append((int(fields[0]), int(fields[1]), fields[2]))
+        try:
+            nice = int(fields[2])
+        except ValueError as exc:
+            raise MacGuardError("cannot parse exclusive factory nice observation") from exc
+        if not -20 <= nice <= 20:
+            raise MacGuardError("invalid exclusive factory nice observation")
+        rows.append((int(fields[0]), int(fields[1]), nice, fields[3]))
     owned = {os.getpid(), *owned_pids}
     while True:
-        descendants = {pid for pid, parent, _ in rows if parent in owned}
+        descendants = {pid for pid, parent, _, _ in rows if parent in owned}
         if descendants <= owned:
             break
         owned.update(descendants)
-    for pid, _, command in rows:
-        if pid in owned:
-            continue
+    relevant = set()
+    for pid, _, _, command in rows:
         executable = Path(command.split()[0]).name.lower()
-        agent = executable == "codex"
+        agent = _sol_codex_job(command)
         research = executable.startswith(("python", "pytest")) and re.search(
             r"(?:-m\s+(?:pytest|research\.)|(?:research|src/scripts)/|train_)", command
         )
         if agent or research:
+            relevant.add(pid)
+    # A local tool remains relevant even when its argv alone is generic (for
+    # example Python -c importing NumPy). Never let an accepted agent root
+    # hide a higher-priority numerical or native descendant.
+    while True:
+        descendants = {pid for pid, parent, _, _ in rows if parent in relevant}
+        if descendants <= relevant:
+            break
+        relevant.update(descendants)
+    for pid, _, nice, _ in rows:
+        if pid in relevant and pid not in owned and nice < 15:
             raise MacGuardError(f"exclusive factory window: concurrent compute pid {pid}")
 
 

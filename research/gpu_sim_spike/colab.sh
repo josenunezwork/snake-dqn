@@ -20,6 +20,10 @@ if [[ "${GPU_SIM_SPIKE_ENTRYPOINT:-benchmark}" == "a1-ruler" ]]; then
   exec "$(dirname "$0")/a100_ruler.sh"
 fi
 
+if [[ "${GPU_SIM_SPIKE_ENTRYPOINT:-benchmark}" == "a1-prof" ]]; then
+  exec "$(dirname "$0")/a1_prof.sh"
+fi
+
 input_root="${COLAB_INPUT_DIR}"
 if [[ "${BL_PUBLIC_INPUTS:-0}" == "1" ]]; then
   python -m research.bl_upload.inputs --input-dir "${COLAB_INPUT_DIR}"
