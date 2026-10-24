@@ -474,3 +474,31 @@ CPU pilot forecast 2 h / 0.16 u; base 2.4 h / 0.192 u; effective shared-series
 R28 row-4 1.2 h / 12 u is only a sub-envelope of its remaining Q1 authority,
 not new funding. No live balance/capacity, native qualification, operational
 handoff sample, serving or science conclusion is asserted by this preparation.
+
+F0 nice interim mechanical repair / independent Codex-V 02 (2026-10-23):
+**PASS** conditions 1–3 of `ALLOW_NICE15_INTERIM`, ruling SHA256
+`ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd`, at exact
+published operational pin `387b1dde8241c9c24ea352eb92de802b66fc798f`.
+Truthful recovery v2 receipts bind ruling/policy/clean operational HEAD and refuse
+legacy-unbound or foreign authority. Individual relevant descendants must meet
+nice >=15. The real agent launcher now requires light/reviewed-test routes;
+CPU/all six thread limits/Torch intra/inter one are enforced, the canonical
+shared test slot serializes checks, and a <=120 s elapsed deadline covers
+admission, execution, owned cleanup and Mac-lease release. Tests conservatively
+refuse every active factory lease, protecting baseline/rearming/W12 sanity.
+Independent exact-pin product-route review: **99 passed, 0 failed, 0 skipped**,
+pytest 8.19 s, full elapsed 9.699733915971592 s, nice 15; actual numerical nice-15
+and nice-19 probes ran. Initial reviewer-only fixture/harness errors are retained
+and documented; corrected review changed no product bytes. Create-only verdict
+`big-lever/exp/CODEX_V_FACTORY_INTERIM_02_20261023.json`, SHA256
+`d9a0313377cbc617777062df8ce172fdfef2f3d104662e9c093deff0be89cf75`, plus immutable
+sidecar/completion and identical repo triplet. Exact future `-03` dispatch command
+and full ruling/pin/results are in
+`research/bl_labels/NICE_INTERIM_02_OPERATOR_20261023.md`; this record permits the
+normal operator-requested ledger continuation at the reviewed pin, launches
+nothing, and does not qualify the full supervisor. Science stays clean/detached
+at `61900af28932e47e22e332840fc4406559adb062`; accounting and eight applicable
+slowdown/determinism evidence source hashes are unchanged. No actual production
+host check, factory, calibration, outcome look or long job was run. Owner notice:
+the narrow interim is now independently qualified; all real timing/health/
+slowdown/accounting stops remain binding.
