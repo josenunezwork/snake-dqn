@@ -164,6 +164,7 @@ def staging(root: Path) -> dict:
         "series_id": SERIES,
         "reserve_allocation_sha256": RESERVE,
         "synthetic": False,
+        "factory_union_ledger_sha256": "c" * 64,
         "stage_receipts": {},
         "input_hashes": {},
     }
@@ -190,6 +191,17 @@ def staging(root: Path) -> dict:
         "d1024_fit_sha256": stage_fit(1024)["fit_sha256"],
     }
     bindings["D4096_FUNDING"] = sealed(root / "funding.json", funding)
+    release = json.loads(
+        (Path(__file__).parent / "fixtures/bl_residual_i3_collection_release.json").read_text()
+    )
+    assert release["schema"] == job.COLLECTION_DISPOSITION_SCHEMA
+    release.update(
+        series_id=SERIES,
+        reserve_allocation_sha256=RESERVE,
+        recipe_sha256=RECIPE,
+        funding_receipt_sha256=digest(bindings["D4096_FUNDING"]),
+    )
+    bindings["D4096_COLLECTION_DISPOSITION"] = sealed(root / "release.json", release)
     for key, path in bindings.items():
         control["stage_receipts"][key] = str(path.relative_to(root))
         # The real pack flattens staging names. Fixtures copy to fresh basenames.
@@ -202,13 +214,109 @@ def staging(root: Path) -> dict:
     return control
 
 
-def replace_bound(root: Path, control: dict, key: str, edits: dict) -> None:
+def _replace_one(root: Path, control: dict, key: str, edits: dict) -> None:
+    """Reseal fixture mutations to a fresh path, preserving prior evidence."""
     old = root / control["stage_receipts"][key]
     value = json.loads(old.read_text()) | edits
     new = root / f"modified-{old.name}"
     sealed(new, value)
     control["stage_receipts"][key] = new.name
     control["input_hashes"][new.name] = digest(new)
+
+
+def bound_value(root: Path, control: dict, key: str) -> dict:
+    return json.loads((root / control["stage_receipts"][key]).read_text())
+
+
+def replace_bound(root: Path, control: dict, key: str, edits: dict) -> None:
+    """Propagate dependent hashes/seals, keeping only the edited semantic defect.
+
+    Direct edits of a dependent field remain deliberate binding-defect tests.
+    Digest-tampering tests bypass this helper and corrupt bytes or sidecars.
+    """
+    old_sha = digest(root / control["stage_receipts"][key])
+    _replace_one(root, control, key, edits)
+    if key in ("D256", "D1024"):
+        replace_bound(
+            root,
+            control,
+            key + "_COLLECTION",
+            {"stage_fit_receipt_sha256": digest(root / control["stage_receipts"][key])},
+        )
+    if key in ("D256_COLLECTION", "D1024_COLLECTION"):
+        collections = [bound_value(root, control, f"D{d}_COLLECTION") for d in (256, 1024)]
+        if "D4096_MAC_PROJECTION" in control["stage_receipts"]:
+            b2 = b2_fixture(collections)
+            replace_bound(
+                root,
+                control,
+                "D4096_MAC_PROJECTION",
+                {
+                    k: b2[k]
+                    for k in (
+                        "collection_ledger_sha256",
+                        "cumulative_wall_seconds",
+                        "projected_mac_hours",
+                    )
+                },
+            )
+        _replace_one(
+            root,
+            control,
+            "D4096_PROJECTION",
+            {
+                "collection_receipt_sha256": [
+                    digest(root / control["stage_receipts"][f"D{d}_COLLECTION"])
+                    for d in (256, 1024)
+                ],
+                "measurements": [
+                    {
+                        k: c[k]
+                        for k in ("dose", "fit_sha256", "charged_units", "selected_rescue_lives")
+                    }
+                    for c in collections
+                ],
+            },
+        )
+    if key == "D4096_MAC_PROJECTION":
+        projection = bound_value(root, control, "D4096_PROJECTION")
+        new_sha = digest(root / control["stage_receipts"][key])
+        _replace_one(
+            root,
+            control,
+            "D4096_PROJECTION",
+            {
+                "mac_projection_receipt_sha256": new_sha,
+                "qualified_placement_receipts": [
+                    new_sha if sha == old_sha else sha
+                    for sha in projection["qualified_placement_receipts"]
+                ],
+            },
+        )
+    if key == "D4096_FUNDING":
+        _replace_one(
+            root,
+            control,
+            "D4096_COLLECTION_DISPOSITION",
+            {"funding_receipt_sha256": digest(root / control["stage_receipts"][key])},
+        )
+
+
+def assert_dependent_seals(root: Path, control: dict, *, skip_mac_binding: bool = False) -> None:
+    """Semantic tests must reach the intended check with current digest bindings."""
+    for name in control["stage_receipts"].values():
+        assert verify_export(root / name) == control["input_hashes"][name]
+    projection = bound_value(root, control, "D4096_PROJECTION")
+    assert projection["collection_receipt_sha256"] == [
+        digest(root / control["stage_receipts"][f"D{dose}_COLLECTION"]) for dose in (256, 1024)
+    ]
+    if not skip_mac_binding and "D4096_MAC_PROJECTION" in control["stage_receipts"]:
+        b2_sha = digest(root / control["stage_receipts"]["D4096_MAC_PROJECTION"])
+        assert projection["mac_projection_receipt_sha256"] == b2_sha
+        assert b2_sha in projection["qualified_placement_receipts"]
+    assert bound_value(root, control, "D4096_COLLECTION_DISPOSITION")[
+        "funding_receipt_sha256"
+    ] == digest(root / control["stage_receipts"]["D4096_FUNDING"])
 
 
 def test_collection_is_metadata_only_and_create_only(tmp_path: Path, monkeypatch) -> None:
@@ -359,19 +467,37 @@ def test_zero_mac_projection_passes_all_original_staging_guards(tmp_path: Path) 
 def test_staging_adversarial_refusals(tmp_path: Path, key: str, edit: dict) -> None:
     control = staging(tmp_path)
     replace_bound(tmp_path, control, key, edit)
+    assert_dependent_seals(
+        tmp_path, control, skip_mac_binding="mac_projection_receipt_sha256" in edit
+    )
     with pytest.raises(ValueError):
         job._validate_staging(tmp_path, control, [4096], RECIPE, set())
 
 
-def test_missing_or_unbound_b2_and_changed_seal_refuse(tmp_path: Path) -> None:
+def test_missing_b2_refuses(tmp_path: Path) -> None:
     control = staging(tmp_path)
     missing = copy.deepcopy(control)
     missing["stage_receipts"].pop("D4096_MAC_PROJECTION")
     with pytest.raises(ValueError, match="projection"):
         job._validate_staging(tmp_path, missing, [4096], RECIPE, set())
-    path = tmp_path / control["stage_receipts"]["D4096_MAC_PROJECTION"]
+
+
+@pytest.mark.parametrize("key", ["D4096_MAC_PROJECTION", "D256_COLLECTION", "D4096_FUNDING"])
+def test_staging_digest_tamper_refuses(tmp_path: Path, key: str) -> None:
+    control = staging(tmp_path)
+    path = tmp_path / control["stage_receipts"][key]
     path.write_text("{}")
     with pytest.raises(ValueError, match="hash"):
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+
+
+@pytest.mark.parametrize("key", ["D4096_FUNDING", "D4096_COLLECTION_DISPOSITION"])
+@pytest.mark.parametrize("suffix", [".sha256", ".complete"])
+def test_required_authority_receipts_must_be_sealed(tmp_path: Path, key: str, suffix: str) -> None:
+    control = staging(tmp_path)
+    path = tmp_path / control["stage_receipts"][key]
+    Path(str(path) + suffix).unlink()
+    with pytest.raises(ValueError, match="missing"):
         job._validate_staging(tmp_path, control, [4096], RECIPE, set())
 
 
@@ -381,6 +507,8 @@ def test_missing_or_unbound_b2_and_changed_seal_refuse(tmp_path: Path) -> None:
         (10, 72, True),
         (480 / 7.2, 480, True),
         (70, 504, False),
+        (1e-12, 7.2e-12, True),
+        (1e-12, 0, False),
     ],
 )
 def test_original_positive_unit_projection_still_passes(
@@ -391,11 +519,8 @@ def test_original_positive_unit_projection_still_passes(
     control["stage_receipts"].pop("D4096_MAC_PROJECTION")
     for key in ("D256_COLLECTION", "D1024_COLLECTION"):
         replace_bound(tmp_path, control, key, {"charged_units": units, "placement": "l4"})
-    projection = json.loads((tmp_path / "projection.json").read_text())
-    for m in projection["measurements"]:
-        m["charged_units"] = units
-    projection["projected_units"] = projected
-    replace_bound(tmp_path, control, "D4096_PROJECTION", projection)
+    replace_bound(tmp_path, control, "D4096_PROJECTION", {"projected_units": projected})
+    assert_dependent_seals(tmp_path, control)
     if passes:
         job._validate_staging(tmp_path, control, [4096], RECIPE, set())
     else:
@@ -403,8 +528,11 @@ def test_original_positive_unit_projection_still_passes(
             job._validate_staging(tmp_path, control, [4096], RECIPE, set())
 
 
+@pytest.mark.parametrize("verdict", ["PASS", "STOP_FUNDING", None])
 @pytest.mark.parametrize("published", [True, False])
-def test_f2_funding_route_retains_publication_requirement(tmp_path: Path, published: bool) -> None:
+def test_direct_f2_cannot_replace_canonical_pass_funding(
+    tmp_path: Path, published: bool, verdict: str | None
+) -> None:
     control = staging(tmp_path)
     replace_bound(
         tmp_path,
@@ -412,17 +540,168 @@ def test_f2_funding_route_retains_publication_requirement(tmp_path: Path, publis
         "D4096_FUNDING",
         {
             "schema": "bl-residual-f2-disposition/v1",
+            "verdict": verdict,
             "volume_struck": False,
             "published": published,
             "published_ref": "synthetic-published-ref",
             "source_sha256": "f" * 64,
         },
     )
-    if published:
+    assert_dependent_seals(tmp_path, control)
+    with pytest.raises(ValueError, match="STOP_FUNDING"):
         job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+
+
+@pytest.mark.parametrize(
+    "placement,has_b2", [("mac", True), ("mac", False), ("l4", True), ("l4", False)]
+)
+@pytest.mark.parametrize("projected", [1e-10, 1e-12])
+def test_zero_measured_charges_cannot_hide_behind_tiny_positive_projection(
+    tmp_path: Path, placement: str, has_b2: bool, projected: float
+) -> None:
+    control = staging(tmp_path)
+    for dose in (256, 1024):
+        replace_bound(tmp_path, control, f"D{dose}_COLLECTION", {"placement": placement})
+    if not has_b2:
+        control["stage_receipts"].pop("D4096_MAC_PROJECTION")
+    replace_bound(tmp_path, control, "D4096_PROJECTION", {"projected_units": projected})
+    assert_dependent_seals(tmp_path, control)
+    with pytest.raises(ValueError, match="projection receipt did not pass"):
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+
+
+@pytest.mark.parametrize("verdict", [None, "STOP_FUNDING", "HOLD", "INVALID"])
+def test_canonical_funding_requires_exact_pass(tmp_path: Path, verdict: str | None) -> None:
+    control = staging(tmp_path)
+    replace_bound(tmp_path, control, "D4096_FUNDING", {"verdict": verdict})
+    assert_dependent_seals(tmp_path, control)
+    with pytest.raises(ValueError, match="STOP_FUNDING"):
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+
+
+def test_missing_funding_refuses_otherwise_valid_staging(tmp_path: Path) -> None:
+    control = staging(tmp_path)
+    assert_dependent_seals(tmp_path, control)
+    control["stage_receipts"].pop("D4096_FUNDING")
+    with pytest.raises(ValueError, match="requires funding"):
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+
+
+@pytest.mark.parametrize("disposition", ["PENDING", "PENDING_SEALED", "DISCARDED", "unknown", None])
+def test_collection_must_be_released(tmp_path: Path, disposition: str | None) -> None:
+    control = staging(tmp_path)
+    replace_bound(tmp_path, control, "D4096_COLLECTION_DISPOSITION", {"disposition": disposition})
+    assert_dependent_seals(tmp_path, control)
+    with pytest.raises(
+        ValueError, match="NOT_RUN_BY_RULE" if disposition == "DISCARDED" else "HOLD"
+    ):
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("schema", "foreign"),
+        ("judgment_sha256", "f" * 64),
+        ("series_id", "foreign"),
+        ("registration_sha256", "f" * 64),
+        ("reserve_allocation_sha256", "f" * 64),
+        ("recipe_sha256", "f" * 64),
+        ("collection_ledger_sha256", "f" * 64),
+        ("funding_receipt_sha256", "f" * 64),
+    ],
+)
+def test_foreign_collection_release_refuses(tmp_path: Path, field: str, value: str) -> None:
+    control = staging(tmp_path)
+    replace_bound(tmp_path, control, "D4096_COLLECTION_DISPOSITION", {field: value})
+    if field != "funding_receipt_sha256":
+        assert_dependent_seals(tmp_path, control)
+    with pytest.raises(ValueError, match="foreign D4096 collection release"):
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+
+
+def test_missing_collection_release_refuses(tmp_path: Path) -> None:
+    control = staging(tmp_path)
+    control["stage_receipts"].pop("D4096_COLLECTION_DISPOSITION")
+    with pytest.raises(ValueError, match="released collection disposition"):
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+
+
+def discard_fixture(root: Path, control: dict, *, bound: bool) -> None:
+    value = json.loads(
+        (Path(__file__).parent / "fixtures/bl_residual_i3_terminal_discard.json").read_text()
+    )
+    assert value["schema"] == job.DISCARD_SCHEMA
+    path = sealed(root / ("alternate-discard.json" if bound else job.DISCARD_FILENAME), value)
+    if bound:
+        control["stage_receipts"]["D4096_DISCARD"] = path.name
+        control["input_hashes"][path.name] = digest(path)
+
+
+@pytest.mark.parametrize("bound", [True, False])
+def test_terminal_discard_wins_over_pass_and_missing_funding(tmp_path: Path, bound: bool) -> None:
+    control = staging(tmp_path)
+    assert_dependent_seals(tmp_path, control)
+    discard_fixture(tmp_path, control, bound=bound)
+    with pytest.raises(ValueError, match="NOT_RUN_BY_RULE"):
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+    control["stage_receipts"].pop("D4096_FUNDING")
+    with pytest.raises(ValueError, match="NOT_RUN_BY_RULE"):
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+
+
+def test_discarded_collection_wins_over_missing_funding(tmp_path: Path) -> None:
+    control = staging(tmp_path)
+    replace_bound(tmp_path, control, "D4096_COLLECTION_DISPOSITION", {"disposition": "DISCARDED"})
+    assert_dependent_seals(tmp_path, control)
+    control["stage_receipts"].pop("D4096_FUNDING")
+    with pytest.raises(ValueError, match="NOT_RUN_BY_RULE"):
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+
+
+@pytest.mark.parametrize("entrypoint", ["preflight", "worker"])
+@pytest.mark.parametrize("state", ["terminal", "PENDING_SEALED", "DISCARDED", "missing"])
+def test_pack_and_worker_refuse_before_any_payload_hash_or_output(
+    tmp_path: Path, monkeypatch, entrypoint: str, state: str
+) -> None:
+    control = staging(tmp_path)
+    control.update(schema="bl-residual-control/v1", doses=[4096])
+    if state == "terminal":
+        discard_fixture(tmp_path, control, bound=False)
+    elif state == "missing":
+        control["stage_receipts"].pop("D4096_COLLECTION_DISPOSITION")
     else:
-        with pytest.raises(ValueError, match="STOP_FUNDING"):
-            job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+        replace_bound(tmp_path, control, "D4096_COLLECTION_DISPOSITION", {"disposition": state})
+    (tmp_path / "control.json").write_text(json.dumps(control))
+    original = job.digest
+
+    def guarded(path: Path) -> str:
+        assert path.name in control["stage_receipts"].values(), "payload opened before refusal"
+        return original(path)
+
+    monkeypatch.setattr(job, "digest", guarded)
+    output = tmp_path / "never-created"
+    with pytest.raises(ValueError, match="NOT_RUN_BY_RULE|HOLD"):
+        if entrypoint == "preflight":
+            job.preflight_main_dispatch(tmp_path)
+        else:
+            job.run(tmp_path, output, mode="main")
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("component", ["payload", "sha256", "complete", "dangling-symlink"])
+def test_partial_or_malformed_terminal_discard_is_fail_closed(
+    tmp_path: Path, component: str
+) -> None:
+    control = staging(tmp_path)
+    path = tmp_path / job.DISCARD_FILENAME
+    if component == "dangling-symlink":
+        path.symlink_to(tmp_path / "absent")
+    else:
+        candidate = path if component == "payload" else Path(str(path) + "." + component)
+        candidate.write_text("malformed")
+    with pytest.raises(ValueError, match="NOT_RUN_BY_RULE"):
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
 
 
 def test_b2_exact_130_hour_boundary_and_hold() -> None:
@@ -535,7 +814,8 @@ def test_foreign_collection_ledger_cannot_be_attached_to_a_passed_fit(tmp_path: 
 def test_collection_provenance_cannot_be_rebound(tmp_path: Path, field: str, value) -> None:
     control = staging(tmp_path)
     replace_bound(tmp_path, control, "D256_COLLECTION", {field: value})
-    with pytest.raises(ValueError):
+    assert_dependent_seals(tmp_path, control)
+    with pytest.raises(ValueError, match="projection receipt did not pass"):
         job._validate_staging(tmp_path, control, [4096], RECIPE, set())
 
 

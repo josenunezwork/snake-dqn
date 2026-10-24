@@ -168,7 +168,7 @@ def test_d4096_staging_refuses_without_prior_fits_and_receipts(tmp_path: Path) -
         "stage_receipts": {},
         "input_hashes": {},
     }
-    with pytest.raises(ValueError, match="D4096 requires passed D256 and D1024"):
+    with pytest.raises(ValueError, match="D4096 requires a released collection disposition"):
         job._validate_staging(tmp_path, control, [4096], "a" * 64, set())
 
 

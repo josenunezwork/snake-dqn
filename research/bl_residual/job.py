@@ -19,7 +19,9 @@ import torch
 
 from research.bl_ppo.exports import digest, export_json, export_torch, limit_exports, verify_export
 from research.bl_residual.collection_receipts import (
+    START_JUDGMENT_SHA,
     l4_accounting,
+    sha256,
     validate_mac_projection,
 )
 from research.bl_residual.data import allocate_lives, tensor_cache, validate_rows, world_fold
@@ -36,6 +38,69 @@ from research.bl_residual.protocol import (
     require_judgment,
 )
 from src.model.ego2s_network import ARCH, load_ego2s_checkpoint, spec_for
+
+COLLECTION_DISPOSITION_SCHEMA = "bl-labels-d4096-collection-disposition/v1"
+DISCARD_SCHEMA = "d4096-not-run-by-rule/v1"
+DISCARD_FILENAME = "d4096-not-run-by-rule.json"
+
+
+def _require_d4096_collection_state(input_dir: Path, control: dict, requested: list[int]) -> None:
+    """Give B6 precedence, including an unlisted or partially published seal.
+
+    I1 owns the canonical seal writer. Presence is a refusal, even if the
+    candidate is malformed: a damaged discard can never grant fit admission.
+    Embedded Mac paths are deliberately not followed on workers.
+    """
+    if control.get("synthetic") is True or 4096 not in requested:
+        return
+    stage = control.get("stage_receipts", {})
+    if isinstance(stage, dict) and "D4096_DISCARD" in stage:
+        raise ValueError("NOT_RUN_BY_RULE: D4096 discard binding present; terminal discard wins")
+    if any(
+        (input_dir / (DISCARD_FILENAME + suffix)).exists()
+        or (input_dir / (DISCARD_FILENAME + suffix)).is_symlink()
+        for suffix in ("", ".sha256", ".complete")
+    ):
+        raise ValueError("NOT_RUN_BY_RULE: D4096 terminal discard seal present; refuse fit")
+    name = stage.get("D4096_COLLECTION_DISPOSITION") if isinstance(stage, dict) else None
+    if not name:
+        raise ValueError("HOLD: D4096 requires a released collection disposition")
+    value = _sealed_stage_receipt(input_dir, control, name)
+    if value.get("disposition") == "DISCARDED":
+        raise ValueError("NOT_RUN_BY_RULE: D4096 collection disposition is discarded")
+    if value.get("disposition") != "RELEASED":
+        raise ValueError("HOLD: D4096 collection disposition is not released")
+
+
+def _require_collection_release(
+    input_dir: Path, control: dict, stage: dict, recipe_sha: str, funding_name: str
+) -> None:
+    """Require I1's sealed release of this union under this exact PASS funding.
+
+    This schema is a consumer contract until I1 publishes its producer. Missing,
+    pending, discarded or foreign dispositions never authorize opening labels.
+    """
+    name = stage.get("D4096_COLLECTION_DISPOSITION")
+    if not name:
+        raise ValueError("HOLD: D4096 requires a released collection disposition")
+    value = _sealed_stage_receipt(input_dir, control, name)
+    disposition = value.get("disposition")
+    if disposition == "DISCARDED":
+        raise ValueError("NOT_RUN_BY_RULE: D4096 collection disposition is discarded")
+    if disposition != "RELEASED":
+        raise ValueError("HOLD: D4096 collection disposition is not released")
+    if (
+        value.get("schema") != COLLECTION_DISPOSITION_SCHEMA
+        or value.get("judgment_sha256") != START_JUDGMENT_SHA
+        or value.get("series_id") != control.get("series_id")
+        or value.get("registration_sha256") != F4_REGISTRATION_SHA
+        or value.get("reserve_allocation_sha256") != control.get("reserve_allocation_sha256")
+        or value.get("recipe_sha256") != recipe_sha
+        or not sha256(control.get("factory_union_ledger_sha256"))
+        or value.get("collection_ledger_sha256") != control["factory_union_ledger_sha256"]
+        or value.get("funding_receipt_sha256") != digest(input_dir / funding_name)
+    ):
+        raise ValueError("HOLD: foreign D4096 collection release binding")
 
 
 def synthetic_table(base: Any) -> dict[str, np.ndarray]:
@@ -117,6 +182,7 @@ def _validate_staging(
     """Enforce R6 stops before training partitions or output directories are touched."""
     if control.get("synthetic") is True:
         return
+    _require_d4096_collection_state(input_dir, control, requested)
     stage = control.get("stage_receipts", {})
     if not isinstance(stage, dict) or any(not isinstance(v, str) for v in stage.values()):
         raise ValueError("bound stage_receipts mapping required")
@@ -151,25 +217,12 @@ def _validate_staging(
         and funding.get("recipe_sha256") == recipe_sha
         and funding.get("d256_fit_sha256") == d256_sha
         and funding.get("d1024_fit_sha256") == d1024_sha
-        and (
-            (
-                funding.get("schema") == "bl-residual-funding-look/v1"
-                and funding.get("verdict") == "PASS"
-            )
-            or (
-                funding.get("schema") == "bl-residual-f2-disposition/v1"
-                and funding.get("volume_struck") is False
-                and funding.get("published") is True
-                and isinstance(funding.get("published_ref"), str)
-                and bool(funding["published_ref"])
-                and isinstance(funding.get("source_sha256"), str)
-                and len(funding["source_sha256"]) == 64
-                and all(char in "0123456789abcdef" for char in funding["source_sha256"])
-            )
-        )
+        and funding.get("schema") == "bl-residual-funding-look/v1"
+        and funding.get("verdict") == "PASS"
     )
     if not funding_ok:
         raise ValueError("STOP_FUNDING: D4096 funding receipt did not pass")
+    _require_collection_release(input_dir, control, stage, recipe_sha, funding_name)
     projection = _sealed_stage_receipt(input_dir, control, projection_name)
     projected = projection.get("projected_units")
     collection_names = (stage.get("D256_COLLECTION"), stage.get("D1024_COLLECTION"))
@@ -218,6 +271,9 @@ def _validate_staging(
             or collection.get("dose") != expected_dose
             or collection.get("fit_sha256") != expected_sha
             or collection.get("qualified_tree") != QUALIFIED_TREE
+            or type(collection.get("charged_units")) not in (int, float)
+            or not np.isfinite(collection["charged_units"])
+            or collection["charged_units"] < 0
             or collection.get("charged_units") != measurement.get("charged_units")
             or collection.get("selected_rescue_lives") != measurement.get("selected_rescue_lives")
         ):
@@ -226,7 +282,7 @@ def _validate_staging(
         measured_units / selected_lives * 3072 * 1.2 if selected_lives else float("inf")
     )
     zero_mac_ok = False
-    if type(projected) in (int, float) and projected == 0:
+    if measurements_valid and measured_units == 0 and type(projected) in (int, float):
         mac_name = stage.get("D4096_MAC_PROJECTION")
         if mac_name and all(
             c.get("placement") == "mac"
@@ -245,7 +301,8 @@ def _validate_staging(
                     provenance_ok = False
             mac_sha = digest(input_dir / mac_name)
             zero_mac_ok = (
-                provenance_ok
+                projected == 0
+                and provenance_ok
                 and projection.get("mac_projection_receipt_sha256") == mac_sha
                 and isinstance(projection.get("qualified_placement_receipts"), list)
                 and mac_sha in projection.get("qualified_placement_receipts", [])
@@ -288,7 +345,7 @@ def _validate_staging(
         and isinstance(projected, (int, float))
         and not isinstance(projected, bool)
         and np.isfinite(projected)
-        and (float(projected) > 0 or zero_mac_ok)
+        and ((measured_units > 0 and float(projected) > 0) or zero_mac_ok)
         and measurements_valid
         and projected <= 480
         and np.isclose(float(projected), expected_projection, rtol=0.0, atol=1e-9)
@@ -369,6 +426,7 @@ def preflight_main_dispatch(input_dir: Path) -> dict:
     control = json.loads((input_dir / "control.json").read_text())
     if control.get("schema") != "bl-residual-control/v1" or control.get("synthetic") is not False:
         raise ValueError("main preflight requires a non-synthetic F4 control")
+    _require_d4096_collection_state(input_dir, control, control.get("doses", []))
     for name, sha in control.get("input_hashes", {}).items():
         # Partition bytes are deliberately not opened at admission.  The runner
         # checks their hashes only after this guard has permitted dispatch.
@@ -425,6 +483,7 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
     control = json.loads((input_dir / "control.json").read_text())
     if control.get("schema") != "bl-residual-control/v1":
         raise ValueError("foreign control")
+    _require_d4096_collection_state(input_dir, control, control.get("doses", []))
     for name, sha in control["input_hashes"].items():
         if Path(name).name != name or digest(input_dir / name) != sha:
             raise ValueError("input hash mismatch")

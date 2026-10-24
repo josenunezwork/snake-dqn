@@ -1,5 +1,9 @@
 # I3 D4096 receipt producers
 
+Admission and verification updates from the independent FIX-FIRST review are in
+[I3_FIXFIRST_HANDOFF_20261024.md](I3_FIXFIRST_HANDOFF_20261024.md). That handoff
+supersedes this document's admission requirements and integration status.
+
 Implements §1's zero-unit defect and §5 step 9 of
 `JUDGMENT_D4096_START_20261024.md`, SHA256
 `ccf1e0cd8d60a2019c983ab2714d58663ca42e2a228a0ddf78c16216c2ef83fb`.
