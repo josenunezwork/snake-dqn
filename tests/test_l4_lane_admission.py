@@ -154,6 +154,30 @@ def test_prerequisite_refuses_old_pin_and_tampered_manifest(tmp_path: Path) -> N
         admission.prerequisite_arms(path, REPO)
 
 
+def test_dispatch_needs_reviewer_accept_at_this_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    record = tmp_path / "CLAUDE_V_L4_REQUAL_02_20261024.json"
+    monkeypatch.setattr(admission, "REVIEW_PATH", record)
+    with pytest.raises(ValueError, match="lacks its independent reviewer ACCEPT"):
+        admission.require_review()
+    good = {
+        "schema": "l4-requal-02-review/v1",
+        "verdict": "ACCEPT",
+        "transport_pin": admission.TRANSPORT_PIN,
+        "source_sha256": {"research/colab_cli/supervisor.py": "0" * 64},
+    }
+    for bad in ({**good, "verdict": "REVISE"}, {**good, "transport_pin": "a18bf6b4"}):
+        record.write_text(json.dumps(bad))
+        with pytest.raises(ValueError, match="ACCEPT at this pin"):
+            admission.require_review()
+    record.write_text(json.dumps(good))
+    assert admission.require_review()["verdict"] == "ACCEPT"
+    requalify = (REPO / "tools/ops/requalify.py").read_text()
+    assert 'registry.name == "l4-label-lane-qualified.json"' in requalify
+    assert 'require_review(review["commit"])' in requalify
+
+
 def _dispatch_module():
     spec = importlib.util.spec_from_file_location("ops_dispatch", REPO / "tools/ops/dispatch.py")
     module = importlib.util.module_from_spec(spec)

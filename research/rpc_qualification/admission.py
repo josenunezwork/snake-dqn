@@ -17,7 +17,30 @@ WORKER_PIN = "2af48cd0b98a2063f46871cf4d320a5541b789af"
 # Rebound to the v2 recovery-fix commit (judgment §4 step 1c); a18bf6b4 was attempt 1.
 TRANSPORT_PIN = "4216927615fe80581daf4fb98d608a807c370ef3"
 TRANSPORT_TREE = "4eefe6b10345f0a7b53c22f3158ce1c131093bfe"
-REVIEW_PATH = "research/rpc_qualification/CLAUDE_V_L4_REQUAL_02_20261024.json"
+# The independent reviewer's create-only ACCEPT lives outside the repository so
+# recording it never moves the pack's pinned source commit.
+REVIEW_PATH = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/"
+    "CLAUDE_V_L4_REQUAL_02_20261024.json"
+)
+
+
+def require_review(transport_pin: str = TRANSPORT_PIN) -> dict[str, Any]:
+    """Reviewer ACCEPT at this exact fix pin, required before any attempt-2 dispatch."""
+    if not REVIEW_PATH.is_file():
+        raise ValueError("attempt-2 package lacks its independent reviewer ACCEPT record")
+    review = json.loads(Path(REVIEW_PATH).read_text())
+    if (
+        review.get("schema") != "l4-requal-02-review/v1"
+        or review.get("verdict") != "ACCEPT"
+        or review.get("transport_pin") != transport_pin
+        or not isinstance(review.get("source_sha256"), dict)
+        or not review["source_sha256"]
+    ):
+        raise ValueError("attempt-2 package lacks an independent reviewer ACCEPT at this pin")
+    return review
+
+
 BANK_SHA256 = "a8c1dc4bbe1fd579d59b69d6ca6ca9dbd2814b088f74277f008f504f6d1bbb0d"
 FROZEN_ARCHIVE_SHA256 = "9ce2219ed1d6de0ccee84243d1b0ec3f71713431fe6e05334f0e073c958c6f45"
 FROZEN_MANIFEST_SHA256 = "de492863ddb644e91f5bba3a7624377b1f4ad334e05694d86c38767db96962f5"
@@ -207,12 +230,7 @@ def validate_manifest(manifest: dict[str, Any], repo: Path) -> None:
             raise ValueError("injection session needs exactly three planned response losses")
     elif injections["entries"]:
         raise ValueError("loop sessions have no deliberate faults")
-    review_path = repo / REVIEW_PATH
-    if not review_path.is_file():
-        raise ValueError("attempt-2 package lacks its independent reviewer ACCEPT record")
-    review = json.loads(review_path.read_text())
-    if review.get("verdict") != "ACCEPT" or review.get("transport_pin") != TRANSPORT_PIN:
-        raise ValueError("attempt-2 package lacks an independent reviewer ACCEPT at this pin")
+    review = require_review()
     for relative, digest in review["source_sha256"].items():
         if sha(repo / relative) != digest:
             raise ValueError(f"reviewed source differs: {relative}")

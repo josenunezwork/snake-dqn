@@ -81,6 +81,13 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
             raise ValueError("acceptance output already exists; prepare a new plan")
         if manifest["commit"] != review["commit"]:
             raise ValueError("acceptance manifest commit differs from review")
+    if registry.name == "l4-label-lane-qualified.json":
+        # Attempt 2 of the L4 label lane: the prerequisite is a dispatch too,
+        # so it needs the independent reviewer ACCEPT at this broker pin first.
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from research.rpc_qualification.admission import require_review
+
+        require_review(review["commit"])
     # An interrupted/failed execution stays consumed. Another call must plan afresh.
     with saved.with_name("ops-execute-started.json").open("x") as stream:
         json.dump({"review_sha256": hashlib.sha256(raw).hexdigest()}, stream)
