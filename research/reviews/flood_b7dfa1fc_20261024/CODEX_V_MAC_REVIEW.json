@@ -1,0 +1,336 @@
+{
+  "benchmark_export": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/exports/sparse-bench.json",
+    "sha256": "c4f6e5eb177040f65a83ac7bad7932f7a34ffaa55b78d53dde56b0a8935fa57d",
+    "status": "MEASURED_PENDING_MAC_REVIEW"
+  },
+  "created_at_utc": "2026-10-24T09:12:34.942191+00:00",
+  "dispatch_authorized_by_this_review": false,
+  "e1024_diagnostic_measurements": [
+    {
+      "dense_tick_seconds": 5.201969284000143,
+      "mix": "scripted",
+      "numerically_at_least_2x": true,
+      "scored_main_measurement": false,
+      "speedup": 2.2643135089355195,
+      "static_tick_seconds": 2.2973714830000063
+    },
+    {
+      "dense_tick_seconds": 5.100572972000009,
+      "mix": "frozen",
+      "numerically_at_least_2x": false,
+      "scored_main_measurement": false,
+      "speedup": 1.9374814520759391,
+      "static_tick_seconds": 2.6325789940001414
+    },
+    {
+      "dense_tick_seconds": 4.945540478999874,
+      "mix": "mixed",
+      "numerically_at_least_2x": false,
+      "scored_main_measurement": false,
+      "speedup": 1.9767213443153513,
+      "static_tick_seconds": 2.5018905639999502
+    }
+  ],
+  "evidence_files": [
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/CODEX_V_MAC_REVIEW.evidence/independent-verification.json",
+      "sha256": "ae408f5d3e53660bb5cc7bb92882550c698dd29c318d5d35699a5e80e4b07ded",
+      "size": 7315
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/CODEX_V_MAC_REVIEW.evidence/mac-canary-reducer.json",
+      "sha256": "d3fa1016a1b9d56753cdf1921c0e2eeb791e89e120f9487bacfe54f56cc40fa8",
+      "size": 54802
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/CODEX_V_MAC_REVIEW.evidence/mac-replay-frozen.json",
+      "sha256": "e2a9d064a0026da93c6bad27b80de671da43b45ff8bdf0d45566c1c700ddcc70",
+      "size": 41193
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/CODEX_V_MAC_REVIEW.evidence/mac-replay-mixed.json",
+      "sha256": "0373a1843a01f94cfbcb97486c11ce93efec0e1ac796f3196554587478f8f8d2",
+      "size": 41193
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/CODEX_V_MAC_REVIEW.evidence/mac-replay-scripted.json",
+      "sha256": "3fd2c127c0cde2628c345b15abe6b60ae0d1e90e691cc6b8034655920d392a3a",
+      "size": 41193
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/CODEX_V_MAC_REVIEW.evidence/pytest-command.json",
+      "sha256": "0ba7c8b8e6c7d789a806768f735a7bf72e86254db8298e61c0129814d271aabf",
+      "size": 580
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/CODEX_V_MAC_REVIEW.evidence/pytest.log",
+      "sha256": "8dba312482bf60b978e1a7e080a4d6d5f15d3046e2d2c9a6147a2e8ab60f89bf",
+      "size": 1500
+    }
+  ],
+  "independent_verifier": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-flood-codexv-review/research/reviews/flood_b7dfa1fc_20261024/verify_mac.py",
+    "sha256": "c5f8710748580431beca9a9175024c8b4b9bcae246675c5ce4d414b1d4dcf438"
+  },
+  "integration_benchmark_admitted": false,
+  "limitations": [
+    "Mac cannot rerun native CUDA; native actual feature matrices are not exported.",
+    "Each saved state is one independent world, replicated at E1024.",
+    "Canary has one repeat and zero warmups; registered main decision is absent.",
+    "Component identity does not qualify engine mechanics or closed-loop policies.",
+    "Exported native parity is authenticated recorded evidence; actual native feature matrices are not exported for a fresh Mac byte comparison.",
+    "Three recorded independent worlds, six rows each; E1024 replicas are not 1024 independent worlds.",
+    "No performance rerun, dispatch, retry, fit, gameplay evaluation, serving change, release or live runtime operation."
+  ],
+  "manifest": {
+    "canary": true,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/manifest.json",
+    "sha256": "a3657e3f4d43cc693aa5424f7dd9e2aba28c94990327139c497e42423b27315c"
+  },
+  "measured_pin": "b7dfa1fc35321a388813122b3acfe033d1367782",
+  "next_required_evidence": "The existing registered main packet must have an independently accepted current-pin result with all three warmed matched repeats for each roster, within its existing rules/caps and operator admission. No main dispatch is performed or authorized by this review.",
+  "packet": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output",
+  "preservation": "Original receipt, exports, manifests, prior verdicts and hash-bound documents remain unchanged; only new review/evidence files added.",
+  "publication": {
+    "committed_copy": "/Users/josenunez/Projects/ml/snake-dqn-flood-codexv-review/research/reviews/flood_b7dfa1fc_20261024/CODEX_V_MAC_REVIEW.json",
+    "publication_commit_recorded_in_final_handoff": true,
+    "requested_target": "origin/main"
+  },
+  "receipt": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/receipt.json",
+    "sha256": "67da2e8e77e8f5a74ae9ce952cf09d7981d1a155928810a20374528a9d14dbec",
+    "status": "PASS",
+    "stop_evidence_scope": "Saved supervisor receipt; no new live account query.",
+    "stop_verified": true
+  },
+  "registered_main_speed_decision": "NOT_RUN_IN_REVIEWED_PACKET",
+  "reviewer": "Independent Codex-V Mac verification",
+  "route_decision": "INCOMPLETE",
+  "rule_interpretation": {
+    "actual_canary_measurement": {
+      "measured_repeats_per_backend_per_roster": 1,
+      "speed_enforcement": false,
+      "warmups": 0
+    },
+    "broader_rules": "Round-28 whole-feature path selection and integrated 2000/s bar do not supersede the explicit FLOOD complete-tick rule; the parity ruling preserves CPU component exactness and its timing paragraph applies to MOVE.",
+    "canary_mac_reducer_verdict": "CANARY_DIAGNOSTIC",
+    "each_roster_must_pass": true,
+    "includes": [
+      "reset",
+      "hero and opponent policies",
+      "features and carry",
+      "movement",
+      "ordered events",
+      "food/corpses",
+      "collection"
+    ],
+    "numeric_diagnostic": "Frozen and mixed ratios are below 2.0. If these were the registered warmed main medians the speed rule would stop the route, but they are not scored main medians.",
+    "per_stage_flood_timing_seconds": null,
+    "per_stage_timing_note": "No per-stage flood timing or trace in the nine exported payloads. Round-36 approximately 32 ms belongs to a different V8 candidate and is not evidence for this packet.",
+    "per_stage_timing_status": "NOT_EXPORTED",
+    "quantity": "synchronized profiler-free complete reset-inclusive E1024 tick wall, dense/static ratio",
+    "references": [
+      {
+        "finding": "Three warmed matched repeats per roster; complete-tick speedup below 2x on any E1024 roster is STOP_ROUTE. A faster flood alone cannot pass.",
+        "lines": [
+          61,
+          68
+        ],
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-flood-codexv-pin-b7dfa1fc/research/gpu_sim_spike/GPU_FLOOD_V4_INTENT_20261023.md",
+        "sha256": "29fef399660cce2aa5c1a9d5243955fb90b717a8c1ceef1b443238576160e5ab"
+      },
+      {
+        "finding": "The speed stop is explicitly attached to main E1024 measurements.",
+        "lines": [
+          41,
+          45
+        ],
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-flood-codexv-pin-b7dfa1fc/research/gpu_sim_spike/GPU_FLOOD_V4_HANDOFF_20261023.md",
+        "sha256": "41a8f77f70a4f957ec512e7e0f7007aed362c49a0c6830ae6c2e6a08f35810f7"
+      },
+      {
+        "finding": "Canary uses one repeat, zero warmups and enforce_speed=False; main uses three repeats/three warmups.",
+        "lines": [
+          412,
+          428
+        ],
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-flood-codexv-pin-b7dfa1fc/research/gpu_sim_spike/sparse_bench.py",
+        "sha256": "57214f83b4646838a04eb73d1242d48b750b91906fea39a3a6dfe148a29db17e"
+      },
+      {
+        "finding": "Mac reducer returns CANARY_DIAGNOSTIC in canary mode; speed STOP_ROUTE is guarded by not canary.",
+        "lines": [
+          50,
+          80
+        ],
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-flood-codexv-pin-b7dfa1fc/research/gpu_sim_spike/sparse_analyze.py",
+        "sha256": "60103583f364f6e8eb28ca13f2b95fc1dc4e88b50f9887e77dc497c7b42d93dc"
+      },
+      {
+        "finding": "FLOOD retains independent CPU capped counts, normalization, feature-byte and carry requirements; unrelated fields preserved. Component proof is not trajectory proof.",
+        "lines": [
+          12,
+          17
+        ],
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_GPU_PARITY_STANDARD_20261023.md",
+        "sha256": "51b637243a57db2a64baa0d80174386994e3e9f71d545589c31628ad58b4948b"
+      },
+      {
+        "finding": "This paragraph is the MOVE packet timing requirement and does not replace the FLOOD complete-tick registration.",
+        "lines": [
+          53,
+          53
+        ],
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_GPU_PARITY_STANDARD_20261023.md",
+        "sha256": "51b637243a57db2a64baa0d80174386994e3e9f71d545589c31628ad58b4948b"
+      },
+      {
+        "finding": "Q2 selects on whole-feature time; Q4 integrated 2000/s bar is separate. No isolated-flood-stage 2x override.",
+        "lines": [
+          47,
+          56
+        ],
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-28/JUDGMENT.md",
+        "sha256": "89996ae9190165aae08036525d3d1b5dbedf1bbfdbd5fd5f1d2b888b13e925dd"
+      },
+      {
+        "finding": "Integration waits for FLOOD native compile/parity and its required main decision under unchanged rules.",
+        "lines": [
+          15,
+          19
+        ],
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-36/JUDGMENT.md",
+        "sha256": "156c80b412064defd88281424e4c84e6a732d9cb8bc6e163561ef352ffb5fe3b"
+      },
+      {
+        "finding": "Decision precedence INVALID then INCOMPLETE then registered scientific stop then advance; CPU component contracts remain binding.",
+        "lines": [
+          122,
+          126
+        ],
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-36/JUDGMENT.md",
+        "sha256": "156c80b412064defd88281424e4c84e6a732d9cb8bc6e163561ef352ffb5fe3b"
+      }
+    ],
+    "registered_main_measurement": {
+      "measured_repeats_per_backend_per_roster": 3,
+      "summary": "median",
+      "warmups": 3
+    },
+    "threshold": 2.0,
+    "why_no_binary_route_verdict": "The requested route PASS/STOP_ROUTE binary is not supported by this canary under the frozen producer, reducer, intent and handoff. INCOMPLETE precedes a scientific stop. PASS here describes only the Mac canary verification."
+  },
+  "schema": "codex-v-flood-mac-review/v1",
+  "scientific_stop_route_established": false,
+  "summary": "Canary integrity and bounded independent CPU component parity PASS. The required three-warmed-repeat main decision is absent, so FLOOD is not admitted to integration. Do not reinterpret the diagnostic canary as a scored main PASS or STOP_ROUTE.",
+  "verdict": "PASS",
+  "verdict_scope": "CANARY_MAC_VERIFICATION_ONLY",
+  "verification": {
+    "exact_pin_worktree": "/Users/josenunez/Projects/ml/snake-dqn-flood-codexv-pin-b7dfa1fc",
+    "export_payloads_verified": 9,
+    "export_sidecars_and_completion_markers_verified": true,
+    "independent_rule_crosscheck": "Read-only reviewer agreed: full-tick threshold; canary diagnostic only; missing main decision blocks I0.",
+    "input_hashes_and_empty_initial_ledgers_verified": true,
+    "lint": "Verifier Black 100-column, isort Black profile and flake8 PASS.",
+    "mac_dense_static_direct_indexed_probes_passed": 12,
+    "manifest_hash_and_terminal_export_inventories_match": true,
+    "native_cuda_reexecuted_on_mac": false,
+    "native_exactness_export_source_hashes_and_four_records_verified": true,
+    "native_exactness_scripted_hashes_match_mac_replay": true,
+    "original_worktree_untouched": true,
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]",
+    "recorded_cpu_fixtures": [
+      {
+        "columns": 61,
+        "cpu_first_world_sha256": "061eed4a6595cdfdb766677546e01caae32cbc259ca62e852d40c36871121039",
+        "cpu_repeated_e1024_sha256": "afb414273e994549e778532e71e4d44693b93ed6734bb0d1fbe0221a4203fefe",
+        "mix": "scripted",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/exports/recorded-states/scripted-static-e1024.npz",
+        "probe_records": 4,
+        "rows": 6,
+        "sha256": "68e182b29e66a564743053dcc3c41b3fc0a8f55b2294a747c336a58a220028d2",
+        "size": 17876,
+        "status": "PASS"
+      },
+      {
+        "columns": 61,
+        "cpu_first_world_sha256": "598b8579c3ca1abe94b50efc240be86d2b9410653f43906c6f95b6b60faaa475",
+        "cpu_repeated_e1024_sha256": "de0adfdaddbe6993601fc94110d7e06ea889ac6aad143ff84ec742858b99169c",
+        "mix": "frozen",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/exports/recorded-states/frozen-static-e1024.npz",
+        "probe_records": 4,
+        "rows": 6,
+        "sha256": "057681d6f33a5ab8a9302ce8c26bb8dd10cd00a4fd01f996af58c0ec04c5bf10",
+        "size": 17925,
+        "status": "PASS"
+      },
+      {
+        "columns": 61,
+        "cpu_first_world_sha256": "85ec87755720ba438d26648a670f08fd5cb09aa9d8bf4e00d08ab90f6b388875",
+        "cpu_repeated_e1024_sha256": "db98b92e4e29894e41a10b112acbd975bb6f08859482be349a6e36120daeb74a",
+        "mix": "mixed",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/exports/recorded-states/mixed-static-e1024.npz",
+        "probe_records": 4,
+        "rows": 6,
+        "sha256": "7c8218e96fc1d82691e76542ee67cb70d00bc14ee9551ca96b07fa07f0ec2e0e",
+        "size": 17908,
+        "status": "PASS"
+      }
+    ],
+    "reported_package_hashes_verified": 131,
+    "same_pin_l4_compile": {
+      "architectures": "8.0;8.9",
+      "kernels_launched": false,
+      "receipt": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/native-compile/output/receipt.json",
+        "sha256": "addea3d80871c542c5062f114860153eda76edf758f6e60e988da5262df40e3c"
+      },
+      "source_flags_and_export_hashes_verified": true,
+      "status": "PASS"
+    },
+    "source_archive_files_verified": 424,
+    "status": "PASS",
+    "tests": {
+      "argv": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-rs",
+        "research/gpu_sim_spike/test_sparse_bench.py",
+        "research/gpu_sim_spike/test_static_capped.py",
+        "research/gpu_sim_spike/test_vector_geometry.py",
+        "research/gpu_sim_spike/test_vector_device.py",
+        "research/gpu_sim_spike/test_vector_exact_native.py",
+        "research/gpu_sim_spike/test_flood_kernels.py"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-flood-codexv-pin-b7dfa1fc",
+      "elapsed_seconds": 5.493622791953385,
+      "result": "40 passed, 7 skipped in 2.81s",
+      "returncode": 0,
+      "skips": "CUDA-only cases; not native passes"
+    },
+    "torch": "2.9.1",
+    "verifier_command": [
+      "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+      "/Users/josenunez/Projects/ml/snake-dqn-flood-codexv-review/research/reviews/flood_b7dfa1fc_20261024/verify_mac.py",
+      "--packet",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output",
+      "--pin-root",
+      "/Users/josenunez/Projects/ml/snake-dqn-flood-codexv-pin-b7dfa1fc",
+      "--output",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/canary-output/CODEX_V_MAC_REVIEW.evidence"
+    ],
+    "verifier_environment": {
+      "MKL_NUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "SNAKE_DQN_DEVICE": "cpu",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "nice": 15
+    }
+  }
+}
