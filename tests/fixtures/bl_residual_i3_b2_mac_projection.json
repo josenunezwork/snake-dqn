@@ -1,0 +1,16 @@
+{
+  "schema": "bl-labels-f0-d4096-mac-projection/v1",
+  "judgment_sha256": "ccf1e0cd8d60a2019c983ab2714d58663ca42e2a228a0ddf78c16216c2ef83fb",
+  "placement": "mac",
+  "verdict": "PASS",
+  "selected_lives": 1024,
+  "increment_lives": 3072,
+  "margin": 1.2,
+  "wall_cap_hours": 130,
+  "collection_ledger_sha256": {
+    "256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "1024": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "cumulative_wall_seconds": {"256": 10800, "1024": 10800},
+  "projected_mac_hours": 21.6
+}

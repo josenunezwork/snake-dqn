@@ -375,18 +375,54 @@ def test_missing_or_unbound_b2_and_changed_seal_refuse(tmp_path: Path) -> None:
         job._validate_staging(tmp_path, control, [4096], RECIPE, set())
 
 
-def test_original_positive_unit_projection_still_passes(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "units,projected,passes",
+    [
+        (10, 72, True),
+        (480 / 7.2, 480, True),
+        (70, 504, False),
+    ],
+)
+def test_original_positive_unit_projection_still_passes(
+    tmp_path: Path, units: float, projected: float, passes: bool
+) -> None:
     control = staging(tmp_path)
     # Legacy positive-unit receipts require no Mac exception or B2 binding.
     control["stage_receipts"].pop("D4096_MAC_PROJECTION")
     for key in ("D256_COLLECTION", "D1024_COLLECTION"):
-        replace_bound(tmp_path, control, key, {"charged_units": 10, "placement": "l4"})
+        replace_bound(tmp_path, control, key, {"charged_units": units, "placement": "l4"})
     projection = json.loads((tmp_path / "projection.json").read_text())
     for m in projection["measurements"]:
-        m["charged_units"] = 10
-    projection["projected_units"] = 20 / 1024 * 3072 * 1.2
+        m["charged_units"] = units
+    projection["projected_units"] = projected
     replace_bound(tmp_path, control, "D4096_PROJECTION", projection)
-    job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+    if passes:
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+    else:
+        with pytest.raises(ValueError, match="projection"):
+            job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+
+
+@pytest.mark.parametrize("published", [True, False])
+def test_f2_funding_route_retains_publication_requirement(tmp_path: Path, published: bool) -> None:
+    control = staging(tmp_path)
+    replace_bound(
+        tmp_path,
+        control,
+        "D4096_FUNDING",
+        {
+            "schema": "bl-residual-f2-disposition/v1",
+            "volume_struck": False,
+            "published": published,
+            "published_ref": "synthetic-published-ref",
+            "source_sha256": "f" * 64,
+        },
+    )
+    if published:
+        job._validate_staging(tmp_path, control, [4096], RECIPE, set())
+    else:
+        with pytest.raises(ValueError, match="STOP_FUNDING"):
+            job._validate_staging(tmp_path, control, [4096], RECIPE, set())
 
 
 def test_b2_exact_130_hour_boundary_and_hold() -> None:
@@ -400,6 +436,17 @@ def test_b2_exact_130_hour_boundary_and_hold() -> None:
     collections[1]["cumulative_wall_seconds"] += 1
     with pytest.raises(ValueError, match="HOLD"):
         receipts.validate_mac_projection(b2_fixture(collections), collections)
+
+
+def test_i1_b2_schema_fixture() -> None:
+    value = json.loads(
+        (Path(__file__).parent / "fixtures/bl_residual_i3_b2_mac_projection.json").read_text()
+    )
+    collections = [
+        {"dose": dose, "cumulative_wall_seconds": 10800, "collection_ledger_sha256": sha}
+        for dose, sha in ((256, "2" * 64), (1024, "1" * 64))
+    ]
+    receipts.validate_mac_projection(value, collections)
 
 
 def test_l4_tail_units_are_separate_and_bound(tmp_path: Path) -> None:
