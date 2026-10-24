@@ -32,9 +32,8 @@ def verify(root: Path) -> None:
             raise RuntimeError("control namespace parent is not the pinned namespace")
         loaded = sys.modules.get(name)
         if loaded is not None:
-            if getattr(loaded, "__file__", None) is not None or list(loaded.__path__) != [
-                str(expected)
-            ]:
+            locations = {str(Path(path).resolve()) for path in loaded.__path__}
+            if getattr(loaded, "__file__", None) is not None or locations != {str(expected)}:
                 raise RuntimeError("control namespace was imported from another root")
         else:
             # Restrict the namespace to this root; a later installed regular
