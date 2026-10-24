@@ -199,11 +199,17 @@ none can be corrected with a text-based renice.
 
 ## Activate and verify the real renicer before the canary
 
-The current live artifact
-`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/renicer.sh` is the old
-substring loop (observed SHA256
-`0335a7acc86a25b294cb650353cac78cc214e7b771dba780db5ffcee3670fb7b`).
-The proposed `tools/ops/renicer.py` obtains the common classification through
+The artifact `/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/renicer.sh`
+has been replaced with the shared-classifier wrapper, SHA256
+`5f5a4a9d9ec66897deff4fd3f3d35e5973ac54f24fe09c555fe5f3d804115090`.
+It checks its source files against immutable code revision
+`1d1f7d37567d1d456962bd78bf6d7eb06c12e9fc`; the final operational pin must
+retain those exact classifier/renicer bytes. The former substring loop is
+preserved create-only at `ops/renicer.before-colab-control-nice0-20261023.sh`,
+SHA256 `0335a7acc86a25b294cb650353cac78cc214e7b771dba780db5ffcee3670fb7b`.
+No running renicer was stopped or restarted by this implementation; an old
+in-memory loop can still be active. The replacement `tools/ops/renicer.py`
+obtains the common classification through
 `factory_persistence.process_rows` and its shared
 `research.compute.colab_control` classifier, but these reviewed repository bytes
 are not activated merely by writing or replacing a file.

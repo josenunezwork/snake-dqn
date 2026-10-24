@@ -825,3 +825,10 @@ D1024 dispatch forms, factory continuation, renicer restart, and failure rules.
 The owner is informed through the final operator handoff; release/serving authority
 is unchanged. Failure retains evidence and stops new overlap admission without
 changing deadlines, width, baselines, retry authority or existing cleanup duties.
+
+The real `ops/renicer.sh` is now a source-pinned wrapper for the shared classifier
+(SHA256 `5f5a4a9d9ec66897deff4fd3f3d35e5973ac54f24fe09c555fe5f3d804115090`),
+with its former bytes preserved create-only. No old loop was restarted; native
+operator activation is a mandatory canary precondition. Focused serial checks
+and any inert local actual-priority fixture are indexed in the independent
+receipt; neither is provider qualification or the authorized overlap canary.
