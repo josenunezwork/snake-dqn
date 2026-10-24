@@ -117,6 +117,16 @@ class FakeCLIProcess:
             row["code_sha256"] = self._request(wrapped)
             self.exec_count += 1
             nonce = self._nonce(wrapped)
+            if "SNAKE_MARKER_CENSUS" in wrapped:
+                row["role"] = "marker_census"
+                if self.scenario == "lifecycle_census_failed":
+                    self.calls.append({**row, "outcome": "timeout"})
+                    raise subprocess.TimeoutExpired(argv, float(kwargs["timeout"]))
+                if self.scenario == "lifecycle_census_slow":
+                    self.clock.now += 5.0
+                output = nonce + json.dumps({"markers": {}, "client_files": {}})
+                self.calls.append({**row, "outcome": "completed"})
+                return subprocess.CompletedProcess(argv, 0, output, "")
             if self.scenario == "heartbeat" and not self.heartbeat_done:
                 self.heartbeat_done = True
                 self.cli._put_lease("/content/root", "generation", 60)
@@ -149,7 +159,9 @@ class FakeCLIProcess:
                 raise supervisor.Refused("HTTP 503")
             self.calls.append({**row, "outcome": "completed"})
             return subprocess.CompletedProcess(argv, 0, "No active sessions found on server.\n", "")
-        if command == "sessions" and self.scenario == "stop":
+        if command == "sessions" and (
+            self.scenario == "stop" or self.scenario.startswith("lifecycle_")
+        ):
             self.session_count += 1
             self.calls.append({**row, "outcome": "completed"})
             if self.session_count == 1:
@@ -282,6 +294,146 @@ def _run_stop(root):
         "fence": cli.exec_uncertain,
         "fence_transitions": events,
         "release": {"decision": "verified", "session_reads": process.session_count},
+    }
+
+
+def _run_broker_cleanup(root, scenario):
+    # Exercise the real Broker.run finally path; only provider/useful-work
+    # boundaries are replaced.  This is intentionally separate from the small
+    # entry-point probes above so receipt cleanup is production code.
+    import types
+    from research.colab_cli import accounting, release, source
+
+    clock = Clock()
+    supervisor.time.monotonic = clock.monotonic
+    supervisor.time.sleep = clock.sleep
+    supervisor.ACCOUNT_ROOT = root / "account"
+    supervisor.REPO = root
+    supervisor.uuid.uuid4 = _stable_ids()
+    instances, external, lease_events = [], [], []
+
+    class Ledger:
+        endpoint = "endpoint"
+        def accounted_assignments(self): return {"assignments": [], "unaccounted_endpoints": []}
+        def receipt(self): return {"endpoint": self.endpoint}
+
+    class LifecycleCLI(supervisor.CLI):
+        watchdog_release_at = None
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            instances.append(self)
+        def stop_lease(self, *args, **kwargs):
+            lease_events.append({"wait": kwargs.get("wait", False), "fence": self.exec_uncertain})
+            return super().stop_lease(*args, **kwargs)
+        def _call_once(self, *args, timeout=45):
+            command = args[0]
+            event = {"command": command, "timeout": timeout, "at": clock.now,
+                     "fence": self.exec_uncertain, "cleanup_mode": self.cleanup_mode}
+            external.append(event)
+            if command == "new":
+                self.config.write_text(json.dumps({self.session: {"endpoint": "endpoint"}}))
+                return ""
+            if command == "exec":
+                code = Path(args[args.index("-f") + 1]).read_text()
+                if "SNAKE_MARKER_CENSUS" in code:
+                    event["command"] = "marker_census"
+                    if scenario == "lifecycle_census_failed":
+                        raise subprocess.TimeoutExpired(args, timeout)
+                    if scenario == "lifecycle_census_slow": clock.now += 5
+                    nonce = re.search(r"print\((['\"])(.*?)\1", code).group(2)
+                    return nonce + json.dumps({"markers": {}, "client_files": {}})
+                return ""
+            if command == "download":
+                destination = Path(args[-1])
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                payload = b"watchdog-checkpoint"
+                if args[-2].endswith(".sha256"):
+                    destination.write_text(hashlib.sha256(payload).hexdigest())
+                else:
+                    destination.write_bytes(payload)
+                return ""
+            if command == "version": return "0.7.4"
+            if command == "sessions": return "No active sessions found on server.\n"
+            return ""
+        def usage(self, *args, **kwargs):
+            external.append({"command": "usage", "at": clock.now})
+            return {"balance": 1000.0, "assignments": 0, "rate": 0.0}
+        def poll_rpc(self, *args, **kwargs):
+            external.append({"command": "poll_rpc", "at": clock.now,
+                             "code_sha256": hashlib.sha256(args[0].encode()).hexdigest()})
+            return True
+        def sessions(self, *args, **kwargs):
+            external.append({"command": "sessions", "timeout": kwargs.get("timeout"),
+                             "at": clock.now})
+            if self.watchdog_release_at is not None and clock.now < self.watchdog_release_at:
+                return {"endpoint": self.session}
+            return {}
+
+    supervisor.CLI = LifecycleCLI
+    supervisor.validate = lambda manifest: manifest
+    supervisor.input_preflight = lambda manifest: []
+    supervisor.subprocess.check_output = lambda *args, **kwargs: b"fixture"
+    def prepare_source(repo, manifest, staging):
+        (staging / "schema-validation.json").write_text("{}")
+    source.prepare = prepare_source
+    release.mint_release_credential = lambda *args, **kwargs: "credential"
+    accounting.admit_account = lambda *args, **kwargs: Ledger()
+    observer_records = {}
+    def execute(self, cli, manifest, generation, output, *unused):
+        if scenario == "lifecycle_near_deadline_cleanup":
+            cli.deadline = clock.now + 3.0
+            cli.priced_deadline = clock.now + 3.0
+        if scenario == "lifecycle_watchdog_release":
+            from research.colab_cli.acceptance_faults import AcceptanceObserver
+            observer = AcceptanceObserver("unused")
+            observer._state = lambda context: {}
+            cli.watchdog_release_at = clock.now + manifest["lease_seconds"] + 2.0
+            observer._watchdog(
+                {"cli": cli, "manifest": manifest, "output": output,
+                 "root": "/content/lifecycle", "generation": generation}
+            )
+            observer_records.update(observer.records)
+        return "fixture-terminal", []
+    supervisor.Broker.execute = execute
+    output = root / "output"
+    manifest = {
+        "job_id": "lifecycle", "commit": "a" * 40, "script": "fixture.sh",
+        "requirements": {"gpu": "cpu", "min_vcpu": 1, "est_minutes": 1.0},
+        "timeout_minutes": 10.0 if scenario == "lifecycle_watchdog_release" else 3.0,
+        "budget": {"rate_units_per_hour": 1.0, "unit_cap": 1.0, "reserve_units": 0.0},
+        "output_dir": str(output), "env": {}, "inputs": [], "lease_seconds": 180,
+        "max_export_bytes": 1024,
+    }
+    try:
+        supervisor.Broker(root / "lanes", "fake").run(manifest)
+        outcome = {"kind": "return"}
+    except BaseException as exc:
+        outcome = {"kind": "exception", "error": _exception(exc)}
+    receipt = json.loads((output / "receipt.json").read_text())
+    census_calls = [row for row in receipt["cli_calls"]
+                    if row.get("evidence_role") == "marker_census"]
+    cli = instances[-1]
+    return {
+        "behavior": {
+            **{key: receipt.get(key)
+               for key in ("status", "stop_verified", "cleanup_error", "failure_class")},
+            "fence": cli.exec_uncertain,
+            "deadline_after_release": cli.deadline,
+            "priced_deadline_after_release": cli.priced_deadline,
+            "lease_events": lease_events,
+            "commands": [{key: value for key, value in event.items() if key != "at"}
+                         for event in external if event["command"] != "marker_census"],
+            "pending_records": sorted(path.name for path in
+                                      supervisor.ACCOUNT_ROOT.glob("pending-*.json")),
+            "active_records": sorted(path.name for path in
+                                     supervisor.ACCOUNT_ROOT.glob("active-*.json")),
+        },
+        "outcome": outcome,
+        "observation": {"census_calls": len(census_calls),
+                        "census_error": receipt.get("marker_census_error")},
+        "receipt": receipt,
+        "external": external,
+        "watchdog": observer_records.get("mac-loss-watchdog-unassign"),
     }
 
 
@@ -434,6 +586,8 @@ def main():
     scenario, root = sys.argv[1], Path(sys.argv[2])
     if scenario in {"chunks", "chunks_retry"}:
         result = _run_transfers(root, scenario)
+    elif scenario.startswith("lifecycle_"):
+        result = _run_broker_cleanup(root, scenario)
     elif scenario == "probe_policy":
         result = _run_probe_policy()
     elif scenario == "stop":
@@ -500,6 +654,11 @@ def _differential_trace(tmp_path: Path) -> dict:
         "stop",
         "chunks",
         "chunks_retry",
+        "lifecycle_census_success",
+        "lifecycle_census_slow",
+        "lifecycle_census_failed",
+        "lifecycle_near_deadline_cleanup",
+        "lifecycle_watchdog_release",
     )
     with tempfile.TemporaryDirectory(prefix="colab-differential-") as baseline_dir:
         baseline_root = Path(baseline_dir)
@@ -517,7 +676,28 @@ def _differential_trace(tmp_path: Path) -> dict:
                 "current": current,
                 "canonical": _strip_evidence(baseline),
             }
-            if scenario == "probe_policy":
+            if scenario.startswith("lifecycle_"):
+                if baseline["behavior"] != current["behavior"]:
+                    raise AssertionError(scenario + " lifecycle behavior changed")
+                expected = 1
+                if current["observation"]["census_calls"] != expected:
+                    raise AssertionError(scenario + " missing authorized census observation")
+                if baseline["observation"]["census_calls"] != 0:
+                    raise AssertionError(scenario + " baseline unexpectedly observed census")
+                if scenario == "lifecycle_watchdog_release":
+                    for row in (baseline, current):
+                        watchdog = row["watchdog"]
+                        if (
+                            not isinstance(watchdog, dict)
+                            or watchdog.get("assignment_disappeared_within_bound") is not True
+                        ):
+                            raise AssertionError(scenario + " watchdog release did not pass")
+                trace["scenarios"][scenario]["authorized_observation_delta"] = {
+                    "kind": "single_bounded_marker_census",
+                    "baseline": "absent",
+                    "current": "failed" if scenario == "lifecycle_census_failed" else "completed",
+                }
+            elif scenario == "probe_policy":
                 # The ruling explicitly authorizes folding the hardened probe
                 # predicate into policy.py. The frozen tree accepts terminal
                 # GuardError text as retryable; current policy rejects those
@@ -563,6 +743,11 @@ def differential_trace(tmp_path_factory: pytest.TempPathFactory) -> dict:
         "stop",
         "chunks",
         "chunks_retry",
+        "lifecycle_census_success",
+        "lifecycle_census_slow",
+        "lifecycle_census_failed",
+        "lifecycle_near_deadline_cleanup",
+        "lifecycle_watchdog_release",
     ],
 )
 def test_current_transport_matches_reviewed_tree_under_fake_clock(
@@ -571,7 +756,10 @@ def test_current_transport_matches_reviewed_tree_under_fake_clock(
     """Each ruling scenario has identical behavior after evidence is stripped."""
     trace = differential_trace
     row = trace["scenarios"][scenario]
-    if scenario == "probe_policy":
+    if scenario.startswith("lifecycle_"):
+        assert row["baseline"]["behavior"] == row["current"]["behavior"]
+        assert row["authorized_observation_delta"]["baseline"] == "absent"
+    elif scenario == "probe_policy":
         assert row["authorized_exception"]["kind"] == "probe_policy_hardening"
         assert row["current"]["probe_policy"] == [False, True, False, True, True, True]
         assert row["baseline"]["probe_policy"] == [True, True, True, True, True, True]

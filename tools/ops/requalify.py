@@ -15,6 +15,32 @@ from types import ModuleType
 
 from qualification import OPS, git, save, tree
 
+LANE_BASE = "af40d093dfe0054171086eed1094d4c76e7fc38f"
+LANE_BRANCH = "ops-l4-faults-v2-20261024"
+LANE_NAME = "l4-label-lane-qualified.json"
+
+
+def is_lane_package(repo: Path, commit: str) -> bool:
+    """Identify lane source even in detached/shallow copies, without output flags."""
+    if git(repo, "branch", "--show-current") == LANE_BRANCH:
+        return True
+    path = "tools/ops/requalify.py"
+    if git(repo, "ls-tree", "--name-only", commit, "--", path):
+        source = git(repo, "show", f"{commit}:{path}")
+        if f'LANE_BASE = "{LANE_BASE}"' in source and f'LANE_BRANCH = "{LANE_BRANCH}"' in source:
+            return True
+    return (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", LANE_BASE, commit],
+            cwd=repo,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+            check=False,
+        ).returncode
+        == 0
+    )
+
 
 def load_transport(repo: Path) -> tuple[ModuleType, ModuleType]:
     """Import the selected clean broker, not the checkout containing this wrapper."""
@@ -46,6 +72,9 @@ def plan(repo: Path, parent: Path, account_map: Path, colab: str) -> Path:
         "state_dir": str(state),
         "colab": colab,
         "plan": record["plan"],
+        "qualification_lane": (
+            "l4-label-lane/v2" if is_lane_package(repo, git(repo, "rev-parse", "HEAD")) else None
+        ),
         "manifest_hashes": {
             job["manifest"]: hashlib.sha256(Path(job["manifest"]).read_bytes()).hexdigest()
             for job in record["plan"]["jobs"]
@@ -63,6 +92,15 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
     raw = saved.read_bytes()
     review = json.loads(raw)
     repo = Path(review["repo"])
+    lane = (
+        is_lane_package(repo, review["commit"])
+        or review.get("qualification_lane") == "l4-label-lane/v2"
+        or registry.resolve().name == LANE_NAME
+    )
+    if lane and registry.resolve().name != LANE_NAME:
+        raise ValueError(
+            "L4 lane package requires l4-label-lane-qualified.json; main registry refused"
+        )
     acceptance, admission = load_transport(repo)
     if token != acceptance.REVIEW_TOKEN:
         raise ValueError("execution requires COLAB_CLI_ACCEPTANCE_REVIEWED")
@@ -81,7 +119,7 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
             raise ValueError("acceptance output already exists; prepare a new plan")
         if manifest["commit"] != review["commit"]:
             raise ValueError("acceptance manifest commit differs from review")
-    if registry.name == "l4-label-lane-qualified.json":
+    if lane:
         # Attempt 2 of the L4 label lane: the prerequisite is a dispatch too,
         # so it needs the independent reviewer ACCEPT at this broker pin first.
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -90,7 +128,7 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
 
         require_review(repo=repo, package_commit=review["commit"])
         validate_fake_proof(
-            repo / "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_05.json",
+            repo / "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_06.json",
             repo,
             review["commit"],
         )
@@ -109,7 +147,7 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
     if result_code != 0:
         raise ValueError("acceptance failed; qualification registry unchanged")
     admission.require_final_only(result, repo)
-    if registry.name == "l4-label-lane-qualified.json":
+    if lane:
         # Publish this lane registry only after the two prerequisite arms have
         # been classified under v2; raw harness PASS cannot hide a CPU C1/C6.
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))

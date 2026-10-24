@@ -37,6 +37,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -354,6 +355,52 @@ def _matched_failed_parent_selector(
     )
 
 
+def _matched_failed_transfer_entry(
+    row: dict[str, Any], entries: list[dict[str, Any]], *, allow_retroactive: bool
+) -> dict[str, Any] | None:
+    """Return the one predeclared injection that can excuse a failed transfer.
+
+    A prospective selector is deliberately narrower than a suffix-only rule:
+    the completed acceptance producer must tag the *failed parent* with the
+    selector ID and declared failure type.  The suffix then binds that realized
+    event to the planned remote, while the row direction binds it to the
+    planned command.  This is the parent-side counterpart to
+    :func:`_matched_failed_parent_selector`, which handles the physical
+    Contents children of a failed parent.
+    """
+    direction = row.get("direction")
+    remote = row.get("remote")
+    if not isinstance(direction, str) or not isinstance(remote, str):
+        return None
+    for entry in entries:
+        if entry.get("command") not in TRANSFER_COMMANDS or entry.get("command") != direction:
+            continue
+        if allow_retroactive:
+            suffix = entry.get("remote_suffix")
+            if isinstance(suffix, str) and remote.endswith(suffix):
+                return entry
+            continue
+        selector = entry.get("selector")
+        if not isinstance(selector, dict):
+            if (
+                remote == entry.get("remote")
+                and row.get("operation_id") == entry.get("operation_id")
+                and row.get("attempt_id") == entry.get("attempt_id")
+                and row.get("failure_type") == entry.get("failure_type")
+            ):
+                return entry
+            continue
+        suffix = selector.get("remote_suffix")
+        if (
+            isinstance(suffix, str)
+            and remote.endswith(suffix)
+            and row.get("realized_selector_id") == entry.get("injection_id")
+            and row.get("failure_type") == entry.get("failure_type")
+        ):
+            return entry
+    return None
+
+
 def _heartbeat_carveout(index: int, calls: list[dict[str, Any]], remotes: dict[int, str]) -> bool:
     """The ruled pre-runtime heartbeat PUT: the first heartbeat, before any staged input."""
     if calls[index].get("command") != "upload" or not remotes.get(index, "").endswith(
@@ -489,6 +536,21 @@ def _completed_transfer_verified(
     parent_id = call.get("parent_transfer_id")
     if isinstance(parent_id, str) and parent_id:
         child_id, verified = call.get("transfer_id"), call.get("verified_sha256")
+        census = receipt.get("marker_census")
+        client_files = census.get("client_files") if isinstance(census, dict) else None
+
+        def parent_matches(parent: dict[str, Any]) -> bool:
+            if parent.get("verification_kind") == "census-file-digest":
+                observed = client_files.get(remote) if isinstance(client_files, dict) else None
+                if not isinstance(observed, dict):
+                    return False
+                return (
+                    observed.get("sha256") == verified
+                    and observed.get("size") == parent.get("local_size")
+                    and parent.get("local_sha256") == verified
+                )
+            return True
+
         return (
             isinstance(child_id, str)
             and isinstance(verified, str)
@@ -498,6 +560,7 @@ def _completed_transfer_verified(
                 and parent.get("status") == "verified"
                 and parent.get("sha256") == verified
                 and parent.get("verified_sha256") == verified
+                and parent_matches(parent)
                 and any(
                     isinstance(child, dict)
                     and child.get("transfer_id") == child_id
@@ -522,6 +585,35 @@ def _completed_transfer_verified(
         and row.get("sha256") == call.get("sha256")
         and row.get("verified_call_index") == index
         for row in receipt.get("transfers") or []
+    )
+
+
+def _census_transfer_observation_missing(
+    receipt: dict[str, Any], call: dict[str, Any], remote: str
+) -> bool:
+    """A missing authorized marker observation blocks admission, without C6."""
+    parent_id = call.get("parent_transfer_id")
+    if not isinstance(parent_id, str):
+        return False
+    parent = next(
+        (
+            row
+            for row in receipt.get("transfers") or []
+            if isinstance(row, dict) and row.get("transfer_id") == parent_id
+        ),
+        None,
+    )
+    if not isinstance(parent, dict) or parent.get("verification_kind") != "census-file-digest":
+        return False
+    census = receipt.get("marker_census")
+    files = census.get("client_files") if isinstance(census, dict) else None
+    observed = files.get(remote) if isinstance(files, dict) else None
+    return not (
+        isinstance(observed, dict)
+        and isinstance(observed.get("sha256"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", observed["sha256"])
+        and type(observed.get("size")) is int
+        and observed["size"] >= 0
     )
 
 
@@ -915,7 +1007,14 @@ def classify_session(
     if not isinstance(receipt, dict):
         raise ValueError("receipt must be an object")
     if markers is None and "marker_census" in receipt:
-        markers = receipt["marker_census"]
+        census = receipt["marker_census"]
+        # v2 marker census originally was the request-ID mapping itself.  The
+        # bounded client-file digest observation shares the same receipt field
+        # under an envelope; only its ``markers`` member participates in C4.
+        # Keep old direct mappings readable for the frozen attempt-one proof.
+        markers = (
+            census.get("markers") if isinstance(census, dict) and "markers" in census else census
+        )
     calls = receipt.get("cli_calls")
     if not isinstance(calls, list) or not calls or not all(isinstance(c, dict) for c in calls):
         raise ValueError("v2 needs the complete supervisor call census")
@@ -1000,6 +1099,14 @@ def classify_session(
                         "kind": "transfer_identity",
                         "index": index,
                         "detail": "completed consumed transfer lacks correlation identity",
+                    }
+                )
+            elif _census_transfer_observation_missing(receipt, call, remote):
+                evidence_missing.append(
+                    {
+                        "kind": "client_file_census",
+                        "index": index,
+                        "detail": "consumed client marker lacks census digest observation",
                     }
                 )
             elif not _completed_transfer_verified(receipt, calls, index, remote):
@@ -1125,28 +1232,13 @@ def classify_session(
         if not isinstance(row, dict):
             raise ValueError("malformed transfers row")
         if row.get("status") != "verified":
-            entry = next(
-                (
-                    e
-                    for e in entries
-                    if e["command"] in TRANSFER_COMMANDS
-                    and e["command"] == row.get("direction")
-                    and (
-                        allow_retroactive_manifest
-                        and isinstance(row.get("remote"), str)
-                        and row["remote"].endswith(e["remote_suffix"])
-                        or not allow_retroactive_manifest
-                        and row.get("remote") == e.get("remote")
-                        and row.get("operation_id") == e.get("operation_id")
-                        and row.get("attempt_id") == e.get("attempt_id")
-                        and row.get("failure_type") == e.get("failure_type")
-                    )
-                    and len(used.setdefault(e["injection_id"] + "#transfers", []))
-                    < e.get("max_calls", 1)
-                ),
-                None,
+            entry = _matched_failed_transfer_entry(
+                row, entries, allow_retroactive=allow_retroactive_manifest
             )
-            if entry is not None:
+            if entry is not None and (
+                len(used.setdefault(entry["injection_id"] + "#transfers", []))
+                < entry.get("max_calls", 1)
+            ):
                 used[entry["injection_id"] + "#transfers"].append(index)
                 used.setdefault(entry["injection_id"], [])
                 excluded.append(

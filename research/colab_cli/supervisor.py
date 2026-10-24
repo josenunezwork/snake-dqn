@@ -304,6 +304,9 @@ class CLI:
         self._evidence_operations = _EVIDENCE_OPERATIONS
         self.marker_census: dict[str, Any] | None = None
         self.marker_census_attempted = False
+        # Local facts about the two client-loss marker reads.  The single
+        # end-of-session census later supplies the independent remote facts.
+        self.client_marker_downloads: list[dict[str, Any]] = []
         self.verified_exports: dict[str, dict[str, Any]] = {}
         self.warmup_seconds = 0.0
         self._lease_stop = threading.Event()
@@ -663,6 +666,31 @@ class CLI:
             "request started without durable completion before operation deadline",
         )
 
+    def record_client_marker_download(
+        self, *, first_call: int, remote: str, local_size: int, local_sha256: str
+    ) -> None:
+        """Retain a local marker-download observation until the final census."""
+        allowed = {"client-start.json", "client-finished.json"}
+        if (
+            not isinstance(first_call, int)
+            or not isinstance(remote, str)
+            or remote.rsplit("/", 1)[-1] not in allowed
+            or type(local_size) is not int
+            or local_size < 0
+            or not re.fullmatch(r"[0-9a-f]{64}", local_sha256)
+        ):
+            raise Refused("client marker observation is invalid")
+        if any(row["remote"] == remote for row in self.client_marker_downloads):
+            raise Refused("client marker observed twice")
+        self.client_marker_downloads.append(
+            {
+                "first_call": first_call,
+                "remote": remote,
+                "local_size": local_size,
+                "local_sha256": local_sha256,
+            }
+        )
+
     def collect_marker_census(self) -> dict[str, Any]:
         """One bounded read-only listing, outside the durable request protocol.
 
@@ -677,9 +705,16 @@ class CLI:
         self.marker_census_attempted = True
         if self.exec_uncertain:
             raise Refused("marker census unavailable while kernel fence is set")
+        client_files = tuple(row["remote"] for row in self.client_marker_downloads)
+        if len(client_files) > 2 or any(
+            not path.startswith("/content/")
+            or path.rsplit("/", 1)[-1] not in {"client-start.json", "client-finished.json"}
+            for path in client_files
+        ):
+            raise Refused("marker census client-file scope is invalid")
         namespace = hashlib.sha256(self.session.encode()).hexdigest()[:32]
         nonce = "SNAKE_MARKER_CENSUS_" + namespace
-        code = marker_census_code(namespace, nonce)
+        code = marker_census_code(namespace, nonce, client_files=client_files)
         with tempfile.NamedTemporaryFile("w", suffix=".py") as handle:
             handle.write(code)
             handle.flush()
@@ -702,6 +737,10 @@ class CLI:
                 if not isinstance(value, dict):
                     raise Refused("marker census response malformed")
                 self.marker_census = value
+                from research.colab_cli.transfers import record_census_verified_download
+
+                for observation in self.client_marker_downloads:
+                    record_census_verified_download(self, census=value, **observation)
                 return value
             finally:
                 for record in reversed(self.call_records):
@@ -2140,7 +2179,7 @@ def main() -> None:
         parser.exit(1, f"{exc}\n")
 
 
-def marker_census_code(namespace: str, nonce: str) -> str:
+def marker_census_code(namespace: str, nonce: str, *, client_files: tuple[str, ...] = ()) -> str:
     """Generate bounded metadata-only observation; never export reply payloads."""
     return (
         "# SNAKE_MARKER_CENSUS\nimport itertools,json,time\nfrom pathlib import Path\n"
@@ -2162,7 +2201,27 @@ def marker_census_code(namespace: str, nonce: str) -> str:
         "        row[kind + '_sha256'] = value.get('sha256')\n"
         "    except Exception:\n"
         "        row[kind + '_corrupt'] = True\n"
-        f"print({nonce!r} + json.dumps(rows, sort_keys=True))\n"
+        f"client_paths = {tuple(client_files)!r}\n"
+        "if len(client_paths) > 2: raise RuntimeError('marker census client-file bound')\n"
+        "client_files = {}\n"
+        "for name in client_paths:\n"
+        "    path = Path(name)\n"
+        "    try:\n"
+        "        stat = path.stat()\n"
+        "        if stat.st_size > 65536 or time.monotonic() > deadline:\n"
+        "            raise RuntimeError('marker census read bound')\n"
+        "        import hashlib\n"
+        "        with path.open('rb') as handle:\n"
+        "            data = handle.read(65537)\n"
+        "        size += len(data)\n"
+        "        if len(data) != stat.st_size or len(data) > 65536 or size > 8388608:\n"
+        "            raise RuntimeError('marker census read bound')\n"
+        "        client_files[name] = {\n"
+        "            'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)}\n"
+        "    except FileNotFoundError:\n"
+        "        pass\n"
+        "observation = {'markers': rows, 'client_files': client_files}\n"
+        f"print({nonce!r} + json.dumps(observation, sort_keys=True))\n"
     )
 
 

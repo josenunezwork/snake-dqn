@@ -23,6 +23,27 @@ REVIEW_PATH = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/"
     "CLAUDE_V_L4_REQUAL_02_20261024.json"
 )
+ARTIFACT_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts")
+PACK_ROOT = ARTIFACT_ROOT / "big-lever/round-24/rpc-qualification-06"
+PROOF_RELATIVE = "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_06.json"
+AUTHORITY_FILES = {
+    "R": (
+        ARTIFACT_ROOT / "bl-labels-f0/JUDGMENT_L4_FAULT_DEFINITION_20261024.md",
+        FAULT_AUTHORITY_SHA256,
+    ),
+    "J": (
+        ARTIFACT_ROOT / "big-lever/exp/fable-20261024/JUDGMENT_L4_V2_REQUAL_ATTEMPT2.md",
+        "529f2b1aa069d1e97518ea30624ee807a153063303eaf6241c00a10d1a942d57",
+    ),
+    "H": (
+        ARTIFACT_ROOT / "big-lever/exp/fable-20261024/JUDGMENT_L4_V2_HOLD_RESOLUTION.md",
+        "adddd711494b8d855d70425e028d3606531d7b8527e4138ca8419baf217299ed",
+    ),
+    "review03": (
+        ARTIFACT_ROOT / "big-lever/exp/fable-20261024/JUDGMENT_L4_V2_REVIEW03.md",
+        "77fd5e294fdf183349a4b0adbd6e2cc36ccbb8c458e4d1dd26af474ad39236f6",
+    ),
+}
 
 
 def git_commit(repo: Path) -> str:
@@ -46,6 +67,11 @@ def review_source_inventory(repo: Path, package_commit: str | None = None) -> di
     explicit = {
         "research/bl_labels/l4_faults_v2.py",
         "tools/ops/requalify.py",
+        "tools/ops/dispatch.py",
+        "tools/ops/qualification.py",
+        "tools/ops/dispatch.sh",
+        "tools/ops/watchd.sh",
+        "tests/test_l4_cpu_acceptance_classifier.py",
         "tests/test_colab_cli_acceptance_stall_diagnosis.py",
         "tests/test_colab_cli_rpc_recovery.py",
         "tests/test_l4_faults_v2.py",
@@ -116,7 +142,48 @@ def require_review(
     ):
         raise ValueError("attempt-2 package lacks an independent reviewer ACCEPT at this pin")
     verify_review_sources(review, repo, package_commit)
+    verify_review_artifacts(review, repo, package_commit)
     return review
+
+
+def review_artifact_bindings(repo: Path, package_commit: str) -> dict[str, Any]:
+    """Compute exact pre-data pack identities for the independent review record."""
+    from research.bl_labels.exports import _verify
+
+    paths = {
+        "plan": PACK_ROOT / "plan.json",
+        "proof": repo / PROOF_RELATIVE,
+        "trace": PACK_ROOT / "DIFFERENTIAL_TRACE.json",
+        "helper": PACK_ROOT / "GUARDED_OPERATOR_COMMANDS_V3.sh",
+    }
+    for name in ("plan", "proof", "trace"):
+        _verify(paths[name])
+    plan = json.loads(paths["plan"].read_text())
+    proof = json.loads(paths["proof"].read_text())
+    if (
+        plan.get("source_commit") != package_commit
+        or plan.get("transport_pin") != TRANSPORT_PIN
+        or plan.get("transport_tree") != TRANSPORT_TREE
+        or plan.get("fake_proof") != {"path": str(paths["proof"]), "sha256": sha(paths["proof"])}
+        or sha(paths["trace"]) != proof.get("differential_trace_sha256")
+        or json.loads(paths["trace"].read_text()) != proof.get("differential_trace")
+    ):
+        raise ValueError("review artifacts differ from the frozen package bindings")
+    authorities = {name: sha(path) for name, (path, _digest) in AUTHORITY_FILES.items()}
+    if authorities != {name: digest for name, (_path, digest) in AUTHORITY_FILES.items()}:
+        raise ValueError("review authority bytes differ from the ratified ruling")
+    return {
+        "artifact_sha256": {name: sha(path) for name, path in paths.items()},
+        "authority_sha256": authorities,
+        "transport_tree": TRANSPORT_TREE,
+    }
+
+
+def verify_review_artifacts(review: dict[str, Any], repo: Path, package_commit: str) -> None:
+    """Refuse copied ACCEPTs whose plan, proof, trace, helper or authority changed."""
+    expected = review_artifact_bindings(repo, package_commit)
+    if any(review.get(key) != value for key, value in expected.items()):
+        raise ValueError("reviewer ACCEPT artifact/authority digests or transport tree differ")
 
 
 BANK_SHA256 = "a8c1dc4bbe1fd579d59b69d6ca6ca9dbd2814b088f74277f008f504f6d1bbb0d"

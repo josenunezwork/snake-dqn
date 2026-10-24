@@ -31,6 +31,7 @@ FAKE_PROOF_TESTS = (
     "tests/test_colab_cli_evidence.py",
     "tests/test_colab_cli_evidence_differential.py",
     "tests/test_l4_faults_v2.py",
+    "tests/test_l4_cpu_acceptance_classifier.py",
     "tests/test_rpc_qualification_matrix.py",
     "tests/test_rpc_qualification_probe_policy.py",
     "tests/test_rpc_qualification_injection.py",
@@ -49,6 +50,10 @@ FAKE_PROOF_EXTRA_SOURCES = (
     "research/rpc_qualification/checker.py",
     "research/rpc_qualification/fake_proof.py",
     "tools/ops/requalify.py",
+    "tools/ops/dispatch.py",
+    "tools/ops/qualification.py",
+    "tools/ops/dispatch.sh",
+    "tools/ops/watchd.sh",
     "tests/fixtures/colab_control_faults_f1.json",
     "tests/fixtures/colab_control_faults_acceptance_1792762502.json",
     "tests/fixtures/l4_faults_v2_acceptance_1792762502.json",
@@ -122,6 +127,27 @@ def validate_fake_proof(fake_path: Path, repo: Path, package_commit: str) -> dic
         raise ValueError("fake-CLI proof differential trace digest differs")
     from .behavior_trace import strip_evidence as _strip_evidence
 
+    cpu = value.get("cpu_acceptance_trace")
+    if not isinstance(cpu, dict):
+        raise ValueError("fake-CLI proof lacks its real CPU acceptance classifier trace")
+    cpu_bytes = (json.dumps(cpu, indent=2, sort_keys=True) + "\n").encode()
+    if hashlib.sha256(cpu_bytes).hexdigest() != value.get("cpu_acceptance_trace_sha256"):
+        raise ValueError("fake-CLI CPU acceptance trace digest differs")
+    expected_gates = {
+        "url-no-second-allocation",
+        "silence-timeout",
+        "failure-and-corrupt-export",
+        "client-loss-reconnect",
+    }
+    if (
+        set(cpu.get("observer_gates", {})) != expected_gates
+        or cpu.get("classification", {}).get("verdict") != "PASS"
+        or classify_session(cpu.get("receipt", {}), cpu.get("injection_manifest", {}))
+        != cpu.get("classification")
+        or len(cpu.get("receipt", {}).get("marker_census", {}).get("client_files", {})) != 2
+    ):
+        raise ValueError("fake-CLI real CPU acceptance did not classify cleanly")
+
     required_scenarios = {
         "pending",
         "tails",
@@ -134,11 +160,37 @@ def validate_fake_proof(fake_path: Path, repo: Path, package_commit: str) -> dic
         "stop",
         "chunks",
         "chunks_retry",
+        "lifecycle_census_success",
+        "lifecycle_census_slow",
+        "lifecycle_census_failed",
+        "lifecycle_near_deadline_cleanup",
+        "lifecycle_watchdog_release",
     }
     if set(trace.get("scenarios", {})) != required_scenarios:
         raise ValueError("fake-CLI differential scenario coverage is incomplete")
     for name, row in trace["scenarios"].items():
-        if name == "probe_policy":
+        if name.startswith("lifecycle_"):
+            baseline, current = row.get("baseline", {}), row.get("current", {})
+            failed = name == "lifecycle_census_failed"
+            if (
+                not isinstance(baseline.get("behavior"), dict)
+                or baseline.get("behavior") != current.get("behavior")
+                or baseline.get("observation", {}).get("census_calls") != 0
+                or current.get("observation", {}).get("census_calls") != 1
+                or row.get("authorized_observation_delta")
+                != {
+                    "kind": "single_bounded_marker_census",
+                    "baseline": "absent",
+                    "current": "failed" if failed else "completed",
+                }
+            ):
+                raise ValueError(f"lifecycle differential behavior/observation differs: {name}")
+            if name == "lifecycle_watchdog_release" and any(
+                arm.get("watchdog", {}).get("assignment_disappeared_within_bound") is not True
+                for arm in (baseline, current)
+            ):
+                raise ValueError("lifecycle differential lacks designed-watchdog release proof")
+        elif name == "probe_policy":
             if row.get("baseline", {}).get("probe_policy") != [True] * 6 or row.get(
                 "current", {}
             ).get("probe_policy") != [False, True, False, True, True, True]:

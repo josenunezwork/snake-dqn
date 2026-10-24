@@ -17,6 +17,7 @@ import itertools
 import json
 import math
 import os
+import re
 import tempfile
 import time
 import uuid
@@ -118,6 +119,89 @@ def record_verified_downloads(
             "elapsed_seconds": rows[-1]["finished_monotonic"] - rows[0]["started_monotonic"],
         }
     )
+
+
+def record_census_verified_download(
+    cli: _CLI,
+    *,
+    first_call: int,
+    remote: str,
+    local_size: int,
+    local_sha256: str,
+    census: dict[str, Any] | None,
+) -> bool:
+    """Bind one consumed download to its same-census remote digest observation.
+
+    The marker census supplies only a remote file's digest and byte count.  It
+    deliberately does not attest to the local ContentsClient result.  This
+    helper performs that local comparison, then records the exact completed
+    download call as verified.  A missing census entry remains unbound so the
+    qualification classifier can report ``EVIDENCE_MISSING``; a comparison
+    failure records a non-verified parent for its C6 decision.
+    """
+    observed = (
+        census.get("client_files", {}).get(remote)
+        if isinstance(census, dict) and isinstance(census.get("client_files"), dict)
+        else None
+    )
+    if (
+        not isinstance(observed, dict)
+        or not isinstance(observed.get("sha256"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", observed["sha256"])
+        or type(observed.get("size")) is not int
+        or observed["size"] < 0
+    ):
+        return False
+    rows = [
+        row
+        for row in cli.call_records[first_call:]
+        if row.get("command") == "download"
+        and row.get("remote") == remote
+        and row.get("status") == "completed"
+    ]
+    if len(rows) != 1:
+        return False
+    expected = observed["sha256"]
+    if type(local_size) is not int or not re.fullmatch(r"[0-9a-f]{64}", local_sha256):
+        raise TransferError("local client marker observation is invalid")
+    matched = local_size == observed["size"] and local_sha256 == expected
+    parent_id = f"transfer-{next(_TRANSFER_IDS)}"
+    child_id = f"contents-{next(_TRANSFER_IDS)}"
+    row = rows[0]
+    child = {
+        "transfer_id": child_id,
+        "parent_transfer_id": parent_id,
+        "remote": remote,
+        "attempts": 1,
+        "status": "completed",
+    }
+    row.update(
+        parent_transfer_id=parent_id,
+        transfer_id=child_id,
+        transfer_attempt=1,
+    )
+    parent: dict[str, Any] = {
+        "transfer_id": parent_id,
+        "direction": "download",
+        "remote": remote,
+        "status": "verified" if matched else "mismatch",
+        "sha256": expected,
+        "verification_kind": "census-file-digest",
+        "local_size": local_size,
+        "local_sha256": local_sha256,
+        "children": [child],
+        "started_monotonic": row["started_monotonic"],
+        "finished_monotonic": row["finished_monotonic"],
+        "elapsed_seconds": row["finished_monotonic"] - row["started_monotonic"],
+    }
+    if matched:
+        row["verified_sha256"] = expected
+        child["verified_sha256"] = expected
+        parent["verified_sha256"] = expected
+    else:
+        parent["observed_size"] = observed["size"]
+    cli.transfer_records.append(parent)
+    return matched
 
 
 @contextlib.contextmanager

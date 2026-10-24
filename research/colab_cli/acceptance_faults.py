@@ -600,7 +600,7 @@ class AcceptanceObserver:
             began = time.monotonic()
             try:
                 started_file = directory / "started.json"
-                self._wait_file(
+                started_first_call = self._wait_file(
                     cli,
                     root + "/client-start.json",
                     started_file,
@@ -641,7 +641,7 @@ class AcceptanceObserver:
                 release = directory / "release.json"
                 release.write_text(json.dumps({"request": request}))
                 upload_contents(cli, release, root + "/client-release.json", deadline=began + 300)
-                self._wait_file(
+                finished_first_call = self._wait_file(
                     cli,
                     root + "/client-finished.json",
                     finished_file,
@@ -651,6 +651,18 @@ class AcceptanceObserver:
                 finished = json.loads(finished_file.read_text())
                 if started["request"] != request or finished["request"] != request:
                     raise supervisor.Refused("client-loss kernel request identity mismatch")
+                cli.record_client_marker_download(
+                    first_call=started_first_call,
+                    remote=root + "/client-start.json",
+                    local_size=started_file.stat().st_size,
+                    local_sha256=supervisor.sha256(started_file),
+                )
+                cli.record_client_marker_download(
+                    first_call=finished_first_call,
+                    remote=root + "/client-finished.json",
+                    local_size=finished_file.stat().st_size,
+                    local_sha256=supervisor.sha256(finished_file),
+                )
             finally:
                 if client.poll() is None:
                     client.terminate()
@@ -672,6 +684,7 @@ class AcceptanceObserver:
         reconnected.contents_transfers = cli.contents_transfers
         reconnected.call_records = cli.call_records
         reconnected._evidence_operations = cli._evidence_operations
+        reconnected.client_marker_downloads = cli.client_marker_downloads
         reconnected._lease_stop = cli._lease_stop
         reconnected._lease_thread = cli._lease_thread
         context["cli"] = reconnected
@@ -753,7 +766,7 @@ class AcceptanceObserver:
         deadline: float,
         *,
         phase: str = "kernel completion",
-    ) -> None:
+    ) -> int:
         started = time.monotonic()
         deadline = min(
             deadline,
@@ -762,6 +775,7 @@ class AcceptanceObserver:
         )
         while time.monotonic() < deadline:
             try:
+                first_call = len(cli.call_records)
                 cli.call(
                     "download",
                     "-s",
@@ -770,7 +784,7 @@ class AcceptanceObserver:
                     str(local),
                     timeout=min(policy.READ_SECONDS, deadline - time.monotonic()),
                 )
-                return
+                return first_call
             except (supervisor.Refused, OSError, subprocess.SubprocessError) as exc:
                 missing = "404" in str(exc) or "not found" in str(exc).lower()
                 if not missing and not policy.transient_error(exc):
@@ -809,7 +823,18 @@ class AcceptanceObserver:
                 1024,
             )
         except supervisor.Refused as exc:
-            if "hash mismatch" not in str(exc):
+            from research.colab_cli.transfers import TransferError
+
+            # export_file's wrapper also says "hash mismatch" for provider
+            # failures. Only the actual local digest/size rejection realizes
+            # this planned event; a 503 on the same path must stay a real C6.
+            cause: BaseException = exc
+            while cause.__cause__ is not None:
+                cause = cause.__cause__
+            if not (
+                isinstance(cause, TransferError)
+                and str(cause) == "download digest or size mismatch"
+            ):
                 raise
             for parent in reversed(cli.transfer_records):
                 if parent.get("remote") == fault_root + "/output/" + name:

@@ -56,7 +56,7 @@ def test_census_exports_only_identity_and_observes_corruption(tmp_path):
         exec(compile(code, "<census>", "exec"), {})
     assert "PRIVATE_PAYLOAD" not in output.getvalue()
     rows = json.loads(output.getvalue().removeprefix("CENSUS"))
-    assert rows[request_id] == {
+    assert rows["markers"][request_id] == {
         "started": 1,
         "done": 1,
         "started_request_id": request_id,
@@ -64,7 +64,8 @@ def test_census_exports_only_identity_and_observes_corruption(tmp_path):
         "started_sha256": digest,
         "done_sha256": digest,
     }
-    assert rows["d" * 32]["started_corrupt"] is True
+    assert rows["markers"]["d" * 32]["started_corrupt"] is True
+    assert rows["client_files"] == {}
 
 
 def test_census_single_read_and_no_busy_fence_change(tmp_path, monkeypatch):
@@ -91,6 +92,84 @@ def test_census_single_read_and_no_busy_fence_change(tmp_path, monkeypatch):
         cli.collect_marker_census()
     assert len(commands) == 1
     assert cli.exec_uncertain
+
+
+def test_census_observes_only_client_marker_digest_and_size(tmp_path):
+    namespace = "a" * 32
+    root = tmp_path / (".snake-rpc-" + namespace)
+    root.mkdir()
+    marker = tmp_path / "client-start.json"
+    marker.write_text('{"request":"opaque"}')
+    code = supervisor.marker_census_code(
+        namespace, "CENSUS", client_files=("/content/client-start.json",)
+    ).replace("/content/", str(tmp_path) + "/")
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        exec(compile(code, "<census>", "exec"), {})
+    rows = json.loads(output.getvalue().removeprefix("CENSUS"))
+    observed = rows["client_files"][str(marker)]
+    assert observed == {
+        "sha256": hashlib.sha256(marker.read_bytes()).hexdigest(),
+        "size": marker.stat().st_size,
+    }
+    assert "opaque" not in output.getvalue()
+
+
+def test_census_digest_binds_exact_completed_marker_download(tmp_path):
+    local = tmp_path / "marker.json"
+    local.write_bytes(b"marker bytes")
+    remote = "/content/acceptance/client-start.json"
+    digest = hashlib.sha256(local.read_bytes()).hexdigest()
+    cli = supervisor.CLI("fake", tmp_path / "config", "owned")
+    cli.call_records.append(
+        {
+            "command": "download",
+            "remote": remote,
+            "status": "completed",
+            "started_monotonic": 1.0,
+            "finished_monotonic": 2.0,
+        }
+    )
+    assert transfers.record_census_verified_download(
+        cli,
+        first_call=0,
+        remote=remote,
+        local_size=local.stat().st_size,
+        local_sha256=digest,
+        census={"client_files": {remote: {"sha256": digest, "size": local.stat().st_size}}},
+    )
+    call = cli.call_records[0]
+    parent = cli.transfer_records[0]
+    assert call["verified_sha256"] == digest
+    assert parent["verification_kind"] == "census-file-digest"
+    assert parent["status"] == "verified"
+    assert parent["children"][0]["transfer_id"] == call["transfer_id"]
+
+
+def test_census_marker_digest_mismatch_is_not_verified(tmp_path):
+    local = tmp_path / "marker.json"
+    local.write_bytes(b"local bytes")
+    remote = "/content/acceptance/client-finished.json"
+    cli = supervisor.CLI("fake", tmp_path / "config", "owned")
+    cli.call_records.append(
+        {
+            "command": "download",
+            "remote": remote,
+            "status": "completed",
+            "started_monotonic": 1.0,
+            "finished_monotonic": 2.0,
+        }
+    )
+    assert not transfers.record_census_verified_download(
+        cli,
+        first_call=0,
+        remote=remote,
+        local_size=local.stat().st_size,
+        local_sha256=hashlib.sha256(local.read_bytes()).hexdigest(),
+        census={"client_files": {remote: {"sha256": "0" * 64, "size": 1}}},
+    )
+    assert "verified_sha256" not in cli.call_records[0]
+    assert cli.transfer_records[0]["status"] == "mismatch"
 
 
 def test_control_uploads_never_claim_consumed_verification():

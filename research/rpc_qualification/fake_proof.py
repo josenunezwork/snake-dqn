@@ -68,6 +68,8 @@ def generate(out: Path) -> None:
             os.environ["DYLD_LIBRARY_PATH"] = str(Path(spec.origin).parent / "lib")
         trace = Path(temporary) / "differential-trace.json"
         os.environ["SNAKE_COLAB_DIFFERENTIAL_TRACE"] = str(trace)
+        cpu_trace = Path(temporary) / "cpu-acceptance-trace.json"
+        os.environ["SNAKE_CPU_ACCEPTANCE_TRACE"] = str(cpu_trace)
         import pytest
 
         result = pytest.main([*command[6:], f"--junitxml={report}"])
@@ -79,6 +81,7 @@ def generate(out: Path) -> None:
             for key in ("tests", "failures", "errors", "skipped")
         }
         trace_bytes = trace.read_bytes()
+        cpu_trace_bytes = cpu_trace.read_bytes()
     if before != inventory():
         raise ValueError("source changed while fake-CLI tests ran")
     if not counts["tests"] or any(counts[key] for key in ("failures", "errors", "skipped")):
@@ -103,6 +106,8 @@ def generate(out: Path) -> None:
             "execution": "pytest.main in-process; one differential child at a time",
             "differential_trace_sha256": hashlib.sha256(trace_bytes).hexdigest(),
             "differential_trace": json.loads(trace_bytes),
+            "cpu_acceptance_trace_sha256": hashlib.sha256(cpu_trace_bytes).hexdigest(),
+            "cpu_acceptance_trace": json.loads(cpu_trace_bytes),
         },
     )
 

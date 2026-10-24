@@ -247,6 +247,7 @@ def test_dispatch_needs_reviewer_accept_at_this_pin(
     record = tmp_path / "CLAUDE_V_L4_REQUAL_02_20261024.json"
     monkeypatch.setattr(admission, "REVIEW_PATH", record)
     monkeypatch.setattr(admission, "verify_review_sources", lambda *_args: None)
+    monkeypatch.setattr(admission, "verify_review_artifacts", lambda *_args: None)
     with pytest.raises(ValueError, match="lacks its independent reviewer ACCEPT"):
         admission.require_review()
     good = {
@@ -263,7 +264,7 @@ def test_dispatch_needs_reviewer_accept_at_this_pin(
     record.write_text(json.dumps(good))
     assert admission.require_review()["verdict"] == "ACCEPT"
     requalify = (REPO / "tools/ops/requalify.py").read_text()
-    assert 'registry.name == "l4-label-lane-qualified.json"' in requalify
+    assert 'is_lane_package(repo, review["commit"])' in requalify
     assert 'require_review(repo=repo, package_commit=review["commit"])' in requalify
 
 
@@ -273,6 +274,7 @@ def test_reviewer_accept_requires_exact_package_commit_and_complete_inventory(
     """A partial ACCEPT map cannot authorize either prerequisite or later waves."""
     record = tmp_path / "CLAUDE_V_L4_REQUAL_02_20261024.json"
     monkeypatch.setattr(admission, "REVIEW_PATH", record)
+    monkeypatch.setattr(admission, "verify_review_artifacts", lambda *_args: None)
     original_verify = admission.verify_review_sources
     inventory = admission.review_source_inventory(REPO)
     good = {
@@ -299,6 +301,76 @@ def test_reviewer_accept_requires_exact_package_commit_and_complete_inventory(
     monkeypatch.setattr(admission, "verify_review_sources", lambda *_args: None)
     assert admission.require_review()["package_commit"] == admission.git_commit(REPO)
     monkeypatch.setattr(admission, "verify_review_sources", original_verify)
+
+
+def _review_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    from research.bl_labels.exports import publish_json
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    monkeypatch.setattr(admission, "PACK_ROOT", pack)
+    monkeypatch.setattr(admission, "PROOF_RELATIVE", "proof.json")
+    trace = {"scenarios": {"synthetic": {"baseline": {}, "current": {}}}}
+    publish_json(pack / "DIFFERENTIAL_TRACE.json", trace)
+    publish_json(
+        repo / "proof.json",
+        {
+            "differential_trace": trace,
+            "differential_trace_sha256": _sha(pack / "DIFFERENTIAL_TRACE.json"),
+        },
+    )
+    publish_json(
+        pack / "plan.json",
+        {
+            "source_commit": "0" * 40,
+            "transport_pin": admission.TRANSPORT_PIN,
+            "transport_tree": admission.TRANSPORT_TREE,
+            "fake_proof": {"path": str(repo / "proof.json"), "sha256": _sha(repo / "proof.json")},
+        },
+    )
+    (pack / "GUARDED_OPERATOR_COMMANDS_V3.sh").write_text("# exact helper\n")
+    authority = tmp_path / "authority.md"
+    authority.write_text("ratified\n")
+    monkeypatch.setattr(admission, "AUTHORITY_FILES", {"R": (authority, _sha(authority))})
+    return {"repo": repo, "pack": pack, "authority": authority}
+
+
+@pytest.mark.parametrize("field", ["artifact_sha256", "authority_sha256", "transport_tree"])
+def test_accept_checks_artifact_digests_and_authorities(tmp_path, monkeypatch, field):
+    paths = _review_artifacts(tmp_path, monkeypatch)
+    repo = paths["repo"]
+    review = admission.review_artifact_bindings(repo, "0" * 40)
+    admission.verify_review_artifacts(review, repo, "0" * 40)
+    bad = {**review, field: {} if field.endswith("sha256") else "1" * 40}
+    with pytest.raises(ValueError, match="artifact/authority digests"):
+        admission.verify_review_artifacts(bad, repo, "0" * 40)
+
+
+@pytest.mark.parametrize("changed", ["helper", "authority"])
+def test_accept_refuses_changed_helper_or_authority(tmp_path, monkeypatch, changed):
+    paths = _review_artifacts(tmp_path, monkeypatch)
+    repo = paths["repo"]
+    review = admission.review_artifact_bindings(repo, "0" * 40)
+    path = (
+        paths["authority"]
+        if changed == "authority"
+        else paths["pack"] / "GUARDED_OPERATOR_COMMANDS_V3.sh"
+    )
+    path.write_text("changed\n")
+    with pytest.raises(ValueError, match="authority bytes|artifact/authority digests"):
+        admission.verify_review_artifacts(review, repo, "0" * 40)
+
+
+def test_accept_inventory_includes_executed_ops_wrappers():
+    inventory = admission.review_source_inventory(REPO)
+    assert {
+        "tools/ops/dispatch.py",
+        "tools/ops/qualification.py",
+        "tools/ops/dispatch.sh",
+        "tools/ops/watchd.sh",
+    } <= inventory.keys()
 
 
 def _dispatch_module():

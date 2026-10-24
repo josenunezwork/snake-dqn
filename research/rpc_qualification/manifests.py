@@ -22,10 +22,12 @@ from research.bl_labels.manifests import _pool_inputs
 from research.bl_upload import assert_upload_budget, convert_public_checkpoints
 
 from .admission import (
+    AUTHORITY_FILES,
     AUTHORITY_SHA256,
     BANK_SHA256,
     FAULT_AUTHORITY_SHA256,
     FAULT_DEFINITION,
+    PROOF_RELATIVE,
     SCHEMA,
     SCRIPT,
     TRANSPORT_PIN,
@@ -85,6 +87,8 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
         raise ValueError("pack root must be fresh")
     if sha(HOLD_RESOLUTION) != HOLD_RESOLUTION_SHA256:
         raise ValueError("hold-resolution authority differs from the frozen ruling")
+    if any(sha(path) != digest for path, digest in AUTHORITY_FILES.values()):
+        raise ValueError("review-03 authority differs from the ratified ruling")
     if bank_digest(bank) != BANK_SHA256:
         raise ValueError("foreign frozen F1 bank")
     load_bank(bank)
@@ -92,7 +96,7 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
     transport = git("rev-parse", f"{commit}:research/colab_cli")
     if transport != git("rev-parse", f"{TRANSPORT_PIN}:research/colab_cli"):
         raise ValueError("pack transport tree differs from the v2 fix pin")
-    proof = REPO / "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_05.json"
+    proof = REPO / PROOF_RELATIVE
     from .checker import validate_fake_proof
 
     validate_fake_proof(proof, REPO, commit)
@@ -297,6 +301,10 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
         "source_commit": commit,
         "transport_pin": TRANSPORT_PIN,
         "hold_resolution": {"path": str(HOLD_RESOLUTION), "sha256": HOLD_RESOLUTION_SHA256},
+        "authority_records": {
+            name: {"path": str(path), "sha256": digest}
+            for name, (path, digest) in AUTHORITY_FILES.items()
+        },
         "bank_sha256": BANK_SHA256,
         "worker_pin": WORKER_PIN,
         "authority_sha256": AUTHORITY_SHA256,

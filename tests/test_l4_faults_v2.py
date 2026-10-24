@@ -623,6 +623,59 @@ def test_c6_transfers_and_control_plane_puts_are_not_consumed_transfers() -> Non
     assert [row["class"] for row in unverified["counted"]] == ["C6"]
 
 
+def test_failed_parent_selector_requires_realized_id_type_direction_suffix_and_count() -> None:
+    """The corrupt-export parent is excluded only as the frozen planned event."""
+    remote = "/content/snake-cli/job-fault/output/acceptance-corrupt.bin"
+    entry = {
+        "injection_id": "corrupt-export-rejection",
+        "type": "deliberate-hash-mismatch-export",
+        "command": "download",
+        "failure_type": "HASH_MISMATCH",
+        "selector": {
+            "kind": "planned_hash_rejection",
+            "remote_suffix": "-fault/output/acceptance-corrupt.bin",
+        },
+        "realized_event_required": True,
+        "max_calls": 1,
+    }
+    parent = {
+        "direction": "download",
+        "remote": remote,
+        "status": "failed",
+        "failure_type": "HASH_MISMATCH",
+        "realized_selector_id": "corrupt-export-rejection",
+    }
+    clean = v2.classify_session(
+        _receipt([_ok(command="version")], transfers=[parent]), _manifest([entry])
+    )
+    assert clean["verdict"] == "PASS", clean
+    assert clean["excluded_injections"] == [
+        {
+            "transfers_index": 0,
+            "injection_id": "corrupt-export-rejection",
+            "type": "deliberate-hash-mismatch-export",
+        }
+    ]
+
+    for bad in (
+        {**parent, "realized_selector_id": "other"},
+        {**parent, "failure_type": "HTTP_503"},
+        {**parent, "direction": "upload"},
+        {**parent, "remote": "/content/snake-cli/job/output/acceptance-corrupt.bin"},
+    ):
+        result = v2.classify_session(
+            _receipt([_ok(command="version")], transfers=[bad]), _manifest([entry])
+        )
+        assert result["counted_by_class"]["C6"] == 1
+
+    excess = v2.classify_session(
+        _receipt([_ok(command="version")], transfers=[parent, copy.deepcopy(parent)]),
+        _manifest([entry]),
+    )
+    assert excess["counted_by_class"]["C6"] == 1
+    assert len(excess["excluded_injections"]) == 1
+
+
 def test_injection_identity_is_exact() -> None:
     entry = {
         "injection_id": "drop-1",
@@ -721,6 +774,20 @@ def test_f3_new_session_missing_marker_census_cannot_pass() -> None:
     assert result["verdict"] == "EVIDENCE_MISSING"
     assert result["counted"] == []
     assert result["counted_by_class"]["C4"] == 0
+
+
+def test_marker_census_envelope_keeps_client_file_digests_out_of_c4() -> None:
+    """The client digest census augments, rather than replaces, request markers."""
+    call = _exec("completed")
+    receipt = _receipt([call])
+    receipt["marker_census"] = {
+        "markers": receipt["marker_census"],
+        "client_files": {
+            "/content/job/client-start.json": {"sha256": "a" * 64, "size": 12},
+            "/content/job/client-finished.json": {"sha256": "b" * 64, "size": 13},
+        },
+    }
+    assert v2.classify_session(receipt)["verdict"] == "PASS"
 
 
 def test_f3_completed_exec_with_zero_matching_markers_is_c4() -> None:

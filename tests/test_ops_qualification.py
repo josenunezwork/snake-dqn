@@ -310,3 +310,57 @@ def test_lane_cpu_fault_preserves_registry_after_raw_harness_pass(broker, tmp_pa
     assert "execute" in calls  # raw harness PASS is deliberately insufficient
     assert policy.recovery_probe_retryable is original_policy
     assert target.read_text() == "previous"
+
+
+@pytest.mark.parametrize("selector", ["branch", "ancestry", "plan"])
+def test_lane_package_refuses_main_registry_without_lane_flag(
+    broker, tmp_path, monkeypatch, selector
+):
+    saved, _, calls = execution_fixture(broker, tmp_path, monkeypatch)
+    if selector == "branch":
+        git(broker, "checkout", "-qb", requalify.LANE_BRANCH)
+    elif selector == "ancestry":
+        monkeypatch.setattr(requalify, "LANE_BASE", git(broker, "rev-parse", "HEAD"))
+    else:
+        review = json.loads(saved.read_text())
+        review["qualification_lane"] = "l4-label-lane/v2"
+        saved.write_text(json.dumps(review))
+    target = tmp_path / "colab-cli-qualified.json"
+    target.write_text("main registry preserved")
+    with pytest.raises(ValueError, match="main registry refused"):
+        requalify.execute(saved, target, "COLAB_CLI_ACCEPTANCE_REVIEWED", "/fake/python")
+    assert not calls
+    assert not saved.with_name("ops-execute-started.json").exists()
+    assert target.read_text() == "main registry preserved"
+
+
+def test_lane_registry_symlink_cannot_alias_main(broker, tmp_path, monkeypatch):
+    saved, _, calls = execution_fixture(broker, tmp_path, monkeypatch)
+    git(broker, "checkout", "-qb", requalify.LANE_BRANCH)
+    main = tmp_path / "colab-cli-qualified.json"
+    main.write_text("preserved")
+    lane = tmp_path / requalify.LANE_NAME
+    lane.symlink_to(main)
+    with pytest.raises(ValueError, match="main registry refused"):
+        requalify.execute(saved, lane, "COLAB_CLI_ACCEPTANCE_REVIEWED", "/fake/python")
+    assert not calls
+    assert main.read_text() == "preserved"
+
+
+def test_detached_lane_source_identified_without_base_history(broker, tmp_path, monkeypatch):
+    source = broker / "tools/ops/requalify.py"
+    source.parent.mkdir(parents=True)
+    source.write_text((OPS / "requalify.py").read_text())
+    git(broker, "add", "tools/ops/requalify.py")
+    git(broker, "commit", "-qm", "lane source without ancestor history")
+    git(broker, "checkout", "--detach", "-q")
+    assert requalify.is_lane_package(broker, git(broker, "rev-parse", "HEAD"))
+    saved, _, calls = execution_fixture(broker, tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="main registry refused"):
+        requalify.execute(
+            saved,
+            tmp_path / "colab-cli-qualified.json",
+            "COLAB_CLI_ACCEPTANCE_REVIEWED",
+            "/fake/python",
+        )
+    assert not calls
