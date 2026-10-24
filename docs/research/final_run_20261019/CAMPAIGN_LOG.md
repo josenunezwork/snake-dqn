@@ -209,6 +209,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 2026-10-23 19:54 PT | Time correction: rows logged earlier today as 19:50–20:06 PT ran between about 19:25 and 19:45 PT (operator estimate error). D256 W12 RUNNING (bl-f0-d256-guard-w12-04 @387b1dde; interim Codex-V-02 PASS, 99 tests). Workers 12, 815 parents pending, prior elapsed 4,866 s, output d256-output-mac-03. The -03 dispatch was refused by the host check because the tmux parent shell of the agent launches (argv contains codex-handoff.sh) ran at nice 0; those shells were reniced to 15, and agent launches now renice their own shell. P1 canary terminal PASS by the supervisor (523 s, debit 0.15 u, balance 1,099.49); bar mapping is under independent Codex-V (upload_elapsed 208.65 s vs the residual ≤150 / staging ≤300 bars) before any repair. A1-PROF canary-03 DISPATCHED (per-kernel-name export). Round-34 Astras: the 68 kernels are real native-extension launches without profiler scopes (suspects: sparse_frontier, component union/count, event FIFO); the capture was E64 scripted, not E1024. Sol gpuflood is building FUNCTION scopes, per-launch events, matched E1024 ticks, and an exact capped sparse BFS for vector61 with CPU parity and a kill rule. |
 | 2026-10-23 19:58 PT | D256 -04 PREEMPTED at 317 s (2 parents done). The exclusive guard caught the A1-PROF canary-03 local Colab supervisor tree, including its colab CLI child pid 61325, which the tmux server launched at nice 0. -05 was refused at the host check for the same pid. Reniced the whole supervisor tree to 15; -06 RUNNING (W12, 813 pending). Astra persistence ruling requested (JUDGMENT_FACTORY_PERSISTENCE_20261023.md): require a sustained foreign process before preempting, and decide whether supervisors run at nice 15. Operator commands now run under nice 15. |
 | 2026-10-23 19:59 PT | P1 canary chain: Codex-V _12 FAIL (F1 SQLite ID read), then Astra A3.3 RATIFY (sha f1bd0dca…f3ee9), then Codex-V _13 FINAL READY (f6b9b17b…3245a), then canary p1-repair10-04-canary terminal PASS. Codex-V canary verification CANARY_PASS on all six bars: VM fetch <260.1 s; residual upload 113.76 s; staging 208.65 s; exports and release verified; repair forecast 90.9 min at 1.54 u/h. **Reconciled P1 ledger:** prior 10.11 u + canary conservative charge 0.23 u (own 0.2238 u > observed 0.15 u) = **10.34 u charged** against the 34.50 u Y3 v5 hard cap; remaining worst-case reservations 22.04 u, headroom 2.12 u. WARNING_UNEXPLAINED_DEBIT carried. Repair (6.16 u / 200 min) is admitted after fresh live gates, once the A1-PROF canary-03 assignment ends (zero-other-assignment rule). Astra ALLOW_PERSISTENCE_30S (JUDGMENT_FACTORY_PERSISTENCE_20261023.md): preempt only after 7 consecutive sightings spanning ≥30 s; supervisors at nice ≥15. Sol persist is implementing it. |
+| 2026-10-23 20:14 PT | P1 REPAIR ADMITTED and DISPATCHED (p1-repair10-04-repair, 6.16 u / 200 min; repair line check binds the CANARY_PASS chain; fresh gates: tree d0d92bdb, 0 assignments, balance 1,098.49). Its local supervisor spawns colab CLI children at nice 0 every few seconds, so D256 -06 was PREEMPTED (8 parents done) and -07 was refused at the host check. D256 waits for Sol's persistence fix; an interim renicer loop (ops/renicer.sh, nice 15) lowers stray Colab/agent processes every 1 s. No A100 jobs during the P1 repair (zero-other-assignment accounting). |
+| 2026-10-23 20:14 PT | **A1-PROF full profile obtained** (canary-03: the job succeeded with 12 exports; marked INCOMPLETE only because result transfer took 162.9 s > 150 s). E1024 tick = 6.48 / 6.43 / 6.17 s (frozen/mixed/scripted; 157–166 steps/s). vector61 flood 2.46 s + vector61 other 2.51–2.59 s ≈ 77%; movement/collision/events 0.85 s CUDA (0.12 s host); opponent v8 0.47/0.28/0 s; non-observation remainder 0.89–1.01 s, above the 0.512 s bar. Throughput is flat from E256 to E1024 (tick linear in E): no batching gain. Round-35 Astra panel launched with the data. |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -505,3 +507,59 @@ slowdown/determinism evidence source hashes are unchanged. No actual production
 host check, factory, calibration, outcome look or long job was run. Owner notice:
 the narrow interim is now independently qualified; all real timing/health/
 slowdown/accounting stops remain binding.
+
+F0 factory persistence amendment (2026-10-23, prospective operational activation):
+**PASS — ALLOW_PERSISTENCE_30S**, policy ID
+`factory-nice15-persistence30/v1`, exact published operational pin
+`caafdf5d079bd73bcfbde6f9356dc0f60de42e0f`. Binding Astra ruling
+`big-lever/exp/JUDGMENT_FACTORY_PERSISTENCE_20261023.md`, SHA256
+`35295b5b4669bec32a61736c1d5dbb5d9c70015208d6f06db06e5f064bca7c32`;
+retained interim ruling SHA256
+`ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd`.
+Ordinary foreign priority veto now requires seven consecutive observations of
+one native `(PID,birth)` identity spanning >=30 s; no CPU threshold. Pending
+rows do not pause admissions or clear slowdown windows. Failed/stale monitoring
+stops immediately under the aggregate 15 s observation deadline; timing, health,
+slowdown and all other guards retain their existing immediate behavior. Colab
+pane shells/supervisors and reviewed agent launch routes reach effective nice
+>=15; shared/custom-socket tmux servers require native/trusted executable and
+exact socket/server PID proof, while real pane shells/children remain accountable.
+Recovery uses an honest digest-bound v3 window with final pending set empty,
+final host health/top consumers and the existing serial-test lock, bound to
+both ruling hashes, policy, operational pin and trip epoch; v2/foreign receipts
+cannot qualify it.
+
+Independent Codex-V executed **69 new focused fixtures** (60 guard/clock,
+6 synthetic coordinator preempt/resume, 3 real shell/stub supervisor priority),
+all serial/nice15/CPU-one-thread environment and below 120 s. The executed
+candidate `85f4106b` and final pin have byte-identical product and acceptance
+fixture closure; subsequent changes corrected only two old test assertions.
+Additional focused recovery/migrated guard regression checks: **223 passed**
+(147 + 68 + 8). Black/isort/flake8/shell syntax/diff checks passed. Initial
+fixture/harness failures remain preserved with corrected passing records;
+no failed or timed-out test is counted as PASS. Create-only independent receipt:
+`big-lever/exp/CODEX_V_FACTORY_PERSISTENCE_20261023.json`, with sidecar/completion
+and identical repo triplet, SHA256
+`50d9736a61947b335e06694b922419e646f0811458fd86564bf924cfe553938e`.
+Full commands/hashes and limits are in that receipt
+and `research/bl_labels/FACTORY_PERSISTENCE_OPERATOR_20261023.md`.
+
+Science remains clean/detached at `61900af28932e47e22e332840fc4406559adb062`.
+Frozen collector/export and unchanged slowdown closure retain applicable prior
+proof; this patch's changed control path additionally passed opaque immutable
+prefix/verified-skip preempt/resume and exact cumulative accounting checks.
+Caps, nominal worker-second and wall charges, drain charges, ledger semantics,
+retry entitlements, baseline rules and ChatGPT-helper exclusions are unchanged.
+Owner notice: this is a narrow operational qualification, not a scientific or
+full concurrency-supervisor result. No factory, production host check, timing,
+calibration, strict/serving, remote runtime or long job was launched, and no live
+D256 process was stopped, reniced, patched or restarted. The existing attempt
+at `387b1dde` stays on its pin until natural preemption/completion and verified
+stop; only then may the normal operator-requested verified-ledger continuation
+use the exact fresh `bl-f0-d256-guard-w12-08` command in the handoff, if missing work and
+all other registered admission conditions permit. No automatic dispatch.
+Final command-name correction: another operator consumed the requested `-07`
+at `387b1dde` during this implementation (worktree/runner/log observed at
+20:12 PT); this task preserved those artifacts and performed no dispatch.
+The new pin cannot reuse that differently pinned worktree. `-08` was verified
+without a worktree, runner or log reservation at closeout.
