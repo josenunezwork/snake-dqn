@@ -35,6 +35,7 @@ def acceptance_entries(gpu: str) -> list[dict[str, Any]]:
                 "command": "exec",
                 "request_id": uuid.uuid4().hex,
                 "request_sha256": hashlib.sha256(SILENCE_CODE.encode()).hexdigest(),
+                "failure_type": "CONTROL_RPC_TIMEOUT",
                 "max_calls": 1,
             },
             {
@@ -42,7 +43,12 @@ def acceptance_entries(gpu: str) -> list[dict[str, Any]]:
                 "injection_id": "client-loss-start-absent",
                 "type": "absence-probe",
                 "command": "download",
-                "remote_suffix": "/client-start.json",
+                "failure_type": "NOT_FOUND",
+                "selector": {
+                    "kind": "planned_absence_probe",
+                    "remote_suffix": "/client-start.json",
+                },
+                "realized_event_required": True,
                 "max_calls": 150,
             },
             {
@@ -50,14 +56,24 @@ def acceptance_entries(gpu: str) -> list[dict[str, Any]]:
                 "injection_id": "client-loss-finished-absent",
                 "type": "absence-probe",
                 "command": "download",
-                "remote_suffix": "/client-finished.json",
+                "failure_type": "NOT_FOUND",
+                "selector": {
+                    "kind": "planned_absence_probe",
+                    "remote_suffix": "/client-finished.json",
+                },
+                "realized_event_required": True,
                 "max_calls": 302,
             },
             {
                 "injection_id": "corrupt-export-rejection",
                 "type": "deliberate-hash-mismatch-export",
                 "command": "download",
-                "remote_suffix": "-fault/output/acceptance-corrupt.bin",
+                "failure_type": "HASH_MISMATCH",
+                "selector": {
+                    "kind": "planned_hash_rejection",
+                    "remote_suffix": "-fault/output/acceptance-corrupt.bin",
+                },
+                "realized_event_required": True,
                 "max_calls": 1,
             },
         ]
@@ -68,14 +84,24 @@ def acceptance_entries(gpu: str) -> list[dict[str, Any]]:
                 "injection_id": "watchdog-checkpoint-marker-absent",
                 "type": "absence-probe",
                 "command": "download",
-                "remote_suffix": "/output/lease-checkpoint.pkl.sha256",
+                "failure_type": "NOT_FOUND",
+                "selector": {
+                    "kind": "planned_absence_probe",
+                    "remote_suffix": "/output/lease-checkpoint.pkl.sha256",
+                },
+                "realized_event_required": True,
                 "max_calls": 390,
             },
             {
                 "injection_id": "watchdog-checkpoint-absent",
                 "type": "absence-probe",
                 "command": "download",
-                "remote_suffix": "/output/lease-checkpoint.pkl",
+                "failure_type": "NOT_FOUND",
+                "selector": {
+                    "kind": "planned_absence_probe",
+                    "remote_suffix": "/output/lease-checkpoint.pkl",
+                },
+                "realized_event_required": True,
                 "max_calls": 390,
             },
             {
@@ -84,6 +110,13 @@ def acceptance_entries(gpu: str) -> list[dict[str, Any]]:
                 "command": "terminal",
                 "failure_class": "ACCOUNTING",
                 "error_contains": "supervised assignment disappeared",
+                "watchdog_event_id": "mac-loss-watchdog-unassign",
+                "watchdog_plan": {
+                    "lease_seconds": 180,
+                    "release_bound_seconds": 300,
+                    "renewal_suppressed": True,
+                    "checkpoint_exported_during_grace": True,
+                },
                 "max_calls": 1,
             },
         ]

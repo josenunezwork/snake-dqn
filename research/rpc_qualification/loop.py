@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from research.bl_labels import f1_ruler
 from research.bl_labels.exports import _materialize_triplet, _verify, publish_json
+from research.rpc_qualification.injection import locator_for_unit
 
 SCHEMA = "rpc-qualification-loop/v1"
 LEDGER_SCHEMA = "rpc-qualification-verified-ledger/v1"
@@ -209,6 +210,65 @@ def _claim_empty_output(path: Path) -> None:
         path.mkdir(parents=True)
 
 
+def publish_injection_locator(
+    locator: Path,
+    *,
+    namespace: str,
+    allocation: str,
+    index: int,
+    unit: str,
+    request_id: str,
+    descriptor_path: Path,
+    runtime_root: Path,
+) -> None:
+    """Publish one immutable runtime-to-descriptor binding for an injected unit."""
+    if unit != unit_id(namespace, allocation, index):
+        raise ValueError("injection locator unit identity differs")
+    if (
+        not isinstance(request_id, str)
+        or len(request_id) != 32
+        or any(character not in "0123456789abcdef" for character in request_id)
+    ):
+        raise ValueError("injection locator request identity differs")
+    descriptor_value = json.loads(descriptor_path.read_text())
+    if any(
+        descriptor_value.get(key) != value
+        for key, value in {
+            "namespace": namespace,
+            "allocation": allocation,
+            "index": index,
+            "unit_id": unit,
+            "request_id": request_id,
+        }.items()
+    ):
+        raise ValueError("injection locator descriptor identity differs")
+    descriptor_sha256 = _hash(descriptor_path)
+    generation = runtime_root.name
+    if not generation or not runtime_root.is_absolute():
+        raise ValueError("injection locator runtime root is not an absolute generation root")
+    _write_once(
+        locator,
+        (
+            json.dumps(
+                {
+                    "schema": "rpc-qualification-injection-locator/v1",
+                    "namespace": namespace,
+                    "allocation": allocation,
+                    "index": index,
+                    "unit_id": unit,
+                    "request_id": request_id,
+                    "descriptor_path": str(descriptor_path),
+                    "descriptor_sha256": descriptor_sha256,
+                    "runtime_root": str(runtime_root),
+                    "generation": generation,
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode(),
+    )
+
+
 def qualified_finish_deadline(finalize_seconds: float = 300.0) -> float:
     """Reserve finalization time from the supervisor's actual qualified session cap."""
     root = Path(os.environ["COLAB_CLI_ROOT"])
@@ -281,12 +341,25 @@ def prepare_injection(
         }
         path = output / "descriptors" / f"unit-{index:08d}.json"
         publish_json(path, descriptor)
+        locator = Path(locator_for_unit(identity))
+        publish_injection_locator(
+            locator,
+            namespace=namespace,
+            allocation=allocation,
+            index=index,
+            unit=identity,
+            request_id=descriptor["request_id"],
+            descriptor_path=path,
+            runtime_root=Path(os.environ["COLAB_CLI_ROOT"]),
+        )
         descriptors.append(
             {
                 "index": index,
                 "unit_id": descriptor["unit_id"],
                 "request_id": descriptor["request_id"],
-                "path": str(path),
+                "locator": str(locator),
+                "namespace": namespace,
+                "allocation": allocation,
             }
         )
     ready = {

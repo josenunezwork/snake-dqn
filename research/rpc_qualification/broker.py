@@ -12,6 +12,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import re
 import subprocess
 import time
 import uuid
@@ -21,6 +22,7 @@ from typing import Any, Callable
 from research.colab_cli import cli_guard, supervisor
 from research.colab_cli.failures import ClassifiedFailure
 from research.colab_cli.transfers import download_file
+from research.rpc_qualification.injection import locator_for_unit, unit_rpc_code
 
 
 def _write_once(path: Path, value: dict[str, Any]) -> None:
@@ -70,11 +72,36 @@ def _remote_ready_code(root: str) -> str:
     )
 
 
-def _remote_evidence_code(root: str, descriptor: str, session: str, code_sha256: str) -> str:
+def _remote_evidence_code(
+    root: str,
+    locator: str,
+    session: str,
+    code_sha256: str,
+    *,
+    namespace: str,
+    allocation: str,
+    index: int,
+    unit_id: str,
+    request_id: str,
+) -> str:
     """Collect marker/result identity and hashes without exposing label outcomes."""
     return (
         "import hashlib, json\nfrom pathlib import Path\n"
-        f"descriptor=Path({descriptor!r}); spec=json.loads(descriptor.read_text())\n"
+        f"locator=Path({locator!r}); matches=list(locator.parent.glob(locator.name))\n"
+        "assert len(matches)==1 and matches[0].is_file()\n"
+        "locator_value=json.loads(matches[0].read_text())\n"
+        "descriptor=Path(locator_value['descriptor_path'])\n"
+        f"assert locator_value['namespace']=={namespace!r}\n"
+        f"assert locator_value['allocation']=={allocation!r}\n"
+        f"assert locator_value['index']=={index!r} and locator_value['unit_id']=={unit_id!r}\n"
+        f"assert locator_value['request_id']=={request_id!r}\n"
+        f"assert locator_value['runtime_root']=={root!r}\n"
+        "assert locator_value['generation']==Path(locator_value['runtime_root']).name\n"
+        "descriptor_sha=hashlib.sha256(descriptor.read_bytes()).hexdigest()\n"
+        "assert descriptor_sha==locator_value['descriptor_sha256']\n"
+        "spec=json.loads(descriptor.read_text())\n"
+        "assert all(locator_value[key]==spec[key] for key in "
+        "('namespace','allocation','index','unit_id','request_id'))\n"
         "execution=Path(spec['execution_dir']); index=int(spec['index'])\n"
         f"rpc=Path('/content/.snake-rpc-'+hashlib.sha256({session!r}.encode()).hexdigest()[:32])\n"
         "paths={'started':rpc/f\"{spec['request_id']}.started\","
@@ -97,6 +124,10 @@ def _remote_evidence_code(root: str, descriptor: str, session: str, code_sha256:
         "assert execution_started==execution_done "
         "and execution_started.get('request_id')==spec['request_id']\n"
         "result={'unit_id':spec['unit_id'],'request_id':spec['request_id'],"
+        f"'namespace':{namespace!r},'allocation':{allocation!r},'index':{index!r},"
+        f"'runtime_root':{root!r},'generation':Path({root!r}).name,'session':{session!r},"
+        "'locator_sha256':hashlib.sha256(matches[0].read_bytes()).hexdigest(),"
+        "'descriptor_sha256':locator_value['descriptor_sha256'],"
         "'execution_count':1, **{key:meta(value) for key,value in paths.items()}}\n"
     )
 
@@ -125,20 +156,6 @@ def _remote_publish_proof_code(root: str, proof: dict[str, Any]) -> str:
     )
 
 
-def _remote_unit_code(root: str, descriptor: str, request_id: str) -> str:
-    """Execute exactly one frozen descriptor; output is operational evidence only."""
-    return (
-        "import json, os, subprocess\nfrom pathlib import Path\n"
-        f"root=Path({root!r})\ndescriptor={descriptor!r}\n"
-        "env=dict(os.environ, PYTHONPATH=str(root/'frozen')+os.pathsep+str(root/'repo'))\n"
-        "py=str(root/'.venv'/'bin'/'python')\n"
-        "subprocess.run([py,'-m','research.rpc_qualification.loop','unit',"
-        f"'--descriptor',descriptor,'--request-id',{request_id!r}],"
-        "env=env,cwd=root/'frozen',check=True)\n"
-        "result=json.loads(Path(descriptor).read_text())\n"
-    )
-
-
 class InjectionObserver:
     """Runs the intentionally lossy, same-request-ID injection proof once."""
 
@@ -154,6 +171,7 @@ class InjectionObserver:
                 record.update(
                     injected=True,
                     injection_kind="post_send_response_loss",
+                    failure_type="post_send_response_loss",
                     unit_id=unit_id,
                     request_id=request_id,
                 )
@@ -180,6 +198,11 @@ class InjectionObserver:
             if not state["post_send_loss"] and args and args[0] == "exec" and "-f" in args:
                 code = Path(args[args.index("-f") + 1]).read_text()
                 if f"# SNAKE_REQUEST_ID {request_id}" in code:
+                    replies = re.findall(
+                        re.escape("SNAKE_RPC_" + request_id) + r"(\{[^\n]*\})", response
+                    )
+                    if not replies or json.loads(replies[-1]).get("ok") is not True:
+                        return response
                     state["post_send_loss"] = True
                     raise subprocess.TimeoutExpired(args, timeout)
             return response
@@ -236,6 +259,7 @@ class InjectionObserver:
         if event != "ready" or self.ran:
             return
         manifest, cli, root = context["manifest"], context["cli"], context["root"]
+        generation = context.get("generation")
         if manifest.get("env", {}).get("RQ_MODE") != "injection":
             return
         self.ran = True
@@ -254,35 +278,77 @@ class InjectionObserver:
             raise supervisor.Refused("injection preparation did not publish three descriptors")
         # l4-label-faults/v2 §2.3: injected responses are excluded only by the
         # request IDs written into the create-only manifest before dispatch.
-        planned = manifest.get("rq", {}).get("injection_manifest", {}).get("request_ids")
+        qualification = manifest.get("rq", {})
+        planned = qualification.get("injection_manifest", {}).get("request_ids")
         if not isinstance(planned, list) or len(planned) != 3 or len(set(planned)) != 3:
             raise supervisor.Refused("injection lacks three pre-dispatch request identities")
+        planned_hashes = qualification.get("injection_request_sha256")
+        if not isinstance(planned_hashes, dict) or set(planned_hashes) != set(planned):
+            raise supervisor.Refused("injection lacks three pre-dispatch request code hashes")
         units = []
-        for descriptor, request_id in zip(descriptors[:3], planned):
+        namespace, allocation = qualification.get("namespace"), qualification.get("allocation")
+        if not isinstance(namespace, str) or not isinstance(allocation, str):
+            raise supervisor.Refused("injection lacks frozen namespace/allocation")
+        for index, (descriptor, request_id) in enumerate(zip(descriptors[:3], planned)):
             if not isinstance(descriptor, dict) or not isinstance(descriptor.get("unit_id"), str):
                 raise supervisor.Refused("injection descriptor lacks unit identity")
             if descriptor.get("request_id") != request_id:
                 raise supervisor.Refused("runtime descriptor differs from the planned request ID")
+            if (
+                descriptor.get("namespace") != namespace
+                or descriptor.get("allocation") != allocation
+                or descriptor.get("index") != index
+                or descriptor.get("unit_id") != f"{namespace}/{allocation}/{index:08d}"
+            ):
+                raise supervisor.Refused("runtime descriptor differs from frozen unit identity")
+            locator = descriptor.get("locator")
+            if not isinstance(locator, str) or not locator:
+                raise supervisor.Refused("injection descriptor lacks its frozen locator")
+            if locator != locator_for_unit(descriptor["unit_id"]):
+                raise supervisor.Refused("runtime descriptor differs from its frozen locator")
+            code = unit_rpc_code(
+                locator=locator,
+                namespace=namespace,
+                allocation=allocation,
+                index=index,
+                unit_id=descriptor["unit_id"],
+                request_id=request_id,
+            )
+            code_sha256 = hashlib.sha256(code.encode("utf-8")).hexdigest()
+            if planned_hashes.get(request_id) != code_sha256:
+                raise supervisor.Refused("injection request code differs from its frozen hash")
             proof_unit = self._rpc_with_loss(
                 cli,
-                code=lambda request_id, path=str(descriptor["path"]): _remote_unit_code(
-                    root, path, request_id
-                ),
+                code=code,
                 unit_id=descriptor["unit_id"],
                 request_id=request_id,
             )
             evidence = cli.rpc(
                 _remote_evidence_code(
                     root,
-                    str(descriptor["path"]),
+                    locator,
                     cli.session,
-                    hashlib.sha256(proof_unit["code"].encode()).hexdigest(),
+                    code_sha256,
+                    namespace=namespace,
+                    allocation=allocation,
+                    index=index,
+                    unit_id=descriptor["unit_id"],
+                    request_id=request_id,
                 ),
                 timeout=cli.remaining_seconds(30),
             )
             if (
                 not isinstance(evidence, dict)
                 or evidence.get("request_id") != proof_unit["request_id"]
+                or evidence.get("namespace") != namespace
+                or evidence.get("allocation") != allocation
+                or evidence.get("index") != index
+                or evidence.get("unit_id") != descriptor["unit_id"]
+                or evidence.get("runtime_root") != root
+                or evidence.get("generation") != generation
+                or evidence.get("session") != cli.session
+                or not isinstance(evidence.get("locator_sha256"), str)
+                or not isinstance(evidence.get("descriptor_sha256"), str)
             ):
                 raise supervisor.Refused(
                     "injection unit marker evidence differs from request identity"
