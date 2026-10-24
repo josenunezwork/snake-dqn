@@ -24,7 +24,8 @@ export SNAKE_CKPT_DIR="$input_root/checkpoints"
 mkdir -p "$COLAB_CLI_ROOT/output"
 args=(--checkpoint "$checkpoint" --ledger "$COLAB_INPUT_DIR/$INTEGRATION_BENCH_LEDGER_PATH" \
   --output-dir "$COLAB_CLI_ROOT/output" --seconds "$INTEGRATION_BENCH_SECONDS" \
-  --device "$INTEGRATION_BENCH_DEVICE")
+  --device "$INTEGRATION_BENCH_DEVICE"
+)
 if [[ "${INTEGRATION_BENCH_SMOKE:-0}" == "1" ]]; then args+=(--smoke); fi
 if [[ "${INTEGRATION_BENCH_CANARY:-0}" == "1" ]]; then args+=(--canary); fi
 nice -n 15 python -m research.gpu_sim_spike.integration_bench "${args[@]}"
