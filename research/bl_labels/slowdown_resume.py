@@ -9,6 +9,7 @@ diagnostics.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -19,13 +20,14 @@ from pathlib import Path
 from typing import Any
 
 from .exports import _verify, publish_json
+from .factory_persistence import INTERIM_RULING_SHA256, POLICY_ID, RULING_SHA256
 
 W6 = 6
 W12 = 12
 SIX_HOURS = 6 * 60 * 60
-HOST_CHECK_SCHEMA = "bl-labels-f0-slowdown-host-check-nice-interim/v2"
+HOST_CHECK_SCHEMA = "bl-labels-f0-slowdown-host-check-persistence/v3"
 INTERIM_POLICY = "ALLOW_NICE15_INTERIM"
-INTERIM_RULING_SHA256 = "ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd"
+PERSISTENCE_POLICY = "ALLOW_PERSISTENCE_30S"
 
 
 def _operational_pin() -> str:
@@ -210,8 +212,10 @@ def _host_check_after(state_dir: Path, trip_epoch: float) -> bool:
         value = _read_triplet(path)
         if (
             value.get("schema") == HOST_CHECK_SCHEMA
-            and value.get("policy") == INTERIM_POLICY
-            and value.get("ruling_sha256") == INTERIM_RULING_SHA256
+            and value.get("policy") == PERSISTENCE_POLICY
+            and value.get("policy_id") == POLICY_ID
+            and value.get("ruling_sha256") == RULING_SHA256
+            and value.get("interim_ruling_sha256") == INTERIM_RULING_SHA256
             and value.get("operational_pin") == pin
             and value.get("for_trip_epoch") == trip_epoch
             and _finite_positive(value.get("checked_epoch"), "host check epoch") >= trip_epoch
@@ -223,9 +227,69 @@ def _host_check_after(state_dir: Path, trip_epoch: float) -> bool:
             and value["host_health"].get("lid_open") is True
             and isinstance(value.get("pmset_therm"), str)
             and isinstance(value.get("top_cpu_consumers"), list)
+            and _valid_process_window(value.get("process_window"), state_dir)
         ):
             return True
     return False
+
+
+def _valid_process_window(value: object, state_dir: Path) -> bool:
+    """Verify this v3 window and its outcome-blind full-observation journal."""
+    if not isinstance(value, dict):
+        return False
+    try:
+        start, end = value["window_start_monotonic"], value["window_end_monotonic"]
+        count = value["observation_count"]
+        path = Path(value["telemetry_path"])
+        if (
+            value.get("policy_id") != POLICY_ID
+            or value.get("ruling_sha256") != RULING_SHA256
+            or value.get("interim_ruling_sha256") != INTERIM_RULING_SHA256
+            or type(count) is not int
+            or count < 7
+            or isinstance(start, bool)
+            or isinstance(end, bool)
+            or not math.isfinite(start)
+            or not math.isfinite(end)
+            or end - start < 30.0
+            or value.get("final_pending") != []
+            or value.get("observation_errors") != []
+            or value.get("stop_reasons") != []
+            or path.parent.resolve() != state_dir.resolve()
+        ):
+            return False
+        payload = path.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != value.get("telemetry_sha256"):
+            return False
+        rows = [json.loads(line) for line in payload.splitlines()]
+        if any(
+            row.get("policy_id") != POLICY_ID
+            or row.get("ruling_sha256") != RULING_SHA256
+            or row.get("interim_ruling_sha256") != INTERIM_RULING_SHA256
+            or row.get("attempt_id") != value.get("attempt_id")
+            or row.get("decision") in {"monitor_fault", "preempt_persistent"}
+            for row in rows
+        ):
+            return False
+        samples = [row for row in rows if row.get("decision") == "observation_complete"]
+        times = [row["sample_monotonic"] for row in samples]
+        pending = set()
+        for row in rows:
+            identity = row.get("pid"), row.get("birth")
+            if row.get("decision") == "pending":
+                pending.add(identity)
+            elif row.get("decision") in {"clear_priority", "clear_absent"}:
+                pending.discard(identity)
+        return (
+            len(samples) == count
+            and not pending
+            and [row["sample_sequence"] for row in samples] == list(range(1, count + 1))
+            and times[0] == start
+            and times[-1] == end
+            and all(0 <= later - earlier <= 15 for earlier, later in zip(times, times[1:]))
+        )
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
 
 
 def resume_policy(
@@ -298,9 +362,29 @@ def _record_host_check_locked(state_dir: Path, *, checked_epoch: float | None = 
     if epoch < float(latest):
         raise ValueError("host check predates qualifying W6 slowdown pair; HOLD")
     pin = _operational_pin()
-    from .mac_driver import MacGuardError, _exclusive_factory_guard, _guard_snapshot
+    import uuid
 
-    health = _guard_snapshot(state_dir)
+    from .factory_persistence import PersistenceTracker
+    from .mac_driver import (
+        DEFAULT_TIMING_ARMED,
+        MacGuardError,
+        _factory_admission_window,
+        _guard_snapshot,
+    )
+
+    tracker = PersistenceTracker(
+        "host-check-" + uuid.uuid4().hex,
+        state_dir / f"slowdown-host-check-{int(epoch)}.process.jsonl",
+    )
+    try:
+        window = _factory_admission_window(tracker, state_dir, DEFAULT_TIMING_ARMED)
+        health = _guard_snapshot(state_dir)
+    except (MacGuardError, subprocess.SubprocessError, OSError) as exc:
+        tracker.stops.append(f"host check refused: {type(exc).__name__}")
+        publish_json(
+            state_dir / f"slowdown-host-check-{int(epoch)}.refused.json", tracker.summary()
+        )
+        raise ValueError("host check found unsafe process observation; HOLD: " + str(exc)) from exc
     therm = health["thermal"]
     rows = subprocess.check_output(
         ["/bin/ps", "-axo", "pid=,pcpu=,comm="], text=True, timeout=10
@@ -308,21 +392,21 @@ def _record_host_check_locked(state_dir: Path, *, checked_epoch: float | None = 
     consumers = sorted(
         rows, key=lambda row: float(row.split()[1]) if len(row.split()) >= 2 else 0.0, reverse=True
     )[:20]
-    # Share the runtime guard's ownership, desktop-helper and nice >= 15 rules.
-    try:
-        _exclusive_factory_guard(set())
-    except MacGuardError as exc:
-        raise ValueError("host check found unsafe process observation; HOLD") from exc
+    if _operational_pin() != pin:
+        raise ValueError("host check operational pin changed during observation; HOLD")
     path = state_dir / f"slowdown-host-check-{int(epoch)}.json"
     publish_json(
         path,
         {
             "schema": HOST_CHECK_SCHEMA,
-            "policy": INTERIM_POLICY,
-            "ruling_sha256": INTERIM_RULING_SHA256,
+            "policy": PERSISTENCE_POLICY,
+            "policy_id": POLICY_ID,
+            "ruling_sha256": RULING_SHA256,
+            "interim_ruling_sha256": INTERIM_RULING_SHA256,
             "operational_pin": pin,
             "for_trip_epoch": latest,
-            "checked_epoch": epoch,
+            "checked_epoch": time.time() if checked_epoch is None else epoch,
+            "process_window": window,
             "pmset_therm": therm,
             "top_cpu_consumers": consumers,
             "host_health": health,

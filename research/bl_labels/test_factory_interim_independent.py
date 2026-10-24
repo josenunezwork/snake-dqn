@@ -16,15 +16,13 @@ import pytest
 from research.bl_labels import mac_driver as md
 from research.bl_labels import slowdown_resume as sr
 from research.bl_labels.exports import publish_json
+from research.bl_labels.factory_persistence import RULING_SHA256, PersistenceTracker
 from research.bl_labels.test_slowdown_resume import _attempt, _trip
 from research.compute import factory_interim_launcher as launcher
 
 ROOT = Path(__file__).resolve().parents[2]
-RULING = (
-    ROOT.parent
-    / "snake-dqn-artifacts/big-lever/exp/JUDGMENT_FACTORY_CONCURRENCY_INTERIM_20261023.md"
-)
-RULING_SHA = "ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd"
+RULING = ROOT.parent / "snake-dqn-artifacts/big-lever/exp/JUDGMENT_FACTORY_PERSISTENCE_20261023.md"
+RULING_SHA = RULING_SHA256
 BASE = "5dfd4a74cb7d304cc7b48a4f4fa0947c76f3c867"
 SCIENCE = "61900af28932e47e22e332840fc4406559adb062"
 AGENTS = [
@@ -50,8 +48,42 @@ def _pair(state):
     _attempt(state, "two", workers=6, records=[_trip("watch6", 6, 200, 2000)])
 
 
+def _persistence_clock(monkeypatch):
+    """Mock Darwin identity and advance the admission cadence without sleeping."""
+    from research.bl_labels import factory_persistence
+
+    clock = [0.0]
+    monkeypatch.setattr(
+        factory_persistence,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: clock[0],
+            sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+        ),
+    )
+    monkeypatch.setattr(
+        factory_persistence,
+        "_native_identity",
+        lambda pid: {
+            "birth": f"fixture-{pid}",
+            "birth_precision": {"unit": "fixture"},
+            "executable": "/usr/bin/python3",
+        },
+    )
+    return clock
+
+
+def _persistent_guard(monkeypatch, owned=None):
+    clock = _persistence_clock(monkeypatch)
+    tracker = PersistenceTracker("interim-guard-fixture")
+    for index in range(7):
+        clock[0] = index * 5.0
+        md._exclusive_factory_guard(set() if owned is None else owned, tracker)
+
+
 def _host(monkeypatch, table):
     pin = _pin()
+    _persistence_clock(monkeypatch)
     monkeypatch.setattr(sr, "_operational_pin", lambda: pin)
     monkeypatch.setattr(md, "_command_output", lambda _: table)
     monkeypatch.setattr(
@@ -80,13 +112,13 @@ def test_foreign_priority_at_startup_runtime_and_recovery(tmp_path, monkeypatch,
     if nice < 15:
         with pytest.raises((md.MacGuardError, ValueError)):
             (
-                md._exclusive_factory_guard(set())
+                _persistent_guard(monkeypatch)
                 if phase == "runtime"
                 else sr.record_host_check(tmp_path, checked_epoch=2001)
             )
-        assert not list(tmp_path.glob("slowdown-host-check-*"))
+        assert not (tmp_path / "slowdown-host-check-2001.json").exists()
     elif phase == "runtime":
-        md._exclusive_factory_guard(set())
+        md._exclusive_factory_guard(set(), PersistenceTracker("safe-runtime"))
     else:
         sr.record_host_check(tmp_path, checked_epoch=2001)
         assert sr.resume_policy(6, tmp_path) == (6, [])
@@ -113,11 +145,11 @@ def test_unknown_or_unreadable_priority_refused(tmp_path, monkeypatch, row, phas
         monkeypatch.setattr(md, "_command_output", unreadable)
     with pytest.raises((md.MacGuardError, ValueError, subprocess.SubprocessError)):
         (
-            md._exclusive_factory_guard(set())
+            md._exclusive_factory_guard(set(), PersistenceTracker("invalid-metadata"))
             if phase == "runtime"
             else sr.record_host_check(tmp_path, checked_epoch=2001)
         )
-    assert not list(tmp_path.glob("slowdown-host-check-*"))
+    assert not (tmp_path / "slowdown-host-check-2001.json").exists()
 
 
 @pytest.mark.parametrize(
@@ -129,7 +161,7 @@ def test_every_foreign_descendant_is_checked(tmp_path, monkeypatch, child, phase
     _host(monkeypatch, f"123 1 15 codex exec task\n124 123 19 /bin/sh helper\n125 124 14 {child}\n")
     with pytest.raises((md.MacGuardError, ValueError)):
         (
-            md._exclusive_factory_guard(set())
+            _persistent_guard(monkeypatch)
             if phase == "runtime"
             else sr.record_host_check(tmp_path, checked_epoch=2001)
         )
@@ -148,7 +180,7 @@ def test_every_foreign_descendant_is_checked(tmp_path, monkeypatch, child, phase
 def test_desktop_helpers_remain_excluded(tmp_path, monkeypatch, argv):
     _pair(tmp_path)
     _host(monkeypatch, f"123 1 0 {argv}\n")
-    md._exclusive_factory_guard(set())
+    md._exclusive_factory_guard(set(), PersistenceTracker("desktop-helper"))
     sr.record_host_check(tmp_path, checked_epoch=2001)
 
 
@@ -158,7 +190,7 @@ def test_owned_descendants_remain_owned(monkeypatch):
         "_command_output",
         lambda _: "123 1 10 python research/factory.py\n124 123 0 python -c tool\n",
     )
-    md._exclusive_factory_guard({123})
+    _persistent_guard(monkeypatch, {123})
 
 
 def test_honest_receipt_binds_ruling_and_exact_operational_pin(tmp_path, monkeypatch):
@@ -166,9 +198,11 @@ def test_honest_receipt_binds_ruling_and_exact_operational_pin(tmp_path, monkeyp
     pin = _host(monkeypatch, "123 1 15 codex exec task\n")
     path = sr.record_host_check(tmp_path, checked_epoch=2001)
     receipt = json.loads(path.read_text())
-    assert receipt["schema"] == "bl-labels-f0-slowdown-host-check-nice-interim/v2"
-    assert receipt["policy"] == "ALLOW_NICE15_INTERIM"
+    assert receipt["schema"] == "bl-labels-f0-slowdown-host-check-persistence/v3"
+    assert receipt["policy"] == "ALLOW_PERSISTENCE_30S"
+    assert receipt["policy_id"] == "factory-nice15-persistence30/v1"
     assert receipt["ruling_sha256"] == RULING_SHA
+    assert receipt["process_window"]["observation_count"] >= 7
     assert receipt["operational_pin"] == pin
     assert "no_sol_codex" not in receipt
     assert receipt["no_disallowed_competing_compute"] is True
@@ -176,7 +210,8 @@ def test_honest_receipt_binds_ruling_and_exact_operational_pin(tmp_path, monkeyp
     assert sr.resume_policy(6, tmp_path) == (6, [])
     triplet = [path, Path(str(path) + ".sha256"), Path(str(path) + ".complete")]
     before = [part.read_bytes() for part in triplet]
-    assert sr.record_host_check(tmp_path, checked_epoch=2001) == path
+    with pytest.raises(FileExistsError):
+        sr.record_host_check(tmp_path, checked_epoch=2001)
     assert [part.read_bytes() for part in triplet] == before
     with pytest.raises(FileExistsError):
         publish_json(path, {**receipt, "operational_pin": "0" * 40})
@@ -288,7 +323,7 @@ def test_worker_nice_ten_is_verified_before_science(monkeypatch, tmp_path):
 
 def test_source_accounting_and_frozen_science_closure():
     assert hashlib.sha256(RULING.read_bytes()).hexdigest() == RULING_SHA
-    assert sr.INTERIM_RULING_SHA256 == RULING_SHA
+    assert sr.RULING_SHA256 == RULING_SHA
 
     def git_bytes(rev, path):
         return subprocess.check_output(["git", "show", f"{rev}:{path}"], cwd=ROOT)
@@ -306,18 +341,26 @@ def test_source_accounting_and_frozen_science_closure():
     for path in unchanged:
         assert (ROOT / path).read_bytes() == git_bytes(BASE, path), path
 
-    def without_guard(source):
-        tree = ast.parse(source)
-        tree.body = [
-            node
-            for node in tree.body
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            or node.name != "_exclusive_factory_guard"
-        ]
-        return ast.dump(tree)
-
     driver = ROOT / "research/bl_labels/mac_driver.py"
-    assert without_guard(driver.read_text()) == without_guard(
+
+    def accounting_assignments(source):
+        run = next(
+            node
+            for node in ast.parse(source).body
+            if isinstance(node, ast.FunctionDef) and node.name == "run"
+        )
+        names = ("elapsed", "worker", "deadline", "cap", "charge")
+        return [
+            ast.dump(node)
+            for node in ast.walk(run)
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            and any(
+                isinstance(target, ast.Name) and any(key in target.id for key in names)
+                for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+            )
+        ]
+
+    assert accounting_assignments(driver.read_text()) == accounting_assignments(
         git_bytes(BASE, "research/bl_labels/mac_driver.py")
     )
     assert (ROOT / "research/bl_labels/exports.py").read_bytes() == git_bytes(
@@ -355,7 +398,21 @@ def test_source_accounting_and_frozen_science_closure():
         and isinstance(node.func, ast.Name)
         and node.func.id == "_exclusive_factory_guard"
     ]
-    assert {ast.unparse(node.args[0]) for node in calls} == {"set()", "set(active)"}
+    assert {ast.unparse(node.args[0]) for node in calls} == {"set(active)"}
+    assert all(len(node.args) == 2 for node in calls)
+    admission = next(
+        node
+        for node in ast.parse(driver.read_text()).body
+        if isinstance(node, ast.FunctionDef) and node.name == "_factory_admission_window"
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_exclusive_factory_guard"
+        and ast.unparse(node.args[0]) == "set()"
+        and len(node.args) == 2
+        for node in ast.walk(admission)
+    )
 
 
 def test_real_launcher_obeys_the_outer_canonical_test_lock(tmp_path):

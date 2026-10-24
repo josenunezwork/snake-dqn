@@ -15,7 +15,6 @@ import math
 import multiprocessing as mp
 import os
 import platform
-import re
 import shutil
 import signal
 import subprocess
@@ -36,7 +35,12 @@ from .exports import (
     publish_life,
     publish_session,
 )
-from .slowdown_resume import _sol_codex_job
+from .factory_persistence import (
+    PersistenceTracker,
+    ProcessMonitorStop,
+    admission_window,
+    observation_timeout,
+)
 
 DEFAULT_TIMING_ARMED = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/mac-timing-armed")
 THREAD_ENV = {
@@ -85,7 +89,9 @@ def platform_attestation() -> dict[str, str]:
 
 
 def _command_output(command: list[str]) -> str:
-    return subprocess.run(command, check=True, capture_output=True, text=True, timeout=10).stdout
+    return subprocess.run(
+        command, check=True, capture_output=True, text=True, timeout=observation_timeout()
+    ).stdout
 
 
 def _guard_snapshot(output: Path) -> dict[str, Any]:
@@ -140,47 +146,33 @@ def _rss_many(pids: list[int]) -> dict[int, int]:
     return values
 
 
-def _exclusive_factory_guard(owned_pids: set[int]) -> None:
-    """Refuse competing compute below nice 15; never kill non-owned jobs."""
-    table = _command_output(["/bin/ps", "-A", "-o", "pid=,ppid=,nice=,args="])
-    rows = []
-    for line in table.splitlines():
-        fields = line.strip().split(None, 3)
-        if len(fields) != 4 or not all(x.isdigit() for x in fields[:2]):
-            raise MacGuardError("cannot parse exclusive factory process observation")
-        try:
-            nice = int(fields[2])
-        except ValueError as exc:
-            raise MacGuardError("cannot parse exclusive factory nice observation") from exc
-        if not -20 <= nice <= 20:
-            raise MacGuardError("invalid exclusive factory nice observation")
-        rows.append((int(fields[0]), int(fields[1]), nice, fields[3]))
-    owned = {os.getpid(), *owned_pids}
-    while True:
-        descendants = {pid for pid, parent, _, _ in rows if parent in owned}
-        if descendants <= owned:
-            break
-        owned.update(descendants)
-    relevant = set()
-    for pid, _, _, command in rows:
-        executable = Path(command.split()[0]).name.lower()
-        agent = _sol_codex_job(command)
-        research = executable.startswith(("python", "pytest")) and re.search(
-            r"(?:-m\s+(?:pytest|research\.)|(?:research|src/scripts)/|train_)", command
+def _exclusive_factory_guard(owned_pids: set[int], tracker: PersistenceTracker) -> None:
+    """Observe one full table using the attempt's retained priority tracker."""
+    try:
+        tracker.sample(_command_output, owned_pids)
+    except ProcessMonitorStop as error:
+        raise MacGuardError(str(error)) from error
+
+
+def _factory_admission_window(
+    tracker: PersistenceTracker, output: Path, timing_armed: Path
+) -> dict[str, Any]:
+    """Check priority persistence and immediate health/timing before workers."""
+
+    def immediate() -> None:
+        if _timing_armed(timing_armed):
+            raise MacGuardError("refusing F0 admission while Mac timing is armed")
+        _guard_snapshot(output)
+
+    try:
+        return admission_window(
+            tracker, lambda: _exclusive_factory_guard(set(), tracker), immediate
         )
-        if agent or research:
-            relevant.add(pid)
-    # A local tool remains relevant even when its argv alone is generic (for
-    # example Python -c importing NumPy). Never let an accepted agent root
-    # hide a higher-priority numerical or native descendant.
-    while True:
-        descendants = {pid for pid, parent, _, _ in rows if parent in relevant}
-        if descendants <= relevant:
-            break
-        relevant.update(descendants)
-    for pid, _, nice, _ in rows:
-        if pid in relevant and pid not in owned and nice < 15:
-            raise MacGuardError(f"exclusive factory window: concurrent compute pid {pid}")
+    except ProcessMonitorStop as error:
+        raise MacGuardError(str(error)) from error
+    except (MacGuardError, subprocess.SubprocessError, OSError) as error:
+        tracker.stops.append(f"admission guard: {error}")
+        raise
 
 
 def _stop_workers(active: dict[int, mp.Process]) -> None:
@@ -596,8 +588,20 @@ def run(
     if _timing_armed(timing_armed):
         raise MacGuardError("refusing F0 admission while Mac timing is armed")
     namespace, allocation, jobs = _prepare_jobs(control, ledger)
+    attempt_id = uuid.uuid4().hex
+    factory_tracker: PersistenceTracker | None = None
     if control.get("mac_gate", {}).get("stage") in {"d256", "d1024", "d4096"}:
-        _exclusive_factory_guard(set())
+        monitor_root = state_dir if state_dir is not None else output.parent
+        factory_tracker = PersistenceTracker(
+            attempt_id, monitor_root / f"attempt-{attempt_id}.factory-process.jsonl"
+        )
+        try:
+            _factory_admission_window(factory_tracker, output.parent, timing_armed)
+        finally:
+            publish_json(
+                monitor_root / f"attempt-{attempt_id}.factory-admission.json",
+                factory_tracker.summary(),
+            )
     sanity_baseline: dict[str, Any] | None = None
     if workers == MAX_WORKERS and control.get("mac_gate", {}).get("stage") in {
         "d256",
@@ -607,7 +611,6 @@ def run(
         from .w12_runtime import resolve_w6_parent_rates
 
         sanity_baseline = resolve_w6_parent_rates(control)
-    attempt_id: str | None = None
     prior_elapsed = 0.0
     prior_worker_seconds = 0.0
     prior_attempts: list[str] = []
@@ -761,7 +764,6 @@ def run(
         if deadline_seconds is not None and prior_elapsed >= deadline_seconds:
             raise MacGuardError("prior Mac factory attempts exhausted the frozen wall cap; HOLD")
         slowdown_guards = build_guards(control, workers, started, prior_terminals, state_dir)
-        attempt_id = uuid.uuid4().hex
         output.mkdir(parents=True, exist_ok=True)
         publish_json(
             state_dir / f"attempt-{attempt_id}.start.json",
@@ -841,7 +843,8 @@ def run(
     thermal_epoch_seen = False
     next_report = time.monotonic() + 110
     next_soft_rss_sample = time.monotonic()  # Include a startup sample, then every five minutes.
-    next_exclusive_sample = time.monotonic() + 5
+    # Re-observe before the first worker, including setup since admission.
+    next_exclusive_sample = time.monotonic()
     thermal_clean_intervals: list[list[float]] = []
     last_clean_sample: float | None = None
     sanity_counts = dict(prior_sanity_counts)
@@ -916,8 +919,8 @@ def run(
             if time.monotonic() >= next_exclusive_sample:
                 next_exclusive_sample = time.monotonic() + 5
                 try:
-                    if control.get("mac_gate", {}).get("stage") in {"d256", "d1024", "d4096"}:
-                        _exclusive_factory_guard(set(active))
+                    if factory_tracker is not None:
+                        _exclusive_factory_guard(set(active), factory_tracker)
                 except (MacGuardError, subprocess.SubprocessError, OSError) as error:
                     stop_reason = f"operational guard: {error}"
                     preempted = True
@@ -1200,6 +1203,7 @@ def run(
         "pending_parents": [job.allocation["allocation_id"] for job in pending],
         "invalid_reason": invalid,
         "stop_reason": slowdown_stop_reason or stop_reason,
+        "factory_process_monitor": factory_tracker.summary() if factory_tracker else None,
         "post_slowdown_stop_reason": (
             stop_reason
             if slowdown_stop_reason is not None and stop_reason != slowdown_stop_reason

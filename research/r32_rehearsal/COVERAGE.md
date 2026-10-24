@@ -38,15 +38,18 @@ operator:
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
-  /usr/bin/nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python \
+  /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python \
   -m research.r32_rehearsal.consumer \
   --b8 /ABSOLUTE/IMMUTABLE/b8_s3_t7_20261016.pth \
   --output /ABSOLUTE/FRESH/r32-consumer-rehearsal --mac-smoke
 ```
 
-The optional Mac declaration is `--mac-smoke`; it still performs no world or
-Watch execution. This consumer trace has no standalone Colab job and no dispatch
-authority. It belongs within the ruling's shared CPU fixture envelope: forecast 2.0 h /
-0.16 u, base 2.4 h / 0.192 u, and owner-2x ceiling 4.8 h / 0.384 u (including reserve).
+The optional `--mac-smoke` executes the isolated H3/Watch plumbing described above.
+Use the pinned `tools/ops/dispatch.sh --mac` command in `HANDOFF.md` for operator
+execution. The consumer enforces a nice floor of 15 without raising an inherited
+lower priority, one Torch thread, the shared lease, and a 2700-second hard wall.
+This trace has no standalone Colab job and no dispatch authority. Mac R32-1 work
+is capped at 0.75 core-hour; portable fixtures share the separate cloud envelope:
+forecast 2.0 h / 0.16 u, base 2.4 h / 0.192 u, owner-2x 4.8 h / 0.384 u.
 No L4, A100, or H100 allocation is justified unless a separately admitted transport gap
 is established.

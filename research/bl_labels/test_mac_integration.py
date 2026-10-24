@@ -131,7 +131,12 @@ def _patch_inline_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mac_driver.os, "getpriority", lambda *_args: 10)
     monkeypatch.setattr(mac_driver.mp, "get_context", lambda _name: _InlineContext())
     monkeypatch.setattr(mac_driver, "_guard_snapshot", lambda _output: {"fixture": True})
-    monkeypatch.setattr(mac_driver, "_exclusive_factory_guard", lambda _owned: None)
+    monkeypatch.setattr(
+        mac_driver,
+        "_factory_admission_window",
+        lambda _tracker, _output, _timing_armed: {"fixture": True},
+    )
+    monkeypatch.setattr(mac_driver, "_exclusive_factory_guard", lambda _owned, _tracker: None)
     monkeypatch.setattr(mac_driver, "_rss_many", lambda _pids: {pid: 0 for pid in _pids})
 
 
