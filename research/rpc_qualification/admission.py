@@ -24,8 +24,8 @@ REVIEW_PATH = Path(
     "CLAUDE_V_L4_REQUAL_02_20261024.json"
 )
 ARTIFACT_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts")
-PACK_ROOT = ARTIFACT_ROOT / "big-lever/round-24/rpc-qualification-07"
-PROOF_RELATIVE = "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_07.json"
+PACK_ROOT = ARTIFACT_ROOT / "big-lever/round-24/rpc-qualification-08"
+PROOF_RELATIVE = "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_08.json"
 AUTHORITY_FILES = {
     "R": (
         ARTIFACT_ROOT / "bl-labels-f0/JUDGMENT_L4_FAULT_DEFINITION_20261024.md",
@@ -46,6 +46,10 @@ AUTHORITY_FILES = {
     "review04": (
         ARTIFACT_ROOT / "big-lever/exp/fable-20261024/JUDGMENT_L4_V2_REVIEW04.md",
         "75bcbbb9e6ae72ff6bcf728d9bab61a25127e43d61d2c5f83a73da73e65c3f22",
+    ),
+    "review05": (
+        ARTIFACT_ROOT / "big-lever/exp/fable-20261024/JUDGMENT_L4_V2_REVIEW05.md",
+        "d24efca6dac518e0643c51cf6540bd726b5423328a7b5123681ffa448cfc5b07",
     ),
 }
 
@@ -160,7 +164,7 @@ def review_artifact_bindings(repo: Path, package_commit: str) -> dict[str, Any]:
         "plan": PACK_ROOT / "plan.json",
         "proof": repo / PROOF_RELATIVE,
         "trace": PACK_ROOT / "DIFFERENTIAL_TRACE.json",
-        "helper": PACK_ROOT / "GUARDED_OPERATOR_COMMANDS_V4.sh",
+        "helper": PACK_ROOT / "GUARDED_OPERATOR_COMMANDS_V5.sh",
     }
     for name in ("plan", "proof", "trace"):
         _verify(paths[name])

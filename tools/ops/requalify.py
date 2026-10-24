@@ -123,15 +123,11 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
         # Attempt 2 of the L4 label lane: the prerequisite is a dispatch too,
         # so it needs the independent reviewer ACCEPT at this broker pin first.
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-        from research.rpc_qualification.admission import require_review
+        from research.rpc_qualification.admission import PROOF_RELATIVE, require_review
         from research.rpc_qualification.checker import validate_fake_proof
 
         require_review(repo=repo, package_commit=review["commit"])
-        validate_fake_proof(
-            repo / "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_06.json",
-            repo,
-            review["commit"],
-        )
+        validate_fake_proof(repo / PROOF_RELATIVE, repo, review["commit"])
     # An interrupted/failed execution stays consumed. Another call must plan afresh.
     with saved.with_name("ops-execute-started.json").open("x") as stream:
         json.dump({"review_sha256": hashlib.sha256(raw).hexdigest()}, stream)

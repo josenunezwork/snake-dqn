@@ -281,15 +281,38 @@ def test_lane_review_and_proof_refuse_before_started_marker_or_execution(
 
 
 def test_lane_cpu_fault_preserves_registry_after_raw_harness_pass(broker, tmp_path, monkeypatch):
+    from research.bl_labels.exports import publish_json
     from research.colab_cli import cli_guard, policy
     from research.rpc_qualification import admission as lane_admission
     from research.rpc_qualification import checker
+
+    # Exercise the real proof validator at execute's selected path. Build an
+    # isolated current-source package, using the frozen trace evidence as fixture
+    # data; no generated proof (or provider) is needed to generate the next proof.
+    source = OPS.parents[1]
+    for relative in checker.fake_proof_source_inventory(source):
+        destination = broker / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / relative, destination)
+    git(broker, "add", ".")
+    git(broker, "commit", "-qm", "current proof sources")
+    proof = json.loads(
+        (source / "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_07.json").read_text()
+    )
+    proof.update(
+        source_commit=git(broker, "rev-parse", "HEAD"),
+        source_sha256=checker.fake_proof_source_inventory(broker),
+        transport_tree=qualification.tree(broker),
+    )
+    publish_json(broker / lane_admission.PROOF_RELATIVE, proof)
+    git(broker, "add", ".")
+    git(broker, "commit", "-qm", "source-bound proof fixture")
+    assert not (broker / "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_06.json").exists()
 
     saved, _, calls = execution_fixture(broker, tmp_path, monkeypatch)
     target = tmp_path / "l4-label-lane-qualified.json"
     target.write_text("previous")
     monkeypatch.setattr(lane_admission, "require_review", lambda **_kwargs: {})
-    monkeypatch.setattr(checker, "validate_fake_proof", lambda *_args: {})
 
     def refuse_cpu(*_args, **_kwargs):
         raise ValueError("required cpu arm has counted v2 faults")
