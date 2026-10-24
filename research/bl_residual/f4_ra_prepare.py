@@ -70,6 +70,59 @@ def identity(
     }
 
 
+LOCK_PATTERN = "F4_R_A_*.lock.json"
+
+
+def lock_search_roots() -> list[Path]:
+    """Every F4 artifact tree where funding.main could have minted an R-A lock."""
+    return [d1024.F4]
+
+
+def existing_ra_locks(*roots: Path) -> list[str]:
+    """Any R-A lock for F4, not only the canonical path of the current inputs.
+
+    funding.main refuses only its own canonical lock; a rerun with changed inputs
+    would mint a second one. This preparer and the printed command refuse both.
+    """
+    found: set[str] = set()
+    for root in roots:
+        if root.is_dir():
+            found.update(str(path) for path in root.rglob(LOCK_PATTERN))
+    return sorted(found)
+
+
+def command(packet_path: Path, source: Path, pin: str) -> str:
+    """Return the single registered R-A dispatch line; never runs it.
+
+    Resolves only absolute paths (independent of the current directory) and
+    refuses if the packet is foreign, any F4 R-A lock exists, or output exists.
+    """
+    packet_path, source = packet_path.resolve(), source.resolve()
+    verify_export(packet_path)
+    packet = json.loads(packet_path.read_text())
+    if (
+        packet.get("schema") != PACKET_SCHEMA
+        or packet.get("status") != "PREPARED_NOT_RUN"
+        or packet.get("source_pin") != pin
+        or not (source / "tools/ops/dispatch.sh").is_file()
+    ):
+        raise ValueError("HOLD: packet is not the prepared R-A command at RA_PIN")
+    lock_root = Path(packet["lock"]["lock_root"])
+    existing = existing_ra_locks(lock_root, *lock_search_roots())
+    if existing or Path(packet["lock_path"]).exists():
+        raise ValueError(f"HOLD: R-A already opened (once-only look): {existing}")
+    if Path(packet["funding_output"]).exists():
+        raise ValueError("HOLD: R-A funding output already exists (once-only look)")
+    return (
+        "# Look R-A (registered, once-only). Operator-owned; requires a fresh ops Mac job ID.\n"
+        + shlex.join([str(source / "tools/ops/dispatch.sh"), "--mac", "--repo", str(source)])
+        + ' "${R_A_JOB_ID:?fresh ops-registered Mac accounting job ID}" '
+        + shlex.quote(pin)
+        + " -- "
+        + packet["shell"]
+    )
+
+
 def prepare(
     *,
     d256_pack: Path,
@@ -127,9 +180,11 @@ def prepare(
         "d1024": right,
     }
     lock_path = allocation.parent / f"F4_R_A_{canonical_sha(lock)}.lock.json"
-    existing = sorted(allocation.parent.glob("F4_R_A_*.lock.json"))
+    existing = existing_ra_locks(allocation.parent, *lock_search_roots())
     if existing:
         raise ValueError(f"HOLD: an R-A lock already exists (once-only look): {existing}")
+    if funding_out.parent.exists() and any(funding_out.parent.iterdir()):
+        raise ValueError("HOLD: R-A output directory is not empty (once-only look)")
     argv = [
         PYTHON,
         "-m",
@@ -187,13 +242,22 @@ def prepare(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--print-command", type=Path, metavar="PACKET")
+    parser.add_argument("--source", type=Path)
     parser.add_argument("--d256-pack", type=Path, default=d1024.D256_PACK)
-    parser.add_argument("--d1024-pack", type=Path, required=True)
-    parser.add_argument("--census-dir", type=Path, required=True)
-    parser.add_argument("--funding-out", type=Path, required=True)
-    parser.add_argument("--packet-out", type=Path, required=True)
+    parser.add_argument("--d1024-pack", type=Path)
+    parser.add_argument("--census-dir", type=Path)
+    parser.add_argument("--funding-out", type=Path)
+    parser.add_argument("--packet-out", type=Path)
     parser.add_argument("--pin", required=True)
     args = parser.parse_args()
+    if args.print_command:
+        if args.source is None:
+            parser.error("--print-command requires --source")
+        print(command(args.print_command, args.source, args.pin))
+        return
+    if not all((args.d1024_pack, args.census_dir, args.funding_out, args.packet_out)):
+        parser.error("--d1024-pack, --census-dir, --funding-out and --packet-out required")
     print(
         json.dumps(
             prepare(

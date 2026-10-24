@@ -14,16 +14,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 from . import d1024_resume, mac_driver, mac_gates
 
 FINAL_DIR = d1024_resume.ART / "bl-labels-f0-speed/d1024-union-final-01"
 PUBLICATION_PATH = "research/bl_labels/ledger/D1024_UNION_FINAL_20261024.json"
+ROOT = Path(__file__).resolve().parents[2]
 
 
-def publish_final(pack: Path, out: Path) -> dict:
+def _git(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=30, check=False
+    )
+
+
+def require_pinned_source(commit: str) -> str:
+    """Refuse a dirty, unpinned or unpublished publisher checkout; return the full SHA."""
+    resolved = _git("rev-parse", "--verify", f"{commit}^{{commit}}")
+    if resolved.returncode:
+        raise ValueError("HOLD: union publisher code commit does not resolve")
+    full = resolved.stdout.strip()
+    if _git("rev-parse", "HEAD").stdout.strip() != full:
+        raise ValueError("HOLD: union publisher must run at the pinned code commit")
+    if _git("status", "--porcelain").stdout.strip():
+        raise ValueError("HOLD: union publisher requires a clean checkout")
+    if _git("merge-base", "--is-ancestor", full, "origin/main").returncode:
+        raise ValueError("HOLD: pinned union-publisher code is not published on origin/main")
+    return full
+
+
+def publish_final(pack: Path, out: Path, code_commit: str) -> dict:
     """Create the portable final union; refuse any incomplete or foreign chain."""
+    code_commit = require_pinned_source(code_commit)
     if out.exists() or Path(str(out) + ".complete").exists():
         raise FileExistsError("final D1024 union is create-only; verify the existing one")
     control = d1024_resume.original_control(pack)
@@ -40,6 +64,7 @@ def publish_final(pack: Path, out: Path) -> dict:
         "units": len(value["units"]),
         "cumulative_elapsed_seconds": elapsed,
         "pending_parents": 0,
+        "code_commit": code_commit,
     }
 
 
@@ -59,11 +84,14 @@ def main() -> None:
     parser.add_argument("--pack", type=Path, default=d1024_resume.PACK)
     parser.add_argument("--out", type=Path, default=FINAL_DIR / "verified-ledger.json")
     parser.add_argument("--verify", action="store_true")
+    parser.add_argument("--code-commit", help="pinned publisher commit (required to publish)")
     args = parser.parse_args()
     if args.verify:
         print(json.dumps(verify_final(args.pack, args.out)))
     else:
-        print(json.dumps(publish_final(args.pack, args.out)))
+        if not args.code_commit:
+            parser.error("publishing requires --code-commit")
+        print(json.dumps(publish_final(args.pack, args.out, args.code_commit)))
 
 
 if __name__ == "__main__":

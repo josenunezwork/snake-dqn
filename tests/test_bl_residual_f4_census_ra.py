@@ -240,8 +240,9 @@ def _checkpoint(path: Path, control: dict, dose: int) -> str:
 
 
 @pytest.fixture()
-def ra_world(packs: dict, tmp_path: Path) -> dict:
+def ra_world(monkeypatch: pytest.MonkeyPatch, packs: dict, tmp_path: Path) -> dict:
     """Published fits (from ``packs``) plus a published census in the fake repo."""
+    monkeypatch.setattr(ra, "lock_search_roots", lambda: [tmp_path / "f4-tree"])
     census_dir = tmp_path / "census"
     _census(packs, census_dir)
     export_bytes(
@@ -332,3 +333,41 @@ def test_ra_prepare_holds_when_checkpoint_is_not_the_published_unit(
     _checkpoint(target, {**control, "recipe_sha256": "0" * 64}, 1024)
     with pytest.raises(ValueError, match="published fit unit"):
         _prepare(ra_world, tmp_path)
+
+
+def test_ra_prepare_refuses_any_f4_lock_not_only_the_derived_path(
+    ra_world: dict, tmp_path: Path
+) -> None:
+    elsewhere = tmp_path / "f4-tree/other-pack/inputs" / ("F4_R_A_" + "0" * 64 + ".lock.json")
+    elsewhere.parent.mkdir(parents=True)
+    elsewhere.write_text("{}")
+    with pytest.raises(ValueError, match="once-only"):
+        _prepare(ra_world, tmp_path)
+    assert not (tmp_path / "r-a/packet.json").exists()
+
+
+def test_ra_command_is_cwd_independent_and_refuses_any_f4_lock(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
+) -> None:
+    _prepare(ra_world, tmp_path)
+    source = tmp_path / "source"
+    (source / "tools/ops").mkdir(parents=True)
+    (source / "tools/ops/dispatch.sh").write_text("#!/bin/sh\n")
+    unrelated = tmp_path / "unrelated-cwd"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+    packet = Path("../r-a/packet.json")
+    line = ra.command(packet, Path("../source"), "e" * 40)
+    assert str(source.resolve() / "tools/ops/dispatch.sh") in line
+    assert "research.bl_residual.funding" in line and "--f2-receipt" not in line
+    with pytest.raises(ValueError, match="RA_PIN"):
+        ra.command(packet, Path("../source"), "f" * 40)
+    stray = tmp_path / "f4-tree/x/F4_R_A_stray.lock.json"
+    stray.parent.mkdir(parents=True)
+    stray.write_text("{}")
+    with pytest.raises(ValueError, match="once-only"):
+        ra.command(packet, Path("../source"), "e" * 40)
+    stray.unlink()
+    (tmp_path / "r-a/funding-look.json").write_text("{}")
+    with pytest.raises(ValueError, match="once-only"):
+        ra.command(packet, Path("../source"), "e" * 40)

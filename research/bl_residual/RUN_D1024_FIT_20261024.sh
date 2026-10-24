@@ -61,7 +61,8 @@ push_main() {
 }
 # Copy local immutable bytes into the repository as a fresh triplet named for its path.
 publish_copy() {
-  "$PY" - "$1" "$2" <<'PY'
+  # Imports resolve from SOURCE explicitly, independent of the caller's directory.
+  (cd "$SOURCE" && PYTHONPATH="$SOURCE" "$PY" - "$1" "$2") <<'PY'
 import sys
 from pathlib import Path
 from research.bl_ppo.exports import export_bytes
@@ -93,10 +94,15 @@ dispatch_mac() {
 case "$PHASE" in
   publish-union)
     clean_source
+    git -C "$SOURCE" fetch origin
+    # Pinned publisher: the clean SOURCE commit must already be on origin/main;
+    # d1024_final refuses otherwise and records the commit in its output.
+    CODE_COMMIT=$(git -C "$SOURCE" rev-parse HEAD)
     cd "$SOURCE"
-    nice -n 15 "$PY" -m research.bl_labels.d1024_final --pack "$D1024_FACTORY_PACK" --out "$D1024_UNION"
+    nice -n 15 "$PY" -m research.bl_labels.d1024_final --pack "$D1024_FACTORY_PACK" \
+      --out "$D1024_UNION" --code-commit "$CODE_COMMIT"
     sha=$(publish_copy "$D1024_UNION" "$SOURCE/$D1024_UNION_PUB")
-    log_line "Outcome-blind phase publication: final D1024 F0 union. Ledger \`$D1024_UNION_PUB\`, SHA256 \`$sha\` (local \`$D1024_UNION\`). Final COMPLETE attempt chain verified, zero pending parents; wrapper path/size/hash only; published before F4 D1024 partition preparation, census or any analysis."
+    log_line "Outcome-blind phase publication: final D1024 F0 union. Ledger \`$D1024_UNION_PUB\`, SHA256 \`$sha\` (local \`$D1024_UNION\`), publisher code commit \`$CODE_COMMIT\`. Final COMPLETE attempt chain verified, zero pending parents; wrapper path/size/hash only; published before F4 D1024 partition preparation, census or any analysis."
     git -C "$SOURCE" add "$D1024_UNION_PUB" "$D1024_UNION_PUB.sha256" "$D1024_UNION_PUB.complete" "$LOG"
     push_main 'Publish outcome-blind final D1024 union ledger'
     verify_published "$D1024_UNION_PUB" "$D1024_UNION"
@@ -279,24 +285,9 @@ PY
     ;;
   ra-command)
     need RA_PIN
-    "$PY" - "$RA/command-packet.json" "$SOURCE" "$RA_PIN" <<'PY'
-import json
-import shlex
-import sys
-from pathlib import Path
-from research.bl_ppo.exports import verify_export
-
-packet_path, source, pin = sys.argv[1:]
-verify_export(Path(packet_path))
-packet = json.load(open(packet_path))
-if packet["status"] != "PREPARED_NOT_RUN" or packet["source_pin"] != pin:
-    raise SystemExit("HOLD: packet is not the prepared R-A command at RA_PIN")
-if Path(packet["lock_path"]).exists() or Path(packet["funding_output"]).exists():
-    raise SystemExit("HOLD: R-A already opened (lock or output exists); the look is once-only")
-print("# Look R-A (registered, once-only). Operator-owned; requires a fresh ops Mac job ID.")
-print(shlex.join([f"{source}/tools/ops/dispatch.sh", "--mac", "--repo", source])
-      + ' "${R_A_JOB_ID:?fresh ops-registered Mac accounting job ID}" '
-      + shlex.quote(pin) + " -- " + packet["shell"])
-PY
+    git -C "$SOURCE" merge-base --is-ancestor "$RA_PIN" HEAD
+    # Refuses if ANY F4 R-A lock exists (not only the derived path) or output exists.
+    (cd "$SOURCE" && PYTHONPATH="$SOURCE" "$PY" -m research.bl_residual.f4_ra_prepare \
+      --print-command "$RA/command-packet.json" --source "$SOURCE" --pin "$RA_PIN")
     ;;
 esac
