@@ -9,6 +9,7 @@ Unreadable identity stops this iteration before any priority mutation.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import subprocess
 import sys
@@ -16,6 +17,13 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+_guard_spec = importlib.util.spec_from_file_location(
+    "_colab_control_imports", Path(__file__).with_name("control_imports.py")
+)
+assert _guard_spec is not None and _guard_spec.loader is not None
+_guard_module = importlib.util.module_from_spec(_guard_spec)
+_guard_spec.loader.exec_module(_guard_module)
+_guard_module.verify(ROOT)
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

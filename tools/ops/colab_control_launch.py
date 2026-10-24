@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -22,6 +23,13 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
+_guard_spec = importlib.util.spec_from_file_location(
+    "_colab_control_imports", Path(__file__).with_name("control_imports.py")
+)
+assert _guard_spec is not None and _guard_spec.loader is not None
+_guard_module = importlib.util.module_from_spec(_guard_spec)
+_guard_spec.loader.exec_module(_guard_module)
+_guard_module.verify(ROOT)
 if str(ROOT) not in sys.path:
     # This wrapper is launched as a script.  Its own repository supplies the
     # identity contract; it never imports control policy from the broker tree.

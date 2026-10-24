@@ -238,7 +238,7 @@ def interpreter_native(path: Path) -> str:
         "f.restype=ctypes.c_int; b=ctypes.create_string_buffer(4096); "
         "n=f(os.getpid(),b,len(b)); assert n>0; print(os.fsdecode(b.value))"
     )
-    value = subprocess.check_output([str(path), "-c", program], text=True, timeout=5).strip()
+    value = subprocess.check_output([str(path), "-I", "-c", program], text=True, timeout=5).strip()
     if not Path(value).is_absolute() or not Path(value).is_file():
         raise OSError("interpreter native executable unavailable")
     return str(Path(value).resolve())
