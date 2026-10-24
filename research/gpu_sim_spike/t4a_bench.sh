@@ -27,7 +27,8 @@ export SNAKE_CKPT_DIR="$input_root/checkpoints"
 mkdir -p "$COLAB_CLI_ROOT/output"
 args=(--checkpoint "$checkpoint" --ledger "$COLAB_INPUT_DIR/$T4A_BENCH_LEDGER_PATH" \
   --output-dir "$COLAB_CLI_ROOT/output" --seconds "$T4A_BENCH_SECONDS" \
-  --device "$T4A_BENCH_DEVICE")
+  --device "$T4A_BENCH_DEVICE"
+)
 if [[ "${T4A_BENCH_SMOKE:-0}" == "1" ]]; then args+=(--smoke); fi
 if [[ "${T4A_BENCH_CANARY:-0}" == "1" ]]; then args+=(--canary); fi
 nice -n 15 python -m research.gpu_sim_spike.t4a_bench "${args[@]}"

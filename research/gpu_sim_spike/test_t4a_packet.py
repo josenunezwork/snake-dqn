@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from research.colab_cli import canary as qualified_canary
 from research.gpu_sim_spike import t4a_pack, t4a_units
 from research.gpu_sim_spike.make_manifests import ManifestRefused
 
@@ -54,6 +55,23 @@ def test_manifest_sets_cublas_workspace_before_the_entrypoint() -> None:
     assert '"CUBLAS_WORKSPACE_CONFIG": ":4096:8"' in (
         Path(t4a_pack.__file__).with_name("t4a_preflight.py").read_text()
     )
+
+
+def test_real_entrypoint_device_is_unambiguous_to_qualified_supervisor(monkeypatch) -> None:
+    root = Path(__file__).resolve().parents[2]
+    # Validate the current candidate before it has a commit. Only the git reader
+    # is replaced; parsing and manifest-variable resolution are the real gate.
+    monkeypatch.setattr(
+        qualified_canary,
+        "_entrypoint",
+        lambda manifest, repo: (repo / manifest["script"]).read_text(),
+    )
+    manifest = {
+        "script": t4a_pack.SCRIPT,
+        "device": "cuda",
+        "env": {"T4A_BENCH_DEVICE": "cuda"},
+    }
+    assert qualified_canary.job_device(manifest, root) == "cuda"
 
 
 def test_attempts_are_explicit_and_bounded_for_manual_completion_only() -> None:
