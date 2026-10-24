@@ -146,7 +146,7 @@ def _host_check(state: Path, epoch: float) -> None:
     )
 
 
-@pytest.mark.parametrize("nice", [-5, 0, 14, 15, 19])
+@pytest.mark.parametrize("nice", [-5, 0, 14, 15, 19, 20])
 @pytest.mark.parametrize(
     ("argv", "blocked"),
     [
@@ -227,8 +227,9 @@ def test_process_checks_match_job_argv_only(
     _attempt(tmp_path, "two", workers=6, records=[_trip("watch6", 6, 200, 2000)])
     calls = []
 
-    def check_output(command: list[str], *, text: bool, timeout: int) -> str:
+    def check_output(command: list[str], *, text: bool, errors: str, timeout: int) -> str:
         assert text is True
+        assert errors == "surrogateescape"
         assert timeout == 10
         calls.append(command)
         if command == ["/usr/bin/pmset", "-g", "therm"]:
@@ -265,7 +266,9 @@ def test_process_checks_match_job_argv_only(
     else:
         assert calls[-1] == ["/bin/ps", "-axo", "pid=,pcpu=,comm="]
     assert process_calls
-    assert all(call == ["/bin/ps", "-A", "-o", "pid=,ppid=,nice=,args="] for call in process_calls)
+    assert all(
+        call == ["/bin/ps", "-A", "-ww", "-o", "pid=,ppid=,nice=,args="] for call in process_calls
+    )
 
 
 def test_w12_pair_uses_common_verified_24_hour_clean_return_rule(tmp_path: Path) -> None:

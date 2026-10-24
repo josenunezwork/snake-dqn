@@ -387,7 +387,10 @@ def _record_host_check_locked(state_dir: Path, *, checked_epoch: float | None = 
         raise ValueError("host check found unsafe process observation; HOLD: " + str(exc)) from exc
     therm = health["thermal"]
     rows = subprocess.check_output(
-        ["/bin/ps", "-axo", "pid=,pcpu=,comm="], text=True, timeout=10
+        ["/bin/ps", "-axo", "pid=,pcpu=,comm="],
+        text=True,
+        errors="surrogateescape",
+        timeout=10,
     ).splitlines()
     consumers = sorted(
         rows, key=lambda row: float(row.split()[1]) if len(row.split()) >= 2 else 0.0, reverse=True

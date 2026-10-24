@@ -29,6 +29,8 @@ CADENCE = 5.0
 OBSERVATIONS = 7
 MIN_SPAN = 30.0
 MAX_GAP = 15.0
+MIN_NICE = -20
+MAX_NICE = 20  # Darwin includes 20; Linux's upper bound of 19 does not apply.
 TRUSTED_TMUX = Path("/opt/homebrew/bin/tmux")
 _OBSERVATION_DEADLINE: ContextVar[float | None] = ContextVar(
     "factory_observation_deadline", default=None
@@ -98,12 +100,31 @@ def _seed(command: str, executable: str | None = None) -> str | None:
 
     if _sol_codex_job(command):
         return "agent"
-    name = Path(executable or command.split()[0]).name.lower()
+    words = command.split(None, 1)
+    name = Path(executable or (words[0] if words else "")).name.lower()
     if name.startswith(("python", "pytest")) and re.search(
         r"(?:-m\s+(?:pytest|research\.)|(?:research|src/scripts)/|train_)", command
     ):
         return "research_python_or_pytest"
     return None
+
+
+def _confirmed_zombie(pid: int, read: Callable[[list[str]], str]) -> bool:
+    """Confirm an unreaped exit with OS state, never with spoofable argv text.
+
+    Zombies cannot execute work and may lack native path/rusage metadata.
+    A live or unreadable process is not excused by this bounded follow-up.
+    """
+    try:
+        state = read(["/bin/ps", "-p", str(pid), "-o", "pid=,stat="])
+    except subprocess.CalledProcessError as error:
+        if error.returncode == 1 and _confirmed_absent(pid):
+            return True
+        raise
+    fields = state.split()
+    if len(fields) != 2 or fields[0] != str(pid):
+        raise ValueError("malformed process state observation")
+    return fields[1].startswith("Z")
 
 
 def _verified_tmux_server(row: dict[str, Any], read: Callable[[list[str]], str]) -> bool:
@@ -145,12 +166,16 @@ def process_rows(
     pane/workload is still independently classified. No executable-name-only
     supervisor exemption is used.
     """
-    table = read(["/bin/ps", "-A", "-o", "pid=,ppid=,nice=,args="])
+    # Two -w flags remove the display-width limit, including when stdout is
+    # redirected. Only ASCII newlines delimit rows; Unicode separators are args.
+    table = read(["/bin/ps", "-A", "-ww", "-o", "pid=,ppid=,nice=,args="])
     rows: dict[int, dict[str, Any]] = {}
-    for line in table.splitlines():
+    for line in table.removesuffix("\n").split("\n"):
         fields = line.strip().split(None, 3)
-        if len(fields) != 4 or not all(x.isdigit() for x in fields[:2]):
+        if len(fields) < 3 or not all(x.isascii() and x.isdigit() for x in fields[:2]):
             raise ValueError("malformed full process observation")
+        if len(fields) == 3:
+            fields.append("")  # A readable process need not expose arguments.
         pid, parent = map(int, fields[:2])
         if pid <= 0 or pid in rows:
             raise ValueError("invalid or duplicate process PID")
@@ -166,7 +191,7 @@ def process_rows(
                     "nice": None,
                 },
             ) from exc
-        if not -20 <= nice <= 20:
+        if not MIN_NICE <= nice <= MAX_NICE:
             raise ObservationFault(
                 "invalid process nice observation",
                 {
@@ -193,8 +218,8 @@ def process_rows(
                 metadata = _native_identity(pid)
             except (OSError, RuntimeError) as error:
                 try:
-                    absent = _confirmed_absent(pid)
-                except OSError:
+                    absent = _confirmed_absent(pid) or _confirmed_zombie(pid, read)
+                except (OSError, ValueError, subprocess.SubprocessError):
                     absent = False
                 if absent:
                     excluded.add(pid)
@@ -314,7 +339,7 @@ class PersistenceTracker:
                     or not row.get("birth_precision")
                     or not row.get("executable")
                     or type(row.get("nice")) is not int
-                    or not -20 <= row["nice"] <= 20
+                    or not MIN_NICE <= row["nice"] <= MAX_NICE
                 ):
                     raise ValueError("unknown relevant metadata")
                 identity = row["pid"], row["birth"]
@@ -397,7 +422,11 @@ class PersistenceTracker:
         try:
             rows = process_rows(bounded_read, self.known)
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
-            context = error.context if isinstance(error, ObservationFault) else None
+            context = (
+                {**error.context, "sensor_reason": str(error)}
+                if isinstance(error, ObservationFault)
+                else {"sensor_reason": type(error).__name__}
+            )
             self.fault(time.monotonic(), "failed or malformed full process observation", context)
         finally:
             _OBSERVATION_DEADLINE.reset(token)
