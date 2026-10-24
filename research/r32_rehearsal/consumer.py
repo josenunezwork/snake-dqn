@@ -422,7 +422,6 @@ def run(output: Path, b8_path: Path, *, mac_world_smoke: bool = False) -> dict[s
     if current_nice < 15:
         os.nice(15 - current_nice)
 
-
     def expired(_signum: int, _frame: Any) -> None:
         raise TimeoutError("R32-1 2700-second preparation ceiling reached")
 
