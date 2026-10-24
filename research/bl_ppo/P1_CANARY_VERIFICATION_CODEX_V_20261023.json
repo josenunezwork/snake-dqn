@@ -1,0 +1,552 @@
+{
+  "a3_3_exception_ruling_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_A3_3_SQLITE_20261023.md",
+  "a3_3_exception_ruling_sha256": "f1bd0dca5499c1766addb2145e35dc3e6291c6d9d97f175425c68d7f0d9f3ee9",
+  "accounting": {
+    "balance_after_units": 1099.49,
+    "balance_before_units": 1099.64,
+    "charged_to_date_units": 10.34,
+    "code_refs": [
+      "research/bl_ppo/p1_repair_admission.py:30-43",
+      "research/bl_ppo/p1_repair_admission.py:97-99"
+    ],
+    "conservative_charged_units": 0.23,
+    "formula": "ceil((max(elapsed_seconds * own_rate_units_per_hour / 3600, balance_before - balance_after, 0) - 1e-9) * 100) / 100",
+    "function": "research.bl_ppo.p1_repair_admission.conservative_charge",
+    "gross_debit_to_cents": 0.15,
+    "hard_y3_envelope_units": 34.5,
+    "legacy_charged_units": 10.11,
+    "observed_gross_debit_units": 0.15000000000009095,
+    "own_elapsed_units": 0.22378450203809125,
+    "own_rate_units_per_hour": 1.54,
+    "qualification_1m": "Separate 4.00-unit invoice, not part of this Y3 envelope; held until full two-replay Y3 PASS. No reserve is double-counted.",
+    "remaining_after_actual_charge_units": 24.16,
+    "remaining_worst_case_lines_units": {
+      "one_mechanical_repair_retry": 6.16,
+      "one_mechanical_replacement_retry": 3.86,
+      "repair": 6.16,
+      "replacement": 3.86,
+      "retry_canary_only_if_transport_identity_changes_between_attempts": 2.0
+    },
+    "remaining_worst_case_reservations_units": 22.04,
+    "rounding_or_headroom_funds_no_extra_attempt": true,
+    "status": "PASS",
+    "total_worst_case_units": 32.38,
+    "unreserved_headroom_units": 2.12,
+    "updated_no_retry_happy_path_total_units": 20.36,
+    "warning": "WARNING_UNEXPLAINED_DEBIT",
+    "whole_session_elapsed_seconds": 523.1326021669665
+  },
+  "binding_checks": {
+    "admission_only_changes": [
+      "scientific_admission",
+      "transport.dispatch_ready",
+      "amendment06_admission"
+    ],
+    "admitted_manifest_equals_saved_receipt_manifest": true,
+    "admitted_manifest_sha256": "5f26174352381bd1dac5a784bd184bb22372e561d003ccc8036a0f3623cc82af",
+    "canary_and_repair_input_inventory_equal": true,
+    "canary_evidence_rederived_equal": true,
+    "l4_cuda_observation": [
+      {
+        "caller": "research/bl_ppo/model.py:277:act",
+        "cuda_decisions": 1,
+        "device": "cuda:0",
+        "operation": "torch.multinomial",
+        "package": "research/bl_ppo",
+        "pid": 9570,
+        "root": "/content/snake-cli/5059d58fe83c417b8916eaab919d68c7",
+        "shape": [
+          2,
+          6
+        ],
+        "version": 1
+      }
+    ],
+    "manifest_equality_semantics": "Decoded JSON equality; broker write_once pretty-serializes the admitted canonical JSON, so file digests differ legitimately.",
+    "nine_drive_input_inventory": [
+      {
+        "dest": "p1-inputs.tar.gz",
+        "sha256": "6a520e7c9d07909e4852368242ec8157719f3dd4392eefaea08ca4394edc5908",
+        "size_bytes": 2517009
+      },
+      {
+        "dest": "failed-supervisor-receipt.json",
+        "sha256": "aaa9f106c029b0235a174adbb38d617dad7c631af9dda49ce6fb01033f1db6eb",
+        "size_bytes": 384986
+      },
+      {
+        "dest": "immutable-fixture_late_body_bank-64031cc19f35a73a.pt",
+        "sha256": "64031cc19f35a73a0c72ddcf71d7ae3fd2a71aec96c50bec5ebccac4ea3b6522",
+        "size_bytes": 262637
+      },
+      {
+        "dest": "immutable-ordinary_bank-e63802f2e97cbb5d.pt",
+        "sha256": "a581990666ea5c17f3ee51cf354eb9213043f2f1899cf6b4f81b4a5a688f0136",
+        "size_bytes": 144091565
+      },
+      {
+        "dest": "immutable-refit_bank-f7fd77c1276d8df6.pt",
+        "sha256": "7b9325445ad7fab12de58d119cc5c9300dceaa9419b0bf9526d779fa83655ed0",
+        "size_bytes": 15110573
+      },
+      {
+        "dest": "late-body-rows-0000.npz",
+        "sha256": "e5794210e7b236fba8ab191a47379f309af522241bf9bc4aed8f7b71fd7a12be",
+        "size_bytes": 2433946
+      },
+      {
+        "dest": "late-body-rows-0001.npz",
+        "sha256": "a92bbb5b49e6f966e1cfa77e239be02d8e0f94268c2f95dc77c2eab185c72731",
+        "size_bytes": 1442768
+      },
+      {
+        "dest": "late-body-rows-0002.npz",
+        "sha256": "c40429054110c5fc61c4c6655efff53f7f4413279d056738b2c4d24e94e8d124",
+        "size_bytes": 1093629
+      },
+      {
+        "dest": "p1-y3-origin-pause-snapshot-00000.pt",
+        "sha256": "dbdc10c61914cccd156e4a73de67b8004cacce133ae334686d393153fe4109ce",
+        "size_bytes": 427911156
+      }
+    ],
+    "prior_13_evidence_hashes_rechecked": 36,
+    "proof_current_pin_transport_identity_equal": true,
+    "review_13_sha256": "f6b9b17bac04fda55b6f9b60db6b5f845904219b7422556b1c40a0668d33245a",
+    "saved_manifest_sha256": "95246e36f4110cf2b38f0ab2681a94d3ddac8af6e0eaf61bb748332514cc0063",
+    "status": "PASS"
+  },
+  "branch": "p1-snapbound-20261022",
+  "canary_receipt": {
+    "elapsed_seconds": 523.1326021669665,
+    "endpoint": "gpu-l4-s-asso1b0-zom4gybcsf1y",
+    "generation": "5059d58fe83c417b8916eaab919d68c7",
+    "manifest_sha256": "95246e36f4110cf2b38f0ab2681a94d3ddac8af6e0eaf61bb748332514cc0063",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/receipt.json",
+    "sha256": "22c55fb5bf193f39b144882f5c3eaa998c4c95c3477f9df032fd43708aa31990",
+    "supervisor_status": "PASS"
+  },
+  "code_reference_convention": "All code file:line references resolve at executable commit 03e0af75c64538f53a6971e6fec5d9a173bc921b for research/colab_cli; research/bl_ppo tool refs resolve at review_head. Code hashes are also bound in evidence_sha256.",
+  "created_at_utc": "2026-10-24T02:56:22.244717+00:00",
+  "critic_pass_unchanged": true,
+  "dispatch_ready": false,
+  "evidence_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_A3_3_SQLITE_20261023.md": "f1bd0dca5499c1766addb2145e35dc3e6291c6d9d97f175425c68d7f0d9f3ee9",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_FINALISATION.md": "fe0584595cca6f6fcb28071692e52e4fe8460f3ab90fc29429c027203ff9ebfc",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_REPAIR_TRANSPORT.md": "2fb9e3914a5eb86e9cd5c42495a1d8213fa1475aa6cf0c72d14c83350de5bc5e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/canary-manifest.json": "bf7d26a9374b5d43d00448e1d4fe071f872f83325ff27b1069a041b714f2f1a0",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/qualification-held-manifest.json": "5fcfb1117381ee87465827a540e70b4c4e820c78784bb4757c606bf9bc80a7db",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/repair-manifest.json": "8497ff3f1cc045e196a1b0c9b09c1ce880e0af84504636fa84e332b328b5f705",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/replacement-held-manifest.json": "82d2111f93be2e3c76b625fa0244625b1b3f55396797f8026bea922b90066bc2",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/DRIVE_STAGE_AFTER_OWNER_OK.txt": "7ec36f7e7804aa31e2b13d934baf48460d530909c2c1a47886c06eb85b6b336c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/DRIVE_STAGE_AFTER_OWNER_OK.txt.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/DRIVE_STAGE_AFTER_OWNER_OK.txt.sha256": "d1d904876ac1e095416a15e1eb40c5e6913da81ed352eb70c52dadc539f44091",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12.json": "6bc28ed5ec3b2b9c3095bcf7e8898bf80c332fd4505871498c14c5ab02065406",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json": "5cd6398a470754163059e59498ce18cc2f48e60c1fff8abbcda46c372110739f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.sha256": "009fbf6c30dd7021e690d2f452cf3b6263bf6f337d1a9259c2743e9a80afee4a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_13_FINAL.json": "f6b9b17bac04fda55b6f9b60db6b5f845904219b7422556b1c40a0668d33245a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_HANDOFF_12.md": "49ef2c1b81f91d88225f6572f7a61f1630840427d5294394311924fe5279afe6",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_HANDOFF_12.md.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_HANDOFF_12.md.sha256": "a0e245116f1d9810af3042f0bcf71868613d3c4637b9be7055ee1d80858d710b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/attempt-identity-03-to-04.json": "941023f7f27c4f0ed86338e979d9e9412a313922c9d979263901b171d5d43897",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/byte-diff-03-to-04.json": "5d874948e48a56a62f8e4ab6c96e4587c9d3c0d007bcd2e5525486ae16a329cf",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-admission/DISPATCH.txt": "78aa7305351739ad5627ab644cc921199b9ced551dec483687527322241ef79b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-admission/manifest.json": "5f26174352381bd1dac5a784bd184bb22372e561d003ccc8036a0f3623cc82af",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-manifest.json": "fa398a8eb52009da34c8c05cc69a913c71eeaa2b38dd4a0573cf37d0b79c726e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/accounting-baseline.json": "485e81f1240f73d67f000ad9844cb1eb0ab195b8b839cb6bead0b3dec0314385",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/exports/canary/pause-snapshot.pt": "8f7680c7e2cdd79a047c00d980095cc810b5a90e4dae7c7348964736c6ee0c43",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/exports/canary/pause-snapshot.pt.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/exports/canary/pause-snapshot.pt.sha256": "cfff5aa353c386b4bff80a7d2dd680e615850038fc94ce23fef0b5d95a5f956c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/exports/canary/pause.json": "137a9d3f312102287de913500f97ce9fecb606b57095f169e4e9f8eed50a28c7",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/exports/canary/pause.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/exports/canary/pause.json.sha256": "f95d75317620b4d1acce30a4e531597099ee223f59662e39b56e76bba8956538",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/exports/receipt.json": "2400cd6683605b2c2d0b12f79c4b94155298fb5907d6462d507b603a32c72718",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/exports/receipt.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/exports/receipt.json.sha256": "590ee6e7412ead162b5086a3ec6179e6c18947eee0a48b360f159fc92f8e4dbc",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/hardware.json": "20824d820b77e3559c87407ba02c919f438302f292eba0a00259699b16e1aa4a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/input-hashes.json": "270d7e60757450c6bbf44124522058ad60090c99d86735ac476ba5a8150dd738",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/manifest.json": "95246e36f4110cf2b38f0ab2681a94d3ddac8af6e0eaf61bb748332514cc0063",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000000.json": "37d4e805a6ff4b1db80cef878dd68ed05bfd03310b08b2d83ba3e98dccdf18e2",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000001.json": "1eb0351d51b366c3dcd11b69585325d44ddc2ecc99c107d82f442814429bc18c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000002.json": "fc1239767b7a2743a7f1fc49298eb84ad0d8df7ffd2b30091e26d8f4d5bf7b45",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000003.json": "01c85c473763520de3c698f2bc609b6f3d6c3bde6e540dce8dcfb0e089de5d80",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000004.json": "b6cdea68775a43294ce4654161238966d1a15be8f3d34d3bdbcd4d8fef1036bb",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000005.json": "1565e8d53f7302dabdc38b829627b03d470556b461e3e054bdf06f247ba36681",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000006.json": "7a6d9ecb3a6d0d554106b169a3d5ea9bd3458f2e34cb1685b74e7cdc81540483",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000007.json": "339c3cc774b998171fb803a550813d1398e9b17fc3a58a5e70cf84e87773ce15",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000008.json": "c21bdb0ae5cc36eb8a78a95a7ffd2e27d77242ac5d8cf6af35cecb454e9715dd",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000009.json": "b9af7cfe4b70625e4621e90be156c570a26e80ed14e965d081015eafa39bc98e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000010.json": "c3bfa3d07dbfcceb8fcf0c863483842cc486d167cca1c5b6c583aad1c5ff061d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000011.json": "d1fa6fadd45f809da2b5add17a9d1d2927f70df26b050d8f1c4e2b1f57c3ae5d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000012.json": "c6c296ea780b383fa2825eaa8b886a828ac1e91ac90e6bf32033cd40cc70dea8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000013.json": "d55a6ba4090c068febabfb7f5823f94f172d96f6f9c0e30c589216918eb8637d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000014.json": "1d04083dc0949957310a5fcce189f0a96c75e80cc43a90d86da6ae00ac4d4804",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/public-input-preflight.json": "7b522d71f5d64cd782c83bf6da7db790f052c2bd60be83cfaacd08ed56ea71f7",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/rate-calibration-000.json": "9dffc8abae8014f70ea181b1c9f6823666b052e4b1aefd62a0449932a9d6140e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/rate-calibration-001.json": "5f62d03e055f4e0c205342ba8a939a8f2401bc90cf4aa26e5d321c6a021b99ad",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/rate-calibration-002.json": "b998249909b529aca06bff1f15174aeeae1a1b05656a01e1cadf956e63cd01c6",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/rate-calibration.json": "c80558bb3cf3df2fc18016b2653abfe49f4581adf7fa130ec8cf38426e0c3938",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/receipt.json": "22c55fb5bf193f39b144882f5c3eaa998c4c95c3477f9df032fd43708aa31990",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/source-delivery.json": "883fd2391a356f9df8dd512249edf3cda4d2c79a78ae5e5c98338eee9abb51d3",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/spend-000000.json": "4a648a5f48503819c51fb87f40497612e4427047987bbb93d25c6ea39c46d6cf",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/spend-000004.json": "ba6c128778affdd60d45f153a7d49537e1dfd83e276d3d30b51858fe8ae04e68",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/spend-000008.json": "801c698d663eac01e1d9dab39491ef27fe87700a06d4941289b16f5cb394ade1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/spend-000012.json": "4237f27218613f6a5fadf27ba7cd6b4eb42deebf0ea77cadbe65ac2d3175c1f2",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/terminal.json": "5b1db3f20b75aedf03b0dcc0a3ae93fb79cc3bdc0be3df314d26a870b3a6b395",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/upload-measurement.json": "43059038fd506201d40052ec37a10f4e3dd87744ac8f72c628f1136372fd72ec",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/usage-000000.json": "4ba71962128ac5196423f01fa3e90815d7c5a24159033caecfedf2fceea04d40",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/usage-000004.json": "4ba71962128ac5196423f01fa3e90815d7c5a24159033caecfedf2fceea04d40",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/usage-000008.json": "aaa3bb173aac586e73a5c16a16facae21588088f25eb6498fb85d1ef0da58be4",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/usage-000012.json": "aaa3bb173aac586e73a5c16a16facae21588088f25eb6498fb85d1ef0da58be4",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/usage-allocated.json": "d6a8697d81fcaeed68f6e63e0d80bcc60670f72bc25134e58f9b83c6cc1a182d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/warmup-measurement.json": "10f691ee8a9b650da2d22619edf84452035482d14ff57e3250b6a6b254f29b7b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/claude-canary-line-check.json": "0c05be241c17494b93fa6b8dbc062247df141efc3b1a07e311a1a821530b4c2d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/drive-asset-plan.json": "7be4985289e08378afa9db60f64004e6bde8cafb4c6003b4800d1564170111db",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/drive-urls.json": "bec4c2355d02b498dd183c6897f9a76d99115837416087a2db8953d38f0609ea",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/measured-forecast-04.json": "56773e34a27bd61cd79da626bf878e0e6530018b13c360d8d2dd095927b02c08",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/p1-inputs.tar.gz": "6a520e7c9d07909e4852368242ec8157719f3dd4392eefaea08ca4394edc5908",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/public-fetch-preflight-drive-04.json": "c8ce1bea4a0f2a989071eed48e6be5d54d1b1dc4a8419f671d2b255761ba1b91",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/qualification-held-manifest.json": "850fdd3893a2ace28d66272042045bafb9fd14c091f2919ca0712132461a7058",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-manifest.json": "233a77e0e3305fbfd946f3f7aeda9c44f7e40f7f4957112196d245cd38c81f61",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/replacement-held-manifest.json": "c4a17d7ae66823c1c0e2feba24913f33c98ce3c99d38cfd31adf05aa3df9f205",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/canary-manifest.json": "d868b075daa998d511c55121868224872f3a656badbdf5decbff178df88a19bd",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/qualification-held-manifest.json": "740167bba10504d33bbc4647fc4f28ef07395c810a0a4d59919e03a068dc093a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/repair-manifest.json": "65180839c5356f22600169213d80d0c16b6c1005866e79264d61d1c6293b785d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/replacement-held-manifest.json": "072ca2a61ccb240f51a48aafc3c35f24f3303ace8eaf4be5bb09d04001745050",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/verification-12.json": "0e1510156fbce36039ecf1cf9b0333836e6ef128658c50b13b73539ef14e6c67",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/p1-repair10-04-canary.log": "0bdc7aff248aaa30f2726026df2ad5561f7af387c65213cb90bec763e961e386",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/DRIVE_STAGE_AFTER_OWNER_OK.txt": "7ec36f7e7804aa31e2b13d934baf48460d530909c2c1a47886c06eb85b6b336c",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json": "5cd6398a470754163059e59498ce18cc2f48e60c1fff8abbcda46c372110739f",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.sha256": "009fbf6c30dd7021e690d2f452cf3b6263bf6f337d1a9259c2743e9a80afee4a",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_13_FINAL.json": "f6b9b17bac04fda55b6f9b60db6b5f845904219b7422556b1c40a0668d33245a",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_HANDOFF_12.md": "49ef2c1b81f91d88225f6572f7a61f1630840427d5294394311924fe5279afe6",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_HANDOFF_13.md": "adc428eb74df1c1e507ea35ba91efd9c0f3bbcc4aa6ac08ad2087f551dc0cb95",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/exports.py": "4ee586e5c7690f1e6d5d5523107b39567279f8d74a44ca845f6d20f5b6595647",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/p1_qualification.py": "88f8cd0e14bac6076a212d5e437effa3b2180ded3ce2ca00e4d86ab38b372a8f",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/p1_repair_admission.py": "375e14a9a036dc50788ecd1072e827d03956c281e1df6db04c159de7d0a7662b",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/p1_repair_transport.py": "e68b36e05b586233482c6977aace5d027716e96381f27c01f9b48b3ba7c71f7c",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/__init__.py": "624677cd409539df23ec6c1f21ad999059fe779715ee5eab0183b7b2498851f1",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/acceptance.py": "41a5747da90fb541d20cbc2632b3b222b186a1b38bf49a8217f60322d1f2b73f",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/acceptance_faults.py": "c7796415189730f94fc9b9786c615699fd2d02a6bb2e0c6c48e6add85ff08fcb",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/acceptance_probe.py": "5fe350618270ecbb51ecdb44b16fc80a071d80633ac94679ba94541694251610",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/acceptance_probe.sh": "9e7163c63bda2a86c96fe2eabee9be538d77e8151c13422467fe497d55be9064",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/accounting.py": "0137488c4c7e1e3f8272782e3799741503e6c871e816d9d05950390b177de784",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/admission.py": "da3ec4ffa01f2f65f01e95b438565e5d84c5ae71ed9712a0232edd128b81c980",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/backup.py": "125b73b512c63e06f4b7656e52b534967510685314ab5b2c1b9fbbe4232239fe",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/bootstrap.sh": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/canary.py": "0f6a6e4619bdb7ca179b988cd8a7298a92af16b2b96b9aa501e871a19d8eb37b",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/canary_observer.py": "8fdba23c889de4d2403161e98345b963b731eecb2f931439b7cd4d3de3b0ce64",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/cli_guard.py": "f1a463ef6883f320992b23db116609d3582d86af3100a638e7a3a33c1e396dc7",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/export_batches.py": "9f27d3bc5dde95b0b49dbcd4c2169b63e1546ad52902386d17d86974200a612d",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/failures.py": "fd92efd5700669ab331f88c6fe478f181757d3f76776a8d76ef298e43e45843f",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/inputs.py": "56cce4bd7a6c9487f52ac914c743f34051b5e818893c8e48ca0da9ff08f03ae1",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/launch.sh": "173b51e74e5c0b44c40d0d549b0d4a3a1dc1ab787baa68eb854ca0663b50ea79",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/policy.py": "76d38e5956a04b9791dd432eee1d5629cc15ed9010553fea1090fdd462e86b5a",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/schema.py": "8be6acbdf24d37c5fe66565f5af95cf53b7ead69b8d33c2357fd04a0543053f7",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/source.py": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/supervisor.py": "263eeecc556ae02057d87c351e7c83b9fb3175f55f8b1d823982bf53c564e853",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/colab_cli/transfers.py": "a8fd12c425d7dff168e300a6bf0a6bec38230d75520c6251e86a59b0df83d95c"
+  },
+  "executable_commit": "03e0af75c64538f53a6971e6fec5d9a173bc921b",
+  "limitations": [
+    "VM fetch timing is a conservative interval bound below 260.1 seconds, not a retained exact stopwatch; direct VM duration is null.",
+    "Release proof is checked from saved broker receipt/code and after-usage data; no fresh provider observation was requested or made.",
+    "Forecast supports the ruled cap but cannot guarantee a future repair completes; actual results, prefix/counter preservation, both replays and full Y3 remain pending."
+  ],
+  "no_touch_confirmation": {
+    "admissions_created": 0,
+    "colab_calls": 0,
+    "dispatches": 0,
+    "drive_objects_changed": false,
+    "new_spend_units": 0,
+    "preexisting_untracked_files_changed": false,
+    "prior_hash_bound_files_changed": false,
+    "provider_calls": 0,
+    "released_checkpoints_or_serving_pins_changed": false,
+    "tmux_or_workers_touched": false
+  },
+  "publication_note": "This create-only receipt has an identical repo copy and sidecars. Its enclosing commit and main publication are reported after push, without rewriting these bytes.",
+  "qualified_colab_cli_tree": "d0d92bdb572b770284a1fea6152417ffa5f06bea",
+  "registered_authority_refs": [
+    "research/bl_ppo/P1_E8_04_SOURCE_REPAIR_HANDOFF_12.md:150-157",
+    "research/bl_ppo/DRIVE_STAGE_AFTER_OWNER_OK.txt:149-160",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_A3_3_SQLITE_20261023.md:33",
+    "JUDGMENT_P1_REPAIR_TRANSPORT.md A3.7 and A4",
+    "JUDGMENT_P1_FINALISATION.md sections 3 and 7"
+  ],
+  "registered_bars": [
+    {
+      "caveat": "The VM public-inputs-verified.json marker is not retained locally. Its existence/completion and exact-nine verification follow from the pinned mandatory execution path plus downstream bootstrap logs, not from the Mac preflight or receipt HTTPS inventory alone.",
+      "code_refs": [
+        "research/colab_cli/supervisor.py:1350-1369",
+        "research/colab_cli/runtime.py:197-247",
+        "research/colab_cli/runtime.py:250-268",
+        "research/colab_cli/bootstrap.sh:19-21",
+        "research/colab_cli/supervisor.py:1621",
+        "research/colab_cli/supervisor.py:1669-1684",
+        "research/colab_cli/supervisor.py:1737-1738"
+      ],
+      "conservative_upper_bound_seconds": 260.1,
+      "direct_duration_seconds": null,
+      "direct_vm_verification_marker_recovered": false,
+      "id": "vm_drive_fetch_all_nine",
+      "measured_fields": [
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/p1-repair10-04-canary.log:2 job_log_tail",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/p1-repair10-04-canary.log:3 elapsed=260.0",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/poll-000000.json#/job_log_tail"
+      ],
+      "method": "Interval-censored upper bound, not a direct VM stopwatch. First poll already contains CPython bootstrap output. All nine pinned public inputs must have been size/SHA verified before the child can exec bootstrap. The next loop elapsed sample is taken after that first poll/print and sleep. Fetch starts after whole-session start, so its duration is strictly below the next whole-session sample plus rounding allowance.",
+      "rounding_allowance_seconds": 0.1,
+      "status": "PASS",
+      "threshold_seconds": 300,
+      "verified_input_bytes": 595248269,
+      "verified_input_count": 9
+    },
+    {
+      "code_refs": [
+        "research/colab_cli/supervisor.py:1495-1501",
+        "research/colab_cli/supervisor.py:1563-1569",
+        "research/colab_cli/canary.py:303-312"
+      ],
+      "id": "residual_upload",
+      "measured_fields": [
+        "canary-output/upload-measurement.json#/transfer_seconds",
+        "canary-output/receipt.json#/canary_evidence/transfer_seconds"
+      ],
+      "measured_seconds": 113.76288220990682,
+      "semantics": "Sum of staged upload_file call wall time including hashing, verification, retries and in-call renewal; outer directory/setup RPCs and code source fetch/install are excluded.",
+      "status": "PASS",
+      "sum_individual_upload_seconds": 113.76026870688656,
+      "threshold_seconds": 150,
+      "verified_upload_bytes": 74138,
+      "verified_upload_count": 28
+    },
+    {
+      "code_refs": [
+        "research/colab_cli/supervisor.py:1490-1493",
+        "research/colab_cli/supervisor.py:1563-1569",
+        "research/colab_cli/canary.py:302-308",
+        "research/colab_cli/canary.py:393"
+      ],
+      "id": "whole_staging",
+      "measured_fields": [
+        "canary-output/upload-measurement.json#/elapsed_seconds",
+        "canary-output/receipt.json#/canary_evidence/upload_elapsed_seconds"
+      ],
+      "measured_seconds": 208.6527724590269,
+      "other_staging_overhead_seconds": 83.69257674913388,
+      "semantics": "Original staging interval, including uploads, code source delivery and preparation/control overhead; excludes preceding warmup, watchdog launch and calibration. This is not the 150-second residual-transfer field.",
+      "source_delivery_seconds": 11.197313499986194,
+      "status": "PASS",
+      "threshold_seconds": 300
+    },
+    {
+      "code_refs": [
+        "research/colab_cli/canary.py:334-350",
+        "research/colab_cli/supervisor.py:806-853",
+        "research/bl_ppo/exports.py:93-106"
+      ],
+      "exports": [
+        {
+          "completion_marker_sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+          "path": "canary/pause-snapshot.pt",
+          "sha256": "8f7680c7e2cdd79a047c00d980095cc810b5a90e4dae7c7348964736c6ee0c43",
+          "sidecar_sha256": "cfff5aa353c386b4bff80a7d2dd680e615850038fc94ce23fef0b5d95a5f956c",
+          "size": 26579125,
+          "status": "PASS"
+        },
+        {
+          "completion_marker_sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+          "path": "canary/pause.json",
+          "sha256": "137a9d3f312102287de913500f97ce9fecb606b57095f169e4e9f8eed50a28c7",
+          "sidecar_sha256": "f95d75317620b4d1acce30a4e531597099ee223f59662e39b56e76bba8956538",
+          "size": 328,
+          "status": "PASS"
+        },
+        {
+          "completion_marker_sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+          "path": "receipt.json",
+          "sha256": "2400cd6683605b2c2d0b12f79c4b94155298fb5907d6462d507b603a32c72718",
+          "sidecar_sha256": "590ee6e7412ead162b5086a3ec6179e6c18947eee0a48b360f159fc92f8e4dbc",
+          "size": 1031,
+          "status": "PASS"
+        }
+      ],
+      "id": "exports_recovered",
+      "measured_fields": [
+        "canary-output/receipt.json#/exports",
+        "canary-output/receipt.json#/terminal/export_scanner/inventory",
+        "canary-output/exports/"
+      ],
+      "status": "PASS",
+      "verification": "Fresh local streamed hashes and sizes match every inventory row; sidecar exact digest/name and complete marker contents verified. No torch checkpoint was deserialized.",
+      "verified_payload_bytes": 26580484,
+      "verified_payload_count": 3
+    },
+    {
+      "after_assignments": 0.0,
+      "after_rate": 0.0,
+      "cleanup_error": null,
+      "code_refs": [
+        "research/colab_cli/supervisor.py:728-761",
+        "research/colab_cli/supervisor.py:1124-1137",
+        "research/colab_cli/supervisor.py:1147-1174",
+        "research/bl_ppo/p1_qualification.py:15-37"
+      ],
+      "id": "release_verified",
+      "measured_fields": [
+        "canary-output/receipt.json#/stop_verified",
+        "canary-output/receipt.json#/cleanup_error",
+        "canary-output/receipt.json#/cli_calls",
+        "canary-output/receipt.json#/usage_after/assignments"
+      ],
+      "provenance": "Verified from the immutable receipt and the defining stop_verified code: stop returns only after the endpoint is absent from account-wide sessions. No fresh provider call was made; raw sessions response is not archived in this receipt.",
+      "release_call_tail": [
+        {
+          "attempt": 1,
+          "command": "stop",
+          "elapsed_seconds": 0.7440434590098448,
+          "status": "completed",
+          "timeout_seconds": 74.99999866698636
+        },
+        {
+          "attempt": 1,
+          "command": "sessions",
+          "elapsed_seconds": 0.4427239170181565,
+          "status": "completed",
+          "timeout_seconds": 59.9999963750015
+        },
+        {
+          "attempt": 1,
+          "command": "usage",
+          "elapsed_seconds": 0.6974271669751033,
+          "status": "completed",
+          "timeout_seconds": 119.99999745801324
+        }
+      ],
+      "status": "PASS",
+      "stop_verified": true,
+      "timing": {
+        "stop_and_disappearance_seconds": 1.1867673760280013,
+        "verified_download_seconds": 19.22019779199036
+      }
+    },
+    {
+      "basis": "All timing/transport gates pass; exact repair pin/input coverage and calibrated L4 rate match. Frozen forecast uses bootstrap 200 + public fetch cap 300 + residual transfer bar 150 + cadence/suffix 960 + historical median downloads 1116.8129895432417 seconds, then doubles once. Caps/reserves are not increased.",
+      "code_refs": [
+        "research/bl_ppo/p1_repair_transport.py:278-322",
+        "research/bl_ppo/p1_repair_admission.py:87-99",
+        "research/colab_cli/supervisor.py:1621-1625"
+      ],
+      "forecast_limit_minutes": 200,
+      "forecast_minutes": 45.446883159054025,
+      "frozen_timeout_minutes": 200,
+      "frozen_unit_cap": 6.16,
+      "id": "support_200_minute_6_16_unit_repair",
+      "limitation": "This is the registered forecast/support check, not proof the future repair will finish. Historical worst-download 13104.355680634151 seconds is not the adopted median forecast; first wall/unit cap still wins. 1.03 is the cent-rounded included reserve, not an extra 1.03 above 6.16.",
+      "measured_fields": [
+        "measured-forecast-04.json#/forecast_minutes",
+        "measured-forecast-04.json#/twice_forecast_minutes",
+        "canary-output/receipt.json#/accounting/calibration",
+        "repair-manifest.json#/timeout_minutes",
+        "repair-manifest.json#/budget"
+      ],
+      "observed_and_priced_rate_units_per_hour": 1.54,
+      "priced_units_at_200_minutes": 5.133333333333334,
+      "reserve_units_included": 1.03,
+      "status": "PASS",
+      "twice_forecast_minutes": 90.89376631810805
+    }
+  ],
+  "repair_operator_handoff": {
+    "additional_required_documentary_authority_bindings": {
+      "a3_3_exception_ruling_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_A3_3_SQLITE_20261023.md",
+      "a3_3_exception_ruling_sha256": "f1bd0dca5499c1766addb2145e35dc3e6291c6d9d97f175425c68d7f0d9f3ee9",
+      "transport_ruling_sha256": "2fb9e3914a5eb86e9cd5c42495a1d8213fa1475aa6cf0c72d14c83350de5bc5e"
+    },
+    "admission_command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_ppo.p1_repair_admission repair --manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-manifest.json --output /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-admission/manifest.json --codex-v /Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_13_FINAL.json --claude /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/claude-repair-line-check.json --repo /Users/josenunez/Projects/ml/snake-dqn-p1snap --canary /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/receipt.json",
+    "claude_line_check_exists_at_verification": false,
+    "claude_line_check_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/claude-repair-line-check.json",
+    "codex_v_for_admission": "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_13_FINAL.json",
+    "commands_executed": false,
+    "conditional_only": true,
+    "create_only_requirement": "Publish the actual line check with .sha256 and .complete last; if any component exists, use a fresh filename and adjust --claude. This report does not create the check.",
+    "dispatch_command": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/tools/ops/dispatch.sh p1-repair10-04-repair /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-admission/manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-acctfix --cwd /Users/josenunez/Projects/ml/snake-dqn-p1snap --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-admission/DISPATCH.txt",
+    "exact_guarded_fields": {
+      "campaign_log_recorded": true,
+      "codex_v_sha256": "f6b9b17bac04fda55b6f9b60db6b5f845904219b7422556b1c40a0668d33245a",
+      "manifest_sha256": "233a77e0e3305fbfd946f3f7aeda9c44f7e40f7f4957112196d245cd38c81f61",
+      "ruling_sha256": "fe0584595cca6f6fcb28071692e52e4fe8460f3ab90fc29429c027203ff9ebfc",
+      "stage": "repair",
+      "status": "PASS"
+    },
+    "guard_code_refs": [
+      "research/bl_ppo/p1_repair_admission.py:46-70"
+    ],
+    "operator_facts_required_before_setting_PASS": [
+      "Read this CANARY_PASS receipt and its actual digest; bind the exact canary receipt and repair manifest, keeping the _13 review as --codex-v.",
+      "Record _12 FAIL -> Astra RATIFY -> _13 review -> current canary PASS chain in campaign log; publish reconciled ledger with 0.23 u charge and 10.34 u charged total before setting campaign_log_recorded true.",
+      "Confirm qualified broker/current/pinned CLI tree equality on d0d92bdb572b770284a1fea6152417ffa5f06bea, including broker fast-forward; if identity differs, HOLD for applicable gates.",
+      "Take immediate fresh usage/sessions evidence: zero other assignments; calibrated rate <=1.54 u/h with zero tolerance. Historical canary data do not establish future live inventory.",
+      "Keep selected Drive folder and all nine payloads immutable; use new repair-admission/manifest.json and gate-specific repair-admission/DISPATCH.txt through the existing tools.",
+      "Retain first-cap-wins 200 min / 6.16 u / included 1.03 reserve, no refit/solve/gate reentry, critic counter/subtree preservation and prefix MATCH requirements.",
+      "Only Claude/operator may run admission/dispatch commands; replacement and 1M remain held pending existing source/replay/qualification gates."
+    ],
+    "recommended_provenance_fields": {
+      "by": "Claude",
+      "checked_at": "Actual check timestamp, never fabricated",
+      "schema": "bl-p1-claude-line-check/v1"
+    },
+    "working_directory": "/Users/josenunez/Projects/ml/snake-dqn-p1snap"
+  },
+  "review_head": "ff58fa7f0b1402a0d3c544e1f56577dc92ab6e87",
+  "reviewer": "Independent Codex-V; focused read-only timing review by reviewer subagent",
+  "ruling_sha256": "fe0584595cca6f6fcb28071692e52e4fe8460f3ab90fc29429c027203ff9ebfc",
+  "schema": "bl-p1-canary-verification-codex-v/v1",
+  "scientific_admission": false,
+  "scope": "Verification only of source-repair -04 CANARY. Conditional commands are documentary handoff only.",
+  "status": "CANARY_PASS",
+  "timing_field_disambiguation": {
+    "public-input-preflight.json": "Mac preallocation fetch, not VM fetch; never used as the VM duration.",
+    "source_delivery_seconds": "GitHub source-code delivery (11.197313499986194 s), not Drive asset fetch.",
+    "transfer_seconds": "Residual verified uploads, not raw PUT time.",
+    "upload_elapsed_seconds": "Whole staging, not residual upload.",
+    "whole_session_seconds": "523.1326021669665 includes setup/runtime/export/stop; not a registered 300-second staging measure."
+  },
+  "transport_ruling_sha256": "2fb9e3914a5eb86e9cd5c42495a1d8213fa1475aa6cf0c72d14c83350de5bc5e",
+  "unresolved_findings": [],
+  "verdict": "CANARY_PASS",
+  "verification": {
+    "artifact_audit_command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python /tmp/p1-canary-codex-v-20261023-audit.py",
+    "fresh_checks": [
+      "Local file size/SHA/sidecar/marker checks for every recovered export",
+      "Recomputed canary.evidence equality against receipt and current/pinned transport code",
+      "Rechecked all _13 evidence hashes; held/admitted/saved manifest chain, exact nine Drive inventory and repair coverage",
+      "Read pinned code definitions and derived VM fetch upper bound from sequential retained logs",
+      "Executed conservative_charge against actual receipt and recomputed forecast/envelope with no provider calls"
+    ],
+    "not_repeated": [
+      "No live usage/sessions call",
+      "No Drive/HTTPS fetch or metadata read",
+      "No checkpoint deserialization or scientific outcome look",
+      "No canary retry, admission, dispatch or runtime action"
+    ],
+    "offline_only": true,
+    "pytest_commands": [
+      {
+        "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist tests/test_colab_cli_canary.py",
+        "result": "75 passed in 1.11s"
+      },
+      {
+        "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist research/bl_ppo/test_p1_repair_admission.py research/bl_ppo/test_p1_repair_transport.py",
+        "result": "15 passed in 21.20s"
+      }
+    ]
+  },
+  "worktree": "/Users/josenunez/Projects/ml/snake-dqn-p1snap",
+  "y3_pass": false
+}

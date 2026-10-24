@@ -205,6 +205,10 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 2026-10-23 19:50 PT | A1-PROF canary-02 (fix 2edf7ed6: tolerant profiler correlation plus an explicit unattributed share) DISPATCHED to A100. Focused Codex-V of interim pin 4b46454d = FAIL: recovery receipts lack interim ruling/pin identity, and the test lane has no serialization or 120 s deadline. Sol interimfix running; D256 still HOLD. Rounds 30–33 complete (3 memos each); four Astra judges are ruling. |
 | 2026-10-23 19:58 PT | P1 Claude line checks (canary): manifest canary-manifest.json sha fa398a8e…9c726e; Codex-V _13 FINAL sha f6b9b17b…3245a, READY_FOR_CLAUDE_CHECK, 0 unresolved, ruling fe058459…ebfc, commit 03e0af75. Both the _12 FAIL receipt and the Astra A3.3 RATIFY are on record. Live gates: broker = P1 pin = qualified research/colab_cli tree d0d92bdb; Colab 0 assignments / 0 sessions; rate 1.54 u/h; balance 1,099.64 u. Admission and dispatch of p1-repair10-04-canary follow (2.00 u + 0.40 reserve, 30 min, zero retries). Rounds 30–33 Astra judges adopted cheap checks; Sol builders r30–r33 running. A1-PROF canary-02 aborted again: 68 unattributed kernels = 77% of kernel time (the finding itself); Sol a100prof3 now reports per kernel name. |
 | 2026-10-23 20:02 PT | P1 canary ADMITTED (canary-admission/manifest.json via p1_repair_admission canary, Codex-V _13 + Claude line check) and DISPATCHED: p1-repair10-04-canary (2.00 u + 0.40, 30 min, zero retries). Repair (6.16 u) follows only after every canary bar passes, debit is reconciled and the live gates are run fresh. |
+| 2026-10-23 20:06 PT | OWNER: "have astras look at this" (the A1-PROF finding: 68 unattributed kernels = 1.14 s of 1.48 s, 77% of kernel time, ~17 ms per launch). Round-34 Astra panel launched (CUDA perf, PyTorch extension internals, GPU graph algorithms, red team), asking what the kernels are, why correlation fails, the exact next-run profiling setup, and the first fix with a kill rule. |
+| 2026-10-23 19:54 PT | Time correction: rows logged earlier today as 19:50–20:06 PT ran between about 19:25 and 19:45 PT (operator estimate error). D256 W12 RUNNING (bl-f0-d256-guard-w12-04 @387b1dde; interim Codex-V-02 PASS, 99 tests). Workers 12, 815 parents pending, prior elapsed 4,866 s, output d256-output-mac-03. The -03 dispatch was refused by the host check because the tmux parent shell of the agent launches (argv contains codex-handoff.sh) ran at nice 0; those shells were reniced to 15, and agent launches now renice their own shell. P1 canary terminal PASS by the supervisor (523 s, debit 0.15 u, balance 1,099.49); bar mapping is under independent Codex-V (upload_elapsed 208.65 s vs the residual ≤150 / staging ≤300 bars) before any repair. A1-PROF canary-03 DISPATCHED (per-kernel-name export). Round-34 Astras: the 68 kernels are real native-extension launches without profiler scopes (suspects: sparse_frontier, component union/count, event FIFO); the capture was E64 scripted, not E1024. Sol gpuflood is building FUNCTION scopes, per-launch events, matched E1024 ticks, and an exact capped sparse BFS for vector61 with CPU parity and a kill rule. |
+| 2026-10-23 19:58 PT | D256 -04 PREEMPTED at 317 s (2 parents done). The exclusive guard caught the A1-PROF canary-03 local Colab supervisor tree, including its colab CLI child pid 61325, which the tmux server launched at nice 0. -05 was refused at the host check for the same pid. Reniced the whole supervisor tree to 15; -06 RUNNING (W12, 813 pending). Astra persistence ruling requested (JUDGMENT_FACTORY_PERSISTENCE_20261023.md): require a sustained foreign process before preempting, and decide whether supervisors run at nice 15. Operator commands now run under nice 15. |
+| 2026-10-23 19:59 PT | P1 canary chain: Codex-V _12 FAIL (F1 SQLite ID read), then Astra A3.3 RATIFY (sha f1bd0dca…f3ee9), then Codex-V _13 FINAL READY (f6b9b17b…3245a), then canary p1-repair10-04-canary terminal PASS. Codex-V canary verification CANARY_PASS on all six bars: VM fetch <260.1 s; residual upload 113.76 s; staging 208.65 s; exports and release verified; repair forecast 90.9 min at 1.54 u/h. **Reconciled P1 ledger:** prior 10.11 u + canary conservative charge 0.23 u (own 0.2238 u > observed 0.15 u) = **10.34 u charged** against the 34.50 u Y3 v5 hard cap; remaining worst-case reservations 22.04 u, headroom 2.12 u. WARNING_UNEXPLAINED_DEBIT carried. Repair (6.16 u / 200 min) is admitted after fresh live gates, once the A1-PROF canary-03 assignment ends (zero-other-assignment rule). Astra ALLOW_PERSISTENCE_30S (JUDGMENT_FACTORY_PERSISTENCE_20261023.md): preempt only after 7 consecutive sightings spanning ≥30 s; supervisors at nice ≥15. Sol persist is implementing it. |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -473,3 +477,31 @@ CPU pilot forecast 2 h / 0.16 u; base 2.4 h / 0.192 u; effective shared-series
 R28 row-4 1.2 h / 12 u is only a sub-envelope of its remaining Q1 authority,
 not new funding. No live balance/capacity, native qualification, operational
 handoff sample, serving or science conclusion is asserted by this preparation.
+
+F0 nice interim mechanical repair / independent Codex-V 02 (2026-10-23):
+**PASS** conditions 1–3 of `ALLOW_NICE15_INTERIM`, ruling SHA256
+`ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd`, at exact
+published operational pin `387b1dde8241c9c24ea352eb92de802b66fc798f`.
+Truthful recovery v2 receipts bind ruling/policy/clean operational HEAD and refuse
+legacy-unbound or foreign authority. Individual relevant descendants must meet
+nice >=15. The real agent launcher now requires light/reviewed-test routes;
+CPU/all six thread limits/Torch intra/inter one are enforced, the canonical
+shared test slot serializes checks, and a <=120 s elapsed deadline covers
+admission, execution, owned cleanup and Mac-lease release. Tests conservatively
+refuse every active factory lease, protecting baseline/rearming/W12 sanity.
+Independent exact-pin product-route review: **99 passed, 0 failed, 0 skipped**,
+pytest 8.19 s, full elapsed 9.699733915971592 s, nice 15; actual numerical nice-15
+and nice-19 probes ran. Initial reviewer-only fixture/harness errors are retained
+and documented; corrected review changed no product bytes. Create-only verdict
+`big-lever/exp/CODEX_V_FACTORY_INTERIM_02_20261023.json`, SHA256
+`d9a0313377cbc617777062df8ce172fdfef2f3d104662e9c093deff0be89cf75`, plus immutable
+sidecar/completion and identical repo triplet. Exact future `-03` dispatch command
+and full ruling/pin/results are in
+`research/bl_labels/NICE_INTERIM_02_OPERATOR_20261023.md`; this record permits the
+normal operator-requested ledger continuation at the reviewed pin, launches
+nothing, and does not qualify the full supervisor. Science stays clean/detached
+at `61900af28932e47e22e332840fc4406559adb062`; accounting and eight applicable
+slowdown/determinism evidence source hashes are unchanged. No actual production
+host check, factory, calibration, outcome look or long job was run. Owner notice:
+the narrow interim is now independently qualified; all real timing/health/
+slowdown/accounting stops remain binding.
