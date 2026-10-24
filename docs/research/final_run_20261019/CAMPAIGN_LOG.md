@@ -794,3 +794,29 @@ and unrun here. Serving, released checkpoints, existing receipts, tmux and live
 process priorities were untouched.
 
 Final independent static command/snapshot review: `research/bl_residual/CODEX_V_D256_COMMANDS_STATIC_20261023.json`, SHA256 `b6becbee73779912c9bc6b911505a7f16576d58e0718046de61de3dfd85b5ccf`; no remaining static blockers, mandatory post-P1 runtime gates retained.
+
+### 2026-10-23 — Colab control normal-priority preparation
+
+Binding authority: `ALLOW_COLAB_CONTROL_NICE0`, policy
+`factory-colab-control-nice0/v1`, ruling SHA256
+`2ec03d85be07d4d9264e8aba105567ee23b40e364313c0da91fd57c215b0d64a`.
+Operational implementation and exact source/CLI pins are recorded by the independent
+create-only receipt at
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/CODEX_V_COLAB_CONTROL_NICE0_20261023.json`.
+Its focused result is implementation evidence only. Status remains
+**PREPARED_NOT_QUALIFIED_FOR_OVERLAP** until the next already-authorized eligible
+exact-pin transport canary proves staging, renewal, verified export and stop under
+ordinary lawful W12. No canary, factory or paid job was run by this implementation.
+P1 remains quiet through verified release and cannot supply the overlap probe.
+The existing qualified broker/registry and historical receipts are preserved;
+launcher revision is prepared in a separate prospective broker checkout. Main's
+independent transport-retention work is not substituted for that broker closure.
+The unchanged legacy scientific pin is `61900af28932e47e22e332840fc4406559adb062`;
+this patch leaves the operational base's science loader, collection/export rules,
+slowdown/baselines, W12, health/timing, accounting and resume byte rules unchanged.
+The policy adds exact admitted process identity and recovery host-check v4 only.
+See `research/bl_labels/COLAB_CONTROL_NICE0_HANDOFF_20261023.md` for the canary and
+D1024 dispatch forms, factory continuation, renicer restart, and failure rules.
+The owner is informed through the final operator handoff; release/serving authority
+is unchanged. Failure retains evidence and stops new overlap admission without
+changing deadlines, width, baselines, retry authority or existing cleanup duties.

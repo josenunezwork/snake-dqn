@@ -15,27 +15,56 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Iterator
 
 if __package__:
-    from .qualification import OPS
+    from .qualification import OPS, tree
 else:
-    from qualification import OPS
+    from qualification import OPS, tree
 
 HERE = Path(__file__).resolve().parent
+if str(HERE.parents[1]) not in sys.path:
+    sys.path.insert(0, str(HERE.parents[1]))
+from research.compute.colab_control import POLICY_ID as CONTROL_POLICY_ID  # noqa: E402
+from research.compute.colab_control import RULING_SHA256 as CONTROL_RULING_SHA256  # noqa: E402
+
 EXACT_ERROR = "AccountingError('assignment endpoints changed during allocation')"
 BLOCK = re.compile(r"^\s*(?:BLOCK|HOLD)\b|RUNTIME BLOCKED|do not run this|PREPARED_NOT_DISPATCHED")
 NICE_FLOOR = 15
 P1_ATTEMPT2_RULING = "55b13197d9d92f8eeb1c895180f01993ca11908f51c74a60d9a67065a0550d13"
+CONTROL_INTERPRETER = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
+CONTROL_OAUTH_INTERPRETER = Path("/Users/josenunez/.venvs/colab-cli/bin/python")
 
 
 class Refused(ValueError):
     """The wrapper cannot prove that the next operational step is allowed."""
 
 
-def persistent_shell(command_text: str, *, p1_window: dict | None = None) -> str:
+def write_create_only_json(path: Path, value: dict[str, Any]) -> None:
+    """Publish a complete immutable record without a partial readable final path."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(value, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temporary, path)
+        os.unlink(temporary)
+    except FileExistsError as exc:
+        raise Refused(f"create-only record already exists: {path}") from exc
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def persistent_shell(
+    command_text: str, *, p1_window: dict | None = None, control_nice0: bool = False
+) -> str:
     """Return a tmux command whose long-lived shell has an effective nice floor.
 
     Tmux first invokes its own command shell.  Its shell immediately execs this
@@ -70,6 +99,16 @@ def persistent_shell(command_text: str, *, p1_window: dict | None = None) -> str
             f'{registration} --root-pid "$$"; set +e; {command_text}'
         )
         return "exec " + shlex.join(["/bin/bash", "-c", quiet, "p1_attempt2_control"])
+    if control_nice0:
+        # ``nice -n 0`` preserves the inherited value, and a non-root child cannot
+        # reliably raise it.  Refuse before the launcher can reach allocation.
+        checked = (
+            "set -euo pipefail; "
+            'test "$(/bin/ps -o nice= -p "$$" | tr -d " ")" = 0 || '
+            '{ echo "REFUSE: Colab control requires absolute nice 0" >&2; exit 2; }; '
+            f"{command_text}"
+        )
+        return "exec " + shlex.join(["/bin/bash", "-c", checked, "colab-control-nice0"])
     floor = f"""current_nice=$(/bin/ps -o nice= -p \"$$\")
 if ! [[ \"$current_nice\" =~ ^[[:space:]]*-?[0-9]+[[:space:]]*$ ]]; then
   echo \"REFUSE: cannot read persistent shell scheduling nice value\" >&2
@@ -131,6 +170,192 @@ def qualified(broker: Path, ops: Path, deadline: float | None = None, ref: str =
     )
 
 
+def create_control_admission(
+    *,
+    ops: Path,
+    name: str,
+    broker: Path,
+    commit: str,
+    manifest: Path,
+    state: Path,
+    output: str,
+    pane_argv: list[str],
+    bootstrap_argv: list[str],
+) -> Path:
+    """Create one immutable admission for the exact refreshed allocation input."""
+    value = read_json(manifest)
+    payload = manifest.read_bytes()
+    path = ops / "colab-control-admissions" / f"{name}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    closure = {
+        str(candidate.relative_to(broker)): hashlib.sha256(candidate.read_bytes()).hexdigest()
+        for candidate in sorted((broker / "research" / "colab_cli").rglob("*"))
+        if candidate.is_file() and "__pycache__" not in candidate.parts
+    }
+    cli = Path.home() / ".local/bin/colab"
+    if not cli.is_file():
+        raise Refused("qualified Colab CLI executable is missing")
+    first_line = cli.read_text(encoding="utf-8", errors="strict").splitlines()[0]
+    if not first_line.startswith("#!") or not Path(first_line[2:]).is_absolute():
+        raise Refused("qualified Colab CLI has no absolute shebang interpreter")
+    cli_interpreter = Path(first_line[2:])
+    if not cli_interpreter.is_file():
+        raise Refused("qualified Colab CLI shebang interpreter is missing")
+    package_root = subprocess.check_output(
+        [str(cli_interpreter), "-c", "import colab_cli; print(next(iter(colab_cli.__path__)))"],
+        text=True,
+        timeout=10,
+    ).strip()
+    package = Path(package_root)
+    if not package.is_dir():
+        raise Refused("qualified Colab CLI package root is missing")
+    cli_package_closure = {
+        str(candidate): hashlib.sha256(candidate.read_bytes()).hexdigest()
+        for candidate in sorted(package.rglob("*"))
+        if candidate.is_file() and "__pycache__" not in candidate.parts
+    }
+    if not cli_package_closure:
+        raise Refused("qualified Colab CLI package closure is empty")
+    # The broker's release helper is imported only to bind its fixed local
+    # credential-mint payload; this function never calls the provider.
+    from research.compute.colab_control import release_identity
+
+    mint_program, _ = release_identity(broker)
+
+    interpreter = CONTROL_INTERPRETER
+    if not interpreter.is_file() or not CONTROL_OAUTH_INTERPRETER.is_file():
+        raise Refused("qualified Colab control interpreter is missing")
+    qualification_snapshot = path.with_name(f"{name}.qualification.json")
+    qualification_value = read_json(ops / "colab-cli-qualified.json")
+    if qualification_value.get("tree_hash") != tree(broker):
+        raise Refused("qualification registry changed before control admission")
+    write_create_only_json(qualification_snapshot, qualification_value)
+    record = {
+        "schema": "factory-colab-control-nice0-admission/v1",
+        "policy_id": CONTROL_POLICY_ID,
+        "ruling_sha256": CONTROL_RULING_SHA256,
+        "operational_pin": subprocess.check_output(
+            ["git", "-C", str(HERE.parents[1]), "rev-parse", "HEAD"], text=True, timeout=10
+        ).strip(),
+        "manifest_commit": commit,
+        "operational_root": str(HERE.parents[1]),
+        "pane_argv": pane_argv,
+        "bootstrap_argv": bootstrap_argv,
+        "qualified_broker_source_closure": tree(broker),
+        "qualification_record": str(qualification_snapshot.resolve()),
+        "qualification_record_sha256": hashlib.sha256(
+            qualification_snapshot.read_bytes()
+        ).hexdigest(),
+        "dispatch_source_closure": {
+            str(candidate.resolve()): hashlib.sha256(candidate.read_bytes()).hexdigest()
+            for candidate in (
+                HERE / "dispatch.py",
+                HERE / "dispatch.sh",
+                HERE / "colab_control_launch.py",
+                HERE.parents[1] / "research/compute/colab_control.py",
+                HERE.parents[1] / "research/compute/factory_companion_argv.py",
+                HERE.parents[1] / "research/bl_labels/factory_persistence.py",
+            )
+        },
+        "source_closure": closure,
+        "broker": str(broker),
+        "launcher": str(broker / "research/colab_cli/launch.sh"),
+        "module": "research.colab_cli.supervisor",
+        # The registered PID execs into this exact caffeinate wrapper.  Its
+        # native birth identity is retained across exec and checked at sample.
+        "executable": str(Path("/usr/bin/caffeinate").resolve()),
+        "interpreter": str(interpreter),
+        "import_root": str(broker),
+        "argv": [
+            "/usr/bin/caffeinate",
+            "-is",
+            str(interpreter),
+            "-m",
+            "research.colab_cli.supervisor",
+            "--state-dir",
+            str(state),
+            "--colab",
+            str(cli),
+            "run",
+            str(manifest),
+        ],
+        "cli_executable": str(cli),
+        "cli_interpreter": str(cli_interpreter),
+        "cli_sha256": hashlib.sha256(cli.read_bytes()).hexdigest(),
+        "cli_package_closure": cli_package_closure,
+        "oauth_interpreter": str(CONTROL_OAUTH_INTERPRETER),
+        "mint_program_sha256": hashlib.sha256(mint_program.encode()).hexdigest(),
+        "manifest": str(manifest),
+        "manifest_sha256": hashlib.sha256(payload).hexdigest(),
+        "job_id": value["job_id"],
+        "state_path": str(state),
+        "output_path": output,
+        "overlap_status": value["colab_control_nice0"]["overlap_status"],
+    }
+    write_create_only_json(path, record)
+    return path
+
+
+def require_overlap_canary(
+    value: dict[str, Any], original_bytes: bytes, *, broker: Path | None = None
+) -> None:
+    """Allow the prepared policy only for its already-authorized exact canary.
+
+    A normal paid main cannot turn a self-declared ``PREPARED`` state into an
+    overlap admission.  This wrapper verifies only mechanical source binding;
+    the qualified supervisor retains its independent science/budget admission.
+    """
+    control = value["colab_control_nice0"]
+    if control.get("overlap_status") == "QUALIFIED_FOR_OVERLAP":
+        from tools.ops.control_overlap import require_proof
+
+        if broker is None or not isinstance(control.get("overlap_receipt"), dict):
+            raise Refused("qualified overlap requires its immutable independent receipt")
+        require_proof(control["overlap_receipt"], operational_root=HERE.parents[1], broker=broker)
+        return
+    if control.get("overlap_status") != "PREPARED_NOT_QUALIFIED_FOR_OVERLAP":
+        raise Refused("control overlap proof is absent or not in the prepared state")
+    canary = control.get("authorized_overlap_canary")
+    if not isinstance(canary, dict):
+        raise Refused("prepared Colab control admits only an authorized overlap canary")
+    authority = canary.get("authority_path")
+    authority_sha = canary.get("authority_sha256")
+    if not isinstance(authority, str) or not Path(authority).is_absolute():
+        raise Refused("overlap canary authority path is not absolute")
+    source = Path(authority)
+    if not source.is_file() or not isinstance(authority_sha, str):
+        raise Refused("overlap canary authority evidence is unavailable")
+    if hashlib.sha256(source.read_bytes()).hexdigest() != authority_sha:
+        raise Refused("overlap canary authority evidence digest differs")
+    # The field which stores this digest cannot be included in its own hash.
+    # Bind all other parsed manifest bytes through a deterministic canonical
+    # representation, with only that one self-reference removed.
+    normalized = json.loads(json.dumps(value))
+    normalized["colab_control_nice0"]["authorized_overlap_canary"].pop("manifest_sha256", None)
+    manifest_identity = hashlib.sha256(
+        json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if canary.get("manifest_sha256") != manifest_identity:
+        raise Refused("overlap canary manifest is not source-bound")
+    if canary.get("quiet_host_required") is not False:
+        raise Refused("quiet-host study cannot use the overlap control exception")
+
+
+def require_no_control_priority_drift() -> None:
+    """Refuse a new paid admission if an existing admitted tree has drifted."""
+    from research.bl_labels.factory_persistence import PersistenceTracker
+
+    def read(command: list[str]) -> str:
+        return subprocess.check_output(command, text=True, errors="surrogateescape", timeout=10)
+
+    tracker = PersistenceTracker("colab-control-paid-admission")
+    tracker.sample(read, set())
+    rows = tracker.known.values()
+    drifted = [row["pid"] for row in rows if row.get("control_identity") and row.get("nice") != 0]
+    if drifted:
+        raise Refused(f"qualified Colab control priority drift: {drifted}")
+
+
 def validate(
     broker: Path, cwd: Path, state: Path, manifest: Path, log: Path, deadline: float | None = None
 ) -> None:
@@ -160,7 +385,16 @@ def register(ops: Path, log: Path, name: str) -> None:
 
 
 def start(
-    broker: Path, cwd: Path, state: Path, manifest: Path, log: Path, name: str, deadline: float
+    broker: Path,
+    cwd: Path,
+    state: Path,
+    manifest: Path,
+    log: Path,
+    name: str,
+    deadline: float,
+    *,
+    control_nice0: bool = False,
+    control_admission: Path | None = None,
 ) -> None:
     """Submit one shell command with preserved argument boundaries and exit evidence."""
     log.touch(exist_ok=False)
@@ -174,12 +408,69 @@ def start(
         "run",
         str(manifest),
     ]
-    environment = shlex.join(["env", f"HOME={Path.home()}", f'PATH={os.environ["PATH"]}'])
+    if control_nice0:
+        if control_admission is None:
+            raise Refused("missing create-only Colab control admission")
+        launcher.insert(1, "--control-nice0")
+        launcher = [
+            str(CONTROL_INTERPRETER),
+            str(HERE / "colab_control_launch.py"),
+            "--admission",
+            str(control_admission),
+            "--broker",
+            str(broker),
+            "--launcher",
+            str(broker / "research/colab_cli/launch.sh"),
+            "--",
+            *launcher,
+        ]
+    environment_items = ["env", f"HOME={Path.home()}", f'PATH={os.environ["PATH"]}']
+    if control_nice0:
+        environment_items = [
+            "env",
+            "-u",
+            "PYTHONPATH",
+            "-u",
+            "PYTHONHOME",
+            "-u",
+            "PYTHONSTARTUP",
+            "-u",
+            "PYTHONINSPECT",
+            "-u",
+            "PYTHONSAFEPATH",
+            "PYTHONNOUSERSITE=1",
+            f"HOME={Path.home()}",
+            f'PATH={os.environ["PATH"]}',
+        ]
+        # Bind launch.sh's interpreter choice to the one recorded in the
+        # admission instead of inheriting an arbitrary shell override.
+        environment_items.extend(
+            [
+                f"SNAKE_DQN_PYTHON={CONTROL_INTERPRETER}",
+                f"SNAKE_COLAB_OAUTH_PYTHON={CONTROL_OAUTH_INTERPRETER}",
+                f"SNAKE_COLAB_CONTROL_ROOT_RECORD={control_admission.with_suffix('.root.json')}",
+            ]
+        )
+    environment = shlex.join(environment_items)
     body = (
         f"{{ cd {shlex.quote(str(cwd))} && {environment} {shlex.join(launcher)}; }} "
         f">> {shlex.quote(str(log))} 2>&1; rc=$?; "
         f'printf "EXIT=%s\\n" "$rc" >> {shlex.quote(str(log))}; exit "$rc"'
     )
+    if control_nice0:
+        if cwd.resolve() != broker.resolve():
+            raise Refused("control working/import root must equal the pinned broker")
+        create_control_admission(
+            ops=log.parent.parent,
+            name=name,
+            broker=broker,
+            commit=read_json(manifest)["commit"],
+            manifest=manifest,
+            state=state,
+            output=read_json(manifest)["output_dir"],
+            pane_argv=shlex.split(persistent_shell(body, control_nice0=True))[1:],
+            bootstrap_argv=launcher,
+        )
     value = read_json(manifest)
     p1_window = None
     if value.get("p1_attempt2", {}).get("ruling_sha256") == P1_ATTEMPT2_RULING:
@@ -198,7 +489,7 @@ def start(
                 "-d",
                 "-s",
                 f"job-{name}",
-                persistent_shell(body, p1_window=p1_window),
+                persistent_shell(body, p1_window=p1_window, control_nice0=control_nice0),
             ],
             deadline=deadline,
         )
@@ -476,6 +767,25 @@ def dispatch(args: argparse.Namespace) -> str:
     if not isinstance(value, dict):
         raise Refused("manifest must be an object")
     require_resume_policy(value)
+    control_nice0 = bool(getattr(args, "colab_control_nice0", False))
+    control_admission: Path | None = None
+    if control_nice0:
+        control = value.get("colab_control_nice0")
+        if not isinstance(control, dict):
+            raise Refused("--colab-control-nice0 requires manifest colab_control_nice0 admission")
+        if control.get("policy_id") != CONTROL_POLICY_ID:
+            raise Refused("Colab control policy_id is not the admitted v1 identity")
+        if control.get("ruling_sha256") != CONTROL_RULING_SHA256:
+            raise Refused("Colab control ruling SHA256 is not the binding ruling")
+        if control.get("overlap_status") not in {
+            "PREPARED_NOT_QUALIFIED_FOR_OVERLAP",
+            "QUALIFIED_FOR_OVERLAP",
+        }:
+            raise Refused("Colab control overlap state is not recognized")
+        require_overlap_canary(value, original_bytes, broker=broker)
+        require_no_control_priority_drift()
+        if value.get("p1_attempt2", {}).get("ruling_sha256") == P1_ATTEMPT2_RULING:
+            raise Refused("P1 attempt-2 remains a quiet-host control window")
     if (
         (
             value.get("requirements", {}).get("gpu") == "A100"
@@ -541,7 +851,20 @@ def dispatch(args: argparse.Namespace) -> str:
                 != read_json(evidence)["manifest_sha256"]
             ):
                 raise Refused("refreshed manifest changed after validation")
-            start(broker, cwd, state, live_manifest, log, name, deadline)
+            if control_nice0:
+                require_no_control_priority_drift()
+                control_admission = ops / "colab-control-admissions" / f"{name}.json"
+            start(
+                broker,
+                cwd,
+                state,
+                live_manifest,
+                log,
+                name,
+                deadline,
+                control_nice0=control_nice0,
+                control_admission=control_admission,
+            )
             outcome = wait_allocation(Path(output), log, deadline, poll)
             if attempt == 1 and outcome == "retry":
                 note(log, "OPS_ALLOCATION_RETRY_EXHAUSTED")
@@ -598,6 +921,11 @@ def main() -> int:
     )
     parser.add_argument("--cwd", type=Path, default=Path("/Users/josenunez/Projects/ml/snake-dqn"))
     parser.add_argument("--state-dir", type=Path)
+    parser.add_argument(
+        "--colab-control-nice0",
+        action="store_true",
+        help="start only an admitted qualified Colab control tree at inherited absolute nice 0",
+    )
     args = parser.parse_args()
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(143))
     try:

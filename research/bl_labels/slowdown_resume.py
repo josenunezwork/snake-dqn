@@ -19,13 +19,16 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from research.compute.colab_control import POLICY_ID as CONTROL_POLICY_ID
+from research.compute.colab_control import RULING_SHA256 as CONTROL_RULING_SHA256
+
 from .exports import _verify, publish_json
 from .factory_persistence import INTERIM_RULING_SHA256, POLICY_ID, RULING_SHA256
 
 W6 = 6
 W12 = 12
 SIX_HOURS = 6 * 60 * 60
-HOST_CHECK_SCHEMA = "bl-labels-f0-slowdown-host-check-persistence/v3"
+HOST_CHECK_SCHEMA = "bl-labels-f0-slowdown-host-check-colab-control/v4"
 INTERIM_POLICY = "ALLOW_NICE15_INTERIM"
 PERSISTENCE_POLICY = "ALLOW_PERSISTENCE_30S"
 
@@ -216,6 +219,8 @@ def _host_check_after(state_dir: Path, trip_epoch: float) -> bool:
             and value.get("policy_id") == POLICY_ID
             and value.get("ruling_sha256") == RULING_SHA256
             and value.get("interim_ruling_sha256") == INTERIM_RULING_SHA256
+            and value.get("control_policy_id") == CONTROL_POLICY_ID
+            and value.get("control_ruling_sha256") == CONTROL_RULING_SHA256
             and value.get("operational_pin") == pin
             and value.get("for_trip_epoch") == trip_epoch
             and _finite_positive(value.get("checked_epoch"), "host check epoch") >= trip_epoch
@@ -234,7 +239,7 @@ def _host_check_after(state_dir: Path, trip_epoch: float) -> bool:
 
 
 def _valid_process_window(value: object, state_dir: Path) -> bool:
-    """Verify this v3 window and its outcome-blind full-observation journal."""
+    """Verify this v4 window and its outcome-blind full-observation journal."""
     if not isinstance(value, dict):
         return False
     try:
@@ -245,6 +250,8 @@ def _valid_process_window(value: object, state_dir: Path) -> bool:
             value.get("policy_id") != POLICY_ID
             or value.get("ruling_sha256") != RULING_SHA256
             or value.get("interim_ruling_sha256") != INTERIM_RULING_SHA256
+            or value.get("control_policy_id") != CONTROL_POLICY_ID
+            or value.get("control_ruling_sha256") != CONTROL_RULING_SHA256
             or type(count) is not int
             or count < 7
             or isinstance(start, bool)
@@ -266,6 +273,8 @@ def _valid_process_window(value: object, state_dir: Path) -> bool:
             row.get("policy_id") != POLICY_ID
             or row.get("ruling_sha256") != RULING_SHA256
             or row.get("interim_ruling_sha256") != INTERIM_RULING_SHA256
+            or row.get("control_policy_id") != CONTROL_POLICY_ID
+            or row.get("control_ruling_sha256") != CONTROL_RULING_SHA256
             or row.get("attempt_id") != value.get("attempt_id")
             or row.get("decision") in {"monitor_fault", "preempt_persistent"}
             for row in rows
@@ -278,7 +287,7 @@ def _valid_process_window(value: object, state_dir: Path) -> bool:
             identity = row.get("pid"), row.get("birth")
             if row.get("decision") == "pending":
                 pending.add(identity)
-            elif row.get("decision") in {"clear_priority", "clear_absent"}:
+            elif row.get("decision") in {"clear_priority", "clear_absent", "clear_control"}:
                 pending.discard(identity)
         return (
             len(samples) == count
@@ -410,6 +419,8 @@ def _record_host_check_locked(state_dir: Path, *, checked_epoch: float | None = 
             "policy_id": POLICY_ID,
             "ruling_sha256": RULING_SHA256,
             "interim_ruling_sha256": INTERIM_RULING_SHA256,
+            "control_policy_id": CONTROL_POLICY_ID,
+            "control_ruling_sha256": CONTROL_RULING_SHA256,
             "operational_pin": pin,
             "for_trip_epoch": latest,
             "checked_epoch": time.time() if checked_epoch is None else epoch,
