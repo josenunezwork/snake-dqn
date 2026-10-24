@@ -82,8 +82,13 @@ def read_ledger(value: dict, spec: dict) -> dict[int, dict]:
 
 
 def start_attempt(output: Path, spec: dict) -> None:
+    """Accept the supervisor's empty directory, but never reuse attempt outputs."""
     allocation(spec)
-    output.mkdir(parents=True, exist_ok=False)
+    if output.is_symlink():
+        raise FileExistsError(f"unsafe attempt output directory: {output}")
+    output.mkdir(parents=True, exist_ok=True)
+    if any(output.iterdir()):
+        raise FileExistsError(f"attempt output directory is not empty: {output}")
     export_json(
         output / "allocation.json", {"namespace": spec["namespace"], "allocation": allocation(spec)}
     )
