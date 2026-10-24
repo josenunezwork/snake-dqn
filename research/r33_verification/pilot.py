@@ -12,6 +12,7 @@ from typing import Any
 from research.r33_verification.contract import (
     ALLOCATION,
     ATTEMPTS,
+    INTERIM_RULING_SHA256,
     NAMESPACE,
     RULING_SHA256,
     SOURCE_PATHS,
@@ -54,6 +55,8 @@ def validate_evidence(
         or first.get("units") != 3
         or first.get("scrubbed") is not True
         or first.get("isolation") != "seatbelt-no-users-volumes-network"
+        or first.get("admission_policy") != "ALLOW_NICE15_INTERIM_STDLIB_SERIAL"
+        or first.get("interim_ruling_sha256") != INTERIM_RULING_SHA256
         or first.get("excluded") is not True
         or first.get("allocation_attempted") is not False
         or first.get("effective_nice", 0) < 15
@@ -61,7 +64,20 @@ def validate_evidence(
         or first.get("entrypoint") != ["/bin/bash", "research/r33_verification/colab.sh"]
     ):
         raise PackageRefused("missing or stale tiny real-entrypoint preflight")
-    if second.get("status") != "PASS_IMPLEMENTATION_LIGHT_VERIFICATION":
+    if (
+        second.get("status") != "PASS_IMPLEMENTATION_LIGHT_VERIFICATION"
+        or second.get("schema") != "r33-independent-light-verification/v1"
+        or second.get("reviewer") != "Codex-V"
+        or not isinstance(second.get("evidence"), list)
+        or not second["evidence"]
+        or any(
+            not isinstance(row, dict)
+            or not row.get("command")
+            or row.get("status") != "PASS"
+            or not row.get("evidence_sha256")
+            for row in second["evidence"]
+        )
+    ):
         raise PackageRefused("independent Codex-V light acceptance required")
     for record in (first, second):
         if record.get("commit") != commit or record.get("source_closure_sha256") != closure:

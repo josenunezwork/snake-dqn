@@ -53,11 +53,11 @@ HOLD for full review. It does not change that retry's existing authority.
 ## Preparation and operator path
 
 Use a full published pin and fresh absolute paths. The native preflight acquires the
-existing shared test slot and Mac lease, sets a nice floor of 15 without raising
+existing shared test slot under ALLOW_NICE15_INTERIM for stdlib-only checks, sets a nice floor of 15 without raising
 priority, and has a 120-second complete deadline. It installs the declared dependencies
 in a fresh scratch environment, archives the pinned sparse closure, scrubs credentials
 and ambient imports, runs the actual Bash entrypoint with three tiny excluded shards,
-verifies the Mac consumer, and writes an immutable receipt. It refuses an active lease.
+verifies the Mac consumer, and writes an immutable receipt. It refuses a timing arm, including mid-command, and reaps only its own process groups. The ordinary factory lease is preserved. The rehearsal is jailed away from user artifacts, credentials and network after dependency installation.
 
 ```bash
 python -m research.r33_verification.preflight --commit FULL_PUBLISHED_PIN --out FRESH_PREFLIGHT
@@ -76,6 +76,7 @@ For an eligible completion, repeat `pilot` with fresh `--root`, the original
 It refuses uncertainty and cannot launch the completion. After exports are downloaded:
 
 ```bash
+python -m research.r33_verification.verify seal-receipt --receipt OUTPUT/receipt.json
 python -m research.r33_verification.verify ledger --manifest PACK/manifest.json \
   --attempt OUTPUT/exports --out FRESH_LEDGER --decision FRESH_DECISION
 python -m research.r33_verification.verify observe-release --receipt OUTPUT/receipt.json \

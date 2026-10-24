@@ -61,7 +61,7 @@ def runtime_identity() -> dict[str, str]:
             or not path.is_file()
             or not path.resolve().is_relative_to(ROOT.resolve())
             or digest(path) != expected["sha256"]
-            or bool(path.stat().st_mode & 0o111) != bool(expected["mode"] & 0o111)
+            or path.stat().st_mode & 0o777 != expected["mode"] & 0o777
         ):
             raise PackageRefused("pinned source bytes/mode differ: " + relative)
     return identity

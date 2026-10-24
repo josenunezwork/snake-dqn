@@ -17,6 +17,7 @@ from tools.ops.package_spec import (
     empty_ledger,
     publish_json,
     read_ledger,
+    seal_existing,
     unit_id,
     verify_immutable,
 )
@@ -147,6 +148,7 @@ def completion_admission(
     if len(previous_receipts) != attempts_used or len(set(previous_receipts)) != attempts_used:
         raise PackageRefused("missing or duplicate prior attempt receipts")
     for path in previous_receipts:
+        verify_immutable(path)
         receipt = json.loads(path.read_text())
         if (
             receipt.get("stop_verified") is not True
@@ -262,6 +264,7 @@ def accept_supervisor(
     prior_receipts: list[Path] | None = None,
 ) -> dict[str, Any]:
     """Require the real broker contract, verified local exports, accounting and release."""
+    verify_immutable(receipt)
     value = json.loads(receipt.read_text())
     verify_immutable(decision)
     outcome = json.loads(decision.read_text())
@@ -271,9 +274,8 @@ def accept_supervisor(
     if not snapshot.is_file() or digest(snapshot) != value.get("manifest_sha256"):
         raise PackageRefused("HOLD: missing hash-bound supervisor manifest")
     actual = json.loads(snapshot.read_text())
-    for key in ("job_id", "commit", "script", "env", "r33", "timeout_minutes"):
-        if actual.get(key) != manifest.get(key):
-            raise PackageRefused("INVALID: broker manifest changed a frozen obligation")
+    if actual != manifest:
+        raise PackageRefused("INVALID: broker manifest changed a frozen obligation")
     terminal = value.get("terminal") or {}
     accounting = value.get("accounting") or {}
     endpoint = value.get("endpoint")
@@ -322,6 +324,8 @@ def accept_supervisor(
     if "terminal-receipt.json" not in {e["path"] for e in entries}:
         raise PackageRefused("INCOMPLETE: terminal export absent")
     history = list(prior_receipts or [])
+    for path in history:
+        verify_immutable(path)
     if len(history) != manifest["r33"]["attempt"] or [digest(path) for path in history] != manifest[
         "r33"
     ].get("prior_receipt_sha256", []):
@@ -391,6 +395,8 @@ def observe_release(receipt: Path, out: Path, colab: str) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
+    seal = actions.add_parser("seal-receipt")
+    seal.add_argument("--receipt", type=Path, required=True)
     ledger = actions.add_parser("ledger")
     ledger.add_argument("--manifest", type=Path, required=True)
     ledger.add_argument("--attempt", type=Path, action="append", required=True)
@@ -405,7 +411,9 @@ def main() -> None:
         accept.add_argument("--" + name, type=Path, required=True)
     accept.add_argument("--prior-receipt", type=Path, action="append")
     args = parser.parse_args()
-    if args.action == "observe-release":
+    if args.action == "seal-receipt":
+        result = seal_existing(args.receipt)
+    elif args.action == "observe-release":
         result = observe_release(args.receipt, args.out, args.colab)
     elif args.action == "accept":
         result = accept_supervisor(

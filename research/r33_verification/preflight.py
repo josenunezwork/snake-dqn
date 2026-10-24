@@ -18,6 +18,7 @@ from typing import Any
 
 from research.r33_verification.contract import (
     ALLOCATION,
+    INTERIM_RULING_SHA256,
     NAMESPACE,
     SOURCE_PATHS,
     environment_identity,
@@ -26,6 +27,7 @@ from tools.ops.package_spec import (
     Input,
     digest,
     empty_ledger,
+    publish_immutable,
     publish_json,
     require_published_commit,
     stage_inputs,
@@ -36,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def owned_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
     """Bound and reap this command's entire process group, including on alarm."""
-    from research.compute.factory_interim_launcher import _cleanup
+    from research.compute.factory_interim_launcher import TIMING_ARMED_PATH, _cleanup
 
     timeout = kwargs.pop("timeout")
     check = kwargs.pop("check", False)
@@ -51,7 +53,18 @@ def owned_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[
         **kwargs,
     )
     try:
-        stdout, stderr = child.communicate(timeout=timeout)
+        deadline = time.monotonic() + timeout
+        while True:
+            if TIMING_ARMED_PATH.exists():
+                raise RuntimeError("HOLD: timing arm appeared; stopping owned preflight command")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout)
+            try:
+                stdout, stderr = child.communicate(timeout=min(0.1, remaining))
+                break
+            except subprocess.TimeoutExpired:
+                continue
         result = subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
         if check:
             result.check_returncode()
@@ -68,7 +81,9 @@ def source_inventory(commit: str) -> dict[str, Any]:
         files = {
             member.name: {
                 "sha256": hashlib.sha256(stream.extractfile(member).read()).hexdigest(),
-                "mode": member.mode,
+                # git-archive's tar umask may add group write; data extraction
+                # deliberately clears that bit. Bind the portable Git file mode.
+                "mode": member.mode & 0o755,
             }
             for member in stream.getmembers()
             if member.isfile()
@@ -221,7 +236,7 @@ def run(commit: str, out: Path) -> dict[str, Any]:
             timeout=10,
         )
         stdout = out / "entrypoint.stdout.txt"
-        stdout.write_text(result.stdout)
+        publish_immutable(stdout, result.stdout.encode())
         decision = json.loads((work / "runtime/decision.json").read_text())
         measured = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
         per_unit = [
@@ -247,6 +262,8 @@ def run(commit: str, out: Path) -> dict[str, Any]:
             "isolation": "seatbelt-no-users-volumes-network",
             "excluded": True,
             "allocation_attempted": False,
+            "admission_policy": "ALLOW_NICE15_INTERIM_STDLIB_SERIAL",
+            "interim_ruling_sha256": INTERIM_RULING_SHA256,
         }
         publish_json(out / "receipt.json", report)
         return report
@@ -262,13 +279,15 @@ def main() -> None:
         _nice_floor,
         serial_test_slot,
     )
-    from research.mac_lease import held
 
     _nice_floor()  # Lower priority if needed; never raise inherited priority.
-    with _elapsed_alarm(time.monotonic() + 120):
+    with _elapsed_alarm(time.monotonic() + 114):
         with serial_test_slot():
-            with held("r33-tiny-preflight", "R33 excluded three-shard preflight", seconds=120):
-                print(json.dumps(run(args.commit, args.out), sort_keys=True))
+            from research.compute.factory_interim_launcher import TIMING_ARMED_PATH
+
+            if TIMING_ARMED_PATH.exists():
+                raise RuntimeError("HOLD: Mac timing/preemption arm active")
+            print(json.dumps(run(args.commit, args.out), sort_keys=True))
 
 
 if __name__ == "__main__":

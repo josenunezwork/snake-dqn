@@ -3,6 +3,7 @@
 NAMESPACE = "r33-linux-contract-pilot"
 ALLOCATION = "allocation-0001"
 RULING_SHA256 = "7db57b262f1bfa4ae70597772d79e2904f8d6a885ea530c54178d869911cf07a"
+INTERIM_RULING_SHA256 = "ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd"
 SOURCE_PATHS = [
     "research/r33_verification",
     "research/colab_cli",
@@ -23,10 +24,12 @@ SOURCE_PATHS = [
     "research/bl_labels/test_slowdown_guard.py",
     "research/bl_labels/fixtures/d256_slowdown_timestamps.json",
     "research/bl_labels/mac_driver.py",
+    "research/bl_labels/factory_persistence.py",
     "research/bl_labels/slowdown_resume.py",
     "research/bl_labels/exports.py",
     "research/bl_labels/w12_runtime.py",
     "research/compute/factory_interim_launcher.py",
+    "research/compute/factory_companion_native.py",
     "research/compute/factory_companion_commands.py",
     "research/mac_lease.py",
     "pytest.ini",

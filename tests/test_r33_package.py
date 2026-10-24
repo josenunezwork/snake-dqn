@@ -85,6 +85,6 @@ def test_mechanical_mutations_and_union_refusals(tmp_path: Path) -> None:
     ledger = tmp_path / "empty.json"
     publish_json(ledger, empty_ledger("r33-synthetic", "allocation-0001", lifecycle._identity()))
     bad = tmp_path / "receipt.json"
-    bad.write_text('{"status":"INCOMPLETE","stop_verified":false}\n')
+    publish_json(bad, {"status": "INCOMPLETE", "stop_verified": False})
     with pytest.raises(PackageRefused, match="verified stop"):
         completion_admission([bad], ledger, attempts_used=1, series_minutes=240, series_units=0.32)

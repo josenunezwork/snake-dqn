@@ -202,15 +202,14 @@ def test_cap_exhaustion_and_timeout_after_success_never_authorize_completion(
     tmp_path: Path,
 ) -> None:
     receipt = tmp_path / "receipt.json"
-    receipt.write_text(
-        json.dumps(
-            {
-                "stop_verified": True,
-                "status": "INCOMPLETE",
-                "failure_class": "RPC_EXEC_POLL_TIMEOUT",
-                "terminal": {"returncode": 0},
-            }
-        )
+    spec.publish_json(
+        receipt,
+        {
+            "stop_verified": True,
+            "status": "INCOMPLETE",
+            "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+            "terminal": {"returncode": 0},
+        },
     )
     with pytest.raises(spec.PackageRefused, match="verified stop"):
         verify.completion_admission(
@@ -229,6 +228,13 @@ def test_cap_exhaustion_and_timeout_after_success_never_authorize_completion(
                 series_minutes=289,
                 series_units=0.385,
             )
+
+
+def _replace_test_receipt(path: Path, value: dict) -> None:
+    # Every mutation is a new synthetic fixture, never production evidence.
+    for suffix in ("", ".sha256", ".complete"):
+        Path(f"{path}{suffix}").unlink(missing_ok=True)
+    spec.publish_json(path, value)
 
 
 def test_completion_frozen_envelope_and_contiguous_receipts(tmp_path: Path) -> None:
@@ -257,7 +263,7 @@ def test_completion_frozen_envelope_and_contiguous_receipts(tmp_path: Path) -> N
         "accounting": {"priced_rate_units_per_hour": 0.08},
         "exports": [],
     }
-    receipt_path.write_text(json.dumps(receipt))
+    _replace_test_receipt(receipt_path, receipt)
     ledger = tmp_path / "ledger.json"
     spec.publish_json(ledger, spec.empty_ledger("ns", "al", identity))
     kwargs = {
@@ -272,15 +278,15 @@ def test_completion_frozen_envelope_and_contiguous_receipts(tmp_path: Path) -> N
         2,
     ]
     receipt["elapsed_seconds"] = 240 * 60 + 1
-    receipt_path.write_text(json.dumps(receipt))
+    _replace_test_receipt(receipt_path, receipt)
     with pytest.raises(spec.PackageRefused, match="per-attempt"):
         verify.completion_admission([receipt_path], ledger, **kwargs)
     receipt["elapsed_seconds"] = 60
-    receipt_path.write_text(json.dumps(receipt))
+    _replace_test_receipt(receipt_path, receipt)
     manifest["r33"]["attempt"] = 1
     original.write_text(json.dumps(manifest))
     receipt["manifest_sha256"] = spec.digest(original)
-    receipt_path.write_text(json.dumps(receipt))
+    _replace_test_receipt(receipt_path, receipt)
     with pytest.raises(spec.PackageRefused, match="noncontiguous"):
         verify.completion_admission([receipt_path], ledger, **kwargs)
 
@@ -291,8 +297,87 @@ def test_sparse_pass_receipt_cannot_establish_pilot_acceptance(tmp_path: Path) -
         tmp_path / "decision.json",
         tmp_path / "release.json",
     )
-    receipt.write_text('{"status":"PASS","stop_verified":true}\n')
+    spec.publish_json(receipt, {"status": "PASS", "stop_verified": True})
     spec.publish_json(decision, {"status": "PASS_LINUX_CONTRACTS"})
     spec.publish_json(release, {"endpoint": "missing"})
     with pytest.raises(spec.PackageRefused, match="manifest"):
         verify.accept_supervisor({}, receipt, decision, tmp_path / "accepted.json", release)
+
+
+def test_pilot_acceptance_requires_exact_manifest_exports_and_sealed_receipts(
+    tmp_path: Path,
+) -> None:
+    identity = {"pin": "a" * 40, "packet": "b" * 64, "environment_sha256": "c" * 64}
+    manifest = {
+        "commit": identity["pin"],
+        "job_id": "r33-cpu-pilot-01",
+        "r33": {"identity": identity, "attempt": 0, "prior_receipt_sha256": []},
+        "budget": {"unit_cap": 0.32},
+    }
+    snapshot = tmp_path / "manifest.json"
+    snapshot.write_text(json.dumps(manifest))
+    terminal = tmp_path / "exports/terminal-receipt.json"
+    spec.publish_json(terminal, {"status": "ATTEMPT_COMPLETE"})
+    decision = tmp_path / "decision.json"
+    spec.publish_json(
+        decision,
+        {
+            "status": "PASS_LINUX_CONTRACTS",
+            "identity": identity,
+            "verified_units": 3,
+            "native_pending": ["native host qualification"],
+        },
+    )
+    receipt = tmp_path / "receipt.json"
+    spec.publish_json(
+        receipt,
+        {
+            "status": "PASS",
+            "stop_verified": True,
+            "commit": identity["pin"],
+            "job_id": manifest["job_id"],
+            "manifest_sha256": spec.digest(snapshot),
+            "session": "unique",
+            "generation": "g",
+            "endpoint": "e",
+            "elapsed_seconds": 60,
+            "terminal": {"generation": "g", "returncode": 0, "status": "completed"},
+            "accounting": {
+                "allocated_endpoint": "e",
+                "priced_rate_units_per_hour": 0.08,
+                "observed_rate_units_per_hour": 0.08,
+                "unaccounted_endpoints": [],
+                "calibration": {"status": "PASS"},
+                "last_crosscheck": {"balance_crosscheck_status": "OK"},
+            },
+            "exports": [
+                {
+                    "path": "terminal-receipt.json",
+                    "sha256": spec.digest(terminal),
+                    "size": terminal.stat().st_size,
+                }
+            ],
+        },
+    )
+    release = tmp_path / "release.json"
+    spec.publish_json(
+        release,
+        {
+            "schema": "r33-release-observation/v1",
+            "endpoint": "e",
+            "sessions": {},
+            "supervisor_receipt_sha256": spec.digest(receipt),
+        },
+    )
+    assert (
+        verify.accept_supervisor(manifest, receipt, decision, tmp_path / "accepted.json", release)[
+            "status"
+        ]
+        == "PASS"
+    )
+    changed = {**manifest, "budget": {"unit_cap": 0.64}}
+    with pytest.raises(spec.PackageRefused, match="manifest changed"):
+        verify.accept_supervisor(changed, receipt, decision, tmp_path / "bad.json", release)
+    Path(f"{receipt}.complete").unlink()
+    with pytest.raises(spec.PackageRefused, match="immutable export"):
+        verify.accept_supervisor(manifest, receipt, decision, tmp_path / "bad.json", release)

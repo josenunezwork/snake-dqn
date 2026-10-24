@@ -81,6 +81,18 @@ def publish_json(path: Path, value: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
+def seal_existing(path: Path) -> dict[str, Any]:
+    """Add R33 completion evidence to an existing create-only broker payload."""
+    if path.is_symlink() or not path.is_file():
+        raise PackageRefused("unsafe broker receipt")
+    checksum = digest(path)
+    _publish(Path(f"{path}.sha256"), f"{checksum}  {path.name}\n".encode())
+    if digest(path) != checksum:
+        raise PackageRefused("broker receipt changed during sealing")
+    _publish(Path(f"{path}.complete"), b"complete\n")
+    return verify_immutable(path)
+
+
 def verify_immutable(path: Path) -> dict[str, Any]:
     """Require payload, matching destination-sidecar, and final marker."""
     path = Path(path)

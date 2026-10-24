@@ -1,5 +1,6 @@
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <ATen/record_function.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAException.h>
 
@@ -32,7 +33,7 @@ __global__ void fifo(int64_t* tags, int64_t* queues, const int64_t* counts,
 
 void append_fifo_cuda(torch::Tensor tag, torch::Tensor queue, torch::Tensor count,
                       torch::Tensor cells, torch::Tensor mask, torch::Tensor accepted,
-                      int64_t old_food, int64_t cap, bool corpse) {
+                      int64_t old_food, int64_t cap, bool corpse, bool diagnostics) {
   c10::cuda::CUDAGuard guard(tag.device());
   for (const auto& t : {tag, queue, count, cells, mask, accepted})
     TORCH_CHECK(t.is_cuda() && t.device() == tag.device() && t.is_contiguous(),
@@ -48,9 +49,20 @@ void append_fifo_cuda(torch::Tensor tag, torch::Tensor queue, torch::Tensor coun
               "FIFO shape/cap mismatch");
   if (tag.size(0) == 0) return;
   auto stream = at::cuda::getCurrentCUDAStream(tag.get_device());
-  fifo<<<(tag.size(0) + 127) / 128, 128, 0, stream.stream()>>>(
-      tag.data_ptr<int64_t>(), queue.data_ptr<int64_t>(), count.data_ptr<int64_t>(),
-      cells.data_ptr<int64_t>(), mask.data_ptr<bool>(), accepted.data_ptr<bool>(),
-      tag.size(0), tag.size(1), cells.size(1), queue.size(1), old_food, cap, corpse);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  if (diagnostics) {
+    // A direct pybind launch lacks dispatcher ancestry.  Keep this CPU scope
+    // strictly diagnostic so profiler-free timing is byte-for-byte unchanged.
+    RECORD_FUNCTION("gpu_sim.native.event.fifo", std::vector<c10::IValue>());
+    fifo<<<(tag.size(0) + 127) / 128, 128, 0, stream.stream()>>>(
+        tag.data_ptr<int64_t>(), queue.data_ptr<int64_t>(), count.data_ptr<int64_t>(),
+        cells.data_ptr<int64_t>(), mask.data_ptr<bool>(), accepted.data_ptr<bool>(),
+        tag.size(0), tag.size(1), cells.size(1), queue.size(1), old_food, cap, corpse);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  } else {
+    fifo<<<(tag.size(0) + 127) / 128, 128, 0, stream.stream()>>>(
+        tag.data_ptr<int64_t>(), queue.data_ptr<int64_t>(), count.data_ptr<int64_t>(),
+        cells.data_ptr<int64_t>(), mask.data_ptr<bool>(), accepted.data_ptr<bool>(),
+        tag.size(0), tag.size(1), cells.size(1), queue.size(1), old_food, cap, corpse);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
 }

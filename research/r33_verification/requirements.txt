@@ -1,1 +1,10 @@
 pytest==9.0.1
+iniconfig==2.3.0
+packaging==25.0
+pluggy==1.6.0
+pygments==2.19.2
+requests==2.34.2
+certifi==2026.6.17
+charset-normalizer==3.5.2
+idna==3.18
+urllib3==2.8.0
