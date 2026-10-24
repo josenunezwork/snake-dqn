@@ -157,7 +157,7 @@ def test_w6_wall_time_cannot_complete_or_fail_the_w12_sanity_window(tmp_path, mo
 @pytest.mark.parametrize(
     "other",
     [
-        "/opt/bin/codex",
+        "/opt/bin/codex exec task",
         "python -m pytest tests",
         "python research/study/train.py",
     ],

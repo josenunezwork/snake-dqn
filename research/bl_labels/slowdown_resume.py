@@ -223,6 +223,13 @@ def resume_policy(
 
 def _sol_codex_job(argv: str) -> bool:
     """Match launched CLI jobs without treating desktop app helpers as jobs."""
+    desktop_roots = (
+        "/Applications/ChatGPT.app/",
+        str(Path.home() / ".codex/computer-use") + "/",
+        str(Path.home() / "Library/Application Support/Codex") + "/",
+    )
+    if argv.lstrip().startswith(desktop_roots):
+        return False
     if "codex-handoff.sh" in argv or "CODEX_MODEL=gpt-6.1-sol" in argv:
         return True
     return any(

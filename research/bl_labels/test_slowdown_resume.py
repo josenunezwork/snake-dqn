@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from research.bl_labels import slowdown_resume, w12_runtime
+from research.bl_labels import mac_driver, slowdown_resume, w12_runtime
 from research.bl_labels.exports import publish_json
 
 
@@ -72,18 +72,52 @@ def _host_check(state: Path, epoch: float) -> None:
         ),
         ("/Applications/ChatGPT.app/Contents/Frameworks/Codex (Service)", False),
         ("/Applications/ChatGPT.app/Contents/Frameworks/Codex (Renderer)", False),
+        (
+            "/Users/josenunez/.codex/computer-use/Codex Computer Use.app/Contents/"
+            "SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient",
+            False,
+        ),
+        (str(Path.home() / ".codex/computer-use/codex") + " exec task", False),
+        (
+            str(Path.home() / "Library/Application Support/Codex/codex") + " exec task",
+            False,
+        ),
+        (
+            str(Path.home() / "Library/Application Support/Codex/Codex (Service)"),
+            False,
+        ),
+        (
+            str(Path.home() / "Library/Application Support/Codex/Codex (Renderer)"),
+            False,
+        ),
+        (
+            "/Applications/ChatGPT.app/Contents/MacOS/codex exec CODEX_MODEL=gpt-6.1-sol",
+            False,
+        ),
+        (
+            str(Path.home() / ".codex/computer-use/codex-handoff.sh"),
+            False,
+        ),
         ("/bin/bash /Users/owner/bin/codex-handoff.sh -C /tmp/worktree", True),
         ("/opt/homebrew/bin/codex exec --model gpt-6.1-sol task", True),
         ("/opt/homebrew/lib/node_modules/@openai/codex/bin/codex exec task", True),
         ("codex exec task", True),
         ("env CODEX_MODEL=gpt-6.1-sol /usr/local/bin/worker", True),
         ("/opt/homebrew/bin/codex app-server", False),
+        ("/opt/homebrew/bin/codex exec-server", False),
+        ("/opt/homebrew/bin/codex", False),
         ("/usr/local/bin/sol unrelated", False),
     ],
 )
-def test_record_host_check_matches_job_argv_only(
+def test_process_checks_match_job_argv_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: str, blocked: bool
 ) -> None:
+    monkeypatch.setattr(mac_driver, "_command_output", lambda _: f"123 1 {argv}\n")
+    if blocked:
+        with pytest.raises(mac_driver.MacGuardError, match="concurrent compute pid 123"):
+            mac_driver._exclusive_factory_guard(set())
+    else:
+        mac_driver._exclusive_factory_guard(set())
     _attempt(tmp_path, "one", workers=6, records=[_trip("watch6", 6, 100, 1000)])
     _attempt(tmp_path, "two", workers=6, records=[_trip("watch6", 6, 200, 2000)])
     calls = []

@@ -36,6 +36,7 @@ from .exports import (
     publish_life,
     publish_session,
 )
+from .slowdown_resume import _sol_codex_job
 
 DEFAULT_TIMING_ARMED = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/mac-timing-armed")
 THREAD_ENV = {
@@ -158,7 +159,7 @@ def _exclusive_factory_guard(owned_pids: set[int]) -> None:
         if pid in owned:
             continue
         executable = Path(command.split()[0]).name.lower()
-        agent = executable == "codex"
+        agent = _sol_codex_job(command)
         research = executable.startswith(("python", "pytest")) and re.search(
             r"(?:-m\s+(?:pytest|research\.)|(?:research|src/scripts)/|train_)", command
         )
