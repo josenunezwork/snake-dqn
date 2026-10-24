@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -315,10 +316,62 @@ PY="$REPO/venv/bin/python"
 cd "$REPO"
 "$REPO/tools/ops/dispatch.sh" a1-prof-a100-canary{attempt} "$ART/{canary_path.name}" \\
   --broker "$REPO" --cwd "$REPO" --state-dir "$ART/state-canary" --dispatch-txt "$ART/DISPATCH.txt"
-# Require PASS, verified exports, and verified release; then bind that exact receipt.
+# After PASS, verified exports, and verified release, this binds that exact receipt
+# and dispatches main in one failure-atomic command:
+bash "$ART/dispatch-main-after-canary.sh"
+"""
+
+
+def main_after_canary_text(
+    canary_path: Path,
+    commit: str,
+    suffix: str = "",
+    *,
+    rate: float = 10.0,
+    preflight_path: Path | None = None,
+) -> str:
+    """Return the receipt-binding main dispatcher emitted with an A1-PROF pack.
+
+    The qualified supervisor refuses a science manifest until it has a digest-bound
+    successful family-canary receipt.  Keep that admission in the generated script:
+    it creates and validates the immutable main manifest, then replaces itself with
+    the sole normal dispatch command.  A failed binding cannot reach dispatch.
+    """
+    if suffix and (not suffix.isascii() or not suffix.isdigit()):
+        raise ManifestRefused("dispatch suffix must contain ASCII digits only")
+    attempt = "-" + suffix if suffix else ""
+    preflight_arg = (
+        f" --preflight {shlex.quote(str(preflight_path.resolve()))}"
+        if preflight_path is not None
+        else ""
+    )
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "$#" -ne 0 ]]; then
+  echo "usage: $0" >&2
+  exit 64
+fi
+
+REPO={ROOT}
+ART={canary_path.parent}
+PIN={commit}
+PY="$REPO/venv/bin/python"
+RECEIPT="$ART/canary-output/receipt.json"
+
+cd "$REPO"
+if [[ ! -f "$RECEIPT" ]]; then
+  echo "missing canary receipt: $RECEIPT" >&2
+  exit 1
+fi
+# This refuses a missing, failed, unverified-release, foreign, or wrong-pin
+# receipt.  It also validates the resulting main manifest before dispatch.
 "$PY" -m research.gpu_sim_spike.a1_prof_pack --commit "$PIN" --artifact-dir "$ART" \\
-  --canary-receipt "$ART/canary-output/receipt.json" --validate
-"$REPO/tools/ops/dispatch.sh" a1-prof-a100-main{attempt} "$ART/a1-prof-main.json" \\
+  --canary-receipt "$RECEIPT" --rate-units-per-hour {rate} \\
+  --dispatch-suffix {suffix or "''"}{preflight_arg} \\
+  --validate
+
+exec "$REPO/tools/ops/dispatch.sh" a1-prof-a100-main{attempt} "$ART/a1-prof-main.json" \\
   --broker "$REPO" --cwd "$REPO" --state-dir "$ART/state-main" --dispatch-txt "$ART/DISPATCH.txt"
 """
 
@@ -340,14 +393,12 @@ def main() -> None:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     if args.ledger is not None:
         raise ManifestRefused("A1-PROF first-job pack refuses a recovery --ledger input")
-    preflight = preflight_binding(
-        (
-            args.preflight.resolve(strict=True)
-            if args.preflight is not None
-            else artifact_dir / "mac-preflight" / "mac-preflight.json"
-        ),
-        commit,
+    preflight_path = (
+        args.preflight.resolve(strict=True)
+        if args.preflight is not None
+        else artifact_dir / "mac-preflight" / "mac-preflight.json"
     )
+    preflight = preflight_binding(preflight_path, commit)
     ledger = artifact_dir / "verified-ledger.json"
     if not ledger.exists():
         a1_prof_units.publish_json(ledger, empty_ledger(commit))
@@ -402,6 +453,22 @@ def main() -> None:
     handoff = artifact_dir / "DISPATCH.txt"
     if not handoff.exists():
         write_once(handoff, dispatch_text(canary_path, commit, args.dispatch_suffix))
+    main_dispatch = artifact_dir / "dispatch-main-after-canary.sh"
+    main_dispatch_text = main_after_canary_text(
+        canary_path,
+        commit,
+        args.dispatch_suffix,
+        rate=args.rate_units_per_hour,
+        preflight_path=preflight_path,
+    )
+    if main_dispatch.exists():
+        if main_dispatch.read_text() != main_dispatch_text:
+            raise ManifestRefused(f"immutable pack differs: {main_dispatch}")
+        if not main_dispatch.stat().st_mode & 0o100:
+            raise ManifestRefused(f"main dispatcher is not executable: {main_dispatch}")
+    else:
+        write_once(main_dispatch, main_dispatch_text)
+        main_dispatch.chmod(0o755)
     print(
         json.dumps(
             {"artifact_dir": str(artifact_dir), "commit": commit, "prepared": True}, sort_keys=True

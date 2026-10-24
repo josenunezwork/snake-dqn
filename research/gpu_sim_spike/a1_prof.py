@@ -7,6 +7,7 @@ import gc
 import json
 import math
 import platform
+import re
 import statistics
 import time
 from contextlib import contextmanager
@@ -21,9 +22,7 @@ from research.gpu_sim_spike import a100_ruler as ruler
 from research.gpu_sim_spike.benchmark import source_commit, source_hashes
 
 PREFIX = "a1prof::"
-# Bound stage attribution uncertainty to two percentage points of kernel time.
-# This does not gate or adjust uninstrumented throughput or CUDA-event timing.
-MAX_UNATTRIBUTED_KERNEL_TIME_SHARE = 0.02
+UNATTRIBUTED_TOP_N = 30
 STAGE_MAP = {
     "movement": "movement_collision_events",
     "deaths_corpse": "movement_collision_events",
@@ -54,8 +53,9 @@ def sync(device: str) -> None:
 class ExclusiveTiming:
     """Segment the default stream at every nested scope boundary without overlap.
 
-    Events measure elapsed stream intervals (including launch starvation), not
-    kernel-busy time. A separate Kineto pass measures kernels and copies.
+    Device synchronization fences each exclusive segment, including work on
+    auxiliary streams. Events measure elapsed intervals (including launch and
+    synchronization gaps), not kernel-busy time. Kineto is diagnostic only.
     """
 
     def __init__(self, device: str, *, events: bool = True, annotations: bool = False) -> None:
@@ -68,6 +68,7 @@ class ExclusiveTiming:
     def _start(self) -> None:
         self.first = None
         if self.events and self.device == "cuda":
+            sync(self.device)
             self.first = torch.cuda.Event(enable_timing=True)
             self.first.record()
         self.started = time.perf_counter()
@@ -76,8 +77,12 @@ class ExclusiveTiming:
         end = None
         elapsed = time.perf_counter() - self.started
         if self.first is not None:
+            # Drain all streams before recording the end on the default stream.
+            # Native/async launches must finish inside their exclusive segment.
+            sync(self.device)
             end = torch.cuda.Event(enable_timing=True)
             end.record()
+            end.synchronize()
         self.segments.append((self.stack[-1], elapsed, self.first, end))
 
     @contextmanager
@@ -151,14 +156,47 @@ def instrument(sim: Any, timer: ExclusiveTiming) -> Iterator[None]:
         yield
 
 
-def profiler_summary(events: Any, device: str) -> dict[str, Any]:
-    """Attribute each correlated kernel once to its nearest enclosing stage.
+def heuristic_stage(kernel_name: str) -> tuple[str | None, str | None]:
+    """Suggest only source-identifiable native kernels; never guess generic ATen ops."""
+    name = kernel_name.lower()
+    if "fifo(" in name or name == "fifo":
+        return "food_corpse", "event_cuda.cu::fifo (shared food/corpse insertion)"
+    if any(
+        token in name
+        for token in (
+            "sparse_frontier",
+            "local_components",
+            "boundary_components",
+            "count_components",
+            "gather_components",
+        )
+    ):
+        return "b8_v8_features", "flood_cuda.cu native v8 flood (hero/opponent ambiguous)"
+    return None, None
 
-    PyTorch FunctionEvent.kernels contains directly correlated device activities;
-    ancestors' inclusive device totals must not be summed with these activities.
-    CPU runtime events carry the linked op's thread and therefore scope ancestry.
+
+def profiler_summary(
+    events: Any, device: str, kernel_links: dict[int, int] | None = None
+) -> dict[str, Any]:
+    """Inventory raw kernels once, independently of optional CPU scope correlation.
+
+    Kineto links raw correlation IDs to launching CPU op IDs. FunctionEvent.kernels
+    omits native launches without such links; it is never the inventory source.
+    Missing links or scopes are diagnostic findings, with no coverage threshold.
     """
     events = list(events)
+    kernel_links = kernel_links or {}
+    # TorchOp external IDs and CUPTI runtime IDs have independent namespaces.
+    # A numeric collision is uncertainty, never permission to overwrite an op.
+    cpu_by_id: dict[int, list[Any]] = {}
+    for event in events:
+        if event.device_type == torch.autograd.DeviceType.CPU and hasattr(event, "id"):
+            cpu_by_id.setdefault(event.id, []).append(event)
+
+    def unique_cpu(event_id: int | None) -> Any:
+        candidates = cpu_by_id.get(event_id, [])
+        return candidates[0] if len(candidates) == 1 else None
+
     stages: dict[str, Any] = {
         stage: {
             "kernel_count": 0,
@@ -171,16 +209,22 @@ def profiler_summary(events: Any, device: str) -> dict[str, Any]:
         }
         for stage in (*STAGES, "unattributed")
     }
+
+    def scope(event: Any) -> str | None:
+        while event is not None:
+            if event.name.startswith(PREFIX):
+                name = event.name[len(PREFIX) :]
+                return name if name in STAGES else None
+            event = getattr(event, "cpu_parent", None)
+        return None
+
     copies: dict[str, Any] = {}
-    kernel_names: dict[str, Any] = {}
+    inventory: dict[str, Any] = {}
+    groups: dict[tuple[Any, ...], str] = {}
     for event in events:
         if event.device_type != torch.autograd.DeviceType.CPU:
             continue
-        parent = event
-        while parent is not None and not parent.name.startswith(PREFIX):
-            parent = parent.cpu_parent
-        name = parent.name[len(PREFIX) :] if parent is not None else "unscoped"
-        target = stages[name]
+        target = stages[scope(event) or "unscoped"]
         memory = getattr(event, "self_device_memory_usage", 0)
         target["self_device_memory_net_bytes"] += memory
         target["self_device_allocation_bytes"] += max(memory, 0)
@@ -189,93 +233,155 @@ def profiler_summary(events: Any, device: str) -> dict[str, Any]:
         if event.name.startswith(("cudaLaunch", "cuLaunch")):
             target["launch_api_count"] += 1
             target["launch_api_seconds"] += event.cpu_time_total / 1e6
-        for kernel in event.kernels:
-            if kernel.name.startswith(("Memcpy", "Memset")):
-                transfer = copies.setdefault(kernel.name, {"count": 0, "seconds": 0.0})
-                transfer["count"] += 1
-                transfer["seconds"] += kernel.duration / 1e6
-            else:
-                target["kernel_count"] += 1
-                target["kernel_seconds"] += kernel.duration / 1e6
-                key = name + ":" + kernel.name
-                row = kernel_names.setdefault(key, {"count": 0, "seconds": 0.0})
-                row["count"] += 1
-                row["seconds"] += kernel.duration / 1e6
-    observed = sum(row["kernel_count"] for row in stages.values())
-    raw_events = [
-        event
-        for event in events
-        if event.device_type == torch.autograd.DeviceType.CUDA
-        and event.name != "[memory]"
-        and not event.name.startswith(("Memcpy", "Memset"))
+        # CPU-only preflight can still report copy activities if present.
+        if device != "cuda":
+            for kernel in event.kernels:
+                if kernel.name.startswith(("Memcpy", "Memset")):
+                    row = copies.setdefault(kernel.name, {"count": 0, "seconds": 0.0})
+                    row["count"] += 1
+                    row["seconds"] += kernel.duration / 1e6
+    raw, raw_seconds, attributed, attributed_seconds = 0, 0.0, 0, 0.0
+    linked_count = 0
+    for event in events:
+        if event.device_type != torch.autograd.DeviceType.CUDA or event.name == "[memory]":
+            continue
+        seconds = event.time_range.elapsed_us() / 1e6
+        if not math.isfinite(seconds) or seconds < 0:
+            raise RuntimeError(f"profiler invalid raw device duration: {event.name}: {seconds}")
+        if event.name.startswith(("Memcpy", "Memset")):
+            row = copies.setdefault(event.name, {"count": 0, "seconds": 0.0})
+            row["count"] += 1
+            row["seconds"] += seconds
+            continue
+        raw += 1
+        raw_seconds += seconds
+        event_id = getattr(event, "id", None)
+        launch = unique_cpu(kernel_links.get(event_id))
+        if launch is not None and re.match(r"^(cuda|cu)[A-Z]", launch.name):
+            launch = None  # A linked frontend-op ID cannot name a CUPTI API.
+        link_kind = "kineto_linked_op" if launch is not None else None
+        if launch is None:
+            # CUPTI may retain only the runtime/kernel correlation for native
+            # extensions. Accept an exact ID match to a launch API, never names
+            # or temporal overlap as proof of launching-stage ancestry.
+            runtime = unique_cpu(event_id)
+            if runtime is not None and runtime.name.startswith(("cudaLaunch", "cuLaunch")):
+                launch, link_kind = runtime, "runtime_correlation_id"
+        linked_count += launch is not None
+        stage = scope(launch)
+        # Walk the explicit launching op's ancestry for a captured stack.
+        parent, stack = launch, []
+        while parent is not None and not stack:
+            stack = list(getattr(parent, "stack", None) or [])
+            parent = getattr(parent, "cpu_parent", None)
+        suggestion, reason = heuristic_stage(event.name) if stage is None else (None, None)
+        name = stage or "unattributed"
+        target = stages[name]
+        target["kernel_count"] += 1
+        target["kernel_seconds"] += seconds
+        if stage is not None:
+            attributed += 1
+            attributed_seconds += seconds
+        stream = getattr(event, "device_resource_id", None)
+        device_index = getattr(event, "device_index", None)
+        op = launch.name if launch is not None else None
+        # Aggregate every raw kernel by all available provenance, without a
+        # top-N truncation. Per-launch timestamps are unnecessary for this table.
+        provenance = (event.name, name, device_index, stream, op, tuple(stack), link_kind)
+        key = groups.setdefault(provenance, f"kernel_{len(groups):06d}")
+        row = inventory.setdefault(
+            key,
+            {
+                "name": event.name,
+                "stage": name,
+                "stream": stream,
+                "device_index": device_index,
+                "launching_op": op,
+                "launching_stack": stack,
+                "launch_correlation": link_kind,
+                "heuristic_stage": suggestion,
+                "heuristic_reason": reason,
+                "count": 0,
+                "seconds": 0.0,
+            },
+        )
+        row["count"] += 1
+        row["seconds"] += seconds
+    if device == "cuda" and (raw == 0 or raw_seconds <= 0):
+        raise RuntimeError("profiler raw CUDA kernel trace is missing or empty")
+    missing = stages["unattributed"]["kernel_count"]
+    missing_seconds = stages["unattributed"]["kernel_seconds"]
+    heuristic_totals: dict[str, Any] = {}
+    unmatched_names: dict[str, Any] = {}
+    for key, row in inventory.items():
+        row["total_device_seconds"] = row["seconds"]
+        row["mean_device_seconds"] = row["seconds"] / row["count"]
+        if row["heuristic_stage"]:
+            target = heuristic_totals.setdefault(
+                row["heuristic_stage"], {"count": 0, "seconds": 0.0}
+            )
+            target["count"] += row["count"]
+            target["seconds"] += row["seconds"]
+        if row["stage"] == "unattributed":
+            total = unmatched_names.setdefault(
+                row["name"],
+                {
+                    "name": row["name"],
+                    "count": 0,
+                    "seconds": 0.0,
+                    "streams": [],
+                    "inventory_keys": [],
+                    "heuristic_stage": row["heuristic_stage"],
+                    "heuristic_reason": row["heuristic_reason"],
+                },
+            )
+            total["count"] += row["count"]
+            total["seconds"] += row["seconds"]
+            total["inventory_keys"].append(key)
+            if row["stream"] not in total["streams"]:
+                total["streams"].append(row["stream"])
+    for row in unmatched_names.values():
+        row["total_device_seconds"] = row["seconds"]
+        row["mean_device_seconds"] = row["seconds"] / row["count"]
+        row["streams"].sort(key=str)
+    top = sorted(unmatched_names.values(), key=lambda row: (-row["seconds"], row["name"]))[
+        :UNATTRIBUTED_TOP_N
     ]
-    raw = len(raw_events)
-    attributed_seconds = sum(row["kernel_seconds"] for row in stages.values())
-    raw_seconds = sum(event.time_range.elapsed_us() for event in raw_events) / 1e6
-    if device == "cuda" and (
-        raw == 0
-        or observed > raw
-        or not math.isfinite(raw_seconds)
-        or not math.isfinite(attributed_seconds)
-        or raw_seconds <= 0
-        or attributed_seconds < 0
-        or attributed_seconds > raw_seconds + max(1e-12, raw_seconds * 1e-9)
-    ):
-        raise RuntimeError(
-            "profiler kernel correlation invalid: "
-            f"attributed={observed}, raw={raw}, "
-            f"attributed_seconds={attributed_seconds}, raw_seconds={raw_seconds}"
-        )
-    missing = raw - observed if device == "cuda" else 0
-    missing_seconds = max(0.0, raw_seconds - attributed_seconds) if device == "cuda" else 0.0
-    missing_share = missing_seconds / raw_seconds if raw_seconds > 0 else 0.0
-    stages["unattributed"].update(kernel_count=missing, kernel_seconds=missing_seconds)
-    if missing or missing_seconds:
-        kernel_names["unattributed:correlation_remainder"] = {
-            "count": missing,
-            "seconds": missing_seconds,
-        }
-    # Subtraction of second-valued floats can put an exact 2% gap a few ulps
-    # above 0.02. Ignore only rounding at the boundary (absolute share 1e-12).
-    if (
-        device == "cuda"
-        and missing_share > MAX_UNATTRIBUTED_KERNEL_TIME_SHARE
-        and not math.isclose(
-            missing_share, MAX_UNATTRIBUTED_KERNEL_TIME_SHARE, rel_tol=0, abs_tol=1e-12
-        )
-    ):
-        raise RuntimeError(
-            "profiler kernel correlation gap exceeds time threshold: "
-            f"attributed={observed}, raw={raw}, unattributed={missing}, "
-            f"unattributed_seconds={missing_seconds}, raw_seconds={raw_seconds}, "
-            f"unattributed_time_share={missing_share:.9f}, "
-            f"maximum={MAX_UNATTRIBUTED_KERNEL_TIME_SHARE}"
-        )
     return {
         "stages": stages,
-        "kernel_count": observed + missing,
-        "attributed_cuda_kernel_count": observed,
+        "kernel_count": raw,
+        "attributed_cuda_kernel_count": attributed,
         "raw_cuda_kernel_count": raw,
+        "linked_cuda_kernel_count": linked_count,
         "unattributed_cuda_kernel_count": missing,
         "unattributed_cuda_kernel_count_share": missing / raw if raw else 0.0,
         "attributed_cuda_kernel_seconds": attributed_seconds,
         "raw_cuda_kernel_seconds": raw_seconds,
         "unattributed_cuda_kernel_seconds": missing_seconds,
-        "unattributed_cuda_kernel_time_share": missing_share,
-        "max_unattributed_cuda_kernel_time_share": MAX_UNATTRIBUTED_KERNEL_TIME_SHARE,
+        "unattributed_cuda_kernel_time_share": (
+            missing_seconds / raw_seconds if raw_seconds else 0.0
+        ),
+        "attribution_gaps_are_fatal": False,
+        "authoritative_stage_clock": "synchronized_exclusive_cuda_events",
         "device_activities": copies,
         "host_device_transfers": {
             key: value
             for key, value in copies.items()
             if any(token in key.lower() for token in ("htod", "dtoh", "h2d", "d2h"))
         },
-        "kernel_inventory": kernel_names,
+        "kernel_inventory": inventory,
+        "top_unattributed_kernels_by_device_time": top,
+        "unattributed_top_n": UNATTRIBUTED_TOP_N,
+        "heuristic_unattributed_stage_totals": heuristic_totals,
         "cuda_available": device == "cuda",
         "notes": (
-            "Python gap is scope self CPU time; launch API is separate, not added to GPU time. "
-            "Unattributed is the raw minus correlated kernel remainder, never assigned to a stage. "
-            "At most 2% unattributed kernel time bounds stage-share uncertainty to 2 percentage "
-            "points; uninstrumented throughput and CUDA-event timings are independent."
+            "Raw CUDA activities are counted once, including unlinked native kernels. "
+            "Inventory includes every kernel name/provenance group, not just top-N. "
+            "Missing stream/op/stack is null/empty. Scope correlation and name heuristics "
+            "are diagnostic only; heuristics never alter measured stage totals. Native v8 "
+            "flood names cannot distinguish hero and opponent bundles. Exclusive synchronized "
+            "CUDA-event intervals are authoritative; kernel duration is a separate busy-time "
+            "diagnostic. Python gaps and launch API time overlap device work."
         ),
     }
 
@@ -404,9 +510,18 @@ def measure_cell(
         if device == "cuda":
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         timer = ExclusiveTiming(device, events=False, annotations=True)
-        with torch.profiler.profile(activities=activities, profile_memory=True) as profiler:
+        with torch.profiler.profile(
+            activities=activities, profile_memory=True, with_stack=True
+        ) as profiler:
             profiled_wall = tick(timer)
-        summary = profiler_summary(profiler.events(), device)
+        # Preserve explicit raw-device -> CPU-op links discarded by FunctionEvent.
+        links = {
+            event.correlation_id(): event.linked_correlation_id()
+            for event in profiler.profiler.kineto_results.events()
+            if event.device_type() == torch.autograd.DeviceType.CUDA
+            and event.linked_correlation_id() > 0
+        }
+        summary = profiler_summary(profiler.events(), device, links)
         summary["profiled_tick_wall_seconds"] = profiled_wall
         profiled.append(summary)
         progress(repeat + 1, repeats, start, cell=f"{mix}-e{worlds}", phase="repeat")

@@ -47,124 +47,210 @@ def test_method_instrumentation_preserves_rng_result_and_state() -> None:
     assert timer.result()["exclusive_host_seconds"]["rng"] > 0
 
 
-def test_profiler_correlations_are_exclusive_and_copy_separate() -> None:
-    cpu, cuda = torch.autograd.DeviceType.CPU, torch.autograd.DeviceType.CUDA
+def trace_cpu(op_id=1, stage="vector61_flood_fill", stack=None):
     scope = SimpleNamespace(
-        name=prof.PREFIX + "vector61_flood_fill",
+        id=op_id + 100,
+        name=prof.PREFIX + stage,
         cpu_parent=None,
-        device_type=cpu,
+        device_type=torch.autograd.DeviceType.CPU,
         self_cpu_time_total=12,
         kernels=[],
     )
     child = SimpleNamespace(
+        id=op_id,
         name="aten::pad",
         cpu_parent=scope,
-        device_type=cpu,
-        kernels=[SimpleNamespace(name="pad_kernel", duration=20)],
+        device_type=torch.autograd.DeviceType.CPU,
+        stack=stack or [],
+        kernels=[],
     )
-    copy = SimpleNamespace(
-        name="aten::_local_scalar_dense",
-        cpu_parent=scope,
-        device_type=cpu,
-        kernels=[SimpleNamespace(name="Memcpy DtoH", duration=5)],
+    return [scope, child]
+
+
+def trace_kernel(kernel_id=2, name="pad_kernel", duration=20, stream=7):
+    return SimpleNamespace(
+        id=kernel_id,
+        device_type=torch.autograd.DeviceType.CUDA,
+        device_index=0,
+        device_resource_id=stream,
+        name=name,
+        time_range=SimpleNamespace(elapsed_us=lambda: duration),
     )
+
+
+def test_profiler_raw_inventory_correlation_provenance_and_copies() -> None:
+    events = trace_cpu(stack=["caller.py:12"])
     launch = SimpleNamespace(
-        name="cudaLaunchKernel", cpu_parent=child, device_type=cpu, cpu_time_total=2, kernels=[]
+        id=3,
+        name="cudaLaunchKernel",
+        cpu_parent=events[-1],
+        device_type=torch.autograd.DeviceType.CPU,
+        cpu_time_total=2,
+        kernels=[],
     )
-    raw = SimpleNamespace(
-        device_type=cuda, name="pad_kernel", time_range=SimpleNamespace(elapsed_us=lambda: 20)
-    )
-    summary = prof.profiler_summary([scope, child, copy, launch, raw], "cuda")
+    events += [launch, trace_kernel(), trace_kernel(4, "Memcpy DtoH", 5)]
+    summary = prof.profiler_summary(events, "cuda", {2: 1})
     stage = summary["stages"]["vector61_flood_fill"]
     assert stage["kernel_count"] == summary["kernel_count"] == 1
     assert stage["kernel_seconds"] == 20 / 1e6
     assert stage["launch_api_count"] == 1
     assert summary["host_device_transfers"]["Memcpy DtoH"]["count"] == 1
-    assert summary["attributed_cuda_kernel_count"] == summary["raw_cuda_kernel_count"] == 1
+    row = next(iter(summary["kernel_inventory"].values()))
+    assert row["name"] == "pad_kernel" and row["stream"] == 7
+    assert row["launching_op"] == "aten::pad"
+    assert row["launching_stack"] == ["caller.py:12"]
+    assert row["mean_device_seconds"] == row["total_device_seconds"] == 20 / 1e6
     assert summary["unattributed_cuda_kernel_time_share"] == 0
-    with pytest.raises(RuntimeError, match="correlation invalid"):
-        prof.profiler_summary([scope, child], "cuda")
 
 
-@pytest.mark.parametrize(
-    "attributed,raw,attributed_us,raw_us",
-    [(17843, 17910, 17843, 17910), (9, 10, 999, 1000), (1, 2, 980, 1000)],
-)
-def test_profiler_accepts_bounded_time_gap_and_reconciles_export(
-    attributed, raw, attributed_us, raw_us
-) -> None:
-    cpu, cuda = torch.autograd.DeviceType.CPU, torch.autograd.DeviceType.CUDA
-    # Count coverage alone is not the gate: the second row has 10% missing
-    # kernels but only 0.1% missing time; exactly 2% time remains admissible.
-    child = SimpleNamespace(
-        name="aten::pad",
-        cpu_parent=None,
-        device_type=cpu,
-        kernels=[
-            SimpleNamespace(name="pad_kernel", duration=attributed_us / attributed)
-            for _ in range(attributed)
-        ],
-    )
-    raw_event = SimpleNamespace(
-        device_type=cuda,
-        name="pad_kernel",
-        time_range=SimpleNamespace(elapsed_us=lambda: raw_us / raw),
-    )
-    summary = prof.profiler_summary(iter([child] + [raw_event] * raw), "cuda")
-    assert summary["kernel_count"] == summary["raw_cuda_kernel_count"] == raw
-    assert summary["attributed_cuda_kernel_count"] == attributed
-    assert summary["unattributed_cuda_kernel_count"] == raw - attributed
-    assert summary["unattributed_cuda_kernel_count_share"] == (raw - attributed) / raw
-    assert summary["unattributed_cuda_kernel_time_share"] == pytest.approx(
-        (raw_us - attributed_us) / raw_us
-    )
-    assert sum(row["kernel_count"] for row in summary["stages"].values()) == raw
-    assert sum(row["kernel_seconds"] for row in summary["stages"].values()) == pytest.approx(
-        raw_us / 1e6
-    )
-    assert summary["stages"]["unattributed"]["kernel_seconds"] == pytest.approx(
-        (raw_us - attributed_us) / 1e6
-    )
+@pytest.mark.parametrize("share", [0.02, 0.775, 1.0])
+def test_profiler_never_aborts_on_any_attribution_gap(share) -> None:
+    events = trace_cpu() + [trace_kernel(duration=1000 * (1 - share))]
+    # The missing kernels, not a synthetic remainder, remain named and timed.
+    events += [trace_kernel(3, "sparse_frontier(bool*)", 1000 * share)]
+    summary = prof.profiler_summary(events, "cuda", {2: 1})
+    assert summary["kernel_count"] == summary["raw_cuda_kernel_count"] == 2
+    assert summary["unattributed_cuda_kernel_count"] == 1
+    assert summary["unattributed_cuda_kernel_time_share"] == pytest.approx(share)
+    assert sum(row["kernel_count"] for row in summary["stages"].values()) == 2
     assert sum(row["seconds"] for row in summary["kernel_inventory"].values()) == pytest.approx(
-        raw_us / 1e6
+        0.001
     )
-    assert "unattributed" not in prof.STAGES  # No extra CUDA-event boundaries.
+    top = summary["top_unattributed_kernels_by_device_time"]
+    assert top[0]["name"] == "sparse_frontier(bool*)"
+    assert top[0]["heuristic_stage"] == "b8_v8_features"
+    assert summary["stages"]["b8_v8_features"]["kernel_count"] == 0
+    assert not summary["attribution_gaps_are_fatal"]
+    assert "unattributed" not in prof.STAGES
 
 
-@pytest.mark.parametrize("attributed_us", [979.99, 970, 0])
-def test_profiler_refuses_gap_above_two_percent_time(attributed_us) -> None:
-    cpu, cuda = torch.autograd.DeviceType.CPU, torch.autograd.DeviceType.CUDA
-    child = SimpleNamespace(
-        name="aten::pad",
-        cpu_parent=None,
-        device_type=cpu,
-        kernels=[SimpleNamespace(name="pad_kernel", duration=attributed_us)],
-    )
-    raw = SimpleNamespace(
-        device_type=cuda,
-        name="pad_kernel",
-        time_range=SimpleNamespace(elapsed_us=lambda: 1000),
-    )
-    with pytest.raises(RuntimeError, match="gap exceeds time threshold.*maximum=0.02"):
-        prof.profiler_summary([child, raw], "cuda")
+def test_reported_canary_02_gap_exports_expensive_native_kernels() -> None:
+    events = trace_cpu()
+    # Match the reported raw and attributed counts and raw-minus-linked time.
+    linked_us = (1.476461751 - 1.14396855) * 1e6 / 17842
+    events += [trace_kernel(i + 1000, duration=linked_us) for i in range(17842)]
+    links = {i + 1000: 1 for i in range(17842)}
+    events += [trace_kernel(i + 20000, "sparse_frontier", 1.14396855e6 / 68) for i in range(68)]
+    result = prof.profiler_summary(events, "cuda", links)
+    assert result["raw_cuda_kernel_count"] == 17910
+    assert result["attributed_cuda_kernel_count"] == 17842
+    assert result["unattributed_cuda_kernel_count"] == 68
+    assert result["unattributed_cuda_kernel_time_share"] == pytest.approx(0.774804054)
+    assert result["top_unattributed_kernels_by_device_time"][0]["count"] == 68
 
 
-def test_profiler_refuses_missing_raw_trace_and_overcounted_time() -> None:
-    with pytest.raises(RuntimeError, match="correlation invalid"):
-        prof.profiler_summary([], "cuda")
-    child = SimpleNamespace(
-        name="aten::pad",
-        cpu_parent=None,
+def test_native_runtime_correlation_recovers_scope_without_timing_guess() -> None:
+    events = trace_cpu()
+    events += [
+        SimpleNamespace(
+            id=12,
+            name="cudaLaunchKernel",
+            cpu_parent=events[-1],
+            device_type=torch.autograd.DeviceType.CPU,
+            cpu_time_total=2,
+            kernels=[],
+        ),
+        trace_kernel(12, "sparse_frontier", 50),
+    ]
+    result = prof.profiler_summary(events, "cuda")
+    assert result["attributed_cuda_kernel_count"] == 1
+    row = next(iter(result["kernel_inventory"].values()))
+    assert row["launch_correlation"] == "runtime_correlation_id"
+    assert row["stage"] == "vector61_flood_fill"
+    assert row["heuristic_stage"] is None
+
+
+def test_cpu_id_namespace_collision_is_unattributed_in_both_orders() -> None:
+    events = trace_cpu()
+    unrelated = trace_cpu(40, "movement_collision_events")[0]
+    runtime = SimpleNamespace(
+        id=1,
+        name="cudaLaunchKernel",
+        cpu_parent=unrelated,
         device_type=torch.autograd.DeviceType.CPU,
-        kernels=[SimpleNamespace(name="pad_kernel", duration=101)],
+        cpu_time_total=1,
+        kernels=[],
     )
-    raw = SimpleNamespace(
-        device_type=torch.autograd.DeviceType.CUDA,
-        name="pad_kernel",
-        time_range=SimpleNamespace(elapsed_us=lambda: 100),
-    )
-    with pytest.raises(RuntimeError, match="correlation invalid"):
-        prof.profiler_summary([child, raw], "cuda")
+    for ordered in (events + [runtime], [runtime] + events):
+        result = prof.profiler_summary(ordered + [trace_kernel(777)], "cuda", {777: 1})
+        row = next(iter(result["kernel_inventory"].values()))
+        assert row["stage"] == "unattributed"
+        assert row["launching_op"] is None
+    # A linked external ID must never resolve to a unique runtime-only API.
+    result = prof.profiler_summary([unrelated, runtime, trace_kernel(777)], "cuda", {777: 1})
+    assert result["unattributed_cuda_kernel_count"] == 1
+
+
+def test_profiler_completely_unlinked_trace_and_grouped_streams() -> None:
+    events = [trace_kernel(i, "unknown", 10, stream=i % 2) for i in range(40)]
+    events += [trace_kernel(99, "fifo(long*)", 500)]
+    summary = prof.profiler_summary(events, "cuda")
+    assert summary["unattributed_cuda_kernel_time_share"] == 1
+    assert summary["kernel_count"] == 41
+    inventory = list(summary["kernel_inventory"].values())
+    assert len(inventory) == 3
+    assert sorted(row["count"] for row in inventory) == [1, 20, 20]
+    assert summary["top_unattributed_kernels_by_device_time"][0]["name"] == "fifo(long*)"
+    assert summary["heuristic_unattributed_stage_totals"]["food_corpse"]["count"] == 1
+    assert all(row["launching_op"] is None for row in inventory)
+    unknown = summary["top_unattributed_kernels_by_device_time"][1]
+    assert unknown["name"] == "unknown" and unknown["count"] == 40
+    assert unknown["streams"] == [0, 1]
+    assert len(unknown["inventory_keys"]) == 2
+    assert prof.heuristic_stage("generic_elementwise") == (None, None)
+
+
+def test_profiler_top_n_does_not_truncate_inventory_and_unscoped_is_missing() -> None:
+    events = [trace_kernel(i, f"kernel_{i}", i + 1) for i in range(50)]
+    cpu = trace_cpu()[-1]
+    cpu.cpu_parent = None
+    events.append(cpu)
+    summary = prof.profiler_summary(events, "cuda", {2: 1})
+    assert summary["linked_cuda_kernel_count"] == 1
+    assert summary["unattributed_cuda_kernel_count"] == 50
+    assert len(summary["kernel_inventory"]) == 50
+    top = summary["top_unattributed_kernels_by_device_time"]
+    assert len(top) == prof.UNATTRIBUTED_TOP_N
+    assert top[0]["name"] == "kernel_49"
+
+
+@pytest.mark.parametrize("duration", [-1, float("nan"), float("inf")])
+def test_profiler_refuses_invalid_raw_time(duration) -> None:
+    with pytest.raises(RuntimeError, match="invalid raw device duration"):
+        prof.profiler_summary([trace_kernel(duration=duration)], "cuda")
+
+
+def test_profiler_missing_raw_trace_is_a_real_error() -> None:
+    with pytest.raises(RuntimeError, match="raw CUDA kernel trace is missing"):
+        prof.profiler_summary([], "cuda")
+
+
+def test_cuda_event_stage_boundaries_drain_all_streams(monkeypatch) -> None:
+    calls = []
+
+    class Event:
+        def __init__(self, **kwargs):
+            pass
+
+        def record(self):
+            calls.append("record")
+
+        def synchronize(self):
+            calls.append("event_sync")
+
+        def elapsed_time(self, end):
+            return 10
+
+    monkeypatch.setattr(prof.torch.cuda, "Event", Event)
+    monkeypatch.setattr(prof.torch.cuda, "synchronize", lambda: calls.append("device_sync"))
+    timer = prof.ExclusiveTiming("cuda")
+    with timer.stage("vector61"):
+        with timer.stage("vector61_flood_fill"):
+            pass
+    assert calls == ["device_sync", "record", "device_sync", "record", "event_sync"] * 3
+    result = timer.result()["exclusive_cuda_elapsed_seconds"]
+    assert result["vector61_other"] == 0.02
+    assert result["vector61_flood_fill"] == 0.01
 
 
 def test_metrics_use_full_world_steps_and_observation_union() -> None:
@@ -243,4 +329,12 @@ def test_real_cuda_profiler_kernel_correlation() -> None:
         with timer.stage("movement"):
             x.add_(1)
         torch.cuda.synchronize()
-    assert prof.profiler_summary(profiler.events(), "cuda")["kernel_count"] >= 1
+    links = {
+        event.correlation_id(): event.linked_correlation_id()
+        for event in profiler.profiler.kineto_results.events()
+        if event.device_type() == torch.autograd.DeviceType.CUDA
+    }
+    summary = prof.profiler_summary(profiler.events(), "cuda", links)
+    assert summary["kernel_count"] >= 1
+    assert summary["attributed_cuda_kernel_count"] >= 1
+    assert all(row["stream"] is not None for row in summary["kernel_inventory"].values())
