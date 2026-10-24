@@ -454,3 +454,20 @@ operational closure SHA256
 Operator commands are future protocol only in
 `research/bl_labels/FACTORY_CONCURRENCY_HANDOFF_20261023.md`; do not dispatch
 `bl-f0-d256-guard-w12-03` under this candidate while the fence is HOLD.
+
+R33 bounded ops repair (2026-10-23, Sol preparation): adopted judgment
+`big-lever/round-33/JUDGMENT.md`, SHA256
+`7db57b262f1bfa4ae70597772d79e2904f8d6a885ea530c54178d869911cf07a`.
+Ownership recorded before implementation in `research/r33_ops/OWNERSHIP.md`:
+Sol-O owns watcher/journal/proof dependencies; Sol-P owns package/CI adapters;
+independent Codex-V owns adversarial verification. Existing A1-PROF owner retains
+row 4 exclusively (`research/r33_ops/A1_OWNER_HANDOFF.md`). Claude owns three
+separate next actions: D256-successor evidence/admission, A100 Q1 repair/canary,
+and P1 current-package canary admission. Unknown evidence remains a typed blocker;
+no unrelated scientific dependency or READY is inferred. Engineering timebox is
+3 Sol builder-days + 1 Codex-V day, scope frozen after three calendar days.
+CPU pilot forecast 2 h / 0.16 u; base 2.4 h / 0.192 u; effective shared-series
+4.8 h / 0.384 u (included reserve 0.8 h / 0.064 u), no dispatch by Sol.
+R28 row-4 1.2 h / 12 u is only a sub-envelope of its remaining Q1 authority,
+not new funding. No live balance/capacity, native qualification, operational
+handoff sample, serving or science conclusion is asserted by this preparation.
