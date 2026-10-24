@@ -12,7 +12,9 @@ unless the operator omits ``--dry-run``.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
+import math
 import os
 import shlex
 import subprocess
@@ -28,6 +30,80 @@ BROKER = BASE / "snake-dqn-gpur2-qualified.noindex"
 HOST = BASE / "snake-dqn"
 PY = BASE / "snake-dqn/venv/bin/python"
 PACKAGE = "research/gpu_sim_spike"
+CANARY_CAP_UNITS = 2.0  # ruling step 4 / R2 protocol: whole canary allowance
+MAX_CANARY_ATTEMPTS = 2
+
+
+def _suffix(attempt: int) -> str:
+    return "" if attempt == 1 else f"-{attempt:02d}"
+
+
+def attempt_manifest(
+    first: dict[str, Any], prior_units: float, output_dir: Path, attempt: int = 2
+) -> dict[str, Any]:
+    """Fresh canary attempt: same science/inputs/env; only identity and remaining cap change.
+
+    The failed attempt's charge is deducted from the 2 u canary allowance. The
+    whole-session timeout is the largest value that the remaining cap prices
+    (qualified rule ``timeout * rate / 60 <= cap``) and the declared estimate
+    stays at the qualified half-timeout (``timeout >= 2 * est``). The producer
+    deadline (``R2_BENCH_SECONDS``) is unchanged.
+    """
+    if attempt != 2:
+        raise ValueError("R2 canary allows exactly one fresh attempt (attempt 2)")
+    if not math.isfinite(prior_units) or prior_units < 0:
+        raise ValueError("prior canary charge must be finite and nonnegative")
+    rate = float(first["budget"]["rate_units_per_hour"])
+    cap = math.floor((CANARY_CAP_UNITS - prior_units) * 100) / 100
+    timeout = math.floor(cap * 60 / rate * 10) / 10
+    producer_minutes = int(first["env"]["R2_BENCH_SECONDS"]) / 60
+    if cap <= 0 or timeout < producer_minutes + 3:
+        raise ValueError("remaining canary allowance cannot fit the unchanged producer deadline")
+    job = copy.deepcopy(first)
+    if not job["job_id"].endswith("-01"):
+        raise ValueError("first canary job id does not end in -01")
+    job["job_id"] = job["job_id"][:-3] + f"-{attempt:02d}"
+    job["output_dir"] = str(output_dir)
+    job["budget"]["unit_cap"] = cap
+    job["budget"]["reserve_units"] = cap / 6
+    job["timeout_minutes"] = timeout
+    job["requirements"]["est_minutes"] = timeout / 2
+    job["canary_attempt"] = {
+        "attempt": attempt,
+        "allowance_units": CANARY_CAP_UNITS,
+        "prior_attempt_charged_units": prior_units,
+        "remaining_unit_cap": cap,
+        "changed_fields": [
+            "job_id",
+            "output_dir",
+            "budget.unit_cap",
+            "budget.reserve_units",
+            "timeout_minutes",
+            "requirements.est_minutes",
+            "canary_attempt",
+        ],
+    }
+    return job
+
+
+def prior_failure(artifact: Path) -> dict[str, Any]:
+    """Prove attempt 1 was a released pre-work kernel-creation failure and charge it."""
+    sys.path.insert(0, str(ROOT))
+    from tools.ops.redispatch_fresh import verify_failure
+
+    packet = artifact / "packet"
+    proof = verify_failure(packet, packet / "r2-canary-compiled.json")
+    receipt = json.loads((packet / "canary-output/receipt.json").read_text())
+    before = receipt.get("usage_before", {}).get("balance")
+    after = receipt.get("usage_after", {}).get("balance")
+    drop = (
+        float(before) - float(after)
+        if isinstance(before, (int, float)) and isinstance(after, (int, float))
+        else 0.0
+    )
+    proof["observed_balance_drop_units"] = drop
+    proof["charged_units"] = max(float(proof["prior_elapsed_rate_units"]), drop, 0.0)
+    return proof
 
 
 def frozen(broker: Path, code: str, *args: str) -> Any:
@@ -101,11 +177,11 @@ def controls(artifact: Path, broker: Path) -> tuple[dict[str, Any], str]:
 
 
 def dispatch_command(
-    host: Path, artifact: Path, broker: Path, name: str, path: Path, lane: str
+    host: Path, artifact: Path, broker: Path, name: str, path: Path, lane: str, attempt: int = 1
 ) -> list[str]:
     state = {
         "compile": "packet/native-compile/state",
-        "canary": "packet/state-canary",
+        "canary": "packet/state-canary" + _suffix(attempt),
         "main": "packet/state-main",
     }[lane]
     return [
@@ -197,8 +273,12 @@ def run(
     host: Path,
     dry: bool,
     receipt: Path | None = None,
+    attempt: int = 1,
 ) -> dict[str, Any]:
+    if attempt not in range(1, MAX_CANARY_ATTEMPTS + 1) or (attempt > 1 and lane != "canary"):
+        raise ValueError("--attempt 2 applies only to the canary lane")
     original, pin = controls(artifact, broker)
+    accounting = None
     name = {
         "canary": f"gpu-r2-canary-{pin[:8]}",
         "main": f"gpu-r2-main-{pin[:8]}",
@@ -212,7 +292,7 @@ def run(
             raise ValueError("compiler identity differs")
         name = job["job_id"]
     elif lane == "canary":
-        path = artifact / "packet/r2-canary-compiled.json"
+        path = artifact / f"packet/r2-canary-compiled{_suffix(attempt)}.json"
         receipt = receipt or Path(
             os.environ.get("NATIVE_COMPILE_RECEIPT")
             or artifact / "packet/native-compile/output/receipt.json"
@@ -235,8 +315,25 @@ def run(
                 json.dumps(original),
             )
         }
+        if attempt > 1:
+            # Same compile receipt binding as attempt 1; identical content otherwise
+            # except fresh identity and the remaining canary allowance.
+            first = _verified(artifact / "packet/r2-canary-compiled.json")
+            if first["native_cuda_compile"] != job["native_cuda_compile"]:
+                raise ValueError("attempt 2 must bind attempt 1's native compile receipt")
+            accounting = prior_failure(artifact)
+            job = attempt_manifest(
+                first,
+                accounting["charged_units"],
+                artifact / f"packet/canary-output{_suffix(attempt)}",
+                attempt,
+            )
+            name = f"{name}-a{attempt}"
     else:
-        receipt = receipt or artifact / "packet/canary-output/receipt.json"
+        default = artifact / "packet/canary-output-02/receipt.json"
+        if not default.is_file():
+            default = artifact / "packet/canary-output/receipt.json"
+        receipt = receipt or default
         if dry and not receipt.is_file():
             raise ValueError(
                 "main dry-run requires the canary receipt (the qualified supervisor binds it)"
@@ -252,13 +349,19 @@ def run(
         report = upload(job, broker, temporary_root / "upload")
         validation_manifest = temporary_root / path.name
         validation_manifest.write_text(json.dumps(job, indent=2, sort_keys=True) + "\n")
-        command = dispatch_command(host, artifact, broker, name, validation_manifest, lane)
+        command = dispatch_command(host, artifact, broker, name, validation_manifest, lane, attempt)
         subprocess.run([*command, "--dry-run"], cwd=host, check=True)
         if not dry:
+            if accounting is not None:
+                record = artifact / f"packet/CANARY_ATTEMPT{_suffix(attempt)}.json"
+                if not record.exists():
+                    _publish(record, accounting)
             if not path.exists():
                 _publish(path, job)
             subprocess.run(
-                dispatch_command(host, artifact, broker, name, path, lane), cwd=host, check=True
+                dispatch_command(host, artifact, broker, name, path, lane, attempt),
+                cwd=host,
+                check=True,
             )
     return {
         "status": "PASS_DRY_RUN" if dry else "DISPATCHED",
@@ -270,6 +373,9 @@ def run(
         "source_archive_bytes": report.get("source_archive_bytes"),
         "input_rows": len(job["inputs"]),
         "live_accounting": "NOT_CHECKED" if dry else "CHECKED",
+        "attempt": attempt,
+        "canary_attempt": job.get("canary_attempt"),
+        "prior_attempt_accounting": accounting,
     }
 
 
@@ -281,6 +387,7 @@ def main() -> None:
     parser.add_argument("--host", type=Path, default=HOST)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--receipt", type=Path)
+    parser.add_argument("--attempt", type=int, default=1, help="canary only: 2 = fresh attempt")
     args = parser.parse_args()
     sys.path.insert(0, str(ROOT))
     if args.action == "prepare":
@@ -295,6 +402,7 @@ def main() -> None:
             args.host.resolve(),
             args.dry_run,
             args.receipt,
+            args.attempt,
         )
     print(json.dumps(result, sort_keys=True))
 
