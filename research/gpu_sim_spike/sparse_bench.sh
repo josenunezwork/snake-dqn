@@ -4,6 +4,9 @@ set -euo pipefail
 : "${COLAB_CLI_ROOT:?sparse benchmark requires the qualified supervisor}"
 : "${COLAB_INPUT_DIR:?sparse benchmark requires uploaded inputs}"
 : "${SPARSE_BENCH_SECONDS:?manifest must bind wall time}"
+: "${METADATA_ARCHIVE_SHA256:?manifest metadata archive digest required}"
+python -m research.metadata_archive unpack --archive "$COLAB_INPUT_DIR/metadata.tar" \
+  --root "$COLAB_INPUT_DIR" --sha256 "$METADATA_ARCHIVE_SHA256"
 input_root="${COLAB_INPUT_DIR}"
 if [[ "${BL_PUBLIC_INPUTS:-0}" == 1 ]]; then
   python -m research.bl_upload.inputs --input-dir "${COLAB_INPUT_DIR}"

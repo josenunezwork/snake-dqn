@@ -31,6 +31,46 @@ def test_move2_ledger_resumes_only_verified_same_namespace_units(tmp_path: Path)
         move2_units.load_ledger(ledger, move2_units.namespace("b" * 40, smoke=True), cells)
 
 
+def test_move2_manifest_reuses_verified_metadata_archive(tmp_path: Path, monkeypatch) -> None:
+    ledger, canary_ledger = tmp_path / "ledger.json", tmp_path / "canary" / "ledger.json"
+    for path, canary in ((ledger, False), (canary_ledger, True)):
+        move2_units.publish_json(
+            path,
+            move2_units.empty_ledger(
+                move2_units.namespace(PIN, canary=canary), move2_units.allocation(canary=canary)
+            ),
+        )
+    monkeypatch.setattr(move2_pack, "checkpoint_inputs", lambda: [])
+    monkeypatch.setattr(move2_pack, "convert_public_checkpoints", lambda value, repo: value)
+    monkeypatch.setattr(move2_pack, "_preflight_inputs", lambda value: [])
+    ruling = tmp_path / "ruling.md"
+    ruling.write_text("bound ruling\n")
+    monkeypatch.setattr(
+        move2_pack,
+        "_ruling_input",
+        lambda: {
+            "path": str(ruling),
+            "dest": "inputs/ruling.md",
+            "sha256": move2_pack.sha256_file(ruling),
+        },
+    )
+    kwargs = dict(
+        commit=PIN,
+        output_dir=tmp_path / "canary-output",
+        ledger=ledger,
+        canary_ledger=canary_ledger,
+        canary=True,
+        rate=10.0,
+        preflight={"cpu_discrepancies": {"sha256": "x"}, "discrepancy_register": {"sha256": "y"}},
+    )
+    first, second = move2_pack.manifest(**kwargs), move2_pack.manifest(**kwargs)
+    rows = [row for row in first["inputs"] if row["dest"] == "metadata.tar"]
+    assert len(rows) == 1 and rows == [
+        row for row in second["inputs"] if row["dest"] == "metadata.tar"
+    ]
+    assert first["env"]["METADATA_ARCHIVE_SHA256"] == rows[0]["sha256"]
+
+
 def test_move2_rejects_large_trace_inventory(tmp_path: Path) -> None:
     (tmp_path / "recorded-states").mkdir()
     with pytest.raises(ValueError, match="trace"):

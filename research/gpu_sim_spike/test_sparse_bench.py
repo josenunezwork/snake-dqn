@@ -67,6 +67,18 @@ def test_sparse_manifest_binds_q2_envelope_without_profiler_gate(tmp_path, monke
     assert (
         main["resume"]["skip_verified"] is True and main["resume"]["max_outcome_blind_retries"] == 2
     )
+    repeated = sparse_pack.manifest(
+        commit=COMMIT,
+        output_dir=tmp_path / "main",
+        ledger=ledger,
+        canary_ledger=canary,
+        canary=False,
+        preflight=preflight,
+    )
+    metadata = [row for row in main["inputs"] if row["dest"] == "metadata.tar"]
+    assert len(metadata) == 1
+    assert metadata == [row for row in repeated["inputs"] if row["dest"] == "metadata.tar"]
+    assert main["env"]["METADATA_ARCHIVE_SHA256"] == metadata[0]["sha256"]
 
 
 def test_sparse_units_refuse_foreign_payload_and_keep_atomic_contract(tmp_path):
@@ -356,7 +368,13 @@ def test_exactness_fixture_must_be_verified_and_preflight_bound(tmp_path, monkey
     job = sparse_pack.manifest(**kwargs, preflight={"exactness_fixture_sha256": digest})
     assert job["env"]["SPARSE_EXACTNESS_FIXTURE"] == "exactness/failed-a100-state.npz"
     assert "vector-exactness.json" in job["required_exports"]
-    assert job["inputs"][-1]["sha256"] == digest
+    from research import metadata_archive
+
+    archive = next(row for row in job["inputs"] if row["dest"] == "metadata.tar")
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    metadata_archive.unpack(archive["path"], staged, archive["sha256"])
+    assert metadata_archive.sha256(staged / "exactness/failed-a100-state.npz") == digest
     fixture.write_bytes(b"tampered")
     with pytest.raises(ValueError, match="checksum"):
         sparse_pack.manifest(**kwargs, preflight={"exactness_fixture_sha256": digest})

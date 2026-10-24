@@ -17,6 +17,7 @@ from research.gpu_sim_spike.make_manifests import (
     sha256_file,
     write_once,
 )
+from research.metadata_archive import bundle_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "research/gpu_sim_spike"
@@ -319,6 +320,10 @@ def manifest(
             receipt = canary_receipt.resolve(strict=True)
             value["canary"] = {"receipt": {"path": str(receipt), "sha256": sha256_file(receipt)}}
     value = convert_public_checkpoints(value, repo=ROOT)
+    archive = output_dir.parent / f"metadata-{'canary' if canary else 'main'}.tar"
+    value["inputs"] = bundle_inputs(value["inputs"], archive, reuse_verified=True)
+    metadata = next(row for row in value["inputs"] if row["dest"] == "metadata.tar")
+    value["env"]["METADATA_ARCHIVE_SHA256"] = metadata["sha256"]
     assert_upload_budget(value, repo=ROOT)
     return value
 

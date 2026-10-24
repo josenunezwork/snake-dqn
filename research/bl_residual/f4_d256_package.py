@@ -45,7 +45,17 @@ SOURCE_PATHS = [
     "research/bl_ppo/__init__.py",
     "research/bl_ppo/exports.py",
     "research/colab_cli",
+    "research/metadata_archive.py",
 ]
+FROZEN_REPACK_SOURCE = "c2c82ff240a28247dd9b18608831eecea6d94205"
+REPACK_ALLOWED_SOURCE_PATHS = {
+    "research/bl_residual/f4_d256_package.py",
+    "research/bl_residual/f4_d256_colab.sh",
+    "research/bl_residual/RUN_D256_NEXT_METADATA_20261024.sh",
+    "research/metadata_archive.py",
+    "tests/test_bl_residual_f4_d256_package.py",
+    "tests/test_metadata_archive.py",
+}
 PUBLICATION_PATH = "research/bl_labels/ledger/D256_UNION_FINAL_20261023.json"
 UNION_SHA = "30919209b62307f8d4392b4e5925a7c4b0c4a21a2abd55a5e647428453eeb809"
 FIT_PUBLICATION_PATH = "research/bl_residual/ledger/F4_D256_FIT_PHASE_20261023.json"
@@ -199,10 +209,23 @@ def _table(
     return result
 
 
-def manifests(output: Path, commit: str, inventory: list[dict]) -> tuple[dict, dict]:
+def _metadata_archive_sha256(inventory: list[dict[str, Any]]) -> str:
+    """Return the sole supervisor-bound metadata archive digest."""
+    rows = [row for row in inventory if row.get("dest") == "metadata.tar"]
+    if len(rows) != 1 or set(rows[0]) != {"path", "dest", "sha256"}:
+        raise ValueError("F4 package requires exactly one metadata archive input")
+    digest_value = rows[0]["sha256"]
+    if not isinstance(digest_value, str) or len(digest_value) != 64:
+        raise ValueError("F4 metadata archive digest is invalid")
+    return digest_value
+
+
+def manifests(
+    output: Path, commit: str, inventory: list[dict], *, attempt: str = "01"
+) -> tuple[dict, dict]:
     """Freeze bounded D256/canary reservations within the 20-unit fit series."""
     main_template = {
-        "job_id": f"f4-d256-fit-{commit[:8]}",
+        "job_id": f"f4-d256-fit-{commit[:8]}-{attempt}",
         "commit": commit,
         "script": "research/bl_residual/f4_d256_colab.sh",
         "source_paths": SOURCE_PATHS,
@@ -212,7 +235,12 @@ def manifests(output: Path, commit: str, inventory: list[dict]) -> tuple[dict, d
         "output_dir": str((output / "d256-output-l4-01").resolve()),
         "inputs": inventory,
         "required_exports": ["fit/allocation.json", "fit/fit-0000.pth", "fit/receipt.json"],
-        "env": {"F4_MODE": "main", "F4_DEVICE": "cuda:0", "COLAB_CLI_REQUIREMENTS": REQUIREMENTS},
+        "env": {
+            "F4_MODE": "main",
+            "F4_DEVICE": "cuda:0",
+            "COLAB_CLI_REQUIREMENTS": REQUIREMENTS,
+            "METADATA_ARCHIVE_SHA256": _metadata_archive_sha256(inventory),
+        },
         "budget": {
             "unit_cap": 4,
             "rate_units_per_hour": 1.54,
@@ -247,7 +275,7 @@ def manifests(output: Path, commit: str, inventory: list[dict]) -> tuple[dict, d
     }
     canary_manifest = {
         **main_template,
-        "job_id": f"f4-d256-canary-{commit[:8]}",
+        "job_id": f"f4-d256-canary-{commit[:8]}-{attempt}",
         "output_dir": str((output / "canary-output-l4-01").resolve()),
         "timeout_minutes": 20,
         "budget": {
@@ -393,10 +421,13 @@ def _prepare(
     export_json(inputs / "verified-ledger.json", empty_ledger(NAMESPACE, control["allocation"]))
     control["ledger_sha256"] = digest(inputs / "verified-ledger.json")
     export_json(inputs / "control.json", control)
-    inventory = [
+    raw_inventory = [
         {"path": str(path.resolve()), "dest": path.name, "sha256": digest(path)}
         for path in sorted(inputs.iterdir())
     ]
+    from research.metadata_archive import bundle_inputs
+
+    inventory = bundle_inputs(raw_inventory, inputs / "metadata.tar")
     main_template, canary_manifest = manifests(output, commit, inventory)
     export_json(output / "main-template.json", main_template)
     export_json(output / "canary.json", canary_manifest)
@@ -423,6 +454,130 @@ def _prepare(
         "canary_manifest": str(output / "canary.json"),
         "main_template": str(output / "main-template.json"),
         "factory_union_ledger_sha256": digest(factory_ledger),
+    }
+
+
+def repack_existing(existing: Path, output: Path, commit: str) -> dict[str, Any]:
+    """Create a fresh archive transport package from frozen F4 input bytes.
+
+    This package-only operation copies registered payloads and sidecars, checks
+    their frozen manifest identities, and never opens the NPZ, model, factory
+    rows, or fit outputs.
+    """
+    if output.exists():
+        raise FileExistsError(output)
+    existing = existing.resolve()
+    for name in ("pack.json", "canary.json", "main-template.json"):
+        verify_export(existing / name)
+    prior = json.loads((existing / "pack.json").read_text())
+    if (
+        prior.get("schema") != "bl-residual-f4-d256-pack/v1"
+        or prior.get("commit") != FROZEN_REPACK_SOURCE
+    ):
+        raise ValueError("repack requires the frozen D256 package source")
+    prior_canary = json.loads((existing / "canary.json").read_text())
+    prior_main = json.loads((existing / "main-template.json").read_text())
+    if prior_canary.get("inputs") != prior_main.get("inputs"):
+        raise ValueError("frozen canary/main input inventories differ")
+    old_inventory = prior_canary.get("inputs")
+    if not isinstance(old_inventory, list) or not old_inventory:
+        raise ValueError("frozen package has no input inventory")
+    commit = subprocess.check_output(
+        ["git", "rev-parse", f"{commit}^{{commit}}"], cwd=ROOT, text=True
+    ).strip()
+    if subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip() != commit:
+        raise ValueError("repack from the exact pinned source checkout")
+    if subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip():
+        raise ValueError("repack from a clean pinned source checkout")
+    changed = set(
+        subprocess.check_output(
+            ["git", "diff", "--name-only", FROZEN_REPACK_SOURCE, commit], cwd=ROOT, text=True
+        ).splitlines()
+    )
+    if not changed <= REPACK_ALLOWED_SOURCE_PATHS:
+        raise ValueError("repack source changes exceed the package-only closure")
+    from tools.ops.qualification import check as qualification
+
+    if qualification(ROOT, Path(QUALIFICATION_RECORD), commit) != QUALIFIED_TREE:
+        raise ValueError("F4 transport qualification differs")
+    if (
+        prior.get("main_template_sha256") != digest(existing / "main-template.json")
+        or prior.get("canary_manifest_sha256") != digest(existing / "canary.json")
+        or prior_canary.get("commit") != FROZEN_REPACK_SOURCE
+        or prior_main.get("commit") != FROZEN_REPACK_SOURCE
+    ):
+        raise ValueError("frozen package manifest bindings differ")
+    output.mkdir(parents=True)
+    inputs = output / "inputs"
+    inputs.mkdir()
+    copied: list[dict[str, str]] = []
+    for row in old_inventory:
+        if not isinstance(row, dict) or set(row) != {"path", "dest", "sha256"}:
+            raise ValueError("frozen package input row differs")
+        source = Path(row["path"])
+        if source.is_symlink() or not source.is_file() or digest(source) != row["sha256"]:
+            raise ValueError("frozen package input bytes differ")
+        target = inputs / row["dest"]
+        if target.name != row["dest"]:
+            raise ValueError("frozen package input destination is unsafe")
+        _copy(source, target)
+        if digest(target) != row["sha256"]:
+            raise ValueError("repacked input copy differs")
+        copied.append({"path": str(target.resolve()), "dest": row["dest"], "sha256": row["sha256"]})
+    if {path.name for path in inputs.iterdir()} != {row["dest"] for row in copied}:
+        raise ValueError("repacked input closure differs")
+    from research.metadata_archive import bundle_inputs
+
+    inventory = bundle_inputs(copied, inputs / "metadata.tar")
+    main_template, canary_manifest = manifests(output, commit, inventory, attempt="metadata-01")
+    for old, new in ((prior_main, main_template), (prior_canary, canary_manifest)):
+        for key in (
+            "device",
+            "requirements",
+            "timeout_minutes",
+            "required_exports",
+            "budget",
+            "resume",
+            "max_export_bytes",
+            "f4",
+        ):
+            if old.get(key) != new.get(key):
+                raise ValueError("repack changed frozen F4 science or caps")
+        if old.get("script") != new.get("script") or old.get("source_paths") + [
+            "research/metadata_archive.py"
+        ] != new.get("source_paths"):
+            raise ValueError("repack source closure differs")
+        for key, value in old.get("env", {}).items():
+            if new.get("env", {}).get(key) != value:
+                raise ValueError("repack changed frozen F4 environment")
+        if old.get("canary") != new.get("canary"):
+            raise ValueError("repack changed frozen canary contract")
+    export_json(output / "main-template.json", main_template)
+    export_json(output / "canary.json", canary_manifest)
+    from research.colab_cli.supervisor import validate
+
+    validate(canary_manifest, ROOT)
+    export_json(
+        output / "pack.json",
+        {
+            "schema": "bl-residual-f4-d256-metadata-repack/v1",
+            "commit": commit,
+            "frozen_source_pack": str(existing),
+            "frozen_source_commit": FROZEN_REPACK_SOURCE,
+            "frozen_input_inventory_sha256": canonical_sha(old_inventory),
+            "unpacked_input_inventory_sha256": canonical_sha(copied),
+            "metadata_archive_sha256": _metadata_archive_sha256(inventory),
+            "staged_file_count_before": len(copied),
+            "staged_file_count_after": len(inventory),
+            "outcome_reporting": "none",
+        },
+    )
+    return {
+        "pack": str(output),
+        "canary_manifest": str(output / "canary.json"),
+        "main_template": str(output / "main-template.json"),
+        "staged_file_count_before": len(copied),
+        "staged_file_count_after": len(inventory),
     }
 
 
@@ -540,6 +695,7 @@ def stage_d1024(pack: Path, publication: Path, output: Path) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--repack-existing", type=Path, metavar="PACK")
     parser.add_argument("--factory-ledger", type=Path)
     parser.add_argument("--b8", type=Path)
     parser.add_argument("--judgment", type=Path)
@@ -552,6 +708,11 @@ def main() -> None:
     parser.add_argument("--canary-receipt", type=Path)
     parser.add_argument("--main-manifest-out", type=Path)
     args = parser.parse_args()
+    if args.repack_existing:
+        if args.out is None:
+            parser.error("--repack-existing requires --out")
+        print(json.dumps(repack_existing(args.repack_existing, args.out, args.commit)))
+        return
     if args.publish_fit:
         if args.out is None:
             parser.error("--publish-fit requires --out")

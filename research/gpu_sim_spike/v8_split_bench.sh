@@ -5,6 +5,9 @@ set -euo pipefail
 : "${COLAB_INPUT_DIR:?supervisor inputs required}"
 : "${V8_SPLIT_BENCH_SECONDS:?manifest wall cap required}"
 : "${V8_SPLIT_BENCH_DEVICE:?manifest device required}"
+: "${METADATA_ARCHIVE_SHA256:?manifest metadata archive digest required}"
+python -m research.metadata_archive unpack --archive "$COLAB_INPUT_DIR/metadata.tar" \
+  --root "$COLAB_INPUT_DIR" --sha256 "$METADATA_ARCHIVE_SHA256"
 input_root="$COLAB_INPUT_DIR"
 if [[ "${BL_PUBLIC_INPUTS:-0}" == 1 ]]; then
   python -m research.bl_upload.inputs --input-dir "$input_root"
