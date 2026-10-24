@@ -8,12 +8,44 @@ payload outside the temporary fixture.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from research.bl_residual import f4_d256_package as package
+
+
+def test_job_cli_accepts_manifest_cuda_index_without_fitting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.bl_residual import job
+
+    calls = []
+
+    def fake_run(inputs: Path, output: Path, *, mode: str, device: str) -> dict:
+        calls.append((inputs, output, mode, device))
+        return {"done": 1, "synthetic": False}
+
+    monkeypatch.setattr(job, "run", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "job",
+            "--input-dir",
+            str(tmp_path / "inputs"),
+            "--output",
+            str(tmp_path / "out"),
+            "--mode",
+            "main",
+            "--device",
+            "cuda:0",
+        ],
+    )
+    job.main()
+    assert calls == [(tmp_path / "inputs", tmp_path / "out", "main", "cuda:0")]
 
 
 def _row(*, ordinary: bool, status: list[str] | None = None, probability: float = 0.25) -> dict:
