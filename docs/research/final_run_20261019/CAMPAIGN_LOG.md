@@ -799,3 +799,6 @@ and unrun here. Serving, released checkpoints, existing receipts, tmux and live
 process priorities were untouched.
 
 Final independent static command/snapshot review: `research/bl_residual/CODEX_V_D256_COMMANDS_STATIC_20261023.json`, SHA256 `b6becbee73779912c9bc6b911505a7f16576d58e0718046de61de3dfd85b5ccf`; no remaining static blockers, mandatory post-P1 runtime gates retained.
+
+
+Round-27 speed repair equiv-02: round-27 speed equivalence phase ledger 02. Ledger `research/bl_labels/ledger/ROUND27_SPEED_EQUIV_PHASES_02.json`, SHA256 `2d2e5ea4486e4cb8eb0c501c09b26906e9222f41aae99482e1c7c4afdf003541`. equiv-01 retained unchanged.
