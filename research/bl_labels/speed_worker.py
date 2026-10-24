@@ -22,7 +22,8 @@ def isolate(root: Path, pin: str) -> None:
     os.chdir(root)
     sys.path.insert(0, str(root))
     os.environ.update(F0_COMMIT=pin, F1_COMMIT=pin)
-    os.setpriority(os.PRIO_PROCESS, 0, 10)
+    # A worker may inherit an already lower priority from its caller.
+    os.setpriority(os.PRIO_PROCESS, 0, max(10, os.getpriority(os.PRIO_PROCESS, 0)))
 
 
 def assert_origins(root: Path) -> None:
@@ -113,7 +114,10 @@ def collect(args: argparse.Namespace) -> None:
     setattr(b2_engine.WatchDriver, method, decision)
     original_step = b2_engine.WatchDriver.step
 
-    def step(self: Any, forced: int | None = None, **kwargs: Any) -> Any:
+    def step(self: Any, *values: Any, **kwargs: Any) -> Any:
+        # OLD accepts only forced; NEW also accepts a positional prepared packet
+        # (GateDriver forwards both through super). Preserve the exact call shape.
+        forced = values[0] if values else kwargs.get("forced")
         prior = context[0]
         if forced is not None:
             context[0] = "forced"
@@ -121,7 +125,7 @@ def collect(args: argparse.Namespace) -> None:
         elif primary and self is primary[0]:
             context[0] = "natural"
         try:
-            return original_step(self, forced, **kwargs)
+            return original_step(self, *values, **kwargs)
         finally:
             context[0] = prior
 
