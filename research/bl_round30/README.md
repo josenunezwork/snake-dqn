@@ -168,7 +168,10 @@ The dispatch wrapper repeats qualification/validation and refreshes live account
 assignments under its allocation lock. No supervisor source was changed. Current
 pin and complete sparse dependency closure must match; clean-import preflight can
 be run through `tools/ops/import_preflight.py` in an admitted quiet check, never a
-substantial local build during factory windows. Native canary proof is compulsory.
+substantial local build during factory windows. Native canary proof is compulsory. The synthetic canary reloads its actual
+immutable fused endpoint and executes a six-action masked fp32 argmax on the
+manifest device, so the qualified observer can attribute a real CUDA decision.
+A CPU fixture checks the same call and fallback semantics without claiming CUDA.
 
 R30-2 uses identical commands with `--stage r30-2`, new directories/names, and
 `prepare --gate ABS-successor-gate.json`. Its sibling diagnosis.json must be the

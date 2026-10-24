@@ -50,6 +50,8 @@ def test_real_entrypoint_three_tiny_units_and_exact_skip(tmp_path: Path) -> None
         receipt = run(source, tmp_path / f"out-{index}", mode="smoke", device="cpu")
         timings.append(time.monotonic() - started)
         assert receipt["done"] == 1 and not receipt["heldout_outcomes_opened"]
+        assert receipt["synthetic_fused_action_device"] == "cpu"
+        assert len(receipt["synthetic_fused_actions"]) == 1
         verify_export(tmp_path / f"out-{index}" / "unit-0000.pth")
     resume = tmp_path / "resume"
     resume.mkdir()
@@ -124,3 +126,47 @@ def test_series_first_local_or_combined_cap_and_no_science_retry() -> None:
         require_series({**value, "combined_units": 14.4}, "r30-1")
     with pytest.raises(ValueError, match="completion"):
         require_series({**value, "attempt": 1}, "r30-1")
+
+
+@pytest.mark.parametrize(
+    "mask,expected", [([False] * 6, 1), ([False, False, True, True, False, False], 2)]
+)
+def test_reloaded_canary_uses_real_six_action_argmax_and_served_fallback(
+    monkeypatch, mask, expected
+):
+    import numpy as np
+
+    from research.bl_round30 import job
+
+    calls = []
+
+    class Fused:
+        def load_state_dict(self, state, strict):
+            assert state == {"synthetic": True} and strict
+
+        def to(self, device):
+            assert device == "cpu"
+            return self
+
+        def eval(self):
+            return self
+
+        def __call__(self, *inputs):
+            assert len(inputs) == 3
+            return torch.tensor([[0.0, 4.0, 4.0, 4.0, 9.0, 9.0]])
+
+    original = torch.Tensor.argmax
+
+    def observed(tensor, *args, **kwargs):
+        calls.append((tuple(tensor.shape), tensor.device.type))
+        return original(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(job, "Ego2sNet", lambda **kwargs: Fused())
+    monkeypatch.setattr(torch.Tensor, "argmax", observed)
+    table = {key: np.zeros((1, 1), np.float32) for key in ("local", "global", "scalars")}
+    table["action_mask"] = np.asarray([mask])
+    result = job.reloaded_canary_actions(
+        {"config": {}, "state_dict": {"synthetic": True}}, table, "cpu"
+    )
+    assert result == [expected]
+    assert calls == [((1, 6), "cpu")]  # CPU fixture never claims CUDA observation.
