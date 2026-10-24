@@ -15,6 +15,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from importlib.machinery import PathFinder
 from pathlib import Path
@@ -107,10 +108,19 @@ class ControlIdentity:
     admission_path: str
 
 
+def _timeout(cap: float) -> float:
+    """Share the factory's existing full-observation deadline without importing it."""
+    observer = sys.modules.get("research.bl_labels.factory_persistence")
+    remaining = getattr(observer, "observation_timeout", None)
+    return min(cap, remaining()) if callable(remaining) else cap
+
+
 def _sha256(path: Path) -> str:
+    _timeout(10)
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            _timeout(10)
             digest.update(chunk)
     return digest.hexdigest()
 
@@ -253,7 +263,9 @@ def interpreter_native(path: Path) -> str:
         "f.restype=ctypes.c_int; b=ctypes.create_string_buffer(4096); "
         "n=f(os.getpid(),b,len(b)); assert n>0; print(os.fsdecode(b.value))"
     )
-    value = subprocess.check_output([str(path), "-I", "-c", program], text=True, timeout=5).strip()
+    value = subprocess.check_output(
+        [str(path), "-I", "-c", program], text=True, timeout=_timeout(5)
+    ).strip()
     if not Path(value).is_absolute() or not Path(value).is_file():
         raise OSError("interpreter native executable unavailable")
     return str(Path(value).resolve())
@@ -376,7 +388,7 @@ def candidate_pids(
 def native_cwd(pid: int) -> str:
     """Read a Darwin process cwd through lsof; this is not a record claim."""
     output = subprocess.check_output(
-        ["/usr/sbin/lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], text=True, timeout=3
+        ["/usr/sbin/lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], text=True, timeout=_timeout(3)
     )
     paths = [line[1:] for line in output.splitlines() if line.startswith("n")]
     if len(paths) != 1 or not Path(paths[0]).is_absolute():
@@ -389,7 +401,7 @@ def _import_resolution_matches(record: AdmissionRecord) -> bool:
         subprocess.check_output(
             [record.interpreter, "-I", "-c", IMPORT_PROBE_PROGRAM, record.import_root],
             text=True,
-            timeout=5,
+            timeout=_timeout(5),
         )
     )
     return observed == {
@@ -415,6 +427,7 @@ def _source_matches(record: AdmissionRecord, cwd: str) -> bool:
     if not isinstance(dispatch, dict) or not dispatch:
         return False
     for path, digest in dispatch.items():
+        _timeout(10)
         if not isinstance(path, str) or not isinstance(digest, str) or len(digest) != 64:
             return False
         if _sha256(Path(path)) != digest:
@@ -431,7 +444,7 @@ def _source_matches(record: AdmissionRecord, cwd: str) -> bool:
                 "show",
                 f"{record.operational_pin}:{relative.as_posix()}",
             ],
-            timeout=3,
+            timeout=_timeout(3),
         )
         if hashlib.sha256(pinned).hexdigest() != digest:
             return False
@@ -463,6 +476,7 @@ def _source_matches(record: AdmissionRecord, cwd: str) -> bool:
             return False
         # A manifest can bind just the qualified tree or a wider source closure.
         for relative, expected in closure.items():
+            _timeout(10)
             if (
                 not isinstance(relative, str)
                 or not isinstance(expected, str)
@@ -487,7 +501,7 @@ def _source_matches(record: AdmissionRecord, cwd: str) -> bool:
             tree = subprocess.check_output(
                 ["/usr/bin/git", "-C", str(root), "rev-parse", "HEAD:research/colab_cli"],
                 text=True,
-                timeout=3,
+                timeout=_timeout(3),
             ).strip()
             dirty = subprocess.run(
                 [
@@ -502,7 +516,7 @@ def _source_matches(record: AdmissionRecord, cwd: str) -> bool:
                 ],
                 capture_output=True,
                 text=True,
-                timeout=3,
+                timeout=_timeout(3),
                 check=True,
             ).stdout
         except (OSError, subprocess.SubprocessError) as error:
@@ -515,7 +529,7 @@ def _source_matches(record: AdmissionRecord, cwd: str) -> bool:
             observed = subprocess.check_output(
                 ["/usr/bin/git", "-C", str(root), "rev-parse", "HEAD:research/colab_cli"],
                 text=True,
-                timeout=3,
+                timeout=_timeout(3),
             ).strip()
         except (OSError, subprocess.SubprocessError):
             return False
@@ -533,7 +547,7 @@ def _source_matches(record: AdmissionRecord, cwd: str) -> bool:
                 ],
                 capture_output=True,
                 text=True,
-                timeout=3,
+                timeout=_timeout(3),
                 check=True,
             ).stdout
         except (OSError, subprocess.SubprocessError) as error:
@@ -850,6 +864,7 @@ def annotate(
     table = {int(row["pid"]): row for row in rows if isinstance(row.get("pid"), int)}
     candidates = candidate_pids(table.values(), records)
     for pid in candidates:
+        _timeout(10)
         row = table[pid]
         if not row.get("birth") or not row.get("executable"):
             raise IdentitySensorError(f"control candidate {pid} lacks birth/executable")
@@ -951,6 +966,7 @@ def annotate(
     while changed:
         changed = False
         for pid in sorted(candidates - set(result)):
+            _timeout(10)
             row = table[pid]
             parent = result.get(row.get("ppid"))
             if parent is None:

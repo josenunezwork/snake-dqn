@@ -385,3 +385,36 @@ def test_darwin_caffeinate_execs_supervisor_in_root_and_keeps_exact_assertion_ch
         source_checker=lambda *_: True,
     )
     assert found[10].role == "supervisor" and 11 not in found
+
+
+def test_factory_deadline_bounds_native_classifier_calls_and_expiry_stops_work(
+    monkeypatch, tmp_path
+):
+    import time
+
+    from research.bl_labels import factory_persistence as persistence
+
+    calls = []
+
+    def read(*args, **kwargs):
+        calls.append(kwargs["timeout"])
+        return "n" + str(tmp_path) + "\n"
+
+    monkeypatch.setattr(control.subprocess, "check_output", read)
+    token = persistence._OBSERVATION_DEADLINE.set(time.monotonic() + 0.2)
+    try:
+        assert control.native_cwd(123) == str(tmp_path)
+        assert 0 < calls[0] <= 0.2
+    finally:
+        persistence._OBSERVATION_DEADLINE.reset(token)
+    token = persistence._OBSERVATION_DEADLINE.set(time.monotonic() - 1)
+    try:
+        with pytest.raises(TimeoutError):
+            control.native_cwd(123)
+        with pytest.raises(TimeoutError):
+            control._sha256(tmp_path / "not-even-opened")
+        assert len(calls) == 1
+    finally:
+        persistence._OBSERVATION_DEADLINE.reset(token)
+    assert control.native_cwd(123) == str(tmp_path)
+    assert calls[-1] == 3
