@@ -66,44 +66,51 @@ def valid_cell(unit_id: str, row: dict[str, Any]) -> bool:
 def aggregate(exports: list[Path], commit: str, *, canary: bool = False) -> dict[str, Any]:
     if platform.system() != "Darwin":
         raise ValueError("MOVE2 analysis is Mac-only")
-    ns, cells, seen, diagnostics, native = (
-        move2_units.namespace(commit, canary=canary),
-        move2_units.allocation(canary=canary),
-        {},
-        [],
-        [],
-    )
+    ns = move2_units.namespace(commit, canary=canary)
+    cells = move2_units.allocation(canary=canary)
+    seen: dict[str, dict[str, Any]] = {}
+    diagnostics, native, failures = [], [], []
     for root in exports:
-        for filename, status in (
+        for filename, expected in (
             ("cpu-discrepancies.json", "DIAGNOSTIC"),
             ("native-parity.json", "PASS"),
         ):
             path = root / filename
-            move2_units._verify(path)
+            if not all(
+                Path(str(path) + suffix).is_file() for suffix in ("", ".sha256", ".complete")
+            ):
+                failures.append(
+                    {"status": "INCOMPLETE", "path": str(path), "reason": "missing proof"}
+                )
+                continue
+            digest = move2_units._verify(path)
             body = json.loads(path.read_text())
             if body.get("commit") != commit:
                 raise ValueError(f"foreign MOVE2 {filename}")
+            status = body.get("status")
             bad_native = filename == "native-parity.json" and not move2_pack.native_report_valid(
                 body
             )
-            if body.get("status") != status or bad_native:
-                incomplete = body.get("status") in {"NOT_RUN", "INCOMPLETE"}
-                return {
-                    "schema": "gpu-sim-spike-move2-analysis/v1",
-                    "commit": commit,
-                    "verdict": "INCOMPLETE" if incomplete else "INVALID",
-                    "reason": f"{filename}:{body.get('status')}",
-                    "optimization_identity": "INCOMPLETE",
-                    "cpu_discrepancy_classification": (
-                        body.get("status") if filename.startswith("cpu") else "DIAGNOSTIC"
-                    ),
-                    "native_a100_parity": body.get("status") if bad_native else "NOT_EXAMINED",
-                    "proof_path": str(path),
-                }
+            if status != expected or bad_native:
+                failures.append(
+                    {
+                        "status": (
+                            "INCOMPLETE" if status in {"NOT_RUN", "INCOMPLETE"} else "INVALID"
+                        ),
+                        "path": str(path),
+                        "reason": f"proof status {status}",
+                    }
+                )
             (diagnostics if filename.startswith("cpu") else native).append(
-                {"path": str(path), "sha256": move2_units._verify(path), "status": body["status"]}
+                {"path": str(path), "sha256": digest, "status": status}
             )
-        rows = move2_units.load_ledger(root / "verified-ledger.json", ns, cells, exports=root)
+        ledger = root / "verified-ledger.json"
+        if not ledger.is_file():
+            failures.append(
+                {"status": "INCOMPLETE", "path": str(ledger), "reason": "missing ledger"}
+            )
+            continue
+        rows = move2_units.load_ledger(ledger, ns, cells, exports=root)
         if set(seen) & set(rows):
             raise ValueError("duplicate MOVE2 unit across attempts")
         seen.update(rows)
@@ -115,7 +122,7 @@ def aggregate(exports: list[Path], commit: str, *, canary: bool = False) -> dict
         identity = valid_cell(unit, row)
         if not identity:
             invalid.append(unit)
-        elif row.get("worlds") == 1024 and row.get("speedup", 0) < 2:
+        elif row["worlds"] == 1024 and row["speedup"] < 2:
             stops.append(unit)
         output.append(
             {
@@ -127,11 +134,28 @@ def aggregate(exports: list[Path], commit: str, *, canary: bool = False) -> dict
                 ),
             }
         )
-    # A missing cell prevents a timing verdict.  Invalid data still has priority.
+    # Inspect every supplied attempt before applying precedence. An early missing
+    # native proof must never hide a later independently recorded mismatch.
+    has_invalid = bool(invalid) or any(row["status"] == "INVALID" for row in failures)
+    incomplete = bool(failures) or set(seen) != set(cells)
     verdict = (
         "INVALID"
-        if invalid
-        else "INCOMPLETE" if set(seen) != set(cells) else "STOP_ROUTE" if stops else "PASS"
+        if has_invalid
+        else "INCOMPLETE" if incomplete else "STOP_ROUTE" if stops else "PASS"
+    )
+    native_statuses = [row["status"] for row in native]
+    native_status = (
+        "INVALID"
+        if any(row["status"] == "INVALID" and "native-parity" in row["path"] for row in failures)
+        else (
+            "PASS"
+            if native_statuses and all(status == "PASS" for status in native_statuses)
+            else (
+                "NOT_RUN"
+                if native_statuses and all(status == "NOT_RUN" for status in native_statuses)
+                else "INCOMPLETE"
+            )
+        )
     )
     return {
         "schema": "gpu-sim-spike-move2-analysis/v1",
@@ -142,12 +166,21 @@ def aggregate(exports: list[Path], commit: str, *, canary: bool = False) -> dict
         "optimization_identity": (
             "INVALID" if invalid else "PASS" if set(seen) == set(cells) else "INCOMPLETE"
         ),
-        "cpu_discrepancy_classification": "DIAGNOSTIC" if diagnostics else "INCOMPLETE",
-        "native_a100_parity": "PASS" if native else "INCOMPLETE",
+        "cpu_discrepancy_classification": (
+            "INVALID"
+            if any(row["status"] == "INVALID" for row in diagnostics)
+            else (
+                "DIAGNOSTIC"
+                if diagnostics and all(row["status"] == "DIAGNOSTIC" for row in diagnostics)
+                else "INCOMPLETE"
+            )
+        ),
+        "native_a100_parity": native_status,
         "cells": output,
-        "missing_units": [u for u in cells if u not in seen],
+        "missing_units": [unit for unit in cells if unit not in seen],
         "invalid_cells": invalid,
         "stop_cells": stops,
+        "proof_failures": failures,
         "diagnostic_reports": diagnostics,
         "native_reports": native,
     }

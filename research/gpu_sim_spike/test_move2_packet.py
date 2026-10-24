@@ -140,3 +140,22 @@ def test_reducer_preserves_failed_or_unrun_native_status(
     assert result["verdict"] == expected
     assert result["native_a100_parity"] == status
     assert result["optimization_identity"] == "INCOMPLETE"
+
+
+@pytest.mark.parametrize("statuses", [("NOT_RUN", "INVALID"), ("INVALID", "NOT_RUN")])
+def test_reducer_invalid_precedes_incomplete_across_attempts(
+    tmp_path: Path, statuses: tuple[str, str]
+) -> None:
+    from research.gpu_sim_spike import move2_analyze
+
+    roots = []
+    for index, status in enumerate(statuses):
+        root = tmp_path / str(index)
+        move2_units.publish_json(
+            root / "cpu-discrepancies.json", {"commit": PIN, "status": "DIAGNOSTIC"}
+        )
+        move2_units.publish_json(root / "native-parity.json", {"commit": PIN, "status": status})
+        roots.append(root)
+    report = move2_analyze.aggregate(roots, PIN, canary=True)
+    assert report["verdict"] == "INVALID"
+    assert report["native_a100_parity"] == "INVALID"
