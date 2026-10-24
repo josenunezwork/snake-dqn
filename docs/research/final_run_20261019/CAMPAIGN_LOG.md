@@ -262,6 +262,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-24 PT | I0S attempt 1 DISPATCHED (A100) | Claude-V stand-in review_02 ACCEPT (3c71d1aa…6091; round-1 REJECT F1/F2 fixed in 68a473b5). Register: rev 2 scopes (b833e9b6…), rev 3 operational-baseline delta for R30/R32 jobs (0c1ff880…; 0.31985 u charges + 0.13178 u unexplained-debit alerts held at account level, no sprint scope), rev 4 admission, rev 5 old I0 24 u hold released after dispatch (9f330050…; per review N1). Job gpu-integration-i0s-main-968f02765f7c-a1, allocation success ~05:37 PT. Next: settle → restore-o1 → retry only if predicate eligible → reduce final once. |
 
+| 2026-10-24 PT | **I0S verdict: STOP_SPEED** (valid, gating 3/3 verified, no INVALID) | A100 attempt 1 ran 35.0 min, charged 5.83 u (settled rev 6; O1 restored rev 7). Integrated engine I-arm E1024: frozen 1,433 steps/s (tick median 0.709 s), mixed 1,655 (0.615 s), scripted 2,233 (0.443 s) vs bar 2,000/0.512 s → frozen+mixed fail, scripted passes. Descriptive tick medians show a ~0.10–0.13 s floor even at E6 (frozen/mixed/scripted E6 0.130/0.116/0.096 s), i.e. large fixed per-tick cost. REDUCTION.json final (ledger cd2b2f9e…, 12 units). Engineering-only; no training/label/serving consequence. I0 closed STOP_SPEED. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
