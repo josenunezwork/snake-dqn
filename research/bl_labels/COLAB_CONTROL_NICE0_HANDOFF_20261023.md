@@ -201,9 +201,9 @@ none can be corrected with a text-based renice.
 
 The artifact `/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/renicer.sh`
 has been replaced with the shared-classifier wrapper, SHA256
-`30056c08c64e5764cab225338b1fc75149c7d401a424b68a827a594984709e00`.
+`9e24ea396ee3b09c2c7bdc71a17a63184e235023cac1442b1a44aef1cd3e86fe`.
 It checks its source files against immutable code revision
-`df4b9d31aca9ad600d96a077651879c9262f06c9`; the final operational pin must
+`a2f7ce5b2c53e294e06143a20b6fd870fc656ec1`; the final operational pin must
 retain those exact classifier/renicer bytes. The former substring loop is
 preserved create-only at `ops/renicer.before-colab-control-nice0-20261023.sh`,
 SHA256 `0335a7acc86a25b294cb650353cac78cc214e7b771dba780db5ffcee3670fb7b`.

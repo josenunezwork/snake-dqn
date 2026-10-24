@@ -221,6 +221,7 @@ def test_actual_native_supervisor_and_shebang_cli_identity(tmp_path: Path) -> No
         assert control.native_cwd(process.pid) == str(broker.resolve())
         parent_initializer = broker / "research/__init__.py"
         parent_initializer.write_text("raise RuntimeError('unapproved parent')\n")
+        assert not control._import_resolution_matches(record)
         assert not control._source_matches(record, str(broker.resolve()))
         parent_initializer.unlink()
     finally:
