@@ -99,6 +99,16 @@ without the old 947-record reconstruction or a newly frozen balance-derived C.
 The inherited global ceiling is 1100 units/7200 aggregate minutes; any accepted
 lower limit tightens it. Credits cannot enlarge that ceiling.
 
+**Ceiling raise (owner standing rule 2026-10-24, commit 38b075ac: no unit budgets).**
+A `type: ceiling_raise` row may only raise existing scope ceilings (both pair
+fields, never lower, at least one strictly higher). It must carry nonempty bound
+`sources`, written `owner_words` and `attestation`, and no other fields (no
+scopes, holds, spend, settlements, debts or timeouts). The live-balance check in
+`reserve()` and per-job timeouts are unaffected. Append with
+`python -m tools.small_bench_register ceiling-raise --register <register> --lock
+<sprint-reservations.lock> --record <record.json> --expect-head <row_hash>`
+(sources are re-hashed on disk; `verify --register <register>` is read-only).
+
 `tools/small_bench_register.py` is provider-independent. `small_bench_operator.py`
 accepts a frozen, sidecar-bound `small-bench-package/v1` config containing:
 
@@ -132,8 +142,11 @@ prefix and derived gross amount. Codex-V audits the accumulated financial batch
 in parallel with useful GPU work: due within 24 hours of the first unaudited
 admission and before gross new full-cap reservations would exceed 100 units.
 Failed dispatches/attempts count; refreshing one ID does not. Settlement does not
-reset gross reservations. The register enforces the deadline/ceiling on admission.
-An overdue audit blocks the next admission, without stopping a safe capped run.
+reset gross reservations. Since the owner's 2026-10-24 no-budget rule the
+register still computes the deadline/gross gate on every admission/refresh, but
+it is non-blocking: breaches are recorded on the event as
+`accounting_audit_gate` (`blocking: false`, `status: WARN`, warnings) and emitted
+as an `AuditGateWarning`; they no longer refuse admission.
 
 An independent completed audit record has `type: audit`, a unique `id`,
 `status: ACCEPT`, `prefix_revision`, `prefix_hash`, and `independent_source`

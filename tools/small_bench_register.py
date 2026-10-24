@@ -15,6 +15,7 @@ import json
 import math
 import os
 import tempfile
+import warnings
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -24,7 +25,27 @@ class Refused(ValueError):
     """Raised when a register row or proposed admission is not conservative."""
 
 
+class AuditGateWarning(UserWarning):
+    """Accounting-audit gate breach; recorded and emitted but non-blocking."""
+
+
 PAIR_KEYS = ("units", "wall_minutes")
+# A ceiling_raise row may carry only these keys: it can never add scopes, holds,
+# spend, settlements, debts, timeouts or anything else (owner 2026-10-24: no budgets).
+CEILING_RAISE_KEYS = frozenset(
+    {
+        "type",
+        "id",
+        "ceilings",
+        "sources",
+        "attestation",
+        "owner_words",
+        "note",
+        "revision",
+        "prev_hash",
+        "row_hash",
+    }
+)
 
 
 def _canonical(value: Any) -> bytes:
@@ -413,6 +434,36 @@ def state(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 if any(candidate[key] > scopes[name]["ceiling"][key] for key in PAIR_KEYS):
                     raise Refused("tighten cannot enlarge ceiling")
                 scopes[name]["ceiling"] = candidate
+        elif kind == "ceiling_raise":
+            unexpected = set(row) - CEILING_RAISE_KEYS
+            if unexpected:
+                raise Refused(
+                    "ceiling_raise may carry only ceilings, sources, attestation, owner words "
+                    f"and a note; refused fields {sorted(unexpected)}"
+                )
+            _sources(row.get("sources"))
+            for field in ("attestation", "owner_words"):
+                if not isinstance(row.get(field), str) or not row[field].strip():
+                    raise Refused(f"ceiling_raise requires written {field}")
+            changes = row.get("ceilings")
+            if not isinstance(changes, dict) or not changes:
+                raise Refused("ceiling_raise requires ceilings")
+            raised: dict[str, dict[str, float]] = {}
+            for name, ceiling in changes.items():
+                if name not in scopes:
+                    raise Refused("ceiling_raise references unknown scope")
+                candidate = _pair(ceiling, "raised ceiling")
+                if any(candidate[key] < scopes[name]["ceiling"][key] for key in PAIR_KEYS):
+                    raise Refused("ceiling_raise cannot lower a ceiling")
+                raised[name] = candidate
+            if not any(
+                candidate[key] > scopes[name]["ceiling"][key]
+                for name, candidate in raised.items()
+                for key in PAIR_KEYS
+            ):
+                raise Refused("ceiling_raise must raise at least one ceiling")
+            for name, candidate in raised.items():
+                scopes[name]["ceiling"] = candidate
         else:
             raise Refused("unsupported register event")
     outstanding: dict[str, dict[str, Any]] = {f"hold:{key}": value for key, value in holds.items()}
@@ -497,10 +548,12 @@ def reserve(
     bindings = package.get("bindings")
     if not isinstance(bindings, (dict, list)) or not bindings:
         raise Refused("package requires bindings")
-    if current["first_unaudited_admission"] and instant >= current[
-        "first_unaudited_admission"
-    ] + timedelta(hours=24):
-        raise Refused("accounting audit overdue")
+    # Accounting-audit gate: computed, recorded on the event and emitted as a
+    # warning, but non-blocking (owner standing rule 2026-10-24, commit 38b075ac).
+    gate_warnings: list[str] = []
+    first_unaudited = current["first_unaudited_admission"]
+    if first_unaudited and instant >= first_unaudited + timedelta(hours=24):
+        gate_warnings.append("accounting audit overdue")
     deadline = _utc(package["deadline_utc"], "deadline")
     capture = _utc(package["capture_utc"], "capture")
     wait = _number(package.get("allocation_wait_minutes", 10), "allocation wait minutes")
@@ -561,8 +614,24 @@ def reserve(
     )
     if available + 1e-9 < required_pair["units"]:
         raise Refused("insufficient live account balance")
-    if existing is None and current["unaudited_gross_units"] + required_pair["units"] > 100 + 1e-9:
-        raise Refused("audit required before gross reservations exceed 100 units")
+    gross_after = current["unaudited_gross_units"] + (
+        required_pair["units"] if existing is None else 0.0
+    )
+    if existing is None and gross_after > 100 + 1e-9:
+        gate_warnings.append("audit required before gross reservations exceed 100 units")
+    gate = {
+        "blocking": False,
+        "status": "WARN" if gate_warnings else "OK",
+        "warnings": gate_warnings,
+        "first_unaudited_admission_utc": first_unaudited.isoformat() if first_unaudited else None,
+        "audit_due_utc": (
+            (first_unaudited + timedelta(hours=24)).isoformat() if first_unaudited else None
+        ),
+        "unaudited_gross_units_after": gross_after,
+        "gross_limit_units": 100,
+    }
+    for message in gate_warnings:
+        warnings.warn(f"{message} (non-blocking)", AuditGateWarning, stacklevel=2)
     if existing is not None:
         return {
             "type": "refresh",
@@ -570,8 +639,10 @@ def reserve(
             "reservation_id": reservation_id,
             "refreshed_utc": instant.isoformat(),
             "package": dict(package),
+            "accounting_audit_gate": gate,
         }
     return {
+        "accounting_audit_gate": gate,
         "type": "admission",
         "id": f"admission:{reservation_id}",
         "admitted_utc": instant.isoformat(),
@@ -584,3 +655,70 @@ def reserve(
             "kind": "small_a100",
         },
     }
+
+
+def _bound_on_disk(source: dict[str, Any]) -> None:
+    path = Path(source["path"])
+    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        raise Refused(f"source must be an absolute regular file: {path}")
+    if hashlib.sha256(path.read_bytes()).hexdigest() != source["sha256"]:
+        raise Refused(f"source sha256 mismatch: {path}")
+
+
+def append_ceiling_raise(
+    register_path: Path | str,
+    lock_path: Path | str,
+    record: dict[str, Any],
+    expect_head: str | None = None,
+) -> dict[str, Any]:
+    """Append one raise-only ceiling row under the shared reservation lock."""
+    if record.get("type") != "ceiling_raise":
+        raise Refused("record type must be ceiling_raise")
+    _sources(record.get("sources"))
+    for source in record["sources"]:
+        _bound_on_disk(source)
+    with reservation_lock(lock_path):
+        rows = read(register_path)
+        if expect_head is not None and (not rows or rows[-1]["row_hash"] != expect_head):
+            raise Refused("register head moved; re-read and rebuild the record")
+        return append(register_path, record)
+
+
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="operation", required=True)
+    verify = sub.add_parser("verify", help="read-only chain + semantic verification")
+    verify.add_argument("--register", required=True, type=Path)
+    raise_parser = sub.add_parser("ceiling-raise", help="append one raise-only ceiling row")
+    raise_parser.add_argument("--register", required=True, type=Path)
+    raise_parser.add_argument("--lock", required=True, type=Path)
+    raise_parser.add_argument("--record", required=True, type=Path)
+    raise_parser.add_argument("--expect-head", help="row_hash the register head must equal")
+    args = parser.parse_args(argv)
+    if args.operation == "verify":
+        rows = read(args.register)
+        current = state(rows)
+        first = current.get("first_unaudited_admission")
+        print(
+            json.dumps(
+                {
+                    "revision": rows[-1]["revision"] if rows else None,
+                    "head": rows[-1]["row_hash"] if rows else None,
+                    "scopes": current.get("scopes", {}),
+                    "first_unaudited_admission_utc": first.isoformat() if first else None,
+                    "unaudited_gross_units": current.get("unaudited_gross_units", 0),
+                },
+                sort_keys=True,
+                indent=1,
+            )
+        )
+        return
+    record = json.loads(args.record.read_text())
+    row = append_ceiling_raise(args.register, args.lock, record, args.expect_head)
+    print(json.dumps({"revision": row["revision"], "row_hash": row["row_hash"]}, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
