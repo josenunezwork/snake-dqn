@@ -1220,3 +1220,23 @@ dispatch. Per the ruling, retain HOLD and at the governing deadline/cap close th
 uncompleted main as INCOMPLETE unless new prospective authority changes the frozen
 envelope or workload. The old `prepare-main-after-canary.sh` / `dispatch-main.sh`
 remain unusable.
+
+### 2026-10-24 — I0R implementer HOLD: resume ledger refused by the qualified matcher
+
+Ruling `JUDGMENT_I0_RESIZE_20261024.md` (RESTRUCTURE_I0_AS_I0R, SHA256 `dacd2f4b…24c2c2`)
+§2 makes it a precondition that the qualified canary exact-input matcher accepts a
+non-empty resume ledger. The Claude implementer (Codex unavailable) tested it on the
+Mac against the real I0 canary receipt (`d230135d…`), qualified 968f0276 modules only,
+throwaway manifests, 0 allocations. An attempt-1 shape (empty ledger,
+`INTEGRATION_BENCH_SECONDS=1440`, est 30, timeout 60, cap 10 u) passes `canary.check`,
+`supervisor.validate` and `dispatch.sh --dry-run` (`PASS_DRY_RUN … allocations=0`).
+With one synthetic verified unit in the ledger, `metadata.tar` changes from the
+canary-proved `350f4de1…` (122,880 B) and every layer refuses: "canary does not cover
+real upload bytes x file count/destinations". Per §2, **I0R is HOLD and needs
+requalification**; no matcher exception exists. The implementer did not build the
+adapter/reducer amendments or an attempt packet, and wrote no dispatch command.
+Record `gpu-integration-i0r-20261024/I0R_RESUME_PRECONDITION_HOLD.json` (`b52f7705…`),
+note `HANDOFF_I0R.md` (`807194ac…`). The note also flags that §3 (metadata SHA
+unchanged) conflicts with §4 (bind a non-empty ledger), and that the owner 2× rule is
+not addressed. Probe: `tools/i0r-resume-precondition.sh`. Its strict-xfail test turns
+into a failure once a requalified matcher accepts the ledger.
