@@ -368,20 +368,41 @@ def _event_contested_food(case: tuple) -> tuple[bool, dict[str, Any]]:
     _tick(
         case,
         after_prepare=capture_pre_consume,
-        observe_food_transition=True,
+        event_fields=lambda: {
+            "event.contested_food.after_consume_cells": sim.food_cells.detach().clone(),
+            "event.contested_food.after_consume_present": sim.food_present.detach().clone(),
+            "event.contested_food.after_consume_count": sim.food_count.detach().clone(),
+            "event.contested_food.after_consume_corpse": sim.corpse_food.detach().clone(),
+        },
     )
     ate_1, ate_2 = sim._last_ambient_food_ate[:, 1], sim._last_ambient_food_ate[:, 2]
-    # Train-mode step refills after consumption; a second ordinary lifecycle
-    # witnesses the ordered food state and additional counter progression.
+    # Eval-mode food maintenance happens at the next ordinary ``prepare``;
+    # preserve its immediate post-maintenance state before tick 1 consumes.
     food_after_first = sim.food_count.clone()
-    _tick(case)
+    refill_transition: dict[str, torch.Tensor] = {}
+
+    def capture_after_refill() -> None:
+        refill_transition.update(
+            {
+                "event.contested_food.after_refill_cells": sim.food_cells.detach().clone(),
+                "event.contested_food.after_refill_present": sim.food_present.detach().clone(),
+                "event.contested_food.after_refill_count": sim.food_count.detach().clone(),
+                "event.contested_food.after_refill_corpse": sim.corpse_food.detach().clone(),
+            }
+        )
+
+    _tick(case, after_prepare=capture_after_refill)
     rng_after = sim.rng_counter
     ordered = ate_1 & ~ate_2
-    # The ordered target was consumed by slot 1 and the normal food lifecycle
-    # left a live ordered entry.  Its coordinates may legitimately repeat when
-    # the deterministic refill draw selects the vacated cell, so identity is
-    # established by consumption plus the live post-refill list and RNG tape.
-    refilled = food_after_first > 0
+    refilled = torch.tensor(
+        [
+            int(refill_transition["event.contested_food.after_refill_count"][row].item())
+            > int(food_after_first[row].item())
+            for row in range(sim.E)
+        ],
+        dtype=torch.bool,
+        device=sim.device,
+    )
     rng_moved = rng_after > rng_before
     ok = bool(
         torch.all(ordered).item() and torch.all(refilled).item() and torch.all(rng_moved).item()
@@ -394,14 +415,16 @@ def _event_contested_food(case: tuple) -> tuple[bool, dict[str, Any]]:
         "event.contested_food.after_consume_cells",
         "event.contested_food.after_consume_present",
         "event.contested_food.after_consume_count",
+        "event.contested_food.after_consume_corpse",
         "event.contested_food.after_refill_cells",
         "event.contested_food.after_refill_present",
         "event.contested_food.after_refill_count",
+        "event.contested_food.after_refill_corpse",
     )
     # Bind the pre-step side of the ordered transition into the same capture
     # tape as the maintenance boundary; this makes refill evidence inspectable
     # without treating the fixture's summary booleans as proof.
-    first_tape = _TAPES[id(sim)][0]
+    first_tape, second_tape = _TAPES[id(sim)]
     first_tape.update(
         _mapped_event_fields(
             sim,
@@ -410,13 +433,16 @@ def _event_contested_food(case: tuple) -> tuple[bool, dict[str, Any]]:
             },
         )
     )
+    second_tape.update(_mapped_event_fields(sim, refill_transition))
     transition_values = {
-        name.removeprefix("event.contested_food."): first_tape[name].tolist()
+        name.removeprefix("event.contested_food."): (
+            first_tape[name].tolist() if "after_refill" not in name else second_tape[name].tolist()
+        )
         for name in transition_fields
     }
     after_consume_count = first_tape["event.contested_food.after_consume_count"]
-    after_refill_count = first_tape["event.contested_food.after_refill_count"]
-    after_refill_cells = first_tape["event.contested_food.after_refill_cells"]
+    after_refill_count = second_tape["event.contested_food.after_refill_count"]
+    after_refill_cells = second_tape["event.contested_food.after_refill_cells"]
     # Food compaction preserves survivors in order and maintenance appends new
     # ambient cells. Export exactly that appended suffix rather than merely the
     # first post-refill survivor, which may predate the contested consumption.
@@ -435,8 +461,10 @@ def _event_contested_food(case: tuple) -> tuple[bool, dict[str, Any]]:
         "food_transition_capture": {
             name.removeprefix("event.contested_food."): {
                 "field": name,
-                "tick": 0,
-                **_tensor_commitment(first_tape[name]),
+                "tick": 1 if "after_refill" in name else 0,
+                **_tensor_commitment(
+                    second_tape[name] if "after_refill" in name else first_tape[name]
+                ),
             }
             for name in transition_fields
         },

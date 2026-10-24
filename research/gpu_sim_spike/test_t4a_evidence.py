@@ -314,9 +314,11 @@ def _content(mix: str, *, canary: bool = True) -> dict:
                 "after_consume_cells": [[[0, 0]] * 8 for _ in range(4)],
                 "after_consume_present": [[False] * 8 for _ in range(4)],
                 "after_consume_count": [0] * 4,
+                "after_consume_corpse": [[False] * 8 for _ in range(4)],
                 "after_refill_cells": [[[1, 1]] + [[0, 0]] * 7 for _ in range(4)],
                 "after_refill_present": [[True] + [False] * 7 for _ in range(4)],
                 "after_refill_count": [1] * 4,
+                "after_refill_corpse": [[False] * 8 for _ in range(4)],
             }
             witness["food_transition"] = transition
             witness["food_transition_capture"] = {}
@@ -328,7 +330,7 @@ def _content(mix: str, *, canary: bool = True) -> dict:
                 )
                 witness["food_transition_capture"][name] = {
                     "field": field,
-                    "tick": 0,
+                    "tick": 1 if name.startswith("after_refill_") else 0,
                     **event_descriptors[field],
                 }
             witness["refill_cells"] = [[[1, 1]] for _ in range(4)]

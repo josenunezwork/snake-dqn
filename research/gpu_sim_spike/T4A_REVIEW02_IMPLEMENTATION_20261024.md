@@ -20,7 +20,9 @@ The resume sibling withdraws review-02's recovery-input allowlist proposal.
 B1 validates ring wrap against the captured ring capacity, frozen fixture
 geometry and witnessed tensor values. Contested-food evidence includes the
 ordered ambient-food consumption/refill transition and the reducer recomputes
-the refill cells. B2 separates incompatible inventory/dtype/shape from unequal
+the refill cells. In the evaluation lifecycle consumption is witnessed on
+tick 0 and refill at tick 1's normal prepare; corpse masks distinguish ambient
+food from collision drops. B2 separates incompatible inventory/dtype/shape from unequal
 bytes and requires bound, compatible, unequal-byte witnesses before engine
 self-consistency classification. S1 retains warm output comparisons; S2
 progresses body and food before restore and strengthens the refill witness.

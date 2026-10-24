@@ -7,6 +7,8 @@ import hashlib
 import torch
 
 from research.gpu_sim_spike import t4a_events
+from research.gpu_sim_spike.device_sim import DeviceSim
+from src.simd_env.batch_sim import BatchSimConfig
 
 
 def test_ring_capture_commitment_binds_typed_prefix_bytes() -> None:
@@ -60,3 +62,28 @@ def test_internal_mismatch_seals_offending_e64_row_before_later_mutation() -> No
     assert witness["physical_rows"][0] == 63
     assert witness["actual_descriptor"]["shape"] == [4]
     assert witness["actual_descriptor"]["sha256"] == before
+
+
+def test_eval_food_refills_on_next_prepare_after_consumption() -> None:
+    """Eval-mode maintenance occurs at prepare, not at the consuming step."""
+    cfg = BatchSimConfig(
+        num_envs=1, num_snakes=3, game_width=100, game_height=80, initial_food=0, max_food=1
+    )
+    sim = DeviceSim(cfg, train_mode=False, allow_respawn=False)
+    sim.head_ptr[:, 0] = 0
+    sim.seg_count[:, 0] = sim.length[:, 0] = 1
+    sim.alive[:, 0] = True
+    sim.bodies[:, 0, 0] = torch.tensor([4, 4])
+    sim.direction[:, 0] = 1
+    sim.food_present.zero_()
+    sim.corpse_food.zero_()
+    sim.food_count.zero_()
+    sim.food_cells[:, 0] = torch.tensor([5, 4])
+    sim.food_present[:, 0] = True
+    sim.food_count[:] = 1
+
+    sim.step(torch.ones((1, 3), dtype=torch.long))
+    assert sim._last_ambient_food_ate[0, 0].item()
+    assert not (sim.food_present[0] & ~sim.corpse_food[0]).any().item()
+    sim.prepare()
+    assert (sim.food_present[0] & ~sim.corpse_food[0]).sum().item() == 1

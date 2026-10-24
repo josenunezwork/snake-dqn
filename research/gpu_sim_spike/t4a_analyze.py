@@ -36,9 +36,11 @@ EVENT_CAPTURE_FIELDS = {
             "after_consume_cells",
             "after_consume_present",
             "after_consume_count",
+            "after_consume_corpse",
             "after_refill_cells",
             "after_refill_present",
             "after_refill_count",
+            "after_refill_corpse",
         )
     },
     "simultaneous_death_respawn": {
@@ -56,7 +58,30 @@ EVENT_CAPTURE_TICK_FIELDS = {
         },
         set(),
     ),
-    "contested_food_refill": (EVENT_CAPTURE_FIELDS["contested_food_refill"], set()),
+    "contested_food_refill": (
+        {
+            f"event.contested_food.{name}"
+            for name in (
+                "before_cells",
+                "before_present",
+                "before_count",
+                "before_corpse",
+                "after_consume_cells",
+                "after_consume_present",
+                "after_consume_count",
+                "after_consume_corpse",
+            )
+        },
+        {
+            f"event.contested_food.{name}"
+            for name in (
+                "after_refill_cells",
+                "after_refill_present",
+                "after_refill_count",
+                "after_refill_corpse",
+            )
+        },
+    ),
     "simultaneous_death_respawn": (
         {
             "event.death_respawn.died",
@@ -518,9 +543,11 @@ def _event_predicate_error(
             "after_consume_cells",
             "after_consume_present",
             "after_consume_count",
+            "after_consume_corpse",
             "after_refill_cells",
             "after_refill_present",
             "after_refill_count",
+            "after_refill_corpse",
         }
         transition_ok = isinstance(transition, dict) and set(transition) == required_transition
         if transition_ok:
@@ -532,7 +559,10 @@ def _event_predicate_error(
         if transition_ok:
             transition_ok = all(
                 (captures[name].get("field"), captures[name].get("tick"))
-                == (f"event.contested_food.{name}", 0)
+                == (
+                    f"event.contested_food.{name}",
+                    1 if name.startswith("after_refill_") else 0,
+                )
                 for name in required_transition
             )
         if transition_ok:
@@ -549,6 +579,7 @@ def _event_predicate_error(
                 consumed_cells = transition["after_consume_cells"]
                 consumed_present = transition["after_consume_present"]
                 consumed_count = transition["after_consume_count"]
+                consumed_corpse = transition["after_consume_corpse"]
                 refill_cells = transition["after_refill_cells"]
                 refill_present = transition["after_refill_present"]
                 refill_count = transition["after_refill_count"]
@@ -574,7 +605,7 @@ def _event_predicate_error(
                         not contains_target(
                             consumed_cells,
                             consumed_present,
-                            [[False] * len(row) for row in consumed_present],
+                            consumed_corpse,
                             index,
                         )
                         for index in range(canonical)
@@ -805,7 +836,7 @@ def _event_tick_error(tick: Any, descriptors: Any, mix: str, event_fields: set[s
                 or descriptor.get("sha256") != hashlib.sha256(raw).hexdigest()
             ):
                 raise ValueError("Q bytes are not bound")
-    except (KeyError, TypeError, ValueError, struct.error) as exc:
+    except (KeyError, TypeError, IndexError, ValueError, struct.error) as exc:
         return str(exc)
     return None
 
