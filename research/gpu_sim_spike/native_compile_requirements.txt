@@ -1,2 +1,4 @@
 # bootstrap pins CUDA torch==2.9.1 and numpy==1.26.4, as in production.
-ninja>=1.11,<2
+# Include the same dependency closure as the other gpu_sim_spike jobs: importing
+# the package loads DeviceSim and src.core's configuration loader (PyYAML).
+-r requirements.txt
