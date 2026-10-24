@@ -606,6 +606,8 @@ def _event_clone_restore(case: tuple) -> tuple[bool, dict[str, Any]]:
         compare.compare(target_before[name], target_after[name], name) is not None
         for name in ("sim.food_cells", "sim.food_present", "sim.food_count")
     )
+    # Progression is now sealed as booleans; neither snapshot is witness input.
+    del target_before, target_after
     before_restore = _state_digest(branch_b)
     ruler._reset(branch_b[0], branch_b[1], saved[0], saved[1])
     restored_left = _snapshot_copy(branch_b)
@@ -713,6 +715,9 @@ def _event_stale_cache(
     remap_replay_digest = _state_digest(remap_replay)
     _TAPES.pop(id(remapped[0]), None)
     _TAPES.pop(id(remap_replay[0]), None)
+    # Comparisons sealed mismatches immediately; digests and mapped prepared
+    # captures above own their bytes. These full cases have no remaining reader.
+    del remapped, remap_replay
     # Restore the warmed snapshot into a separately warmed resident target
     # using the production reset path, then replay one ordinary tick on both
     # branches.  This makes the restore boundary a positive witness rather
@@ -746,6 +751,7 @@ def _event_stale_cache(
         compare.compare(target_before_progress[name], target_after_progress[name], name) is not None
         for name in ("sim.food_cells", "sim.food_present", "sim.food_count")
     )
+    del target_before_progress, target_after_progress
     _warm_output_capture(restored)
     ruler._reset(restored_sim, restored_policy, sim, policy)
     restore_compare = compared(_snapshot(restored), _snapshot(case))
@@ -762,6 +768,7 @@ def _event_stale_cache(
     restore_replay_digest = _state_digest(replay)
     _TAPES.pop(id(restored_sim), None)
     _TAPES.pop(id(replay[0]), None)
+    del restored, restored_sim, restored_policy, replay
     equivalent, _wrappers = fixtures.build_case(
         checkpoint, roster, sim.E, device, smoke=smoke, canary=canary
     )
@@ -962,6 +969,23 @@ def _event_stale_cache(
 
 
 def _run_one(
+    event: str, checkpoint: Path, roster: str, worlds: int, device: str, lane: str
+) -> tuple[bool, dict[str, Any]]:
+    """Release event-owned tapes even if a fixture or digest raises.
+
+    Returned mapped tapes and sealed witnesses own their tensors/bytes. Removing
+    the side-table references cannot mutate that evidence. Existing callers'
+    tapes remain untouched; event execution is serial.
+    """
+    prior = set(_TAPES)
+    try:
+        return _run_one_recorded(event, checkpoint, roster, worlds, device, lane)
+    finally:
+        for key in set(_TAPES) - prior:
+            _TAPES.pop(key, None)
+
+
+def _run_one_recorded(
     event: str, checkpoint: Path, roster: str, worlds: int, device: str, lane: str
 ) -> tuple[bool, dict[str, Any]]:
     smoke, canary = _mode_flags(lane)

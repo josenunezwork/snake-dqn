@@ -171,6 +171,34 @@ def digest(tensor: torch.Tensor) -> str:
 
 
 BODY_DIGEST_ALGORITHM = "t4a-device-mix64x4-v1"
+BODY_DIGEST_CHUNK_BYTES = 1024**2
+# Four live int64 vectors (bytes, positions, mix, shift), plus bounded scalars.
+BODY_DIGEST_SCRATCH_BYTES = 4 * 8 * BODY_DIGEST_CHUNK_BYTES + 256
+
+
+def _body_digest_chunk(raw: torch.Tensor, offset: int) -> torch.Tensor:
+    """Reduce one byte window using its GLOBAL positions and signed shifts."""
+    raw = raw.to(torch.int64)
+    positions = torch.arange(offset, offset + raw.numel(), dtype=torch.int64, device=raw.device)
+    lanes = []
+    for salt in (17, 257, 65537, 16777259):
+        value = positions.clone()
+        value.add_(salt).mul_(6364136223846793005).add_(raw)
+        value.bitwise_xor_(value >> 29).mul_(2862933555777941757)
+        value.bitwise_xor_(value >> 31).mul_(3202034522624059733)
+        value.bitwise_xor_(value >> 27)
+        lanes.append(value.sum())
+        del value
+    return torch.stack(lanes)
+
+
+def _body_digest_lanes(tensor: torch.Tensor) -> torch.Tensor:
+    """Bound scratch independently of ring size; keep all bytes on device."""
+    raw = tensor.detach().contiguous().reshape(-1).view(torch.uint8)
+    lanes = torch.zeros(4, dtype=torch.int64, device=tensor.device)
+    for offset in range(0, raw.numel(), BODY_DIGEST_CHUNK_BYTES):
+        lanes.add_(_body_digest_chunk(raw[offset : offset + BODY_DIGEST_CHUNK_BYTES], offset))
+    return lanes
 
 
 def body_digest(tensor: torch.Tensor) -> str:
@@ -179,17 +207,13 @@ def body_digest(tensor: torch.Tensor) -> str:
     Four position-sensitive integer reductions are diagnostic fingerprints,
     not cryptographic hashes or the equality oracle. Raw byte comparison stays
     on device in ``compare``. Signed int64 overflow is intentional modulo 2**64;
-    no floating arithmetic or host body-ring serialization is involved.
+    no floating arithmetic or host body-ring serialization is involved. Chunk
+    sums compose exactly in Z/(2**64); positions never restart at a boundary.
+    Contiguous rings need at most BODY_DIGEST_SCRATCH_BYTES tensor scratch
+    (excluding backend reduction workspace/allocator reservation). As before,
+    noncontiguous callers additionally require a contiguous input copy.
     """
-    raw = tensor.detach().contiguous().reshape(-1).view(torch.uint8).to(torch.int64)
-    positions = torch.arange(raw.numel(), dtype=torch.int64, device=tensor.device)
-    lanes = []
-    for salt in (17, 257, 65537, 16777259):
-        value = (positions + salt) * 6364136223846793005 + raw
-        value = (value ^ (value >> 29)) * 2862933555777941757
-        value = (value ^ (value >> 31)) * 3202034522624059733
-        lanes.append((value ^ (value >> 27)).sum())
-    return torch.stack(lanes).view(torch.uint8).cpu().numpy().tobytes().hex()
+    return _body_digest_lanes(tensor).view(torch.uint8).cpu().numpy().tobytes().hex()
 
 
 def compare(

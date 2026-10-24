@@ -789,6 +789,9 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     """Bound telemetry and retain verified work on every mechanical failure."""
     torch.set_num_threads(1)
+    cuda_memory = (
+        str(getattr(args, "device", "cpu")).startswith("cuda") and torch.cuda.is_available()
+    )
     started = time.monotonic()
     stopped = threading.Event()
 
@@ -804,6 +807,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     worker = threading.Thread(target=heartbeat, daemon=True)
     worker.start()
     try:
+        if cuda_memory:
+            torch.cuda.reset_peak_memory_stats(args.device)
         return _run(args)
     except Exception as exc:
         mechanical = isinstance(exc, (TimeoutError, torch.cuda.OutOfMemoryError))
@@ -845,6 +850,37 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     finally:
         stopped.set()
         worker.join(timeout=1)
+        # Separate resource telemetry, never a replacement for any comparison
+        # or verdict. Measure the complete invocation, including all E1024
+        # fixtures, rather than extrapolating from CPU or four-target captures.
+        if cuda_memory:
+            try:
+                memory = {
+                    "status": "MEASURED",
+                    "scope": "whole T4A invocation since reset_peak_memory_stats",
+                    "device": str(args.device),
+                    "peak_allocated_bytes": torch.cuda.max_memory_allocated(args.device),
+                    "peak_reserved_bytes": torch.cuda.max_memory_reserved(args.device),
+                    "total_device_bytes": torch.cuda.get_device_properties(
+                        args.device
+                    ).total_memory,
+                    "body_digest_chunk_bytes": compare.BODY_DIGEST_CHUNK_BYTES,
+                    "body_digest_tensor_scratch_bound": compare.BODY_DIGEST_SCRATCH_BYTES,
+                }
+            except Exception as exc:
+                memory = {"status": "UNAVAILABLE", "reason": type(exc).__name__}
+            try:
+                t4a_units.publish_json(args.output_dir / "device-memory.json", memory)
+            except Exception as exc:
+                # A telemetry I/O failure must never replace a sealed mismatch
+                # or change the existing scientific verdict. The packet's
+                # required-export gate will refuse missing memory evidence.
+                print(
+                    json.dumps(
+                        {"event": "device_memory_export_failed", "reason": type(exc).__name__}
+                    ),
+                    flush=True,
+                )
 
 
 def main() -> None:
