@@ -341,3 +341,18 @@ def test_local_device_cpu_regeneration_end_to_end() -> None:
     bridged, bridged_meta = identity_cpu.regenerate_world(row, dev, B8, horizon=4, kind="bridged")
     assert bridged_meta["first_non_rng_divergence"] is None
     assert compare.compare_world(dev, bridged, row, 4)["status"] == "IDENTICAL"
+
+
+def test_frozen14_compare_fields_is_exact_and_refuses_lossy_mappings() -> None:
+    from research.gpu_sim_spike.identity_frozen14 import compare_fields
+
+    a = {"x": np.asarray([[0.0, 1.0], [2.0, 3.0]], dtype=np.float32)}
+    assert compare_fields(a, {"x": a["x"].copy()})["x"]["status"] == "EQUAL"
+    other = {"x": np.asarray([[-0.0, 1.0], [2.0, 3.5]], dtype=np.float32)}
+    result = compare_fields(a, other)["x"]
+    assert result["status"] == "DIFFERENT" and result["slots"] == [0, 1]
+    wide = {"x": a["x"].astype(np.float64)}
+    assert compare_fields(a, wide)["x"]["status"] == "NOT_COMPARABLE"
+    ints = {"y": np.asarray([1, -1], dtype=np.int32)}
+    same = {"y": np.asarray([1, -1], dtype=np.int64)}
+    assert compare_fields(ints, same)["y"]["status"] == "EQUAL"
