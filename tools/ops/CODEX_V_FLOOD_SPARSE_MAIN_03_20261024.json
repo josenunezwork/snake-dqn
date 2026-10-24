@@ -1,0 +1,39 @@
+{
+  "dispatch_performed": false,
+  "dry_run_log": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-flood-sparse-main-20261024-03/DISPATCH_DRY_RUN.log",
+    "sha256": "119152f58e99936206f6b65e6ff709bcf0f919eb347881a075f039d0cbce285b"
+  },
+  "findings": [],
+  "implementation": {
+    "research/gpu_sim_spike/native_compile.py": "6084ee272df0aaae8b565b626a89372d2f09433c0a142f9bccf8b6280d963ae4",
+    "tests/test_flood_sparse_main.py": "dae1bf938103dd89dd4c6f3106f5fbcfd76054b84fade8026b4d8ca83009c440",
+    "tools/ops/dispatch.py": "8c5abae7d799b2afb869cf3bd71804bd7b8b6324ad0cd77be395e1bb22c88666",
+    "tools/ops/dispatch.sh": "4678d42469033d23f5178ce36b0b3c62d6e4488d211bd76afaa6b67bcf31f931",
+    "tools/ops/flood_sparse_main.py": "f86f5967e7abdc3e6b0ed63f0c89b4035912300aece085ec47bd41e60d982fb7",
+    "tools/ops/repack_gpu_upload.py": "f1b503044d1f9f7f1d3d07fcd75e4779d6a2245d19e63115a9b8583fe79f9ebc"
+  },
+  "limitations": [
+    "Live account/global/calendar/external-liability admission remains operator duty",
+    "Separate A1-PROF nine-cell coverage not established by sparse package",
+    "Native performance not rerun; route remains INCOMPLETE pending registered main",
+    "Frozen runtime terminates after first failing roster"
+  ],
+  "manifest_sha256": "2a1e0cd42a299fc3a51a58d4a62c704cf4a6546687ad6f6aeda7cc73ea2b3eed",
+  "preparation_sha256": "8186eaae03f8651269790c61040dee75cb16c213b7dc144caaf8dea3dc0251fe",
+  "resolved_findings": [
+    "P2 historical accounting test now freezes8 reviewed paths; dispatch inventory drift refusal tested separately"
+  ],
+  "reviewer": "Independent read-only reviewer /root/flood_review",
+  "schema": "codex-v-flood-sparse-main-light/v1",
+  "status": "ACCEPT_OFFLINE",
+  "supersedes": "Artifact02 and tools/ops/CODEX_V_FLOOD_SPARSE_MAIN_20261024.json are retained historical preparation evidence; final dispatch uses03",
+  "verified": [
+    "Frozen b7dfa1fc runtime/source closure and exact canary upload bytes retained",
+    "Actual broker receipt layout, complete export triples, original native compile and Mac review bindings",
+    "Three E1024 rosters, three warmups/repeats, complete reset-inclusive tick2x unchanged",
+    "All8 retained prior receipts accounted; cap contraction fits216min/36u series",
+    "Independent exact preparation/manifest/dispatch/upload and6-file source closure checks",
+    "Mandatory actual final03 generated helper dry-run PASS, allocations0"
+  ]
+}

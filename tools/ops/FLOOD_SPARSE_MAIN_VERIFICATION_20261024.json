@@ -1,0 +1,50 @@
+{
+  "artifact": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-flood-sparse-main-20261024-03",
+  "dry_run": {
+    "allocations": 0,
+    "command": "nice -n 15 bash /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-flood-sparse-main-20261024-03/dispatch-main.sh --dry-run",
+    "live_accounting": "NOT_CHECKED",
+    "log_sha256": "119152f58e99936206f6b65e6ff709bcf0f919eb347881a075f039d0cbce285b",
+    "returncode": 0
+  },
+  "implementation": {
+    "research/gpu_sim_spike/native_compile.py": "6084ee272df0aaae8b565b626a89372d2f09433c0a142f9bccf8b6280d963ae4",
+    "tests/test_flood_sparse_main.py": "dae1bf938103dd89dd4c6f3106f5fbcfd76054b84fade8026b4d8ca83009c440",
+    "tools/ops/dispatch.py": "8c5abae7d799b2afb869cf3bd71804bd7b8b6324ad0cd77be395e1bb22c88666",
+    "tools/ops/dispatch.sh": "4678d42469033d23f5178ce36b0b3c62d6e4488d211bd76afaa6b67bcf31f931",
+    "tools/ops/flood_sparse_main.py": "f86f5967e7abdc3e6b0ed63f0c89b4035912300aece085ec47bd41e60d982fb7",
+    "tools/ops/repack_gpu_upload.py": "f1b503044d1f9f7f1d3d07fcd75e4779d6a2245d19e63115a9b8583fe79f9ebc"
+  },
+  "implementation_commit": "f48bb67813b08dbd4480940fb56acad6cd128df9",
+  "light_review_sha256": "6fefa45b702466fc42cb1eecf9d295831b70e8d7ed2681f2f7df99c0c1de8990",
+  "main_dispatched": false,
+  "manifest_sha256": "2a1e0cd42a299fc3a51a58d4a62c704cf4a6546687ad6f6aeda7cc73ea2b3eed",
+  "native_gpu_main_run": false,
+  "preparation_sha256": "8186eaae03f8651269790c61040dee75cb16c213b7dc144caaf8dea3dc0251fe",
+  "runtime_pin": "b7dfa1fc35321a388813122b3acfe033d1367782",
+  "schema": "flood-sparse-main-verification/v1",
+  "status": "PASS_PREPARED_NOT_DISPATCHED",
+  "style": {
+    "bash_n_generated_helper": "PASS",
+    "black_100": "PASS",
+    "flake8": "PASS",
+    "git_diff_check": "PASS",
+    "isort_black_profile": "PASS"
+  },
+  "tests": [
+    {
+      "command": "env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_flood_sparse_main.py research/gpu_sim_spike/test_sparse_bench.py tests/test_colab_cli_canary.py tests/test_colab_cli_supervisor.py tests/test_receipt_dispatch.py tests/test_ops_dispatch.py",
+      "elapsed_seconds": 853.86,
+      "passed": 263,
+      "returncode": 0,
+      "scope": "Broad regression began before final host-only refinements; final current host package was independently rerun below"
+    },
+    {
+      "command": "env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_flood_sparse_main.py",
+      "elapsed_seconds": 2.08,
+      "passed": 12,
+      "returncode": 0,
+      "scope": "Final current source and retained real receipt fixtures"
+    }
+  ]
+}
