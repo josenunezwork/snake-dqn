@@ -18,6 +18,7 @@ import dataclasses
 import hashlib
 import io
 import json
+import os
 import platform
 import signal
 import subprocess
@@ -417,6 +418,10 @@ def _run(output: Path, b8_path: Path, *, mac_world_smoke: bool = False) -> dict[
 
 def run(output: Path, b8_path: Path, *, mac_world_smoke: bool = False) -> dict[str, Any]:
     """Acquire the Mac lease before every tiny fit or optional live smoke."""
+    current_nice = os.getpriority(os.PRIO_PROCESS, 0)
+    if current_nice < 15:
+        os.nice(15 - current_nice)
+
 
     def expired(_signum: int, _frame: Any) -> None:
         raise TimeoutError("R32-1 2700-second preparation ceiling reached")
