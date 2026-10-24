@@ -1242,3 +1242,21 @@ note `HANDOFF_I0R.md` (`807194ac…`). The note also flags that §3 (metadata SH
 unchanged) conflicts with §4 (bind a non-empty ledger), and that the owner 2× rule is
 not addressed. Probe: `tools/i0r-resume-precondition.sh`. Its strict-xfail test turns
 into a failure once a requalified matcher accepts the ledger.
+
+### 2026-10-24 — I0S implementation built (ruling §5 step 2); projected first-wave admission HOLD
+
+Ruling `JUDGMENT_I0R_PATH_20261024.md` (REPLACE_I0R_WITH_I0S, SHA256 `ed679b6e…2969`).
+The Claude implementer built `tools/i0s_attempt.py`, `tools/i0s_reduce.py` and `tools/i0s.sh`
+(adapter, admission/accounting, dispatch, settlement, Mac reducer), with adversarial tests.
+Attempt-1 manifest `gpu-integration-i0s-20261024/attempt-01/integration-main.json`
+(`87a72130…3fbf`): frozen template plus est 110 / timeout 220 / cap 37 / reserve 37/6 / job ID /
+`i0s_envelope`, `INTEGRATION_BENCH_SECONDS=5400`, empty ledger (metadata `350f4de1…`). Results:
+`canary.check` ACCEPT, `supervisor.validate` ACCEPT, governed `dispatch.sh --dry-run`
+`PASS_DRY_RUN gpu-integration-i0s-main-968f02765f7c-a1 allocations=0` (`OFFLINE_PROOF.json`
+`30e30eb4…`). No per-job 60-minute limit binds: the 40/60-minute caps apply only to
+`resume_exemption` manifests (`tools/ops/dispatch.py:892-899`), and the I0S manifest declares
+`resume`. A read-only projection against the live sprint register (`ADMISSION_PROJECTION.json`
+`cda5e2e9…`) shows `first_wave` 88.8 − 2.18 (I0 history) − 48 (O1 hold) = 38.62 u < 42 u. Admission
+will refuse unless the O1 hold changes with evidence or a judge rules on it. Not reviewed, admitted
+or dispatched; 0 allocations, 0 register rows. Next: the Claude-V stand-in review (§4). Note:
+`gpu-integration-i0s-20261024/HANDOFF_I0S.md` (`504766ae…`).
