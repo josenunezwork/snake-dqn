@@ -21,7 +21,16 @@ def proof(tmp_path, monkeypatch, **change):
         "factory_process_telemetry",
     ):
         path = tmp_path / f"{key}.json"
-        path.write_text(json.dumps({"stop_verified": True, "cleanup_error": None}))
+        payload = {"stop_verified": True, "cleanup_error": None}
+        if key == "canary_manifest":
+            payload.update(commit="b" * 40, job_id="canary")
+        elif key == "canary_receipt":
+            payload.update(
+                commit="b" * 40,
+                job_id="canary",
+                manifest_sha256=evidence["canary_manifest"]["sha256"],
+            )
+        path.write_text(json.dumps(payload))
         evidence[key] = {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
     value = {
         "schema": "factory-colab-control-overlap/v1",

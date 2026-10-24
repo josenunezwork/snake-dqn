@@ -33,6 +33,10 @@ class IdentitySensorError(RuntimeError):
     """A live process which must be checked lacks a required native observation."""
 
 
+class IdentityMismatch(ValueError):
+    """Readable identity evidence differs; ordinary policy applies."""
+
+
 @dataclass(frozen=True)
 class AdmissionRecord:
     """The immutable facts which bind one launched control tree."""
@@ -69,6 +73,11 @@ class AdmissionRecord:
     operational_pin: str
     manifest: str
     manifest_sha256: str
+    git_executable: str = ""
+    git_sha256: str = ""
+    interpreter_native: str = ""
+    cli_interpreter_native: str = ""
+    oauth_interpreter_native: str = ""
 
 
 @dataclass(frozen=True)
@@ -178,6 +187,11 @@ def _record(path: Path, raw: Mapping[str, Any]) -> AdmissionRecord:
         operational_pin=raw["operational_pin"],
         manifest=_absolute(raw.get("manifest"), "manifest"),
         manifest_sha256=raw["manifest_sha256"],
+        git_executable=str(raw.get("git_executable", "")),
+        git_sha256=str(raw.get("git_sha256", "")),
+        interpreter_native=str(raw.get("interpreter_native", raw["interpreter"])),
+        cli_interpreter_native=str(raw.get("cli_interpreter_native", raw["cli_interpreter"])),
+        oauth_interpreter_native=str(raw.get("oauth_interpreter_native", raw["oauth_interpreter"])),
     )
 
 
@@ -207,6 +221,28 @@ def load_admissions(directory: Path = ADMISSION_DIR) -> dict[tuple[int, str], Ad
     return records
 
 
+def normalize_interpreter(argv: Iterable[str], invocation: str, native: str) -> tuple[str, ...]:
+    """Preserve every argument while accepting Darwin's bound framework exec."""
+    words = tuple(argv)
+    if words and words[0] in {invocation, native}:
+        return (invocation, *words[1:])
+    return words
+
+
+def interpreter_native(path: Path) -> str:
+    """Observe the actual executable of this exact interpreter, without work."""
+    program = (
+        "import ctypes,os; l=ctypes.CDLL('/usr/lib/libproc.dylib',use_errno=True); "
+        "f=l.proc_pidpath; f.argtypes=[ctypes.c_int,ctypes.c_void_p,ctypes.c_uint32]; "
+        "f.restype=ctypes.c_int; b=ctypes.create_string_buffer(4096); "
+        "n=f(os.getpid(),b,len(b)); assert n>0; print(os.fsdecode(b.value))"
+    )
+    value = subprocess.check_output([str(path), "-c", program], text=True, timeout=5).strip()
+    if not Path(value).is_absolute() or not Path(value).is_file():
+        raise OSError("interpreter native executable unavailable")
+    return str(Path(value).resolve())
+
+
 def verify_witness(record: AdmissionRecord) -> None:
     """Verify a live matching root; dead-job evidence never blocks other jobs."""
     path = record.path
@@ -216,7 +252,7 @@ def verify_witness(record: AdmissionRecord) -> None:
         Path(record.admission_path) != expected_parent
         or _sha256(expected_parent) != record.admission_sha256
     ):
-        raise ValueError("root record lacks its create-only dispatch admission witness")
+        raise IdentityMismatch("root record lacks its create-only dispatch admission witness")
     parent = json.loads(expected_parent.read_text(encoding="utf-8"))
     bound = (
         "policy_id",
@@ -246,14 +282,19 @@ def verify_witness(record: AdmissionRecord) -> None:
         "qualification_record_sha256",
         "operational_root",
         "dispatch_source_closure",
+        "git_executable",
+        "git_sha256",
+        "interpreter_native",
+        "cli_interpreter_native",
+        "oauth_interpreter_native",
     )
     if not isinstance(parent, dict) or any(raw.get(key) != parent.get(key) for key in bound):
-        raise ValueError("root record differs from its dispatch admission")
+        raise IdentityMismatch("root record differs from its dispatch admission")
     pane = raw.get("pane")
     if pane is not None and pane.get("argv") != parent.get("pane_argv"):
-        raise ValueError("root pane differs from its pending exact argv")
+        raise IdentityMismatch("root pane differs from its pending exact argv")
     if _sha256(Path(record.manifest)) != record.manifest_sha256:
-        raise ValueError("root manifest bytes differ from dispatch admission")
+        raise IdentityMismatch("root manifest bytes differ from dispatch admission")
     bootstrap = raw.get("bootstrap")
     expected_bootstrap = [
         record.interpreter,
@@ -271,14 +312,19 @@ def verify_witness(record: AdmissionRecord) -> None:
     ]
     if (
         not isinstance(bootstrap, dict)
-        or bootstrap.get("argv") != expected_bootstrap
+        or normalize_interpreter(
+            bootstrap.get("argv", ()), record.interpreter, record.interpreter_native
+        )
+        != tuple(expected_bootstrap)
         or parent.get("bootstrap_argv") != expected_bootstrap
         or bootstrap.get("pid") != record.pid
         or bootstrap.get("birth") != record.birth
         or bootstrap.get("cwd") != record.import_root
-        or not _matches_executable(str(bootstrap.get("executable", "")), record.interpreter)
+        or not _matches_executable(
+            str(bootstrap.get("executable", "")), record.interpreter, record.interpreter_native
+        )
     ):
-        raise ValueError("root bootstrap differs from the exact native dispatch witness")
+        raise IdentityMismatch("root bootstrap differs from the exact native dispatch witness")
 
 
 def candidate_pids(
@@ -290,8 +336,17 @@ def candidate_pids(
     mismatch never hides a generic Python, shell, or native-tool descendant.
     """
     table = {int(row["pid"]): row for row in rows if isinstance(row.get("pid"), int)}
-    result = {pid for pid, _birth in records if pid in table}
-    result.update(record.pane_pid for record in records.values() if record.pane_pid in table)
+    result = {
+        pid for pid, birth in records if pid in table and table[pid].get("birth", birth) == birth
+    }
+    result.update(
+        record.pane_pid
+        for record in records.values()
+        if record.pid in result
+        and record.pane_pid in table
+        and table.get(record.pid, {}).get("ppid") == record.pane_pid
+        and table[record.pane_pid].get("birth") == record.pane_birth
+    )
     changed = True
     while changed:
         changed = False
@@ -447,7 +502,7 @@ def _source_matches(record: AdmissionRecord, cwd: str) -> bool:
 
 def _supervisor_argv(argv: tuple[str, ...], record: AdmissionRecord) -> bool:
     return (
-        argv
+        normalize_interpreter(argv, record.interpreter, record.interpreter_native)
         == (
             record.interpreter,
             "-m",
@@ -479,6 +534,7 @@ def _wrapper_argv(argv: tuple[str, ...], record: AdmissionRecord) -> bool:
 
 def _cli_argv(argv: tuple[str, ...], record: AdmissionRecord) -> bool:
     """Accept the broker's fixed colab CLI family, never a basename substring."""
+    argv = normalize_interpreter(argv, record.cli_interpreter, record.cli_interpreter_native)
     if len(argv) >= 2 and argv[0] == record.cli_interpreter and argv[1] == record.cli_executable:
         argv = (record.cli_executable, *argv[2:])
     if len(argv) < 6 or argv[0] != record.cli_executable:
@@ -608,6 +664,7 @@ def _matches_executable(observed: str, *tokens: str) -> bool:
 
 
 def _mint_argv(argv: tuple[str, ...], record: AdmissionRecord) -> bool:
+    argv = normalize_interpreter(argv, record.oauth_interpreter, record.oauth_interpreter_native)
     if len(argv) != 4 or argv[0] != record.oauth_interpreter or argv[1] != "-c":
         return False
     if hashlib.sha256(argv[2].encode()).hexdigest() != record.mint_program_sha256:
@@ -653,8 +710,66 @@ def release_identity(root: Path) -> tuple[str, tuple[str, ...]]:
     return payload, tuple(sorted(scopes))
 
 
+def _git_argv(argv: tuple[str, ...], record: AdmissionRecord, parent_role: str) -> bool:
+    """Admit only existing bounded read-only source/identity Git operations."""
+    if (
+        not record.git_executable
+        or not argv
+        or argv[0] not in {"git", "/usr/bin/git", record.git_executable}
+    ):
+        return False
+    if _sha256(Path(record.git_executable)) != record.git_sha256:
+        return False
+    args = argv[1:]
+    if parent_role in {"bootstrap", "launch_verifier"}:
+        checks = {
+            ("-C", record.import_root, "rev-parse", "HEAD:research/colab_cli"),
+            (
+                "-C",
+                record.import_root,
+                "status",
+                "--porcelain",
+                "--untracked-files=all",
+                "--",
+                "research/colab_cli",
+            ),
+        }
+        if args in checks:
+            return True
+        prefix = ("-C", record.operational_root, "show")
+        if args[:3] != prefix or len(args) != 4:
+            return False
+        return args[3] in {
+            f"{record.operational_pin}:{Path(path).relative_to(record.operational_root).as_posix()}"
+            for path in record.dispatch_source_closure
+        }
+    if parent_role != "supervisor":
+        return False
+    manifest = json.loads(Path(record.manifest).read_text())
+    commit = manifest.get("commit")
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return False
+    if args in {
+        ("cat-file", "-t", commit),
+        ("cat-file", "-t", f"{commit}:{manifest.get('script')}"),
+        ("rev-parse", "--verify", commit + "^{commit}"),
+        ("rev-parse", commit + "^{tree}"),
+        ("ls-tree", "-r", "-z", commit),
+    }:
+        return True
+    if len(args) == 3 and args[:2] == ("cat-file", "-s"):
+        return bool(re.fullmatch(r"[0-9a-f]{40}", args[2]))
+    if len(args) == 2 and args[0] == "show" and args[1].startswith(commit + ":"):
+        relative = args[1][41:]
+        return (
+            bool(relative) and not Path(relative).is_absolute() and ".." not in Path(relative).parts
+        )
+    return False
+
+
 def _backup_argv(argv: tuple[str, ...], record: AdmissionRecord) -> bool:
     """Bound the existing 60-second verified-export backup helper exactly."""
+    argv = normalize_interpreter(argv, record.interpreter, record.interpreter_native)
     if (
         len(argv) != 5
         or argv[:3] != (record.interpreter, "-m", "research.colab_cli.backup")
@@ -707,10 +822,29 @@ def annotate(
         row = table.get(pid)
         if row is None or str(row.get("birth")) != birth:
             continue  # stale/PID-reused record is a readable mismatch.
-        argv = tuple(row["argv_vector"])
-        if str(Path(str(row["executable"])).resolve()) != record.executable:
+        argv = normalize_interpreter(
+            row["argv_vector"], record.interpreter, record.interpreter_native
+        )
+        executable = str(Path(str(row["executable"])).resolve())
+        raw = json.loads(record.path.read_text())
+        if argv == normalize_interpreter(
+            raw.get("bootstrap", {}).get("argv", ()), record.interpreter, record.interpreter_native
+        ) and _matches_executable(executable, record.interpreter, record.interpreter_native):
+            role = "bootstrap"
+        elif (
+            argv
+            == (
+                "/bin/bash",
+                str(Path(record.import_root) / "research/colab_cli/launch.sh"),
+                "--control-nice0",
+                *_expected_supervisor_argv(record)[3:],
+            )
+            and executable == "/bin/bash"
+        ):
+            role = "launch_shell"
+        elif executable != record.executable:
             continue
-        if argv == record.argv and _supervisor_argv(argv, record):
+        elif argv == record.argv and _supervisor_argv(argv, record):
             role = "supervisor"
         elif argv == record.argv and _wrapper_argv(argv, record):
             role = "wrapper"
@@ -719,6 +853,8 @@ def annotate(
         try:
             verify_witness(record)
             cwd = cwd_reader(pid)
+        except IdentityMismatch:
+            continue
         except OSError as error:
             raise IdentitySensorError(f"control root {pid} lacks native cwd") from error
         try:
@@ -773,9 +909,34 @@ def annotate(
             executable = str(Path(str(row["executable"])).resolve())
             role: str | None = None
             if (
+                parent.role in {"bootstrap", "launch_verifier", "supervisor"}
+                and record.git_executable
+                and _matches_executable(executable, record.git_executable)
+                and _git_argv(argv, record, parent.role)
+                and cwd_reader(pid) == record.import_root
+            ):
+                role = "source_git"
+            elif (
+                parent.role == "launch_shell"
+                and _matches_executable(executable, record.interpreter, record.interpreter_native)
+                and normalize_interpreter(argv, record.interpreter, record.interpreter_native)
+                == (
+                    record.interpreter,
+                    str(Path(record.operational_root) / "tools/ops/colab_control_launch.py"),
+                    "--verify-launch",
+                    str(record.path),
+                    "--pid",
+                    str(record.pid),
+                    "--",
+                    *_expected_supervisor_argv(record)[3:],
+                )
+            ):
+                role = "launch_verifier"
+            elif (
                 parent.role == "wrapper"
-                and _matches_executable(executable, record.interpreter)
-                and argv == _expected_supervisor_argv(record)
+                and _matches_executable(executable, record.interpreter, record.interpreter_native)
+                and normalize_interpreter(argv, record.interpreter, record.interpreter_native)
+                == _expected_supervisor_argv(record)
             ):
                 try:
                     if source_checker(record, cwd_reader(pid)):
@@ -792,21 +953,29 @@ def annotate(
                         f"control CLI {pid} installation identity unreadable"
                     ) from error
                 if cli_matches and _matches_executable(
-                    executable, record.cli_executable, record.cli_interpreter
+                    executable,
+                    record.cli_executable,
+                    record.cli_interpreter,
+                    record.cli_interpreter_native,
                 ):
                     # Native executable may be a shebang interpreter; the exact
                     # pinned entry script is already bound by argv0 plus its hash.
                     role = "cli"
                 elif _mint_argv(argv, record) and _matches_executable(
-                    executable, record.oauth_interpreter
+                    executable, record.oauth_interpreter, record.oauth_interpreter_native
                 ):
                     role = "mint"
-                elif _transport_helper_argv(argv, record) and _matches_executable(
-                    executable, record.oauth_interpreter
+                elif _transport_helper_argv(
+                    normalize_interpreter(
+                        argv, record.oauth_interpreter, record.oauth_interpreter_native
+                    ),
+                    record,
+                ) and _matches_executable(
+                    executable, record.oauth_interpreter, record.oauth_interpreter_native
                 ):
                     role = "transport_helper"
                 elif _backup_argv(argv, record) and _matches_executable(
-                    executable, record.interpreter
+                    executable, record.interpreter, record.interpreter_native
                 ):
                     role = "backup"
             if role:

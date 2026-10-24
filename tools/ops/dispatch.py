@@ -218,6 +218,7 @@ def create_control_admission(
         raise Refused("qualified Colab CLI package closure is empty")
     # The broker's release helper is imported only to bind its fixed local
     # credential-mint payload; this function never calls the provider.
+    from research.compute import colab_control
     from research.compute.colab_control import release_identity
 
     mint_program, _ = release_identity(broker)
@@ -230,7 +231,17 @@ def create_control_admission(
     if qualification_value.get("tree_hash") != tree(broker):
         raise Refused("qualification registry changed before control admission")
     write_create_only_json(qualification_snapshot, qualification_value)
+    git_executable = Path(
+        subprocess.check_output(["/usr/bin/xcrun", "--find", "git"], text=True, timeout=5).strip()
+    ).resolve()
+    if not git_executable.is_file():
+        raise Refused("qualified source Git executable is missing")
     record = {
+        "interpreter_native": colab_control.interpreter_native(CONTROL_INTERPRETER),
+        "cli_interpreter_native": colab_control.interpreter_native(cli_interpreter),
+        "oauth_interpreter_native": colab_control.interpreter_native(CONTROL_OAUTH_INTERPRETER),
+        "git_executable": str(git_executable),
+        "git_sha256": hashlib.sha256(git_executable.read_bytes()).hexdigest(),
         "schema": "factory-colab-control-nice0-admission/v1",
         "policy_id": CONTROL_POLICY_ID,
         "ruling_sha256": CONTROL_RULING_SHA256,
@@ -1151,7 +1162,9 @@ def main() -> int:
         if args.colab_control_nice0 and (
             args.retention_acceptance is not None or args.chain_manifest
         ):
-            raise Refused("nice-0 control admission supports only the qualified single-job run path")
+            raise Refused(
+                "nice-0 control admission supports only the qualified single-job run path"
+            )
         if args.retention_acceptance is not None:
             if args.boundary_admission is None or args.review_token is None:
                 raise Refused("retention acceptance requires boundary admission and review token")

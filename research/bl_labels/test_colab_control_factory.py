@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,7 +19,7 @@ class Identity:
 
 
 def fixture(monkeypatch, *, admitted=True):
-    records = {(100, "birth-100"): object()}
+    records = {(100, "birth-100"): SimpleNamespace(pane_pid=None)}
     monkeypatch.setattr(fp.colab_control, "load_admissions", lambda: records)
 
     def candidates(rows, records):
@@ -102,3 +103,18 @@ def test_v4_recovery_requires_control_binding(tmp_path, monkeypatch, field):
     value.pop(field)
     publish_json(tmp_path / "slowdown-host-check-101.json", value)
     assert not sr._host_check_after(tmp_path, 100)
+
+
+def test_reused_root_pid_does_not_inspect_unrelated_generic_descendants(monkeypatch):
+    fixture(monkeypatch, admitted=False)
+    inspected = []
+
+    def native(pid):
+        inspected.append(pid)
+        assert pid == 100, "stale root must not seed its unrelated descendants"
+        return {"birth": "reused", "executable": "/usr/bin/python3"}
+
+    monkeypatch.setattr(fp, "_native_identity", native)
+    rows = fp.process_rows(lambda _: "100 1 15 python\n101 100 0 opaque\n", {})
+    assert inspected == [100]
+    assert not any(row.get("control_tree") for row in rows)

@@ -152,7 +152,13 @@ def bind_root(admission_path: Path, broker: Path, launcher: Path, argv: list[str
         raise Refused("qualified Colab control root requires absolute nice 0")
     identity = _identity(os.getpid())
     bootstrap_argv = list(native_argv(os.getpid()))
-    if bootstrap_argv != admission.get("bootstrap_argv"):
+    if list(
+        colab_control.normalize_interpreter(
+            bootstrap_argv,
+            admission["interpreter"],
+            admission.get("interpreter_native", admission["interpreter"]),
+        )
+    ) != admission.get("bootstrap_argv"):
         raise Refused("bootstrap native argv differs from the admitted dispatch command")
     pane_pid = os.getppid()
     pane_identity = _identity(pane_pid)
@@ -191,8 +197,6 @@ def bind_root(admission_path: Path, broker: Path, launcher: Path, argv: list[str
         },
     }
     parsed = colab_control._record(root, record)
-    if not colab_control._source_matches(parsed, str(broker.resolve())):
-        raise Refused("control admission sources no longer match the qualified closure")
     fd, temporary = tempfile.mkstemp(prefix=f".{root.name}.", dir=root.parent)
     try:
         with os.fdopen(fd, "w") as stream:
@@ -207,6 +211,11 @@ def bind_root(admission_path: Path, broker: Path, launcher: Path, argv: list[str
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+    # Publish the actual native bootstrap before bounded source checks, so the
+    # shared classifier can observe every exact launch phase. Classification
+    # independently checks this same closure; publication alone grants nothing.
+    if not colab_control._source_matches(parsed, str(broker.resolve())):
+        raise Refused("control admission sources no longer match the qualified closure")
     return root
 
 

@@ -229,6 +229,19 @@ def process_rows(
             raise ObservationFault("unreadable registered live root identity", rows[pid]) from error
         if observed_roots[pid].get("birth") == birth:
             live_records[identity] = record
+            pane = record.pane_pid
+            if pane in rows and rows[pid]["ppid"] == pane:
+                try:
+                    metadata = _native_identity(pane)
+                except (OSError, RuntimeError) as error:
+                    if _confirmed_absent(pane) or _confirmed_zombie(pane, read):
+                        continue
+                    raise ObservationFault(
+                        "unreadable registered live pane identity", rows[pane]
+                    ) from error
+                if metadata.get("birth") == record.pane_birth:
+                    observed_roots[pane] = metadata
+                    rows[pane].update(metadata)
     records = live_records
     control_candidates = colab_control.candidate_pids(rows.values(), records)
     retained_control = {

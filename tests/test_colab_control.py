@@ -40,7 +40,7 @@ def _record(tmp_path: Path, *, pid: int = 10, birth: str = "100") -> control.Adm
             "-m",
             control.SUPERVISOR_MODULE,
             "--state-dir",
-            "/tmp/state",
+            str(Path("/tmp/state").resolve()),
             "--colab",
             str(cli),
             "run",
@@ -67,7 +67,7 @@ def _record(tmp_path: Path, *, pid: int = 10, birth: str = "100") -> control.Adm
         "mint_program_sha256": "c" * 64,
         "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
         "job_id": "job-a",
-        "state_path": "/tmp/state",
+        "state_path": str(Path("/tmp/state").resolve()),
         "output_path": "/tmp/output",
     }
     admission = tmp_path / "admission.json"
@@ -145,7 +145,7 @@ def test_admits_exact_supervisor_and_cli_but_leaves_numerical_child_visible(tmp_
         "--auth",
         "oauth2",
         "--config",
-        "/tmp/state/job-a/sessions.json",
+        str(Path("/tmp/state/job-a/sessions.json").resolve()),
         "sessions",
     )
     found = control.annotate(
@@ -274,3 +274,79 @@ def test_pane_requires_live_bound_root_and_exact_pending_argv(tmp_path: Path) ->
         source_checker=lambda _record, _cwd: True,
     )
     assert found[9].role == "pane"
+
+
+@pytest.mark.parametrize("phase", ["bootstrap", "launch_shell"])
+def test_exact_launch_phases_are_admitted_and_exec_replacement_revokes(tmp_path, phase):
+    record = _record(tmp_path)
+    rows = _rows(record)
+    raw = json.loads(record.path.read_text())
+    if phase == "bootstrap":
+        rows[0]["argv_vector"] = tuple(raw["bootstrap"]["argv"])
+    else:
+        rows[0]["executable"] = "/bin/bash"
+        rows[0]["argv_vector"] = (
+            "/bin/bash",
+            str(tmp_path / "research/colab_cli/launch.sh"),
+            "--control-nice0",
+            *record.argv[3:],
+        )
+        rows.append(
+            {
+                "pid": 13,
+                "ppid": 10,
+                "birth": "103",
+                "executable": record.interpreter,
+                "argv_vector": (
+                    record.interpreter,
+                    str(tmp_path / "tools/ops/colab_control_launch.py"),
+                    "--verify-launch",
+                    str(record.path),
+                    "--pid",
+                    "10",
+                    "--",
+                    *record.argv[3:],
+                ),
+            }
+        )
+    found = control.annotate(
+        rows,
+        {(record.pid, record.birth): record},
+        cwd_reader=lambda _: str(tmp_path),
+        source_checker=lambda *_: True,
+    )
+    assert found[10].role == phase
+    if phase == "launch_shell":
+        assert found[13].role == "launch_verifier"
+    rows[0]["argv_vector"] = (record.interpreter, "-c", "pass")
+    assert not control.annotate(
+        rows,
+        {(record.pid, record.birth): record},
+        cwd_reader=lambda _: str(tmp_path),
+        source_checker=lambda *_: True,
+    )
+
+
+def test_readable_witness_mismatch_is_ordinary_but_unreadable_live_witness_faults(tmp_path):
+    record = _record(tmp_path)
+    raw = json.loads(record.path.read_text())
+    raw["job_id"] = "wrong-job"
+    record.path.write_text(json.dumps(raw))
+    changed = control._record(record.path, raw)
+    assert (
+        control.annotate(
+            _rows(changed),
+            {(changed.pid, changed.birth): changed},
+            cwd_reader=lambda _: str(tmp_path),
+            source_checker=lambda *_: True,
+        )
+        == {}
+    )
+    Path(record.admission_path).unlink()
+    with pytest.raises(control.IdentitySensorError):
+        control.annotate(
+            _rows(record),
+            {(record.pid, record.birth): record},
+            cwd_reader=lambda _: str(tmp_path),
+            source_checker=lambda *_: True,
+        )

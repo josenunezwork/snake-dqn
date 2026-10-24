@@ -114,7 +114,9 @@ def _record(root: Path, supervisor_pid: int, cli: Path, state: Path) -> control.
         "pid": supervisor_pid,
         "birth": identity["birth"],
         "executable": identity["executable"],
-        "interpreter": argv[0],
+        "interpreter": sys.executable,
+        "interpreter_native": control.interpreter_native(Path(sys.executable)),
+        "cli_interpreter_native": control.interpreter_native(Path(sys.executable)),
         "import_root": str(root),
         "argv": argv,
         "source_closure": source_closure,
@@ -132,8 +134,9 @@ def _record(root: Path, supervisor_pid: int, cli: Path, state: Path) -> control.
     }
     helper = str(root / "tools/ops/colab_control_launch.py")
     launcher = raw["launcher"]
+    raw["argv"][0] = sys.executable
     raw["bootstrap_argv"] = [
-        argv[0],
+        sys.executable,
         helper,
         "--admission",
         str(admission),
@@ -214,7 +217,8 @@ def test_actual_native_supervisor_and_shebang_cli_identity(tmp_path: Path) -> No
         assert admitted[process.pid].role == "supervisor"
         assert admitted[cli_pid].role == "cli"
         observed_cli_argv = native_argv(cli_pid)
-        assert observed_cli_argv[:2] == (sys.executable, str(cli))
+        assert observed_cli_argv[0] in {sys.executable, record.cli_interpreter_native}
+        assert observed_cli_argv[1] == str(cli)
         assert control.native_cwd(process.pid) == str(broker.resolve())
     finally:
         if cli_pid is not None:

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 from pathlib import Path
 
 from research.bl_labels.exports import _verify
-from research.compute.colab_control import POLICY_ID, RULING_SHA256
+from research.compute.colab_control import POLICY_ID, RULING_SHA256, _sha256
 
 GATES = (
     "existing_canary_thresholds",
@@ -68,11 +67,19 @@ def require_proof(binding: dict, *, operational_root: Path, broker: Path) -> Non
     for key in required:
         item = evidence[key]
         source = Path(item["path"])
-        if (
-            not source.is_absolute()
-            or hashlib.sha256(source.read_bytes()).hexdigest() != item["sha256"]
-        ):
+        if not source.is_absolute() or _sha256(source) != item["sha256"]:
             raise ValueError("overlap operational evidence is changed or unavailable")
     terminal = json.loads(Path(evidence["canary_receipt"]["path"]).read_text())
     if terminal.get("stop_verified") is not True or terminal.get("cleanup_error") is not None:
         raise ValueError("overlap canary has no verified clean release")
+    manifest = json.loads(Path(evidence["canary_manifest"]["path"]).read_text())
+    if (
+        not isinstance(manifest, dict)
+        or terminal.get("manifest_sha256") != evidence["canary_manifest"]["sha256"]
+        or manifest.get("commit") != value["cli_pin"]
+        or terminal.get("commit") != manifest.get("commit")
+        or not isinstance(manifest.get("job_id"), str)
+        or not manifest["job_id"]
+        or terminal.get("job_id") != manifest["job_id"]
+    ):
+        raise ValueError("overlap terminal receipt does not bind the exact canary manifest")
