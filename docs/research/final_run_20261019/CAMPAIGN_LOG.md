@@ -680,3 +680,18 @@ Claude per-stage checks, live zero-session/calibration/accounting evidence,
 canary/repair and all later-stage gates remain unperformed. No Colab operation,
 scientific outcome look, serving change or release action occurred; critic PASS
 stands, Y3 remains not PASS. Prior packs/receipts and unrelated changes remain.
+
+Preparation source is published through `6e54f936604b79d4e13b757c5f7ed96e5dba8bf4`.
+Independent create-only `P1_E8_04_SOURCE_REPAIR_CODEX_V_14_PREPARED.json` SHA256
+`281bdf18f39427777bb27937272910b4a92b05df8041db492412dc1149ec3ac9`
+reports no open code findings and HOLD_NOT_READY_FOR_CLAUDE_CHECK (H1–H3 above).
+Create-only verification sibling `_VERIFICATION_14.json`, SHA256
+`6cb92fcbda042140c0f5cc65602aabb5166ae825e5272a10f3e24bc2f28c4038`,
+records 113 focused/dispatch tests passed in 58.71 s, the identical complete
+9-test transport suite passed on the frozen qualified broker in 41.04 s, and
+style/shell/diff checks passed. The earlier broader snapshot was interrupted
+after 160 passes and two reproduced unchanged old-pin/current-main inventory
+refusals; it is not a full-suite qualification. No transport/test fixture was
+changed to hide that identity difference. Only the owned pytest child received
+one interrupt; no worker, daemon, tmux or provider action occurred. The independent
+HOLD receipt and all earlier artifacts remain immutable.
