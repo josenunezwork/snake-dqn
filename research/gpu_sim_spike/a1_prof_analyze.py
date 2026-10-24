@@ -18,6 +18,7 @@ def aggregate(
     """Verify complete exported bytes; refuse foreign identities and duplicate cells."""
     namespace, allocation = units.namespace(commit, smoke, canary), units.allocation(smoke, canary)
     cells: dict[str, Any] = {}
+    cell_roots: dict[str, Path] = {}
     evidence = []
     for root in exports:
         with tempfile.TemporaryDirectory(prefix="a1-prof-ledger-") as temporary:
@@ -27,12 +28,31 @@ def aggregate(
             if set(cells) & set(verified):
                 raise ValueError("duplicate A1-PROF units across attempts")
             cells.update(verified)
+            cell_roots.update({unit_id: root for unit_id in verified})
             evidence.extend(value["units"])
     if set(cells) != set(allocation):
         raise ValueError("A1-PROF union is incomplete; no partial measurement look")
     rows = []
     for unit_id in allocation:
         cell = cells[unit_id]
+        traces = cell.get("chrome_traces", [])
+        if not isinstance(traces, list) or len(traces) != 1:
+            raise ValueError("A1-PROF unit lacks its single immutable Chrome trace")
+        for trace in traces:
+            if not isinstance(trace, dict) or not isinstance(trace.get("path"), str):
+                raise ValueError("A1-PROF Chrome trace reference is malformed")
+            expected = f"a1-prof-traces/{unit_id}-trace.json.gz"
+            if trace["path"] != expected:
+                raise ValueError("A1-PROF Chrome trace path is foreign")
+            path = cell_roots[unit_id] / expected
+            if not path.is_file():
+                raise ValueError("A1-PROF Chrome trace is absent from its source export")
+            try:
+                digest = units._verify_sidecars(path)
+            except ValueError as exc:
+                raise ValueError("A1-PROF Chrome trace sidecars are invalid") from exc
+            if digest != trace.get("sha256") or path.stat().st_size != trace.get("bytes"):
+                raise ValueError("A1-PROF Chrome trace bytes differ from its unit reference")
         profile_means = {
             stage: {
                 field: statistics.mean(
@@ -52,6 +72,8 @@ def aggregate(
                 "memory": cell["memory"],
                 "peak_memory": cell["peak_memory"],
                 "profiler_ticks": cell["profiler_ticks"],
+                "native_launch_event_ticks": cell.get("native_launch_event_ticks", []),
+                "chrome_traces": traces,
             }
         )
     return {

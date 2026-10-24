@@ -33,13 +33,13 @@ def test_a1_prof_main_and_canary_preserve_doubled_envelope_and_inventory(tmp_pat
         "gpu": "A100",
         "allowed_gpus": ["A100"],
         "min_vcpu": 12,
-        "est_minutes": 30,
+        "est_minutes": 20,
     }
-    assert main["timeout_minutes"] == 90
+    assert main["timeout_minutes"] == 48
     assert main["budget"] == {
-        "unit_cap": 20.0,
+        "unit_cap": 8.0,
         "rate_units_per_hour": 10.0,
-        "reserve_units": 4.0,
+        "reserve_units": 4 / 3,
         "other_assignments": {},
     }
     assert main["env"]["A1_PROF_SECONDS"] == "2400"
@@ -50,8 +50,12 @@ def test_a1_prof_main_and_canary_preserve_doubled_envelope_and_inventory(tmp_pat
     assert main["a1_prof"]["matrix"]["worlds"] == [64, 256, 1024]
     assert main["a1_prof"]["matrix"]["rosters"] == ["frozen", "mixed", "scripted"]
     assert input_inventory(main) == input_inventory(canary)
-    assert canary["timeout_minutes"] == 30
-    assert canary["budget"]["unit_cap"] == 5.0
+    assert main["a1_prof"]["version"] == 4
+    assert main["timeout_minutes"] + canary["timeout_minutes"] == 72
+    assert main["budget"]["unit_cap"] + canary["budget"]["unit_cap"] == 12
+    assert main["env"]["GPU_SIM_VECTOR_FLOOD"] == "dense"
+    assert canary["timeout_minutes"] == 24
+    assert canary["budget"]["unit_cap"] == 4.0
     assert canary["env"]["A1_PROF_CANARY"] == "1"
     assert canary["canary"]["mode"] == "probe"
     assert canary["env"]["PYTORCH_ALLOC_CONF"] == "expandable_segments:True"

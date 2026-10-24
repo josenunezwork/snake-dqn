@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import gc
+import gzip
+import hashlib
 import json
 import math
 import platform
@@ -23,6 +25,8 @@ from research.gpu_sim_spike.benchmark import source_commit, source_hashes
 
 PREFIX = "a1prof::"
 UNATTRIBUTED_TOP_N = 30
+TRACE_MAX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
+TRACE_MAX_COMPRESSED_BYTES = 32 * 1024 * 1024
 STAGE_MAP = {
     "movement": "movement_collision_events",
     "deaths_corpse": "movement_collision_events",
@@ -48,6 +52,138 @@ def sync(device: str) -> None:
     """Finish device work at tick boundaries, outside individual stage scopes."""
     if device == "cuda":
         torch.cuda.synchronize()
+
+
+class NativeLaunchDiagnostics:
+    """One opt-in event pass around direct CUDA-extension launches.
+
+    Launch modules preallocate their event pools before the measured tick.
+    This collector performs the sole device drain at tick end, then consumes
+    events from the stream the native launch itself used.  It is deliberately
+    separate from both ordinary plain ticks and the Kineto trace pass.
+    """
+
+    def __init__(self, device: str) -> None:
+        self.device = device
+        self.modules: list[Any] = []
+        self.records: list[dict[str, Any]] = []
+
+    def __enter__(self) -> "NativeLaunchDiagnostics":
+        if self.device != "cuda":
+            return self
+        from research.gpu_sim_spike import event_cuda, flood_cuda
+
+        self.modules = [event_cuda, flood_cuda]
+        for module in self.modules:
+            module.set_launch_diagnostics(True, reset=True)
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        if self.device != "cuda":
+            return
+        # A single fence makes every recorded same-stream end event complete.
+        sync(self.device)
+        try:
+            for module in self.modules:
+                self.records.extend(module.get_launch_diagnostics())
+        finally:
+            for module in self.modules:
+                module.set_launch_diagnostics(False, reset=True)
+
+    def summary(self) -> dict[str, Any]:
+        """Return raw launch rows and stable per-kernel count/time totals."""
+        table: dict[str, dict[str, Any]] = {}
+        for row in self.records:
+            name, count, elapsed = row["name"], row["count"], row["elapsed_ms"]
+            if (
+                not isinstance(name, str)
+                or type(count) is not int
+                or not isinstance(elapsed, float)
+            ):
+                raise RuntimeError("native launch diagnostic record is malformed")
+            if count != 1 or not math.isfinite(elapsed) or elapsed < 0:
+                raise RuntimeError("native launch diagnostic timing is invalid")
+            total = table.setdefault(
+                name, {"name": name, "count": 0, "elapsed_ms": 0.0, "streams": []}
+            )
+            total["count"] += count
+            total["elapsed_ms"] += elapsed
+            stream = row.get("stream")
+            if stream is not None and stream not in total["streams"]:
+                total["streams"].append(stream)
+        rows = sorted(table.values(), key=lambda row: (-row["elapsed_ms"], row["name"]))
+        for row in rows:
+            row["mean_elapsed_ms"] = row["elapsed_ms"] / row["count"]
+            row["streams"].sort()
+        return {
+            "clock": "same_current_stream_cuda_events_after_one_tick_end_fence",
+            "launches": self.records,
+            "kernel_table": rows,
+            "total_launches": len(self.records),
+            "total_elapsed_ms": sum(row["elapsed_ms"] for row in self.records),
+        }
+
+
+class NativeLaunchScopes:
+    """Enable native RecordFunction/NVTX ancestry without recording CUDA events."""
+
+    def __init__(self, device: str) -> None:
+        self.device = device
+        self.modules: list[Any] = []
+
+    def __enter__(self) -> "NativeLaunchScopes":
+        if self.device != "cuda":
+            return self
+        from research.gpu_sim_spike import event_cuda, flood_cuda
+
+        self.modules = [event_cuda, flood_cuda]
+        for module in self.modules:
+            module.set_launch_diagnostics(True, reset=True, capture_events=False)
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        for module in self.modules:
+            module.set_launch_diagnostics(False, reset=True, capture_events=False)
+
+
+def _publish_chrome_trace(profiler: Any, output_dir: Path, stem: str) -> dict[str, Any]:
+    """Publish one bounded immutable raw Kineto Chrome trace for a measurement cell."""
+    directory = output_dir / "a1-prof-traces"
+    directory.mkdir(parents=True, exist_ok=True)
+    destination = directory / f"{stem}.json.gz"
+    if destination.exists():
+        raise FileExistsError(f"A1-PROF Chrome trace already exists: {destination}")
+    temporary = directory / f".{stem}.json.tmp"
+    profiler.export_chrome_trace(str(temporary))
+    try:
+        raw = temporary.read_bytes()
+        if not raw or len(raw) > TRACE_MAX_UNCOMPRESSED_BYTES:
+            raise RuntimeError(
+                f"A1-PROF Chrome trace exceeds {TRACE_MAX_UNCOMPRESSED_BYTES} byte raw export bound"
+            )
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise RuntimeError("A1-PROF Chrome trace must be a JSON object")
+        payload = gzip.compress(raw, mtime=0)
+        if len(payload) > TRACE_MAX_COMPRESSED_BYTES:
+            raise RuntimeError(
+                "A1-PROF Chrome trace exceeds compressed export bound: "
+                f"{TRACE_MAX_COMPRESSED_BYTES} bytes"
+            )
+        units._atomic_create(destination, payload)
+        digest = hashlib.sha256(payload).hexdigest()
+        units._atomic_create(
+            Path(str(destination) + ".sha256"), f"{digest}  {destination.name}\n".encode()
+        )
+        units._atomic_create(Path(str(destination) + ".complete"), b"complete\n")
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {
+        "path": destination.relative_to(output_dir).as_posix(),
+        "bytes": len(payload),
+        "uncompressed_bytes": len(raw),
+        "sha256": digest,
+    }
 
 
 class ExclusiveTiming:
@@ -401,6 +537,8 @@ def metrics(baseline: list[float], timings: list[dict[str, Any]], worlds: int) -
         }
     attribution = cuda if cuda is not None else host
     observation = sum(attribution[key] for key in OBSERVATION)
+    accounted = sum(attribution.values())
+    accounting_discrepancy = abs(wall - accounted) / wall
     return {
         "complete_world_steps_per_second": worlds * len(baseline) / sum(baseline),
         "uninstrumented_mean_tick_seconds": statistics.mean(baseline),
@@ -408,13 +546,25 @@ def metrics(baseline: list[float], timings: list[dict[str, Any]], worlds: int) -
         "instrumentation_wall_ratio": wall / statistics.mean(baseline),
         "exclusive_host_seconds_per_tick": host,
         "exclusive_cuda_elapsed_seconds_per_tick": cuda,
-        "boundary_and_sync_seconds_per_tick": wall - sum(attribution.values()),
+        "boundary_and_sync_seconds_per_tick": wall - accounted,
         "host_boundary_seconds_per_tick": wall - sum(host.values()),
+        "accounting_discrepancy_fraction": accounting_discrepancy,
+        "attribution_status": "COMPLETE" if accounting_discrepancy <= 0.10 else "INCOMPLETE",
+        "attribution_status_rule": (
+            "COMPLETE only when exclusive-stage reconciliation is within 10%"
+        ),
         "flood_fill_share_of_instrumented_tick": attribution["vector61_flood_fill"] / wall,
+        "non_flood_remainder_seconds_per_tick": wall - attribution["vector61_flood_fill"],
+        "non_flood_remainder_definition": (
+            "Whole synchronized tick less the vector61 capped-free-space stage; it retains "
+            "other observations, policies, simulator work, and boundary time."
+        ),
         "attribution_clock": "cuda_event_elapsed" if cuda is not None else "cpu_wall",
         "flood_fill_host_enqueue_share": host["vector61_flood_fill"] / wall,
         "flood_fill_cuda_share_of_segment_elapsed": (
-            cuda["vector61_flood_fill"] / sum(cuda.values()) if cuda else None
+            cuda["vector61_flood_fill"] / sum(cuda.values())
+            if cuda and sum(cuda.values()) > 0
+            else None
         ),
         "non_observation_remainder_seconds_per_tick": wall - observation,
         "conservative_remainder_retaining_opponent_v8_seconds_per_tick": (
@@ -467,6 +617,7 @@ def measure_cell(
     ticks: int,
     warmups: int,
     deadline: float,
+    output_dir: Path,
 ) -> dict[str, Any]:
     """Same fixed long-body ruler seam, fresh reset for every complete tick."""
     _check_deadline(deadline)
@@ -499,6 +650,8 @@ def measure_cell(
 
     for _ in range(warmups):
         tick()
+    traces = []
+    native_launch_ticks = []
     for repeat in range(repeats):
         for _ in range(ticks):
             baseline.append(tick())
@@ -506,13 +659,30 @@ def measure_cell(
             timer = ExclusiveTiming(device)
             wall = tick(timer)
             timings.append({"repeat": repeat, "tick_wall_seconds": wall, **timer.result()})
+        # Same-stream launch events answer a different question from the
+        # outer-stage event clock.  Allocate the pools before this tick and
+        # fence only once in the collector's __exit__.
+        native = NativeLaunchDiagnostics(device)
+        with native:
+            native_wall = tick()
+        native_launch_ticks.append(
+            {"repeat": repeat, "tick_wall_seconds": native_wall, **native.summary()}
+        )
+        # One minimal raw trace per cell gives native launch ancestry without
+        # multiplying trace overhead or immutable export bytes by repeats.
+        if repeat > 0:
+            progress(repeat + 1, repeats, start, cell=f"{mix}-e{worlds}", phase="repeat")
+            continue
         activities = [torch.profiler.ProfilerActivity.CPU]
         if device == "cuda":
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         timer = ExclusiveTiming(device, events=False, annotations=True)
-        with torch.profiler.profile(
-            activities=activities, profile_memory=True, with_stack=True
-        ) as profiler:
+        with (
+            NativeLaunchScopes(device),
+            torch.profiler.profile(
+                activities=activities, profile_memory=False, with_stack=False
+            ) as profiler,
+        ):
             profiled_wall = tick(timer)
         # Preserve explicit raw-device -> CPU-op links discarded by FunctionEvent.
         links = {
@@ -521,8 +691,14 @@ def measure_cell(
             if event.device_type() == torch.autograd.DeviceType.CUDA
             and event.linked_correlation_id() > 0
         }
+        # Persist the raw trace before reducing it to summary tables.  If the
+        # bounded immutable export fails, this cell is INCOMPLETE rather than
+        # leaving a summary which cannot be independently inspected.
+        trace = _publish_chrome_trace(profiler, output_dir, f"cell-{mix}-e{worlds}-trace")
         summary = profiler_summary(profiler.events(), device, links)
         summary["profiled_tick_wall_seconds"] = profiled_wall
+        summary["chrome_trace"] = trace
+        traces.append(trace)
         profiled.append(summary)
         progress(repeat + 1, repeats, start, cell=f"{mix}-e{worlds}", phase="repeat")
         del profiler
@@ -538,7 +714,9 @@ def measure_cell(
         "setup_seconds_including_initial_upload": setup_seconds,
         "baseline_tick_seconds": baseline,
         "timed_ticks": timings,
+        "native_launch_event_ticks": native_launch_ticks,
         "profiler_ticks": profiled,
+        "chrome_traces": traces,
         "memory": ruler._memory_now(device),
         "peak_memory": ruler.realistic._peak_memory(device),
         "metrics": metrics(baseline, timings, worlds),
@@ -593,6 +771,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             3 if args.smoke or not args.canary else 1,
             1 if args.smoke or args.canary else 3,
             deadline,
+            args.output_dir,
         )
         units.publish_unit(args.output_dir, namespace, allocation, unit_id, cell)
         complete.append(unit_id)

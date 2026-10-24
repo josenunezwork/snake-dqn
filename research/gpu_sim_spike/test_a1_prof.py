@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import gzip
+import hashlib
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -253,6 +257,57 @@ def test_cuda_event_stage_boundaries_drain_all_streams(monkeypatch) -> None:
     assert result["vector61_flood_fill"] == 0.01
 
 
+def test_native_launch_table_retains_named_actual_stream_records() -> None:
+    diagnostic = prof.NativeLaunchDiagnostics("cpu")
+    diagnostic.records = [
+        {
+            "name": "gpu_sim.native.flood.sparse_frontier_cap160",
+            "count": 1,
+            "elapsed_ms": 2.5,
+            "stream": 7,
+        },
+        {
+            "name": "gpu_sim.native.flood.sparse_frontier_cap160",
+            "count": 1,
+            "elapsed_ms": 1.5,
+            "stream": 7,
+        },
+        {"name": "gpu_sim.native.event.fifo", "count": 1, "elapsed_ms": 1.0, "stream": 9},
+    ]
+    result = diagnostic.summary()
+    assert result["total_launches"] == 3
+    assert result["total_elapsed_ms"] == 5.0
+    assert result["kernel_table"] == [
+        {
+            "name": "gpu_sim.native.flood.sparse_frontier_cap160",
+            "count": 2,
+            "elapsed_ms": 4.0,
+            "streams": [7],
+            "mean_elapsed_ms": 2.0,
+        },
+        {
+            "name": "gpu_sim.native.event.fifo",
+            "count": 1,
+            "elapsed_ms": 1.0,
+            "streams": [9],
+            "mean_elapsed_ms": 1.0,
+        },
+    ]
+
+
+def test_chrome_trace_is_gzip_immutable_with_hash_sidecars(tmp_path) -> None:
+    class FakeProfiler:
+        def export_chrome_trace(self, path: str) -> None:
+            Path(path).write_text(json.dumps({"traceEvents": [{"name": "fifo"}]}))
+
+    trace = prof._publish_chrome_trace(FakeProfiler(), tmp_path, "cell-scripted-e64-trace")
+    path = tmp_path / trace["path"]
+    assert path.suffix == ".gz"
+    assert gzip.decompress(path.read_bytes()) == b'{"traceEvents": [{"name": "fifo"}]}'
+    assert trace["bytes"] == path.stat().st_size
+    assert trace["sha256"] == units._verify_sidecars(path)
+
+
 def test_metrics_use_full_world_steps_and_observation_union() -> None:
     host = dict.fromkeys(prof.STAGES, 0.0)
     host.update(
@@ -277,6 +332,70 @@ def test_metrics_use_full_world_steps_and_observation_union() -> None:
     assert result["non_observation_remainder_seconds_per_tick"] == pytest.approx(0.2)
     assert result["flood_fill_share_of_instrumented_tick"] == 0.5
     assert result["attribution_clock"] == "cuda_event_elapsed"
+    assert result["non_flood_remainder_seconds_per_tick"] == pytest.approx(0.5)
+    assert result["accounting_discrepancy_fraction"] == 0
+    assert result["attribution_status"] == "COMPLETE"
+    row["exclusive_cuda_elapsed_seconds"] = dict.fromkeys(prof.STAGES, 0.0)
+    assert prof.metrics([2.0], [row], 1024)["attribution_status"] == "INCOMPLETE"
+
+
+def _publish_complete_analysis_exports(
+    tmp_path: Path, commit: str, trace_path: str | None = None
+) -> Path:
+    """Create a complete smoke union with trace bytes independent of the analyzer."""
+    root = tmp_path / "exports"
+    namespace, allocation = units.namespace(commit, True), units.allocation(True)
+    for unit_id in allocation:
+        relative = f"a1-prof-traces/{unit_id}-trace.json.gz"
+        trace = root / relative
+        trace.parent.mkdir(parents=True, exist_ok=True)
+        payload = gzip.compress(b'{"traceEvents": []}', mtime=0)
+        digest = hashlib.sha256(payload).hexdigest()
+        units._atomic_create(trace, payload)
+        units._atomic_create(Path(str(trace) + ".sha256"), f"{digest}  {trace.name}\n".encode())
+        units._atomic_create(Path(str(trace) + ".complete"), b"complete\n")
+        _, mix, size = unit_id.split("-")
+        stages = {stage: {"kernel_count": 0} for stage in prof.STAGES}
+        content = {
+            "mix": mix,
+            "worlds": int(size[1:]),
+            "metrics": {},
+            "memory": {},
+            "peak_memory": {},
+            "profiler_ticks": [{"stages": stages}],
+            "chrome_traces": [
+                {
+                    "path": trace_path or relative,
+                    "bytes": len(payload),
+                    "uncompressed_bytes": len(gzip.decompress(payload)),
+                    "sha256": digest,
+                }
+            ],
+        }
+        units.publish_unit(root, namespace, allocation, unit_id, content)
+    return root
+
+
+def test_mac_aggregator_requires_complete_trace_identity(tmp_path) -> None:
+    commit = "b" * 40
+    exports = _publish_complete_analysis_exports(tmp_path, commit)
+    result = analyze.aggregate([exports], commit, smoke=True)
+    assert len(result["cells"]) == 3
+
+
+@pytest.mark.parametrize("failure", ("missing", "hash", "foreign"))
+def test_mac_aggregator_refuses_missing_tampered_or_foreign_trace(tmp_path, failure) -> None:
+    commit = "c" * 40
+    foreign = "../not-a-trace.json.gz" if failure == "foreign" else None
+    exports = _publish_complete_analysis_exports(tmp_path, commit, foreign)
+    first = units.allocation(True)[0]
+    trace = exports / f"a1-prof-traces/{first}-trace.json.gz"
+    if failure == "missing":
+        trace.unlink()
+    elif failure == "hash":
+        Path(str(trace) + ".sha256").write_text("0" * 64 + f"  {trace.name}\n")
+    with pytest.raises(ValueError, match="trace"):
+        analyze.aggregate([exports], commit, smoke=True)
 
 
 def test_verified_units_are_skipped_without_computation(tmp_path, monkeypatch) -> None:
