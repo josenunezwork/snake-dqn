@@ -49,7 +49,13 @@ def test_compiled_objective_matches_independent_reference_at_nonzero_theta() -> 
     theta = torch.linspace(-0.01, 0.01, 1542, dtype=torch.float64)
     check = verify_objective_equivalence(theta, cache, plan, recipe, tolerance=1e-9)
     assert check.passed
-    assert compile_coefficients(cache, plan, recipe).anchor_kl.sum() == 1
+    # Repeated 1/(batch_count * ordinary_count) additions incur float64 roundoff.
+    torch.testing.assert_close(
+        compile_coefficients(cache, plan, recipe).anchor_kl.sum(),
+        torch.ones((), dtype=torch.float64),
+        rtol=0,
+        atol=1e-14,
+    )
 
 
 def test_unknown_mass_never_contaminates_compiled_growth() -> None:
