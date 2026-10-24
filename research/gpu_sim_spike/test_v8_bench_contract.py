@@ -48,3 +48,38 @@ def test_arm_switches_both_native_paths_and_restores_environment(monkeypatch):
             assert os.environ["GPU_SIM_VECTOR_GEOMETRY"] == "torch"
         assert os.environ["GPU_SIM_VECTOR_GEOMETRY"] == "native"
     assert os.environ["GPU_SIM_VECTOR_GEOMETRY"] == "old"
+
+
+def test_main_preparation_does_not_revalidate_finished_canary(tmp_path, monkeypatch):
+    import sys
+
+    from research.colab_cli import supervisor
+    from research.gpu_sim_spike import v8_pack
+    from tools.ops import dispatch
+
+    commit = "a" * 40
+    (tmp_path / "canary-output").mkdir()
+    calls = []
+    monkeypatch.setattr(v8_pack, "require_source_pin", lambda pin: None)
+    monkeypatch.setattr(v8_pack, "git_head", lambda: commit)
+    monkeypatch.setattr(v8_pack, "preflight_binding", lambda path, pin: {})
+    monkeypatch.setattr(v8_pack, "manifest", lambda **kw: {"probe": kw["canary"]})
+    monkeypatch.setattr(supervisor, "validate", lambda value, repo: calls.append(value["probe"]))
+    monkeypatch.setattr(dispatch, "require_resume_policy", lambda value: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "v8_pack",
+            "--commit",
+            commit,
+            "--artifact-dir",
+            str(tmp_path),
+            "--canary-receipt",
+            str(tmp_path / "canary-output/receipt.json"),
+            "--validate",
+        ],
+    )
+    v8_pack.main()
+    assert calls == [False]
+    assert (tmp_path / "v8-main.json").is_file()
