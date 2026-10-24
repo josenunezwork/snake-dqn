@@ -205,6 +205,8 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
                         if isinstance(field_digests, list) and tick_index < len(field_digests)
                         else {}
                     )
+                    if not isinstance(descriptors, dict):
+                        raise ValueError("typed field tick container is not an object")
                     action_desc = descriptors.get("output.actions", {})
                     if (
                         not isinstance(action_desc, dict)

@@ -63,6 +63,52 @@ def test_invalid_capture_is_not_a_mechanical_completion(monkeypatch) -> None:
         t4a_events.run_events(Path("checkpoint"), "frozen", "cpu", "smoke", float("inf"))
 
 
+def test_restore_uses_snapshot_dtypes_instead_of_initial_template(monkeypatch) -> None:
+    import copy
+    from types import SimpleNamespace
+
+    import torch
+
+    from research.gpu_sim_spike.device_sim import DeviceSim
+    from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
+    from src.simd_env.batch_sim import BatchSimConfig
+
+    cfg = BatchSimConfig(
+        num_envs=4,
+        num_snakes=6,
+        game_width=160,
+        game_height=120,
+        max_capacity=32,
+        initial_food=0,
+        max_food=0,
+    )
+    sim = DeviceSim(cfg, cap=32)
+    sim.capacity_overflow = torch.zeros_like(sim.alive)
+    sim._last_reward = sim._last_reward.double()
+    runtime = DeviceVectorRuntime()
+    runtime.bind(sim)
+    policy = SimpleNamespace(vector_runtime=runtime, vector_prepared=False)
+    case = (sim, policy, sim.clone(), copy.deepcopy(policy), {}, "I_prime")
+
+    def stepped(target, *args, **kwargs):
+        current = target[0]
+        current.frame += 1
+        current.rng_counter += 1
+        # DeviceSim's post-step reward has fp32 even when the reference import
+        # initially carried fp64. This is the actual preflight failure seam.
+        current._last_reward = torch.zeros((4, 6), dtype=torch.float32)
+        t4a_events._TAPES.setdefault(id(current), []).append(t4a_events._mapped_snapshot(target))
+
+    monkeypatch.setattr(t4a_events, "_tick", stepped)
+    try:
+        passed, witness = t4a_events._event_clone_restore(case)
+        assert passed and witness["restored_exact"]
+        assert witness["before_restore_digest"] != witness["saved_digest"]
+        assert case[2]._last_reward.dtype == torch.float64
+    finally:
+        t4a_events._TAPES.clear()
+
+
 def test_actual_device_sim_ring_wrap_and_ordered_contested_food() -> None:
     """Exercise the real DeviceSim mechanics used by the fixture predicates."""
     cfg = BatchSimConfig(

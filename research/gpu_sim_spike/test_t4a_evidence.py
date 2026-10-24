@@ -203,9 +203,13 @@ def test_valid_raw_q_mismatch_is_self_consistency_failure(tmp_path):
     assert result["verdict"] == "INVALID_SELF_CONSISTENCY"
 
 
-def test_malformed_typed_descriptor_is_invalid_evidence(tmp_path):
+@pytest.mark.parametrize("container", [False, True])
+def test_malformed_typed_descriptor_is_invalid_evidence(tmp_path, container):
     def change(c):
-        c["records"][0]["field_digests"][0]["output.actions"] = 0
+        if container:
+            c["records"][0]["field_digests"][0] = 0
+        else:
+            c["records"][0]["field_digests"][0]["output.actions"] = 0
 
     assert reduce(_tree(tmp_path, mutate=change))["verdict"] == "INVALID_EVIDENCE"
 

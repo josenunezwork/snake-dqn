@@ -232,7 +232,13 @@ def _event_clone_restore(case: tuple) -> tuple[bool, dict[str, Any]]:
     # Continue the original branch and independently restore the complete
     # post-step seam (including vector runtime carry and RNG) into branch B.
     branch_a = case
-    branch_b = (case[2].clone(), _clone_policy(case[3]), *case[2:])
+    # A full-state snapshot defines tensor dtypes as well as values. The
+    # benchmark's initial reset template can have pre-step reward dtypes, so
+    # materialize the saved typed snapshot before testing in-place restore.
+    branch_b = (saved[0].clone(), _clone_policy(saved[1]), *case[2:])
+    branch_b[0].rng_counter += 7
+    branch_b[0].frame += 2
+    branch_b[1].vector_runtime._carry_valid.logical_not_()
     before_restore = _state_digest(branch_b)
     ruler._reset(branch_b[0], branch_b[1], saved[0], saved[1])
     restored = compare.compare_inventory(_snapshot(branch_b), _snapshot((saved[0], saved[1])))
