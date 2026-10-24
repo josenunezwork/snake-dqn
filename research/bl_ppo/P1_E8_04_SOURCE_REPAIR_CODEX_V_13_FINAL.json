@@ -1,0 +1,475 @@
+{
+  "a3_3_exception_ruling_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_A3_3_SQLITE_20261023.md",
+  "a3_3_exception_ruling_sha256": "f1bd0dca5499c1766addb2145e35dc3e6291c6d9d97f175425c68d7f0d9f3ee9",
+  "admission_guard_expected_result": "This receipt satisfies the Codex-V review identity/status/hash predicates only. Missing or nonmatching real Claude line checks must still refuse admission. No admission function was executed.",
+  "baseline_head": "021183d497319e22a9532129b24e473baaa6b509",
+  "branch": "p1-snapbound-20261022",
+  "campaign_log_observation": "origin/main f1ba1121 already records preserved _12 FAIL and Astra RATIFY. Final _13 digest/line checks and reconciled ledger remain the operator finalisation step.",
+  "checks": [
+    {
+      "evidence": "10/10 ruling-table entries; 23/23 prior evidence-map entries; original receipt/repo copy, sidecars and completion markers verified.",
+      "requirement": "All hashes listed by Astra and all original _12 evidence bindings remain unchanged",
+      "status": "PASS_NEWLY_RECOMPUTED"
+    },
+    {
+      "evidence": "Nine archived names/IDs/sizes/active flags rejoined to plan and exact URL form; regex, no local/placeholder IDs, uniqueness and recorded parent verified. Read-only live metadata and Mirror-copy hashes are inherited from immutable _12, as Astra expressly permits.",
+      "requirement": "A3.3 exact fixed-folder, exact-nine active direct-child metadata mapping",
+      "status": "PASS_SEALED_MAPPING_RECHECKED_LIVE_QUERY_INHERITED"
+    },
+    {
+      "evidence": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_A3_3_SQLITE_20261023.md SHA-256 f1bd0dca5499c1766addb2145e35dc3e6291c6d9d97f175425c68d7f0d9f3ee9; narrow procedural acceptance for this exact pack/mapping before admission. Literal xattr history remains unsatisfied.",
+      "requirement": "F1_A3_3_SQLITE_SUBSTITUTION_UNRATIFIED",
+      "status": "RESOLVED_BY_BINDING_ASTRA_EXCEPTION"
+    },
+    {
+      "evidence": "Exactly 36 URL edits + 20 identity fields across four manifests, exact recorded before/after diffs, no other changes; unchanged destination/allocation/pin/held fuses; bundle has exactly four namespace-only JSON edits and four corresponding SHA sidecars.",
+      "requirement": "A3.4 final manifest bytes and required attempt identity",
+      "status": "PASS_NEWLY_RECOMPUTED"
+    },
+    {
+      "evidence": "PASS 9/9 first attempts; 595248269 bytes in 24.316233332967386s; exact URL/SHA/size tuples and final canary hash. No new fetch. This proves recorded availability, not future availability or historical ACL action.",
+      "requirement": "A3.5 successful public fetch bound to exact final canary",
+      "status": "PASS_EXISTING_RECEIPT_NEWLY_RECHECKED"
+    },
+    {
+      "evidence": "ruling_sha256 remains original finalisation hash; all four manifests pin 03e0af75c64538f53a6971e6fec5d9a173bc921b. HEAD and executable pin research/colab_cli trees match d0d92bdb572b770284a1fea6152417ffa5f06bea; no local CLI diff. Broker/live-account checks pending operator.",
+      "requirement": "Original finalisation authority and qualified runtime identity",
+      "status": "PASS_NEWLY_RECHECKED_OFFLINE"
+    },
+    {
+      "evidence": "Fresh exact-hash Claude canary/repair checks, exception binding, reconciled published ledger, broker fast-forward/proof equality and immediate live zero-other-assignment/rate checks remain operator obligations. This review performs no admission.",
+      "requirement": "A3.6 and Finalisation section 7 operator gates",
+      "status": "PENDING_CLAUDE_NOT_REVIEW_FINDINGS"
+    },
+    {
+      "evidence": "Canary 2.00u/.40 reserve/30min/zero retries: nine VM fetches<=300s, residual upload<=150s, whole staging<=300s, recovered exports, verified release, support 200min/6.16u. Failure terminal; repair requires PASS, debit reconciliation, fresh inventory and exact repair line check.",
+      "requirement": "A3.7 VM canary and subsequent gates",
+      "status": "PENDING_LIVE_PROOF_NOT_REVIEW_FINDINGS"
+    }
+  ],
+  "created_at_utc": "2026-10-24T01:04:59.308063+00:00",
+  "critic_pass_unchanged": true,
+  "dispatch_ready": false,
+  "drive_metadata_evidence_provenance": {
+    "exact_mapping_carried_without_change": true,
+    "inherited_checks": "Read-only live SQLite active/direct-child query and nine live Mirror-copy hashes performed independently by _12; no claim of a second live query or historical ACL audit.",
+    "literal_xattr_requirement_satisfied": false,
+    "live_database_requeried_this_review": false,
+    "new_checks": "Rechecked all recorded child flags, names, sizes, unique real IDs, parent record and exact URLs against sealed plan/map/manifests/preflight.",
+    "selected_folder_id": "1yr71MQZgtRLlZ3DprqN147dDOwqprHm_",
+    "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json",
+    "source_sha256": "5cd6398a470754163059e59498ce18cc2f48e60c1fff8abbcda46c372110739f",
+    "status": "ACCEPTED_EXACT_MAPPING_BY_ASTRA_EXCEPTION"
+  },
+  "drive_metadata_verification": {
+    "children": [
+      {
+        "file_size": 384986,
+        "id": "1uDnqRoh9X7Wri93yiOHxl3BXh40pxgZ9",
+        "is_folder": 0,
+        "is_tombstone": 0,
+        "local_title": "failed-supervisor-receipt.json",
+        "trashed": 0
+      },
+      {
+        "file_size": 262637,
+        "id": "1P4tnmXJ9cRrQcIJNTVuaASekJT7AQPF7",
+        "is_folder": 0,
+        "is_tombstone": 0,
+        "local_title": "immutable-fixture_late_body_bank-64031cc19f35a73a.pt",
+        "trashed": 0
+      },
+      {
+        "file_size": 144091565,
+        "id": "1awAn6VdEQu1dtFPVw-yPuplRiiq8dL6G",
+        "is_folder": 0,
+        "is_tombstone": 0,
+        "local_title": "immutable-ordinary_bank-e63802f2e97cbb5d.pt",
+        "trashed": 0
+      },
+      {
+        "file_size": 15110573,
+        "id": "1ik2hPHm1Fnx9gTTbmPXT0WJxL5J7jw7R",
+        "is_folder": 0,
+        "is_tombstone": 0,
+        "local_title": "immutable-refit_bank-f7fd77c1276d8df6.pt",
+        "trashed": 0
+      },
+      {
+        "file_size": 2433946,
+        "id": "1G3A7Mjpl30PvWt1477PCQXnVtmyBbsVa",
+        "is_folder": 0,
+        "is_tombstone": 0,
+        "local_title": "late-body-rows-0000.npz",
+        "trashed": 0
+      },
+      {
+        "file_size": 1442768,
+        "id": "1JzFFiRLiLgR-gHnmptPUWtTnQYSkr6OS",
+        "is_folder": 0,
+        "is_tombstone": 0,
+        "local_title": "late-body-rows-0001.npz",
+        "trashed": 0
+      },
+      {
+        "file_size": 1093629,
+        "id": "1J5856tBCTGbymYnDycCNddcYxhRZbFbg",
+        "is_folder": 0,
+        "is_tombstone": 0,
+        "local_title": "late-body-rows-0002.npz",
+        "trashed": 0
+      },
+      {
+        "file_size": 2517009,
+        "id": "1DFY9eK4yDZWgdcj2MIdYUoTPfPbBcHR4",
+        "is_folder": 0,
+        "is_tombstone": 0,
+        "local_title": "p1-inputs.tar.gz",
+        "trashed": 0
+      },
+      {
+        "file_size": 427911156,
+        "id": "1sNIIHfDOZm9LPDdTF-ZShvf67jejG590",
+        "is_folder": 0,
+        "is_tombstone": 0,
+        "local_title": "p1-y3-origin-pause-snapshot-00000.pt",
+        "trashed": 0
+      }
+    ],
+    "database_path": "/Users/josenunez/Library/Application Support/Google/DriveFS/101864905153338101722/mirror_metadata_sqlite.db",
+    "folders": [
+      {
+        "file_size": 0,
+        "id": "12cyBsD1_ueYiVOADHurkgHtY4G3shbIn",
+        "is_folder": 1,
+        "is_tombstone": 0,
+        "local_title": "snake-dqn-p1-y3-origin-20261023",
+        "stable_id": 140291,
+        "trashed": 1
+      },
+      {
+        "file_size": 0,
+        "id": "1yr71MQZgtRLlZ3DprqN147dDOwqprHm_",
+        "is_folder": 1,
+        "is_tombstone": 0,
+        "local_title": "snake-dqn-p1-y3-origin-20261023",
+        "stable_id": 140066,
+        "trashed": 0
+      }
+    ],
+    "literal_xattr_requirement_satisfied": false,
+    "method": "sqlite3 -readonly -json; live DB read only, no SQLite connection by Python",
+    "parents": [
+      {
+        "child_id": "12cyBsD1_ueYiVOADHurkgHtY4G3shbIn",
+        "parent_id": "1kgpC4QyndsZ-ThFxeRArYOmEUVyk-i4L",
+        "parent_title": "My Drive"
+      },
+      {
+        "child_id": "1yr71MQZgtRLlZ3DprqN147dDOwqprHm_",
+        "parent_id": "0AM-cQI3Zt31VUk9PVA",
+        "parent_title": "My Drive"
+      }
+    ],
+    "status": "PASS_METADATA_BINDINGS_ONLY",
+    "total_bytes": 595248269
+  },
+  "evidence_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_A3_3_SQLITE_20261023.md": "f1bd0dca5499c1766addb2145e35dc3e6291c6d9d97f175425c68d7f0d9f3ee9",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_FINALISATION.md": "fe0584595cca6f6fcb28071692e52e4fe8460f3ab90fc29429c027203ff9ebfc",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_REPAIR_TRANSPORT.md": "2fb9e3914a5eb86e9cd5c42495a1d8213fa1475aa6cf0c72d14c83350de5bc5e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/canary-manifest.json": "bf7d26a9374b5d43d00448e1d4fe071f872f83325ff27b1069a041b714f2f1a0",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/qualification-held-manifest.json": "5fcfb1117381ee87465827a540e70b4c4e820c78784bb4757c606bf9bc80a7db",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/repair-manifest.json": "8497ff3f1cc045e196a1b0c9b09c1ce880e0af84504636fa84e332b328b5f705",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/replacement-held-manifest.json": "82d2111f93be2e3c76b625fa0244625b1b3f55396797f8026bea922b90066bc2",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/DRIVE_STAGE_AFTER_OWNER_OK.txt": "7ec36f7e7804aa31e2b13d934baf48460d530909c2c1a47886c06eb85b6b336c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/DRIVE_STAGE_AFTER_OWNER_OK.txt.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/DRIVE_STAGE_AFTER_OWNER_OK.txt.sha256": "d1d904876ac1e095416a15e1eb40c5e6913da81ed352eb70c52dadc539f44091",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12.json": "6bc28ed5ec3b2b9c3095bcf7e8898bf80c332fd4505871498c14c5ab02065406",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json": "5cd6398a470754163059e59498ce18cc2f48e60c1fff8abbcda46c372110739f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.sha256": "009fbf6c30dd7021e690d2f452cf3b6263bf6f337d1a9259c2743e9a80afee4a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_HANDOFF_12.md": "49ef2c1b81f91d88225f6572f7a61f1630840427d5294394311924fe5279afe6",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_HANDOFF_12.md.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_HANDOFF_12.md.sha256": "a0e245116f1d9810af3042f0bcf71868613d3c4637b9be7055ee1d80858d710b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/attempt-identity-03-to-04.json": "941023f7f27c4f0ed86338e979d9e9412a313922c9d979263901b171d5d43897",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/byte-diff-03-to-04.json": "5d874948e48a56a62f8e4ab6c96e4587c9d3c0d007bcd2e5525486ae16a329cf",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-manifest.json": "fa398a8eb52009da34c8c05cc69a913c71eeaa2b38dd4a0573cf37d0b79c726e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/drive-asset-plan.json": "7be4985289e08378afa9db60f64004e6bde8cafb4c6003b4800d1564170111db",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/drive-urls.json": "bec4c2355d02b498dd183c6897f9a76d99115837416087a2db8953d38f0609ea",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/measured-forecast-04.json": "56773e34a27bd61cd79da626bf878e0e6530018b13c360d8d2dd095927b02c08",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/p1-inputs.tar.gz": "6a520e7c9d07909e4852368242ec8157719f3dd4392eefaea08ca4394edc5908",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/public-fetch-preflight-drive-04.json": "c8ce1bea4a0f2a989071eed48e6be5d54d1b1dc4a8419f671d2b255761ba1b91",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/qualification-held-manifest.json": "850fdd3893a2ace28d66272042045bafb9fd14c091f2919ca0712132461a7058",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-manifest.json": "233a77e0e3305fbfd946f3f7aeda9c44f7e40f7f4957112196d245cd38c81f61",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/replacement-held-manifest.json": "c4a17d7ae66823c1c0e2feba24913f33c98ce3c99d38cfd31adf05aa3df9f205",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/canary-manifest.json": "d868b075daa998d511c55121868224872f3a656badbdf5decbff178df88a19bd",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/qualification-held-manifest.json": "740167bba10504d33bbc4647fc4f28ef07395c810a0a4d59919e03a068dc093a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/repair-manifest.json": "65180839c5356f22600169213d80d0c16b6c1005866e79264d61d1c6293b785d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/replacement-held-manifest.json": "072ca2a61ccb240f51a48aafc3c35f24f3303ace8eaf4be5bb09d04001745050",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/verification-12.json": "0e1510156fbce36039ecf1cf9b0333836e6ef128658c50b13b73539ef14e6c67",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json": "5cd6398a470754163059e59498ce18cc2f48e60c1fff8abbcda46c372110739f",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+    "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.sha256": "009fbf6c30dd7021e690d2f452cf3b6263bf6f337d1a9259c2743e9a80afee4a"
+  },
+  "executable_commit": "03e0af75c64538f53a6971e6fec5d9a173bc921b",
+  "findings": [],
+  "handoff_13_exact_step9_commands_conditional_only": "cd /Users/josenunez/Projects/ml/snake-dqn-p1snap\n/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_ppo.p1_repair_admission canary --manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-manifest.json --output /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-admission/manifest.json --codex-v /Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_13_FINAL.json --claude /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/claude-canary-line-check.json --repo /Users/josenunez/Projects/ml/snake-dqn-p1snap\n\n/Users/josenunez/Projects/ml/snake-dqn-acctfix/tools/ops/dispatch.sh p1-repair10-04-canary /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-admission/manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-acctfix --cwd /Users/josenunez/Projects/ml/snake-dqn-p1snap --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-admission/DISPATCH.txt\n\n# After canary PASS, release/export checks, ledger reconciliation and fresh inventory:\n/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_ppo.p1_repair_admission repair --manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-manifest.json --output /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-admission/manifest.json --codex-v /Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_13_FINAL.json --claude /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/claude-repair-line-check.json --repo /Users/josenunez/Projects/ml/snake-dqn-p1snap --canary /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/receipt.json\n\n/Users/josenunez/Projects/ml/snake-dqn-acctfix/tools/ops/dispatch.sh p1-repair10-04-repair /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-admission/manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-acctfix --cwd /Users/josenunez/Projects/ml/snake-dqn-p1snap --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-admission/DISPATCH.txt\n",
+  "handoff_13_path": "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_HANDOFF_13.md",
+  "independent_byte_audit": {
+    "attempt_identity_fields_per_manifest": 5,
+    "bundle_changed_members": [
+      "canary-control.json",
+      "canary-control.json.sha256",
+      "canary-verified-ledger.json",
+      "canary-verified-ledger.json.sha256",
+      "p1-control.json",
+      "p1-control.json.sha256",
+      "verified-ledger.json",
+      "verified-ledger.json.sha256"
+    ],
+    "evidence_sha256": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_A3_3_SQLITE_20261023.md": "f1bd0dca5499c1766addb2145e35dc3e6291c6d9d97f175425c68d7f0d9f3ee9",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_FINALISATION.md": "fe0584595cca6f6fcb28071692e52e4fe8460f3ab90fc29429c027203ff9ebfc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_REPAIR_TRANSPORT.md": "2fb9e3914a5eb86e9cd5c42495a1d8213fa1475aa6cf0c72d14c83350de5bc5e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/canary-manifest.json": "bf7d26a9374b5d43d00448e1d4fe071f872f83325ff27b1069a041b714f2f1a0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/qualification-held-manifest.json": "5fcfb1117381ee87465827a540e70b4c4e820c78784bb4757c606bf9bc80a7db",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/repair-manifest.json": "8497ff3f1cc045e196a1b0c9b09c1ce880e0af84504636fa84e332b328b5f705",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/replacement-held-manifest.json": "82d2111f93be2e3c76b625fa0244625b1b3f55396797f8026bea922b90066bc2",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/DRIVE_STAGE_AFTER_OWNER_OK.txt": "7ec36f7e7804aa31e2b13d934baf48460d530909c2c1a47886c06eb85b6b336c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/DRIVE_STAGE_AFTER_OWNER_OK.txt.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/DRIVE_STAGE_AFTER_OWNER_OK.txt.sha256": "d1d904876ac1e095416a15e1eb40c5e6913da81ed352eb70c52dadc539f44091",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12.json": "6bc28ed5ec3b2b9c3095bcf7e8898bf80c332fd4505871498c14c5ab02065406",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json": "5cd6398a470754163059e59498ce18cc2f48e60c1fff8abbcda46c372110739f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.sha256": "009fbf6c30dd7021e690d2f452cf3b6263bf6f337d1a9259c2743e9a80afee4a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_HANDOFF_12.md": "49ef2c1b81f91d88225f6572f7a61f1630840427d5294394311924fe5279afe6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_HANDOFF_12.md.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_HANDOFF_12.md.sha256": "a0e245116f1d9810af3042f0bcf71868613d3c4637b9be7055ee1d80858d710b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/attempt-identity-03-to-04.json": "941023f7f27c4f0ed86338e979d9e9412a313922c9d979263901b171d5d43897",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/byte-diff-03-to-04.json": "5d874948e48a56a62f8e4ab6c96e4587c9d3c0d007bcd2e5525486ae16a329cf",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-manifest.json": "fa398a8eb52009da34c8c05cc69a913c71eeaa2b38dd4a0573cf37d0b79c726e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/drive-asset-plan.json": "7be4985289e08378afa9db60f64004e6bde8cafb4c6003b4800d1564170111db",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/drive-urls.json": "bec4c2355d02b498dd183c6897f9a76d99115837416087a2db8953d38f0609ea",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/measured-forecast-04.json": "56773e34a27bd61cd79da626bf878e0e6530018b13c360d8d2dd095927b02c08",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/p1-inputs.tar.gz": "6a520e7c9d07909e4852368242ec8157719f3dd4392eefaea08ca4394edc5908",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/public-fetch-preflight-drive-04.json": "c8ce1bea4a0f2a989071eed48e6be5d54d1b1dc4a8419f671d2b255761ba1b91",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/qualification-held-manifest.json": "850fdd3893a2ace28d66272042045bafb9fd14c091f2919ca0712132461a7058",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-manifest.json": "233a77e0e3305fbfd946f3f7aeda9c44f7e40f7f4957112196d245cd38c81f61",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/replacement-held-manifest.json": "c4a17d7ae66823c1c0e2feba24913f33c98ce3c99d38cfd31adf05aa3df9f205",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/canary-manifest.json": "d868b075daa998d511c55121868224872f3a656badbdf5decbff178df88a19bd",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/qualification-held-manifest.json": "740167bba10504d33bbc4647fc4f28ef07395c810a0a4d59919e03a068dc093a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/repair-manifest.json": "65180839c5356f22600169213d80d0c16b6c1005866e79264d61d1c6293b785d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/templates/replacement-held-manifest.json": "072ca2a61ccb240f51a48aafc3c35f24f3303ace8eaf4be5bb09d04001745050",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/verification-12.json": "0e1510156fbce36039ecf1cf9b0333836e6ef128658c50b13b73539ef14e6c67",
+      "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json": "5cd6398a470754163059e59498ce18cc2f48e60c1fff8abbcda46c372110739f",
+      "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json.sha256": "009fbf6c30dd7021e690d2f452cf3b6263bf6f337d1a9259c2743e9a80afee4a"
+    },
+    "live_metadata_requeried": false,
+    "manifest_checks": [
+      {
+        "held_fuses": true,
+        "identity_fields": [
+          "/inputs/1/sha256",
+          "/inputs/1/size_bytes",
+          "/job_id",
+          "/output_dir",
+          "/resume/namespace"
+        ],
+        "manifest": "canary-manifest.json",
+        "other_changes": 0,
+        "sha256": "fa398a8eb52009da34c8c05cc69a913c71eeaa2b38dd4a0573cf37d0b79c726e",
+        "url_edits": 9
+      },
+      {
+        "held_fuses": true,
+        "identity_fields": [
+          "/inputs/1/sha256",
+          "/inputs/1/size_bytes",
+          "/job_id",
+          "/output_dir",
+          "/resume/namespace"
+        ],
+        "manifest": "qualification-held-manifest.json",
+        "other_changes": 0,
+        "sha256": "850fdd3893a2ace28d66272042045bafb9fd14c091f2919ca0712132461a7058",
+        "url_edits": 9
+      },
+      {
+        "held_fuses": true,
+        "identity_fields": [
+          "/inputs/1/sha256",
+          "/inputs/1/size_bytes",
+          "/job_id",
+          "/output_dir",
+          "/resume/namespace"
+        ],
+        "manifest": "repair-manifest.json",
+        "other_changes": 0,
+        "sha256": "233a77e0e3305fbfd946f3f7aeda9c44f7e40f7f4957112196d245cd38c81f61",
+        "url_edits": 9
+      },
+      {
+        "held_fuses": true,
+        "identity_fields": [
+          "/inputs/1/sha256",
+          "/inputs/1/size_bytes",
+          "/job_id",
+          "/output_dir",
+          "/resume/namespace"
+        ],
+        "manifest": "replacement-held-manifest.json",
+        "other_changes": 0,
+        "sha256": "c4a17d7ae66823c1c0e2feba24913f33c98ce3c99d38cfd31adf05aa3df9f205",
+        "url_edits": 9
+      }
+    ],
+    "metadata_mapping_rechecked_from_sealed_12": true,
+    "network_fetches": 0,
+    "preflight_bytes": 595248269,
+    "preflight_elapsed_seconds": 24.316233332967386,
+    "preflight_final_canary_binding_verified": true,
+    "prior_review_evidence_hashes_verified": 23,
+    "provider_calls": 0,
+    "ruling_table_hashes_verified": 10,
+    "scientific_looks": 0,
+    "status": "PASS_BYTE_BINDINGS",
+    "total_url_edits": 36
+  },
+  "inherited_evidence": {
+    "offline_final_canary_validation_not_rerun": {
+      "https_rows": 9,
+      "input_rows": 35,
+      "network_requests": 0,
+      "provider_calls": 0,
+      "status": "PASS_OFFLINE_FINAL_CANARY_VALIDATE_CHECK",
+      "upload_rows": 26
+    },
+    "operator_history_disclosures_as_recorded_at_12": {
+      "build_drive": "Reported step 6 status independently verified in final byte-diff receipt: URL_SWAP_PLUS_REQUIRED_ATTEMPT_IDENTITY_NOT_ADMITTED.",
+      "deviation_1": {
+        "assessment": "No ruling breach found: A3.1 names logical folder, not Stream mode. Independent current Mirror hash/size and parent checks PASS. Exact rerun history is operator-reported.",
+        "reported": "Owner switched Stream to Mirror mid-staging; step-2 script rerun with only local root path changed to /Users/josenunez/My Drive; nine SHA/size checks passed again. Logical Drive path identical."
+      },
+      "deviation_2": {
+        "assessment": "No shown A4 immutability breach for bound folder/assets: metadata proves separate stable IDs, duplicate trashed, selected folder/nine children active. Historical moving actor and recoverability are operator-reported.",
+        "reported": "Earlier Stream copy produced nested duplicate folder 12cyBsD1_ueYiVOADHurkgHtY4G3shbIn; Claude moved that duplicate to recoverable Trash. Only selected folder referenced."
+      },
+      "deviation_3": {
+        "assessment": "FAIL literal A3.3 xattr-read instruction. Independent SQLite name/ID/size equivalence PASS, but no supplied ruling authorizes this substitution. Historical open(x)/script refusal behavior not independently observed.",
+        "reported": "Mirror has no item-ID xattr; step-5 IDs read from read-only children of selected folder in mirror_metadata_sqlite.db with regex/local-placeholder/duplicate/exact-nine-name/size refusals. drive-urls.json created with open('x')."
+      },
+      "owner_consent": "Explicit owner in-chat yes to unlisted Anyone-with-link Viewer exposure; owner set selected folder sharing. Accepted as supplied fact; chat and exact ACL not independently queried.",
+      "preflight": "Reported step 7 independently verified from immutable receipt and final manifest binding; no refetch/retry performed.",
+      "selected_folder_id": "1yr71MQZgtRLlZ3DprqN147dDOwqprHm_",
+      "source": "User-supplied Claude operator facts, 2026-10-23 approximately 17:30-18:00 PT"
+    },
+    "qualification": "Historical test outcomes, consent/sharing/mode-switch/trash history and live metadata evidence are retained as such. The historical unrati\ufb01ed assessment for deviation_3 is superseded only by this bound exception and resolved_findings above.",
+    "software_tests_not_rerun": [
+      {
+        "command": "env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -o addopts='' -p no:xdist -q research/bl_ppo/test_p1_repair_transport.py",
+        "exit_code": 0,
+        "live_provider_calls": 0,
+        "pytest_seconds": 18.37,
+        "result": "9 passed"
+      },
+      {
+        "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -I /tmp/p1_codex_v_12_final_audit.py",
+        "result": "PASS_BYTE_BINDINGS; seven comprehensive independent stdlib checks; no imports of producer diff/bundle verification code"
+      },
+      {
+        "command": "sqlite3 -readonly -json mirror_metadata_sqlite.db; read-only items/stable_parents queries parsed against drive-urls.json and drive-asset-plan.json",
+        "result": "PASS_METADATA_BINDINGS_ONLY; exactly nine direct children; names/IDs/sizes match"
+      },
+      {
+        "command": "Offline research.colab_cli.supervisor.validate(final_canary, repo) and research.colab_cli.canary.check(normalized, repo); input_inventory",
+        "result": "PASS; 35 inputs, 9 HTTPS, 26 upload; no provider/Colab CLI/network calls"
+      }
+    ],
+    "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json",
+    "source_sha256": "5cd6398a470754163059e59498ce18cc2f48e60c1fff8abbcda46c372110739f"
+  },
+  "manifest_sha256": {
+    "canary-manifest.json": "fa398a8eb52009da34c8c05cc69a913c71eeaa2b38dd4a0573cf37d0b79c726e",
+    "qualification-held-manifest.json": "850fdd3893a2ace28d66272042045bafb9fd14c091f2919ca0712132461a7058",
+    "repair-manifest.json": "233a77e0e3305fbfd946f3f7aeda9c44f7e40f7f4957112196d245cd38c81f61",
+    "replacement-held-manifest.json": "c4a17d7ae66823c1c0e2feba24913f33c98ce3c99d38cfd31adf05aa3df9f205"
+  },
+  "network_fetches_this_review": 0,
+  "new_verification": [
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -I /tmp/p1_codex_v_13_audit.py",
+      "method": "Isolated stdlib-only independent SHA/diff/tar/JSON audit; no producer verification imports; full result embedded in independent_byte_audit.",
+      "result": "PASS_BYTE_BINDINGS"
+    },
+    {
+      "command": "Independent reviewer read-only clause, hash and admission-guard audit",
+      "result": "No new blocker; all 23 evidence hashes and old receipt seals match; exception actual digest independently confirmed."
+    }
+  ],
+  "next_operator_action": "Complete ruling conditions 4-6 and existing A3.6/Finalisation section 7. Use the fresh exact-hash Claude line check; do not reuse the FAIL or treat this PASS as dispatch authorization.",
+  "no_touch_confirmation": [
+    "Colab and account assignments",
+    "tmux sessions and live workers",
+    "released checkpoints and serving pins",
+    "prior hash-bound manifests/receipts/judgments",
+    "pre-existing untracked canary files",
+    "selected Drive folder or files; no move/edit/replace/unshare",
+    "No p1_repair_admission call or dispatch command executed",
+    "No live DriveFS database access in this review"
+  ],
+  "provider_allocations": 0,
+  "provider_calls": 0,
+  "publication_note": "New create-only artifact receipt and byte-identical repo copy, each with SHA sidecar and completion marker published last. Publication commit reported in final handoff, not self-bound.",
+  "qualified_colab_cli_tree": "d0d92bdb572b770284a1fea6152417ffa5f06bea",
+  "resolved_findings": [
+    {
+      "authority_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_A3_3_SQLITE_20261023.md",
+      "authority_sha256": "f1bd0dca5499c1766addb2145e35dc3e6291c6d9d97f175425c68d7f0d9f3ee9",
+      "conditions_verified_here": [
+        "All frozen evidence hashes unchanged",
+        "Exact archived nine-child mapping and parent/active flags retained",
+        "Exact URL-to-ID/name/size join and 36 manifest URL substitutions verified",
+        "Attempt identity and successful exact-byte Mac preflight remain unchanged and bound",
+        "No new fetch, restaging, object/DB change, scientific look, admission or dispatch"
+      ],
+      "id": "F1_A3_3_SQLITE_SUBSTITUTION_UNRATIFIED",
+      "remaining_operator_conditions": [
+        "Fresh Claude stage-specific line check binding this review digest, exact manifest digest, original finalisation ruling and this exception",
+        "Campaign FAIL-to-ruling-to-new-review chain and reconciled published ledger",
+        "Broker fast-forward and proof/current/pin qualified-tree equality",
+        "Immediate live zero-other-assignment and <=1.54u/h rate evidence, zero tolerance",
+        "Mandatory exact-pin VM canary and existing subsequent-stage gates"
+      ],
+      "resolution": "Astra ratifies already-performed read-only DriveFS Mirror SQLite ID discovery for the exact selected folder and nine active mapped objects. This supplies the missing procedural authority before admission; it does not claim that xattrs were read or change the accuracy of the earlier FAIL.",
+      "status": "RESOLVED_PROCEDURAL_EXCEPTION_FOR_EXACT_PACK",
+      "superseded_procedural_receipt": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_12_FINAL.json",
+        "preserved_byte_identical": true,
+        "sha256": "5cd6398a470754163059e59498ce18cc2f48e60c1fff8abbcda46c372110739f",
+        "verdict": "FAIL"
+      }
+    }
+  ],
+  "review_head_after_fast_forward": "f1ba112114a07c87274a83a5a3d59f6b6d12df40",
+  "reviewer": "Independent Codex-V _13 final documentary review with separate read-only reviewer clause audit",
+  "ruling_sha256": "fe0584595cca6f6fcb28071692e52e4fe8460f3ab90fc29429c027203ff9ebfc",
+  "schema": "bl-p1-drive-origin-codex-v/v1",
+  "scientific_admission": false,
+  "scope": "FINAL_13_ASTRA_EXCEPTION_AND_IMMUTABLE_BINDINGS_ONLY_NO_ADMISSION_DISPATCH_OR_COLAB",
+  "served_b8_s3_unchanged": true,
+  "source_manifest_sha256": {
+    "canary-manifest.json": "bf7d26a9374b5d43d00448e1d4fe071f872f83325ff27b1069a041b714f2f1a0",
+    "qualification-held-manifest.json": "5fcfb1117381ee87465827a540e70b4c4e820c78784bb4757c606bf9bc80a7db",
+    "repair-manifest.json": "8497ff3f1cc045e196a1b0c9b09c1ce880e0af84504636fa84e332b328b5f705",
+    "replacement-held-manifest.json": "82d2111f93be2e3c76b625fa0244625b1b3f55396797f8026bea922b90066bc2"
+  },
+  "spend_units": 0,
+  "status": "READY_FOR_CLAUDE_CHECK",
+  "transport_ruling_sha256": "2fb9e3914a5eb86e9cd5c42495a1d8213fa1475aa6cf0c72d14c83350de5bc5e",
+  "unresolved_findings": [],
+  "verdict": "PASS",
+  "worktree": "/Users/josenunez/Projects/ml/snake-dqn-p1snap",
+  "y3_pass": false
+}
