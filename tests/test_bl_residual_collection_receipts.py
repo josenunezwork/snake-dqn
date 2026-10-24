@@ -774,6 +774,33 @@ def test_l4_tail_units_are_separate_and_bound(tmp_path: Path) -> None:
     }
     control["stage_receipts"]["D4096_L4_ACCOUNTING"] = path.name
     control["input_hashes"][path.name] = digest(path)
+    inventory = sealed(
+        tmp_path / "l4-inventory.json",
+        {
+            "schema": "bl-labels-d4096-l4-attempt-inventory/v1",
+            "series_id": SERIES,
+            "registration_sha256": F4_REGISTRATION_SHA,
+            "dose": 4096,
+            "all_attempts_listed": True,
+            "attempts": [{"receipt": {"path": "/forbidden/receipt.json", "sha256": "c" * 64}}],
+        },
+    )
+    control["stage_receipts"]["D4096_L4_ATTEMPT_INVENTORY"] = inventory.name
+    control["input_hashes"][inventory.name] = digest(inventory)
+    replace_bound(
+        tmp_path,
+        control,
+        "D4096_COLLECTION_DISPOSITION",
+        {
+            "l4_accounting": {
+                "status": "BOUND_COMPLETE_INVENTORY",
+                "ledger": {"path": str(path), "sha256": digest(path)},
+                "inventory": {"path": str(inventory), "sha256": digest(inventory)},
+                "attempt_count": 1,
+                "charged_units": 700,
+            }
+        },
+    )
     replace_bound(
         tmp_path,
         control,

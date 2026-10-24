@@ -20,9 +20,9 @@ import torch
 from research.bl_ppo.exports import digest, export_json, export_torch, limit_exports, verify_export
 from research.bl_residual.collection_receipts import (
     START_JUDGMENT_SHA,
-    l4_accounting,
     sha256,
     validate_mac_projection,
+    validate_release_l4_accounting,
 )
 from research.bl_residual.data import allocate_lives, tensor_cache, validate_rows, world_fold
 from research.bl_residual.fit import FitFault, FitRecipe, fit_residual
@@ -80,7 +80,7 @@ def _require_d4096_collection_state(input_dir: Path, control: dict, requested: l
 
 def _require_collection_release(
     input_dir: Path, control: dict, stage: dict, recipe_sha: str, funding_name: str
-) -> None:
+) -> dict:
     """Require I1's sealed release of this union under this exact PASS funding.
 
     This schema is a consumer contract until I1 publishes its producer. Missing,
@@ -107,6 +107,7 @@ def _require_collection_release(
         or value.get("funding_receipt_sha256") != digest(input_dir / funding_name)
     ):
         raise ValueError("HOLD: foreign D4096 collection release binding")
+    return value
 
 
 # B6 is deliberately a canonical package path, not an optional control field:
@@ -237,7 +238,7 @@ def _validate_staging(
     )
     if not funding_ok:
         raise ValueError("STOP_FUNDING: D4096 funding receipt did not pass")
-    _require_collection_release(input_dir, control, stage, recipe_sha, funding_name)
+    release = _require_collection_release(input_dir, control, stage, recipe_sha, funding_name)
     projection = _sealed_stage_receipt(input_dir, control, projection_name)
     projected = projection.get("projected_units")
     collection_names = (stage.get("D256_COLLECTION"), stage.get("D1024_COLLECTION"))
@@ -327,25 +328,28 @@ def _validate_staging(
                 and [m.get("selected_rescue_lives") for m in checked_measurements] == [256, 768]
                 and isinstance(projection.get("l4_tail_accounting"), dict)
             )
-    tail = projection.get("l4_tail_accounting")
-    if (
-        tail is not None
-        or projection.get("l4_tail_accounting_sha256") is not None
-        or stage.get("D4096_L4_ACCOUNTING")
-    ):
-        # A separate sealed R7 ledger charges all L4 attempts. It never changes
-        # the measured Mac projection, and the worker repeats its cap check.
-        tail_name = stage.get("D4096_L4_ACCOUNTING")
-        if tail_name:
-            tail_value = _sealed_stage_receipt(input_dir, control, tail_name)
-            if projection.get("l4_tail_accounting_sha256") != digest(input_dir / tail_name):
-                raise ValueError("unbound D4096 L4 accounting")
-        else:
-            tail_value = None
-            if projection.get("l4_tail_accounting_sha256") is not None:
-                raise ValueError("missing D4096 L4 accounting binding")
-        if tail != l4_accounting(tail_value, series_id):
-            raise ValueError("D4096 L4 R7 accounting differs")
+    # R7 remains separate from the Mac projection, but every staged attempt must
+    # be the one released by I1, including setup/identity/failure-only attempts.
+    tail_name = stage.get("D4096_L4_ACCOUNTING")
+    inventory_name = stage.get("D4096_L4_ATTEMPT_INVENTORY")
+    tail_value = _sealed_stage_receipt(input_dir, control, tail_name) if tail_name else None
+    inventory = (
+        _sealed_stage_receipt(input_dir, control, inventory_name) if inventory_name else None
+    )
+    tail_sha = digest(input_dir / tail_name) if tail_name else None
+    inventory_sha = digest(input_dir / inventory_name) if inventory_name else None
+    accounting = validate_release_l4_accounting(
+        release.get("l4_accounting"),
+        tail_value,
+        tail_sha,
+        inventory,
+        inventory_sha,
+        series_id=series_id,
+    )
+    if projection.get("l4_tail_accounting_sha256") != tail_sha:
+        raise ValueError("unbound D4096 L4 accounting")
+    if projection.get("l4_tail_accounting") != accounting:
+        raise ValueError("D4096 L4 R7 accounting differs")
     projection_ok = (
         projection.get("schema") == "bl-residual-d4096-projection/v1"
         and projection.get("series_id") == series_id

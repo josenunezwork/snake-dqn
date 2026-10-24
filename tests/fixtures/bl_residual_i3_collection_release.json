@@ -1,6 +1,11 @@
 {
   "schema": "bl-labels-d4096-collection-disposition/v1",
   "disposition": "RELEASED",
+  "l4_accounting": {
+    "status": "ABSENT_NO_L4_ATTEMPTS_ATTESTED",
+    "ledger": null,
+    "inventory": null
+  },
   "judgment_sha256": "ccf1e0cd8d60a2019c983ab2714d58663ca42e2a228a0ddf78c16216c2ef83fb",
   "series_id": "synthetic-i3-series",
   "registration_sha256": "66388c795b3bec5bd014fa03d700994527b67763479143f7c3e5f35d1bb2fd65",

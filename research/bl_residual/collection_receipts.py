@@ -282,6 +282,86 @@ def l4_accounting(value: dict | None, series_id: str) -> dict:
     }
 
 
+def validate_release_l4_accounting(
+    declaration: Any,
+    ledger: dict | None,
+    ledger_sha: str | None,
+    inventory: dict | None,
+    inventory_sha: str | None,
+    *,
+    series_id: str,
+) -> dict:
+    """Recheck the release's L4 bindings using staged metadata only.
+
+    Absolute paths in the release and inventory describe Mac evidence. Workers
+    compare their hashes with sealed staged copies and never follow those paths.
+    """
+    if not isinstance(declaration, dict):
+        raise ValueError("missing explicit release L4 accounting declaration")
+    status = declaration.get("status")
+    if status == "ABSENT_NO_L4_ATTEMPTS_ATTESTED":
+        if (
+            "ledger" not in declaration
+            or "inventory" not in declaration
+            or declaration["ledger"] is not None
+            or declaration["inventory"] is not None
+            or declaration.get("attempt_count", 0) != 0
+            or declaration.get("charged_units", 0) != 0
+            or any(v is not None for v in (ledger, ledger_sha, inventory, inventory_sha))
+        ):
+            raise ValueError("L4 accounting contradicts release no-L4 attestation")
+        return l4_accounting(None, series_id)
+    if status != "BOUND_COMPLETE_INVENTORY":
+        raise ValueError("missing or unknown explicit release L4 accounting status")
+    for key, value, staged_sha in (
+        ("ledger", ledger, ledger_sha),
+        ("inventory", inventory, inventory_sha),
+    ):
+        binding = declaration.get(key)
+        if (
+            not isinstance(binding, dict)
+            or set(binding) != {"path", "sha256"}
+            or not isinstance(binding.get("path"), str)
+            or not Path(binding["path"]).is_absolute()
+            or not sha256(binding.get("sha256"))
+            or value is None
+            or staged_sha != binding["sha256"]
+        ):
+            raise ValueError(f"missing or substituted release-bound L4 {key}")
+    accounting = l4_accounting(ledger, series_id)
+    if (
+        inventory.get("schema") != "bl-labels-d4096-l4-attempt-inventory/v1"
+        or inventory.get("series_id") != series_id
+        or inventory.get("registration_sha256") != F4_REGISTRATION_SHA
+        or inventory.get("dose") != 4096
+        or inventory.get("all_attempts_listed") is not True
+        or not isinstance(inventory.get("attempts"), list)
+    ):
+        raise ValueError("release requires a complete D4096 L4 attempt inventory")
+    digests = []
+    for row in inventory["attempts"]:
+        binding = row.get("receipt") if isinstance(row, dict) else None
+        if (
+            not isinstance(binding, dict)
+            or set(binding) != {"path", "sha256"}
+            or not isinstance(binding.get("path"), str)
+            or not Path(binding["path"]).is_absolute()
+            or not sha256(binding.get("sha256"))
+        ):
+            raise ValueError("L4 attempt receipt binding is malformed")
+        digests.append(binding["sha256"])
+    if (
+        len(digests) != len(set(digests))
+        or set(digests) != {row["receipt_sha256"] for row in accounting["attempts"]}
+        or type(declaration.get("attempt_count")) is not int
+        or declaration["attempt_count"] != len(digests)
+        or not finite_nonnegative(declaration.get("charged_units"))
+        or declaration["charged_units"] != accounting["charged_units"]
+    ):
+        raise ValueError("release L4 attempt-set, count or charge differs")
+    return accounting
+
+
 def write_projection_receipt(
     d256: Path, d1024: Path, mac_projection: Path, output: Path, *, l4_ledger: Path | None = None
 ) -> dict:
