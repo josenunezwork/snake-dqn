@@ -16,7 +16,7 @@ from typing import Any
 
 import torch
 
-from research.gpu_sim_spike import flood_cuda
+from research.gpu_sim_spike import flood_cuda, v8_indexed
 from src.core.mechanics_constants import HEADON_SIZE_RATIO
 
 _DX = (0, 1, 0, -1)
@@ -228,6 +228,34 @@ def _post_body(
     return cells, valid, lpost, boosted
 
 
+def _post_geometry(
+    sim: Any, env: torch.Tensor, slot: torch.Tensor, action: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return v5/v7 post-move heads, first traversed cells, lengths and boost flags.
+
+    The indexed CUDA experiment uses this small geometry view while native code
+    constructs the expensive body-derived maps by direct ring reads.  It is
+    intentionally separate from the established CPU fallback in :func:`_post_body`.
+    """
+    length = sim.length[env, slot][:, None].expand_as(action)
+    bf = sim.boost_frames[env, slot][:, None].expand_as(action)
+    heading = sim.direction[env, slot][:, None]
+    hd = (heading + action.remainder(3) - 1) % 4
+    dx = torch.as_tensor(_DX, device=env.device)[hd]
+    dy = torch.as_tensor(_DY, device=env.device)[hd]
+    boosted = (action >= 3) & (length >= int(sim.cfg.min_boost_length))
+    lpost = torch.where(
+        boosted & (bf + 1 >= int(sim.cfg.boost_length_cost_frames)) & (length > 1),
+        length - 1,
+        length,
+    )
+    heads = _heads(sim, env, slot)[:, None, :]
+    delta = torch.stack((dx, dy), -1)
+    head_pos = heads + delta * torch.where(boosted, 2, 1)[..., None]
+    first_pos = heads + delta
+    return head_pos, first_pos, lpost, boosted
+
+
 def _choice(
     q: torch.Tensor, eligible: torch.Tensor, base: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -322,15 +350,29 @@ def v8_decide(
             z6,
         )
     h, w = int(sim.grid_h), int(sim.grid_w)
-    old_cells_all, old_valid_all = _body_cells(sim, env)
-    own_cells = old_cells_all[torch.arange(n, device=device), slot]
-    own_valid = old_valid_all[torch.arange(n, device=device), slot]
-    all_occ = _paint(old_cells_all, old_valid_all, h, w)
-    # Other snakes are static walls for v5/v7 post-move paths.
-    other_valid = old_valid_all & (
-        torch.arange(sim.S, device=device)[None, :, None] != slot[:, None, None]
-    )
-    other_occ = _paint(old_cells_all, other_valid, h, w)
+    native_indexed = device.type == "cuda" and v8_indexed.enabled()
+    if native_indexed:
+        # Direct native ring reads eliminate the repeated selected-world body
+        # materializations.  Keep all later flood/ranking semantics in this
+        # module, with the old path retained as the CPU/default CUDA oracle.
+        (
+            all_occ,
+            other_occ,
+            post_tail_occ,
+            indexed_release,
+            indexed_lpost,
+            indexed_boosted,
+        ) = v8_indexed.construct(sim, rows)
+    else:
+        old_cells_all, old_valid_all = _body_cells(sim, env)
+        own_cells = old_cells_all[torch.arange(n, device=device), slot]
+        own_valid = old_valid_all[torch.arange(n, device=device), slot]
+        all_occ = _paint(old_cells_all, old_valid_all, h, w)
+        # Other snakes are static walls for v5/v7 post-move paths.
+        other_valid = old_valid_all & (
+            torch.arange(sim.S, device=device)[None, :, None] != slot[:, None, None]
+        )
+        other_occ = _paint(old_cells_all, other_valid, h, w)
     heads = _heads(sim, env, slot)
     direction = sim.direction[env, slot]
     rel3 = torch.arange(3, device=device)[None]
@@ -353,20 +395,29 @@ def v8_decide(
     legal = torch.where(legal.any(1, keepdim=True), legal, torch.arange(6, device=device)[None] < 3)
     base = q.masked_fill(~legal, -1e30).argmax(1)
     actions6 = torch.arange(6, device=device)[None].expand(n, -1)
-    post_cells, post_valid, lpost, boosted = _post_body(
-        sim, env, slot, actions6, own_cells, own_valid
-    )
+    if native_indexed:
+        head_pos, first_pos, lpost, boosted = _post_geometry(sim, env, slot, actions6)
+        # Native lpost/boost flags are returned for construction validation;
+        # tensor geometry remains the authoritative control input here.
+        torch._assert_async(indexed_lpost.eq(lpost).all(), "v8 indexed post length mismatch")
+        torch._assert_async(indexed_boosted.eq(boosted).all(), "v8 indexed boost mismatch")
+    else:
+        post_cells, post_valid, lpost, boosted = _post_body(
+            sim, env, slot, actions6, own_cells, own_valid
+        )
+        head_pos = post_cells[:, :, 0]
+        first_pos = post_cells[:, :, 1]
     # v5 boost landing: paint post-move indices 1..n, rather than painting the
     # whole body then clearing the head coordinate.  The distinction matters
     # when a new head overlaps a retained body cell: CPU ``_landing_count``
     # keeps that cell blocked and reports landing area zero.
-    head_pos = post_cells[:, :, 0]
-    post_tail_occ = _paint(
-        post_cells[:, :, 1:].reshape(n * 6, sim.cap - 1, 2),
-        post_valid[:, :, 1:].reshape(n * 6, sim.cap - 1),
-        h,
-        w,
-    ).reshape(n, 6, h, w)
+    if not native_indexed:
+        post_tail_occ = _paint(
+            post_cells[:, :, 1:].reshape(n * 6, sim.cap - 1, 2),
+            post_valid[:, :, 1:].reshape(n * 6, sim.cap - 1),
+            h,
+            w,
+        ).reshape(n, 6, h, w)
     landing_block = other_occ[:, None] | post_tail_occ
     landing6 = _flood(head_pos, landing_block, cap[:, None].expand(-1, 6), max_steps=_CAP_MAX)
     landing = torch.where(
@@ -405,20 +456,23 @@ def v8_decide(
     )
     # v7 tail-release area.  ``lpost-i+1`` matches the frozen release-map values;
     # a head is explicitly released for the flood source.
-    i = torch.arange(sim.cap, device=device)[None, None, :]
-    rel_values = (lpost[:, :, None] - i + 1).clamp_min(0)
-    release = torch.zeros((n, 6, h * w), dtype=torch.long, device=device)
-    px, py = post_cells[..., 0], post_cells[..., 1]
-    good = post_valid & (px >= 0) & (px < w) & (py >= 0) & (py < h)
-    pind = py.clamp(0, h - 1) * w + px.clamp(0, w - 1)
-    release.scatter_reduce_(
-        2,
-        pind,
-        torch.where(good, rel_values, torch.zeros_like(rel_values)),
-        reduce="amax",
-        include_self=True,
-    )
-    release = release.reshape(n, 6, h, w)
+    if native_indexed:
+        release = indexed_release
+    else:
+        i = torch.arange(sim.cap, device=device)[None, None, :]
+        rel_values = (lpost[:, :, None] - i + 1).clamp_min(0)
+        release = torch.zeros((n, 6, h * w), dtype=torch.long, device=device)
+        px, py = post_cells[..., 0], post_cells[..., 1]
+        good = post_valid & (px >= 0) & (px < w) & (py >= 0) & (py < h)
+        pind = py.clamp(0, h - 1) * w + px.clamp(0, w - 1)
+        release.scatter_reduce_(
+            2,
+            pind,
+            torch.where(good, rel_values, torch.zeros_like(rel_values)),
+            reduce="amax",
+            include_self=True,
+        )
+        release = release.reshape(n, 6, h, w)
     # New head is unblocked by release.pop(head), preserving opponent blockers.
     hi = head_pos[..., 1].clamp(0, h - 1) * w + head_pos[..., 0].clamp(0, w - 1)
     release.reshape(n, 6, -1).scatter_(
@@ -479,7 +533,7 @@ def v8_decide(
         2,
     )
     bound = (ol.clamp_min(1) + 1)[:, :, None].expand_as(rvalid)
-    paths = post_cells[:, :, :2]
+    paths = torch.stack((head_pos, first_pos), dim=2)
     path_valid = (
         torch.arange(2, device=device)[None, None, :] < torch.where(boosted, 2, 1)[:, :, None]
     )

@@ -90,7 +90,12 @@ def platform_attestation() -> dict[str, str]:
 
 def _command_output(command: list[str]) -> str:
     return subprocess.run(
-        command, check=True, capture_output=True, text=True, timeout=observation_timeout()
+        command,
+        check=True,
+        capture_output=True,
+        text=True,
+        errors="surrogateescape",
+        timeout=observation_timeout(),
     ).stdout
 
 

@@ -156,6 +156,13 @@ def run(ledger: Path, output: Path) -> dict[str, Any]:
 
 
 def main() -> None:
+    priority = os.getpriority(os.PRIO_PROCESS, 0)
+    if priority < 15:
+        os.setpriority(os.PRIO_PROCESS, 0, 15)
+    priority = os.getpriority(os.PRIO_PROCESS, 0)
+    if priority < 15:
+        raise PackageRefused("test entrypoint could not establish nice >= 15")
+    print(json.dumps({"stage": "runtime-admission", "effective_nice": priority}), flush=True)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
