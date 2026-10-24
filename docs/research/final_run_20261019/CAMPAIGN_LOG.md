@@ -993,3 +993,69 @@ Root receipt-dispatch/qualification checks: 13 passed. Final real dispatch
 dry-run: PASS offline, expected NOT_READY pending final operator admission.
 All 204 original package files remain unchanged. No live account query,
 allocation or dispatch occurred; historical/live admission blockers remain.
+
+
+### 2026-10-24 — V8 reconstructed admission budget implementation; no dispatch
+
+Binding Astra authority `big-lever/exp/JUDGMENT_V8_ADMISSION_BUDGET_20261024.md`
+SHA256 `c6e6683fb4df8e5831c1d55c640050fe43c265253d58fde586f0041de17a3e59`
+replaces the missing original-seal prerequisite with an explicitly conservative
+reconstruction. Operative anchor: `2026-10-24T01:00:00Z`, tightened only by earlier
+authenticated sprint evidence. Original historical seal/T0/spendable values remain
+unknown, not recovered. The first accepted operator boundary freezes
+`C=min(1100,S+B-L_external,authenticated historical limit if recovered)` once;
+C/2 is base and C/6 is included reserve. This preparation has no accepted live
+B/S/liability figures and does not freeze or invent C.
+
+The prospective sibling amendment is
+`tools/V8_ADMISSION_BUDGET_AMENDMENT_20261024.md`. Packet ceiling becomes
+150 minutes / 25 units, historical-canary accounting portion 30/5, bounded top-up
+base 3/0.5 and effective 6/1. The initial main stays 120/20 including reserve;
+estimate 50 minutes, reserve 10/3 units and producer deadline 5400 seconds.
+Conservative known split-canary charge is 26.098752113201773 minutes /
+4.349792018866962 units; the full reservation provisionally fits before added
+liabilities. All six V8 attempts conservatively consume 44.92460732780164 minutes /
+7.487434554633607 units, retaining the failed-allocation discrepancy and original
+STOP_ROUTE. V8 216/36, Q2 864/144, Q4 1152/192 and global 7200/frozen-C remain
+nested ceilings; no counter or clock restarts. Required I0/Q3/Q5/Q6, O1 and actual
+admitted commitments remain protected.
+
+Fresh local package: `big-lever/exp/gpu-v8-main-budget-20261024-02`; host companion
+`tools/v8_budget_main_amend.py`, updated accounting validator/draft and
+`tools/v8_admission_budget.py` remain outside the shipped runtime. Preserve runtime
+`669405e2bef629f7f69bc951cf49486d8b0a87bf`, qualified broker, metadata archive
+`770fd1daa01a0100d1e84551d1d34c483ba615234b5fe976824256e6b636f315`, exact inputs,
+empty main ledger, all nine cells and scientific rules. Previous package/draft/
+review/receipt bytes are preserved. The scoped host companion re-runs the preserved
+canary/native/source/export/discrepancy/reducer/resume/qualification path.
+
+Operator instructions: `tools/V8_ADMISSION_BUDGET_HANDOFF_20261024.md`. Independent
+Codex-V exact offline package acceptance and a separate exact-body live accounting
+ACCEPT remain mandatory; finalization is create-only with sidecars. Actual accepted
+C/T0/reconstruction/ledger/admission hashes must be appended by `record-campaign`
+before any dispatch. Preparation performs no provider queries, allocation, runtime
+mutation, automatic completion, training, label admission or serving release.
+
+
+The unaccepted budget preparation `gpu-v8-main-budget-20261024-01` is preserved
+with an implementation snapshot and supersession note. Independent adversarial
+review found a frozen ledger row/source mismatch; the corrected companion and
+regression test are prepared under fresh sibling `gpu-v8-main-budget-20261024-02`.
+The first preparation was never accepted or dispatched; its bytes were not edited.
+
+Independent exact offline acceptance completed for final V8 budget package `-02`:
+manifest SHA256 `f1266d454d9064292e09470f9de6b73de8bb4d25c8edd1340a2a8062b391e722`,
+preparation `8fb58948465e6f1556607e95b6b9c07f4fed5a2e556c81e747a91a3ef139148d`.
+Codex-V LIGHT ACCEPT_OFFLINE SHA256
+`ae6a1d65883b62a45396f0583042f3013f23e80ec2e63b3092292d0440ea9249`;
+accounting ACCEPT_OFFLINE_DRAFT SHA256
+`5725022cc99c18636e4e86283ec25b586ce2b25a01c30961e357b0d847ac4805`.
+Final focused suite: 151 passed, no skips; actual dispatch dry-run PASS with
+577 source files, largest/source upload 1,943,906 bytes and NOT_READY pending
+live operator admission. Global lint and changed-file Black/isort/flake8 passed.
+Broader independent frozen suite: 315 passed, one warmup timing failure
+(130 seconds observed vs 135 expected); isolated two-case rerun 2 passed.
+No frozen source was changed to repair that result. All 49 prior amended-package
+files are unchanged. Root commands/results: sibling preparation-evidence
+`VERIFICATION.json`. Live C/reconstruction and OPERATOR_ADMISSION remain absent;
+no provider queries, allocation, dispatch, completion or release occurred.

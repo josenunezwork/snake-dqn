@@ -10,8 +10,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from tools import v8_admission_budget as budget
+
 CAPS = {
-    "packet": (144, 24),
+    "packet": (150, 25),
     "v8": (216, 36),
     "q2": (864, 144),
     "q4": (1152, 192),
@@ -74,7 +76,11 @@ def close(left: float, right: float, name: str) -> None:
 
 
 def validate_evidence(
-    body: dict[str, Any], *, now: datetime, receipt_hashes: dict[str, str]
+    body: dict[str, Any],
+    *,
+    now: datetime,
+    receipt_hashes: dict[str, str],
+    reconstruction_path: Path | None = None,
 ) -> None:
     """Verify sourced accounting, parent balances, original clock and live boundary.
 
@@ -84,20 +90,190 @@ def validate_evidence(
     evidence = body.get("accounting_evidence")
     if not isinstance(evidence, dict):
         raise ValueError("INCOMPLETE_ADMISSION: missing accounting evidence")
-    original_t0 = sourced(evidence.get("original_t0"))
+    reconstruction = budget.validate_reconstruction(
+        evidence.get("reconstruction"), path=reconstruction_path or budget.RECONSTRUCTION
+    )
+    frozen_clock = reconstruction["original_t0"]
+    original_t0 = frozen_clock
+    sealed = finite(
+        reconstruction["reconstructed_spendable_effective_limit_units"], "frozen spendable limit"
+    )
+    tightening = evidence.get("later_tightening", {})
+    if tightening is not None:
+        if not isinstance(tightening, dict):
+            raise ValueError("INCOMPLETE_ADMISSION: invalid later tightening")
+        earlier = tightening.get("earlier_authenticated_clock_source")
+        if earlier is not None:
+            candidate = sourced(earlier)
+            if utc(candidate) > utc(frozen_clock):
+                raise ValueError("INCOMPLETE_ADMISSION: later clock cannot extend reconstruction")
+            original_t0 = candidate
+        smaller = tightening.get("smaller_historical_limit_source")
+        if smaller is not None:
+            candidate_limit = finite(sourced(smaller), "recovered historical limit")
+            if candidate_limit > sealed:
+                raise ValueError("INCOMPLETE_ADMISSION: recovered ceiling cannot increase frozen C")
+            sealed = candidate_limit
     if body.get("original_t0") != original_t0:
         raise ValueError("INCOMPLETE_ADMISSION: original T0 differs from source")
     clock = utc(original_t0)
     if clock > now:
         raise ValueError("INCOMPLETE_ADMISSION: original T0 is in future")
-    sealed = finite(sourced(evidence.get("sealed_spendable_units")), "sealed spendable limit")
-    reconciliation = sourced(evidence.get("reconciliation"))
+    if (
+        body.get("reconstructed_spendable_effective_limit_units")
+        != reconstruction["reconstructed_spendable_effective_limit_units"]
+    ):
+        raise ValueError("INCOMPLETE_ADMISSION: frozen C differs from reconstruction")
+    if body.get("effective_spendable_limit_units") != sealed:
+        raise ValueError("INCOMPLETE_ADMISSION: effective C does not include later tightening")
+    ledger = sourced(evidence.get("ledger"))
+    if not isinstance(ledger, dict) or ledger.get("schema") != "v8-admission-ledger/v1":
+        raise ValueError("INCOMPLETE_ADMISSION: missing conservative ledger")
+    if ledger.get("history_basis") != "INVENTORIED_CONSERVATIVE_BOUNDS" or any(
+        ledger.get(key) is not True for key in ("complete_history", "complete_liabilities")
+    ):
+        raise ValueError("INCOMPLETE_ADMISSION: incomplete conservative ledger")
+    rows = ledger.get("rows")
+    holds = ledger.get("protected_holds")
+    if not isinstance(rows, list) or not isinstance(holds, list):
+        raise ValueError("INCOMPLETE_ADMISSION: ledger rows/holds missing")
+    identities = set()
+    endpoint_intervals: dict[str, list[tuple[datetime, datetime]]] = {}
+    endpoint_without_interval = set()
+    recomputed_spent = {scope: [0.0, 0.0] for scope in CAPS}
+    recomputed_liabilities = {scope: [0.0, 0.0] for scope in CAPS}
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("job_id"), str) or not row["job_id"]:
+            raise ValueError("INCOMPLETE_ADMISSION: unbounded ledger identity")
+        if row["job_id"] in identities:
+            raise ValueError("INCOMPLETE_ADMISSION: duplicate ledger identity")
+        identities.add(row["job_id"])
+        interval = row.get("charged_interval")
+        endpoint = row.get("endpoint")
+        if endpoint is not None:
+            if not isinstance(endpoint, str) or not endpoint:
+                raise ValueError("INCOMPLETE_ADMISSION: endpoint interval missing")
+            # A unique released endpoint may be bounded by trustworthy broker
+            # elapsed time without inventing a historical absolute timestamp.
+            # Reused endpoints require disjoint source-bound intervals.
+            if interval is None:
+                if endpoint in endpoint_intervals or endpoint in endpoint_without_interval:
+                    raise ValueError("INCOMPLETE_ADMISSION: reused endpoint lacks interval union")
+                endpoint_without_interval.add(endpoint)
+            elif not isinstance(interval, dict) or endpoint in endpoint_without_interval:
+                raise ValueError("INCOMPLETE_ADMISSION: reused endpoint lacks interval union")
+        if endpoint is not None and interval is not None:
+            if not all(
+                isinstance(value, str) and value
+                for value in (endpoint, interval.get("start_utc"), interval.get("end_utc"))
+            ):
+                raise ValueError("INCOMPLETE_ADMISSION: invalid endpoint interval")
+            start, end = utc(interval["start_utc"]), utc(interval["end_utc"])
+            if end <= start or any(
+                start < previous_end and previous_start < end
+                for previous_start, previous_end in endpoint_intervals.setdefault(endpoint, [])
+            ):
+                raise ValueError("INCOMPLETE_ADMISSION: overlapping endpoint interval")
+            endpoint_intervals[endpoint].append((start, end))
+        if row.get("charge_basis") not in {
+            "CONSERVATIVE_BOUND",
+            "MEASURED_PROVIDER_DEBIT",
+            "OVERLAP_GUARD",
+        }:
+            raise ValueError("INCOMPLETE_ADMISSION: unbounded ledger charge")
+        charged = pair(row.get("charged"), "ledger charge")
+        if (
+            not isinstance(row.get("charge_source"), dict)
+            or sourced(row["charge_source"]) != row["charged"]
+        ):
+            raise ValueError("INCOMPLETE_ADMISSION: unsourced ledger charge")
+        for key in ("authority_sha256", "manifest_sha256", "terminal_status", "release_status"):
+            if not row.get(key):
+                raise ValueError("INCOMPLETE_ADMISSION: incomplete ledger provenance")
+        if not isinstance(row.get("evidence"), list) or not row["evidence"]:
+            raise ValueError("INCOMPLETE_ADMISSION: missing ledger evidence")
+        for descriptor in row["evidence"]:
+            sourced(descriptor)
+        if (
+            not isinstance(row.get("scope_memberships"), list)
+            or not row["scope_memberships"]
+            or not set(row["scope_memberships"]).issubset(CAPS)
+            or len(row["scope_memberships"]) != len(set(row["scope_memberships"]))
+        ):
+            raise ValueError("INCOMPLETE_ADMISSION: ledger scope memberships missing")
+        if "global" not in row["scope_memberships"]:
+            raise ValueError("INCOMPLETE_ADMISSION: ledger row does not debit global once")
+        if row["charge_basis"] == "OVERLAP_GUARD" and not {"q2", "q4"}.issubset(
+            row["scope_memberships"]
+        ):
+            raise ValueError("INCOMPLETE_ADMISSION: overlap guard must protect q2 and q4")
+        liability = pair(row.get("remaining_liability"), "ledger liability")
+        for scope in row["scope_memberships"]:
+            recomputed_spent[scope] = [a + b for a, b in zip(recomputed_spent[scope], charged)]
+            recomputed_liabilities[scope] = [
+                a + b for a, b in zip(recomputed_liabilities[scope], liability)
+            ]
+    protected = {"I0", "Q3", "Q5", "Q6", "O1"}
+    held = set()
+    for hold in holds:
+        if not isinstance(hold, dict) or hold.get("name") not in protected:
+            raise ValueError("INCOMPLETE_ADMISSION: missing protected required-work hold")
+        if hold["name"] in held:
+            raise ValueError("INCOMPLETE_ADMISSION: duplicate protected required-work hold")
+        held.add(hold["name"])
+        charged = pair(hold.get("charged"), "protected hold")
+        if not isinstance(hold.get("source"), dict) or sourced(hold["source"]) != hold["charged"]:
+            raise ValueError("INCOMPLETE_ADMISSION: unsourced protected hold")
+        if not set(hold.get("scope_memberships", [])) or not set(
+            hold["scope_memberships"]
+        ).issubset(CAPS):
+            raise ValueError("INCOMPLETE_ADMISSION: protected hold scope missing")
+        if "global" not in hold["scope_memberships"]:
+            raise ValueError("INCOMPLETE_ADMISSION: protected hold does not debit global")
+        if hold["name"] == "I0" and "q4" not in hold["scope_memberships"]:
+            raise ValueError("INCOMPLETE_ADMISSION: I0 hold must protect q4")
+        if len(hold["scope_memberships"]) != len(set(hold["scope_memberships"])):
+            raise ValueError("INCOMPLETE_ADMISSION: duplicate protected hold scope")
+        if hold["name"] == "I0" and any(charged) and "q4" not in hold["scope_memberships"]:
+            raise ValueError("INCOMPLETE_ADMISSION: I0 integration hold must protect Q4")
+        ceilings = {
+            "I0": (144, 24),
+            "Q3": (576, 96),
+            "Q5": (1440, 240),
+            "Q6": (2304, 384),
+            "O1": (288, 48),
+        }
+        ceiling = ceilings[hold["name"]]
+        if charged[0] + 1e-8 < ceiling[0] or charged[1] + 1e-8 < ceiling[1]:
+            release = hold.get("released_or_completed_source")
+            released = sourced(release) if isinstance(release, dict) else None
+            if (
+                not isinstance(released, dict)
+                or released.get("status")
+                not in {"COMPLETED", "RELEASED", "NARROWER_ACCEPTED_RESERVATION"}
+                or released.get("charged") != hold["charged"]
+            ):
+                raise ValueError(
+                    "INCOMPLETE_ADMISSION: reduced protected hold lacks sourced authority"
+                )
+        for scope in hold["scope_memberships"]:
+            recomputed_liabilities[scope] = [
+                a + b for a, b in zip(recomputed_liabilities[scope], charged)
+            ]
+    if held != protected:
+        raise ValueError("INCOMPLETE_ADMISSION: missing protected required-work hold")
+    reconciliation = ledger.get("reconciliation")
     if not isinstance(reconciliation, dict) or any(
         reconciliation.get(key) is not True for key in ("complete_history", "complete_liabilities")
     ):
         raise ValueError("INCOMPLETE_ADMISSION: incomplete original accounting history/liabilities")
     if reconciliation.get("original_t0") != original_t0:
         raise ValueError("INCOMPLETE_ADMISSION: reconciliation uses foreign T0")
+    if (
+        reconciliation.get("spent", {}).get("global") is None
+        or reconciliation.get("liabilities", {}).get("global") is None
+    ):
+        raise ValueError("INCOMPLETE_ADMISSION: reconstruction ledger lacks global totals")
     deadline = clock + timedelta(hours=48)
     if "candidate_freeze" in evidence:
         freeze = sourced(evidence["candidate_freeze"])
@@ -127,6 +303,11 @@ def validate_evidence(
             if actual != value:
                 raise ValueError(f"INCOMPLETE_ADMISSION: unsourced {scope} {category}")
             pair(value, f"{scope} {category}")
+            expected = (
+                recomputed_spent[scope] if category == "spent" else recomputed_liabilities[scope]
+            )
+            for observed, derived in zip(pair(value, f"{scope} {category}"), expected):
+                close(observed, derived, f"{scope} {category} ledger total")
     if body.get("liabilities_and_reservations") != reconciliation["liabilities"]:
         raise ValueError("INCOMPLETE_ADMISSION: liabilities differ from reviewed accounting")
     balances = {}
@@ -179,13 +360,21 @@ def validate_evidence(
             if scope == "packet" and "split" not in job:
                 continue
             totals[scope] = [a + b for a, b in zip(totals[scope], values)]
+        ledger_row = next((row for row in rows if row.get("job_id") == job), None)
+        if (
+            ledger_row is None
+            or ledger_row.get("charged") != charge["charged"]
+            or not {"v8", "global"}.issubset(ledger_row.get("scope_memberships", []))
+            or ("split" in job and "packet" not in ledger_row.get("scope_memberships", []))
+        ):
+            raise ValueError("INCOMPLETE_ADMISSION: historical charge lacks exact ledger identity")
     if seen != set(receipt_hashes):
         raise ValueError("INCOMPLETE_ADMISSION: missing charged attempt")
     for scope in totals:
         for actual, total in zip(pair(reconciliation["spent"][scope], scope), totals[scope]):
             close(actual, total, scope + " reconciled charge sum")
-    if totals["packet"][0] > 24 or totals["packet"][1] > 4:
-        raise ValueError("INCOMPLETE_ADMISSION: unchanged canary portion is exhausted")
+    if totals["packet"][0] > 30 or totals["packet"][1] > 5:
+        raise ValueError("INCOMPLETE_ADMISSION: historical canary portion is exhausted")
     usage_raw = sourced(evidence.get("usage"))
     sessions_raw = sourced(evidence.get("sessions"))
     if not isinstance(usage_raw, str) or not isinstance(sessions_raw, str):
@@ -229,6 +418,16 @@ def validate_evidence(
     )
     account_liability = finite(
         reconciliation.get("account_outstanding_units"), "account liabilities"
+    )
+    external = finite(
+        reconciliation.get("external_liabilities_units"), "current external liabilities"
+    )
+    if sourced(reconciliation.get("sources", {}).get("external_liabilities_units")) != external:
+        raise ValueError("INCOMPLETE_ADMISSION: unsourced current external liabilities")
+    close(
+        account_liability,
+        external + pair(reconciliation["liabilities"]["global"], "global liabilities")[1],
+        "current account liabilities",
     )
     if (
         sourced(reconciliation.get("sources", {}).get("account_outstanding_units"))

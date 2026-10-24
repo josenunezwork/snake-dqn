@@ -11,29 +11,31 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import math
 import os
-import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from tools.v8_admission_evidence import validate_evidence
+from tools import v8_admission_budget as budget
+from tools.v8_admission_evidence import sourced, validate_evidence
 
 BASE = Path("/Users/josenunez/Projects/ml")
-ART = BASE / "snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01"
-RULING = BASE / "snake-dqn-artifacts/big-lever/exp/JUDGMENT_V8_SPLIT_MAIN_20261024.md"
-RULING_SHA = "f8c1386dc6b82c3cd0f0b74a491b18433d78da48cd3fb28472f16c3a68db22b4"
+ART = BASE / "snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02"
+RULING = budget.BUDGET_RULING
+RULING_SHA = budget.BUDGET_RULING_SHA
+PRIOR_RULING = BASE / "snake-dqn-artifacts/big-lever/exp/JUDGMENT_V8_SPLIT_MAIN_20261024.md"
+PRIOR_RULING_SHA = budget.SPLIT_RULING_SHA
 MANIFEST = ART / "v8-split-main.json"
 MAIN_CAP = {"wall_minutes": 120, "units": 20}
 V8_ALLOWANCE = {"wall_minutes": 216, "units": 36}
-PACKET_ALLOWANCE = {"wall_minutes": 144, "units": 24}
+PACKET_ALLOWANCE = {"wall_minutes": 150, "units": 25}
+HISTORICAL_CANARY_CAP = {"wall_minutes": 30, "units": 5}
 
 # All six count against the original 216/36 ceiling. The boolean identifies
-# split-packet canaries, which additionally count against the amended 144/24.
+# split-packet canaries, which additionally count against the amended 150/25.
 RECEIPTS = (
     (
         "metadata_canary",
@@ -136,7 +138,12 @@ def verified(path: Path) -> str:
 
 
 def _number(value: Any, name: str, *, positive: bool = False) -> float:
-    if type(value) not in (int, float) or not math.isfinite(value) or (positive and value <= 0):
+    if (
+        type(value) not in (int, float)
+        or not math.isfinite(value)
+        or value < 0
+        or (positive and value <= 0)
+    ):
         raise Refused(f"invalid {name}")
     return float(value)
 
@@ -191,6 +198,8 @@ def receipt_hashes() -> dict[str, str]:
 def draft_record() -> dict[str, Any]:
     if digest(RULING) != RULING_SHA:
         raise Refused("cap ruling hash differs")
+    if digest(PRIOR_RULING) != PRIOR_RULING_SHA:
+        raise Refused("prior split ruling hash differs")
     rows = receipt_rows()
     post = [row for row in rows if row["split_packet"]]
     packet_minutes = sum(row["elapsed_seconds"] for row in post) / 60
@@ -211,16 +220,32 @@ def draft_record() -> dict[str, Any]:
     round28 = BASE / "snake-dqn-artifacts/big-lever/round-28/JUDGMENT.md"
     intent = BASE / "snake-dqn-gpu-v8/research/gpu_sim_spike/V8_INTENT_20261023.md"
     return {
-        "schema": "v8-split-operator-admission-draft/v1",
+        "schema": "v8-budget-operator-admission-draft/v1",
         "status": "INCOMPLETE_ADMISSION",
         "note": (
             "Historical reconciliation only. Null is unknown, never zero; "
             "no dispatch is authorized."
         ),
         "ruling": {"path": str(RULING), "sha256": RULING_SHA},
+        "prior_split_ruling": {"path": str(PRIOR_RULING), "sha256": PRIOR_RULING_SHA},
         "manifest": {"path": str(MANIFEST), "sha256": digest(MANIFEST)},
-        "original_t0": None,
-        "original_t0_pointer": None,
+        "authority_kind": "ASTRA_RECONSTRUCTION_NOT_RECOVERED_SEAL",
+        "policy_version": "v8-admission-budget-20261024-v1",
+        "historical_original_sealed_admission": None,
+        "historical_original_t0": None,
+        "historical_sealed_spendable_units": None,
+        "reconstruction_anchor_utc": "2026-10-24T01:00:00Z",
+        "original_t0": "2026-10-24T01:00:00Z",
+        "candidate_freeze_deadline_utc": "2026-10-26T01:00:00Z",
+        "integrated_speed_deadline_utc": "2026-10-27T01:00:00Z",
+        "utility_deadline_utc": "2026-10-29T01:00:00Z",
+        "packet_cap": PACKET_ALLOWANCE,
+        "historical_canary_charge_ceiling": HISTORICAL_CANARY_CAP,
+        "reserved_main": MAIN_CAP,
+        "base_topup": {"wall_minutes": 3, "units": 0.5},
+        "effective_topup": {"wall_minutes": 6, "units": 1},
+        "reconstruction": None,
+        "ledger": None,
         "authority_sources": {
             "original_v8_ceiling": {
                 "path": str(intent),
@@ -301,24 +326,27 @@ def draft_record() -> dict[str, Any]:
         },
         "split_packet": {
             "amended_cap": PACKET_ALLOWANCE,
+            "historical_canary_charge_ceiling": HISTORICAL_CANARY_CAP,
             "known_post_anchor_spend": {"wall_minutes": packet_minutes, "units": packet_units},
             "provisional_remainder": {
                 "wall_minutes": PACKET_ALLOWANCE["wall_minutes"] - packet_minutes,
                 "units": PACKET_ALLOWANCE["units"] - packet_units,
             },
             "required_main_reservation": MAIN_CAP,
-            "admissible_from_known_receipts": False,
+            "admissible_from_known_receipts": (
+                PACKET_ALLOWANCE["wall_minutes"] - packet_minutes >= MAIN_CAP["wall_minutes"]
+                and PACKET_ALLOWANCE["units"] - packet_units >= MAIN_CAP["units"]
+            ),
         },
         "liabilities_and_reservations": None,
         "global_remaining": None,
         "q2_q4_remaining": None,
         "live_unencumbered_units": None,
         "current_assignments_and_rates": None,
-        "calendar_deadline_utc": None,
+        "calendar_deadline_utc": "2026-10-26T01:00:00Z",
         "blockers": [
-            "Original sealed T0 authority and its spendable limit are not located.",
+            "Create the immutable reconstructed T0/C record; never reset it from a later balance.",
             "All liabilities/reservations and Q2/Q4 balances are unknown.",
-            "Known split-packet remainder cannot reserve the full 120 minutes / 20 units.",
             "Live usage/sessions/rates, release and account-cap evidence are operator-only.",
         ],
     }
@@ -329,8 +357,13 @@ def template(draft: dict[str, Any]) -> dict[str, Any]:
         "status": "INCOMPLETE_ADMISSION",
         "manifest_sha256": draft["manifest"]["sha256"],
         "ruling_sha256": RULING_SHA,
+        "prior_split_ruling_sha256": PRIOR_RULING_SHA,
+        "packet_cap": PACKET_ALLOWANCE,
+        "historical_canary_charge_ceiling": HISTORICAL_CANARY_CAP,
         "reserved_main": MAIN_CAP,
-        "original_t0": None,
+        "original_t0": draft["original_t0"],
+        "reconstructed_spendable_effective_limit_units": None,
+        "effective_spendable_limit_units": None,
         "historical_expenditure": draft["historical_expenditure"],
         "liabilities_and_reservations": None,
         "q2_q4_remaining": None,
@@ -341,14 +374,34 @@ def template(draft: dict[str, Any]) -> dict[str, Any]:
         "verified_main_rate_units_per_hour": None,
         "previous_endpoint": None,
         "current_assignments_and_rates": None,
-        "calendar_deadline_utc": None,
-        "accounting_evidence": None,
+        "calendar_deadline_utc": draft["calendar_deadline_utc"],
+        "accounting_evidence": {
+            "reconstruction": None,
+            "ledger": None,
+            "v8_charge_reconciliation": None,
+            "usage": None,
+            "sessions": None,
+            "active_records": [],
+            "main_rate": None,
+            "previous_endpoint_release": None,
+            "outside_cap_main_release_liability": None,
+            "later_tightening": {
+                "earlier_authenticated_clock_source": None,
+                "smaller_historical_limit_source": None,
+            },
+        },
         "accounting_as_of_utc": None,
         "valid_until_utc": None,
         "no_main_unit_has_run": None,
         "previous_endpoint_release_verified": None,
         "a100_serial_sprint": None,
         "fits_all_original_parent_caps_and_deadlines": None,
+        "outside_cap_main_release_liability": {"wall_minutes": None, "units": None},
+        "main_reservation": {
+            "reservation_id": None,
+            "scope_memberships": ["packet", "v8", "q2", "q4", "global"],
+            "charged": MAIN_CAP,
+        },
         "codex_v_review": {"path": None, "sha256": None},
     }
 
@@ -382,6 +435,16 @@ def write_draft(output: Path = ART) -> dict[str, Any]:
                 Path(__file__).resolve().parents[1] / "tests/test_v8_admission_evidence.py"
             ),
         },
+        "budget_helper": {
+            "path": str(Path(__file__).resolve().with_name("v8_admission_budget.py")),
+            "sha256": digest(Path(__file__).resolve().with_name("v8_admission_budget.py")),
+        },
+        "budget_tests": {
+            "path": str(Path(__file__).resolve().parents[1] / "tests/test_v8_admission_budget.py"),
+            "sha256": digest(
+                Path(__file__).resolve().parents[1] / "tests/test_v8_admission_budget.py"
+            ),
+        },
     }
     publish(
         output / "PREPARATION_ACCOUNTING.json",
@@ -408,9 +471,14 @@ def validate_live(body: dict[str, Any], now: datetime | None = None) -> str:
         body.get("status") != "ADMIT_INITIAL_MAIN"
         or body.get("manifest_sha256") != digest(MANIFEST)
         or body.get("ruling_sha256") != RULING_SHA
+        or body.get("prior_split_ruling_sha256") != PRIOR_RULING_SHA
     ):
         raise Refused("wrong admitted identity")
-    if body.get("reserved_main") != MAIN_CAP:
+    if (
+        body.get("reserved_main") != MAIN_CAP
+        or body.get("packet_cap") != PACKET_ALLOWANCE
+        or body.get("historical_canary_charge_ceiling") != HISTORICAL_CANARY_CAP
+    ):
         raise Refused("full 120-minute/20-unit main cap is not reserved")
     for key in (
         "original_t0",
@@ -443,10 +511,85 @@ def validate_live(body: dict[str, Any], now: datetime | None = None) -> str:
             raise Refused(f"non-UTC {key}")
     if not times["accounting_as_of_utc"] <= now <= times["valid_until_utc"]:
         raise Refused("stale accounting")
+    if times["valid_until_utc"] - times["accounting_as_of_utc"] > timedelta(
+        minutes=15
+    ) or now - times["accounting_as_of_utc"] > timedelta(minutes=15):
+        raise Refused("accounting freshness exceeds 15 minutes")
     if now + timedelta(minutes=120) > times["calendar_deadline_utc"]:
         raise Refused("deadline cannot fit full main")
     try:
+        outside = body.get("outside_cap_main_release_liability")
+        outside_source = body.get("accounting_evidence", {}).get(
+            "outside_cap_main_release_liability"
+        )
+        if not isinstance(outside, dict) or sourced(outside_source) != outside:
+            raise Refused("missing sourced outside-cap release liability")
+        outside_minutes = _number(outside.get("wall_minutes"), "outside-cap release minutes")
+        outside_units = _number(outside.get("units"), "outside-cap release units")
+        reservation = body.get("main_reservation")
+        if (
+            not isinstance(reservation, dict)
+            or not isinstance(reservation.get("reservation_id"), str)
+            or not reservation["reservation_id"]
+            or reservation.get("charged") != MAIN_CAP
+            or set(reservation.get("scope_memberships", []))
+            != {"packet", "v8", "q2", "q4", "global"}
+        ):
+            raise Refused("missing shared initial-main reservation")
+        ledger = sourced(body["accounting_evidence"]["ledger"])
+        if any(
+            row.get("reservation_id") == reservation["reservation_id"]
+            for row in [*ledger.get("rows", []), *ledger.get("protected_holds", [])]
+            if isinstance(row, dict)
+        ):
+            raise Refused("initial-main reservation was prebooked in liabilities")
+        charges = sourced(body["accounting_evidence"]["v8_charge_reconciliation"])
+        if not isinstance(charges, list):
+            raise Refused("missing historical V8 charge list")
+        charges_by_job = {row.get("job_id"): row for row in charges if isinstance(row, dict)}
+        rows = receipt_rows()
+        failed = next(row for row in rows if row["name"] == "sprint02_failed_allocation")
+        conservative_failed_seconds = max(failed["elapsed_seconds"], 55.95090962498216)
+        for row in rows:
+            expected_seconds = (
+                conservative_failed_seconds
+                if row["name"] == "sprint02_failed_allocation"
+                else row["elapsed_seconds"]
+            )
+            charge = charges_by_job.get(row["job_id"])
+            if not isinstance(charge, dict):
+                raise Refused("missing historical V8 conservative charge")
+            actual = charge.get("charged")
+            expected_minutes, expected_units = expected_seconds / 60, expected_seconds / 360
+            if (
+                not isinstance(actual, dict)
+                or _number(actual.get("wall_minutes"), "charge minutes") < expected_minutes
+                or _number(actual.get("units"), "charge units") < expected_units
+            ):
+                raise Refused("historical V8 charge is below conservative receipt floor")
         validate_evidence(body, now=now, receipt_hashes=receipt_hashes())
+        reconstruction = budget.validate_reconstruction(
+            body["accounting_evidence"]["reconstruction"], path=budget.RECONSTRUCTION
+        )
+        if (
+            body.get("reconstructed_spendable_effective_limit_units")
+            != reconstruction["reconstructed_spendable_effective_limit_units"]
+        ):
+            raise Refused("frozen C differs from reconstruction")
+        for field in (
+            "split_packet_remaining",
+            "v8_series_remaining",
+            "global_remaining",
+            "q2_q4_remaining",
+        ):
+            available = body[field]
+            if (
+                _number(available.get("wall_minutes"), field) < 120 + outside_minutes
+                or _number(available.get("units"), field) < 20 + outside_units
+            ):
+                raise Refused("scope cannot cover main plus outside-cap release liability")
+        if _number(body.get("live_unencumbered_units"), "live units") < 20 + outside_units:
+            raise Refused("account cannot cover main plus outside-cap release liability")
     except ValueError as error:
         raise Refused(str(error)) from error
     return body_digest(body)
@@ -454,31 +597,11 @@ def validate_live(body: dict[str, Any], now: datetime | None = None) -> str:
 
 def finalize(input_path: Path, review_path: Path, output: Path = ART) -> str:
     review_path = review_path.resolve(strict=True)
-    # Re-run the exact frozen-package validator before publication.  This is
-    # deliberately not a generic transport check; it retains all canary,
-    # archive, ledger, receipt, reducer and discrepancy refusals in the
-    # amendment companion that dispatch will invoke again.
-    broker = BASE / "snake-dqn-v8-metadata-qualified-02.noindex"
-    dispatch_source = BASE / "snake-dqn-gpufix/tools/ops/receipt_dispatch.py"
-    amend_source = BASE / "snake-dqn-gpu-v8/tools/v8_split_main_amend.py"
-    sys.path.insert(0, str(broker))
-    try:
-        spec = importlib.util.spec_from_file_location("v8_saved_receipt_dispatch", dispatch_source)
-        if spec is None or spec.loader is None:
-            raise Refused("cannot load saved V8 receipt validator")
-        saved = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(saved)
-        amend_spec = importlib.util.spec_from_file_location(
-            "v8_amendment_for_admission", amend_source
-        )
-        if amend_spec is None or amend_spec.loader is None:
-            raise Refused("cannot load V8 amendment validator")
-        amend = importlib.util.module_from_spec(amend_spec)
-        amend_spec.loader.exec_module(amend)
-        saved.require_review(ART, "v8")
-        saved.verify_v8_preparation(amend)
-    finally:
-        sys.path.remove(str(broker))
+    # The scoped companion validates every frozen runtime/canary/source/export
+    # invariant.  It is intentionally the only preparation authority here.
+    from tools import v8_budget_main_amend as amend
+
+    amend.verify_preparation(require_review=True)
     accounting_prep = output / "PREPARATION_ACCOUNTING.json"
     draft_path = output / "OPERATOR_ADMISSION.draft.json"
     offline_review_path = output / "CODEX_V_ADMISSION_REVIEW.json"
@@ -499,8 +622,10 @@ def finalize(input_path: Path, review_path: Path, output: Path = ART) -> str:
         "evidence_helper": Path(__file__).resolve().with_name("v8_admission_evidence.py"),
         "evidence_tests": Path(__file__).resolve().parents[1]
         / "tests/test_v8_admission_evidence.py",
+        "budget_helper": Path(__file__).resolve().with_name("v8_admission_budget.py"),
+        "budget_tests": Path(__file__).resolve().parents[1] / "tests/test_v8_admission_budget.py",
     }
-    for key in ("source", "tests", "evidence_helper", "evidence_tests"):
+    for key in expected_paths:
         binding = implementation.get(key, {})
         if (
             not isinstance(binding, dict)
@@ -528,7 +653,7 @@ def finalize(input_path: Path, review_path: Path, output: Path = ART) -> str:
     expected_impl = {
         binding["path"]: binding["sha256"]
         for key, binding in implementation.items()
-        if key in {"source", "tests", "evidence_helper", "evidence_tests"}
+        if key in expected_paths
     }
     if offline_review.get("implementation_sha256") != expected_impl:
         raise Refused("Codex-V draft review binds different implementation")
