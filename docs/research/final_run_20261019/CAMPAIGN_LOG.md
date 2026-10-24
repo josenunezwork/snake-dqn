@@ -298,6 +298,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-24 PT | R6 canary PASS → main dispatched; L4 lane v2 built | R6: compile a2 PASS; canary gpu-r6-canary-da09cba1 PASS_CANARY (all 9 cells exact, headroom ≥0.939); Claude-V stand-in canary ACCEPT (CLAUDE_V_STANDIN_R6_CANARY_REVIEW.json f9c534b5…d6ee): C3 met; C4 literal rule miscalibrated (no per-cell times; fixed-cost dominated) → component projection ~610–750 s vs 1,260 s deadline; spend so far 2.99 u (compile a1 0.882, a2 0.599, canary 1.511), worst case 7.99 u. Main gpu-r6-main-da09cba1 DISPATCHED. L4 lane: steps 1+2 built (branch ops-l4-faults-v2-20261024 b5dd7e4b, fix 42169276; adapter main 02536bef+cd37eaec; pack round-24/rpc-qualification-03 validated 0 allocations); fresh Claude-V stand-in review started; nothing dispatches without its ACCEPT. |
 
+| 2026-10-24 PT | **R6 E-scaling: DROP_E4096** (A100 gpu-r6-main-da09cba1, PASS stop-verified) | Frozen reducer once: R6_ANALYSIS.json 8e6c007b…9c45; all 9 cells exact (replicated-world exactness only, C1), no OOM/missing. Median world-steps/s E1024→E2048→E4096: frozen 5,995→6,543→6,767 (+13%), mixed 6,973→7,715→8,134 (+17%), scripted 8,218→9,180→9,950 (+21%) — gain bar ≥25% fails every roster; headroom E4096 0.233 (passes ≥0.20). Engine saturates near E1024–2048; E1024 stays the operating point. Best measured GPU rate now 9,950/s (scripted E4096) → Step −1 input (verified R6 analysis, per C2). Result review (Claude-V stand-in) pending; settlement pending. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
