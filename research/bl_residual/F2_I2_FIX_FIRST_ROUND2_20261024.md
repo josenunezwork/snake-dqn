@@ -156,6 +156,16 @@ review found no remaining actionable product-code finding. No real F2 result
 publication-evidence receipt was captured, since this task does not run or open
 the real F2 result; the actual server probe above was metadata-only.
 
+Post-rebase integration: implementation commit
+`547e6afa201e37e77e517f7b8462c6c6b0d70832` was rebased onto
+`c82bb8d2` and pushed to main without force. The eight I2 files were unchanged
+by rebase. Concurrent main work updated collection/staging dependencies and
+added 34 residual tests, so the identical broad regression command was rerun
+on the combined published tree: **388 passed, 7 deselected in 114.86 s**.
+This includes the unchanged I3 funding-consumer integration and the new
+collection/release-staging regressions. This paragraph is a documentation-only
+follow-up to that verified implementation.
+
 The live D1024 factory, tmux, `exp/mac-lease.json*`, `t34-round0-study-01/`,
 `research/bl_labels/*`, released checkpoints, serving pins, existing ledgers,
 registrations and receipts are untouched.
