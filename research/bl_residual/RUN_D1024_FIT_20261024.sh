@@ -194,7 +194,7 @@ PY
     extra=()
     [ "$PHASE" = canary-dry-run ] && extra=(--dry-run)
     "$Q/tools/ops/dispatch.sh" bl-f4-d1024-canary-01 "$PACK/canary.json" \
-      --broker "$Q" --cwd "$Q" --state-dir "$F4/d1024-canary-state-01" "${extra[@]}"
+      --broker "$Q" --cwd "$Q" --state-dir "$F4/d1024-canary-state-01" ${extra[@]+"${extra[@]}"}
     ;;
   seal-main)
     check_q
@@ -210,7 +210,7 @@ PY
     extra=()
     [ "$PHASE" = fit-dry-run ] && extra=(--dry-run)
     "$Q/tools/ops/dispatch.sh" bl-f4-d1024-fit-01 "$PACK/main.json" \
-      --broker "$Q" --cwd "$Q" --state-dir "$F4/d1024-fit-state-01" "${extra[@]}"
+      --broker "$Q" --cwd "$Q" --state-dir "$F4/d1024-fit-state-01" ${extra[@]+"${extra[@]}"}
     ;;
   publish-fit)
     check_q
