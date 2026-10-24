@@ -280,6 +280,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-24 PT | R2 step 5 (E2048/E4096) | **Operator: NOT RUN (optional step declined).** Implementer HOLD (gpu-r2-padding-20261024/HOLD_STEP5_E_SCALING_20261024.md cfa39c7d…9c32): r2_bench at e66a701f rejects E>1024, so step 5 needs a new runtime commit → own L4 compile + canary + main ≈7.7 u lawful caps vs the ruling's 5 u; round-36 R6 bars (≥25% gain, ≥20% memory headroom on 40 GB A100) are not descriptive. Declined because the direction ruling makes step 5 conditional/optional, E1024 already passes, larger batches never replace the E1024 bar, and the GPU engine has no label consumer (Q5/Q6/Q7 CLOSED). No cap raised. Reopen only via a ruling that names a consumer. |
 
+| 2026-10-24 PT | Next-step triage after R2 | F1-bis/L4 D4096 lane check (read-only): F1-bis (round-24 JUDGMENT_PLACEMENT_MAC §4, §7 C1.4) can't start before Mon 10-26 and needs an L4 six-session re-qualification PASS (first attempt already INCOMPLETE; a second failure closes the L4 label lane for October); advisor B's Mac-vs-L4 payload identity criterion isn't in that ruling. D4096 projects ~43–70 Mac-h under its 130 h cap, so L4 would save ~1 day at ~100+ u. **Operator: L4 lane not funded now.** Critical path is the D1024 fit pack + archive-census freeze + Look R-A prep (unbuilt); Claude implementer commissioned (target ready ~14:30 PT, before D1024 ends ~15:30 PT). A100 released: no admitted GPU work. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
