@@ -54,7 +54,13 @@ def manifest(commit: str, artifact: Path) -> dict:
                 "dest": "compile-requirements.txt",
             }
         ],
-        "source_paths": [PACKAGE, "research/colab_cli", "requirements.txt", "pyproject.toml"],
+        "source_paths": [
+            "src",
+            PACKAGE,
+            "research/colab_cli",
+            "requirements.txt",
+            "pyproject.toml",
+        ],
         "required_exports": ["native-compile.json"],
         "max_export_bytes": 1024 * 1024,
         "lease_seconds": 600,
