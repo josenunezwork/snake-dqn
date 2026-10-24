@@ -330,7 +330,7 @@ def _review_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[s
             "fake_proof": {"path": str(repo / "proof.json"), "sha256": _sha(repo / "proof.json")},
         },
     )
-    (pack / "GUARDED_OPERATOR_COMMANDS_V4.sh").write_text("# exact helper\n")
+    (pack / "GUARDED_OPERATOR_COMMANDS_V5.sh").write_text("# exact helper\n")
     authority = tmp_path / "authority.md"
     authority.write_text("ratified\n")
     monkeypatch.setattr(admission, "AUTHORITY_FILES", {"R": (authority, _sha(authority))})
@@ -356,7 +356,7 @@ def test_accept_refuses_changed_helper_or_authority(tmp_path, monkeypatch, chang
     path = (
         paths["authority"]
         if changed == "authority"
-        else paths["pack"] / "GUARDED_OPERATOR_COMMANDS_V4.sh"
+        else paths["pack"] / "GUARDED_OPERATOR_COMMANDS_V5.sh"
     )
     path.write_text("changed\n")
     with pytest.raises(ValueError, match="authority bytes|artifact/authority digests"):
