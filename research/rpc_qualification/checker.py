@@ -25,10 +25,82 @@ FROZEN_BANK = "a8c1dc4bbe1fd579d59b69d6ca6ca9dbd2814b088f74277f008f504f6d1bbb0d"
 F1_PIN = "2af48cd0b98a2063f46871cf4d320a5541b789af"
 BRANCH_REF = "refs/heads/ops-l4-faults-v2-20261024"
 PLATFORMS = ("cpu", "l4")
+FAKE_PROOF_TESTS = (
+    "tests/test_colab_cli_rpc_recovery.py",
+    "tests/test_colab_cli_acceptance_stall_diagnosis.py",
+    "tests/test_l4_faults_v2.py",
+    "tests/test_rpc_qualification_probe_policy.py",
+)
+FAKE_PROOF_EXTRA_SOURCES = (
+    "research/bl_labels/l4_faults_v2.py",
+    "research/rpc_qualification/broker.py",
+    "research/rpc_qualification/checker.py",
+    "research/rpc_qualification/fake_proof.py",
+    "research/rpc_qualification/probe_policy.py",
+    "tests/fixtures/colab_control_faults_f1.json",
+    "tests/fixtures/colab_control_faults_acceptance_1792762502.json",
+    "tests/fixtures/l4_faults_v2_acceptance_1792762502.json",
+    "tests/fixtures/make_l4_faults_v2_fixture.py",
+    "tests/test_rpc_qualification_probe_policy.py",
+)
 
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def fake_proof_source_inventory(repo: Path) -> dict[str, str]:
+    """Complete source map for fake-CLI evidence, excluding the proof itself."""
+    names = subprocess.check_output(
+        ["git", "ls-files", "research/colab_cli", *FAKE_PROOF_EXTRA_SOURCES, *FAKE_PROOF_TESTS],
+        cwd=repo,
+        text=True,
+        timeout=30,
+    ).splitlines()
+    expected = set(FAKE_PROOF_EXTRA_SOURCES) | set(FAKE_PROOF_TESTS)
+    if not expected <= set(names):
+        raise ValueError("fake-CLI proof source inventory is incomplete")
+    return {name: _sha(repo / name) for name in names}
+
+
+def validate_fake_proof(fake_path: Path, repo: Path, package_commit: str) -> dict[str, Any]:
+    """Verify the proof's exact source map against current and package-pinned bytes."""
+    value = _read(fake_path)
+    if (
+        value.get("schema") != "rpc-qualification-fake-cli-proof/v1"
+        or value.get("status") != "PASS"
+        or value.get("live") is not False
+        or value.get("tests") != list(FAKE_PROOF_TESTS)
+        or not isinstance(value.get("source_commit"), str)
+        or len(value["source_commit"]) != 40
+        or not isinstance(value.get("source_sha256"), dict)
+    ):
+        raise ValueError("fake-CLI proof did not pass with the required recovery tests")
+    expected = fake_proof_source_inventory(repo)
+    if value["source_sha256"] != expected:
+        raise ValueError("fake-CLI proof source map is incomplete or stale")
+    if subprocess.run(
+        ["git", "merge-base", "--is-ancestor", value["source_commit"], package_commit],
+        cwd=repo,
+        timeout=30,
+        check=False,
+    ).returncode:
+        raise ValueError("fake-CLI proof source commit is not an ancestor of the reviewed package")
+    tree = subprocess.check_output(
+        ["git", "rev-parse", f"{package_commit}:research/colab_cli"],
+        cwd=repo,
+        text=True,
+        timeout=30,
+    ).strip()
+    if value.get("transport_tree") != tree:
+        raise ValueError("fake-CLI proof transport tree differs from the reviewed package")
+    for relative, digest in expected.items():
+        pinned = subprocess.check_output(
+            ["git", "show", f"{package_commit}:{relative}"], cwd=repo, timeout=30
+        )
+        if hashlib.sha256(pinned).hexdigest() != digest:
+            raise ValueError(f"fake-CLI proof source differs from the reviewed package: {relative}")
+    return value
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -609,12 +681,12 @@ def verdict(plan_path: Path, publication_path: Path, out: Path) -> dict[str, Any
         fake_path = _path(plan_path.parent, fake.get("path"), "fake CLI proof")
         if _sha(fake_path) != fake.get("sha256"):
             raise ValueError("fake-CLI proof differs from plan binding")
-        fake_value = _read(fake_path)
-        if (
-            fake_value.get("schema") != "rpc-qualification-fake-cli-proof/v1"
-            or fake_value.get("status") != "PASS"
-        ):
-            raise ValueError("fake-CLI proof did not pass")
+        package = plan.get("source_commit")
+        if not isinstance(package, str) or len(package) != 40:
+            raise ValueError("qualification plan lacks its reviewed package commit")
+        validate_fake_proof(
+            fake_path, _path(plan_path.parent, plan.get("repo"), "repository"), package
+        )
     except (ValueError, OSError) as error:
         fake_error = str(error)
     expected = {job["job_id"] for job in jobs}
@@ -693,19 +765,17 @@ def verdict(plan_path: Path, publication_path: Path, out: Path) -> dict[str, Any
             }
             continue
         faults = [fault for row in rows for fault in row["faults"]]
-        if platform == "cpu":
-            faults.extend(injection["faults"])
+        # The CPU injection proof is mandatory even when optional CPU loops are
+        # NOT_RUN; a counted non-injected fault ends the one shared attempt.
+        faults.extend(injection["faults"])
         result["platforms"][platform] = {
             "status": (
                 "PASS"
                 if not faults
                 and fake_error is None
                 and all(row.get("status") == "PASS" for row in rows)
-                and (
-                    injection.get("status") == "PASS"
-                    if platform == "cpu"
-                    else injection.get("no_duplicate") is True
-                )
+                and injection.get("status") == "PASS"
+                and injection.get("no_duplicate") is True
                 else "FAIL"
             ),
             "sessions": rows,

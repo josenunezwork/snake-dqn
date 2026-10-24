@@ -25,8 +25,76 @@ REVIEW_PATH = Path(
 )
 
 
-def require_review(transport_pin: str = TRANSPORT_PIN) -> dict[str, Any]:
+def git_commit(repo: Path) -> str:
+    """Return the exact commit a review is allowed to bind."""
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True, timeout=30
+    ).strip()
+
+
+def review_source_inventory(repo: Path, package_commit: str | None = None) -> dict[str, str]:
+    """Return the complete reviewed gate/transport source inventory.
+
+    Keep this set mechanical.  A reviewer may not select a convenient subset of
+    the transport, classifier, admission wrapper, or the tests that establish
+    the recovery proof.
+    """
+    package_commit = package_commit or git_commit(repo)
+    tracked = subprocess.check_output(
+        ["git", "ls-tree", "-r", "--name-only", package_commit], cwd=repo, text=True, timeout=30
+    ).splitlines()
+    explicit = {
+        "research/bl_labels/l4_faults_v2.py",
+        "research/rpc_qualification/probe_policy.py",
+        "tools/ops/requalify.py",
+        "tests/test_colab_cli_acceptance_stall_diagnosis.py",
+        "tests/test_colab_cli_rpc_recovery.py",
+        "tests/test_l4_faults_v2.py",
+        "tests/test_l4_lane_admission.py",
+        "tests/test_ops_qualification.py",
+        "tests/test_rpc_qualification_checker.py",
+        "tests/test_rpc_qualification_probe_policy.py",
+        "tests/fixtures/make_l4_faults_v2_fixture.py",
+    }
+    paths = [
+        path
+        for path in tracked
+        if (
+            path in explicit
+            or (path.startswith("research/colab_cli/") and path.endswith((".py", ".sh")))
+            or (path.startswith("research/rpc_qualification/") and path.endswith((".py", ".sh")))
+        )
+    ]
+    return {path: sha(repo / path) for path in paths}
+
+
+def verify_review_sources(review: dict[str, Any], repo: Path, package_commit: str) -> None:
+    """Verify the complete ACCEPT inventory against working and pinned bytes."""
+    if review.get("package_commit") != package_commit:
+        raise ValueError("reviewed package commit differs from the dispatch package")
+    expected = review_source_inventory(repo, package_commit)
+    supplied = review.get("source_sha256")
+    if supplied != expected:
+        raise ValueError("reviewer ACCEPT lacks the complete source inventory")
+    for relative, digest in supplied.items():
+        if sha(repo / relative) != digest:
+            raise ValueError(f"reviewed source differs: {relative}")
+        pinned = subprocess.check_output(
+            ["git", "show", f"{package_commit}:{relative}"], cwd=repo, timeout=30
+        )
+        if hashlib.sha256(pinned).hexdigest() != digest:
+            raise ValueError(f"reviewed source differs from package commit: {relative}")
+
+
+def require_review(
+    transport_pin: str = TRANSPORT_PIN,
+    *,
+    repo: Path | None = None,
+    package_commit: str | None = None,
+) -> dict[str, Any]:
     """Reviewer ACCEPT at this exact fix pin, required before any attempt-2 dispatch."""
+    repo = repo or Path(__file__).resolve().parents[2]
+    package_commit = package_commit or git_commit(repo)
     if not REVIEW_PATH.is_file():
         raise ValueError("attempt-2 package lacks its independent reviewer ACCEPT record")
     review = json.loads(Path(REVIEW_PATH).read_text())
@@ -34,10 +102,12 @@ def require_review(transport_pin: str = TRANSPORT_PIN) -> dict[str, Any]:
         review.get("schema") != "l4-requal-02-review/v1"
         or review.get("verdict") != "ACCEPT"
         or review.get("transport_pin") != transport_pin
+        or not isinstance(review.get("package_commit"), str)
+        or len(review["package_commit"]) != 40
         or not isinstance(review.get("source_sha256"), dict)
-        or not review["source_sha256"]
     ):
         raise ValueError("attempt-2 package lacks an independent reviewer ACCEPT at this pin")
+    verify_review_sources(review, repo, package_commit)
     return review
 
 
@@ -76,7 +146,9 @@ def envelope(platform: str, mode: str) -> dict[str, Any]:
     }
 
 
-def prerequisite_arms(path: Path, repo: Path) -> dict[str, dict[str, Any]]:
+def prerequisite_arms(
+    path: Path, repo: Path, package_commit: str | None = None
+) -> dict[str, dict[str, Any]]:
     """v2 classification of each final-only acceptance arm at the fix pin.
 
     Deliberate acceptance faults are excluded only by each arm's create-only
@@ -88,8 +160,19 @@ def prerequisite_arms(path: Path, repo: Path) -> dict[str, dict[str, Any]]:
     result = json.loads(path.read_text())
     require_final_only(result, repo)
     plan = result["final_plan"]
-    if plan.get("commit") != TRANSPORT_PIN:
-        raise ValueError("prerequisite is not the final-only acceptance at the v2 fix pin")
+    package_commit = package_commit or git_commit(repo)
+    if plan.get("commit") != package_commit:
+        raise ValueError(
+            "prerequisite is not the final-only acceptance at the reviewed package commit"
+        )
+    tree = subprocess.check_output(
+        ["git", "rev-parse", f"{package_commit}:research/colab_cli"],
+        cwd=repo,
+        text=True,
+        timeout=30,
+    ).strip()
+    if tree != TRANSPORT_TREE:
+        raise ValueError("prerequisite package transport tree differs from the v2 fix pin")
     planned = {job["name"]: job for job in plan.get("jobs", [])}
     arms: dict[str, dict[str, Any]] = {}
     for row in plan["execution"]:
@@ -115,7 +198,9 @@ def prerequisite_arms(path: Path, repo: Path) -> dict[str, dict[str, Any]]:
     return arms
 
 
-def require_prerequisite(path: Path, repo: Path, platform: str) -> dict[str, Any]:
+def require_prerequisite(
+    path: Path, repo: Path, platform: str, *, package_commit: str | None = None
+) -> dict[str, Any]:
     """The fix-pin final-only acceptance is necessary, never sufficient (§4 step 3).
 
     ``platform`` is the platform about to dispatch: L4 loops need the L4 arm
@@ -123,11 +208,17 @@ def require_prerequisite(path: Path, repo: Path, platform: str) -> dict[str, Any
     """
     if platform not in {"cpu", "l4"}:
         raise ValueError("unknown prerequisite platform")
-    arms = prerequisite_arms(path, repo)
-    arm = arms[platform]
-    if arm["verdict"] != "PASS" or arm["harness_status"] != "PASS":
-        raise ValueError(f"prerequisite {platform} arm has counted v2 faults or did not pass")
-    return arm
+    arms = prerequisite_arms(path, repo, package_commit)
+    failed = [
+        name
+        for name, arm in arms.items()
+        if arm["verdict"] != "PASS" or arm["harness_status"] != "PASS"
+    ]
+    if failed:
+        raise ValueError(
+            "required " + ", ".join(sorted(failed)) + " arm has counted v2 faults or did not pass"
+        )
+    return arms[platform]
 
 
 def validate_manifest(manifest: dict[str, Any], repo: Path) -> None:
@@ -230,12 +321,4 @@ def validate_manifest(manifest: dict[str, Any], repo: Path) -> None:
             raise ValueError("injection session needs exactly three planned response losses")
     elif injections["entries"]:
         raise ValueError("loop sessions have no deliberate faults")
-    review = require_review()
-    for relative, digest in review["source_sha256"].items():
-        if sha(repo / relative) != digest:
-            raise ValueError(f"reviewed source differs: {relative}")
-        pinned = subprocess.check_output(
-            ["git", "show", f"{manifest['commit']}:{relative}"], cwd=repo, timeout=30
-        )
-        if hashlib.sha256(pinned).hexdigest() != digest:
-            raise ValueError(f"manifest does not pin reviewed source: {relative}")
+    require_review(repo=repo, package_commit=manifest["commit"])

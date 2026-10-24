@@ -251,3 +251,62 @@ def test_failed_source_bound_admission_preserves_registry(broker, tmp_path, monk
     with pytest.raises(ValueError, match="release evidence"):
         requalify.execute(saved, target, "COLAB_CLI_ACCEPTANCE_REVIEWED", "/fake/python")
     assert target.read_text() == "previous"
+
+
+@pytest.mark.parametrize("blocker", ["review", "proof"])
+def test_lane_review_and_proof_refuse_before_started_marker_or_execution(
+    broker, tmp_path, monkeypatch, blocker
+):
+    from research.rpc_qualification import admission as lane_admission
+    from research.rpc_qualification import checker
+
+    saved, _, calls = execution_fixture(broker, tmp_path, monkeypatch)
+    target = tmp_path / "l4-label-lane-qualified.json"
+    target.write_text("previous")
+
+    def refuse(*_args, **_kwargs):
+        raise ValueError("stale " + blocker)
+
+    monkeypatch.setattr(lane_admission, "require_review", lambda **_kwargs: {})
+    monkeypatch.setattr(checker, "validate_fake_proof", lambda *_args: {})
+    if blocker == "review":
+        monkeypatch.setattr(lane_admission, "require_review", refuse)
+    else:
+        monkeypatch.setattr(checker, "validate_fake_proof", refuse)
+    with pytest.raises(ValueError, match="stale " + blocker):
+        requalify.execute(saved, target, "COLAB_CLI_ACCEPTANCE_REVIEWED", "/fake/python")
+    assert "execute" not in calls
+    assert not saved.with_name("ops-execute-started.json").exists()
+    assert target.read_text() == "previous"
+
+
+def test_lane_cpu_fault_preserves_registry_after_raw_harness_pass(broker, tmp_path, monkeypatch):
+    from research.colab_cli import cli_guard, policy
+    from research.rpc_qualification import admission as lane_admission
+    from research.rpc_qualification import checker
+
+    saved, _, calls = execution_fixture(broker, tmp_path, monkeypatch)
+    target = tmp_path / "l4-label-lane-qualified.json"
+    target.write_text("previous")
+    monkeypatch.setattr(lane_admission, "require_review", lambda **_kwargs: {})
+    monkeypatch.setattr(checker, "validate_fake_proof", lambda *_args: {})
+
+    def refuse_cpu(*_args, **_kwargs):
+        raise ValueError("required cpu arm has counted v2 faults")
+
+    monkeypatch.setattr(lane_admission, "require_prerequisite", refuse_cpu)
+    acceptance, _ = requalify.load_transport(broker)
+    original_execute = acceptance.execute
+    original_policy = policy.recovery_probe_retryable
+
+    def execute(*args, **kwargs):
+        error = cli_guard.GuardError("timed out context\nGuardError: OAuth denied")
+        assert not policy.recovery_probe_retryable(error)
+        return original_execute(*args, **kwargs)
+
+    acceptance.execute = execute
+    with pytest.raises(ValueError, match="required cpu arm"):
+        requalify.execute(saved, target, "COLAB_CLI_ACCEPTANCE_REVIEWED", "/fake/python")
+    assert "execute" in calls  # raw harness PASS is deliberately insufficient
+    assert policy.recovery_probe_retryable is original_policy
+    assert target.read_text() == "previous"

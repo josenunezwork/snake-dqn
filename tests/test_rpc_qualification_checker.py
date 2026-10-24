@@ -13,13 +13,17 @@ from research.rpc_qualification import checker
 
 
 @pytest.fixture(autouse=True)
-def _remote_publication(monkeypatch: pytest.MonkeyPatch) -> None:
+def _remote_publication(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
     """Keep the unit test offline; production fetches and reads origin itself."""
     monkeypatch.setattr(
         checker,
         "_remote_json",
         lambda plan, _relative: json.loads((plan.parent / "remote.json").read_text()),
     )
+    # Source-map validation has its own synthetic proof cases.  These fixtures
+    # intentionally use an isolated temporary plan repository.
+    if request.node.name != "test_fake_proof_refuses_a_stale_or_partial_current_source_map":
+        monkeypatch.setattr(checker, "validate_fake_proof", lambda *_args: {})
 
 
 def _sha(path: Path) -> str:
@@ -57,6 +61,8 @@ def _job(root: Path, name: str, platform: str, mode: str = "loop") -> dict:
                 "type": "post_send_response_loss",
                 "command": "exec",
                 "request_id": f"request-{number}",
+                "request_sha256": "c" * 64,
+                "failure_type": "post_send_response_loss",
                 "max_calls": 1,
             }
             for number in range(3)
@@ -107,8 +113,11 @@ def _job(root: Path, name: str, platform: str, mode: str = "loop") -> dict:
                 "timeout_seconds": 10,
                 "elapsed_seconds": 1,
                 "status": "completed",
+                "request_id": "request-" + name,
+                "request_sha256": "d" * 64,
             }
         ],
+        "marker_census": {"request-" + name: {"started": 1, "done": 1, "code_sha256": "d" * 64}},
         "status": "PASS",
         "manifest_sha256": _sha(manifest),
         "terminal": {
@@ -324,6 +333,7 @@ def _injection(root: Path) -> dict:
                 "elapsed_seconds": 1,
                 "status": "failed",
                 "request_sha256": "c" * 64,
+                "failure_type": "post_send_response_loss",
                 "injected": True,
                 "injection_kind": "post_send_response_loss",
                 "unit_id": row["unit_id"],
@@ -346,6 +356,9 @@ def _injection(root: Path) -> dict:
     receipt = output / "receipt.json"
     current = json.loads(receipt.read_text())
     current["cli_calls"] = calls
+    current["marker_census"] = {
+        row["request_id"]: {"started": 1, "done": 1, "code_sha256": "c" * 64} for row in units
+    }
     receipt.unlink()
     receipt.with_name(receipt.name + ".sha256").unlink()
     receipt.with_name(receipt.name + ".complete").unlink()
@@ -405,6 +418,7 @@ def _plan(root: Path) -> tuple[Path, list[dict]]:
         plan,
         {
             "schema": checker.SCHEMA,
+            "source_commit": "a18bf6b4" + "0" * 32,
             "bank_sha256": checker.FROZEN_BANK,
             "worker_pin": checker.F1_PIN,
             "jobs": jobs,
@@ -433,6 +447,7 @@ def test_publish_then_one_look_verdict_passes_without_outcomes(tmp_path: Path) -
     publication = _published(plan, tmp_path)
     verdict = tmp_path / "verdict.json"
     result = checker.verdict(plan, publication, verdict)
+    assert result["injection"]["status"] == "PASS", result["injection"]
     assert result["platforms"]["cpu"]["status"] == "PASS"
     assert result["platforms"]["l4"]["status"] == "PASS"
     assert json.loads(verdict.read_text())["one_look"] is True
@@ -554,13 +569,13 @@ def _recovered_exec(value: dict) -> None:
     ]
 
 
-def test_v2_recovered_timeout_is_recorded_not_counted(tmp_path: Path) -> None:
+def test_v2_recovered_timeout_without_durable_summary_is_not_accepted(tmp_path: Path) -> None:
     plan, jobs = _plan(tmp_path)
     _rewrite_receipt(next(j for j in jobs if j["job_id"] == "l4-0"), _recovered_exec)
     result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
-    assert result["platforms"]["l4"]["status"] == "PASS"
+    assert result["platforms"]["l4"]["status"] == "FAIL"
     session = next(r for r in result["platforms"]["l4"]["sessions"] if r["session"] == "l4-0")
-    assert session["v2"]["recovered_events"] == 1 and session["counted_faults"] == 0
+    assert session["v2"]["counted_by_class"]["C2"] >= 1
 
 
 def test_v2_unresolved_timeout_fails_the_platform(tmp_path: Path) -> None:
@@ -573,19 +588,33 @@ def test_v2_unresolved_timeout_fails_the_platform(tmp_path: Path) -> None:
     _rewrite_receipt(next(j for j in jobs if j["job_id"] == "l4-1"), unresolved)
     result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
     assert result["platforms"]["l4"]["status"] == "FAIL"
-    assert result["platforms"]["l4"]["faults"][0]["source"] == "v2:C2"
+    assert any(fault["source"] == "v2:C2" for fault in result["platforms"]["l4"]["faults"])
 
 
-def test_optional_cpu_loops_not_dispatched_leave_cpu_not_run(tmp_path: Path) -> None:
+def test_mandatory_injection_fault_fails_l4_while_optional_cpu_loops_stay_not_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real fault in the required injection proof ends the whole attempt."""
     plan, jobs = _plan(tmp_path)
     for job in jobs:
         if job["mode"] == "loop" and job["platform"] == "cpu":
             for suffix in ("", ".sha256", ".complete"):
                 Path(job["manifest"] + suffix).unlink(missing_ok=True)
+    original = checker._check_injection
+
+    def counted_injection(plan_path: Path, job: dict) -> dict:
+        result = original(plan_path, job)
+        result["status"] = "FAIL"
+        result["counted_faults"] = 1
+        result["faults"] = [{"source": "v2:C6", "record": {"identity": "unplanned"}}]
+        result["no_duplicate"] = True
+        return result
+
+    monkeypatch.setattr(checker, "_check_injection", counted_injection)
     result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
     assert result["platforms"]["cpu"]["status"] == "NOT_RUN"
-    assert result["platforms"]["l4"]["status"] == "PASS"
-    assert result["injection"]["status"] == "PASS"
+    assert result["platforms"]["l4"]["status"] == "FAIL"
+    assert result["platforms"]["l4"]["counted_faults"] >= 1
 
 
 def test_injection_drop_outside_the_manifest_identity_fails(tmp_path: Path) -> None:
@@ -602,3 +631,30 @@ def test_injection_drop_outside_the_manifest_identity_fails(tmp_path: Path) -> N
     injection_manifest.write(manifest_path, value["session_job_id"], value["entries"], purpose="t")
     result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
     assert result["injection"]["status"] == "FAIL"
+
+
+def test_fake_proof_refuses_a_stale_or_partial_current_source_map(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pack cannot attest an older supervisor while executing the v2 one."""
+    proof = tmp_path / "fake.json"
+    expected = {
+        "research/colab_cli/supervisor.py": "a" * 64,
+        "research/colab_cli/policy.py": "b" * 64,
+        "tests/test_colab_cli_rpc_recovery.py": "c" * 64,
+    }
+    publish_json(
+        proof,
+        {
+            "schema": "rpc-qualification-fake-cli-proof/v1",
+            "status": "PASS",
+            "live": False,
+            "tests": list(checker.FAKE_PROOF_TESTS),
+            "source_commit": "0" * 40,
+            "source_sha256": {"research/colab_cli/supervisor.py": "old"},
+            "transport_tree": "tree",
+        },
+    )
+    monkeypatch.setattr(checker, "fake_proof_source_inventory", lambda _repo: expected)
+    with pytest.raises(ValueError, match="source map is incomplete or stale"):
+        checker.validate_fake_proof(proof, tmp_path, "0" * 40)

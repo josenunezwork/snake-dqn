@@ -88,6 +88,10 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
     transport = git("rev-parse", f"{commit}:research/colab_cli")
     if transport != git("rev-parse", f"{TRANSPORT_PIN}:research/colab_cli"):
         raise ValueError("pack transport tree differs from the v2 fix pin")
+    proof = REPO / "research/rpc_qualification/FAKE_CLI_PROOF_20261024.json"
+    from .checker import validate_fake_proof
+
+    validate_fake_proof(proof, REPO, commit)
     out.mkdir(parents=True)
     archive = out / "f1-source.tar"
     source = frozen_source(archive)
@@ -267,7 +271,6 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
                 "optional": platform == "cpu" and mode == "loop",
             }
         )
-    proof = REPO / "research/rpc_qualification/FAKE_CLI_PROOF_20261023.json"
     plan = {
         "schema": SCHEMA,
         "source_commit": commit,
@@ -365,12 +368,78 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
     return out / "plan.json"
 
 
+def dry_run(plan_path: Path) -> dict[str, Any]:
+    """Check only frozen local inputs, without inventory calls or dispatch writes."""
+    from .admission import require_review
+    from .checker import validate_fake_proof
+
+    _verify(plan_path)
+    plan = json.loads(plan_path.read_text())
+    if git("rev-parse", "HEAD") != plan["source_commit"]:
+        raise ValueError("source changed since pack preparation")
+    if git("rev-parse", "HEAD:research/colab_cli") != plan["transport_tree"]:
+        raise ValueError("transport tree differs from pack")
+    proof = Path(plan["fake_proof"]["path"])
+    if sha(proof) != plan["fake_proof"]["sha256"]:
+        raise ValueError("fake-CLI proof differs from pack")
+    validate_fake_proof(proof, REPO, plan["source_commit"])
+    blockers = ["final-only prerequisite has not been run for this package"]
+    for job in plan["jobs"]:
+        template_path = Path(job["template"])
+        _verify(template_path)
+        template = json.loads(template_path.read_text())
+        if template["commit"] != plan["source_commit"]:
+            raise ValueError("template pin differs from pack")
+        for row in template["inputs"]:
+            if sha(Path(row["path"])) != row["sha256"]:
+                raise ValueError(f"template input changed: {row['dest']}")
+        injection = Path(job["injection_manifest"])
+        _verify(injection)
+        if sha(injection) != job["injection_manifest_sha256"]:
+            raise ValueError("injection manifest changed")
+        from research.bl_labels.l4_faults_v2 import validate_injection_manifest
+
+        try:
+            validate_injection_manifest(json.loads(injection.read_text()), job_id=job["job_id"])
+        except ValueError as error:
+            blockers.append(f"{job['job_id']}: {error}")
+        if any(Path(job[key]).exists() for key in ("manifest", "state_dir", "output_dir")):
+            raise ValueError("pack has already consumed a dispatch slot")
+    blockers.append(
+        "frozen transport lacks prospective operation/attempt identity, marker census, "
+        "durable reply/timing, verification correlation, and watchdog event evidence"
+    )
+    try:
+        require_review(repo=REPO, package_commit=plan["source_commit"])
+    except (OSError, ValueError) as error:
+        blockers.append(str(error))
+    return {
+        "status": "HOLD_OFFLINE",
+        "integrity": "PASS",
+        "dispatch_ready": False,
+        "plan_sha256": sha(plan_path),
+        "jobs": len(plan["jobs"]),
+        "transport_tree": plan["transport_tree"],
+        "blockers": blockers,
+        "provider_calls": 0,
+        "dispatches": 0,
+    }
+
+
 def wave(plan_path: Path, wave_name: str, acceptance: Path, record: Path = LANE_REGISTRY) -> None:
     """Serialize account admissions, then leave up to three runtimes concurrent."""
     plan = json.loads(plan_path.read_text())
     _verify(plan_path)
     if git("rev-parse", "HEAD") != plan["source_commit"]:
         raise ValueError("source changed since pack preparation")
+    from .admission import require_review
+    from .checker import validate_fake_proof
+
+    require_review(repo=REPO, package_commit=plan["source_commit"])
+    proof = Path(plan["fake_proof"]["path"])
+    if sha(proof) != plan["fake_proof"]["sha256"]:
+        raise ValueError("fake-CLI proof differs from pack")
+    validate_fake_proof(proof, REPO, plan["source_commit"])
     require_prerequisite(acceptance, REPO, "l4" if wave_name == "l4" else "cpu")
     selected = [
         job
@@ -443,6 +512,8 @@ def main() -> None:
     build = sub.add_parser("prepare")
     build.add_argument("--out", type=Path, required=True)
     build.add_argument("--bank", type=Path, default=DEFAULT_BANK)
+    offline = sub.add_parser("dry-run")
+    offline.add_argument("--plan", type=Path, required=True)
     dispatch = sub.add_parser("wave")
     dispatch.add_argument("--plan", type=Path, required=True)
     dispatch.add_argument("--wave", choices=["l4", "cpu", "injection"], required=True)
@@ -451,6 +522,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.action == "prepare":
         print(prepare(args.out.resolve(), args.bank))
+    elif args.action == "dry-run":
+        print(json.dumps(dry_run(args.plan.resolve()), indent=2, sort_keys=True))
     else:
         wave(
             args.plan.resolve(),

@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 from types import ModuleType
 
@@ -86,23 +87,43 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
         # so it needs the independent reviewer ACCEPT at this broker pin first.
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
         from research.rpc_qualification.admission import require_review
+        from research.rpc_qualification.checker import validate_fake_proof
 
-        require_review(review["commit"])
+        require_review(repo=repo, package_commit=review["commit"])
+        validate_fake_proof(
+            repo / "research/rpc_qualification/FAKE_CLI_PROOF_20261024.json",
+            repo,
+            review["commit"],
+        )
     # An interrupted/failed execution stays consumed. Another call must plan afresh.
     with saved.with_name("ops-execute-started.json").open("x") as stream:
         json.dump({"review_sha256": hashlib.sha256(raw).hexdigest()}, stream)
-    result_code = acceptance.execute(
-        prepared,
-        state_dir=Path(review["state_dir"]),
-        colab=review["colab"],
-        review_token=token,
-        oauth_python=oauth_python,
-    )
+    if registry.name == "l4-label-lane-qualified.json":
+        from research.rpc_qualification.probe_policy import hardened_probe_policy
+
+        probe_policy = hardened_probe_policy()
+    else:
+        probe_policy = nullcontext()
+    with probe_policy:
+        result_code = acceptance.execute(
+            prepared,
+            state_dir=Path(review["state_dir"]),
+            colab=review["colab"],
+            review_token=token,
+            oauth_python=oauth_python,
+        )
     result_path = saved.with_name("acceptance-result.json")
     result = json.loads(result_path.read_text())
     if result_code != 0:
         raise ValueError("acceptance failed; qualification registry unchanged")
     admission.require_final_only(result, repo)
+    if registry.name == "l4-label-lane-qualified.json":
+        # Publish this lane registry only after the two prerequisite arms have
+        # been classified under v2; raw harness PASS cannot hide a CPU C1/C6.
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from research.rpc_qualification.admission import require_prerequisite
+
+        require_prerequisite(result_path, repo, "l4", package_commit=review["commit"])
     acceptance.verify_plan_sources(result["final_plan"], repo)
     # Recheck after execution before publishing qualification.
     if git(repo, "status", "--porcelain", "--untracked-files=all"):

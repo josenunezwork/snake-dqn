@@ -38,6 +38,25 @@ def _acceptance(tmp_path: Path, l4_calls: list[dict[str, Any]]) -> Path:
     for name, gpu in (("cpu", "cpu"), ("l4", "L4")):
         job_id = f"acceptance-1-{name}"
         entries = injection_manifest.acceptance_entries(gpu)
+        for entry in entries:
+            if entry["command"] == "exec":
+                entry["failure_type"] = "timeout"
+            elif entry["command"] == "terminal":
+                entry.update(
+                    {
+                        "watchdog_event_id": entry["injection_id"] + "-event",
+                        "watchdog_event_sha256": "e" * 64,
+                    }
+                )
+            else:
+                entry.update(
+                    {
+                        "remote": "/content/acceptance/" + entry["injection_id"],
+                        "operation_id": entry["injection_id"] + "-operation",
+                        "attempt_id": entry["injection_id"] + "-attempt",
+                        "failure_type": "absence",
+                    }
+                )
         planned = tmp_path / f"{name}.injection.json"
         digest = injection_manifest.write(planned, job_id, entries, purpose="test")
         jobs.append(
@@ -88,7 +107,7 @@ def _acceptance(tmp_path: Path, l4_calls: list[dict[str, Any]]) -> Path:
         json.dumps(
             {
                 "final_plan": {
-                    "commit": admission.TRANSPORT_PIN,
+                    "commit": admission.git_commit(REPO),
                     "jobs": jobs,
                     "execution": execution,
                 }
@@ -100,10 +119,35 @@ def _acceptance(tmp_path: Path, l4_calls: list[dict[str, Any]]) -> Path:
 
 @pytest.fixture(autouse=True)
 def _harness_admission(monkeypatch: pytest.MonkeyPatch) -> None:
-    """require_final_only (harness gates/source binding) has its own tests."""
+    """Keep the admission decision tests independent of classifier fixture shape."""
+    from research.bl_labels import l4_faults_v2
     from research.colab_cli import admission as transport_admission
 
     monkeypatch.setattr(transport_admission, "require_final_only", lambda result, repo: result)
+
+    original = l4_faults_v2.classify_session
+
+    def classified(receipt: dict, _manifest: dict | None = None) -> dict:
+        if _manifest is None:
+            return original(receipt)
+        calls = receipt["cli_calls"]
+        c1 = [call for call in calls if call["elapsed_seconds"] > call["timeout_seconds"] + 2]
+        l4_unrecovered = (
+            receipt["job_id"].endswith("-l4")
+            and any(call["status"] == "failed" for call in calls)
+            and not any(
+                call["status"] == "completed" and call.get("request_id") == "r" * 32
+                for call in calls
+            )
+        )
+        counted = ([{"class": "C1"}] if c1 else []) + ([{"class": "C2"}] if l4_unrecovered else [])
+        return {
+            "verdict": "FAIL" if counted else "PASS",
+            "counted": counted,
+            "recovered_events": int(not counted and receipt["job_id"].endswith("-l4")),
+        }
+
+    monkeypatch.setattr(l4_faults_v2, "classify_session", classified)
 
 
 def _exec(status: str) -> dict[str, Any]:
@@ -130,11 +174,21 @@ def test_prerequisite_arms_pass_with_recovered_l4_timeout(tmp_path: Path) -> Non
     assert admission.require_prerequisite(path, REPO, "l4")["verdict"] == "PASS"
 
 
-def test_unresolved_l4_timeout_refuses_l4_but_not_cpu(tmp_path: Path) -> None:
-    path = _acceptance(tmp_path, [_exec("failed")])
-    with pytest.raises(ValueError, match="l4 arm has counted v2 faults"):
+def test_counted_cpu_prerequisite_fault_refuses_l4_admission(tmp_path: Path) -> None:
+    """A required CPU-arm fault ends the shared attempt before an L4 wave."""
+    path = _acceptance(tmp_path, [_exec("failed"), _exec("completed")])
+    result = json.loads(path.read_text())
+    cpu = next(row for row in result["final_plan"]["execution"] if row["job"] == "cpu")
+    receipt = Path(cpu["receipt"])
+    receipt_value = json.loads(receipt.read_text())
+    receipt_value["cli_calls"][0]["elapsed_seconds"] = 32.1  # C1: clean L4, faulted CPU arm.
+    receipt.write_text(json.dumps(receipt_value))
+    cpu["receipt_sha256"] = _sha(receipt)
+    path.write_text(json.dumps(result))
+    with pytest.raises(ValueError, match="required .* arm has counted v2 faults"):
         admission.require_prerequisite(path, REPO, "l4")
-    assert admission.require_prerequisite(path, REPO, "cpu")["verdict"] == "PASS"
+    with pytest.raises(ValueError, match="required .* arm has counted v2 faults"):
+        admission.require_prerequisite(path, REPO, "cpu")
 
 
 def test_prerequisite_refuses_old_pin_and_tampered_manifest(tmp_path: Path) -> None:
@@ -142,7 +196,7 @@ def test_prerequisite_refuses_old_pin_and_tampered_manifest(tmp_path: Path) -> N
     value = json.loads(path.read_text())
     value["final_plan"]["commit"] = "a18bf6b4f606f023bfd7c035e68a48e64d7f7457"
     path.write_text(json.dumps(value))
-    with pytest.raises(ValueError, match="v2 fix pin"):
+    with pytest.raises(ValueError, match="reviewed package commit"):
         admission.prerequisite_arms(path, REPO)
     fresh = tmp_path / "fresh"
     fresh.mkdir()
@@ -159,12 +213,14 @@ def test_dispatch_needs_reviewer_accept_at_this_pin(
 ) -> None:
     record = tmp_path / "CLAUDE_V_L4_REQUAL_02_20261024.json"
     monkeypatch.setattr(admission, "REVIEW_PATH", record)
+    monkeypatch.setattr(admission, "verify_review_sources", lambda *_args: None)
     with pytest.raises(ValueError, match="lacks its independent reviewer ACCEPT"):
         admission.require_review()
     good = {
         "schema": "l4-requal-02-review/v1",
         "verdict": "ACCEPT",
         "transport_pin": admission.TRANSPORT_PIN,
+        "package_commit": "0" * 40,
         "source_sha256": {"research/colab_cli/supervisor.py": "0" * 64},
     }
     for bad in ({**good, "verdict": "REVISE"}, {**good, "transport_pin": "a18bf6b4"}):
@@ -175,7 +231,41 @@ def test_dispatch_needs_reviewer_accept_at_this_pin(
     assert admission.require_review()["verdict"] == "ACCEPT"
     requalify = (REPO / "tools/ops/requalify.py").read_text()
     assert 'registry.name == "l4-label-lane-qualified.json"' in requalify
-    assert 'require_review(review["commit"])' in requalify
+    assert 'require_review(repo=repo, package_commit=review["commit"])' in requalify
+
+
+def test_reviewer_accept_requires_exact_package_commit_and_complete_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A partial ACCEPT map cannot authorize either prerequisite or later waves."""
+    record = tmp_path / "CLAUDE_V_L4_REQUAL_02_20261024.json"
+    monkeypatch.setattr(admission, "REVIEW_PATH", record)
+    original_verify = admission.verify_review_sources
+    inventory = admission.review_source_inventory(REPO)
+    good = {
+        "schema": "l4-requal-02-review/v1",
+        "verdict": "ACCEPT",
+        "transport_pin": admission.TRANSPORT_PIN,
+        "package_commit": admission.git_commit(REPO),
+        "source_sha256": inventory,
+    }
+    incomplete = {
+        **good,
+        "source_sha256": {
+            "research/colab_cli/supervisor.py": inventory["research/colab_cli/supervisor.py"]
+        },
+    }
+    record.write_text(json.dumps(incomplete))
+    with pytest.raises(ValueError, match="complete source inventory"):
+        admission.require_review(repo=REPO)
+    wrong_commit = {**good, "package_commit": "0" * 40}
+    record.write_text(json.dumps(wrong_commit))
+    with pytest.raises(ValueError, match="reviewed package commit"):
+        admission.require_review(repo=REPO)
+    record.write_text(json.dumps(good))
+    monkeypatch.setattr(admission, "verify_review_sources", lambda *_args: None)
+    assert admission.require_review()["package_commit"] == admission.git_commit(REPO)
+    monkeypatch.setattr(admission, "verify_review_sources", original_verify)
 
 
 def _dispatch_module():
@@ -237,8 +327,10 @@ def test_f1_bis_reads_the_stall_rule_as_v2(tmp_path: Path) -> None:
     frozen = f1_analyze.load_attempt(attempt, "b" * 64)
     assert len(frozen["transport_faults"]) == 1  # historical census: recovered still counts
     v2 = f1_analyze.load_attempt(attempt, "b" * 64, fault_definition=f1_analyze.V2_FAULTS)
-    assert [row["class"] for row in v2["transport_faults"]] == ["C3"]  # only the terminal
-    assert v2["transport_v2"]["recovered_events"] == 1
+    # The historical fixture does not carry prospective durable-reply or marker
+    # evidence, so it may not be projected as a new-session PASS.
+    assert [row["class"] for row in v2["transport_faults"]] == ["C2", "C3", "C4"]
+    assert v2["transport_v2"]["recovered_events"] == 0
     with pytest.raises(ValueError, match="not part of"):
         f1_analyze.load_attempt(
             attempt,
