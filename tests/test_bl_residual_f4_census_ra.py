@@ -359,7 +359,10 @@ def test_funding_refuses_a_receipt_different_from_the_sealed_packet_before_prefl
         },
     )
     receipt = tmp_path / "other-f2.json"
-    monkeypatch.setattr(funding.f2, "verify_published_receipt", lambda _: {"sha256": "b" * 64})
+    actual = export_json(receipt, {"synthetic": "other"})
+    monkeypatch.setattr(
+        funding.f2, "verify_published_receipt", lambda _: {"sha256": actual["sha256"]}
+    )
     monkeypatch.setattr(
         funding, "preflight_look", lambda *_: pytest.fail("preflight must remain closed")
     )
@@ -402,6 +405,95 @@ def test_funding_refuses_a_receipt_different_from_the_sealed_packet_before_prefl
     )
     with pytest.raises(ValueError, match="F2 binding differs"):
         funding.main()
+
+
+def test_funding_uses_f2_bytes_loaded_before_heldout_look(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    receipt = tmp_path / "f2-disposition.json"
+    original = {
+        "schema": "bl-residual-f2-disposition/v1",
+        "volume_struck": False,
+        "published": True,
+        "source_sha256": "a" * 64,
+        "published_ref": "input-ledger-commit",
+    }
+    exported = export_json(receipt, original)
+    binding = {"sha256": exported["sha256"]}
+    packet = tmp_path / "packet.json"
+    export_json(
+        packet,
+        {"schema": ra.PACKET_SCHEMA, "status": "PREPARED_NOT_RUN", "f2_receipt": binding},
+    )
+    d256_allocation = tmp_path / "d256-allocation.json"
+    left, right = {"dose": 256}, {"dose": 1024}
+    lock = {
+        "schema": "bl-residual-r-a-lock/v1",
+        "lock_root": str(tmp_path.resolve()),
+        "d256": left,
+        "d1024": right,
+    }
+    seen: list[dict] = []
+    calls = 0
+
+    monkeypatch.setattr(funding.f2, "verify_published_receipt", lambda _: binding)
+    monkeypatch.setattr(
+        funding,
+        "preflight_look",
+        lambda checkpoint, *_: left if Path(checkpoint).name == "d256.pth" else right,
+    )
+
+    def heldout(*_args: object, **_kwargs: object) -> dict:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            receipt.write_text('{"substituted":true}\n')
+        return {"synthetic": "look"}
+
+    monkeypatch.setattr(funding, "evaluate_heldout", heldout)
+    monkeypatch.setattr(
+        funding, "evaluate", lambda _left, _right, f2_value: seen.append(f2_value) or {}
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "funding.py",
+            "--d256-checkpoint",
+            str(tmp_path / "d256.pth"),
+            "--d1024-checkpoint",
+            str(tmp_path / "d1024.pth"),
+            "--d256-table",
+            str(tmp_path / "table.npz"),
+            "--d1024-table",
+            str(tmp_path / "table.npz"),
+            "--d256-allocation",
+            str(d256_allocation),
+            "--d1024-allocation",
+            str(tmp_path / "d1024-allocation.json"),
+            "--d256-control",
+            str(tmp_path / "d256-control.json"),
+            "--d1024-control",
+            str(tmp_path / "d1024-control.json"),
+            "--archive-receipt",
+            str(tmp_path / "archive.json"),
+            "--approval",
+            str(tmp_path / "approval.json"),
+            "--b8",
+            str(tmp_path / "b8.pth"),
+            "--look-lock",
+            str(tmp_path / f"F4_R_A_{canonical_sha(lock)}.lock.json"),
+            "--command-packet",
+            str(packet),
+            "--f2-receipt",
+            str(receipt),
+            "--out",
+            str(tmp_path / "out.json"),
+        ],
+    )
+    funding.main()
+    assert calls == 2
+    assert seen == [original]
 
 
 def test_ra_prepare_holds_on_existing_lock_or_unpublished_census(

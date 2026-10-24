@@ -171,6 +171,18 @@ def main() -> None:
     args = parser.parse_args()
     if args.out.exists():
         raise FileExistsError("one create-only R-A funding look")
+    # Verify result-ledger publication before reading a receipt byte, then bind
+    # the exact receipt bytes once.  Retaining this parsed value prevents a
+    # changed receipt from steering the final branch after either held-out look.
+    f2_binding = f2.verify_published_receipt(args.f2_receipt) if args.f2_receipt else None
+    if args.f2_receipt:
+        verify_export(args.f2_receipt)
+        f2_bytes = args.f2_receipt.read_bytes()
+        if hashlib.sha256(f2_bytes).hexdigest() != f2_binding["sha256"]:
+            raise ValueError("F2 receipt changed after its published binding was verified")
+        f2_value = json.loads(f2_bytes)
+    else:
+        f2_value = {}
     joint = all(
         value is not None
         for value in (
@@ -200,7 +212,6 @@ def main() -> None:
             or packet.get("status") != "PREPARED_NOT_RUN"
         ):
             raise ValueError("R-A command packet is not a sealed prepared packet")
-        f2_binding = f2.verify_published_receipt(args.f2_receipt) if args.f2_receipt else None
         if packet.get("f2_receipt") != f2_binding:
             raise ValueError("R-A command packet F2 binding differs from --f2-receipt")
         # The lock is canonical input identity, not an arbitrary output pathname.
@@ -254,11 +265,6 @@ def main() -> None:
         )
     else:
         raise ValueError("provide a complete joint R-A input set")
-    if args.f2_receipt:
-        verify_export(args.f2_receipt)
-        f2_value = json.loads(args.f2_receipt.read_text())
-    else:
-        f2_value = {}
     export_json(
         args.out,
         evaluate(d256, d1024, f2_value),
