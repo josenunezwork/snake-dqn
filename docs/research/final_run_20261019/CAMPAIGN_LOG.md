@@ -1223,7 +1223,7 @@ remain unusable.
 
 ### 2026-10-24 — I0R implementer HOLD: resume ledger refused by the qualified matcher
 
-Ruling `JUDGMENT_I0_RESIZE_20261024.md` (RESTRUCTURE_I0_AS_I0R, SHA256 `dacd2f4b…24c2c2`)
+Ruling `JUDGMENT_I0_RESIZE_20261024.md` (RESTRUCTURE_I0_AS_I0R, SHA256 `dacd2f4b…6324f2c2`)
 §2 makes it a precondition that the qualified canary exact-input matcher accepts a
 non-empty resume ledger. The Claude implementer (Codex unavailable) tested it on the
 Mac against the real I0 canary receipt (`d230135d…`), qualified 968f0276 modules only,
