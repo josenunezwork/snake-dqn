@@ -406,6 +406,24 @@ def _event_stale_cache(
     broken_invalidation_control = bool(
         control_cache_warm and not torch.equal(stale_mask, repaired_mask)
     )
+    # The warm clone/remap/restore proofs above deliberately observe a
+    # prepared vector seam.  Advance each actual comparison branch once using
+    # its ordinary complete lifecycle, discard those setup captures, then
+    # collect the registered two event ticks from the canonical post-step
+    # unprepared seam.  This keeps the warm-boundary evidence intact while
+    # ensuring every published event tick includes advisory/accounting fields.
+    _tick(case)
+    _tick(clone)
+    _tick(equivalent)
+    if sim._prepared or policy.vector_prepared:
+        raise RuntimeError("stale-cache source setup did not return to post-step seam")
+    if clone[0]._prepared or clone[1].vector_prepared:
+        raise RuntimeError("stale-cache clone setup did not return to post-step seam")
+    if equivalent_sim._prepared or equivalent_policy.vector_prepared:
+        raise RuntimeError("stale-cache fresh setup did not return to post-step seam")
+    _TAPES[id(sim)] = []
+    _TAPES[id(clone[0])] = []
+    _TAPES[id(equivalent[0])] = []
     # The warm original, cold clone, and independently fresh equivalent all
     # progress twice through ordinary lifecycle invalidation.
     _tick(case)

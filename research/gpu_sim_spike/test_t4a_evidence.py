@@ -499,3 +499,16 @@ def test_incomplete_marker_not_eligible_for_skip(tmp_path):
         root, tmp_path / "recovery/verified-ledger.json", commit=COMMIT, canary=True
     )
     assert len(result["units"]) == 2
+
+
+def test_unknown_persistent_field_cannot_extend_the_frozen_inventory(tmp_path):
+    def change(content):
+        content["fields"].append("runtime.unknown_state")
+        digest = hashlib.sha256(json.dumps(content["fields"], sort_keys=True).encode()).hexdigest()
+        content["field_inventory_sha256"] = digest
+        for record in content["records"]:
+            record["field_inventory_sha256"] = digest
+
+    result = reduce(_tree(tmp_path, mutate=change))
+    assert result["verdict"] == "INVALID_EVIDENCE"
+    assert any("foreign" in error for error in result["invalid_evidence"])

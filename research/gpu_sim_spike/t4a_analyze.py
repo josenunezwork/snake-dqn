@@ -536,8 +536,11 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
         invalid.append(f"{mix}: field inventory missing or duplicate")
     else:
         mandatory = required_fields(mix)
-        if not mandatory.issubset(fields):
-            invalid.append(f"{mix}: mandatory fields omitted: {sorted(mandatory - set(fields))}")
+        if set(fields) != mandatory:
+            invalid.append(
+                f"{mix}: frozen fields differ: missing={sorted(mandatory - set(fields))}, "
+                f"foreign={sorted(set(fields) - mandatory)}"
+            )
         digest = hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
         if content.get("field_inventory_sha256") != digest:
             invalid.append(f"{mix}: field inventory binding differs")
