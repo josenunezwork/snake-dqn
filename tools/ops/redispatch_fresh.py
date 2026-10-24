@@ -58,6 +58,30 @@ def is_kernel_creation_failure(error: Any) -> bool:
     )
 
 
+def is_prework_warmup_failure(warmup: dict[str, Any], receipt: dict[str, Any]) -> bool:
+    """Accept only the two documented no-work readiness terminal shapes.
+
+    A single supervisor ``exec`` is the workload boundary.  It can contain a
+    transient helper probe before the guarded second kernel-creation POST fails;
+    in that shape the supervisor records two *internal* warmup probes, while
+    its receipt still binds exactly one failed CLI ``exec`` and no runtime work.
+    """
+    attempts = warmup.get("attempts")
+    if (
+        warmup.get("status") != "INCOMPLETE"
+        or type(attempts) is not int
+        or attempts not in (1, 2)
+        or warmup.get("error") != receipt.get("error")
+        or warmup.get("elapsed_seconds") != receipt.get("warmup_seconds")
+    ):
+        return False
+    if attempts == 1:
+        return "last_probe_error" not in warmup
+    # Only the documented helper timeout may precede the terminal guarded
+    # creation refusal.  Anything else could conceal useful runtime activity.
+    return warmup.get("last_probe_error") == "GuardError('guard helper failed: TimeoutExpired')"
+
+
 def digest(path: Path) -> str:
     """Hash a local evidence file without loading a large payload into memory."""
     with path.open("rb") as stream:
@@ -173,13 +197,7 @@ def verify_failure(package: Path, source: Path) -> dict[str, Any]:
         raise Refused("CLI calls do not prove exactly one failed pre-work readiness exec")
     warmup_path = output / "warmup-measurement.json"
     warmup = load(warmup_path)
-    if (
-        warmup.get("status") != "INCOMPLETE"
-        or type(warmup.get("attempts")) is not int
-        or warmup["attempts"] != 1
-        or warmup.get("error") != receipt["error"]
-        or warmup.get("elapsed_seconds") != receipt.get("warmup_seconds")
-    ):
+    if not is_prework_warmup_failure(warmup, receipt):
         raise Refused("warmup evidence does not prove first readiness failed")
     allowed = {
         "accounting-baseline.json",
@@ -288,7 +306,7 @@ def prepare(
     )
     publish(
         sibling / "DISPATCH.txt",
-        ("# Fresh canary allocation; operator dispatch only.\n" + command + "\n").encode(),
+        ("# Fresh allocation; operator dispatch only.\n" + command + "\n").encode(),
     )
     return sibling, command
 

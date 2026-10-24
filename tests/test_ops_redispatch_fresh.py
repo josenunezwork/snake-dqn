@@ -136,6 +136,11 @@ def test_fresh_sibling_changes_only_namespace_and_never_dispatches(
     proof = fresh.load(sibling / "PREPARATION.json")
     assert proof["workload_gpu_seconds"] == 0
     assert proof["prior_elapsed_rate_units"] == pytest.approx(31 * 10 / 3600)
+    assert (
+        (sibling / "DISPATCH.txt")
+        .read_text()
+        .startswith("# Fresh allocation; operator dispatch only.\n")
+    )
     for path in sibling.iterdir():
         if path.suffix in (".json", ".txt"):
             assert Path(str(path) + ".complete").read_text() == "complete\n"
@@ -229,11 +234,43 @@ def test_multiline_rich_terminal_guard_is_accepted() -> None:
     assert not fresh.is_kernel_creation_failure("RuntimeError(" + repr(detail) + ")")
 
 
-@pytest.mark.parametrize("field,value", [("attempts", 2), ("status", "PASS"), ("error", "other")])
+def test_guarded_second_internal_probe_is_prework_failure(package: Path) -> None:
+    """A helper timeout can precede the one external exec's guarded failure."""
+    path = package / "canary-output/warmup-measurement.json"
+    evidence = fresh.load(path)
+    evidence.update(
+        {
+            "attempts": 2,
+            "last_probe_error": "GuardError('guard helper failed: TimeoutExpired')",
+        }
+    )
+    write(path, evidence)
+    proof = fresh.verify_failure(package, package / "canary.json")
+    assert proof["workload_gpu_seconds"] == 0
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("attempts", 3),
+        ("status", "PASS"),
+        ("error", "other"),
+        ("last_probe_error", "GuardError('guard helper failed: ConnectionError')"),
+    ],
+)
 def test_warmup_must_prove_first_probe_failure(package: Path, field: str, value: Any) -> None:
     path = package / "canary-output/warmup-measurement.json"
     evidence = fresh.load(path)
     evidence[field] = value
+    write(path, evidence)
+    with pytest.raises(fresh.Refused, match="warmup"):
+        fresh.prepare(package, broker=fresh.ROOT)
+
+
+def test_second_internal_probe_requires_timeout_provenance(package: Path) -> None:
+    path = package / "canary-output/warmup-measurement.json"
+    evidence = fresh.load(path)
+    evidence["attempts"] = 2
     write(path, evidence)
     with pytest.raises(fresh.Refused, match="warmup"):
         fresh.prepare(package, broker=fresh.ROOT)
