@@ -1,0 +1,210 @@
+{
+  "baseline_commit": "0983880e4324ec4d55d73e018ba016929ca477fc",
+  "colab_dispatched": false,
+  "created_utc": "2026-10-24T01:56:49.912917+00:00",
+  "envelopes": {
+    "canary": {
+      "estimate_minutes": 10,
+      "reserve_units": 1,
+      "unit_cap": 5,
+      "wall_cap_minutes": 30,
+      "workload_cap_seconds": 900
+    },
+    "main": {
+      "estimate_minutes": 30,
+      "reserve_units": 4,
+      "unit_cap": 20,
+      "wall_cap_minutes": 90,
+      "workload_cap_seconds": 2400
+    },
+    "owner_multiplier": 2,
+    "rate_ceiling_units_per_hour": 10
+  },
+  "files_changed_by_reviewer": [
+    "research/gpu_sim_spike/CODEX_V_A1_PROF_20261023.json"
+  ],
+  "limitations": [
+    "No CUDA hardware was used, allocated or dispatched by this reviewer. A100 kernel correlation, actual copy/launch attribution, memory headroom, native extension activity and the target profiling matrix remain unverified until the same-pin A100 canary and main.",
+    "CUDA events measure default-stream elapsed intervals including launch starvation, rather than kernel-busy time; separate profiler kernel totals and instrumentation/uninstrumented wall ratio must be interpreted with that distinction.",
+    "Full v8 calls combine flood/feature work and action reranking. Broad observation subtraction is optimistic for pure observation; a separate opponent-v8 bundle and conservative remainder retaining it are exported and documented.",
+    "CPU preflight uses the existing fixed long-body A1 ruler seam at E1, resetting every tick. It proves entrypoint execution and portable inputs, not natural-state performance, cross-platform identity, gate qualification or release authority.",
+    "Remote outcome-free timing payloads remain descriptive engineering diagnostics. The Mac analyzer requires a complete verified unit union and refuses duplicates, foreign identity and missing cells.",
+    "The delivered pack is first-job-only. Any manual completion attempt requires reviewed remaining series envelope, fresh identity/output/receipt and matched canary when input inventory changes."
+  ],
+  "mac_preflight": {
+    "command": "./venv/bin/python -m research.gpu_sim_spike.a1_prof_preflight --commit 557ad8a66677acd14bf78b0acc087020fa42a7c4 --root /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a1-prof-a100-20261023/mac-preflight",
+    "device": "cpu",
+    "entrypoint_run_wall_seconds": 19.955589165969286,
+    "gpu_evidence": false,
+    "runtime_receipt_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a1-prof-a100-20261023/mac-preflight/runtime/output/a1-prof.json",
+    "runtime_receipt_sha256": "f3a4651d2d28010933f8785cf7ee3ad896c24ffb891444a29be8611c3a127895",
+    "units": [
+      "cell-scripted-e1",
+      "cell-frozen-e1",
+      "cell-mixed-e1"
+    ],
+    "wrapper_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a1-prof-a100-20261023/mac-preflight/mac-preflight.json",
+    "wrapper_sha256": "cd088e468bac5fb076a2886d01c249ea7304ce9f127bf053f30ec589eb2a9800"
+  },
+  "outstanding_findings": [],
+  "package_source_closure_sha256": "9269d7d4e90396cbaab21c4b60aa9c8c69d086d1cead5bc8516acda3592039dc",
+  "package_source_sha256": {
+    "__init__.py": "fcb40cee284a61293cb72968cdfe17e4908f4d660e74ee65e8b0021e152bb0c1",
+    "a100_ruler.py": "7dc512411feff41814c056bf7e31a8a2bda575775ce7eb38fc6cb5e9d127c1f9",
+    "a100_ruler.sh": "6043ee47d165e2c8c9a99c352921fb9b85f06dbc7ae402a7a7faebed47dffbf4",
+    "a1_analyze.py": "aebf755a6eed96dfd0d650aa6cef3648f7159bec3bd7193e97eeea80f9f8c4e6",
+    "a1_prof.py": "90f01ee93d1e7ca7f6df4fff2ab8c8853dc25b8860e28add5e185c9bdeee3763",
+    "a1_prof.sh": "29d8e2d16a18598e76b0f93f3b39e05c86dd38469bb2bd4eddb67ad61e517a5c",
+    "a1_prof_analyze.py": "654f0ed3f44d45e123a4367a40344eb6aea9b7283b09d672076f8b8a3be021ff",
+    "a1_prof_pack.py": "a649d88cf6e4d94138e17e6891906543a53ae57517ac14c4d581cd8674003267",
+    "a1_prof_preflight.py": "1902c5a4d4fb3f1a5bdf8100fdd76626fa149fb2ceae68be4baed38190dc887f",
+    "a1_prof_units.py": "135172ad67f184348a7fd5ba1796bf94c6de2cd8dbd128912de4f0f10395a5c1",
+    "a1_units.py": "e66f82f2b5df7466b87aa6b1230f5b28104d6a33c5c2ef3f5dea6aeeb80c30a1",
+    "anchors_device.py": "bfcd7d5ad2cff748b3a413f562c889fbb160ae788bc8d456e0858b3f6a4ac0c6",
+    "benchmark.py": "63ee90f837e54b2d678b3a31ce755d7ac4e7c7006587b1cf8994336e601d4f41",
+    "canary.py": "769af1e724f3e34b444fc46530a1c35c61e0486e1e0eca1ac9546fe08d0c5813",
+    "colab.sh": "6eecda16e2fd7bd5f058de9bd1d73151f1f8314c219fd275b857b403c173aa98",
+    "conftest.py": "537dfd1ec4ff455df837dd519a53586a33c3ef8ae11ec593242517e5c953bfe3",
+    "device_policy.py": "fa265af4b53374a727b2dd341956dec97aa1834fcc6868bb9e4060b4b3d780a0",
+    "device_sim.py": "816ebd5fbd4016bb01eda5fe31ee7739f8cb7bf021b2885684f769ea63dc58ae",
+    "device_sim_frozen.py": "7fbabf67b439c6e8ebf2cbb252abed5dadcc1ce08194a8d6177605ab4bbe8d88",
+    "ego_device.py": "11f133a5cd4d7185ade5a5c9c5de6cbd4c2f99d461186d04ce0e11fff7122e30",
+    "event_cuda.cpp": "55951b333320311baa8065a614a5c64df06cdc091f7c19263717409b49d366cb",
+    "event_cuda.cu": "22639be741aaf8dd8abc4b17b8bb32ce890a73dd872bdd4d5cace3f5c6ad67d9",
+    "event_cuda.py": "5d6fd6d0742f13c9e4005e0cd40cb579ce22a459c1dc4cf7a52cf67217fdcdd4",
+    "fixtures/a1_memory/vector_device_pre_memory.py": "6d32148935b9cccd3d2d2e7bdf1093a2abf9a88349d3e46e48907bb738a4d69d",
+    "flood_cuda.cpp": "56e951d76d8bfc26a8950029b45038a1a2370813e439d50a1c537c7ae5534307",
+    "flood_cuda.cu": "407ee481aa79c4ba869aba63aea037c95dd62a4f311eeec3d823c81ddd88a941",
+    "flood_cuda.py": "174cf8cede4df59de5ef2cae9fac95c16769b34eb155ec8e444629d8dda9d6ce",
+    "make_a1_pack.py": "efbe0accc77c08b23941c72306974b1867f201f74895e50e987ab3a84a15ef10",
+    "make_manifests.py": "6e81e8eeedfc18306db719ae5dd34e04c204dc6e8941826990853fc3f44ba0ed",
+    "masks_device.py": "fffb52115044bd74c7e0dd347f241ba9b588ed34587908418d977730e1d8ef71",
+    "memory_sizing.py": "1d88c2125a6920e07063514791214cca89b50bfffae9a38e2e4b0555b5e9318e",
+    "parity.py": "69223249e6359ae60e561f59af0b3e6131111db9f9bfe597f459f56043532c07",
+    "realistic_benchmark.py": "e95edb042f5a5faffb185ecbc4b5f09d51e8c88277513964c482de03ec650665",
+    "reference.py": "af0e23cf17d40d62e3559fbd9d6545346164721d0c0605314349a65ebeef1315",
+    "requirements.txt": "53cd2e2fb72f05be43f9b4c0ed1f1296e97f9ccac0744c6d0a2074a096a71f4d",
+    "rollout.py": "2ba8269dde3cfd98261344438d8aef8c572de6e5c33f67c07cbfbe8a3501d97e",
+    "stage_timing.py": "3a9df1263bf3623ba5c9f37bf1fed19041fca9cf8ffa2487bdf9b6d873133f4c",
+    "test_a0_event_oracle.py": "2dcfced59dc599e1b870210f77bfad3ae4f35e741640a6d90e216b7d101bded2",
+    "test_a1_pack.py": "1e61f3c06bd5fa505e8aaf1da082678bb88f1e84bb02547f2ad48eebbe78c6a6",
+    "test_a1_prof.py": "290dbbda5e967eaf75544537d7578f343d7f4a5c99c2d01255396221eada4dcb",
+    "test_a1_prof_pack.py": "8f290e6daa3ea2edba945e37843c7ed27dde7f7d979accf4c2cacbaf075d4cb8",
+    "test_a1_prof_units.py": "eb45c63d2a874ceadd55d8fa4a1a8e53a835af9bdd1f6c6898f2a5c906171622",
+    "test_a1_runner.py": "0e850aa7fe11e14573f503eec728ad76f5173f2571054d359c8cd9fc2f07c97f",
+    "test_a1_units.py": "96f6d44055e086d01ce586ba6988353b71dd7e6efd1ad510232cf957642c7e21",
+    "test_anchors_device.py": "6437b5236e129b0c2275bd05856f137703bad1676e98dd6cd1d343e62badf673",
+    "test_cuda_dtypes.py": "4cb0df7f7d169668882b11decbe9739a315afbde5fb85f6432d2e1d62470241a",
+    "test_cuda_shape.py": "b9cb06405cbd33ae88af01e742037927e2b5964d49e250aef2fc69e350f0f3c4",
+    "test_device_policy.py": "be8d5b2d76f591a8195eb9e65448bee82a4438ee791dcdd525109ba34f021efc",
+    "test_device_sim.py": "2d496cdf3e05875ef0efb7201446612407f9d9a9177b9b0bf0be5081bc893f6a",
+    "test_ego_device.py": "9c42a877501e9ff218d91ba5a3720d08a04d61ddabaab7fd6cd323b3064535d1",
+    "test_flood_kernels.py": "57a0b7b0a643ccf4039d6d475fe5873aaf2dfa1a71d97e6efb59f1411985318e",
+    "test_harness.py": "2c28329b1f60a6ca0c9ac524fe17901c229aa2eaea701999dd400fe06814ea2c",
+    "test_manifests.py": "927f2e806bc37a8edd7cc2c112c8128da5e24c1e3442deebccdec7eebfa2ca53",
+    "test_masks_device.py": "8876277fb8cbbdd4e6181bfbf3485284a3c8c63537909121fb0c94d44889f093",
+    "test_memory_sizing.py": "57c67e4c3840a7277b14c9919af60e93ade1e764d1de59eb24a84ea4a48eb342",
+    "test_realistic_benchmark.py": "4f2e6b975f4d78c825e99e6af39bdf80ff48bfde0ccede59d7261f16f825feeb",
+    "test_v8_device.py": "1c96705b2b360873dd3a92c6ff5543bef8f9baeabe16185cc5fe4154a648424d",
+    "test_vector_device.py": "58d3d04f9c3faf382dfabd7fb701edd8f762cb009fb14a6f568e909731c0a969",
+    "upload_readiness.py": "ecad8db37fd35725297ffd00a6eeb9acc168e89d51c617f4973f66c265236257",
+    "v8_device.py": "c1c36328d93032afcfd9fd213f267b526d454a7cc23c4e06cf5a62544e6f6bb2",
+    "vector_device.py": "c254015874a26f5f3eea1bcedcbdfdf23f1fe66c3a146ff5bf15b8a7b411df62"
+  },
+  "prepared_artifacts": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a1-prof-a100-20261023/DISPATCH.txt": "bd1815bfc0df07f1a47729d483b6e9609ac294ee8b79c0caa24fd8d1a2f1877a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a1-prof-a100-20261023/a1-prof-canary.json": "1be0fea64616d124b15f61e1192407ddc3533d82999089cca4382351a5f90aa9",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a1-prof-a100-20261023/a1-prof-main-template.json": "4b438eada5decfb03ee601996edf0730849a4e581306edc2d4119d8c560654ad",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a1-prof-a100-20261023/mac-preflight-analysis.json": "351101b9d6cad163daed94b5aa6a410bbeb247a64ff9c09f02b6cd7c85f2db9a"
+  },
+  "product_source_edited_by_reviewer": false,
+  "resolved_findings": [
+    {
+      "finding": "CPU enqueue durations were subtracted from synchronized CUDA tick wall time for the headline flood share and non-observation remainder.",
+      "references": [
+        "research/gpu_sim_spike/a1_prof.py:241",
+        "research/gpu_sim_spike/test_a1_prof.py:103"
+      ],
+      "resolution": "CUDA headline fields now use exclusive CUDA-event elapsed; CPU enqueue share remains separate. Regression uses deliberately divergent host/device times.",
+      "severity": "P1"
+    },
+    {
+      "finding": "The new entrypoint inherited cuDNN TF32 defaults instead of preserving A1 precision.",
+      "references": [
+        "research/gpu_sim_spike/a1_prof.py:392"
+      ],
+      "resolution": "Both CUDA matmul and cuDNN TF32 are disabled and precision is recorded.",
+      "severity": "P2"
+    },
+    {
+      "finding": "Create-only DISPATCH.txt initially retained the unbound main-template path after canary binding.",
+      "references": [
+        "research/gpu_sim_spike/a1_prof_pack.py:318"
+      ],
+      "resolution": "The generated main dispatch now names a1-prof-main.json; verified prepared DISPATCH.txt has no main-template dispatch.",
+      "severity": "P2"
+    },
+    {
+      "finding": "Streaming child stdout before wait(timeout) left the Mac preflight unbounded.",
+      "references": [
+        "research/gpu_sim_spike/a1_prof_preflight.py:80"
+      ],
+      "resolution": "Entire owned process group is bounded at 330 seconds, with TERM then KILL cleanup.",
+      "severity": "P2"
+    },
+    {
+      "finding": "A nonempty recovery ledger could reset the original full budget and reuse first-job identity.",
+      "references": [
+        "research/gpu_sim_spike/a1_prof_pack.py:337",
+        "research/gpu_sim_spike/test_a1_prof_pack.py:103"
+      ],
+      "resolution": "The delivered first-job CLI refuses explicit recovery ledgers and nonempty default main ledgers. Runtime resume primitives remain available for a separately reviewed remaining-envelope recovery package.",
+      "severity": "P2"
+    }
+  ],
+  "reviewed_source_commit": "557ad8a66677acd14bf78b0acc087020fa42a7c4",
+  "reviewed_source_sha256": {
+    "research/gpu_sim_spike/A1_PROF_PROTOCOL.md": "2a624ac1d2260fb6eb281b182af93d12370bf0acb7fde230ca1b50e9a033b265",
+    "research/gpu_sim_spike/a1_prof.py": "90f01ee93d1e7ca7f6df4fff2ab8c8853dc25b8860e28add5e185c9bdeee3763",
+    "research/gpu_sim_spike/a1_prof.sh": "29d8e2d16a18598e76b0f93f3b39e05c86dd38469bb2bd4eddb67ad61e517a5c",
+    "research/gpu_sim_spike/a1_prof_analyze.py": "654f0ed3f44d45e123a4367a40344eb6aea9b7283b09d672076f8b8a3be021ff",
+    "research/gpu_sim_spike/a1_prof_pack.py": "a649d88cf6e4d94138e17e6891906543a53ae57517ac14c4d581cd8674003267",
+    "research/gpu_sim_spike/a1_prof_preflight.py": "1902c5a4d4fb3f1a5bdf8100fdd76626fa149fb2ceae68be4baed38190dc887f",
+    "research/gpu_sim_spike/a1_prof_units.py": "135172ad67f184348a7fd5ba1796bf94c6de2cd8dbd128912de4f0f10395a5c1",
+    "research/gpu_sim_spike/colab.sh": "6eecda16e2fd7bd5f058de9bd1d73151f1f8314c219fd275b857b403c173aa98",
+    "research/gpu_sim_spike/test_a1_prof.py": "290dbbda5e967eaf75544537d7578f343d7f4a5c99c2d01255396221eada4dcb",
+    "research/gpu_sim_spike/test_a1_prof_pack.py": "8f290e6daa3ea2edba945e37843c7ed27dde7f7d979accf4c2cacbaf075d4cb8",
+    "research/gpu_sim_spike/test_a1_prof_units.py": "eb45c63d2a874ceadd55d8fa4a1a8e53a835af9bdd1f6c6898f2a5c906171622"
+  },
+  "reviewer": "Independent Codex-V LIGHT reviewer subagent",
+  "schema": "gpu-sim-spike-a1-prof-codex-v-light/v1",
+  "scope": "Read-only diff and affected execution-path review of A1-PROF preparation, exclusive attribution, real Mac shell preflight, immutable units/resume, Mac analyzer and qualified-supervisor handoff. No Colab dispatch.",
+  "status": "LIGHT_REVIEW_PASS_PREPARED_ONLY",
+  "verification": [
+    {
+      "command": "./venv/bin/python -m pytest -q research/gpu_sim_spike/test_a1_prof.py research/gpu_sim_spike/test_a1_prof_units.py research/gpu_sim_spike/test_a1_prof_pack.py",
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-a1-prof-run",
+      "result": "18 passed, 1 skipped in 0.16 seconds; only CUDA-specific real correlation test skipped"
+    },
+    {
+      "command": "./venv/bin/python -m pytest -q tests/test_colab_cli_source.py tests/test_colab_cli_export_batches.py",
+      "result": "20 passed in 21.32 seconds; unchanged source/export transport contracts"
+    },
+    {
+      "command": "Broad supervisor/canary/schema/source/export/observer command",
+      "result": "Deliberately interrupted after 10 passing supervisor tests in 88.24 seconds to preserve LIGHT scope; no failures before SIGINT; not a complete-suite pass"
+    },
+    {
+      "command": "Black --check on all eight new Python/test files; bash -n a1_prof.sh colab.sh",
+      "result": "Passed on frozen source pin"
+    },
+    {
+      "command": "Mac real-entrypoint preflight artifact verification",
+      "result": "Reverified wrapper and runtime receipt SHA/sidecars/source mapping and all three E1 units. Each has three baseline ticks, three exclusively timed ticks and one profiler tick."
+    },
+    {
+      "command": "Independent supervisor.validate(canary), require_resume_policy(canary/main), inventory comparison and prepared artifact sidecar checks",
+      "result": "Passed on exact operational worktree pin; seven identical canary/main inputs, main intentionally unbound until same-pin verified A100 canary receipt"
+    }
+  ]
+}
