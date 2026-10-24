@@ -1,0 +1,115 @@
+{
+  "baseline_commit": "31d98ee9ecdb8b90227ca7bc507c40566c37e5c7",
+  "colab_dispatched": false,
+  "correlation_contract": {
+    "counts_and_seconds_exported": true,
+    "explicit_unattributed_stage_and_inventory_remainder": true,
+    "integrity_refusals_retained": true,
+    "justification": "At most 2 percent unassigned raw kernel duration bounds uncertainty in each stage share of raw kernel time to two percentage points. This diagnostic threshold does not change throughput or CUDA-event measurements.",
+    "kernel_count_reconciles_raw_inventory": true,
+    "maximum_unattributed_kernel_time_share": 0.02,
+    "threshold_boundary_absolute_share_tolerance": 1e-12,
+    "unattributed_added_to_cuda_event_stages": false
+  },
+  "created_utc": "2026-10-24T02:26:54.899031+00:00",
+  "files_changed_by_reviewer": [],
+  "limitations": [
+    "No CUDA hardware used, allocated or dispatched. Actual A100 time coverage and production shapes require the same-pin canary.",
+    "Prior 17843/17910 count coverage does not establish missing kernel time share.",
+    "CPU E1 Mac preflight proves real entrypoint execution and portable source/input/export identity, not CUDA qualification or performance.",
+    "Summed kernel activity duration and default-stream CUDA-event elapsed intervals remain separate; the latter include launch starvation.",
+    "Main remains unbound until new same-pin canary PASS, verified exports and verified release.",
+    "Unrelated factory changes in the merged source pin are outside this LIGHT review."
+  ],
+  "mac_preflight": {
+    "commit": "2edf7ed6bb63361d594c773827ff8e080ef07ec8",
+    "device": "cpu",
+    "entrypoint_command": [
+      "bash",
+      "/Users/josenunez/Projects/ml/snake-dqn-a1-prof/research/gpu_sim_spike/colab.sh"
+    ],
+    "entrypoint_run_wall_seconds": 18.091278707957827,
+    "receipt_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a1-prof-a100-20261023-02/mac-preflight/runtime/output/a1-prof.json",
+    "receipt_sha256": "8eb04f0114051a55fcdb234fa8d8ed335d2317efdd021447ac1a3de61a79d23d",
+    "status": "PREFLIGHT",
+    "units": [
+      "cell-scripted-e1",
+      "cell-frozen-e1",
+      "cell-mixed-e1"
+    ]
+  },
+  "outstanding_findings": [],
+  "prepared_artifacts": {
+    "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/a1-prof-a100-20261023-02",
+    "bound_main_manifest": "ABSENT",
+    "canary_dispatch_name": "a1-prof-a100-canary-02",
+    "canary_output_directory": "ABSENT",
+    "input_count_each": 7,
+    "input_inventories_identical": true,
+    "main_canary_receipt_binding": "INTENTIONALLY_ABSENT_PENDING_NEW_CANARY_PASS",
+    "main_dispatch_name": "a1-prof-a100-main-02",
+    "main_output_directory": "ABSENT",
+    "ops_dispatch_reservations_and_logs_for_02": "ABSENT",
+    "sha256": {
+      "DISPATCH.txt": "16f056f90d1cb214536473d2a588517ec4cc04b6f6ce6640775fb5e8484cc00e",
+      "a1-prof-canary.json": "ac52c7ca8ccd65c884029d6cd546af0ae0fa1028142906784063aa90bf51420d",
+      "a1-prof-main-template.json": "3b83c75ab43a8de05b9847fb805c6f384809e63f7e607ce069f91ad33ac3096c",
+      "mac-preflight-analysis.json": "a7271b8a6459776e8d6dbb7ff20911887058f08af9b753b058fe840cc7564948",
+      "mac-preflight/mac-preflight.json": "2268479ae0f6551478b631dad62ce0dabb1949c6e0d422aa23f82985bcaa373a"
+    },
+    "state_canary_directory": "ABSENT",
+    "state_main_directory": "ABSENT"
+  },
+  "prior_failed_canary_commit": "557ad8a66677acd14bf78b0acc087020fa42a7c4",
+  "published_on_origin_main_verified": true,
+  "recorded_by": "Root from independent reviewer final report; reviewer made no file edits",
+  "reviewed_source_commit": "2edf7ed6bb63361d594c773827ff8e080ef07ec8",
+  "reviewed_source_sha256": {
+    "research/gpu_sim_spike/A1_PROF_CORRELATION_REPAIR_20261023.md": "456199c35bd84b2ae5844a13c483a441920bef9d00dc30fde745fb5127d90d7f",
+    "research/gpu_sim_spike/a1_prof.py": "907708f27e94f6b684c749a0761a388555fbdab56074e99451245c6c3cc75f02",
+    "research/gpu_sim_spike/a1_prof_pack.py": "4f591b34a47538f25948aae41d6bc932f9fca0cf137a0db074b95371aab4df76",
+    "research/gpu_sim_spike/test_a1_prof.py": "a850f1573ca5aa580dfcf6ef71d17e228cea5ff67b2285b87d72e137bcead278",
+    "research/gpu_sim_spike/test_a1_prof_pack.py": "2906a0c1a846b1e68cd12a9e52208c00fc4febdda575099ba01e6fedb9b5f3da"
+  },
+  "reviewer": "Independent Codex-V LIGHT reviewer subagent",
+  "schema": "gpu-sim-spike-a1-prof-correlation-codex-v-light/v1",
+  "scope": "Mechanical profiler-correlation repair, allocator environment, dispatch suffix, tests, same-pin Mac preflight and fresh canary/main-template artifacts. Unrelated merged factory changes excluded.",
+  "status": "LIGHT_REVIEW_PASS_PREPARED_ONLY",
+  "verification": [
+    {
+      "command": "./venv/bin/python -m pytest -q research/gpu_sim_spike/test_a1_prof.py research/gpu_sim_spike/test_a1_prof_units.py research/gpu_sim_spike/test_a1_prof_pack.py",
+      "executed_by": "independent reviewer",
+      "result": "26 passed, 1 CUDA-only test skipped in 0.18 seconds"
+    },
+    {
+      "command": "./venv/bin/python -m black --check research/gpu_sim_spike/a1_prof.py research/gpu_sim_spike/a1_prof_pack.py research/gpu_sim_spike/test_a1_prof.py research/gpu_sim_spike/test_a1_prof_pack.py",
+      "executed_by": "independent reviewer",
+      "result": "Passed; all four files unchanged"
+    },
+    {
+      "command": "AST comparison to baseline a1_prof.py",
+      "executed_by": "independent reviewer",
+      "result": "profiler_summary is the only changed top-level function/class. Timing, instrumentation, metrics and execution ASTs unchanged."
+    },
+    {
+      "command": "Inspect installed torch 2.9.1 _parse_kineto_results, FunctionEvent.append_kernel and Interval.elapsed_us",
+      "executed_by": "independent reviewer",
+      "result": "Correlated Kernel.duration and raw CUDA FunctionEvent duration use the same source intervals and compatible units."
+    },
+    {
+      "command": "Synthetic trace with real torch.autograd.profiler_util.FunctionEvent objects",
+      "executed_by": "independent reviewer",
+      "result": "Exactly 2 percent orphan time accepted: raw count 2, attributed count 1, remainder count 1 and 20 microseconds."
+    },
+    {
+      "command": "Independent final artifact verification and supervisor.validate(canary, repo=current_worktree)",
+      "executed_by": "independent reviewer",
+      "result": "Passed exact pin, identical seven-input inventories/hashes, both empty pin-bound ledgers, resume, allocator, preflight binding, 61 source hashes/current bytes/pinned blobs, unit sidecars, three ticks per baseline/timed pass, profiler-only unattributed stage, fresh state/output paths and unused dispatch names."
+    },
+    {
+      "command": "One-thread CPU pytest selection: test_a1_prof.py, test_a1_prof_units.py, test_a1_prof_pack.py, tests/test_colab_cli_canary.py, tests/test_colab_cli_schema_failures.py, tests/test_ops_dispatch.py",
+      "executed_by": "root; reported to reviewer, not independently rerun",
+      "result": "188 passed, 1 skipped in 42.66 seconds; Black/isort/flake8, Bash syntax, diff whitespace and frozen-path AST checks passed."
+    }
+  ]
+}
