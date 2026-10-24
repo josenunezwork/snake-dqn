@@ -41,7 +41,7 @@ def test_receipt_census_preserves_recovered_and_terminal_l4_timeouts() -> None:
     assert [calls.index(row) for row in transport_faults(receipt)] == [7, 58, 117]
     # l4-label-faults/v2 (prospective): still FAIL -- 117 is C2, the end is C3,
     # 58 is benign-recovered. Recovery never deletes the recorded fault.
-    v2 = classify_session(receipt)
+    v2 = classify_session(receipt, legacy_projection=True)
     assert v2["verdict"] == "FAIL"
     assert ("C2", 117) in [(row["class"], row.get("index")) for row in v2["counted"]]
     assert any(row["class"] == "C3" for row in v2["counted"])
