@@ -117,7 +117,7 @@ def run(output: Path, b8: Path) -> dict:
     initial = identity()
     checks = []
     with tempfile.TemporaryDirectory(prefix="r30-packaging-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         package = root / "package"
         manifest = make_pack(package, commit, b8)
         rows = manifest["inputs"]
@@ -223,7 +223,7 @@ def run(output: Path, b8: Path) -> dict:
         else:
             raise AssertionError("foreign mechanical preflight did not refuse")
     with tempfile.TemporaryDirectory(prefix="r30-main-refusal-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         proof = root / "preflight.json"
         export_json(proof, value)
         try:
