@@ -235,7 +235,7 @@ def test_process_checks_match_job_argv_only(
         if command == ["/usr/bin/pmset", "-g", "therm"]:
             return "CPU_Speed_Limit = 100\n"
         if command == ["/bin/ps", "-axo", "pid=,pcpu=,comm="]:
-            return " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex\n"
+            return " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex_café\u2028x\udcff\n"
         raise AssertionError(command)
 
     monkeypatch.setattr(slowdown_resume.subprocess, "check_output", check_output)
@@ -258,7 +258,7 @@ def test_process_checks_match_job_argv_only(
         assert receipt["operational_pin"] == slowdown_resume._operational_pin()
         assert receipt["pmset_therm"] == "CPU_Speed_Limit = 100\n"
         assert receipt["top_cpu_consumers"] == [
-            " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex"
+            " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex_café\u2028x\udcff"
         ]
         assert slowdown_resume.resume_policy(6, tmp_path) == (6, [])
     if blocked:
