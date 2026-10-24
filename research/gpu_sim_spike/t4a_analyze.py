@@ -20,6 +20,51 @@ EVENTS = (
     "clone_restore",
     "stale_cache",
 )
+EVENT_CAPTURE_FIELDS = {
+    "ring_wrap": {
+        "event.ring_wrap.before_head_ptr",
+        "event.ring_wrap.after_head_ptr",
+        "event.ring_wrap.prefix",
+    },
+    "contested_food_refill": {
+        f"event.contested_food.{name}"
+        for name in (
+            "before_cells",
+            "before_present",
+            "before_count",
+            "before_corpse",
+            "after_consume_cells",
+            "after_consume_present",
+            "after_consume_count",
+            "after_refill_cells",
+            "after_refill_present",
+            "after_refill_count",
+        )
+    },
+    "simultaneous_death_respawn": {
+        "event.death_respawn.died",
+        "event.death_respawn.corpse",
+        "event.death_respawn.respawned",
+    },
+}
+EVENT_CAPTURE_TICK_FIELDS = {
+    "ring_wrap": (
+        {
+            "event.ring_wrap.before_head_ptr",
+            "event.ring_wrap.after_head_ptr",
+            "event.ring_wrap.prefix",
+        },
+        set(),
+    ),
+    "contested_food_refill": (EVENT_CAPTURE_FIELDS["contested_food_refill"], set()),
+    "simultaneous_death_respawn": (
+        {
+            "event.death_respawn.died",
+            "event.death_respawn.corpse",
+        },
+        {"event.death_respawn.respawned"},
+    ),
+}
 CONTROLS = ("q", "state", "cursor", "row_map")
 SEEDS = {"main": 9402401, "canary": 9402411, "smoke": 9402421}
 SIM_FIELDS = (
@@ -310,7 +355,59 @@ def _valid_map_proof(proof: Any, worlds: int, layout: str) -> bool:
     )
 
 
-def _event_predicate_error(event: str, witness: dict[str, Any], worlds: int) -> str | None:
+def _capture_error(binding: Any, descriptors: Any) -> str | None:
+    if not isinstance(binding, dict) or not isinstance(descriptors, list):
+        return "capture binding is malformed"
+    field, tick = binding.get("field"), binding.get("tick")
+    if (
+        not isinstance(field, str)
+        or not isinstance(tick, int)
+        or tick < 0
+        or tick >= len(descriptors)
+    ):
+        return "capture binding field/tick is invalid"
+    descriptor = descriptors[tick].get(field) if isinstance(descriptors[tick], dict) else None
+    if not _valid_descriptor(field, descriptor):
+        return "capture binding references no typed descriptor"
+    if not _descriptor_matches_schema(binding, descriptor) or binding.get(
+        "sha256"
+    ) != descriptor.get("sha256"):
+        return "capture binding differs from sealed descriptor"
+    return None
+
+
+def _typed_list_sha256(value: Any, dtype: str) -> str | None:
+    formats = {"torch.bool": "<?", "torch.int32": "<i", "torch.int64": "<q"}
+    if dtype not in formats:
+        return None
+    flattened: list[int] = []
+
+    def visit(item: Any) -> bool:
+        if isinstance(item, list):
+            return all(visit(child) for child in item)
+        if isinstance(item, bool) and dtype == "torch.bool":
+            flattened.append(item)
+            return True
+        if isinstance(item, int) and not isinstance(item, bool):
+            flattened.append(item)
+            return True
+        return False
+
+    if not visit(value):
+        return None
+    try:
+        raw = b"".join(struct.pack(formats[dtype], item) for item in flattened)
+    except struct.error:
+        return None
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _event_predicate_error(
+    event: str,
+    witness: dict[str, Any],
+    worlds: int,
+    descriptors: list[dict[str, Any]] | None = None,
+) -> str | None:
     """Recompute the frozen fixture predicate from its exported values.
 
     Fixture code may report ``PASS`` only after these witnessed values prove the
@@ -319,33 +416,90 @@ def _event_predicate_error(event: str, witness: dict[str, Any], worlds: int) -> 
     values = witness
     if event == "ring_wrap":
         before, after = values.get("before"), values.get("after")
-        expected_head, expected_tail = values.get("expected_head"), values.get("expected_tail")
         prefix = values.get("logical_prefix")
+        schema, geometry = values.get("ring_schema"), values.get("frozen_geometry")
+        prefix_capture, before_capture, after_capture = (
+            values.get("ring_prefix_capture"),
+            values.get("ring_before_capture"),
+            values.get("ring_after_capture"),
+        )
+        body = (
+            descriptors[0].get("sim.bodies")
+            if isinstance(descriptors, list) and descriptors
+            else None
+        )
         if not (
-            isinstance(before, list)
-            and len(before) == worlds
-            and all(isinstance(value, int) and value >= 1 for value in before)
-            and len(set(before)) == 1
+            isinstance(body, dict)
+            and _valid_descriptor("sim.bodies", body)
+            and isinstance(schema, dict)
+            and schema
+            == {
+                "field": "sim.bodies",
+                "tick": 0,
+                "capacity": body["shape"][2],
+                "dtype": body["dtype"],
+                "shape": body["shape"],
+                "physical_worlds": worlds,
+            }
+            and geometry
+            == {
+                "slot": 0,
+                "direction": 1,
+                "prefix_length": 2,
+                "initial_head": [4, 4],
+                "initial_tail": [3, 4],
+                "moved_head": [5, 4],
+                "retained_tail": [4, 4],
+            }
+            and _capture_error(prefix_capture, descriptors) is None
+            and _capture_error(before_capture, descriptors) is None
+            and _capture_error(after_capture, descriptors) is None
+            and (prefix_capture.get("field"), prefix_capture.get("tick"))
+            == ("event.ring_wrap.prefix", 0)
+            and (before_capture.get("field"), before_capture.get("tick"))
+            == ("event.ring_wrap.before_head_ptr", 0)
+            and (after_capture.get("field"), after_capture.get("tick"))
+            == ("event.ring_wrap.after_head_ptr", 0)
+            and isinstance(before, list)
+            and before == [body["shape"][2] - 1] * worlds
             and isinstance(after, list)
             and after == [0] * worlds
-            and isinstance(expected_head, list)
-            and len(expected_head) == 2
-            and isinstance(expected_tail, list)
-            and len(expected_tail) == 2
-            and all(isinstance(value, int) for value in expected_head + expected_tail)
             and isinstance(prefix, list)
             and len(prefix) == worlds
-            and all(item == [expected_head, expected_tail] for item in prefix)
+            and all(item == [[5, 4], [4, 4]] for item in prefix)
+            and _typed_list_sha256(before[:4], body["dtype"]) == before_capture.get("sha256")
+            and _typed_list_sha256(after[:4], body["dtype"]) == after_capture.get("sha256")
+            and _typed_list_sha256(prefix[:4], body["dtype"]) == prefix_capture.get("sha256")
             and values.get("wrapped") is True
             and values.get("ordered") is True
         ):
             return "ring_wrap witnessed values do not prove wrap/order"
     elif event == "simultaneous_death_respawn":
-        if not all(
-            isinstance(values.get(name), list)
-            and len(values[name]) == worlds
-            and all(value is True for value in values[name])
-            for name in ("died", "respawned", "corpse")
+        captures = values.get("death_respawn_capture")
+        names = ("died", "respawned", "corpse")
+        capture_ok = isinstance(captures, dict) and set(captures) == set(names)
+        if capture_ok:
+            capture_ok = all(_capture_error(captures[name], descriptors) is None for name in names)
+        if capture_ok:
+            capture_ok = all(
+                (captures[name].get("field"), captures[name].get("tick"))
+                == (f"event.death_respawn.{name}", 1 if name == "respawned" else 0)
+                for name in names
+            )
+        if capture_ok:
+            capture_ok = all(
+                _typed_list_sha256(values[name][:4], captures[name]["dtype"])
+                == captures[name].get("sha256")
+                for name in names
+            )
+        if (
+            not all(
+                isinstance(values.get(name), list)
+                and len(values[name]) == worlds
+                and all(value is True for value in values[name])
+                for name in names
+            )
+            or not capture_ok
         ):
             return "death/respawn witnessed values do not prove event"
     elif event == "contested_food_refill":
@@ -355,6 +509,97 @@ def _event_predicate_error(event: str, witness: dict[str, Any], worlds: int) -> 
             values.get("rng_before"),
             values.get("rng_after"),
         )
+        transition, captures = values.get("food_transition"), values.get("food_transition_capture")
+        required_transition = {
+            "before_cells",
+            "before_present",
+            "before_count",
+            "before_corpse",
+            "after_consume_cells",
+            "after_consume_present",
+            "after_consume_count",
+            "after_refill_cells",
+            "after_refill_present",
+            "after_refill_count",
+        }
+        transition_ok = isinstance(transition, dict) and set(transition) == required_transition
+        if transition_ok:
+            transition_ok = isinstance(captures, dict) and set(captures) == required_transition
+        if transition_ok:
+            transition_ok = all(
+                _capture_error(captures[name], descriptors) is None for name in required_transition
+            )
+        if transition_ok:
+            transition_ok = all(
+                (captures[name].get("field"), captures[name].get("tick"))
+                == (f"event.contested_food.{name}", 0)
+                for name in required_transition
+            )
+        if transition_ok:
+            transition_ok = all(
+                _typed_list_sha256(transition[name], captures[name]["dtype"])
+                == captures[name].get("sha256")
+                for name in required_transition
+            )
+        if transition_ok:
+            try:
+                before_cells = transition["before_cells"]
+                before_present = transition["before_present"]
+                before_count = transition["before_count"]
+                consumed_cells = transition["after_consume_cells"]
+                consumed_present = transition["after_consume_present"]
+                consumed_count = transition["after_consume_count"]
+                refill_cells = transition["after_refill_cells"]
+                refill_present = transition["after_refill_present"]
+                refill_count = transition["after_refill_count"]
+                canonical = 4
+
+                def contains_target(cells: Any, present: Any, corpse: Any, row: int) -> bool:
+                    return any(
+                        cell == [17, 5] and is_present is True and is_corpse is False
+                        for cell, is_present, is_corpse in zip(
+                            cells[row], present[row], corpse[row]
+                        )
+                    )
+
+                transition_ok = (
+                    all(before_count[index] > 0 for index in range(canonical))
+                    and all(
+                        contains_target(
+                            before_cells, before_present, transition["before_corpse"], index
+                        )
+                        for index in range(canonical)
+                    )
+                    and all(
+                        not contains_target(
+                            consumed_cells,
+                            consumed_present,
+                            [[False] * len(row) for row in consumed_present],
+                            index,
+                        )
+                        for index in range(canonical)
+                    )
+                    and all(
+                        refill_count[index] > consumed_count[index] for index in range(canonical)
+                    )
+                    and all(
+                        consumed_cells[index][: consumed_count[index]]
+                        == refill_cells[index][: consumed_count[index]]
+                        and consumed_present[index][: consumed_count[index]]
+                        == refill_present[index][: consumed_count[index]]
+                        for index in range(canonical)
+                    )
+                    and isinstance(values.get("refill_cells"), list)
+                    and len(values["refill_cells"]) == canonical
+                    and values["refill_cells"]
+                    == [
+                        refill_cells[index][consumed_count[index] : refill_count[index]]
+                        for index in range(canonical)
+                    ]
+                    and all(values["refill_cells"][index] for index in range(canonical))
+                )
+            except (IndexError, TypeError):
+                transition_ok = False
         if not (
             isinstance(first, list)
             and len(first) == worlds
@@ -372,11 +617,14 @@ def _event_predicate_error(event: str, witness: dict[str, Any], worlds: int) -> 
                 isinstance(left, int) and isinstance(right, int) and right > left
                 for left, right in zip(rng_before, rng_after)
             )
+            and transition_ok
         ):
             return "contested-food witnessed values do not prove ordered refill"
     elif event == "clone_restore":
         if not (
             values.get("restored_exact") is True
+            and values.get("restore_target_body_progressed") is True
+            and values.get("restore_target_food_progressed") is True
             and values.get("mismatch") is None
             and _is_digest(values.get("saved_digest"))
             and values.get("saved_digest") == values.get("restored_digest")
@@ -400,6 +648,76 @@ def _event_predicate_error(event: str, witness: dict[str, Any], worlds: int) -> 
         )
         mask_shape = values.get("mask_shape")
         stale_mask, repaired_mask = values.get("stale_mask_hex"), values.get("repaired_mask_hex")
+        warm_captures, warm_checks = values.get("warm_output_captures"), values.get(
+            "warm_output_comparisons"
+        )
+        expected_warm_fields = (
+            {
+                field
+                for field in descriptors[0]
+                if (
+                    field == "configuration.sha256"
+                    or field.startswith("lifecycle.")
+                    or field == "output.actions"
+                    or field.startswith("output.q.")
+                    or field.startswith("output.obs.")
+                    or field.startswith("output.v8.")
+                )
+            }
+            if isinstance(descriptors, list) and descriptors and isinstance(descriptors[0], dict)
+            else set()
+        )
+        warm_ok = (
+            isinstance(warm_captures, dict)
+            and set(warm_captures)
+            == {"source", "clone", "remap", "restore", "fresh", "corrupted_q_control"}
+            and bool(expected_warm_fields)
+            and all(
+                isinstance(entry, dict) and set(entry) == expected_warm_fields
+                for entry in warm_captures.values()
+            )
+            and all(
+                set(entry) == set(warm_captures["source"])
+                and all(_valid_descriptor(field, descriptor) for field, descriptor in entry.items())
+                for entry in warm_captures.values()
+            )
+            and any(field.startswith("output.q.") for field in warm_captures["source"])
+            and any(field.startswith("output.obs.") for field in warm_captures["source"])
+            and any(field.startswith("output.v8.") for field in warm_captures["source"])
+            and all(
+                warm_captures[name] == warm_captures["source"]
+                for name in ("source", "clone", "remap", "restore", "fresh")
+            )
+            and isinstance(warm_checks, dict)
+            and set(warm_checks)
+            == {
+                "source_clone",
+                "source_remap",
+                "source_restore",
+                "source_fresh",
+            }
+            and all(value is True for value in warm_checks.values())
+            and values.get("warm_q_corruption_detected") is True
+            and isinstance(values.get("warm_q_corruption_control"), dict)
+            and values["warm_q_corruption_control"].get("field") in expected_warm_fields
+            and values["warm_q_corruption_control"].get("field", "").startswith("output.q.")
+            and values["warm_q_corruption_control"].get("source_descriptor")
+            == warm_captures["source"].get(values["warm_q_corruption_control"].get("field"))
+            and values["warm_q_corruption_control"].get("corrupted_descriptor")
+            == warm_captures["corrupted_q_control"].get(
+                values["warm_q_corruption_control"].get("field")
+            )
+            and values["warm_q_corruption_control"].get("source_descriptor")
+            != values["warm_q_corruption_control"].get("corrupted_descriptor")
+            and all(
+                warm_captures["corrupted_q_control"].get(field)
+                == warm_captures["source"].get(field)
+                for field in expected_warm_fields
+                if field != values["warm_q_corruption_control"].get("field")
+            )
+            and values.get("restore_target_body_progressed") is True
+            and values.get("restore_target_food_progressed") is True
+        )
         if not (
             all(
                 isinstance(stats_map, dict)
@@ -439,6 +757,7 @@ def _event_predicate_error(event: str, witness: dict[str, Any], worlds: int) -> 
             and _is_bool_hex(stale_mask, worlds * 6 * 6)
             and _is_bool_hex(repaired_mask, worlds * 6 * 6)
             and stale_mask != repaired_mask
+            and warm_ok
         ):
             return "stale-cache witnessed values do not prove lifecycle/invalidation"
     else:  # Defensive: EVENTS is frozen, so a new event needs a reducer schema.
@@ -488,6 +807,164 @@ def _event_tick_error(tick: Any, descriptors: Any, mix: str, event_fields: set[s
                 raise ValueError("Q bytes are not bound")
     except (KeyError, TypeError, ValueError, struct.error) as exc:
         return str(exc)
+    return None
+
+
+_DTYPE_BYTES = {
+    "torch.bool": 1,
+    "torch.uint8": 1,
+    "torch.int8": 1,
+    "torch.int16": 2,
+    "torch.float16": 2,
+    "torch.int32": 4,
+    "torch.float32": 4,
+    "torch.int64": 8,
+    "torch.float64": 8,
+}
+
+
+def _descriptor_matches_schema(descriptor: Any, schema: Any) -> bool:
+    return (
+        isinstance(descriptor, dict)
+        and isinstance(schema, dict)
+        and descriptor.get("dtype") == schema.get("dtype")
+        and descriptor.get("shape") == schema.get("shape")
+    )
+
+
+def _witness_error(
+    witness: Any,
+    fields: Any,
+    field_types: Any,
+    records: Any = None,
+) -> str | None:
+    """Validate an unequal-byte witness before it can affect the verdict.
+
+    Shape, dtype, and inventory failures are evidence failures.  A scientific
+    mismatch therefore needs a known frozen field, two compatible descriptors,
+    a bounded byte offset, unequal octets, and descriptors that occur in the
+    sealed comparison evidence when matrix records are available.
+    """
+    if not isinstance(witness, dict):
+        return "witness is not an object"
+    field = witness.get("field")
+    if not isinstance(field, str) or not isinstance(fields, list) or field not in fields:
+        return "witness field is unknown to the frozen inventory"
+    schema = field_types.get(field) if isinstance(field_types, dict) else None
+    expected_descriptor = witness.get("expected_descriptor")
+    actual_descriptor = witness.get("actual_descriptor")
+    if not (
+        _valid_descriptor(field, expected_descriptor)
+        and _valid_descriptor(field, actual_descriptor)
+        and _descriptor_matches_schema(expected_descriptor, schema)
+        and _descriptor_matches_schema(actual_descriptor, schema)
+    ):
+        return "witness schemas are missing, malformed, or incompatible"
+    offset, expected, actual = (
+        witness.get("byte_offset"),
+        witness.get("expected"),
+        witness.get("actual"),
+    )
+    if (
+        not isinstance(offset, int)
+        or isinstance(offset, bool)
+        or offset < 0
+        or not all(
+            isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 255
+            for value in (expected, actual)
+        )
+        or expected == actual
+    ):
+        return "witness does not identify unequal byte values"
+    dtype, shape = schema.get("dtype"), (
+        schema.get("shape") if isinstance(schema, dict) else (None, None)
+    )
+    if dtype not in _DTYPE_BYTES or not isinstance(shape, list):
+        return "witness field schema is malformed"
+    byte_count = _DTYPE_BYTES[dtype]
+    for dimension in shape:
+        if not isinstance(dimension, int) or isinstance(dimension, bool) or dimension < 0:
+            return "witness field shape is malformed"
+        byte_count *= dimension
+    if offset >= byte_count:
+        return "witness byte offset exceeds captured field"
+    if not isinstance(records, list):
+        return "witness has no comparison record evidence"
+    comparison = witness.get("comparison")
+    if not isinstance(comparison, dict):
+        return "witness omits reference/candidate binding"
+
+    def record_for(binding: Any) -> dict[str, Any] | None:
+        if not isinstance(binding, dict):
+            return None
+        worlds, layout, replay, tick = (
+            binding.get("worlds"),
+            binding.get("layout"),
+            binding.get("replay"),
+            binding.get("tick"),
+        )
+        if not isinstance(tick, int) or tick < 0:
+            return None
+        for record in records:
+            if (
+                isinstance(record, dict)
+                and (record.get("worlds"), record.get("layout"), record.get("replay"))
+                == (worlds, layout, replay)
+                and isinstance(record.get("field_digests"), list)
+                and tick < len(record["field_digests"])
+            ):
+                return record
+        return None
+
+    reference = record_for(comparison.get("reference"))
+    candidate = record_for(comparison.get("candidate"))
+    if reference is None or candidate is None:
+        return "witness comparison binding does not identify captured records"
+    reference_tick = comparison["reference"]["tick"]
+    candidate_tick = comparison["candidate"]["tick"]
+    if reference_tick != candidate_tick:
+        return "witness compares different execution ticks"
+    expected_tick = reference["field_digests"][reference_tick]
+    actual_tick = candidate["field_digests"][candidate_tick]
+    if not (
+        isinstance(expected_tick, dict)
+        and isinstance(actual_tick, dict)
+        and expected_tick.get(field) == expected_descriptor
+        and actual_tick.get(field) == actual_descriptor
+        and expected_descriptor != actual_descriptor
+    ):
+        return "witness descriptors are not bound to distinct compared evidence"
+    # The raw action/Q tape carries the actual bytes for these fields.  Recheck
+    # the promised octets at the reported offset rather than trusting a
+    # producer-supplied numeric witness.
+    if field == "output.actions" or field.startswith("output.q."):
+        raw_key = "actions_hex" if field == "output.actions" else "q_hex"
+        slot = field.removeprefix("output.q.")
+        try:
+            expected_action = reference["action_q_tape"][reference_tick]
+            actual_action = candidate["action_q_tape"][candidate_tick]
+            if field == "output.actions" and reference.get("layout") == "event":
+                raw_key = "policy_actions_hex"
+            expected_hex = (
+                expected_action[raw_key]
+                if field == "output.actions"
+                else expected_action[raw_key][slot]
+            )
+            actual_hex = (
+                actual_action[raw_key]
+                if field == "output.actions"
+                else actual_action[raw_key][slot]
+            )
+            expected_raw, actual_raw = bytes.fromhex(expected_hex), bytes.fromhex(actual_hex)
+        except (IndexError, KeyError, TypeError, ValueError):
+            return "witness action/Q bytes are absent or malformed"
+        if (
+            offset >= len(expected_raw)
+            or offset >= len(actual_raw)
+            or expected_raw[offset] != expected
+            or actual_raw[offset] != actual
+        ):
+            return "witness action/Q octets are not bound to compared tapes"
     return None
 
 
@@ -544,6 +1021,28 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
         digest = hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
         if content.get("field_inventory_sha256") != digest:
             invalid.append(f"{mix}: field inventory binding differs")
+    field_types = content.get("field_types")
+    if not isinstance(field_types, dict) or set(field_types) != set(fields or []):
+        invalid.append(f"{mix}: field type inventory missing or differs")
+    elif any(
+        (
+            not _valid_descriptor(field, {**descriptor, "sha256": "0" * 64})
+            if field != "sim.bodies"
+            else not (
+                isinstance(descriptor, dict)
+                and _valid_descriptor(
+                    field,
+                    {
+                        **descriptor,
+                        "digest_algorithm": "t4a-device-mix64x4-v1",
+                        "digest": "0" * 64,
+                    },
+                )
+            )
+        )
+        for field, descriptor in field_types.items()
+    ):
+        invalid.append(f"{mix}: field type inventory has malformed schema")
     sizes = (4,) if lane == "smoke" else (4, 64, 1024)
     expected = {(e, layout, r) for e in sizes for layout in LAYOUTS for r in (0, 1)}
     seen: set[tuple] = set()
@@ -609,6 +1108,11 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
                     # the explicitly compacted body-ring fingerprint.
                     if not _valid_descriptor(field, descriptor):
                         invalid.append(f"{mix}: malformed typed field digest in {key}")
+                        break
+                    if not _descriptor_matches_schema(descriptor, (field_types or {}).get(field)):
+                        invalid.append(
+                            f"{mix}: per-tick field schema differs from frozen inventory in {key}"
+                        )
                         break
         if not isinstance(tape, list) or len(tape) != horizon:
             invalid.append(f"{mix}: missing exact action/Q tape in {key}")
@@ -705,10 +1209,11 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
                     invalid.append(f"{mix}: event witness digest differs {key}")
                 mapped = witness.get("mapped_tape")
                 raw = witness.get("action_q_tape")
-                event_fields = (
+                event_common_fields = (
                     required_fields(mix)
                     - {f"collector.{n}" for n in ("length", "alive", "action", "qmax")}
                 ) | {"event.supplied_actions"}
+                event_fields = event_common_fields | EVENT_CAPTURE_FIELDS.get(key[0], set())
                 if (
                     witness.get("ticks") != 2
                     or not isinstance(mapped, list)
@@ -723,10 +1228,16 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
                     # evidence.  Only completed/mismatch rows are certified.
                     if status in {"INCOMPLETE", "timeout"}:
                         continue
-                    predicate_error = _event_predicate_error(key[0], witness, key[1])
+                    predicate_error = _event_predicate_error(key[0], witness, key[1], mapped)
                     errors = [
-                        _event_tick_error(raw_tick, descriptor_tick, mix, event_fields)
-                        for raw_tick, descriptor_tick in zip(raw, mapped)
+                        _event_tick_error(
+                            raw_tick,
+                            descriptor_tick,
+                            mix,
+                            event_common_fields
+                            | EVENT_CAPTURE_TICK_FIELDS.get(key[0], (set(), set()))[tick_index],
+                        )
+                        for tick_index, (raw_tick, descriptor_tick) in enumerate(zip(raw, mapped))
                     ]
                     if any(errors):
                         invalid.append(
@@ -737,9 +1248,22 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
                         invalid.append(f"{mix}: {predicate_error} {key}")
                     if row.get("status") == "INVALID_SELF_CONSISTENCY":
                         first = witness.get("first_witness")
-                        if not isinstance(first, dict) or not first.get("field"):
-                            invalid.append(f"{mix}: event mismatch witness absent {key}")
+                        event_schemas = mapped[0] if isinstance(mapped, list) and mapped else None
+                        witness_error = _witness_error(
+                            first,
+                            list(event_fields),
+                            event_schemas,
+                            witness.get("comparison_records")
+                            or (
+                                first.get("comparison_records") if isinstance(first, dict) else None
+                            ),
+                        )
+                        if witness_error is not None:
+                            invalid.append(
+                                f"{mix}: event mismatch witness invalid {key}: {witness_error}"
+                            )
                         else:
+                            mismatches.append(first)
                             mismatches.append(first)
                     data = {"mapped_tape": mapped, "action_q_tape": raw}
                     if key[0] in event_tapes and event_tapes[key[0]] != data:
@@ -747,6 +1271,12 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
                     event_tapes.setdefault(key[0], data)
         if seen_events != expected_events:
             missing.append(f"{mix}: required event/E cells missing")
+    if content.get("first_witness") is not None:
+        witness_error = _witness_error(content["first_witness"], fields, field_types, records)
+        if witness_error is not None:
+            invalid.append(f"{mix}: unit mismatch witness invalid: {witness_error}")
+        else:
+            mismatches.append(content["first_witness"])
     return invalid, missing, mismatches
 
 
@@ -784,8 +1314,14 @@ def aggregate(
                 invalid.append("foreign failure record")
             if fail.get("status") == "INVALID_SELF_CONSISTENCY":
                 witness = fail.get("first_witness")
-                if not isinstance(witness, dict) or not witness.get("field"):
-                    invalid.append("behavioral failure omitted first witness")
+                witness_error = _witness_error(
+                    witness,
+                    fail.get("fields"),
+                    fail.get("field_types"),
+                    fail.get("comparison_records"),
+                )
+                if witness_error is not None:
+                    invalid.append(f"behavioral failure witness invalid: {witness_error}")
                 else:
                     mismatches.append(witness)
             elif fail.get("status") == "INVALID_EVIDENCE":
@@ -821,15 +1357,14 @@ def aggregate(
             if status == "INVALID_EVIDENCE":
                 invalid.append(f"{unit}: producer invalid evidence")
             elif status == "INVALID_SELF_CONSISTENCY":
-                mismatches.append(content.get("first_witness", unit))
+                # The reducer below independently validates this witness.
+                pass
             elif status != "COMPLETE":
                 missing.append(f"{unit}: {status}")
             errs, gaps, differences = _content_errors(content, units.parse(unit), lane)
             invalid.extend(errs)
             missing.extend(gaps)
             mismatches.extend(differences)
-            if content.get("first_witness") is not None:
-                mismatches.append(content["first_witness"])
     except FileNotFoundError as exc:
         missing.append(str(exc))
     except (ValueError, TypeError, KeyError) as exc:

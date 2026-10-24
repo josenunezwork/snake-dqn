@@ -55,6 +55,11 @@ def _snapshot(case: tuple) -> dict[str, torch.Tensor]:
     return result
 
 
+def _snapshot_copy(case: tuple) -> dict[str, torch.Tensor]:
+    """Freeze persistent tensors for a before/after fixture assertion."""
+    return {name: value.detach().clone() for name, value in _snapshot(case).items()}
+
+
 def _mapped_snapshot(case: tuple) -> dict[str, torch.Tensor]:
     """Persistent fields for the four canonical logical event worlds."""
     sim = case[0]
@@ -74,6 +79,22 @@ def _tensor_hex(value: torch.Tensor) -> str:
     return value.detach().contiguous().cpu().numpy().tobytes().hex()
 
 
+def _tensor_commitment(value: torch.Tensor) -> dict[str, Any]:
+    """Return the typed byte commitment used by the sealed event witness."""
+    raw = value.detach().contiguous().cpu().numpy().tobytes()
+    return {
+        "dtype": str(value.dtype),
+        "shape": list(value.shape),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
+
+
+def _mapped_event_fields(sim: Any, fields: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """Map an event-local E tensor through the canonical four witness rows."""
+    rows = torch.arange(4, device=sim.device)
+    return {name: value.index_select(0, rows).contiguous() for name, value in fields.items()}
+
+
 def _actions(sim: Any) -> torch.Tensor:
     """Frozen supplied actions for exceptional fixtures only."""
     return torch.ones((sim.E, sim.S), dtype=torch.long, device=sim.device)
@@ -83,11 +104,14 @@ def _tick(
     case: tuple,
     actions: torch.Tensor | None = None,
     after_prepare: Callable[[], None] | None = None,
-) -> None:
+    event_fields: Callable[[], dict[str, torch.Tensor]] | None = None,
+    observe_food_transition: bool = False,
+) -> dict[str, torch.Tensor]:
     """Use the candidate's normal prepare, step, and vector carry paths."""
     sim, policy = case[:2]
     # The fixture can replace actions only after every ordinary learned forward
     # runs, retaining B8/vector61/v8 preparation and carry maintenance.
+    transition: dict[str, torch.Tensor] = {}
     with Capture(case) as cap:
         with engine._arm("I"), torch.inference_mode():
             cap.begin_tick()
@@ -99,7 +123,42 @@ def _tick(
             # Every fixture is an event-only supplied-action witness.
             # Normal policy actions are captured before their replacement.
             supplied = _actions(sim) if actions is None else actions
-            sim.step(supplied)
+            if observe_food_transition:
+                original_maintain = sim._maintain_food
+
+                def maintain() -> None:
+                    transition.update(
+                        {
+                            "event.contested_food.after_consume_cells": (
+                                sim.food_cells.detach().clone()
+                            ),
+                            "event.contested_food.after_consume_present": (
+                                sim.food_present.detach().clone()
+                            ),
+                            "event.contested_food.after_consume_count": (
+                                sim.food_count.detach().clone()
+                            ),
+                        }
+                    )
+                    original_maintain()
+                    transition.update(
+                        {
+                            "event.contested_food.after_refill_cells": (
+                                sim.food_cells.detach().clone()
+                            ),
+                            "event.contested_food.after_refill_present": (
+                                sim.food_present.detach().clone()
+                            ),
+                            "event.contested_food.after_refill_count": (
+                                sim.food_count.detach().clone()
+                            ),
+                        }
+                    )
+
+                with patch.object(sim, "_maintain_food", maintain):
+                    sim.step(supplied)
+            else:
+                sim.step(supplied)
             policy.after_step(sim)
         rows = (0, 1, 2, 3)
         captured = cap.fields(rows)
@@ -110,8 +169,12 @@ def _tick(
     # fields only after its restoration so the strict inventory sees no hook.
     fields = _mapped_snapshot(case)
     fields.update(captured)
+    fields.update(_mapped_event_fields(sim, transition))
+    if event_fields is not None:
+        fields.update(_mapped_event_fields(sim, event_fields()))
     fields["event.supplied_actions"] = supplied_mapped
     _TAPES.setdefault(id(sim), []).append(fields)
+    return fields
 
 
 def _set_head(sim: Any, slot: int, x: int, y: int, direction: int) -> None:
@@ -138,7 +201,19 @@ def _event_ring_wrap(case: tuple) -> tuple[bool, dict[str, Any]]:
     sim.bodies[rows, 0, sim.cap - 2] = torch.tensor([3, 4], device=sim.device)
     sim.direction[:, 0] = 1
     before = sim.head_ptr[:, 0].clone()
-    _tick(case)
+
+    def ring_capture() -> dict[str, torch.Tensor]:
+        after_ptr = sim.head_ptr[:, 0]
+        offsets = torch.arange(2, device=sim.device)
+        ring = (after_ptr[:, None] - offsets[None, :]) % sim.cap
+        prefix = sim.bodies[:, 0].gather(1, ring[..., None].expand(-1, -1, 2)).contiguous()
+        return {
+            "event.ring_wrap.before_head_ptr": before,
+            "event.ring_wrap.after_head_ptr": after_ptr.detach().clone(),
+            "event.ring_wrap.prefix": prefix,
+        }
+
+    first_tick = _tick(case, event_fields=ring_capture)
     after = sim.head_ptr[:, 0]
     wrapped = bool(torch.all(before == sim.cap - 1).item() and torch.all(after == 0).item())
     # ``seg_count >= 2`` proves only occupancy.  Read the live circular prefix
@@ -155,9 +230,42 @@ def _event_ring_wrap(case: tuple) -> tuple[bool, dict[str, Any]]:
     return wrapped and ordered, {
         "before": before.tolist(),
         "after": after.tolist(),
-        "expected_head": expected_head.tolist(),
-        "expected_tail": expected_tail.tolist(),
         "logical_prefix": logical_prefix.tolist(),
+        # The reducer derives capacity and body dtype/shape from the captured
+        # ``sim.bodies`` descriptor, then checks this is the frozen geometry.
+        # It never accepts producer-selected coordinates as an oracle.
+        "ring_schema": {
+            "field": "sim.bodies",
+            "tick": 0,
+            "capacity": sim.cap,
+            "dtype": str(sim.bodies.dtype),
+            "shape": list(first_tick["sim.bodies"].shape),
+            "physical_worlds": sim.E,
+        },
+        "frozen_geometry": {
+            "slot": 0,
+            "direction": 1,
+            "prefix_length": 2,
+            "initial_head": [4, 4],
+            "initial_tail": [3, 4],
+            "moved_head": expected_head.tolist(),
+            "retained_tail": expected_tail.tolist(),
+        },
+        "ring_prefix_capture": {
+            "field": "event.ring_wrap.prefix",
+            "tick": 0,
+            **_tensor_commitment(first_tick["event.ring_wrap.prefix"]),
+        },
+        "ring_before_capture": {
+            "field": "event.ring_wrap.before_head_ptr",
+            "tick": 0,
+            **_tensor_commitment(first_tick["event.ring_wrap.before_head_ptr"]),
+        },
+        "ring_after_capture": {
+            "field": "event.ring_wrap.after_head_ptr",
+            "tick": 0,
+            **_tensor_commitment(first_tick["event.ring_wrap.after_head_ptr"]),
+        },
         "wrapped": wrapped,
         "ordered": ordered,
     }
@@ -176,7 +284,13 @@ def _event_death_respawn(case: tuple) -> tuple[bool, dict[str, Any]]:
         sim.bodies[:, slot, sim.cap - 1] = torch.tensor([4, y], device=sim.device)
         sim.bodies[:, slot, sim.cap - 2] = torch.tensor([6, y], device=sim.device)
         sim.bodies[:, slot, sim.cap - 3] = torch.tensor([4, y + 1], device=sim.device)
-    _tick(case)
+    death_tick = _tick(
+        case,
+        event_fields=lambda: {
+            "event.death_respawn.died": sim._last_done[:, (1, 2)].all(dim=1),
+            "event.death_respawn.corpse": sim.corpse_food.any(dim=1),
+        },
+    )
     died = sim._last_done[:, 1] & sim._last_done[:, 2]
     corpse = sim.corpse_food.any(dim=1)
     with torch.inference_mode():
@@ -186,10 +300,34 @@ def _event_death_respawn(case: tuple) -> tuple[bool, dict[str, Any]]:
         sim.respawn_timer[:, 2] = torch.where(
             died, torch.ones_like(sim.respawn_timer[:, 2]), sim.respawn_timer[:, 2]
         )
-    _tick(case)
+    respawn_tick = _tick(
+        case,
+        event_fields=lambda: {"event.death_respawn.respawned": sim.alive[:, (1, 2)].all(dim=1)},
+    )
     respawned = sim.alive[:, 1] & sim.alive[:, 2]
     ok = bool(torch.all(died).item() and torch.all(respawned).item() and torch.any(corpse).item())
-    return ok, {"died": died.tolist(), "respawned": respawned.tolist(), "corpse": corpse.tolist()}
+    return ok, {
+        "died": died.tolist(),
+        "respawned": respawned.tolist(),
+        "corpse": corpse.tolist(),
+        "death_respawn_capture": {
+            "died": {
+                "field": "event.death_respawn.died",
+                "tick": 0,
+                **_tensor_commitment(death_tick["event.death_respawn.died"]),
+            },
+            "corpse": {
+                "field": "event.death_respawn.corpse",
+                "tick": 0,
+                **_tensor_commitment(death_tick["event.death_respawn.corpse"]),
+            },
+            "respawned": {
+                "field": "event.death_respawn.respawned",
+                "tick": 1,
+                **_tensor_commitment(respawn_tick["event.death_respawn.respawned"]),
+            },
+        },
+    }
 
 
 def _event_contested_food(case: tuple) -> tuple[bool, dict[str, Any]]:
@@ -212,12 +350,30 @@ def _event_contested_food(case: tuple) -> tuple[bool, dict[str, Any]]:
     sim.food_count[:] = 1
 
     rng_before = sim.rng_counter.clone()
-    _tick(case)
+    prepared_transition: dict[str, torch.Tensor] = {}
+
+    def capture_pre_consume() -> None:
+        # ``prepare`` may refill the setup list to max_food.  This is the
+        # immediate ordered ambient state from which the contested target is
+        # consumed, not the producer's pre-prepare fixture arrangement.
+        prepared_transition.update(
+            {
+                "event.contested_food.before_cells": sim.food_cells.detach().clone(),
+                "event.contested_food.before_present": sim.food_present.detach().clone(),
+                "event.contested_food.before_count": sim.food_count.detach().clone(),
+                "event.contested_food.before_corpse": sim.corpse_food.detach().clone(),
+            }
+        )
+
+    _tick(
+        case,
+        after_prepare=capture_pre_consume,
+        observe_food_transition=True,
+    )
     ate_1, ate_2 = sim._last_ambient_food_ate[:, 1], sim._last_ambient_food_ate[:, 2]
     # Train-mode step refills after consumption; a second ordinary lifecycle
     # witnesses the ordered food state and additional counter progression.
     food_after_first = sim.food_count.clone()
-    refill_cells = sim.food_cells[:, 0].clone()
     _tick(case)
     rng_after = sim.rng_counter
     ordered = ate_1 & ~ate_2
@@ -230,13 +386,60 @@ def _event_contested_food(case: tuple) -> tuple[bool, dict[str, Any]]:
     ok = bool(
         torch.all(ordered).item() and torch.all(refilled).item() and torch.all(rng_moved).item()
     )
+    transition_fields = (
+        "event.contested_food.before_cells",
+        "event.contested_food.before_present",
+        "event.contested_food.before_count",
+        "event.contested_food.before_corpse",
+        "event.contested_food.after_consume_cells",
+        "event.contested_food.after_consume_present",
+        "event.contested_food.after_consume_count",
+        "event.contested_food.after_refill_cells",
+        "event.contested_food.after_refill_present",
+        "event.contested_food.after_refill_count",
+    )
+    # Bind the pre-step side of the ordered transition into the same capture
+    # tape as the maintenance boundary; this makes refill evidence inspectable
+    # without treating the fixture's summary booleans as proof.
+    first_tape = _TAPES[id(sim)][0]
+    first_tape.update(
+        _mapped_event_fields(
+            sim,
+            {
+                **prepared_transition,
+            },
+        )
+    )
+    transition_values = {
+        name.removeprefix("event.contested_food."): first_tape[name].tolist()
+        for name in transition_fields
+    }
+    after_consume_count = first_tape["event.contested_food.after_consume_count"]
+    after_refill_count = first_tape["event.contested_food.after_refill_count"]
+    after_refill_cells = first_tape["event.contested_food.after_refill_cells"]
+    # Food compaction preserves survivors in order and maintenance appends new
+    # ambient cells. Export exactly that appended suffix rather than merely the
+    # first post-refill survivor, which may predate the contested consumption.
+    refill_appended_cells = [
+        after_refill_cells[row, int(before.item()) : int(after.item())].tolist()
+        for row, (before, after) in enumerate(zip(after_consume_count, after_refill_count))
+    ]
     return ok, {
         "slot_1_ate": ate_1.tolist(),
         "slot_2_ate": ate_2.tolist(),
         "food_after_first": food_after_first.tolist(),
-        "refill_cells": refill_cells.tolist(),
+        "refill_cells": refill_appended_cells,
         "rng_before": rng_before.tolist(),
         "rng_after": rng_after.tolist(),
+        "food_transition": transition_values,
+        "food_transition_capture": {
+            name.removeprefix("event.contested_food."): {
+                "field": name,
+                "tick": 0,
+                **_tensor_commitment(first_tape[name]),
+            }
+            for name in transition_fields
+        },
     }
 
 
@@ -257,8 +460,64 @@ def _remap_world_tensors(case: tuple, rows: torch.Tensor) -> None:
     r2_cache.bump(sim)
 
 
+def _warm_output_capture(case: tuple) -> dict[str, torch.Tensor]:
+    """Capture real Q, observation, v8 and advisory output at a warm seam."""
+    sim, policy = case[:2]
+    with Capture(case) as cap:
+        with engine._arm("I"), torch.inference_mode():
+            cap.begin_tick()
+            sim.prepare()
+            sim.advisory_mask()
+            _q, _legal, hero = policy.evaluate(sim)
+            policy.actions(sim, hero)
+        # Source invokes vector ``prepare`` on this first warm action while a
+        # cloned prepared runtime correctly skips it.  The prepare path adds
+        # accounting and an extra indexed advisory instrumentation call. Keep
+        # the stable semantic boundary: Q, observations, v8 (including masks),
+        # selected actions, lifecycle, and configuration.
+        return {
+            name: value
+            for name, value in cap.fields((0, 1, 2, 3)).items()
+            if (
+                name.startswith(("output.q.", "output.obs.", "output.v8."))
+                or name in {"output.actions", "lifecycle.sim_prepared", "lifecycle.vector_prepared"}
+                or name == "configuration.sha256"
+            )
+        }
+
+
+def _warm_outputs_equal(left: dict[str, torch.Tensor], right: dict[str, torch.Tensor]) -> bool:
+    """Compare the complete captured warm output boundary, byte for byte."""
+    return compare.compare_inventory(left, right) is None
+
+
+def _schema_witness(value: Any) -> dict[str, Any] | None:
+    """Serialize a harness schema failure without mislabelling it as engine evidence."""
+    if isinstance(value, compare.SchemaIncompatibility):
+        return value.__dict__.copy()
+    return None
+
+
+def _first_schema(*values: Any) -> dict[str, Any] | None:
+    return next(
+        (witness for value in values if (witness := _schema_witness(value)) is not None), None
+    )
+
+
 def _event_clone_restore(case: tuple) -> tuple[bool, dict[str, Any]]:
     sim, policy = case[:2]
+    # Establish a deterministic ordinary food transition on the saved seam:
+    # the first tick moves the controlled hero from [4,4] to [5,4], leaving
+    # the ambient [6,4] entry for the resident restore target's next tick.
+    # The target therefore proves body and food progression before reset while
+    # reset still restores the exact, unedited saved snapshot.
+    _set_head(sim, 0, 4, 4, 1)
+    sim.food_present.zero_()
+    sim.corpse_food.zero_()
+    sim.food_count.zero_()
+    sim.food_cells[:, 0] = torch.tensor([6, 4], device=sim.device)
+    sim.food_present[:, 0] = True
+    sim.food_count[:] = 1
     _tick(case)
     saved = (sim.clone(), _clone_policy(policy))
     # Continue the original branch and independently restore the complete
@@ -271,26 +530,62 @@ def _event_clone_restore(case: tuple) -> tuple[bool, dict[str, Any]]:
     branch_b[0].rng_counter += 7
     branch_b[0].frame += 2
     branch_b[1].vector_runtime._carry_valid.logical_not_()
+    # Review-02 requires the resident restore target to traverse real body and
+    # food mechanics before reset, rather than exercising only scalar cursors.
+    # Keep the exact saved food inventory intact so this remains a production
+    # reset-path test rather than a reset capability test for fixture edits.
+    target_before = _snapshot_copy(branch_b)
+    _tick(branch_b)
+    target_after = _snapshot(branch_b)
+    target_body_progressed = (
+        compare.compare(target_before["sim.bodies"], target_after["sim.bodies"], "sim.bodies")
+        is not None
+    )
+    target_food_progressed = any(
+        compare.compare(target_before[name], target_after[name], name) is not None
+        for name in ("sim.food_cells", "sim.food_present", "sim.food_count")
+    )
     before_restore = _state_digest(branch_b)
     ruler._reset(branch_b[0], branch_b[1], saved[0], saved[1])
-    restored = compare.compare_inventory(_snapshot(branch_b), _snapshot((saved[0], saved[1])))
+    restored_left = _snapshot_copy(branch_b)
+    restored_right = _snapshot_copy((saved[0], saved[1]))
+    restored = compare.compare_inventory(restored_left, restored_right)
     restored_digest = _state_digest(branch_b)
     _tick(branch_a)
     _tick(branch_b)
-    mismatch = restored or compare.compare_inventory(_snapshot(branch_a), _snapshot(branch_b))
-    mismatch = mismatch or compare.compare_inventory(
-        _TAPES[id(branch_a[0])][-1], _TAPES[id(branch_b[0])][-1]
-    )
+    branch_left, branch_right = _snapshot(branch_a), _snapshot(branch_b)
+    branch_compare = compare.compare_inventory(branch_left, branch_right)
+    replay_left, replay_right = _TAPES[id(branch_a[0])][-1], _TAPES[id(branch_b[0])][-1]
+    replay_compare = compare.compare_inventory(replay_left, replay_right)
+    schema_incompatibility = _first_schema(restored, branch_compare, replay_compare)
+    mismatch = None
+    for value, left, right in (
+        (restored, restored_left, restored_right),
+        (branch_compare, branch_left, branch_right),
+        (replay_compare, replay_left, replay_right),
+    ):
+        if isinstance(value, compare.Mismatch):
+            mismatch = _internal_byte_witness(value, left, right, sim.E)
+            break
     _TAPES.pop(id(branch_b[0]), None)
     replay_digest = _state_digest(branch_b)
-    return mismatch is None and restored is None, {
+    return (
+        mismatch is None
+        and schema_incompatibility is None
+        and restored is None
+        and target_body_progressed
+        and target_food_progressed
+    ), {
         "before_restore_digest": before_restore,
         "restored_exact": restored is None,
         "saved_digest": _state_digest((saved[0], saved[1], *case[2:])),
         "restored_digest": restored_digest,
         "branch_digest": _state_digest(branch_a),
         "replay_digest": replay_digest,
-        "mismatch": None if mismatch is None else mismatch.__dict__,
+        "mismatch": mismatch,
+        "schema_incompatibility": schema_incompatibility,
+        "restore_target_body_progressed": target_body_progressed,
+        "restore_target_food_progressed": target_food_progressed,
     }
 
 
@@ -300,6 +595,19 @@ def _event_stale_cache(
 ) -> tuple[bool, dict[str, Any]]:
     smoke, canary = _mode_flags(lane)
     sim, policy = case[:2]
+    sealed_mismatches: list[dict[str, Any]] = []
+
+    def compared(
+        left: dict[str, torch.Tensor], right: dict[str, torch.Tensor]
+    ) -> compare.Mismatch | compare.SchemaIncompatibility | None:
+        result = compare.compare_inventory(left, right)
+        if isinstance(result, compare.Mismatch):
+            # Seal the canonical evidence at detection time. Subsequent event
+            # ticks mutate persistent tensors in place, so retaining live
+            # dictionaries would bind the wrong state to this byte witness.
+            sealed_mismatches.append(_internal_byte_witness(result, left, right, sim.E))
+        return result
+
     # Materialize the ordinary post-step tensor dtypes before creating a
     # warmed restore source.  Resetting a progressed target from the initial
     # pre-step template can otherwise be a dtype mismatch rather than a cache
@@ -309,16 +617,15 @@ def _event_stale_cache(
     # Prime the actual vector/policy path before the clone/remap/restore seam.
     # Calling only ``prepare``/``advisory_mask`` leaves vector-runtime cache and
     # carry state unexercised, which is the boundary this fixture certifies.
-    sim.prepare()
-    sim.advisory_mask()
-    _hero_q, _legal, hero = policy.evaluate(sim)
-    policy.actions(sim, hero)
+    warm_outputs = _warm_output_capture(case)
     if not policy.vector_prepared:
         raise RuntimeError("stale-cache warmup did not prepare vector runtime")
     warm_stats = r2_cache.stats(sim)
     warm_generation = r2_cache.generation(sim)
     warm_digest = _state_digest(case)
     clone = (sim.clone(), _clone_policy(policy), *case[2:])
+    clone_warm_outputs = _warm_output_capture(clone)
+    source_clone_warm_exact = _warm_outputs_equal(warm_outputs, clone_warm_outputs)
     clone_vector_prepared = bool(clone[1].vector_prepared)
     clone_generation = r2_cache.generation(clone[0])
     # Exercise a real device-to-device remap and inverse remap of every
@@ -330,14 +637,16 @@ def _event_stale_cache(
     reverse_rows = torch.arange(sim.E - 1, -1, -1, device=sim.device)
     _remap_world_tensors(remapped, reverse_rows)
     _remap_world_tensors(remapped, reverse_rows)
-    remap_exact = compare.compare_inventory(_snapshot(remapped), _snapshot(case)) is None
+    remap_warm_outputs = _warm_output_capture(remapped)
+    source_remap_warm_exact = _warm_outputs_equal(warm_outputs, remap_warm_outputs)
+    remap_compare = compared(_snapshot(remapped), _snapshot(case))
+    remap_exact = remap_compare is None
     remap_restored_digest = _state_digest(remapped)
     remap_replay = (sim.clone(), _clone_policy(policy), *case[2:])
     _tick(remapped)
     _tick(remap_replay)
-    remap_replay_exact = (
-        compare.compare_inventory(_snapshot(remapped), _snapshot(remap_replay)) is None
-    )
+    remap_replay_compare = compared(_snapshot(remapped), _snapshot(remap_replay))
+    remap_replay_exact = remap_replay_compare is None
     remap_branch_digest = _state_digest(remapped)
     remap_replay_digest = _state_digest(remap_replay)
     _TAPES.pop(id(remapped[0]), None)
@@ -349,18 +658,44 @@ def _event_stale_cache(
     restored, _wrappers = fixtures.build_case(
         checkpoint, roster, sim.E, device, smoke=smoke, canary=canary
     )
+    # The restore resident must execute a body *and food* transition before it
+    # is reset.  Seed one legal ambient cell immediately ahead of the hero;
+    # after the ordinary step the occupied cell cannot be its refill result.
+    cardinal = torch.tensor(((0, -1), (1, 0), (0, 1), (-1, 0)), device=sim.device)
+    target_heads = restored[0].heads()[:, 0]
+    target_next = target_heads + cardinal[restored[0].direction[:, 0]]
+    restored[0].food_present.zero_()
+    restored[0].corpse_food.zero_()
+    restored[0].food_count.zero_()
+    restored[0].food_cells[:, 0] = target_next
+    restored[0].food_present[:, 0] = True
+    restored[0].food_count[:] = 1
+    target_before_progress = _snapshot_copy(restored)
     _tick(restored)
     restored_sim, restored_policy = restored[:2]
-    restored_sim.prepare()
-    _restored_q, _restored_legal, restored_hero = restored_policy.evaluate(restored_sim)
-    restored_policy.actions(restored_sim, restored_hero)
+    target_after_progress = _snapshot(restored)
+    target_body_progressed = (
+        compare.compare(
+            target_before_progress["sim.bodies"], target_after_progress["sim.bodies"], "sim.bodies"
+        )
+        is not None
+    )
+    target_food_progressed = any(
+        compare.compare(target_before_progress[name], target_after_progress[name], name) is not None
+        for name in ("sim.food_cells", "sim.food_present", "sim.food_count")
+    )
+    _warm_output_capture(restored)
     ruler._reset(restored_sim, restored_policy, sim, policy)
-    restore_exact = compare.compare_inventory(_snapshot(restored), _snapshot(case)) is None
+    restore_compare = compared(_snapshot(restored), _snapshot(case))
+    restore_exact = restore_compare is None
     restored_digest = _state_digest(restored)
+    restored_warm_outputs = _warm_output_capture(restored)
+    source_restore_warm_exact = _warm_outputs_equal(warm_outputs, restored_warm_outputs)
     replay = (sim.clone(), _clone_policy(policy), *case[2:])
     _tick(restored)
     _tick(replay)
-    restore_replay_exact = compare.compare_inventory(_snapshot(restored), _snapshot(replay)) is None
+    restore_replay_compare = compared(_snapshot(restored), _snapshot(replay))
+    restore_replay_exact = restore_replay_compare is None
     restore_branch_digest = _state_digest(restored)
     restore_replay_digest = _state_digest(replay)
     _TAPES.pop(id(restored_sim), None)
@@ -371,14 +706,20 @@ def _event_stale_cache(
     equivalent_sim, equivalent_policy = equivalent[:2]
     _tick(equivalent)
     _TAPES[id(equivalent_sim)] = []
-    equivalent_sim.prepare()
-    equivalent_sim.advisory_mask()
-    _fresh_q, _fresh_legal, fresh_hero = equivalent_policy.evaluate(equivalent_sim)
-    equivalent_policy.actions(equivalent_sim, fresh_hero)
+    fresh_warm_outputs = _warm_output_capture(equivalent)
+    source_fresh_warm_exact = _warm_outputs_equal(warm_outputs, fresh_warm_outputs)
     if not equivalent_policy.vector_prepared:
         raise RuntimeError("stale-cache fresh warmup did not prepare vector runtime")
     fresh_vector_prepared = bool(equivalent_policy.vector_prepared)
     fresh_generation = r2_cache.generation(equivalent_sim)
+    # A one-byte Q alteration at the warm boundary must be observable to the
+    # same full-output comparator used above.  This control is intentionally
+    # local to the retained capture, never a policy or engine mutation.
+    corrupted_warm = {name: value.clone() for name, value in clone_warm_outputs.items()}
+    q_name = next(name for name in corrupted_warm if name.startswith("output.q."))
+    q_bytes = corrupted_warm[q_name].view(torch.uint8).reshape(-1)
+    q_bytes[0] ^= 1
+    warm_q_corruption_detected = not _warm_outputs_equal(warm_outputs, corrupted_warm)
     # A disposable, already-warmed target crosses the same resident restore
     # seam with invalidation deliberately suppressed.  Compare its stale
     # cached advisory result with the result after restoring normal invalidation
@@ -432,15 +773,30 @@ def _event_stale_cache(
     _tick(case)
     _tick(clone)
     _tick(equivalent)
-    mismatch = compare.compare_inventory(_snapshot(case), _snapshot(clone))
-    mismatch = mismatch or compare.compare_inventory(_snapshot(clone), _snapshot(equivalent))
+    source_clone_compare = compared(_snapshot(case), _snapshot(clone))
+    clone_fresh_compare = compared(_snapshot(clone), _snapshot(equivalent))
+    tick_compares: list[Any] = []
     for index in range(2):
-        mismatch = mismatch or compare.compare_inventory(
-            _TAPES[id(sim)][index], _TAPES[id(clone[0])][index]
+        tick_compares.extend(
+            (
+                compared(_TAPES[id(sim)][index], _TAPES[id(clone[0])][index]),
+                compared(_TAPES[id(sim)][index], _TAPES[id(equivalent[0])][index]),
+            )
         )
-        mismatch = mismatch or compare.compare_inventory(
-            _TAPES[id(sim)][index], _TAPES[id(equivalent[0])][index]
-        )
+    all_compares = (
+        remap_compare,
+        remap_replay_compare,
+        restore_compare,
+        restore_replay_compare,
+        source_clone_compare,
+        clone_fresh_compare,
+        *tick_compares,
+    )
+    schema_incompatibility = _first_schema(*all_compares)
+    mismatch_result = next(
+        (value for value in all_compares if isinstance(value, compare.Mismatch)), None
+    )
+    mismatch = sealed_mismatches[0] if mismatch_result is not None else None
     _TAPES.pop(id(clone[0]), None)
     _TAPES.pop(id(equivalent[0]), None)
     _TAPES.pop(id(control_sim), None)
@@ -458,6 +814,14 @@ def _event_stale_cache(
         and remap_exact
         and remap_replay_exact
         and broken_invalidation_control
+        and source_clone_warm_exact
+        and source_remap_warm_exact
+        and source_restore_warm_exact
+        and source_fresh_warm_exact
+        and warm_q_corruption_detected
+        and target_body_progressed
+        and target_food_progressed
+        and schema_incompatibility is None
     ), {
         "warm_stats": warm_stats,
         "clone_stats": clone_stats,
@@ -480,9 +844,34 @@ def _event_stale_cache(
         "remap_restored_digest": remap_restored_digest,
         "remap_branch_digest": remap_branch_digest,
         "remap_replay_digest": remap_replay_digest,
-        "mismatch": None if mismatch is None else mismatch.__dict__,
+        "mismatch": mismatch,
+        "schema_incompatibility": schema_incompatibility,
         "lifecycle": lifecycle,
         "broken_invalidation_control": broken_invalidation_control,
+        "warm_output_comparisons": {
+            "source_clone": source_clone_warm_exact,
+            "source_remap": source_remap_warm_exact,
+            "source_restore": source_restore_warm_exact,
+            "source_fresh": source_fresh_warm_exact,
+        },
+        "warm_q_corruption_detected": warm_q_corruption_detected,
+        "warm_q_corruption_control": {
+            "field": q_name,
+            "source_descriptor": compare.compact_inventory({q_name: warm_outputs[q_name]})[q_name],
+            "corrupted_descriptor": compare.compact_inventory({q_name: corrupted_warm[q_name]})[
+                q_name
+            ],
+        },
+        "restore_target_body_progressed": target_body_progressed,
+        "restore_target_food_progressed": target_food_progressed,
+        "warm_output_captures": {
+            "source": compare.compact_inventory(warm_outputs),
+            "clone": compare.compact_inventory(clone_warm_outputs),
+            "remap": compare.compact_inventory(remap_warm_outputs),
+            "restore": compare.compact_inventory(restored_warm_outputs),
+            "fresh": compare.compact_inventory(fresh_warm_outputs),
+            "corrupted_q_control": compare.compact_inventory(corrupted_warm),
+        },
         "mask_shape": list(stale_mask.shape),
         "mask_dtype": str(stale_mask.dtype),
         "stale_mask_hex": _tensor_hex(stale_mask),
@@ -588,6 +977,126 @@ def _reference_incomplete(
     return False, None, "INCOMPLETE"
 
 
+def _event_comparison_record(witness: dict[str, Any], worlds: int) -> dict[str, Any]:
+    """Expose sealed event capture descriptors to the common witness validator."""
+    return {
+        "worlds": worlds,
+        "layout": "event",
+        "replay": 0,
+        "field_digests": witness.get("mapped_tape"),
+        "action_q_tape": witness.get("action_q_tape"),
+    }
+
+
+def _event_byte_witness(
+    found: compare.Mismatch,
+    tick: int,
+    reference: dict[str, torch.Tensor],
+    candidate: dict[str, torch.Tensor],
+    reference_witness: dict[str, Any],
+    candidate_witness: dict[str, Any],
+    reference_worlds: int,
+    candidate_worlds: int,
+) -> dict[str, Any]:
+    """Bind a genuine cross-E byte delta to both sealed event captures."""
+    field = found.field
+    return {
+        "tick": tick,
+        **found.__dict__,
+        "expected_descriptor": compare.compact_inventory({field: reference[field]})[field],
+        "actual_descriptor": compare.compact_inventory({field: candidate[field]})[field],
+        "comparison": {
+            "reference": {"worlds": reference_worlds, "layout": "event", "replay": 0, "tick": tick},
+            "candidate": {"worlds": candidate_worlds, "layout": "event", "replay": 0, "tick": tick},
+        },
+        "comparison_records": [
+            _event_comparison_record(reference_witness, reference_worlds),
+            _event_comparison_record(candidate_witness, candidate_worlds),
+        ],
+    }
+
+
+def _internal_byte_witness(
+    found: compare.Mismatch,
+    left: dict[str, torch.Tensor],
+    right: dict[str, torch.Tensor],
+    physical_worlds: int,
+) -> dict[str, Any]:
+    """Bind an internal persistent-state delta to its exact snapshot pair."""
+    field = found.field
+    if left[field].ndim == 0 or left[field].shape[0] != physical_worlds:
+        raise ValueError("internal mismatch has no physical world axis")
+    row_bytes = left[field].numel() * left[field].element_size() // physical_worlds
+    offending_row = found.byte_offset // row_bytes
+    rows = [offending_row] + [row for row in range(physical_worlds) if row != offending_row][:3]
+    index = torch.tensor(rows, dtype=torch.long, device=left[field].device)
+
+    def canonical(values: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        return {
+            name: (
+                value.index_select(0, index).detach().clone()
+                if value.ndim and value.shape[0] == physical_worlds
+                else value.detach().clone()
+            )
+            for name, value in values.items()
+        }
+
+    canonical_left, canonical_right = canonical(left), canonical(right)
+    canonical_found = compare.compare_inventory(canonical_left, canonical_right)
+    if not isinstance(canonical_found, compare.Mismatch):
+        raise ValueError("canonical internal mismatch did not retain the offending byte")
+    field = canonical_found.field
+
+    def raw_action_q(values: dict[str, torch.Tensor]) -> list[dict[str, Any]]:
+        """Retain exact policy bytes when an internal replay compares outputs."""
+
+        def raw(value: torch.Tensor) -> str:
+            return value.contiguous().reshape(-1).view(torch.uint8).cpu().numpy().tobytes().hex()
+
+        if "output.actions" not in values and not any(
+            name.startswith("output.q.") for name in values
+        ):
+            return []
+        result = {
+            "q_hex": {
+                name.removeprefix("output.q."): raw(value)
+                for name, value in values.items()
+                if name.startswith("output.q.")
+            }
+        }
+        if "output.actions" in values:
+            result["actions_hex"] = raw(values["output.actions"])
+        return [result]
+
+    reference = {
+        "worlds": 4,
+        "layout": "event-internal",
+        "replay": 0,
+        "field_digests": [compare.compact_inventory(canonical_left)],
+        "action_q_tape": raw_action_q(canonical_left),
+    }
+    candidate = {
+        "worlds": 4,
+        "layout": "event-internal",
+        "replay": 1,
+        "field_digests": [compare.compact_inventory(canonical_right)],
+        "action_q_tape": raw_action_q(canonical_right),
+    }
+    return {
+        "tick": 0,
+        **canonical_found.__dict__,
+        "expected_descriptor": reference["field_digests"][0][field],
+        "actual_descriptor": candidate["field_digests"][0][field],
+        "comparison": {
+            "reference": {"worlds": 4, "layout": "event-internal", "replay": 0, "tick": 0},
+            "candidate": {"worlds": 4, "layout": "event-internal", "replay": 1, "tick": 0},
+        },
+        "comparison_records": [reference, candidate],
+        "physical_worlds": physical_worlds,
+        "physical_rows": rows,
+    }
+
+
 def run_events(
     checkpoint: Path, roster: str, device: str, lane: str, deadline: float
 ) -> dict[str, Any]:
@@ -600,7 +1109,7 @@ def run_events(
     result: dict[str, Any] = {name: False for name in EVENTS}
     evidence: list[dict[str, Any]] = []
     sizes = (4,) if lane == "smoke" else WORLD_SIZES
-    references: dict[str, list[dict[str, torch.Tensor]]] = {}
+    references: dict[str, tuple[list[dict[str, torch.Tensor]], dict[str, Any]]] = {}
     for worlds in sizes:
         for event in EVENTS:
             if time.monotonic() >= deadline:
@@ -611,13 +1120,16 @@ def run_events(
                 raw_tape = witness.pop("_raw_mapped_tape", [])
                 mismatch: dict[str, Any] | None = witness.get("mismatch")
                 forced_status: str | None = None
+                if witness.get("schema_incompatibility") is not None:
+                    mismatch = None
+                    forced_status = "INVALID_EVIDENCE"
                 if worlds == 4:
                     # E4 is the canonical reference.  An incomplete capture
                     # is retained as evidence but cannot become an empty
                     # reference that later falsely accuses E64/E1024.
                     reference_prefix = _valid_tensor_prefix(raw_tape)
                     if reference_prefix:
-                        references[event] = reference_prefix
+                        references[event] = (reference_prefix, witness)
                     if _valid_tensor_tape(raw_tape):
                         pass
                     else:
@@ -625,7 +1137,10 @@ def run_events(
                             witness, raw_tape, "canonical E4 tape absent or incomplete"
                         )
                 else:
-                    reference = references.get(event)
+                    reference_entry = references.get(event)
+                    reference, reference_witness = (
+                        reference_entry if reference_entry is not None else ([], {})
+                    )
                     reference_prefix = _valid_tensor_prefix(reference)
                     observed_prefix = _valid_tensor_prefix(raw_tape)
                     if not reference_prefix:
@@ -651,8 +1166,22 @@ def run_events(
                         else:
                             for tick, (left, right) in enumerate(zip(left_prefix, right_prefix)):
                                 found = compare.compare_inventory(left, right)
-                                if found is not None:
-                                    mismatch = {"tick": tick, **found.__dict__}
+                                if isinstance(found, compare.SchemaIncompatibility):
+                                    mismatch = None
+                                    witness["schema_incompatibility"] = found.__dict__.copy()
+                                    forced_status = "INVALID_EVIDENCE"
+                                    break
+                                if isinstance(found, compare.Mismatch):
+                                    mismatch = _event_byte_witness(
+                                        found,
+                                        tick,
+                                        left,
+                                        right,
+                                        reference_witness,
+                                        witness,
+                                        4,
+                                        worlds,
+                                    )
                                     break
                         if mismatch is None and (
                             not _valid_tensor_tape(reference) or not _valid_tensor_tape(raw_tape)

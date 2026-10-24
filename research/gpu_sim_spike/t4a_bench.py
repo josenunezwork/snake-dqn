@@ -39,9 +39,49 @@ class T4AError(RuntimeError):
 class T4AMismatch(RuntimeError):
     """A valid-prefix byte mismatch is terminal and cannot become retryable."""
 
-    def __init__(self, witness: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        witness: dict[str, Any],
+        *,
+        fields: list[str] | None = None,
+        field_types: dict[str, Any] | None = None,
+        comparison_records: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.witness = witness
+        self.fields = fields
+        self.field_types = field_types
+        self.comparison_records = comparison_records
         super().__init__(str(witness))
+
+
+class T4AEvidenceError(T4AError):
+    """A capture cannot be compared as equal-shape, equal-dtype byte evidence."""
+
+
+def _event_exception(witness: dict[str, Any], **context: Any) -> T4AMismatch:
+    """Preserve the exact event seam's schema on the terminal failure path."""
+    try:
+        records = witness["comparison_records"]
+        binding = witness["comparison"]["reference"]
+        record = next(
+            row
+            for row in records
+            if all(row[key] == binding[key] for key in ("worlds", "layout", "replay"))
+        )
+        descriptors = record["field_digests"][binding["tick"]]
+        if witness["field"] not in descriptors:
+            raise KeyError(witness["field"])
+        return T4AMismatch(
+            {**context, **witness},
+            fields=sorted(descriptors),
+            field_types={
+                name: {"dtype": descriptor["dtype"], "shape": descriptor["shape"]}
+                for name, descriptor in descriptors.items()
+            },
+            comparison_records=records,
+        )
+    except (IndexError, KeyError, StopIteration, TypeError) as exc:
+        raise T4AEvidenceError("event mismatch lacks its exact compared seam") from exc
 
 
 def _determinism(device: str) -> dict[str, Any]:
@@ -215,18 +255,26 @@ def _compare_tapes(
     replay: int,
 ) -> tuple[int, dict[str, Any] | None]:
     if len(reference) != len(candidate):
-        return 0, {
-            "roster": roster,
-            "worlds": worlds,
-            "layout": layout,
-            "replay": replay,
-            "field": "ticks",
-            "byte_offset": 0,
-        }
+        raise T4AEvidenceError("comparison tape tick inventory differs")
+    for left, right in zip(reference, candidate):
+        if set(left) != set(right):
+            raise T4AEvidenceError("comparison tape field inventory differs")
+        for field in left:
+            if left[field].dtype != right[field].dtype or tuple(left[field].shape) != tuple(
+                right[field].shape
+            ):
+                raise T4AEvidenceError(f"comparison tape schema differs for {field}")
     total = 0
     for tick, (left, right) in enumerate(zip(reference, candidate)):
         total += len(left)
         mismatch = compare.compare_inventory(left, right)
+        if isinstance(mismatch, compare.SchemaIncompatibility):
+            raise T4AEvidenceError(
+                "incompatible comparison evidence "
+                f"({mismatch.field}: {mismatch.reason}; "
+                f"expected={mismatch.expected_dtype}/{mismatch.expected_shape}; "
+                f"actual={mismatch.actual_dtype}/{mismatch.actual_shape})"
+            )
         if mismatch is not None:
             detail = {
                 "roster": roster,
@@ -238,6 +286,30 @@ def _compare_tapes(
                 "byte_offset": mismatch.byte_offset,
                 "expected": mismatch.expected,
                 "actual": mismatch.actual,
+                # These descriptors bind the claimed unequal byte to the two
+                # actual tensor captures.  The reducer independently checks
+                # their schema and the offset bounds before accepting a
+                # self-consistency failure.
+                "expected_descriptor": compare.compact_inventory(
+                    {mismatch.field: left[mismatch.field]}
+                )[mismatch.field],
+                "actual_descriptor": compare.compact_inventory(
+                    {mismatch.field: right[mismatch.field]}
+                )[mismatch.field],
+                "comparison": {
+                    "reference": {
+                        "worlds": 4,
+                        "layout": "canonical",
+                        "replay": 0,
+                        "tick": tick,
+                    },
+                    "candidate": {
+                        "worlds": worlds,
+                        "layout": layout,
+                        "replay": replay,
+                        "tick": tick,
+                    },
+                },
             }
             value = left.get(mismatch.field)
             if value is not None and value.ndim and value.shape[0] == 4:
@@ -253,10 +325,107 @@ def _compare_action_q(
     reference: list[dict[str, Any]], candidate: list[dict[str, Any]], **where: Any
 ) -> dict[str, Any] | None:
     if len(reference) != len(candidate):
-        return {**where, "field": "action_q_tape.length", "byte_offset": 0}
+        raise T4AEvidenceError("action/Q capture tick inventory differs")
     for tick, (left, right) in enumerate(zip(reference, candidate)):
-        if left != right:
-            return {**where, "tick": tick, "field": "action_q_tape", "byte_offset": 0}
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            raise T4AEvidenceError("action/Q capture is not an object")
+        for key, field, dtype, shape in (("actions_hex", "output.actions", "torch.int64", [4, 6]),):
+            expected_hex, actual_hex = left.get(key), right.get(key)
+            if not isinstance(expected_hex, str) or not isinstance(actual_hex, str):
+                raise T4AEvidenceError(f"action/Q capture omits {key}")
+            try:
+                expected_raw, actual_raw = bytes.fromhex(expected_hex), bytes.fromhex(actual_hex)
+            except ValueError as exc:
+                raise T4AEvidenceError(f"action/Q capture has invalid hex for {key}") from exc
+            if len(expected_raw) != len(actual_raw):
+                raise T4AEvidenceError(f"action/Q capture shape differs for {key}")
+            if expected_raw != actual_raw:
+                offset = next(
+                    i for i, pair in enumerate(zip(expected_raw, actual_raw)) if pair[0] != pair[1]
+                )
+                return {
+                    **where,
+                    "tick": tick,
+                    "field": field,
+                    "byte_offset": offset,
+                    "expected": expected_raw[offset],
+                    "actual": actual_raw[offset],
+                    "expected_descriptor": {
+                        "dtype": dtype,
+                        "shape": shape,
+                        "sha256": hashlib.sha256(expected_raw).hexdigest(),
+                    },
+                    "actual_descriptor": {
+                        "dtype": dtype,
+                        "shape": shape,
+                        "sha256": hashlib.sha256(actual_raw).hexdigest(),
+                    },
+                    "comparison": {
+                        "reference": {
+                            "worlds": where["reference_worlds"],
+                            "layout": where["reference_layout"],
+                            "replay": where["reference_replay"],
+                            "tick": tick,
+                        },
+                        "candidate": {
+                            "worlds": where["worlds"],
+                            "layout": where["layout"],
+                            "replay": where["replay"],
+                            "tick": tick,
+                        },
+                    },
+                }
+        expected_q, actual_q = left.get("q_hex"), right.get("q_hex")
+        if not isinstance(expected_q, dict) or not isinstance(actual_q, dict):
+            raise T4AEvidenceError("action/Q capture omits Q inventory")
+        if set(expected_q) != set(actual_q):
+            raise T4AEvidenceError("action/Q capture Q inventory differs")
+        for slot in sorted(expected_q):
+            expected_hex, actual_hex = expected_q[slot], actual_q[slot]
+            if not isinstance(expected_hex, str) or not isinstance(actual_hex, str):
+                raise T4AEvidenceError("action/Q capture Q bytes are malformed")
+            try:
+                expected_raw, actual_raw = bytes.fromhex(expected_hex), bytes.fromhex(actual_hex)
+            except ValueError as exc:
+                raise T4AEvidenceError("action/Q capture Q bytes are malformed") from exc
+            if len(expected_raw) != len(actual_raw):
+                raise T4AEvidenceError("action/Q capture Q shape differs")
+            if expected_raw != actual_raw:
+                offset = next(
+                    i for i, pair in enumerate(zip(expected_raw, actual_raw)) if pair[0] != pair[1]
+                )
+                return {
+                    **where,
+                    "tick": tick,
+                    "field": f"output.q.{slot}",
+                    "byte_offset": offset,
+                    "expected": expected_raw[offset],
+                    "actual": actual_raw[offset],
+                    "expected_descriptor": {
+                        "dtype": "torch.float32",
+                        "shape": [4, 6],
+                        "sha256": hashlib.sha256(expected_raw).hexdigest(),
+                    },
+                    "actual_descriptor": {
+                        "dtype": "torch.float32",
+                        "shape": [4, 6],
+                        "sha256": hashlib.sha256(actual_raw).hexdigest(),
+                    },
+                    "comparison": {
+                        "reference": {
+                            "worlds": where["reference_worlds"],
+                            "layout": where["reference_layout"],
+                            "replay": where["reference_replay"],
+                            "tick": tick,
+                        },
+                        "candidate": {
+                            "worlds": where["worlds"],
+                            "layout": where["layout"],
+                            "replay": where["replay"],
+                            "tick": tick,
+                        },
+                    },
+                }
     return None
 
 
@@ -474,6 +643,9 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
                         worlds=worlds,
                         layout=layout,
                         replay=replay,
+                        reference_worlds=4,
+                        reference_layout="canonical",
+                        reference_replay=0,
                     )
                     record["comparison_seconds"] = time.monotonic() - comparison_started
                     if first_witness:
@@ -487,20 +659,26 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
                                 "candidate": record,
                             },
                         )
-                        raise T4AMismatch(first_witness)
+                        reference_fields = sorted(reference[-1]) if reference else []
+                        raise T4AMismatch(
+                            first_witness,
+                            fields=reference_fields,
+                            field_types={
+                                name: {"dtype": str(value.dtype), "shape": list(value.shape)}
+                                for name, value in sorted(
+                                    (reference[-1] if reference else {}).items()
+                                )
+                            },
+                            comparison_records=records,
+                        )
         events_started = time.monotonic()
         event_result = _coverage(args, roster)
         event_seconds = time.monotonic() - events_started
         for event in event_result.get("evidence", []):
             witness = event.get("witness", {}).get("first_witness")
             if event.get("status") == "INVALID_SELF_CONSISTENCY" and witness:
-                raise T4AMismatch(
-                    {
-                        "roster": roster,
-                        "event": event["event"],
-                        "worlds": event["worlds"],
-                        **witness,
-                    }
+                raise _event_exception(
+                    witness, roster=roster, event=event["event"], worlds=event["worlds"]
                 )
         coverage_names = (
             "ring_wrap",
@@ -571,6 +749,8 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
                         "first_witness": first_witness,
                         "native_parity": "native-parity.json",
                         "fields": fields,
+                        "field_types": field_types,
+                        "comparison_records": records,
                         "field_inventory_sha256": content["field_inventory_sha256"],
                     },
                 )
@@ -630,6 +810,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         }
         if isinstance(exc, T4AMismatch):
             failure["first_witness"] = exc.witness
+            if exc.fields is not None:
+                failure["fields"] = exc.fields
+            if exc.field_types is not None:
+                failure["field_types"] = exc.field_types
+            if exc.comparison_records is not None:
+                failure["comparison_records"] = exc.comparison_records
         args.output_dir.mkdir(parents=True, exist_ok=True)
         failure_path = args.output_dir / "t4a-failure.json"
         if not failure_path.exists():

@@ -68,9 +68,15 @@ COMPILE_AMENDMENT = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_COMPILE_AMENDME
 COMPILE_AMENDMENT_SHA256 = "1eac049440eaad214400493037c88b7098abbde530be0125ea15b30363c1a57f"
 DISPATCH_RULING = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_DISPATCH.md"
 DISPATCH_RULING_SHA256 = "d333e186c53d9be8de5f73aebeb21bb788361be9e8fd64d6f7cac7ab8a4afd34"
+REVIEW02_RULING = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_REVIEW02.md"
+REVIEW02_RULING_SHA256 = "ee638c7f2b0d155e37ea1dbf47bc8344bdcca7a0369b7d2c3c5460e79e126214"
+RESUME_RULING = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_RESUME_NO_CLI.md"
+RESUME_RULING_SHA256 = "9733d5034b61265d2eba516e9303b401492eb3092e2309d89e2cb1cb82fdbd63"
 BINDINGS += (
     (COMPILE_AMENDMENT, COMPILE_AMENDMENT_SHA256),
     (DISPATCH_RULING, DISPATCH_RULING_SHA256),
+    (REVIEW02_RULING, REVIEW02_RULING_SHA256),
+    (RESUME_RULING, RESUME_RULING_SHA256),
 )
 PROTOCOL = ROOT / PACKAGE / "T4A_PROTOCOL_20261024.md"
 PROTOCOL_SHA256 = "b2e55b1f640a4de8872c3feefdc51d74311d19e87cc58bdba9f8510e17db71bf"
@@ -146,12 +152,14 @@ def _bindings() -> list[dict[str, str]]:
 
 
 def scientific_admission() -> dict[str, Any]:
-    """Cite the adopted pre-data authority, without implying review-02 ACCEPT."""
+    """Cite the adopted pre-data authority, without implying review-03 ACCEPT."""
     return {
         "study": "T4A-DEV-01",
         "ruling_sha256": DISPATCH_RULING_SHA256,
         "amendment_sha256": COMPILE_AMENDMENT_SHA256,
-        "scope": "separate same-pin A100 compile; Astra review-02 ACCEPT required before dispatch",
+        "review02_ruling_sha256": REVIEW02_RULING_SHA256,
+        "resume_ruling_sha256": RESUME_RULING_SHA256,
+        "scope": "separate same-pin A100 compile; Astra review-03 ACCEPT required before dispatch",
     }
 
 
@@ -252,7 +260,14 @@ def preflight_binding(path: Path, commit: str) -> dict[str, Any]:
     }
 
 
-def canary_binding(receipt: Path, commit: str, preflight: dict[str, Any]) -> dict[str, Any]:
+def canary_binding(
+    receipt: Path,
+    commit: str,
+    preflight: dict[str, Any],
+    *,
+    attempt: int = 1,
+    remaining_units: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     """Validate the released native canary and rerun the frozen Mac reducer."""
     if not receipt.is_file():
         raise ManifestRefused("same-pin T4A canary receipt is absent")
@@ -267,6 +282,8 @@ def canary_binding(receipt: Path, commit: str, preflight: dict[str, Any]) -> dic
     if not manifest.is_file() or sha256_file(manifest) != body.get("manifest_sha256"):
         raise ManifestRefused("T4A canary manifest binding differs")
     saved = json.loads(manifest.read_text())
+    if saved.get("t4a_envelope", {}).get("attempt") != _attempt(attempt):
+        raise ManifestRefused("T4A main requires the SAME attempt's fresh canary receipt")
     if saved.get("script") != SCRIPT or saved.get("mac_preflight") != preflight:
         raise ManifestRefused("T4A canary was not created from this packet")
     exports = receipt.parent / "exports"
@@ -297,7 +314,13 @@ def canary_binding(receipt: Path, commit: str, preflight: dict[str, Any]) -> dic
         t4a_units.allocation(),
         exports=exports,
     )
-    projection = _main_projection({**bench, "units": list(contents.values())}, native)
+    if set(contents) != set(t4a_units.allocation(canary=True)):
+        raise ManifestRefused("T4A canary verified timing allocation is incomplete")
+    projection = _main_projection(
+        {**bench, "units": [contents[unit] for unit in t4a_units.allocation(canary=True)]},
+        native,
+        remaining_units=remaining_units,
+    )
     if projection["projected_main_seconds"] > PRODUCER_SECONDS["main"]:
         raise ManifestRefused(
             "T4A canary forecast cannot fit the unchanged H256 matrix within 100 minutes"
@@ -317,17 +340,32 @@ def canary_binding(receipt: Path, commit: str, preflight: dict[str, Any]) -> dic
     }
 
 
-def _main_projection(bench: dict[str, Any], native: dict[str, Any]) -> dict[str, float | int]:
+def _main_projection(
+    bench: dict[str, Any],
+    native: dict[str, Any],
+    *,
+    remaining_units: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     """Conservatively forecast H256 from sealed H2 per-record timings.
 
-    Setup/build, event coverage, and native compile stay whole-run costs.  Only
-    the observed tick work scales by H256/H2.  Missing/foreign timing data
+    Remaining-roster setup/build and event coverage stay whole-roster costs;
+    native proof and unclassified residual stay whole-run costs. Only the
+    observed tick/comparison work scales by H256/H2. Missing/foreign timing data
     refuses main preparation; it is not repaired or estimated after the fact.
     """
     contents = bench.get("units")
     if not isinstance(contents, list) or len(contents) != len(t4a_units.allocation(canary=True)):
         raise ManifestRefused("T4A canary lacks all roster timing payloads")
+    cells = t4a_units.allocation()
+    remaining = cells if remaining_units is None else remaining_units
+    if (
+        not remaining
+        or len(set(remaining)) != len(remaining)
+        or any(u not in cells for u in remaining)
+    ):
+        raise ManifestRefused("T4A remaining allocation is empty or foreign")
     build_seconds = tick_seconds = comparison_seconds = event_seconds = 0.0
+    remaining_build = remaining_tick = remaining_comparison = remaining_events = 0.0
     terminal_elapsed = None
     for index, content in enumerate(contents):
         if not isinstance(content, dict) or content.get("horizon") != 2:
@@ -335,7 +373,7 @@ def _main_projection(bench: dict[str, Any], native: dict[str, Any]) -> dict[str,
         records = content.get("records")
         if not isinstance(records, list) or len(records) != 18:
             raise ManifestRefused("T4A canary timing matrix is incomplete")
-        unit_build = unit_tick = 0.0
+        unit_build = unit_tick = unit_comparison = 0.0
         for record in records:
             if not isinstance(record, dict):
                 raise ManifestRefused("T4A canary timing record is malformed")
@@ -368,6 +406,7 @@ def _main_projection(bench: dict[str, Any], native: dict[str, Any]) -> dict[str,
             ):
                 raise ManifestRefused("T4A comparison timing absent or malformed")
             comparison_seconds += compared
+            unit_comparison += compared
         events = content.get("event_seconds")
         if (
             isinstance(events, bool)
@@ -377,6 +416,11 @@ def _main_projection(bench: dict[str, Any], native: dict[str, Any]) -> dict[str,
         ):
             raise ManifestRefused("T4A event timing absent or malformed")
         event_seconds += events
+        if cells[index] in remaining:
+            remaining_build += unit_build
+            remaining_tick += unit_tick
+            remaining_comparison += unit_comparison
+            remaining_events += events
         elapsed = content.get("elapsed_seconds")
         if (
             isinstance(elapsed, bool)
@@ -416,9 +460,9 @@ def _main_projection(bench: dict[str, Any], native: dict[str, Any]) -> dict[str,
     # unclassified residual second as H-dependent, including prior JSON writes.
     projected = (
         float(native_seconds)
-        + build_seconds
-        + event_seconds
-        + (tick_seconds + comparison_seconds + residual) * 128
+        + remaining_build
+        + remaining_events
+        + (remaining_tick + remaining_comparison + residual) * 128
     )
     return {
         "native_seconds": float(native_seconds),
@@ -429,6 +473,11 @@ def _main_projection(bench: dict[str, Any], native: dict[str, Any]) -> dict[str,
         "scaled_residual_seconds": residual,
         "horizon_multiplier": 128,
         "projected_main_seconds": projected,
+        "remaining_units": list(remaining),
+        "remaining_build_seconds": remaining_build,
+        "remaining_event_seconds": remaining_events,
+        "remaining_tick_seconds": remaining_tick,
+        "remaining_comparison_seconds": remaining_comparison,
     }
 
 
@@ -446,7 +495,7 @@ def manifest(
 ) -> dict[str, Any]:
     """Make a packet only; ``template`` remains non-admitted until canary reduction."""
     attempt = _attempt(attempt)
-    t4a_units.load_ledger(ledger, t4a_units.namespace(commit), t4a_units.allocation())
+    verified = t4a_units.load_ledger(ledger, t4a_units.namespace(commit), t4a_units.allocation())
     t4a_units.load_ledger(
         canary_ledger, t4a_units.namespace(commit, canary=True), t4a_units.allocation(canary=True)
     )
@@ -455,7 +504,14 @@ def manifest(
     if not canary and not template and canary_receipt is None:
         raise ManifestRefused("T4A main requires a released independently-reduced canary")
     lane, envelope = ("canary", CANARY) if canary else ("main", MAIN)
-    binding = None if canary or template else canary_binding(canary_receipt, commit, preflight)
+    remaining = tuple(unit for unit in t4a_units.allocation() if unit not in verified)
+    binding = (
+        None
+        if canary or template
+        else canary_binding(
+            canary_receipt, commit, preflight, attempt=attempt, remaining_units=remaining
+        )
+    )
     result: dict[str, Any] = {
         "job_id": f"gpu-t4a-dev-01-{lane}-{commit[:12]}-{attempt:02d}",
         "commit": commit,
@@ -531,6 +587,8 @@ def manifest(
             "operational_amendment": _amendment(COMPILE_AMENDMENT),
             "compile_proof": "same-pin separate A100 compile receipt and exact binaries required",
             "attempt": attempt,
+            "remaining_main_units": list(remaining),
+            "resume_ruling_sha256": RESUME_RULING_SHA256,
             "manual_completion_attempts": MAX_MANUAL_ATTEMPTS,
             "retry_rule": "manual outcome-blind completion after verified mechanical failure, "
             "stop and missing units; fresh manifest/output/receipt on each attempt",
@@ -561,7 +619,9 @@ def manifest(
         )
     result = convert_public_checkpoints(result, repo=ROOT)
     result["inputs"] = bundle_inputs(
-        result["inputs"], output_dir.parent / f"metadata-{lane}.tar", reuse_verified=True
+        result["inputs"],
+        output_dir.parent / f"metadata-{lane}-attempt-{attempt:02d}.tar",
+        reuse_verified=True,
     )
     result["env"]["METADATA_ARCHIVE_SHA256"] = next(
         row["sha256"] for row in result["inputs"] if row["dest"] == "metadata.tar"
@@ -753,6 +813,65 @@ def recover_completion(
     return (main_ledger, target) if was_canary else (target, canary_ledger)
 
 
+def attempt_ledgers(
+    packet: Path,
+    commit: str,
+    *,
+    attempt: int,
+    ledger: Path | None = None,
+    completion_from: Path | None = None,
+) -> tuple[Path, Path]:
+    """Verify recovery bytes and give every attempt an empty, fresh H2 canary.
+
+    ``--ledger`` is the explicit Mac-verified input. ``--completion-from`` must
+    establish mechanical interruption and verified stop for completion attempts.
+    Neither option dispatches or retries anything; retry remains manual.
+    """
+    attempt = _attempt(attempt)
+    if attempt == 1 and completion_from is not None:
+        raise ManifestRefused("attempt 1 cannot have completion-from evidence")
+    if attempt > 1 and completion_from is None:
+        raise ManifestRefused("T4A completion requires --completion-from verified stop receipt")
+    main, fresh_canary = ledgers(packet, commit, attempt=attempt)
+    if t4a_units.load_ledger(
+        fresh_canary, t4a_units.namespace(commit, canary=True), t4a_units.allocation(canary=True)
+    ):
+        raise ManifestRefused("every attempt requires an empty fresh H2 canary ledger")
+    recovered = None
+    if completion_from is not None:
+        prior = json.loads((completion_from.parent / "manifest.json").read_text())
+        if prior.get("env", {}).get("T4A_BENCH_CANARY") != "0":
+            raise ManifestRefused("completion must resume main; each attempt needs a fresh canary")
+        recovered, _ = recover_completion(
+            completion_from,
+            commit=commit,
+            attempt=attempt,
+            main_ledger=main,
+            canary_ledger=fresh_canary,
+        )
+    if ledger is not None:
+        verified = t4a_units.load_ledger(
+            ledger, t4a_units.namespace(commit), t4a_units.allocation()
+        )
+        # Rebuild exclusively from immutable path/size/hash-verified payloads;
+        # require exact ledger membership, including refusal of unlisted units.
+        selected = main.parent / "verified-input" / "verified-ledger.json"
+        rebuilt = t4a_units.build_ledger(ledger.parent, selected, commit=commit)
+        if {row["unit_id"] for row in rebuilt["units"]} != set(verified):
+            raise ManifestRefused("verified input ledger omits immutable completed units")
+        if recovered is not None and selected.read_bytes() != recovered.read_bytes():
+            raise ManifestRefused("provided ledger differs from verified interruption exports")
+        main = selected
+    elif recovered is not None:
+        main = recovered
+    verified = t4a_units.load_ledger(main, t4a_units.namespace(commit), t4a_units.allocation())
+    if attempt == 1 and verified:
+        raise ManifestRefused("attempt 1 requires an empty main ledger")
+    if attempt > 1 and (not verified or len(verified) == len(t4a_units.allocation())):
+        raise ManifestRefused("completion requires verified units and missing main units")
+    return main, fresh_canary
+
+
 def prepare_main(
     packet: Path,
     commit: str,
@@ -761,23 +880,14 @@ def prepare_main(
     *,
     attempt: int = 1,
     completion_from: Path | None = None,
+    ledger: Path | None = None,
 ) -> Path:
     require_source_pin(commit)
     attempt = _attempt(attempt)
-    if attempt == 1 and completion_from is not None:
-        raise ManifestRefused("attempt 1 cannot have completion-from evidence")
-    if attempt > 1 and completion_from is None:
-        raise ManifestRefused("T4A completion attempt requires --completion-from prior receipt")
     preflight = preflight_binding(preflight_path, commit)
-    ledger, canary_ledger = ledgers(packet, commit, attempt=attempt)
-    if completion_from is not None:
-        ledger, canary_ledger = recover_completion(
-            completion_from,
-            commit=commit,
-            attempt=attempt,
-            main_ledger=ledger,
-            canary_ledger=canary_ledger,
-        )
+    ledger, canary_ledger = attempt_ledgers(
+        packet, commit, attempt=attempt, ledger=ledger, completion_from=completion_from
+    )
     value = manifest(
         commit=commit,
         output_dir=packet / f"main-output-attempt-{attempt:02d}",
@@ -804,26 +914,17 @@ def prepare(
     validate: bool = False,
     attempt: int = 1,
     completion_from: Path | None = None,
+    ledger: Path | None = None,
 ) -> dict[str, Any]:
     attempt = _attempt(attempt)
-    if attempt == 1 and completion_from is not None:
-        raise ManifestRefused("attempt 1 cannot have completion-from evidence")
-    if attempt > 1 and completion_from is None:
-        raise ManifestRefused("T4A completion attempt requires --completion-from prior receipt")
     require_source_pin(commit)
     if git_head() != commit:
         raise ManifestRefused("packet source is not the requested commit")
     preflight = preflight_binding(preflight_path, commit)
     packet.mkdir(parents=True, exist_ok=True)
-    ledger, canary_ledger = ledgers(packet, commit, attempt=attempt)
-    if completion_from is not None:
-        ledger, canary_ledger = recover_completion(
-            completion_from,
-            commit=commit,
-            attempt=attempt,
-            main_ledger=ledger,
-            canary_ledger=canary_ledger,
-        )
+    ledger, canary_ledger = attempt_ledgers(
+        packet, commit, attempt=attempt, ledger=ledger, completion_from=completion_from
+    )
     canary = manifest(
         commit=commit,
         output_dir=packet / f"canary-output-attempt-{attempt:02d}",
@@ -862,6 +963,9 @@ def main() -> None:
     parser.add_argument("--validate", action="store_true")
     parser.add_argument("--attempt", type=int, default=1)
     parser.add_argument("--completion-from", type=Path)
+    parser.add_argument(
+        "--ledger", type=Path, help="Mac-verified main ledger; never a canary ledger"
+    )
     parser.add_argument("--compile-receipt", type=Path)
     parser.add_argument("--protocol-amendment", type=Path)
     parser.add_argument("--canary-receipt", type=Path)
@@ -886,6 +990,7 @@ def main() -> None:
         validate=args.validate,
         attempt=args.attempt,
         completion_from=args.completion_from,
+        ledger=args.ledger,
     )
     if args.compile_receipt is not None:
         prepared["compiled_canary"] = str(
@@ -904,6 +1009,7 @@ def main() -> None:
                 args.canary_receipt,
                 attempt=args.attempt,
                 completion_from=args.completion_from,
+                ledger=args.ledger,
             )
         )
     print(json.dumps(prepared))

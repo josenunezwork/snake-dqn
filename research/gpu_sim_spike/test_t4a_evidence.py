@@ -107,6 +107,18 @@ def _content(mix: str, *, canary: bool = True) -> dict:
                 "head_waived": ("torch.bool", [4, 6]),
                 "v5_eligible": ("torch.bool", [4, 6]),
             }[part]
+        elif name == "event.ring_wrap.before_head_ptr":
+            dtype, shape = "torch.int64", [4]
+        elif name == "event.ring_wrap.prefix":
+            dtype, shape = "torch.int64", [4, 2, 2]
+        elif name.startswith("event.contested_food."):
+            suffix = name.removeprefix("event.contested_food.")
+            if suffix.endswith("cells"):
+                dtype, shape = "torch.int64", [4, 8, 2]
+            elif suffix.endswith("present") or suffix.endswith("corpse"):
+                dtype, shape = "torch.bool", [4, 8]
+            else:
+                dtype, shape = "torch.int64", [4]
         return {"dtype": dtype, "shape": shape, "sha256": "a" * 64}
 
     descriptors = {name: descriptor(name) for name in fields}
@@ -127,6 +139,7 @@ def _content(mix: str, *, canary: bool = True) -> dict:
         }
     event_descriptors = {k: v for k, v in descriptors.items() if not k.startswith("collector.")}
     event_descriptors["event.supplied_actions"] = descriptors["output.actions"]
+    base_event_fields = set(event_descriptors)
     event_witness_base = {
         "executed": True,
         "ticks": 2,
@@ -137,9 +150,24 @@ def _content(mix: str, *, canary: bool = True) -> dict:
         "ring_wrap": {
             "before": [7] * 4,
             "after": [0] * 4,
-            "expected_head": [5, 4],
-            "expected_tail": [4, 4],
             "logical_prefix": [[[5, 4], [4, 4]]] * 4,
+            "ring_schema": {
+                "field": "sim.bodies",
+                "tick": 0,
+                "capacity": 8,
+                "dtype": "torch.int64",
+                "shape": [4, 6, 8, 2],
+                "physical_worlds": 4,
+            },
+            "frozen_geometry": {
+                "slot": 0,
+                "direction": 1,
+                "prefix_length": 2,
+                "initial_head": [4, 4],
+                "initial_tail": [3, 4],
+                "moved_head": [5, 4],
+                "retained_tail": [4, 4],
+            },
             "wrapped": True,
             "ordered": True,
         },
@@ -163,6 +191,8 @@ def _content(mix: str, *, canary: bool = True) -> dict:
             "restored_digest": "d" * 64,
             "branch_digest": "e" * 64,
             "replay_digest": "e" * 64,
+            "restore_target_body_progressed": True,
+            "restore_target_food_progressed": True,
             "mismatch": None,
         },
         "stale_cache": {
@@ -194,26 +224,158 @@ def _content(mix: str, *, canary: bool = True) -> dict:
     }
 
     def event_witness(event: str, worlds: int) -> dict:
+        def typed_digest(value, dtype: str) -> str:
+            flattened = []
+
+            def visit(item):
+                if isinstance(item, list):
+                    for child in item:
+                        visit(child)
+                else:
+                    flattened.append(item)
+
+            visit(value)
+            fmt = {"torch.bool": "<?", "torch.int64": "<q"}[dtype]
+            return hashlib.sha256(
+                b"".join(struct.pack(fmt, item) for item in flattened)
+            ).hexdigest()
+
         witness = {**event_witness_base, **deepcopy(predicates[event])}
+        captures: dict[str, dict] = {}
         if event == "ring_wrap":
             witness["before"] = [7] * worlds
             witness["after"] = [0] * worlds
             witness["logical_prefix"] = [[[5, 4], [4, 4]]] * worlds
+            witness["ring_schema"]["physical_worlds"] = worlds
+            prefix_raw = struct.pack("<" + "q" * 16, *([5, 4, 4, 4] * 4))
+            event_descriptors["event.ring_wrap.before_head_ptr"] = {
+                "dtype": "torch.int64",
+                "shape": [4],
+                "sha256": hashlib.sha256(struct.pack("<4q", 7, 7, 7, 7)).hexdigest(),
+            }
+            event_descriptors["event.ring_wrap.after_head_ptr"] = {
+                "dtype": "torch.int64",
+                "shape": [4],
+                "sha256": hashlib.sha256(struct.pack("<4q", 0, 0, 0, 0)).hexdigest(),
+            }
+            event_descriptors["event.ring_wrap.prefix"] = {
+                "dtype": "torch.int64",
+                "shape": [4, 2, 2],
+                "sha256": hashlib.sha256(prefix_raw).hexdigest(),
+            }
+            captures = {
+                "ring_prefix_capture": {
+                    "field": "event.ring_wrap.prefix",
+                    "tick": 0,
+                    **event_descriptors["event.ring_wrap.prefix"],
+                },
+                "ring_before_capture": {
+                    "field": "event.ring_wrap.before_head_ptr",
+                    "tick": 0,
+                    **event_descriptors["event.ring_wrap.before_head_ptr"],
+                },
+                "ring_after_capture": {
+                    "field": "event.ring_wrap.after_head_ptr",
+                    "tick": 0,
+                    **event_descriptors["event.ring_wrap.after_head_ptr"],
+                },
+            }
+            witness.update(captures)
         elif event == "simultaneous_death_respawn":
             for name in ("died", "respawned", "corpse"):
                 witness[name] = [True] * worlds
+            for name, tick in (("died", 0), ("corpse", 0), ("respawned", 1)):
+                field = f"event.death_respawn.{name}"
+                event_descriptors[field] = {
+                    "dtype": "torch.bool",
+                    "shape": [4],
+                    "sha256": typed_digest([True] * 4, "torch.bool"),
+                }
+            witness["death_respawn_capture"] = {
+                name: {
+                    "field": f"event.death_respawn.{name}",
+                    "tick": 1 if name == "respawned" else 0,
+                    **event_descriptors[f"event.death_respawn.{name}"],
+                }
+                for name in ("died", "corpse", "respawned")
+            }
         elif event == "contested_food_refill":
             witness["slot_1_ate"] = [True] * worlds
             witness["slot_2_ate"] = [False] * worlds
             witness["food_after_first"] = [1] * worlds
-            witness["refill_cells"] = [[1, 1]] * worlds
+            witness["refill_cells"] = [[[1, 1]] for _ in range(4)]
             witness["rng_before"] = [1] * worlds
             witness["rng_after"] = [2] * worlds
+            transition = {
+                "before_cells": [[[17, 5]] + [[0, 0]] * 7 for _ in range(4)],
+                "before_present": [[True] + [False] * 7 for _ in range(4)],
+                "before_count": [1] * 4,
+                "before_corpse": [[False] * 8 for _ in range(4)],
+                "after_consume_cells": [[[0, 0]] * 8 for _ in range(4)],
+                "after_consume_present": [[False] * 8 for _ in range(4)],
+                "after_consume_count": [0] * 4,
+                "after_refill_cells": [[[1, 1]] + [[0, 0]] * 7 for _ in range(4)],
+                "after_refill_present": [[True] + [False] * 7 for _ in range(4)],
+                "after_refill_count": [1] * 4,
+            }
+            witness["food_transition"] = transition
+            witness["food_transition_capture"] = {}
+            for name, value in transition.items():
+                field = f"event.contested_food.{name}"
+                event_descriptors[field] = descriptor(field)
+                event_descriptors[field]["sha256"] = typed_digest(
+                    value, event_descriptors[field]["dtype"]
+                )
+                witness["food_transition_capture"][name] = {
+                    "field": field,
+                    "tick": 0,
+                    **event_descriptors[field],
+                }
+            witness["refill_cells"] = [[[1, 1]] for _ in range(4)]
         elif event == "stale_cache":
             witness["mask_shape"] = [worlds, 6, 6]
             witness["mask_dtype"] = "torch.bool"
             witness["stale_mask_hex"] = "00" * (worlds * 6 * 6)
             witness["repaired_mask_hex"] = "01" * (worlds * 6 * 6)
+            warm_fields = {
+                field
+                for field in base_event_fields
+                if (
+                    field == "configuration.sha256"
+                    or field.startswith("lifecycle.")
+                    or field == "output.actions"
+                    or field.startswith("output.q.")
+                    or field.startswith("output.obs.")
+                    or field.startswith("output.v8.")
+                )
+            }
+            warm = {field: deepcopy(event_descriptors[field]) for field in warm_fields}
+            witness["warm_output_captures"] = {
+                name: deepcopy(warm) for name in ("source", "clone", "remap", "restore", "fresh")
+            }
+            corrupted = deepcopy(warm)
+            corrupted["output.q.0"]["sha256"] = "f" * 64
+            witness["warm_output_captures"]["corrupted_q_control"] = corrupted
+            witness["warm_output_comparisons"] = {
+                name: True
+                for name in ("source_clone", "source_remap", "source_restore", "source_fresh")
+            }
+            witness["warm_q_corruption_detected"] = True
+            witness["warm_q_corruption_control"] = {
+                "field": "output.q.0",
+                "source_descriptor": warm["output.q.0"],
+                "corrupted_descriptor": corrupted["output.q.0"],
+            }
+            witness["restore_target_body_progressed"] = True
+            witness["restore_target_food_progressed"] = True
+        witness["mapped_tape"] = [
+            {
+                field: deepcopy(event_descriptors[field])
+                for field in base_event_fields
+                | analyze.EVENT_CAPTURE_TICK_FIELDS.get(event, (set(), set()))[tick]
+            }
+            for tick in range(2)
+        ]
         return witness
 
     return {
@@ -223,6 +385,10 @@ def _content(mix: str, *, canary: bool = True) -> dict:
         "horizon": horizon,
         "root_seed": (9402411 if canary else 9402401) + units.MIXES.index(mix),
         "fields": fields,
+        "field_types": {
+            name: {key: value for key, value in descriptor.items() if key in {"dtype", "shape"}}
+            for name, descriptor in descriptors.items()
+        },
         "field_inventory_sha256": digest,
         "controls": dict.fromkeys(analyze.CONTROLS, True),
         "control_witnesses": {
@@ -332,7 +498,33 @@ def test_invalid_controls_precede_valid_mismatch_and_incomplete(tmp_path):
 
 def test_mismatch_precedes_missing_units(tmp_path):
     def change(c):
-        c["first_witness"] = {"field": "sim.bodies", "byte": 1}
+        reference = c["records"][0]
+        candidate = c["records"][1]
+        raw = bytearray.fromhex(candidate["action_q_tape"][0]["q_hex"]["0"])
+        raw[0] ^= 1
+        candidate["action_q_tape"][0] = {
+            **candidate["action_q_tape"][0],
+            "q_hex": {**candidate["action_q_tape"][0]["q_hex"], "0": raw.hex()},
+        }
+        candidate["field_digests"][0] = {
+            **candidate["field_digests"][0],
+            "output.q.0": {
+                **candidate["field_digests"][0]["output.q.0"],
+                "sha256": hashlib.sha256(raw).hexdigest(),
+            },
+        }
+        c["first_witness"] = {
+            "field": "output.q.0",
+            "byte_offset": 0,
+            "expected": 0,
+            "actual": raw[0],
+            "expected_descriptor": reference["field_digests"][0]["output.q.0"],
+            "actual_descriptor": candidate["field_digests"][0]["output.q.0"],
+            "comparison": {
+                "reference": {"worlds": 4, "layout": "canonical", "replay": 0, "tick": 0},
+                "candidate": {"worlds": 4, "layout": "canonical", "replay": 1, "tick": 0},
+            },
+        }
         c["status"] = "INVALID_SELF_CONSISTENCY"
 
     result = reduce(_tree(tmp_path, mutate=change, drop="roster-mixed"))
@@ -512,3 +704,51 @@ def test_unknown_persistent_field_cannot_extend_the_frozen_inventory(tmp_path):
     result = reduce(_tree(tmp_path, mutate=change))
     assert result["verdict"] == "INVALID_EVIDENCE"
     assert any("foreign" in error for error in result["invalid_evidence"])
+
+
+@pytest.mark.parametrize("fault", ["before", "geometry", "refill", "redirect"])
+def test_review02_b1_predicate_contradictions_are_invalid_evidence(tmp_path, fault):
+    def change(content):
+        event = (
+            "contested_food_refill"
+            if fault == "refill"
+            else "simultaneous_death_respawn" if fault == "redirect" else "ring_wrap"
+        )
+        row = next(row for row in content["event_records"] if row["event"] == event)
+        witness = row["witness"]
+        if fault == "before":
+            witness["before"] = [1] * 4
+        elif fault == "geometry":
+            witness["logical_prefix"] = [[[99, 99], [99, 99]]] * 4
+        elif fault == "redirect":
+            witness["death_respawn_capture"]["respawned"] = {
+                **witness["death_respawn_capture"]["died"]
+            }
+        else:
+            witness.pop("refill_cells")
+        row["witness_sha256"] = hashlib.sha256(
+            json.dumps(witness, sort_keys=True).encode()
+        ).hexdigest()
+
+    assert reduce(_tree(tmp_path, mutate=change))["verdict"] == "INVALID_EVIDENCE"
+
+
+@pytest.mark.parametrize("fault", ["remove", "corrupt", "target"])
+def test_review02_s1_s2_warm_and_restore_proof_is_required(tmp_path, fault):
+    def change(content):
+        witness = next(
+            row["witness"] for row in content["event_records"] if row["event"] == "stale_cache"
+        )
+        if fault == "remove":
+            witness.pop("warm_output_captures")
+        elif fault == "corrupt":
+            witness["warm_output_captures"]["clone"]["output.q.0"]["sha256"] = "f" * 64
+        else:
+            witness.pop("restore_target_body_progressed")
+        for row in content["event_records"]:
+            if row["event"] == "stale_cache":
+                row["witness_sha256"] = hashlib.sha256(
+                    json.dumps(row["witness"], sort_keys=True).encode()
+                ).hexdigest()
+
+    assert reduce(_tree(tmp_path, mutate=change))["verdict"] == "INVALID_EVIDENCE"

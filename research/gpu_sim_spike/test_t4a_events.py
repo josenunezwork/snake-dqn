@@ -165,6 +165,10 @@ def test_restore_uses_snapshot_dtypes_instead_of_initial_template(monkeypatch) -
         current = target[0]
         current.frame += 1
         current.rng_counter += 1
+        # Review-02 requires the restore resident to traverse body and food
+        # state before reset, not merely scalar frame/carry state.
+        current.bodies[:, 0, 0, 0] += 1
+        current.food_cells[:, 0, 0] += 1
         # DeviceSim's post-step reward has fp32 even when the reference import
         # initially carried fp64. This is the actual preflight failure seam.
         current._last_reward = torch.zeros((4, 6), dtype=torch.float32)

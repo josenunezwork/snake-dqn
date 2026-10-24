@@ -90,6 +90,23 @@ class Mismatch:
     actual: int
 
 
+@dataclass(frozen=True)
+class SchemaIncompatibility:
+    """The two captures cannot support a byte-level scientific comparison.
+
+    This is deliberately separate from :class:`Mismatch`: an absent field or
+    changed tensor representation is harness evidence failure, not evidence
+    that two otherwise comparable engine executions produced unequal bytes.
+    """
+
+    field: str
+    reason: str
+    expected_dtype: str | None = None
+    actual_dtype: str | None = None
+    expected_shape: tuple[int, ...] | None = None
+    actual_shape: tuple[int, ...] | None = None
+
+
 def _tensor(value: Any, field: str) -> torch.Tensor:
     if not isinstance(value, torch.Tensor):
         raise ValueError(f"unknown non-tensor persistent field {field}")
@@ -175,9 +192,18 @@ def body_digest(tensor: torch.Tensor) -> str:
     return torch.stack(lanes).view(torch.uint8).cpu().numpy().tobytes().hex()
 
 
-def compare(left: torch.Tensor, right: torch.Tensor, field: str) -> Mismatch | None:
+def compare(
+    left: torch.Tensor, right: torch.Tensor, field: str
+) -> Mismatch | SchemaIncompatibility | None:
     if left.dtype != right.dtype or tuple(left.shape) != tuple(right.shape):
-        return Mismatch(field + ".shape_or_dtype", 0, 0, 0)
+        return SchemaIncompatibility(
+            field,
+            "dtype_or_shape",
+            str(left.dtype),
+            str(right.dtype),
+            tuple(left.shape),
+            tuple(right.shape),
+        )
     a, b = left.contiguous().reshape(-1).view(torch.uint8), right.contiguous().reshape(-1).view(
         torch.uint8
     )
@@ -190,9 +216,28 @@ def compare(left: torch.Tensor, right: torch.Tensor, field: str) -> Mismatch | N
 
 def compare_inventory(
     left: dict[str, torch.Tensor], right: dict[str, torch.Tensor]
-) -> Mismatch | None:
+) -> Mismatch | SchemaIncompatibility | None:
     if set(left) != set(right):
-        return Mismatch("inventory", 0, 0, 0)
+        return SchemaIncompatibility(
+            "inventory",
+            "field_inventory",
+        )
+    # Schema admission is a precondition for *every* byte comparison.  Do not
+    # report an earlier valid byte delta while a later field has incompatible
+    # representation: that would turn a harness defect into a scientific
+    # self-consistency verdict.
+    for field in sorted(left):
+        if left[field].dtype != right[field].dtype or tuple(left[field].shape) != tuple(
+            right[field].shape
+        ):
+            return SchemaIncompatibility(
+                field,
+                "dtype_or_shape",
+                str(left[field].dtype),
+                str(right[field].dtype),
+                tuple(left[field].shape),
+                tuple(right[field].shape),
+            )
     for field in sorted(left):
         mismatch = compare(left[field], right[field], field)
         if mismatch is not None:
