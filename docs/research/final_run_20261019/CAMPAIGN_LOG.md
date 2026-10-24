@@ -627,3 +627,55 @@ foreign process control, label look or serving action occurred. Owner notice and
 exact fresh verified-ledger continuation after verified stop are in
 `research/bl_labels/FACTORY_MONITOR_FIX_OPERATOR_20261023.md`; -10 was consumed
 externally, and -11 was the next unused dispatch reservation at publication.
+
+## P1 final repair -05 preparation held — 2026-10-23
+
+Prepared the fresh sibling `big-lever/exp/bl-p1/y3/source-repair-10-20261023-05`
+under Astra attempt-2 ruling SHA256
+`55b13197d9d92f8eeb1c895180f01993ca11908f51c74a60d9a67065a0550d13`.
+Operational amendment and exact conditional operator/line-check contract:
+`research/bl_ppo/P1_REPAIR_ATTEMPT2_OPERATIONAL_AMENDMENT_14.md` and
+`P1_E8_04_SOURCE_REPAIR_HANDOFF_14.md`. Original finalisation authority fields
+remain unchanged. One new canary and one final repair only; no further repair
+retry. Wrapper resume maximum 2 grants no extra scientific attempt.
+
+Executable remains `03e0af75c64538f53a6971e6fec5d9a173bc921b`, CLI tree remains
+`d0d92bdb572b770284a1fea6152417ffa5f06bea`. No CLI/runtime transport edit.
+New namespaces have tag `6f31cd3de308`, with the original source allocation and
+empty ledgers. The new 2,517,001-byte bundle SHA256 is
+`97b29ee24a324284b740b53d9fadf6d7b70044953f166715da6e3a927d1eacd1`;
+only four namespace JSONs and their four SHA sidecars change. Exact-pin real
+validate-only checks passed for repair/canary in 2.306169/2.290468 seconds,
+without actor steps, refit/gate calls or runtime output creation. Fresh offline
+forecast: residual 28 files/74,138 bytes; fallback 1,331,053 bytes; upload
+146.921532516 s <=150; doubled complete forecast 90.893766318 min <=200.
+Actual public-fetch measurement is still null, not inherited from -04.
+
+Create-only failure-accounting binds the unchanged raw -04 failed receipt and
+independent release proof. Conservative own/gross charge is 0.17 u, so charged
+is 10.51 u. Remaining liabilities 2.00+6.16+3.86+3.86=15.88; total26.39 and
+unallocated 8.11 under 34.50. Retain WARNING_UNEXPLAINED_DEBIT, no refunds, actual
+intervening debit reconciliation before each admission, and 13.88 liabilities
+after substituting the new canary's actual charge. This is local arithmetic,
+not current account inventory. The separate 1M invoice remains held.
+
+Status is HOLD, not READY_FOR_CLAUDE_CHECK or admission. The requested unchanged
+nine URLs/no restaging conflicts with ruling condition 2's new ninth bundle,
+mapping and full unauthenticated fetch requirement; clarification is pending.
+All eight origin URLs and selected folder 1yr71MQZgtRLlZ3DprqN147dDOwqprHm_
+are preserved. No Drive mutation or fetch occurred. A second operational HOLD
+is the real renicer exclusion/handover: prepared PID-tree exclusion source is
+not installed, and the existing daemon has no dynamic reload interface. No
+daemon/worker/tmux kill or priority action occurred. Claude must prove current
+cooperative factory drain, cleanup/lease release and blocked re-admission, and
+absolute nice 0 for the entire supervisor/CLI tree through verified release.
+Prepared scoped wrapper code preserves the generic nice 15 policy, separately
+registers exact allocation-recovery roots, refuses other account assignments
+under its allocation lock, and does not dispatch during preparation.
+
+Independent Codex-V review is recorded in a create-only sibling `_14` receipt;
+its HOLD cannot be used as a READY receipt. Final mapping/fetch review, fresh
+Claude per-stage checks, live zero-session/calibration/accounting evidence,
+canary/repair and all later-stage gates remain unperformed. No Colab operation,
+scientific outcome look, serving change or release action occurred; critic PASS
+stands, Y3 remains not PASS. Prior packs/receipts and unrelated changes remain.
