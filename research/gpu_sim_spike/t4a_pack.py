@@ -72,11 +72,14 @@ REVIEW02_RULING = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_REVIEW02.md"
 REVIEW02_RULING_SHA256 = "ee638c7f2b0d155e37ea1dbf47bc8344bdcca7a0369b7d2c3c5460e79e126214"
 RESUME_RULING = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_RESUME_NO_CLI.md"
 RESUME_RULING_SHA256 = "9733d5034b61265d2eba516e9303b401492eb3092e2309d89e2cb1cb82fdbd63"
+REVIEW03_RULING = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_REVIEW03.md"
+REVIEW03_RULING_SHA256 = "28f17e6e58b413c555035bda75153d9dfb05afd1137bbca35429d9a348db345c"
 BINDINGS += (
     (COMPILE_AMENDMENT, COMPILE_AMENDMENT_SHA256),
     (DISPATCH_RULING, DISPATCH_RULING_SHA256),
     (REVIEW02_RULING, REVIEW02_RULING_SHA256),
     (RESUME_RULING, RESUME_RULING_SHA256),
+    (REVIEW03_RULING, REVIEW03_RULING_SHA256),
 )
 PROTOCOL = ROOT / PACKAGE / "T4A_PROTOCOL_20261024.md"
 PROTOCOL_SHA256 = "b2e55b1f640a4de8872c3feefdc51d74311d19e87cc58bdba9f8510e17db71bf"
@@ -152,14 +155,15 @@ def _bindings() -> list[dict[str, str]]:
 
 
 def scientific_admission() -> dict[str, Any]:
-    """Cite the adopted pre-data authority, without implying review-03 ACCEPT."""
+    """Cite the adopted pre-data authority, without implying review-04 ACCEPT."""
     return {
         "study": "T4A-DEV-01",
         "ruling_sha256": DISPATCH_RULING_SHA256,
         "amendment_sha256": COMPILE_AMENDMENT_SHA256,
         "review02_ruling_sha256": REVIEW02_RULING_SHA256,
         "resume_ruling_sha256": RESUME_RULING_SHA256,
-        "scope": "separate same-pin A100 compile; Astra review-03 ACCEPT required before dispatch",
+        "review03_ruling_sha256": REVIEW03_RULING_SHA256,
+        "scope": "separate same-pin A100 compile; Astra review-04 ACCEPT required before dispatch",
     }
 
 
@@ -589,6 +593,7 @@ def manifest(
             "attempt": attempt,
             "remaining_main_units": list(remaining),
             "resume_ruling_sha256": RESUME_RULING_SHA256,
+            "review03_ruling_sha256": REVIEW03_RULING_SHA256,
             "manual_completion_attempts": MAX_MANUAL_ATTEMPTS,
             "retry_rule": "manual outcome-blind completion after verified mechanical failure, "
             "stop and missing units; fresh manifest/output/receipt on each attempt",

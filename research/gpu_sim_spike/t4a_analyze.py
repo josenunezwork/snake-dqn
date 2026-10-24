@@ -263,6 +263,14 @@ def _valid_descriptor(field: str, descriptor: Any) -> bool:
                 dtype == "torch.bool" and len(shape) == 2 and _is_digest(descriptor.get("sha256"))
             )
         return False
+    if field.startswith("prepared."):
+        if field not in {
+            "prepared.runtime._carry_state",
+            "prepared.runtime._carry_mask",
+            "prepared.runtime._carry_valid",
+        }:
+            return False
+        return _valid_descriptor(field.removeprefix("prepared."), descriptor)
     if field.startswith("runtime."):
         name = field.removeprefix("runtime.")
         if name in {"controlled", "_carry_valid", "_alive_post", "sel_ready", "sel_fresh"}:
@@ -698,6 +706,32 @@ def _event_predicate_error(
             if isinstance(descriptors, list) and descriptors and isinstance(descriptors[0], dict)
             else set()
         )
+        expected_warm_fields |= {
+            "prepared.runtime." + name for name in ("_carry_state", "_carry_mask", "_carry_valid")
+        }
+        prepared_fields = expected_warm_fields - {
+            "lifecycle.sim_prepared",
+            "lifecycle.vector_prepared",
+        }
+        prepared_names = {
+            "source",
+            "clone",
+            "fresh",
+            "remap",
+            "remap_replay",
+            "restore",
+            "restore_replay",
+        }
+        prepared_captures = values.get("prepared_tick_captures")
+        prepared_checks = values.get("prepared_tick_comparisons")
+
+        def valid_check(check: Any) -> bool:
+            return isinstance(check, dict) and check == {
+                "equal": True,
+                "kind": None,
+                "difference": None,
+            }
+
         warm_ok = (
             isinstance(warm_captures, dict)
             and set(warm_captures)
@@ -727,7 +761,17 @@ def _event_predicate_error(
                 "source_restore",
                 "source_fresh",
             }
-            and all(value is True for value in warm_checks.values())
+            and all(valid_check(value) for value in warm_checks.values())
+            and isinstance(prepared_captures, dict)
+            and set(prepared_captures) == prepared_names
+            and all(
+                entry == {field: warm_captures["source"][field] for field in prepared_fields}
+                for entry in prepared_captures.values()
+            )
+            and isinstance(prepared_checks, dict)
+            and set(prepared_checks) == prepared_names
+            and all(valid_check(check) for check in prepared_checks.values())
+            and values.get("evidence_errors") == []
             and values.get("warm_q_corruption_detected") is True
             and isinstance(values.get("warm_q_corruption_control"), dict)
             and values["warm_q_corruption_control"].get("field") in expected_warm_fields
@@ -1254,11 +1298,8 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
                 ):
                     missing.append(f"{mix}: event policy/state/tick proof omitted {key}")
                 else:
-                    # An incomplete producer may preserve a partial witness;
-                    # it is absence of execution evidence, not contradictory
-                    # evidence.  Only completed/mismatch rows are certified.
-                    if status in {"INCOMPLETE", "timeout"}:
-                        continue
+                    # Completed witnesses are validated even when the producer
+                    # labels the row INCOMPLETE; a contradiction is not missing work.
                     predicate_error = _event_predicate_error(key[0], witness, key[1], mapped)
                     errors = [
                         _event_tick_error(

@@ -84,6 +84,18 @@ def _event_exception(witness: dict[str, Any], **context: Any) -> T4AMismatch:
         raise T4AEvidenceError("event mismatch lacks its exact compared seam") from exc
 
 
+def _require_valid_event_evidence(evidence: list[dict[str, Any]], output_dir: Path) -> None:
+    """Retain completed harness faults and send them through the failure writer."""
+    invalid = [row for row in evidence if row.get("status") == "INVALID_EVIDENCE"]
+    if invalid:
+        t4a_units.publish_json(
+            output_dir / "diagnostics/invalid-event-evidence.json", {"event_records": invalid}
+        )
+        raise T4AEvidenceError(
+            "completed event witness is INVALID_EVIDENCE; see retained diagnostics"
+        )
+
+
 def _determinism(device: str) -> dict[str, Any]:
     required_workspace = ":4096:8"
     if os.environ.get("CUBLAS_WORKSPACE_CONFIG") != required_workspace:
@@ -680,6 +692,7 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
                 raise _event_exception(
                     witness, roster=roster, event=event["event"], worlds=event["worlds"]
                 )
+        _require_valid_event_evidence(event_result.get("evidence", []), args.output_dir)
         coverage_names = (
             "ring_wrap",
             "simultaneous_death_respawn",

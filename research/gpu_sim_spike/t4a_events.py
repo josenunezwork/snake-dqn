@@ -112,6 +112,8 @@ def _tick(
     # The fixture can replace actions only after every ordinary learned forward
     # runs, retaining B8/vector61/v8 preparation and carry maintenance.
     transition: dict[str, torch.Tensor] = {}
+    prepared_boundary = bool(sim._prepared and policy.vector_prepared)
+    boundary_carry: dict[str, torch.Tensor] = {}
     with Capture(case) as cap:
         with engine._arm("I"), torch.inference_mode():
             cap.begin_tick()
@@ -120,6 +122,8 @@ def _tick(
                 after_prepare()
             _q, _legal, hero = policy.evaluate(sim)
             policy.actions(sim, hero)
+            if prepared_boundary:
+                boundary_carry = _prepared_carry(case)
             # Every fixture is an event-only supplied-action witness.
             # Normal policy actions are captured before their replacement.
             supplied = _actions(sim) if actions is None else actions
@@ -169,6 +173,7 @@ def _tick(
     # fields only after its restoration so the strict inventory sees no hook.
     fields = _mapped_snapshot(case)
     fields.update(captured)
+    fields.update(boundary_carry)
     fields.update(_mapped_event_fields(sim, transition))
     if event_fields is not None:
         fields.update(_mapped_event_fields(sim, event_fields()))
@@ -488,6 +493,25 @@ def _remap_world_tensors(case: tuple, rows: torch.Tensor) -> None:
     r2_cache.bump(sim)
 
 
+def _prepared_carry(case: tuple) -> dict[str, torch.Tensor]:
+    """Freeze vector carry at the policy boundary, before after_step mutates it."""
+    return {
+        "prepared." + name: value.detach().clone()
+        for name, value in _mapped_snapshot(case).items()
+        if name in {"runtime._carry_state", "runtime._carry_mask", "runtime._carry_valid"}
+    }
+
+
+def _prepared_outputs(fields: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """Select semantic outputs shared by pre-step and prepared-tick captures."""
+    return {
+        name: value
+        for name, value in fields.items()
+        if name.startswith(("output.q.", "output.obs.", "output.v8.", "prepared.runtime."))
+        or name in {"output.actions", "configuration.sha256"}
+    }
+
+
 def _warm_output_capture(case: tuple) -> dict[str, torch.Tensor]:
     """Capture real Q, observation, v8 and advisory output at a warm seam."""
     sim, policy = case[:2]
@@ -503,20 +527,29 @@ def _warm_output_capture(case: tuple) -> dict[str, torch.Tensor]:
         # accounting and an extra indexed advisory instrumentation call. Keep
         # the stable semantic boundary: Q, observations, v8 (including masks),
         # selected actions, lifecycle, and configuration.
+        fields = cap.fields((0, 1, 2, 3))
+        fields.update(_prepared_carry(case))
         return {
             name: value
-            for name, value in cap.fields((0, 1, 2, 3)).items()
+            for name, value in fields.items()
             if (
-                name.startswith(("output.q.", "output.obs.", "output.v8."))
+                name.startswith(("output.q.", "output.obs.", "output.v8.", "prepared.runtime."))
                 or name in {"output.actions", "lifecycle.sim_prepared", "lifecycle.vector_prepared"}
                 or name == "configuration.sha256"
             )
         }
 
 
-def _warm_outputs_equal(left: dict[str, torch.Tensor], right: dict[str, torch.Tensor]) -> bool:
-    """Compare the complete captured warm output boundary, byte for byte."""
-    return compare.compare_inventory(left, right) is None
+def _warm_outputs_equal(
+    left: dict[str, torch.Tensor], right: dict[str, torch.Tensor]
+) -> dict[str, Any]:
+    """Retain a structured harness check, never an engine mismatch witness."""
+    difference = compare.compare_inventory(left, right)
+    return {
+        "equal": difference is None,
+        "kind": type(difference).__name__ if difference is not None else None,
+        "difference": difference.__dict__.copy() if difference is not None else None,
+    }
 
 
 def _schema_witness(value: Any) -> dict[str, Any] | None:
@@ -624,6 +657,7 @@ def _event_stale_cache(
     smoke, canary = _mode_flags(lane)
     sim, policy = case[:2]
     sealed_mismatches: list[dict[str, Any]] = []
+    prepared_ticks: dict[str, dict[str, torch.Tensor]] = {}
 
     def compared(
         left: dict[str, torch.Tensor], right: dict[str, torch.Tensor]
@@ -671,8 +705,8 @@ def _event_stale_cache(
     remap_exact = remap_compare is None
     remap_restored_digest = _state_digest(remapped)
     remap_replay = (sim.clone(), _clone_policy(policy), *case[2:])
-    _tick(remapped)
-    _tick(remap_replay)
+    prepared_ticks["remap"] = _prepared_outputs(_tick(remapped))
+    prepared_ticks["remap_replay"] = _prepared_outputs(_tick(remap_replay))
     remap_replay_compare = compared(_snapshot(remapped), _snapshot(remap_replay))
     remap_replay_exact = remap_replay_compare is None
     remap_branch_digest = _state_digest(remapped)
@@ -720,8 +754,8 @@ def _event_stale_cache(
     restored_warm_outputs = _warm_output_capture(restored)
     source_restore_warm_exact = _warm_outputs_equal(warm_outputs, restored_warm_outputs)
     replay = (sim.clone(), _clone_policy(policy), *case[2:])
-    _tick(restored)
-    _tick(replay)
+    prepared_ticks["restore"] = _prepared_outputs(_tick(restored))
+    prepared_ticks["restore_replay"] = _prepared_outputs(_tick(replay))
     restore_replay_compare = compared(_snapshot(restored), _snapshot(replay))
     restore_replay_exact = restore_replay_compare is None
     restore_branch_digest = _state_digest(restored)
@@ -747,7 +781,7 @@ def _event_stale_cache(
     q_name = next(name for name in corrupted_warm if name.startswith("output.q."))
     q_bytes = corrupted_warm[q_name].view(torch.uint8).reshape(-1)
     q_bytes[0] ^= 1
-    warm_q_corruption_detected = not _warm_outputs_equal(warm_outputs, corrupted_warm)
+    warm_q_corruption_detected = not _warm_outputs_equal(warm_outputs, corrupted_warm)["equal"]
     # A disposable, already-warmed target crosses the same resident restore
     # seam with invalidation deliberately suppressed.  Compare its stale
     # cached advisory result with the result after restoring normal invalidation
@@ -777,13 +811,17 @@ def _event_stale_cache(
     )
     # The warm clone/remap/restore proofs above deliberately observe a
     # prepared vector seam.  Advance each actual comparison branch once using
-    # its ordinary complete lifecycle, discard those setup captures, then
+    # its ordinary complete lifecycle, retain those boundary captures, then
     # collect the registered two event ticks from the canonical post-step
     # unprepared seam.  This keeps the warm-boundary evidence intact while
     # ensuring every published event tick includes advisory/accounting fields.
-    _tick(case)
-    _tick(clone)
-    _tick(equivalent)
+    prepared_ticks["source"] = _prepared_outputs(_tick(case))
+    prepared_ticks["clone"] = _prepared_outputs(_tick(clone))
+    prepared_ticks["fresh"] = _prepared_outputs(_tick(equivalent))
+    prepared_checks = {
+        name: _warm_outputs_equal(_prepared_outputs(warm_outputs), output)
+        for name, output in prepared_ticks.items()
+    }
     if sim._prepared or policy.vector_prepared:
         raise RuntimeError("stale-cache source setup did not return to post-step seam")
     if clone[0]._prepared or clone[1].vector_prepared:
@@ -842,10 +880,11 @@ def _event_stale_cache(
         and remap_exact
         and remap_replay_exact
         and broken_invalidation_control
-        and source_clone_warm_exact
-        and source_remap_warm_exact
-        and source_restore_warm_exact
-        and source_fresh_warm_exact
+        and source_clone_warm_exact["equal"]
+        and source_remap_warm_exact["equal"]
+        and source_restore_warm_exact["equal"]
+        and source_fresh_warm_exact["equal"]
+        and all(check["equal"] for check in prepared_checks.values())
         and warm_q_corruption_detected
         and target_body_progressed
         and target_food_progressed
@@ -882,6 +921,21 @@ def _event_stale_cache(
             "source_restore": source_restore_warm_exact,
             "source_fresh": source_fresh_warm_exact,
         },
+        "prepared_tick_captures": {
+            name: compare.compact_inventory(output) for name, output in prepared_ticks.items()
+        },
+        "prepared_tick_comparisons": prepared_checks,
+        "evidence_errors": [
+            {"check": name, **check}
+            for name, check in {
+                "source_clone": source_clone_warm_exact,
+                "source_remap": source_remap_warm_exact,
+                "source_restore": source_restore_warm_exact,
+                "source_fresh": source_fresh_warm_exact,
+                **{"prepared_" + name: check for name, check in prepared_checks.items()},
+            }.items()
+            if not check["equal"]
+        ],
         "warm_q_corruption_detected": warm_q_corruption_detected,
         "warm_q_corruption_control": {
             "field": q_name,
@@ -1147,6 +1201,10 @@ def run_events(
                 passed, witness = _run_one(event, checkpoint, roster, worlds, device, lane)
                 raw_tape = witness.pop("_raw_mapped_tape", [])
                 mismatch: dict[str, Any] | None = witness.get("mismatch")
+                internal_mismatch = mismatch
+                fixture_contradiction = (
+                    not passed and mismatch is None and _valid_tensor_tape(raw_tape)
+                )
                 forced_status: str | None = None
                 if witness.get("schema_incompatibility") is not None:
                     mismatch = None
@@ -1217,6 +1275,12 @@ def run_events(
                             passed, mismatch, forced_status = _reference_incomplete(
                                 witness, raw_tape, "event tape absent or incomplete"
                             )
+                # A sealed internal unequal-byte witness does not depend on
+                # the availability of another E cell. Preserve its precedence.
+                if internal_mismatch is not None and witness.get("schema_incompatibility") is None:
+                    mismatch, forced_status = internal_mismatch, None
+                if mismatch is None and (witness.get("evidence_errors") or fixture_contradiction):
+                    forced_status = "INVALID_EVIDENCE"
                 if mismatch is not None:
                     passed = False
                     witness["first_witness"] = mismatch

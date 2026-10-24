@@ -352,6 +352,8 @@ def _content(mix: str, *, canary: bool = True) -> dict:
                 )
             }
             warm = {field: deepcopy(event_descriptors[field]) for field in warm_fields}
+            for name in ("_carry_state", "_carry_mask", "_carry_valid"):
+                warm["prepared.runtime." + name] = deepcopy(event_descriptors["runtime." + name])
             witness["warm_output_captures"] = {
                 name: deepcopy(warm) for name in ("source", "clone", "remap", "restore", "fresh")
             }
@@ -359,9 +361,30 @@ def _content(mix: str, *, canary: bool = True) -> dict:
             corrupted["output.q.0"]["sha256"] = "f" * 64
             witness["warm_output_captures"]["corrupted_q_control"] = corrupted
             witness["warm_output_comparisons"] = {
-                name: True
+                name: {"equal": True, "kind": None, "difference": None}
                 for name in ("source_clone", "source_remap", "source_restore", "source_fresh")
             }
+            names = (
+                "source",
+                "clone",
+                "fresh",
+                "remap",
+                "remap_replay",
+                "restore",
+                "restore_replay",
+            )
+            witness["prepared_tick_captures"] = {
+                name: {
+                    field: deepcopy(value)
+                    for field, value in warm.items()
+                    if not field.startswith("lifecycle.")
+                }
+                for name in names
+            }
+            witness["prepared_tick_comparisons"] = {
+                name: {"equal": True, "kind": None, "difference": None} for name in names
+            }
+            witness["evidence_errors"] = []
             witness["warm_q_corruption_detected"] = True
             witness["warm_q_corruption_control"] = {
                 "field": "output.q.0",
@@ -456,13 +479,13 @@ def _content(mix: str, *, canary: bool = True) -> dict:
     }
 
 
-def _tree(root, *, canary=True, mutate=None, drop=None):
+def _tree(root, *, canary=True, mutate=None, drop=None, mutate_mix=None):
     ns, cells = units.namespace(COMMIT, canary=canary), units.allocation()
     for unit in cells:
         if unit == drop:
             continue
         content = _content(units.parse(unit), canary=canary)
-        if mutate and unit == cells[0]:
+        if mutate and (units.parse(unit) == mutate_mix if mutate_mix else unit == cells[0]):
             mutate(content)
         units.publish_unit(root, ns, cells, unit, content)
     units.build_ledger(root, root / "verified-ledger.json", commit=COMMIT, canary=canary)

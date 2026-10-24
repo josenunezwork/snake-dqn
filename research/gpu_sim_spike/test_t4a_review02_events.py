@@ -33,8 +33,8 @@ def test_warm_output_comparator_detects_q_only_corruption() -> None:
     corrupted = {name: value.clone() for name, value in source.items()}
     corrupted["output.q.0"].view(torch.uint8).reshape(-1)[0] ^= 1
 
-    assert t4a_events._warm_outputs_equal(source, source)
-    assert not t4a_events._warm_outputs_equal(source, corrupted)
+    assert t4a_events._warm_outputs_equal(source, source)["equal"]
+    assert not t4a_events._warm_outputs_equal(source, corrupted)["equal"]
 
 
 def test_mapped_event_fields_keep_only_canonical_witness_rows() -> None:
