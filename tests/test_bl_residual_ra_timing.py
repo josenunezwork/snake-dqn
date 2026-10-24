@@ -11,14 +11,23 @@ from pathlib import Path
 import pytest
 
 from research.bl_ppo.exports import digest, export_json
-from research.bl_residual import f2, ra_guard
+from research.bl_residual import f2, github_authority, ra_guard
 from research.bl_residual.protocol import canonical_sha
 from tests.test_bl_residual_f2 import git_fixture, seal_fixture
 
 
-def _commit(root: Path, message: str, epoch: int, *, allow_empty: bool = False) -> None:
+def _commit(
+    root: Path,
+    message: str,
+    epoch: int,
+    *,
+    allow_empty: bool = False,
+    author_epoch: int | None = None,
+) -> None:
     env = os.environ | {
-        "GIT_AUTHOR_DATE": datetime.fromtimestamp(epoch, timezone.utc).isoformat(),
+        "GIT_AUTHOR_DATE": datetime.fromtimestamp(
+            epoch if author_epoch is None else author_epoch, timezone.utc
+        ).isoformat(),
         "GIT_COMMITTER_DATE": datetime.fromtimestamp(epoch, timezone.utc).isoformat(),
     }
     args = ["git", "commit", "-qm", message]
@@ -27,22 +36,59 @@ def _commit(root: Path, message: str, epoch: int, *, allow_empty: bool = False) 
     subprocess.run(args, cwd=root, check=True, env=env, capture_output=True)
 
 
-def _published_binding(tmp_path, monkeypatch, epoch: int):
+def _published_binding(
+    tmp_path,
+    monkeypatch,
+    epoch: int,
+    *,
+    published_epoch: int | None = None,
+    author_epoch: int | None = None,
+):
     root, receipt = git_fixture(tmp_path, monkeypatch)
     seal_fixture(root, receipt)
     monkeypatch.setattr(f2, "ROOT", root)
     monkeypatch.setattr(f2, "RESULT_LEDGER", "research/bl_residual/ledger/f2-result-20261024.json")
     f2.stage_publication(root=root)
     subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
-    _commit(root, "synthetic result publication", epoch)
+    _commit(root, "synthetic result publication", epoch, author_epoch=author_epoch)
     subprocess.run(
         ["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
         cwd=root,
         check=True,
         capture_output=True,
     )
-    binding = f2.verify_published_receipt(receipt, root=root)
+    binding = github_authority.published_receipt_binding(receipt, root=root)
     monkeypatch.setattr(ra_guard, "f2", f2)
+    commit = binding["publication_ref"]
+    before = f2._git(root, "rev-parse", commit + "^").decode().strip()
+    epoch = epoch if published_epoch is None else published_epoch
+    timestamp = datetime.fromtimestamp(epoch, timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def request(endpoint):
+        if endpoint.endswith("git/ref/heads/main"):
+            tip = f2._git(root, "rev-parse", "origin/main").decode().strip()
+            return (
+                {"ref": github_authority.REF, "object": {"type": "commit", "sha": tip}},
+                {},
+                {"epoch": epoch + 1000},
+            )
+        return (
+            [
+                {
+                    "id": 1,
+                    "before": before,
+                    "after": commit,
+                    "ref": github_authority.REF,
+                    "activity_type": "push",
+                    "timestamp": timestamp,
+                }
+            ],
+            {},
+            {"epoch": epoch + 1000},
+        )
+
+    monkeypatch.setattr(github_authority, "_request", request)
+    github_authority.capture_publication(binding)
     return root, receipt, binding
 
 
@@ -101,15 +147,15 @@ def _authoritative(
     return path
 
 
-def test_publication_evidence_binds_origin_commit_time_and_survives_unrelated_commit(
+def test_publication_evidence_binds_server_push_time_and_survives_unrelated_commit(
     tmp_path, monkeypatch
 ):
     epoch = int(ra_guard.CUTOFF) - 100
     root, receipt, binding = _published_binding(tmp_path, monkeypatch, epoch)
     evidence = ra_guard.publication_evidence(binding)
     assert evidence["commit"] == binding["publication_ref"]
-    assert evidence["committer_epoch"] == epoch
-    assert evidence["ref"] == "origin/main"
+    assert evidence["published_epoch"] == epoch
+    assert evidence["ref"] == "refs/heads/main"
     subprocess.run(["git", "commit", "--allow-empty", "-qm", "unrelated"], cwd=root, check=True)
     subprocess.run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"], cwd=root, check=True)
     assert ra_guard.publication_evidence(binding) == evidence
@@ -120,8 +166,7 @@ def test_replaced_result_publication_is_rejected(tmp_path, monkeypatch):
     root = f2.ROOT
     result = root / f2.RESULT_LEDGER
     result.write_text(result.read_text().replace(binding["sha256"], "0" * 64))
-    with pytest.raises((ValueError, subprocess.CalledProcessError)):
-        ra_guard.publication_evidence(binding)
+    assert ra_guard.publication_evidence(binding) is None
 
 
 @pytest.mark.parametrize(
@@ -213,3 +258,37 @@ def test_new_authority_invalidates_a_prepared_no_start_branch(tmp_path, monkeypa
     _authoritative(tmp_path, monkeypatch, ra_guard.START_DEADLINE)
     after = ra_guard.timing_identity(None, None)
     assert after != before and after["branch"] == "WAIT_FOR_F2_OR_CUTOFF"
+
+
+@pytest.mark.parametrize(
+    "author_offset,committer_offset,push_offset,eligible",
+    [(-100, -100, 60, False), (60, -100, 60, False), (-100, 60, 60, False), (-100, -100, -1, True)],
+)
+def test_delayed_push_and_independent_git_dates_cannot_authorize_f2(
+    tmp_path, monkeypatch, author_offset, committer_offset, push_offset, eligible
+):
+    _, _, binding = _published_binding(
+        tmp_path,
+        monkeypatch,
+        int(ra_guard.CUTOFF + committer_offset),
+        author_epoch=int(ra_guard.CUTOFF + author_offset),
+        published_epoch=int(ra_guard.CUTOFF + push_offset),
+    )
+    _authoritative(tmp_path, monkeypatch, None)
+    timing = ra_guard.timing_identity(None, ra_guard.publication_evidence(binding))
+    assert ra_guard.timing_eligible(timing, at=ra_guard.CUTOFF + 120) is eligible
+
+
+def test_metadata_adapter_and_evidence_never_parse_sealed_result(tmp_path, monkeypatch):
+    _, receipt, binding = _published_binding(tmp_path, monkeypatch, int(ra_guard.CUTOFF - 100))
+    sealed = receipt.read_bytes()
+    loads = json.loads
+
+    def guarded(payload, *args, **kwargs):
+        if payload == sealed or payload == sealed.decode():
+            pytest.fail("sealed result parsed by metadata/evidence verification")
+        return loads(payload, *args, **kwargs)
+
+    monkeypatch.setattr(json, "loads", guarded)
+    assert ra_guard.receipt_binding(receipt) == binding
+    assert ra_guard.publication_evidence(binding)["receipt_sha256"] == binding["sha256"]

@@ -191,8 +191,12 @@ def main() -> None:
     # Verify result-ledger publication before reading a receipt byte, then bind
     # the exact receipt bytes once.  Retaining this parsed value prevents a
     # changed receipt from steering the final branch after either held-out look.
-    f2_binding = f2.verify_published_receipt(args.f2_receipt) if args.f2_receipt else None
-    if args.f2_receipt:
+    f2_binding = ra_guard.receipt_binding(args.f2_receipt) if args.f2_receipt else None
+    publication = ra_guard.publication_evidence(f2_binding)
+    if args.f2_receipt and publication is not None:
+        semantic = f2.verify_published_receipt(args.f2_receipt)
+        if any(semantic.get(key) != value for key, value in f2_binding.items()):
+            raise ValueError("F2 receipt binding changed before semantic read")
         verify_export(args.f2_receipt)
         f2_bytes = args.f2_receipt.read_bytes()
         if hashlib.sha256(f2_bytes).hexdigest() != f2_binding["sha256"]:
@@ -252,9 +256,7 @@ def main() -> None:
         }
         if expected_inputs != packet.get("input_identities"):
             raise ValueError("R-A input identities differ from the sealed command packet")
-        timing = ra_guard.timing_identity(
-            args.d4096_start_receipt, ra_guard.publication_evidence(f2_binding)
-        )
+        timing = ra_guard.timing_identity(args.d4096_start_receipt, publication)
         if timing != packet.get("timing"):
             raise ValueError("R-A timing evidence differs from the sealed command packet")
         reserve = ra_guard.reserve_identity(
@@ -295,11 +297,13 @@ def main() -> None:
             != timing
         ):
             raise ValueError("R-A timing evidence changed before the claim")
-        claimed_epoch = ra_guard.now_epoch()
+        claim_time = ra_guard.trusted_time()
+        claimed_epoch = claim_time["epoch"]
         eligible = ra_guard.timing_eligible(timing, at=claimed_epoch)
         claim = {
             **lock,
             "claimed_epoch": claimed_epoch,
+            "claim_time_observation": claim_time,
             "command_packet_sha256": digest(args.command_packet),
             "timing": timing,
             "f2_timing_eligible": eligible,
@@ -335,6 +339,7 @@ def main() -> None:
             ),
             "r_a_claim_sha256": digest(expected_lock),
             "r_a_claimed_epoch": claimed_epoch,
+            "claim_time_observation": claim_time,
             "timing": timing,
         },
     )

@@ -10,7 +10,7 @@ table row, that every phase is published (local == origin/main) and that the
 checkpoint bytes are the published fit units. It derives one authoritative
 claim path from the frozen series/reserve, seals
 all invocation and input identities, and binds the earliest D4096 start and F2
-publication commit/time. Only ``funding.main`` atomically claims the look, after
+publication commit/server push event. Only ``funding.main`` atomically claims the look, after
 rechecking the packet and timing. Preparation never opens held-out outcomes.
 """
 
@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 from research.bl_ppo.exports import digest, export_json, verify_export
-from research.bl_residual import f2
 from research.bl_residual import f4_archive_census as census_tool
 from research.bl_residual import f4_d256_package as d256
 from research.bl_residual import f4_d1024_package as d1024
@@ -31,7 +30,7 @@ from research.bl_residual import ra_guard
 from research.bl_residual.data import DOSES
 from research.bl_residual.protocol import read_ledger
 
-PACKET_SCHEMA = "bl-residual-r-a-command-packet/v2"
+PACKET_SCHEMA = "bl-residual-r-a-command-packet/v3"
 PYTHON = "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python"
 THREAD_ENV = [
     "OMP_NUM_THREADS=1",
@@ -202,10 +201,11 @@ def prepare(
     # This verifies the result-ledger publication before opening the receipt.
     # Keep the exact returned identity in the sealed packet; funding.main repeats
     # this verification and refuses any command-line receipt that differs.
-    f2_binding = f2.verify_published_receipt(f2_receipt) if f2_receipt is not None else None
+    f2_binding = ra_guard.receipt_binding(f2_receipt) if f2_receipt is not None else None
     timing = ra_guard.timing_identity(
         d4096_start_receipt, ra_guard.publication_evidence(f2_binding)
     )
+    prepared_time = ra_guard.trusted_time()
     argv = [
         PYTHON,
         "-m",
@@ -259,12 +259,13 @@ def prepare(
         "invocation": invocation,
         "input_identities": input_identities,
         "timing": timing,
+        "prepared_time_observation": prepared_time,
         "lock": lock,
         "lock_path": str(lock_path),
         "funding_output": str(funding_out),
         "f2_branch": (
             "UNPUBLISHED_APPLY_STRIKES_BRANCH"
-            if f2_binding is None
+            if timing["f2_publication"] is None
             else "VERIFIED_PUBLISHED_F2_RECEIPT"
         ),
         "f2_receipt": f2_binding,

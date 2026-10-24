@@ -139,22 +139,24 @@ def source_identity(pin: str) -> dict[str, str]:
     return result
 
 
+def receipt_binding(receipt: Path) -> dict[str, str]:
+    """Verify F2 metadata without changing or reading the frozen statistic."""
+    from research.bl_residual.github_authority import published_receipt_binding
+
+    return published_receipt_binding(receipt)
+
+
 def publication_evidence(binding: dict | None) -> dict | None:
-    """Use the result-ledger commit on origin/main, never receipt or file times."""
-    if binding is None:
-        return None
-    ref = binding["publication_ref"]
-    if f2._published(f2.ROOT / f2.RESULT_LEDGER, f2.RESULT_LEDGER, f2.ROOT) != ref:
-        raise ValueError("F2 publication commit changed after verification")
-    f2._commit_contains(f2.ROOT, ref, f2.RESULT_LEDGER, (f2.ROOT / f2.RESULT_LEDGER).read_bytes())
-    epoch = int(f2._git(f2.ROOT, "show", "-s", "--format=%ct", ref).decode().strip())
-    return {
-        "commit": ref,
-        "committer_epoch": epoch,
-        "ref": "origin/main",
-        "ledger": f2.RESULT_LEDGER,
-        "receipt_sha256": binding["sha256"],
-    }
+    """Require sealed, remotely revalidated server publication evidence."""
+    from research.bl_residual.github_authority import publication_evidence as verify
+
+    return None if binding is None else verify(binding)
+
+
+def trusted_time() -> dict[str, Any]:
+    from research.bl_residual.github_authority import trusted_time as observe
+
+    return observe()
 
 
 def authoritative_starts() -> dict:
@@ -247,6 +249,8 @@ def authoritative_starts() -> dict:
 
 
 def timing_identity(start_receipt: Path | None, publication: dict | None) -> dict:
+    from research.bl_residual.github_authority import TIME_POLICY
+
     authority = authoritative_starts()
     starts = authority["starts"]
     start = min(starts, key=lambda row: (row["started_epoch"], row["path"])) if starts else None
@@ -254,6 +258,7 @@ def timing_identity(start_receipt: Path | None, publication: dict | None) -> dic
         raise ValueError("R-A timing must bind the earliest authoritative D4096 start")
     return {
         "judgment_sha256": f2.JUDGMENT_SHA,
+        "time_authority": TIME_POLICY,
         "start_deadline_epoch": START_DEADLINE,
         "cutoff_epoch": CUTOFF,
         "d4096_start": start,
@@ -269,8 +274,12 @@ def timing_identity(start_receipt: Path | None, publication: dict | None) -> dic
 
 def timing_eligible(timing: dict, *, at: float) -> bool:
     """Enforce the wait and strict publication boundaries before claiming R-A."""
+    if not math.isfinite(at) or (
+        timing["d4096_start"] and timing["d4096_start"]["started_epoch"] > at
+    ):
+        raise ValueError("HOLD: unverifiable time or future D4096 start")
     pub = timing["f2_publication"]
-    published = pub is not None and pub["committer_epoch"] < min(CUTOFF, at)
+    published = pub is not None and pub["published_epoch"] < min(CUTOFF, at)
     if timing["branch"] == "WAIT_FOR_F2_OR_CUTOFF" and at < CUTOFF and not published:
         raise ValueError("HOLD: R-A waits for verified F2 publication or the fixed cutoff")
     return published

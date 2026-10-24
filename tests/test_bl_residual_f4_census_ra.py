@@ -249,6 +249,11 @@ def ra_world(monkeypatch: pytest.MonkeyPatch, packs: dict, tmp_path: Path) -> di
     monkeypatch.setattr(ra_guard, "D4096_CONTROL", tmp_path / "canonical-d4096/control.json")
     monkeypatch.setattr(ra_guard, "source_identity", lambda pin: {"synthetic-source": pin})
     monkeypatch.setattr(ra_guard, "now_epoch", lambda: ra_guard.CUTOFF + 60)
+    monkeypatch.setattr(
+        ra_guard,
+        "trusted_time",
+        lambda: {"epoch": ra_guard.now_epoch(), "date": "synthetic server Date"},
+    )
     census_dir = tmp_path / "census"
     _census(packs, census_dir)
     export_bytes(
@@ -332,14 +337,14 @@ def test_ra_prepare_binds_only_the_verified_f2_receipt(
         seen.append(path)
         return binding
 
-    monkeypatch.setattr(ra.f2, "verify_published_receipt", verified)
+    monkeypatch.setattr(ra_guard, "receipt_binding", verified)
     export_json(receipt, {"synthetic": True})
     monkeypatch.setattr(
         ra_guard,
         "publication_evidence",
         lambda _: {
             "commit": "a" * 40,
-            "committer_epoch": ra_guard.CUTOFF - 1,
+            "published_epoch": ra_guard.CUTOFF - 1,
         },
     )
     ra.prepare(
@@ -381,7 +386,7 @@ def test_funding_refuses_a_receipt_different_from_the_sealed_packet_before_prefl
     _prepare(ra_world, tmp_path)
     receipt = tmp_path / "other-f2.json"
     actual = export_json(receipt, {"synthetic": "other"})
-    monkeypatch.setattr(funding.f2, "verify_published_receipt", lambda _: actual)
+    monkeypatch.setattr(ra_guard, "receipt_binding", lambda _: actual)
     monkeypatch.setattr(funding, "preflight_look", lambda *_: pytest.fail("preflight opened"))
     with pytest.raises(ValueError, match="F2 binding differs"):
         _invoke(monkeypatch, _packet(tmp_path), f2_receipt=str(receipt))
@@ -405,13 +410,14 @@ def _f2_packet(
     }
     exported = export_json(receipt, value)
     binding = {"path": str(receipt), "sha256": exported["sha256"], "publication_ref": "b" * 40}
+    monkeypatch.setattr(ra_guard, "receipt_binding", lambda _: binding)
     monkeypatch.setattr(funding.f2, "verify_published_receipt", lambda _: binding)
     monkeypatch.setattr(
         ra_guard,
         "publication_evidence",
         lambda _: {
             "commit": "b" * 40,
-            "committer_epoch": (
+            "published_epoch": (
                 ra_guard.CUTOFF - 1 if publication_epoch is None else publication_epoch
             ),
             "ref": "origin/main",
@@ -600,7 +606,7 @@ def test_funding_waits_without_claim_and_refuses_changed_timing_evidence(
     monkeypatch.setattr(
         ra_guard,
         "publication_evidence",
-        lambda _: {"commit": "c" * 40, "committer_epoch": ra_guard.CUTOFF + 1},
+        lambda _: {"commit": "c" * 40, "published_epoch": ra_guard.CUTOFF + 1},
     )
     with pytest.raises(ValueError, match="timing evidence"):
         _invoke(monkeypatch, packet)
@@ -748,3 +754,138 @@ def test_ra_command_is_cwd_independent_and_refuses_any_f4_lock(
     (tmp_path / "r-a/funding-look.json").write_text("{}")
     with pytest.raises(ValueError, match="once-only"):
         ra.command(packet, Path("../source"), "e" * 40)
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "advanced", "rollback"])
+def test_trusted_time_failure_never_claims_or_opens_heldout(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path, failure: str
+) -> None:
+    from research.bl_residual.github_authority import AuthorityUnavailable
+
+    _prepare(ra_world, tmp_path)
+    packet = _packet(tmp_path)
+    monkeypatch.setattr(
+        funding, "evaluate_heldout", lambda *_a, **_k: pytest.fail("heldout opened")
+    )
+
+    def refused():
+        raise AuthorityUnavailable(f"synthetic {failure} clock/API observation")
+
+    monkeypatch.setattr(ra_guard, "trusted_time", refused)
+    with pytest.raises(AuthorityUnavailable):
+        _invoke(monkeypatch, packet)
+    assert not Path(packet["lock_path"]).exists()
+    assert not Path(packet["funding_output"]).exists()
+
+
+def test_wait_boundary_uses_server_epoch_and_seals_fresh_observation(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
+) -> None:
+    from tests.test_bl_residual_ra_timing import _authoritative
+
+    _authoritative(ra_guard.D4096_CONTROL.parent, monkeypatch, ra_guard.START_DEADLINE)
+    _prepare(ra_world, tmp_path)
+    packet = _packet(tmp_path)
+    monkeypatch.setattr(ra_guard, "now_epoch", lambda: ra_guard.CUTOFF + 60)
+    monkeypatch.setattr(ra_guard, "trusted_time", lambda: {"epoch": ra_guard.CUTOFF - 1})
+    monkeypatch.setattr(
+        funding, "evaluate_heldout", lambda *_a, **_k: pytest.fail("heldout opened")
+    )
+    with pytest.raises(ValueError, match="waits"):
+        _invoke(monkeypatch, packet)
+    assert not Path(packet["lock_path"]).exists()
+    server = {"epoch": ra_guard.CUTOFF, "date": "synthetic GitHub cutoff Date"}
+    monkeypatch.setattr(ra_guard, "trusted_time", lambda: server)
+    monkeypatch.setattr(funding, "evaluate_heldout", lambda *_a, **_k: {})
+    monkeypatch.setattr(funding, "evaluate", lambda *_a, **_k: {})
+    _invoke(monkeypatch, packet)
+    claim = json.loads(Path(packet["lock_path"]).read_text())
+    assert claim["claimed_epoch"] == ra_guard.CUTOFF
+    assert claim["claim_time_observation"] == server
+    assert claim["f2_timing_eligible"] is False
+
+
+def test_missing_publication_authority_takes_strikes_without_semantic_f2_read(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
+) -> None:
+    _f2_packet(monkeypatch, ra_world, tmp_path)
+    receipt = Path(_packet(tmp_path)["f2_receipt"]["path"])
+    monkeypatch.setattr(ra_guard, "publication_evidence", lambda _: None)
+    monkeypatch.setattr(
+        funding.f2, "verify_published_receipt", lambda _: pytest.fail("sealed result parsed")
+    )
+    result = ra.prepare(
+        d256_pack=ra_world["d256"],
+        d1024_pack=ra_world["d1024"],
+        census_dir=ra_world["census"],
+        funding_out=tmp_path / "strikes/funding.json",
+        packet_out=tmp_path / "strikes/packet.json",
+        pin="e" * 40,
+        f2_receipt=receipt,
+    )
+    packet = json.loads(Path(result["packet"]).read_text())
+    assert packet["f2_branch"] == "UNPUBLISHED_APPLY_STRIKES_BRANCH"
+    assert packet["timing"]["f2_publication"] is None
+    seen = []
+    monkeypatch.setattr(funding, "evaluate_heldout", lambda *_a, **_k: {})
+    monkeypatch.setattr(funding, "evaluate", lambda _l, _r, f2, **kw: seen.append((f2, kw)) or {})
+    _invoke(monkeypatch, packet)
+    assert seen[0][0] == {} and seen[0][1]["f2_timing_eligible"] is False
+    claim = json.loads(Path(packet["lock_path"]).read_text())
+    assert claim["timing"]["f2_publication"] is None
+
+
+@pytest.mark.parametrize("alter_evidence", [False, True])
+def test_real_publication_receipt_is_bound_and_revalidated_in_packet_and_claim(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path, alter_evidence: bool
+) -> None:
+    import subprocess
+
+    from tests.test_bl_residual_ra_timing import _published_binding
+
+    # Fit publication intentionally stubs subprocess.check_output process-wide.
+    # Keep F2's independent synthetic Git repository on the actual Git boundary.
+    def real_git(root: Path, *args: str) -> bytes:
+        return subprocess.run(
+            ["git", *args], cwd=root, check=True, capture_output=True, timeout=30
+        ).stdout
+
+    monkeypatch.setattr(funding.f2, "_git", real_git)
+    proof_root = tmp_path / "actual-f2"
+    proof_root.mkdir()
+    _, receipt, binding = _published_binding(proof_root, monkeypatch, int(ra_guard.CUTOFF - 1))
+    ra.prepare(
+        d256_pack=ra_world["d256"],
+        d1024_pack=ra_world["d1024"],
+        census_dir=ra_world["census"],
+        funding_out=tmp_path / "r-a/funding-look.json",
+        packet_out=tmp_path / "r-a/packet.json",
+        pin="e" * 40,
+        f2_receipt=receipt,
+    )
+    packet = _packet(tmp_path)
+    publication = packet["timing"]["f2_publication"]
+    evidence = Path(publication["evidence_path"])
+    assert publication["receipt_sha256"] == binding["sha256"]
+    assert publication["evidence_sha256"] == digest(evidence)
+    assert publication["ledger_sha256"] == digest(funding.f2.ROOT / funding.f2.RESULT_LEDGER)
+    if alter_evidence:
+        evidence.write_bytes(evidence.read_bytes() + b" ")
+        monkeypatch.setattr(
+            funding.f2, "verify_published_receipt", lambda _: pytest.fail("sealed result parsed")
+        )
+        monkeypatch.setattr(
+            funding, "evaluate_heldout", lambda *_a, **_k: pytest.fail("heldout opened")
+        )
+        with pytest.raises(ValueError, match="timing evidence"):
+            _invoke(monkeypatch, packet)
+        assert not Path(packet["lock_path"]).exists()
+    else:
+        monkeypatch.setattr(funding, "evaluate_heldout", lambda *_a, **_k: {})
+        monkeypatch.setattr(funding, "evaluate", lambda *_a, **_k: {})
+        _invoke(monkeypatch, packet)
+        claim = json.loads(Path(packet["lock_path"]).read_text())
+        assert claim["timing"]["f2_publication"] == publication
+        assert claim["command_packet_sha256"] == digest(
+            Path(packet["invocation"]["--command-packet"])
+        )
