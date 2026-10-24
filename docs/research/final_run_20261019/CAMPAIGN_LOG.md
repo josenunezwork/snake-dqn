@@ -260,6 +260,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-24 PT | I0S first-wave budget | **ADMIT_I0S_ON_INTEGRATION_PRIORITY** (Claude stand-in judge; JUDGMENT_I0S_FIRST_WAVE_BUDGET_20261024.md sha dfc00a4d…4c5b). 3.38 u first-wave shortfall = booking gap (I0 envelope raised 24→66 u without re-checking first-wave); round-36 ranks integration first. While I0S outstanding, O1's first-wave mirror hold booked junior at 44.62 u/288 min (not 48); no ceiling, reservation or science change; restore-o1 after settlement; old I0 24 u hold zeroed after attempt-1 admission. Name clash: 'O1' here = round-36 A100 retention acceptance lane (live, 0 spend), not the finished 10-20 'O1 harvest-branch census'. Needs implementer amendment + Claude-V stand-in ACCEPT before admit. |
 
+| 2026-10-24 PT | I0S attempt 1 DISPATCHED (A100) | Claude-V stand-in review_02 ACCEPT (3c71d1aa…6091; round-1 REJECT F1/F2 fixed in 68a473b5). Register: rev 2 scopes (b833e9b6…), rev 3 operational-baseline delta for R30/R32 jobs (0c1ff880…; 0.31985 u charges + 0.13178 u unexplained-debit alerts held at account level, no sprint scope), rev 4 admission, rev 5 old I0 24 u hold released after dispatch (9f330050…; per review N1). Job gpu-integration-i0s-main-968f02765f7c-a1, allocation success ~05:37 PT. Next: settle → restore-o1 → retry only if predicate eligible → reduce final once. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
