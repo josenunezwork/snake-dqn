@@ -7,8 +7,83 @@ from pathlib import Path
 
 import pytest
 
-from research.bl_ppo.exports import digest
+from research.bl_ppo.exports import digest, verify_export
 from research.r32_rehearsal import decisions, job, lifecycle, package
+
+
+def test_worker_accepts_supervisor_precreated_layout(tmp_path: Path) -> None:
+    root = tmp_path / "snake-cli" / "runtime-id"
+    inputs = root / "inputs"
+    package.prepare_inputs(inputs, tiny=True)
+    (root / "repo").mkdir()
+    output = root / "output"
+    output.mkdir(mode=0o700)
+    (root / "lease.json").write_text('{"generation": "test"}\n')
+    (root / "state.json").write_text('{"status": "starting"}\n')
+    (root / "job.log").touch()
+
+    receipt = job.run_portable(inputs, output, mode="canary")
+
+    assert receipt["done"] == receipt["expected"] == 3
+    assert receipt["completed"] == [0, 1, 2]
+    for name in ("allocation.json", "receipt.json", *(f"unit-{i:04d}.json" for i in range(3))):
+        verify_export(output / name)
+    before = {path.name: path.read_bytes() for path in output.iterdir()}
+    with pytest.raises(FileExistsError, match="not empty"):
+        job.run_portable(inputs, output, mode="canary")
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    "existing",
+    [
+        "allocation.json",
+        "allocation.json.sha256",
+        "allocation.json.complete",
+        "unit-0000.json",
+        "unit-0000.json.complete",
+        "receipt.json",
+        "unrelated-file",
+    ],
+)
+def test_attempt_refuses_preexisting_output_files(tmp_path: Path, existing: str) -> None:
+    inputs = tmp_path / "inputs"
+    package.prepare_inputs(inputs, tiny=True)
+    spec = json.loads((inputs / "canary-spec.json").read_text())
+    output = tmp_path / "output"
+    output.mkdir()
+    (output / existing).write_bytes(b"immutable evidence")
+
+    with pytest.raises(FileExistsError, match="not empty"):
+        lifecycle.start_attempt(output, spec)
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == {
+        existing: b"immutable evidence"
+    }
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink", "directory"])
+def test_attempt_refuses_output_path_collisions(tmp_path: Path, kind: str) -> None:
+    inputs = tmp_path / "inputs"
+    package.prepare_inputs(inputs, tiny=True)
+    spec = json.loads((inputs / "canary-spec.json").read_text())
+    output = tmp_path / "output"
+    if kind == "file":
+        output.write_bytes(b"immutable evidence")
+    elif kind == "symlink":
+        target = tmp_path / "target"
+        target.mkdir()
+        output.symlink_to(target, target_is_directory=True)
+    else:
+        (output / "lifecycle-fixtures").mkdir(parents=True)
+
+    with pytest.raises(FileExistsError):
+        lifecycle.start_attempt(output, spec)
+    if kind == "file":
+        assert output.read_bytes() == b"immutable evidence"
+    elif kind == "symlink":
+        assert not list(target.iterdir())
+    else:
+        assert list(output.iterdir()) == [output / "lifecycle-fixtures"]
 
 
 def test_worker_cannot_complete_a_failed_independent_oracle(
