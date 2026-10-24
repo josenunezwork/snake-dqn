@@ -162,10 +162,22 @@ def test_real_entrypoint_three_tiny_units_and_exact_skip(tmp_path: Path) -> None
         [served_selection({**row, "q": values.tolist()}) for row, values in zip(rows, q)]
     ) == len(rows)
     print("R30 tiny real entrypoint seconds:", timings, flush=True)
+    from research.bl_round30.pack import transport_inputs
+
+    archive = tmp_path / "metadata.tar"
+    transport = transport_inputs(source, archive)
+    shell_inputs = tmp_path / "bash-inputs"
+    shell_inputs.mkdir()
+    # Model the supervisor's verified HTTPS delivery before the real launcher.
+    shutil.copyfile(B8, shell_inputs / "b8.pth")
+    shutil.copyfile(archive, shell_inputs / "metadata.tar")
     environment = {
         **os.environ,
         "COLAB_CLI_ROOT": str(tmp_path / "bash"),
-        "COLAB_INPUT_DIR": str(source),
+        "COLAB_INPUT_DIR": str(shell_inputs),
+        "METADATA_ARCHIVE_SHA256": next(
+            row["sha256"] for row in transport if row["dest"] == "metadata.tar"
+        ),
         "R30_DEVICE": "cpu",
         "R30_MODE": "smoke",
     }
