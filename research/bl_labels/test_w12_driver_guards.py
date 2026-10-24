@@ -163,7 +163,7 @@ def test_w6_wall_time_cannot_complete_or_fail_the_w12_sanity_window(tmp_path, mo
     ],
 )
 def test_exclusive_factory_refuses_other_compute(monkeypatch, other):
-    monkeypatch.setattr(mac_driver, "_command_output", lambda _: f"123 1 {other}\n")
+    monkeypatch.setattr(mac_driver, "_command_output", lambda _: f"123 1 0 {other}\n")
     with pytest.raises(mac_driver.MacGuardError, match="concurrent compute pid 123"):
         mac_driver._exclusive_factory_guard(set())
 
@@ -173,11 +173,21 @@ def test_exclusive_factory_allows_owned_descendants_and_idle_os(monkeypatch):
         mac_driver,
         "_command_output",
         lambda _: (
-            f"123 {os.getpid()} python -m research.bl_labels.mac_driver\n"
-            "124 123 python research/worker.py\n1 0 /sbin/launchd\n"
+            f"123 {os.getpid()} 0 python -m research.bl_labels.mac_driver\n"
+            "124 123 0 python research/worker.py\n1 0 0 /sbin/launchd\n"
         ),
     )
     mac_driver._exclusive_factory_guard(set())
+
+
+@pytest.mark.parametrize(
+    "row",
+    ["123 1 python -m pytest tests", "123 1 unknown codex exec task", "123 1 21 codex exec task"],
+)
+def test_exclusive_factory_fails_closed_on_missing_or_invalid_nice(monkeypatch, row):
+    monkeypatch.setattr(mac_driver, "_command_output", lambda _: row + "\n")
+    with pytest.raises(mac_driver.MacGuardError, match="nice observation"):
+        mac_driver._exclusive_factory_guard(set())
 
 
 def test_guard_refusal_leaves_no_orphan_output_or_start(tmp_path, monkeypatch):
@@ -185,10 +195,10 @@ def test_guard_refusal_leaves_no_orphan_output_or_start(tmp_path, monkeypatch):
     monkeypatch.setattr(mac_gates, "require_admission", lambda _: None)
     monkeypatch.setenv("F0_COMMIT", "f" * 40)
 
-    def refuse(_identity, **_kwargs):
-        return {"action": "preempt", "reason": "companion monitor unavailable", "receipt": {}}
+    def refuse(_owned):
+        raise mac_driver.MacGuardError("exclusive factory window")
 
-    monkeypatch.setattr(mac_driver, "_companion_startup_guard", refuse)
+    monkeypatch.setattr(mac_driver, "_exclusive_factory_guard", refuse)
     state = tmp_path / "state"
     output = tmp_path / "output"
     control = {
@@ -204,7 +214,7 @@ def test_guard_refusal_leaves_no_orphan_output_or_start(tmp_path, monkeypatch):
     }
     ledger = tmp_path / "ledger.json"
     publish_json(ledger, empty_ledger(control["namespace"], control["allocation"]))
-    with pytest.raises(mac_driver.MacGuardError, match="companion startup"):
+    with pytest.raises(mac_driver.MacGuardError, match="exclusive"):
         mac_driver.run(
             control,
             ledger,

@@ -132,47 +132,6 @@ def _patch_inline_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mac_driver.mp, "get_context", lambda _name: _InlineContext())
     monkeypatch.setattr(mac_driver, "_guard_snapshot", lambda _output: {"fixture": True})
     monkeypatch.setattr(mac_driver, "_exclusive_factory_guard", lambda _owned: None)
-    companion_receipt = {"schema": "fixture-companion", "ok": True}
-    monkeypatch.setattr(mac_driver, "_concurrency_policy_sha256", lambda: "c" * 64)
-    monkeypatch.setattr(mac_driver, "_require_companion_activation", lambda: None)
-    monkeypatch.setattr(
-        mac_driver, "_bind_companion_factory_attempt", lambda *_args, **_kwargs: None
-    )
-    monkeypatch.setattr(
-        mac_driver,
-        "_factory_owned_identities",
-        lambda _active: [{"pid": 1, "start": "fixture"}],
-    )
-    monkeypatch.setattr(
-        mac_driver,
-        "_companion_startup_guard",
-        lambda _identity, **_kwargs: {"action": "continue", "receipt": companion_receipt},
-    )
-    monkeypatch.setattr(
-        mac_driver,
-        "_companion_runtime_guard",
-        lambda _identity, **_kwargs: {"action": "continue", "receipt": companion_receipt},
-    )
-    monkeypatch.setattr(
-        mac_driver,
-        "_companion_control_update",
-        lambda _identity, **_kwargs: {"action": "continue", "receipt": companion_receipt},
-    )
-    monkeypatch.setattr(
-        mac_driver,
-        "_finalize_companion_receipt",
-        lambda _identity, **_kwargs: {"path": "/fixture/receipt.json", "sha256": "d" * 64},
-    )
-    monkeypatch.setattr(
-        mac_driver,
-        "_prepare_companion_exclusive",
-        lambda _identity, **_kwargs: {"phase": "prepared"},
-    )
-    monkeypatch.setattr(
-        mac_driver,
-        "_companion_quiesce_exclusive",
-        lambda _identity, **_kwargs: {"phase": "quiescent"},
-    )
     monkeypatch.setattr(mac_driver, "_rss_many", lambda _pids: {pid: 0 for pid in _pids})
 
 
