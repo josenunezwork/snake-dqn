@@ -1,6 +1,10 @@
 {
   "allocations": 0,
   "artifacts": {
+    "CODEX_V_ADMISSION_REGRESSION.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/CODEX_V_ADMISSION_REGRESSION.json",
+      "sha256": "b45e077e8341e0844126722611b4aa5d79c0fff1d631e582b4a00f96b898b444"
+    },
     "CODEX_V_ADMISSION_REVIEW.json": {
       "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/CODEX_V_ADMISSION_REVIEW.json",
       "sha256": "19b07e15f560a0183f0ef91adc533122281a372383172f219680d571aef40a6b"
