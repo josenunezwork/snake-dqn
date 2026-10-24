@@ -215,3 +215,26 @@ cut reserve, change hardware, split work or trim cells. The wrapper refreshes
 other assignments under the allocation lock into its own immutable live
 manifest; it does not rewrite the accepted package manifest. The supervisor's
 ordinary account, hardware, rate, lease, deadline and stop gates still apply.
+
+
+## Completed offline verification
+
+Independent Codex-V accepted the exact implementation and draft in
+`CODEX_V_ADMISSION_REVIEW.json`, SHA256
+`19b07e15f560a0183f0ef91adc533122281a372383172f219680d571aef40a6b`.
+The initially pending broader suite completed: **252 passed, 0 failed in
+710.49 seconds**, recorded in the immutable sibling
+`CODEX_V_ADMISSION_REGRESSION.json`. Original review bytes remain unchanged.
+Other independent checks passed: 47 preserved amendment cases, 11 atomic
+publication/ledger cases, and 43 new accounting/finalization cases. A saved
+current-pin E1 fixture replay skipped all three verified units and recomputed
+zero units. The root also passed 13 receipt-dispatch/qualification checks,
+Black/isort/flake8 and diff checks; reran the actual dispatch dry-run; and
+verified all 204 original package files were unchanged. The dry-run reports
+577 source files, a 1,943,906-byte source/largest upload below 2,097,152 bytes,
+and expected `NOT_READY` pending OPERATOR_ADMISSION.json. Full root commands
+and results are in the sibling preparation-evidence folder's `VERIFICATION.json`.
+
+These checks establish offline preparation and fail-closed finalization.
+They do not establish original historical authority, exact billing fit or a
+current live account boundary. The final admission payload remains absent.

@@ -981,3 +981,14 @@ name. This entry does not claim execution or completion of D1024.
 
 The exact review artifacts, offline verification evidence and copy-paste operator
 commands are linked from `tools/V8_SPLIT_ADMISSION_HANDOFF_20261024.md`.
+
+Independent acceptance completed: `CODEX_V_ADMISSION_REVIEW.json` SHA256
+`19b07e15f560a0183f0ef91adc533122281a372383172f219680d571aef40a6b`,
+status `ACCEPT_OFFLINE_DRAFT`. Its immutable regression addendum records
+252 passed / 0 failed (710.49 s); independent focused checks also passed
+47 amendment + 11 publication/ledger + 43 accounting/finalization cases.
+The exact saved E1 replay skipped 3 verified units and recomputed 0.
+Root receipt-dispatch/qualification checks: 13 passed. Final real dispatch
+dry-run: PASS offline, expected NOT_READY pending final operator admission.
+All 204 original package files remain unchanged. No live account query,
+allocation or dispatch occurred; historical/live admission blockers remain.
