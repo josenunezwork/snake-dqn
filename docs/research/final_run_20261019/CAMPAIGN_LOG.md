@@ -706,3 +706,35 @@ refusals; it is not a full-suite qualification. No transport/test fixture was
 changed to hide that identity difference. Only the owned pytest child received
 one interrupt; no worker, daemon, tmux or provider action occurred. The independent
 HOLD receipt and all earlier artifacts remain immutable.
+
+
+## D256 final union publication — 2026-10-23, outcome-blind
+
+D256 is operationally COMPLETE across all eight original Mac attempts
+`mac-pack-02/d256-output-mac-01` through `-08`, retaining
+`d256-state-mac-01`. The existing `d256_resume.attempt_chain` verified every
+start/terminal/export, cumulative wall/worker charges and sealed rate-file hash;
+`d256_resume.publish_ledger` verified complete immutable triplets and wrapper
+lineage without invoking a scientific aggregator. Cumulative factory time is
+16,333.69747612602 seconds (4.537138187812783 h); no registered-rate stop fired.
+The final attempt completed the remaining 652 parents; all 864 allocated parent
+session records are present in the union's 1,566 immutable units. These are
+operational inventory counts, not label yields or fit/held-out outcomes.
+
+Portable local ledger:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/d256-union-final-01/verified-ledger.json`.
+Published identical ledger triplet:
+`research/bl_labels/ledger/D256_UNION_FINAL_20261023.json`.
+Payload SHA256:
+`30919209b62307f8d4392b4e5925a7c4b0c4a21a2abd55a5e647428453eeb809`.
+Original attempt payloads, receipts and sealed rates remain immutable. The
+portable ledger's `lives/` directory is local artifact storage, not Git content.
+
+This phase is published before any F4 partition preparation or analysis. The
+next preparer must verify local ledger bytes equal this path in `origin/main`
+and revalidate payload hashes before consuming labels. No fit, reserve look,
+funding analysis, gameplay analysis or speed-equivalence comparison was run.
+F4's recipe remains `49d12f486bffa455adcedbc318e88f1524f5c502894d0c1ace47daa84b9d3a5a`
+and registration `66388c795b3bec5bd014fa03d700994527b67763479143f7c3e5f35d1bb2fd65`.
+All actual fit/speed/D1024 jobs wait for the exclusive P1 window to close;
+preparation confers no dispatch, scientific-look or serving authority.
