@@ -159,3 +159,37 @@ def test_guard_snapshot_accepts_a_fresh_output_directory(tmp_path: Path, monkeyp
     )
     output.mkdir()
     assert mac_driver._guard_snapshot(output)["ac_power"] is True
+
+
+def test_companion_facade_uses_keyword_bound_attempt_identity(monkeypatch) -> None:
+    """Production bridges cannot hide positional/keyword API drift behind fixtures."""
+    from research.compute import factory_companion
+
+    seen: dict[str, object] = {}
+
+    def bind(**kwargs):
+        seen["bind"] = kwargs
+
+    def update(**kwargs):
+        seen["update"] = kwargs
+        return {"action": "continue", "receipt": {"fixture": True}}
+
+    monkeypatch.setattr(factory_companion, "bind_factory_attempt", bind)
+    monkeypatch.setattr(factory_companion, "factory_control_update", update)
+    mac_driver._bind_companion_factory_attempt("attempt-1", policy_sha="a" * 64)
+    result = mac_driver._companion_control_update(
+        "attempt-1",
+        policy_sha="a" * 64,
+        protected=True,
+        streams={"watch6": {"baseline_ready": False}},
+        owned=[{"pid": 1, "start": "fixture"}],
+    )
+    assert seen["bind"] == {"identity": "attempt-1", "policy_sha": "a" * 64}
+    assert seen["update"] == {
+        "identity": "attempt-1",
+        "policy_sha": "a" * 64,
+        "protected": True,
+        "streams": {"watch6": {"baseline_ready": False}},
+        "owned": [{"pid": 1, "start": "fixture"}],
+    }
+    assert result["action"] == "continue"

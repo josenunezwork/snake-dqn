@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
 
-from research.bl_labels import mac_driver, slowdown_resume, w12_runtime
+from research.bl_labels import slowdown_resume, w12_runtime
 from research.bl_labels.exports import publish_json
 
 
@@ -45,9 +46,30 @@ def _host_check(state: Path, epoch: float) -> None:
             "schema": slowdown_resume.HOST_CHECK_SCHEMA,
             "for_trip_epoch": epoch,
             "checked_epoch": epoch + 1,
-            "pmset_therm": "CPU_Speed_Limit = 100\n",
-            "top_cpu_consumers": [],
-            "no_sol_codex": True,
+            "concurrency_policy_sha256": slowdown_resume._concurrency_policy_sha256(),
+            "no_unmanaged_compute": True,
+            "no_active_test": True,
+            "companion_healthy": True,
+            "registry_complete": True,
+            "registry_monitor_identity": "fixture-registry",
+            "monitor_heartbeat_age_seconds": 0.0,
+            "monitor_identity": {"pid": 1, "pgid": 1, "start": "fixture"},
+            "host_health": {
+                "ac_power": True,
+                "lid_open": True,
+                "thermal": "fixture",
+                "thermal_parsed": {},
+                "free_disk_bytes": 50 * 1024**3,
+            },
+            "observation": {
+                "light_only_seconds": 60,
+                "sample_count": 12,
+                "started_monotonic": 1.0,
+                "ended_monotonic": 61.0,
+                "trailing_cpu_core_seconds": 0.0,
+                "trailing_light_cpu_core_seconds": 0.0,
+                "rss_bytes": 0,
+            },
         },
     )
 
@@ -109,44 +131,103 @@ def _host_check(state: Path, epoch: float) -> None:
         ("/usr/local/bin/sol unrelated", False),
     ],
 )
-def test_process_checks_match_job_argv_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: str, blocked: bool
-) -> None:
-    monkeypatch.setattr(mac_driver, "_command_output", lambda _: f"123 1 {argv}\n")
-    if blocked:
-        with pytest.raises(mac_driver.MacGuardError, match="concurrent compute pid 123"):
-            mac_driver._exclusive_factory_guard(set())
-    else:
-        mac_driver._exclusive_factory_guard(set())
+def test_process_checks_match_job_argv_only(argv: str, blocked: bool) -> None:
+    """Desktop helpers are excluded by argv, never by a process-name shortcut."""
+    assert slowdown_resume._sol_codex_job(argv) is blocked
+
+
+def test_record_host_check_requires_v2_companion_observation(tmp_path: Path, monkeypatch) -> None:
     _attempt(tmp_path, "one", workers=6, records=[_trip("watch6", 6, 100, 1000)])
     _attempt(tmp_path, "two", workers=6, records=[_trip("watch6", 6, 200, 2000)])
-    calls = []
+    monkeypatch.setattr(slowdown_resume, "_require_companion_activation", lambda: None)
+    monkeypatch.setattr(
+        slowdown_resume,
+        "_record_host_health",
+        lambda _: {
+            "ac_power": True,
+            "lid_open": True,
+            "thermal": "fixture",
+            "thermal_parsed": {},
+            "free_disk_bytes": 50 * 1024**3,
+        },
+    )
+    monkeypatch.setattr(slowdown_resume, "_concurrency_policy_sha256", lambda: "a" * 64)
 
-    def check_output(command: list[str], *, text: bool) -> str:
-        assert text is True
-        calls.append(command)
-        if command == ["/usr/bin/pmset", "-g", "therm"]:
-            return "CPU_Speed_Limit = 100\n"
-        if command == ["/bin/ps", "-axo", "pid=,pcpu=,comm="]:
-            return " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex\n"
-        assert command == ["/bin/ps", "-axo", "pid=,args="]
-        return f" 123 {argv}\n"
+    def snapshot(**_kwargs):
+        return {
+            "no_unmanaged_compute": True,
+            "no_active_test": True,
+            "companion_healthy": True,
+            "registry_complete": True,
+            "light_only_observation_seconds": 60,
+            "registry_monitor_identity": "fixture-registry",
+            "monitor_heartbeat_age_seconds": 0.0,
+            "monitor_identity": {"pid": 1, "pgid": 1, "start": "fixture"},
+            "observation": {
+                "sample_count": 12,
+                "started_monotonic": 1.0,
+                "ended_monotonic": 61.0,
+                "trailing_cpu_core_seconds": 0.0,
+                "trailing_light_cpu_core_seconds": 0.0,
+                "rss_bytes": 0,
+            },
+            "factory_attempt_identity": None,
+        }
 
-    monkeypatch.setattr(slowdown_resume.subprocess, "check_output", check_output)
-    if blocked:
-        with pytest.raises(ValueError, match="host check found Sol/Codex process; HOLD"):
-            slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
-        assert not list(tmp_path.glob("slowdown-host-check-*"))
-    else:
-        path = slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
-        receipt = slowdown_resume._read_triplet(path)
-        assert receipt["no_sol_codex"] is True
-        assert receipt["pmset_therm"] == "CPU_Speed_Limit = 100\n"
-        assert receipt["top_cpu_consumers"] == [
-            " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex"
-        ]
-        assert slowdown_resume.resume_policy(6, tmp_path) == (6, [])
-    assert calls[-1] == ["/bin/ps", "-axo", "pid=,args="]
+    monkeypatch.setattr("research.compute.factory_companion.host_check_snapshot", snapshot)
+    monkeypatch.setattr(
+        "research.compute.factory_companion.bound_factory_identity",
+        lambda **_kwargs: "fixture-attempt",
+    )
+    monkeypatch.setattr(
+        "research.compute.factory_companion.control_helper", lambda **_kwargs: nullcontext()
+    )
+    path = slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
+    receipt = slowdown_resume._read_triplet(path)
+    assert receipt["schema"] == slowdown_resume.HOST_CHECK_SCHEMA
+    assert receipt["concurrency_policy_sha256"] == "a" * 64
+    assert receipt["no_unmanaged_compute"] is True
+    assert "no_sol_codex" not in receipt
+    assert slowdown_resume.resume_policy(6, tmp_path) == (6, [])
+
+
+def test_old_host_check_schema_is_not_a_new_policy_resume_proof(tmp_path: Path) -> None:
+    _attempt(tmp_path, "one", workers=6, records=[_trip("watch6", 6, 100, 1000)])
+    _attempt(tmp_path, "two", workers=6, records=[_trip("watch6", 6, 200, 2000)])
+    publish_json(
+        tmp_path / "slowdown-host-check-old.json",
+        {
+            "schema": slowdown_resume.HOST_CHECK_SCHEMA_V1,
+            "for_trip_epoch": 2000,
+            "checked_epoch": 2001,
+            "no_sol_codex": True,
+            "pmset_therm": "historical",
+            "top_cpu_consumers": [],
+        },
+    )
+    with pytest.raises(ValueError, match="host check"):
+        slowdown_resume.resume_policy(6, tmp_path)
+
+
+def test_unqualified_host_check_refuses_before_any_receipt_or_probe(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[str] = []
+
+    def hold() -> None:
+        calls.append("activation")
+        raise ValueError("HOLD")
+
+    monkeypatch.setattr(slowdown_resume, "_require_companion_activation", hold)
+    monkeypatch.setattr(
+        slowdown_resume,
+        "_record_host_health",
+        lambda _: pytest.fail("host probe must not run while activation is HOLD"),
+    )
+    with pytest.raises(ValueError, match="HOLD"):
+        slowdown_resume.record_host_check(tmp_path, checked_epoch=1)
+    assert calls == ["activation"]
+    assert not list(tmp_path.glob("slowdown-host-check-*.json"))
 
 
 def test_w12_pair_uses_common_verified_24_hour_clean_return_rule(tmp_path: Path) -> None:

@@ -9,10 +9,11 @@ diagnostics.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
-import re
-import subprocess
+import shlex
+import sys
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -23,7 +24,39 @@ from .exports import _verify, publish_json
 W6 = 6
 W12 = 12
 SIX_HOURS = 6 * 60 * 60
-HOST_CHECK_SCHEMA = "bl-labels-f0-slowdown-host-check/v1"
+HOST_CHECK_SCHEMA_V1 = "bl-labels-f0-slowdown-host-check/v1"
+HOST_CHECK_SCHEMA = "bl-labels-f0-slowdown-host-check/v2"
+CONCURRENCY_POLICY = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/"
+    "JUDGMENT_FACTORY_CONCURRENCY_20261023.md"
+)
+
+
+def _concurrency_policy_sha256() -> str:
+    """Return the exact ruling identity used by the Mac companion supervisor."""
+    try:
+        value = hashlib.sha256(CONCURRENCY_POLICY.read_bytes()).hexdigest()
+    except OSError as error:
+        raise ValueError("factory concurrency policy is unavailable; HOLD") from error
+    from research.compute.factory_companion_policy import POLICY_SHA256
+
+    if value != POLICY_SHA256:
+        raise ValueError("factory concurrency policy bytes differ from the reviewed ruling; HOLD")
+    return value
+
+
+def _record_host_health(state_dir: Path) -> dict[str, Any]:
+    """Reuse the unchanged AC/lid/thermal/disk admission check for a resume."""
+    from .mac_driver import _guard_snapshot
+
+    return _guard_snapshot(state_dir)
+
+
+def _require_companion_activation() -> None:
+    """Do not publish a new-policy host receipt before native qualification."""
+    from research.compute.factory_companion_qualification import require_activation
+
+    require_activation()
 
 
 def _finite_positive(value: object, what: str) -> float:
@@ -183,9 +216,47 @@ def _host_check_after(state_dir: Path, trip_epoch: float) -> bool:
             value.get("schema") == HOST_CHECK_SCHEMA
             and value.get("for_trip_epoch") == trip_epoch
             and _finite_positive(value.get("checked_epoch"), "host check epoch") >= trip_epoch
-            and value.get("no_sol_codex") is True
-            and isinstance(value.get("pmset_therm"), str)
-            and isinstance(value.get("top_cpu_consumers"), list)
+            and value.get("no_unmanaged_compute") is True
+            and value.get("no_active_test") is True
+            and value.get("companion_healthy") is True
+            and value.get("registry_complete") is True
+            and isinstance(value.get("concurrency_policy_sha256"), str)
+            and value["concurrency_policy_sha256"] == _concurrency_policy_sha256()
+            and isinstance(value.get("registry_monitor_identity"), str)
+            and isinstance(value.get("monitor_identity"), dict)
+            and type(value["monitor_identity"].get("pid")) is int
+            and type(value["monitor_identity"].get("pgid")) is int
+            and isinstance(value["monitor_identity"].get("start"), str)
+            and isinstance(value.get("monitor_heartbeat_age_seconds"), (int, float))
+            and 0 <= value["monitor_heartbeat_age_seconds"] <= 10
+            and isinstance(value.get("host_health"), dict)
+            and value["host_health"].get("ac_power") is True
+            and value["host_health"].get("lid_open") is True
+            and isinstance(value["host_health"].get("thermal"), str)
+            and isinstance(value["host_health"].get("thermal_parsed"), dict)
+            and isinstance(value["host_health"].get("free_disk_bytes"), int)
+            and value["host_health"]["free_disk_bytes"] >= 50 * 1024**3
+            and isinstance(value.get("observation"), dict)
+            and value["observation"].get("light_only_seconds", 0) >= 60
+            and type(value["observation"].get("sample_count")) is int
+            and value["observation"]["sample_count"] >= 12
+            and all(
+                isinstance(value["observation"].get(key), (int, float))
+                and not isinstance(value["observation"].get(key), bool)
+                and math.isfinite(value["observation"][key])
+                for key in (
+                    "started_monotonic",
+                    "ended_monotonic",
+                    "trailing_cpu_core_seconds",
+                    "trailing_light_cpu_core_seconds",
+                )
+            )
+            and value["observation"]["ended_monotonic"] - value["observation"]["started_monotonic"]
+            >= 60
+            and value["observation"]["trailing_light_cpu_core_seconds"] <= 15
+            and value["observation"]["trailing_cpu_core_seconds"] <= 75
+            and isinstance(value["observation"].get("rss_bytes"), int)
+            and 0 <= value["observation"]["rss_bytes"] <= 8 * 1024**3
         ):
             return True
     return False
@@ -228,18 +299,33 @@ def _sol_codex_job(argv: str) -> bool:
         str(Path.home() / ".codex/computer-use") + "/",
         str(Path.home() / "Library/Application Support/Codex") + "/",
     )
-    if argv.lstrip().startswith(desktop_roots):
+    try:
+        words = shlex.split(argv)
+    except ValueError:
         return False
-    if "codex-handoff.sh" in argv or "CODEX_MODEL=gpt-6.1-sol" in argv:
+    if not words:
+        return False
+    executables = [word for word in words if word.startswith("/")]
+    if any(executable.startswith(desktop_roots) for executable in executables):
+        return False
+    executable = Path(words[0]).name
+    if executable == "env":
+        for word in words[1:]:
+            if "=" not in word:
+                executable = Path(word).name
+                break
+    if (
+        executable == "codex-handoff.sh"
+        or any(Path(word).name == "codex-handoff.sh" for word in words)
+        or "CODEX_MODEL=gpt-6.1-sol" in words
+    ):
         return True
-    return any(
-        not match.group("executable").startswith("/Applications/ChatGPT.app/")
-        for match in re.finditer(r"(?:^|\s)(?P<executable>(?:\S*/)?codex)\s+exec(?:\s|$)", argv)
-    )
+    return executable == "codex" and len(words) > 1 and words[1] == "exec"
 
 
 def record_host_check(state_dir: Path, *, checked_epoch: float | None = None) -> Path:
     """Capture the required operator W6 check as a completion-last receipt."""
+    _require_companion_activation()
     latest = escalation(state_dir)["w6_epoch"]
     if latest is None:
         raise ValueError("no qualifying W6 slowdown pair requires a host check; HOLD")
@@ -250,18 +336,30 @@ def record_host_check(state_dir: Path, *, checked_epoch: float | None = None) ->
     )
     if epoch < float(latest):
         raise ValueError("host check predates qualifying W6 slowdown pair; HOLD")
-    therm = subprocess.check_output(["/usr/bin/pmset", "-g", "therm"], text=True)
-    rows = subprocess.check_output(["/bin/ps", "-axo", "pid=,pcpu=,comm="], text=True).splitlines()
-    consumers = sorted(
-        rows, key=lambda row: float(row.split()[1]) if len(row.split()) >= 2 else 0.0, reverse=True
-    )[:20]
-    process_rows = subprocess.check_output(["/bin/ps", "-axo", "pid=,args="], text=True)
-    if any(
-        _sol_codex_job(row.split(maxsplit=1)[1])
-        for row in process_rows.splitlines()
-        if len(row.split(maxsplit=1)) == 2
+    policy_sha = _concurrency_policy_sha256()
+    from research.compute.factory_companion import (
+        bound_factory_identity,
+        control_helper,
+        host_check_snapshot,
+    )
+
+    # This Python entry point is measured as a bounded light helper rather
+    # than silently exempted from the argv-based unmanaged-work inventory.
+    identity = bound_factory_identity(policy_sha=policy_sha)
+    with control_helper(policy_sha=policy_sha, lease_identity=identity, argv=sys.argv):
+        health = _record_host_health(state_dir)
+        companion = host_check_snapshot(active_factory_identity=None, policy_sha=policy_sha)
+    if not (
+        companion.get("no_unmanaged_compute") is True
+        and companion.get("no_active_test") is True
+        and companion.get("companion_healthy") is True
+        and companion.get("registry_complete") is True
+        and isinstance(companion.get("light_only_observation_seconds"), (int, float))
+        and companion["light_only_observation_seconds"] >= 60
+        and isinstance(companion.get("observation"), dict)
+        and isinstance(companion.get("monitor_identity"), dict)
     ):
-        raise ValueError("host check found Sol/Codex process; HOLD")
+        raise ValueError("companion host observation is not ready; HOLD")
     path = state_dir / f"slowdown-host-check-{int(epoch)}.json"
     publish_json(
         path,
@@ -269,9 +367,20 @@ def record_host_check(state_dir: Path, *, checked_epoch: float | None = None) ->
             "schema": HOST_CHECK_SCHEMA,
             "for_trip_epoch": latest,
             "checked_epoch": epoch,
-            "pmset_therm": therm,
-            "top_cpu_consumers": consumers,
-            "no_sol_codex": True,
+            "concurrency_policy_sha256": policy_sha,
+            "no_unmanaged_compute": True,
+            "no_active_test": True,
+            "companion_healthy": True,
+            "registry_complete": True,
+            "registry_monitor_identity": companion["registry_monitor_identity"],
+            "monitor_heartbeat_age_seconds": companion["monitor_heartbeat_age_seconds"],
+            "monitor_identity": companion["monitor_identity"],
+            "host_health": health,
+            "observation": {
+                **companion["observation"],
+                "light_only_seconds": companion["light_only_observation_seconds"],
+                "factory_attempt_identity": companion["factory_attempt_identity"],
+            },
         },
     )
     return path

@@ -418,3 +418,33 @@ with materialized plans. Packages:
 Use that immutable implementation SHA for every NEW-run command, including after
 later metadata publication commits; the handoff now spells it out literally.
 Actual T-EQ and calibration receipts do not yet exist from this task.
+F0 bounded-concurrency candidate (2026-10-23, Sol): **PREPARED_NOT_QUALIFIED /
+ACTIVATION HOLD**, under ruling `ALLOW_BOUNDED_CONCURRENCY`, SHA256
+`af117cd98d51f428cd83d6e33138fcd13def0b4d7c7cf63a8b2e2b83db99105f`.
+Prepared an operations-only supervisor, argv/desktop-helper recognition,
+absolute-priority wrappers, global test-slot/duty/protected-period policy,
+v2 resume host receipts, 1.15 companion warning, and production integration.
+The mandatory qualification fence refuses monitor/client/tool allocation,
+production admission and host-check publication; no environment/manual PASS
+override exists. Independent Codex-V light review permits publication only as
+a disabled candidate, not activation or a completed implementation of the ruling.
+Native arbitrary-descendant ownership/stable topology, cross-group native CPU
+transfer credits/wrapper overhead, independent watchdog, complete cooperative
+recovery and downstream exclusive-launch proof remain blocking requirements.
+
+Root verification: 200 serial tests passed in 36.30 seconds, plus Black/isort/
+flake8 on all 24 changed Python files and bounded shell checks. Native tests
+validated counter units, waited-child accounting, PID/start/argv identity,
+owned cleanup and an excluded frozen-collector payload/SHA/preempt/resume
+fixture with an admitted nice-15 control command. These are partial evidence,
+not global concurrency qualification. Frozen science remains clean at
+`61900af28932e47e22e332840fc4406559adb062`; scientific source, cumulative
+accounting, caps, allocation, ledger and serving are unchanged. No factory,
+production monitor/client, calibration, timing/strict/serving or long job ran.
+Evidence: `research/bl_labels/CODEX_V_FACTORY_CONCURRENCY_20261023.json`, SHA256
+`3872b77235af797155a0480c26e51992409808cbb1f47a8c603213e1d69a9b4a`;
+operational closure SHA256
+`4b2270d7b70f2a66c6dca137e28def079b0f139b46c1d585fbc383817e54aae0`.
+Operator commands are future protocol only in
+`research/bl_labels/FACTORY_CONCURRENCY_HANDOFF_20261023.md`; do not dispatch
+`bl-f0-d256-guard-w12-03` under this candidate while the fence is HOLD.

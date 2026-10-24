@@ -1,0 +1,106 @@
+{
+  "acceptance": {
+    "1": {
+      "evidence": "argv exclusions and host v2 predicates tested; no full native multi-panel production proof",
+      "verdict": "PARTIAL"
+    },
+    "2": {
+      "evidence": "global advisory slot, persistent duty/reservations, protected periods and warning recovery policy tested; activation remains fenced",
+      "verdict": "PARTIAL"
+    },
+    "3": {
+      "evidence": "short waited children, units and PID identity pass; escaped descendants/stable tree/cross-group transfers incomplete",
+      "verdict": "HOLD"
+    },
+    "4": {
+      "evidence": "synthetic PID reuse, cleanup, resource and receipt transitions tested; independent watchdog/complete resource ownership incomplete",
+      "verdict": "HOLD"
+    },
+    "5": {
+      "evidence": "original slowdown/persistence/eligibility/width suites pass; 1.15 equality and >1.30 independent stop boundaries pass; full companion lifecycle not qualified",
+      "verdict": "PARTIAL"
+    },
+    "6": {
+      "evidence": "prepare/quiesce hooks and terminal-bound sidecar prepared; downstream exclusive launch enforcement incomplete; accounting/skip regression suites pass",
+      "verdict": "HOLD"
+    },
+    "7": {
+      "evidence": "excluded frozen native-companion payload identity and resume pass; frozen science checkout clean at 61900af2; global concurrency unqualified",
+      "verdict": "PARTIAL"
+    }
+  },
+  "activation": "HOLD",
+  "authority": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_FACTORY_CONCURRENCY_20261023.md",
+    "sha256": "af117cd98d51f428cd83d6e33138fcd13def0b4d7c7cf63a8b2e2b83db99105f"
+  },
+  "frozen_science_commit": "61900af28932e47e22e332840fc4406559adb062",
+  "independent_review": {
+    "blockers": [
+      "No qualified native descendant backend proves ownership of escaped or double-forked descendants between samples.",
+      "Native snapshots lack stable topology and reap-transfer bracketing.",
+      "Nested registered process groups need controlled native transfer credits and complete wrapper-overhead ownership.",
+      "The sampling/locking loop is not the required independent once-per-second enforcement watchdog.",
+      "The complete ten-second cooperative registration/quiescence recovery protocol is absent.",
+      "Exclusive launchers do not independently require successful factory/companion quiescence evidence after cleanup failure."
+    ],
+    "method": "read-only source inspection and git diff --check",
+    "name": "Codex-V light",
+    "publication": "safe as disabled operational candidate",
+    "role": "reviewer",
+    "tests_executed_by_reviewer": false,
+    "verdict": "PREPARED_NOT_QUALIFIED / acceptance HOLD"
+  },
+  "integration_base_commit": "31d98ee9ecdb8b90227ca7bc507c40566c37e5c7",
+  "native_evidence": {
+    "counter_units": "mach_timebase_info conversion; own and waited-child CPU compared with process_time/wait4",
+    "identity": "frozen collect_unit at 61900af2 with excluded one-transition fake simulator; actual admitted nice15 cat/FIFO companion overlaps life-boundary preempt and verified skip; exact label payload bytes/SHA match baseline",
+    "ownership": "native PID start ticks, argv vectors, gated short helper and proven owned cleanup",
+    "scope_limit": "native fixture process tables scope only excluded owned groups; global arbitrary descendant escape and full client/test lifecycle NOT qualified"
+  },
+  "operational_source_closure_sha256": "4b2270d7b70f2a66c6dca137e28def079b0f139b46c1d585fbc383817e54aae0",
+  "recorded_by": "root; independent read-only review conclusions attributed above",
+  "review_base_commit": "5dfd4a74cb7d304cc7b48a4f4fa0947c76f3c867",
+  "safety": {
+    "accounting_changed": false,
+    "factory_or_long_job_run": false,
+    "manual_or_environment_activation_override": false,
+    "production_monitor_or_client_started": false,
+    "released_checkpoint_or_serving_changed": false,
+    "scientific_source_changed": false,
+    "tmux_or_live_lease_changed": false
+  },
+  "schema": "bl-labels-f0-factory-concurrency-codex-v/v1",
+  "source_sha256": {
+    "research/bl_labels/mac_driver.py": "146d46d4e9d91ff17d02a6c5ad933516ce5bc23245f65c91f71952fd8a7dc563",
+    "research/bl_labels/slowdown_guard.py": "05e60dfd556f523db3bdb11836c84c1e4075062cfeddd9465ca041503af9233a",
+    "research/bl_labels/slowdown_resume.py": "27baf17fa3c85656008e8ffdd3151d554179f57e06ee6c1da06f4bb4dff37e7d",
+    "research/compute/factory_companion.py": "e797cc58c21915182d37af5f6c5574546918f7f5e5e150f28b4987079d40c2f5",
+    "research/compute/factory_companion_argv.py": "8a589ed136a6a25bd876d8aeac33ed6e68aef675ec85919655eaabb4e2417849",
+    "research/compute/factory_companion_commands.py": "d5ee5d8818498f11a5a0aac17f2f4ea456ce1ee2fdbb489ce8448d90ad1b7540",
+    "research/compute/factory_companion_native.py": "50e193e1a377ac2f6c1dc5abf8cd6a3991b7ba477b4a95a101cf2c55a9d64f4a",
+    "research/compute/factory_companion_policy.py": "8d3c966945cc02bf66ed71ddd60265da509c5d5979ab62155aa02db41311e867",
+    "research/compute/factory_companion_pytest.py": "a557310adf7f3ff59927d0f7cdad7a7848e004729c07fb564e556751313e9504",
+    "research/compute/factory_companion_qualification.py": "fb4cf49fae30adc07ecff44de2145a847071a7da5bba1f8798e84f9e6545cd79",
+    "tools/ops/factory_companion.sh": "53687d1f483082e19b51062443edbb58f7030ae73338f9da69b151916490836d",
+    "tools/ops/factory_companion_monitor.py": "569233fe218fe457f42f4ae9a5ee5c272b2873fc6ff0c6d0ced5281c40610b96",
+    "tools/ops/factory_companion_monitor.sh": "2d2ddfe369d859e81dea9cf625cb71cb2cf33d646f582871f4e36595fd66d9b8"
+  },
+  "verdict": "PREPARED_NOT_QUALIFIED",
+  "verification": {
+    "command": "env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 PYTHONDONTWRITEBYTECODE=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -o addopts= -p no:xdist research/compute/test_factory_companion.py research/compute/test_factory_companion_policy.py research/compute/test_factory_companion_argv.py research/compute/test_factory_companion_commands.py research/compute/test_factory_companion_pytest.py research/compute/test_factory_companion_native.py research/compute/test_factory_companion_lifecycle.py research/compute/test_factory_companion_qualification.py research/bl_labels/test_companion_identity.py research/bl_labels/test_slowdown_guard.py research/bl_labels/test_slowdown_state.py research/bl_labels/test_slowdown_resume.py research/bl_labels/test_mac_driver.py research/bl_labels/test_mac_integration.py research/bl_labels/test_w12_driver_guards.py research/bl_labels/test_d256_resume.py research/bl_labels/test_w12_runtime.py tests/test_ops_dispatch_mac.py",
+    "passed": 200,
+    "plugins_autoload": false,
+    "seconds": 36.3,
+    "shell_commands": [
+      "bash tools/ops/tests/test_factory_companion.sh",
+      "bash tools/ops/tests/test_dispatch.sh",
+      "bash -n tools/ops/factory_companion.sh tools/ops/factory_companion_monitor.sh research/bl_labels/RUN_D256_RESUME.sh",
+      "git diff --check"
+    ],
+    "single_process": true,
+    "style": "Black100/isort/flake8 PASS for all 24 changed Python files",
+    "xdist": false
+  },
+  "verification_executed_by": "root implementation agent in a separate bounded maintenance check; no active factory/lease observed"
+}

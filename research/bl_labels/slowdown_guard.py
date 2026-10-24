@@ -15,6 +15,9 @@ SCHEMA = "bl-labels-f0-slowdown-guard/v1"
 FIRST_HOUR_SECONDS = 3600.0
 MIN_BASELINE_LIVES = 60
 SLOWDOWN_MULTIPLIER = 1.30
+# This is an operational companion-admission warning.  It deliberately does
+# not change the factory's registered 1.30x stop or any eligible-life math.
+COMPANION_WARNING_MULTIPLIER = 1.15
 W12_W6_SANITY_MULTIPLIER = 1.911
 
 
@@ -61,6 +64,10 @@ class SlowdownGuard:
         )
         self._inflight: dict[str, dict[str, Any]] = {}
         self._window: list[float] = []
+        # Monotonic life *starts* are operations-only companion facts. A
+        # warning recovery needs a K-life window whose earliest life began
+        # after revocation, not merely one that completed after it.
+        self._window_started_at: list[float] = []
         self._load(persisted)
         self._width_wall.setdefault(self.width, 0.0)
         self._candidates.setdefault(self.width, [])
@@ -232,9 +239,11 @@ class SlowdownGuard:
         if width != self.width:
             return self._freeze_if_ready(self.width)
         self._window.append(duration)
+        self._window_started_at.append(float(state["started_at"]))
         window_k = 4 * width
         if len(self._window) > window_k:
             del self._window[: len(self._window) - window_k]
+            del self._window_started_at[: len(self._window_started_at) - window_k]
         candidates = self._candidates.setdefault(width, [])
         if width not in self._baselines and (
             self._width_wall.get(width, 0.0) <= FIRST_HOUR_SECONDS
@@ -263,6 +272,56 @@ class SlowdownGuard:
             }
         return None
 
+    def companion_warning(self) -> dict[str, Any] | None:
+        """Report the independent 1.15x test-lane warning without stopping F0.
+
+        Keeping this distinct from :meth:`boundary` preserves the registered
+        1.30x factory stop interface and all of its exact eligibility rules.
+        """
+        baseline = self._baselines.get(self.width)
+        window_k = 4 * self.width
+        if baseline is None or len(self._window) < window_k:
+            return None
+        window_median = float(median(self._window))
+        baseline_median = float(baseline["median"])
+        # Compare the ratio so exact threshold equality (e.g. 115/100)
+        # cannot become a warning through multiplication rounding.
+        exceeds = (
+            window_median / baseline_median > COMPANION_WARNING_MULTIPLIER
+            if baseline_median > 0
+            else window_median > 0
+        )
+        if not exceeds:
+            return None
+        return {
+            "event": "companion_slowdown_warning",
+            "statistic": "window_median",
+            "window_k": window_k,
+            "window_median": window_median,
+            "baseline_median": baseline_median,
+            "width": self.width,
+            "warning_multiplier": COMPANION_WARNING_MULTIPLIER,
+        }
+
+    def companion_control(self) -> dict[str, Any]:
+        """Return protected-period facts for optional companion test admission."""
+        baseline = self._baselines.get(self.width)
+        window_k = 4 * self.width
+        full = baseline is not None and len(self._window) >= window_k
+        median_ratio = None
+        if full:
+            baseline_median = float(baseline["median"])
+            median_ratio = (
+                float(median(self._window)) / baseline_median if baseline_median else math.inf
+            )
+        return {
+            "baseline_ready": baseline is not None,
+            "fresh_window_ready": full,
+            "window_full": full,
+            "window_started_at": self._window_started_at[0] if full else None,
+            "median_ratio": median_ratio,
+        }
+
     def switch(self, width: int, now: float) -> None:
         """Change width at a boundary, excluding every life that straddles it."""
         self._advance(now)
@@ -275,6 +334,7 @@ class SlowdownGuard:
         self._width_wall.setdefault(new_width, 0.0)
         self._candidates.setdefault(new_width, [])
         self._window.clear()
+        self._window_started_at.clear()
 
     def update_reference(self, width: int, median_value: float) -> None:
         """Publish the latest same-pin frozen baseline to this stream guard."""

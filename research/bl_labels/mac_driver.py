@@ -39,6 +39,10 @@ from .exports import (
 from .slowdown_resume import _sol_codex_job
 
 DEFAULT_TIMING_ARMED = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/mac-timing-armed")
+CONCURRENCY_POLICY = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/"
+    "JUDGMENT_FACTORY_CONCURRENCY_20261023.md"
+)
 THREAD_ENV = {
     "OMP_NUM_THREADS": "1",
     "MKL_NUM_THREADS": "1",
@@ -62,6 +66,124 @@ _OWNED_ACTIVE: dict[int, mp.Process] = {}
 
 class MacGuardError(RuntimeError):
     """Mac host conditions are unsafe for a new F0 life admission."""
+
+
+def _require_companion_activation() -> None:
+    """Keep concurrent production HOLD until native ownership is qualified."""
+    from research.compute.factory_companion_qualification import require_activation
+
+    require_activation()
+
+
+def _concurrency_policy_sha256() -> str:
+    """Bind operational admission to the reviewed concurrency ruling bytes."""
+    try:
+        value = hashlib.sha256(CONCURRENCY_POLICY.read_bytes()).hexdigest()
+    except OSError as error:
+        raise MacGuardError("factory concurrency policy is unavailable") from error
+    from research.compute.factory_companion_policy import POLICY_SHA256
+
+    if value != POLICY_SHA256:
+        raise MacGuardError("factory concurrency policy bytes differ from the reviewed ruling")
+    return value
+
+
+def _companion_startup_guard(factory_identity: str, *, policy_sha: str) -> dict[str, Any]:
+    """Ask the companion supervisor whether a production attempt may start."""
+    from research.compute.factory_companion import factory_startup_guard
+
+    return factory_startup_guard(factory_identity, policy_sha=policy_sha)
+
+
+def _companion_runtime_guard(
+    factory_identity: str, *, policy_sha: str, early_warning: bool = False
+) -> dict[str, Any]:
+    """Run the independent companion monitor check without inspecting labels."""
+    from research.compute.factory_companion import factory_runtime_guard
+
+    return factory_runtime_guard(
+        factory_identity, policy_sha=policy_sha, early_warning=early_warning
+    )
+
+
+def _companion_control_update(
+    factory_identity: str,
+    *,
+    policy_sha: str,
+    protected: bool,
+    streams: dict[str, Any],
+    owned: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Publish factory-only protected-window facts before optional test admission."""
+    from research.compute.factory_companion import factory_control_update
+
+    return factory_control_update(
+        identity=factory_identity,
+        policy_sha=policy_sha,
+        protected=protected,
+        streams=streams,
+        owned=owned,
+    )
+
+
+def _bind_companion_factory_attempt(factory_identity: str, *, policy_sha: str) -> None:
+    """Atomically bind the next immutable attempt identity before admission."""
+    from research.compute.factory_companion import bind_factory_attempt
+
+    bind_factory_attempt(identity=factory_identity, policy_sha=policy_sha)
+
+
+def _prepare_companion_exclusive(factory_identity: str, *, policy_sha: str) -> dict[str, Any]:
+    """Close companion admission when timing/strict/serving takes precedence."""
+    from research.compute.factory_companion import FactoryCompanionSupervisor
+
+    return FactoryCompanionSupervisor().prepare_exclusive(
+        attempt_identity=factory_identity, policy_sha=policy_sha
+    )
+
+
+def _companion_quiesce_exclusive(factory_identity: str, *, policy_sha: str) -> dict[str, Any]:
+    """Prove companion groups are gone only after factory worker cleanup."""
+    from research.compute.factory_companion import FactoryCompanionSupervisor
+
+    return FactoryCompanionSupervisor().quiesce_for_exclusive(
+        attempt_identity=factory_identity, policy_sha=policy_sha
+    )
+
+
+def _factory_owned_identities(active: dict[int, mp.Process]) -> list[dict[str, Any]]:
+    """Bind supervisor exemptions to exact coordinator/worker kernel identities."""
+    from research.compute.factory_companion import DarwinProcessTable
+
+    rows = DarwinProcessTable.rows()
+    owned = []
+    for pid in {os.getpid(), *active}:
+        row = rows.get(pid)
+        if row is None:
+            raise MacGuardError(f"cannot bind factory-owned process identity {pid}")
+        owned.append({"pid": pid, "start": row["start"]})
+    return owned
+
+
+def _finalize_companion_receipt(factory_identity: str, *, policy_sha: str) -> dict[str, Any]:
+    """Seal operations-only companion evidence after owned factory workers exit."""
+    from research.compute.factory_companion import FactoryCompanionSupervisor
+
+    return FactoryCompanionSupervisor().finalize_receipt(
+        attempt_identity=factory_identity, policy_sha=policy_sha
+    )
+
+
+def _require_companion_continue(result: dict[str, Any], phase: str) -> dict[str, Any]:
+    """Fail closed on a malformed supervisor response or requested preemption."""
+    if not isinstance(result, dict) or result.get("action") not in {"continue", "preempt"}:
+        raise MacGuardError(f"companion {phase} guard response is malformed")
+    if result["action"] == "preempt":
+        raise MacGuardError(f"companion {phase} guard: {result.get('reason') or 'unavailable'}")
+    receipt = result.get("receipt")
+    if not isinstance(receipt, dict):
+        raise MacGuardError(f"companion {phase} guard receipt is malformed")
+    return receipt
 
 
 @dataclass(frozen=True)
@@ -580,8 +702,48 @@ def run(
     if _timing_armed(timing_armed):
         raise MacGuardError("refusing F0 admission while Mac timing is armed")
     namespace, allocation, jobs = _prepare_jobs(control, ledger)
-    if control.get("mac_gate", {}).get("stage") in {"d256", "d1024", "d4096"}:
-        _exclusive_factory_guard(set())
+    production_stage = control.get("mac_gate", {}).get("stage") in {"d256", "d1024", "d4096"}
+    companion_policy_sha: str | None = None
+    companion_factory_identity: str | None = None
+    companion_startup_receipt: dict[str, Any] | None = None
+    companion_runtime_receipt: dict[str, Any] | None = None
+    attempt_id: str | None = (
+        uuid.uuid4().hex if production_stage and state_dir is not None else None
+    )
+    if production_stage:
+        _require_companion_activation()
+        # This identity is copied into the immutable attempt receipt after the
+        # remaining resume-chain checks pass.  It is operational only and does
+        # not enter the frozen collector's source closure.
+        companion_policy_sha = _concurrency_policy_sha256()
+        assert attempt_id is not None
+        companion_factory_identity = attempt_id
+        _bind_companion_factory_attempt(companion_factory_identity, policy_sha=companion_policy_sha)
+        # Bind the coordinator before its first unmanaged-work inventory. This
+        # protected placeholder cannot open the optional test lane.
+        companion_runtime_receipt = _require_companion_continue(
+            _companion_control_update(
+                companion_factory_identity,
+                policy_sha=companion_policy_sha,
+                protected=True,
+                streams={
+                    "startup": {
+                        "baseline_ready": False,
+                        "fresh_window_ready": False,
+                        "window_full": False,
+                        "window_started_at": None,
+                        "median_ratio": None,
+                    }
+                },
+                owned=_factory_owned_identities({}),
+            ),
+            "startup-control",
+        )
+        companion_startup_receipt = _require_companion_continue(
+            _companion_startup_guard(companion_factory_identity, policy_sha=companion_policy_sha),
+            "startup",
+        )
+        companion_runtime_receipt = companion_startup_receipt
     sanity_baseline: dict[str, Any] | None = None
     if workers == MAX_WORKERS and control.get("mac_gate", {}).get("stage") in {
         "d256",
@@ -591,7 +753,6 @@ def run(
         from .w12_runtime import resolve_w6_parent_rates
 
         sanity_baseline = resolve_w6_parent_rates(control)
-    attempt_id: str | None = None
     prior_elapsed = 0.0
     prior_worker_seconds = 0.0
     prior_attempts: list[str] = []
@@ -745,7 +906,8 @@ def run(
         if deadline_seconds is not None and prior_elapsed >= deadline_seconds:
             raise MacGuardError("prior Mac factory attempts exhausted the frozen wall cap; HOLD")
         slowdown_guards = build_guards(control, workers, started, prior_terminals, state_dir)
-        attempt_id = uuid.uuid4().hex
+        if attempt_id is None:
+            attempt_id = uuid.uuid4().hex
         output.mkdir(parents=True, exist_ok=True)
         publish_json(
             state_dir / f"attempt-{attempt_id}.start.json",
@@ -774,6 +936,9 @@ def run(
                     json.dumps(control, sort_keys=True, separators=(",", ":")).encode()
                 ).hexdigest(),
                 "platform_attestation": platform_attestation(),
+                "concurrency_policy_sha256": companion_policy_sha,
+                "companion_factory_identity": companion_factory_identity,
+                "companion_startup_receipt": companion_startup_receipt,
             },
         )
     output.mkdir(parents=True, exist_ok=True)
@@ -794,6 +959,8 @@ def run(
     pending = list(jobs)
     completed: list[str] = []
     preempted = False
+    timing_arm_seen = False
+    companion_exclusive_prepared: dict[str, Any] | None = None
     telemetry: list[dict[str, Any]] = []
     invalid: str | None = None
     stop_reason: str | None = None
@@ -887,21 +1054,107 @@ def run(
         preempted = True
         stop_event.set()
 
+    def note_companion_warning(stream: str, event: dict[str, Any]) -> None:
+        """Shed only the optional test lane for the 1.15x early warning."""
+        nonlocal companion_runtime_receipt, stop_reason, preempted
+        telemetry.append({**event, "stream": stream})
+        if not production_stage:
+            return
+        assert companion_factory_identity is not None
+        assert companion_policy_sha is not None
+        try:
+            companion_runtime_receipt = _require_companion_continue(
+                _companion_runtime_guard(
+                    companion_factory_identity,
+                    policy_sha=companion_policy_sha,
+                    early_warning=True,
+                ),
+                "early-warning",
+            )
+        except MacGuardError as error:
+            stop_reason = f"operational guard: {error}"
+            preempted = True
+            stop_event.set()
+
+    def refresh_companion_control() -> None:
+        """Drain tests before protected factory periods or a fresh stream admission."""
+        nonlocal companion_runtime_receipt
+        if not production_stage:
+            return
+        assert companion_factory_identity is not None
+        assert companion_policy_sha is not None
+        streams = {stream: guard.companion_control() for stream, guard in slowdown_guards.items()}
+        protected = any(
+            facts["baseline_ready"] is not True or facts["fresh_window_ready"] is not True
+            for facts in streams.values()
+        )
+        if workers == MAX_WORKERS and (
+            prior_sanity_elapsed + max(0.0, time.monotonic() - started) < W12_SANITY_SECONDS
+        ):
+            protected = True
+        owned = _factory_owned_identities(active)
+        companion_runtime_receipt = _require_companion_continue(
+            _companion_control_update(
+                companion_factory_identity,
+                policy_sha=companion_policy_sha,
+                protected=protected,
+                streams=streams,
+                owned=owned,
+            ),
+            "control",
+        )
+
+    def prepare_companion_for_preemption(*, exclusive: bool) -> None:
+        """Optional work yields first; timing/strict/serving also close clients."""
+        nonlocal companion_runtime_receipt, companion_exclusive_prepared
+        if not production_stage:
+            return
+        assert companion_factory_identity is not None
+        assert companion_policy_sha is not None
+        if exclusive:
+            if companion_exclusive_prepared is None:
+                companion_exclusive_prepared = _prepare_companion_exclusive(
+                    companion_factory_identity, policy_sha=companion_policy_sha
+                )
+            return
+        companion_runtime_receipt = _require_companion_continue(
+            _companion_runtime_guard(
+                companion_factory_identity, policy_sha=companion_policy_sha, early_warning=True
+            ),
+            "hard-stop",
+        )
+
     try:
         while pending or active or not queue.empty():
+            try:
+                refresh_companion_control()
+            except MacGuardError as error:
+                stop_reason = f"operational guard: {error}"
+                preempted = True
+                stop_event.set()
             if not preempted and not stop_event.is_set():
                 now = time.monotonic()
                 for stream, guard in slowdown_guards.items():
                     event = guard.tick(now)
                     persist_baselines(slowdown_guards, state_dir, control, now)
+                    warning = guard.companion_warning()
+                    if warning is not None:
+                        note_companion_warning(stream, warning)
                     if event is not None:
                         note_slowdown(stream, event, now)
                         break
             if time.monotonic() >= next_exclusive_sample:
                 next_exclusive_sample = time.monotonic() + 5
                 try:
-                    if control.get("mac_gate", {}).get("stage") in {"d256", "d1024", "d4096"}:
-                        _exclusive_factory_guard(set(active))
+                    if production_stage:
+                        assert companion_factory_identity is not None
+                        assert companion_policy_sha is not None
+                        companion_runtime_receipt = _require_companion_continue(
+                            _companion_runtime_guard(
+                                companion_factory_identity, policy_sha=companion_policy_sha
+                            ),
+                            "runtime",
+                        )
                 except (MacGuardError, subprocess.SubprocessError, OSError) as error:
                     stop_reason = f"operational guard: {error}"
                     preempted = True
@@ -924,12 +1177,24 @@ def run(
             if deadline is not None and time.monotonic() >= deadline:
                 preempted = True
             if _timing_armed(timing_armed):
+                timing_arm_seen = True
                 preempted = True
             if preempted and preempt_started is None:
                 preempt_started = time.monotonic()
                 stop_event.set()
+                try:
+                    prepare_companion_for_preemption(exclusive=timing_arm_seen)
+                except Exception as error:
+                    stop_reason = f"operational guard: companion preemption failed: {error}"
             admission_guard: dict[str, Any] | None = None
             while pending and len(active) < admission_workers and not preempted:
+                try:
+                    refresh_companion_control()
+                except MacGuardError as error:
+                    stop_reason = f"operational guard: {error}"
+                    preempted = True
+                    stop_event.set()
+                    break
                 if _timing_armed(timing_armed) or (
                     deadline is not None and time.monotonic() >= deadline
                 ):
@@ -1030,6 +1295,9 @@ def run(
                         )
                         persist_baselines(slowdown_guards, state_dir, control, now)
                         width_elapsed = width_elapsed_before + now - started
+                        warning = guard.companion_warning()
+                        if warning is not None:
+                            note_companion_warning(stream, warning)
                         if event is not None:
                             note_slowdown(stream, event, now)
                         if width_elapsed >= 6 * 3600 and not any(
@@ -1154,6 +1422,16 @@ def run(
     finally:
         _stop_workers(active)
         active.clear()
+    companion_final_receipt: dict[str, Any] | None = None
+    if production_stage:
+        assert companion_factory_identity is not None
+        assert companion_policy_sha is not None
+        try:
+            companion_final_receipt = _finalize_companion_receipt(
+                companion_factory_identity, policy_sha=companion_policy_sha
+            )
+        except Exception as error:
+            invalid = invalid or f"companion receipt finalization failed: {error}"
     status = "INVALID" if invalid else ("PREEMPTED" if preempted else "COMPLETE")
     attempt_elapsed = time.monotonic() - started
     result = {
@@ -1220,6 +1498,13 @@ def run(
             else prior_worker_seconds
         ),
         "platform_attestation": platform_attestation(),
+        "concurrency_policy_sha256": companion_policy_sha,
+        "companion_factory_identity": companion_factory_identity,
+        "companion_startup_receipt": companion_startup_receipt,
+        "companion_runtime_receipt": companion_runtime_receipt,
+        "timing_arm_seen": timing_arm_seen,
+        "companion_exclusive_prepared": companion_exclusive_prepared,
+        "companion_final_receipt": companion_final_receipt,
         "telemetry_sealed_no_outcomes": telemetry,
     }
     if state_dir is not None:
@@ -1320,6 +1605,27 @@ def main() -> None:
                 started_monotonic=entry_started,
                 d256_frozen_root=args.d256_frozen_root,
             )
+            if result.get("timing_arm_seen"):
+                identity = result.get("companion_factory_identity")
+                policy_sha = result.get("concurrency_policy_sha256")
+                if not isinstance(identity, str) or not isinstance(policy_sha, str):
+                    raise MacGuardError("timing arm lacks a bound companion attempt identity")
+                quiescence = _companion_quiesce_exclusive(identity, policy_sha=policy_sha)
+                terminal = args.state_dir / f"attempt-{result['attempt_id']}.terminal.json"
+                if not terminal.is_file():
+                    raise MacGuardError(
+                        "timing arm terminal receipt is missing before companion quiescence"
+                    )
+                terminal_sha = hashlib.sha256(terminal.read_bytes()).hexdigest()
+                publish_json(
+                    args.state_dir / f"attempt-{result['attempt_id']}.exclusive-quiescence.json",
+                    {
+                        "schema": "bl-labels-f0-exclusive-quiescence/v1",
+                        "terminal_receipt": terminal.name,
+                        "terminal_sha256": terminal_sha,
+                        "companion": quiescence,
+                    },
+                )
             result["mac_lease"] = lease.receipt
             publish_json(args.output / "runtime-result.json", result)
         finally:

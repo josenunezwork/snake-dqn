@@ -185,10 +185,10 @@ def test_guard_refusal_leaves_no_orphan_output_or_start(tmp_path, monkeypatch):
     monkeypatch.setattr(mac_gates, "require_admission", lambda _: None)
     monkeypatch.setenv("F0_COMMIT", "f" * 40)
 
-    def refuse(_owned):
-        raise mac_driver.MacGuardError("exclusive factory window")
+    def refuse(_identity, **_kwargs):
+        return {"action": "preempt", "reason": "companion monitor unavailable", "receipt": {}}
 
-    monkeypatch.setattr(mac_driver, "_exclusive_factory_guard", refuse)
+    monkeypatch.setattr(mac_driver, "_companion_startup_guard", refuse)
     state = tmp_path / "state"
     output = tmp_path / "output"
     control = {
@@ -204,7 +204,7 @@ def test_guard_refusal_leaves_no_orphan_output_or_start(tmp_path, monkeypatch):
     }
     ledger = tmp_path / "ledger.json"
     publish_json(ledger, empty_ledger(control["namespace"], control["allocation"]))
-    with pytest.raises(mac_driver.MacGuardError, match="exclusive"):
+    with pytest.raises(mac_driver.MacGuardError, match="companion startup"):
         mac_driver.run(
             control,
             ledger,
