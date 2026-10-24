@@ -124,7 +124,7 @@ def dispatch_command(
     ]
 
 
-def prepare(artifact: Path, broker: Path) -> dict[str, Any]:
+def prepare(artifact: Path, broker: Path, host: Path = HOST) -> dict[str, Any]:
     """Create the same-pin L4 compile manifest and the operator wrappers."""
     _canary, pin = controls(artifact, broker)
     compile_root = artifact / "packet/native-compile"
@@ -154,12 +154,14 @@ def prepare(artifact: Path, broker: Path) -> dict[str, Any]:
             [
                 str(PY),
                 "-I",
-                str(Path(__file__).resolve()),
+                str(host / "tools/ops/r2_packet.py"),
                 lane,
                 "--artifact-dir",
                 str(artifact),
                 "--broker",
                 str(broker),
+                "--host",
+                str(host),
             ]
         )
         content = "#!/usr/bin/env bash\nset -euo pipefail\nexec " + command + ' "$@"\n'
@@ -216,17 +218,20 @@ def run(
             or artifact / "packet/native-compile/output/receipt.json"
         )
         job = dict(original)
+        # The host reader (as used by dispatch.py's gate) carries the corrected
+        # payload-only export inventory; the pinned runtime reader predates it.
         job["native_cuda_compile"] = {
             "receipt": frozen(
-                broker,
+                host,
                 "import json; from pathlib import Path; "
                 "from research.gpu_sim_spike import native_compile as n; "
-                "b=n.binding(Path(sys.argv[1]), sys.argv[2], Path(sys.path[0])); "
-                "n.require_for_a100_canary({**json.loads(sys.argv[3]), "
-                "'native_cuda_compile': {'receipt': b}}, Path(sys.path[0])); "
+                "b=n.binding(Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])); "
+                "n.require_for_a100_canary({**json.loads(sys.argv[4]), "
+                "'native_cuda_compile': {'receipt': b}}, Path(sys.argv[3])); "
                 "print(json.dumps(b))",
                 str(receipt),
                 pin,
+                str(broker),
                 json.dumps(original),
             )
         }
@@ -281,7 +286,7 @@ def main() -> None:
     if args.action == "prepare":
         if args.dry_run or args.receipt:
             parser.error("prepare accepts neither --dry-run nor --receipt")
-        result = prepare(args.artifact_dir.resolve(), args.broker.resolve())
+        result = prepare(args.artifact_dir.resolve(), args.broker.resolve(), args.host.resolve())
     else:
         result = run(
             args.action,
