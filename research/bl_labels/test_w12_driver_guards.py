@@ -228,7 +228,9 @@ def test_exclusive_factory_fails_closed_on_missing_or_invalid_nice(monkeypatch, 
 
 
 def test_guard_refusal_leaves_no_orphan_output_or_start(tmp_path, monkeypatch):
+    admission_window = mac_driver._factory_admission_window
     _patch_inline_runtime(monkeypatch)
+    monkeypatch.setattr(mac_driver, "_factory_admission_window", admission_window)
     monkeypatch.setattr(mac_gates, "require_admission", lambda _: None)
     monkeypatch.setenv("F0_COMMIT", "f" * 40)
 
