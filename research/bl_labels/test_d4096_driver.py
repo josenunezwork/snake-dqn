@@ -34,6 +34,7 @@ def test_direct_driver_w12_requires_exact_admitted_calibration(tmp_path, monkeyp
 
 def test_d4096_attempt_seals_pending_and_exposure_before_three_hours(tmp_path, monkeypatch):
     _patch_inline_runtime(monkeypatch)
+    monkeypatch.setattr(mac_driver.os, "getpriority", lambda *_: 15)
     _install_fake_factory(monkeypatch)
     monkeypatch.setattr(mac_gates, "require_admission", lambda *_: None)
     monkeypatch.setattr(mac_driver, "_require_d4096_operation", lambda *_: None)
@@ -73,6 +74,22 @@ def test_d4096_attempt_seals_pending_and_exposure_before_three_hours(tmp_path, m
     assert result["w12_sanity_checked"] is False
     assert result["w12_sanity_stream_elapsed_seconds"]["watch6"] > 0
     assert result["worker_seconds_denominator"] == 12 * result["elapsed_seconds"]
+
+
+@pytest.mark.parametrize("inherited", [15, 19, 20])
+def test_niced_d4096_worker_never_attempts_to_raise_priority(monkeypatch, inherited):
+    current = [inherited]
+    requested = []
+    monkeypatch.setattr(mac_driver.os, "getpriority", lambda *_: current[0])
+
+    def setpriority(_which, _pid, value):
+        assert value >= current[0], "unprivileged priority escalation would fail"
+        requested.append(value)
+        current[0] = value
+
+    monkeypatch.setattr(mac_driver.os, "setpriority", setpriority)
+    mac_driver._set_worker_priority(15)
+    assert requested == [inherited]
 
 
 def test_direct_driver_checks_discard_before_attempt_or_output_processing(tmp_path, monkeypatch):

@@ -288,6 +288,14 @@ def _verify_resume_metadata(
             raise ValueError("foreign F0 resume leaf")
 
 
+def _set_worker_priority(minimum: int) -> None:
+    """Preserve legacy W6 priority; never raise a niced D4096 worker's priority."""
+    target = max(minimum, os.getpriority(os.PRIO_PROCESS, 0)) if minimum == 15 else minimum
+    os.setpriority(os.PRIO_PROCESS, 0, target)
+    if os.getpriority(os.PRIO_PROCESS, 0) != target:
+        raise OSError(f"worker priority is not nice {target}")
+
+
 def _worker(
     job: _Job,
     namespace: str,
@@ -300,15 +308,14 @@ def _worker(
     collector_source_commit: str | None,
     stop_event: Any,
     queue: Any,
+    minimum_nice: int = 10,
 ) -> None:
     """Collect one parent, preserving every completed life before yielding."""
     os.environ.update(THREAD_ENV)
     try:
-        os.setpriority(os.PRIO_PROCESS, 0, 10)
-        if os.getpriority(os.PRIO_PROCESS, 0) != 10:
-            raise OSError("worker priority is not nice 10")
+        _set_worker_priority(minimum_nice)
     except OSError as error:
-        queue.put({"kind": "error", "error": f"setting nice 10 failed: {error}"})
+        queue.put({"kind": "error", "error": f"setting nice {minimum_nice} failed: {error}"})
         return
     if collector_root is None:
         from .factory import FactoryInvalid, FactoryPreempted, collect_unit
@@ -1129,6 +1136,7 @@ def run(
                         collector_source_commit,
                         stop_event,
                         queue,
+                        *((15,) if is_d4096 else ()),
                     ),
                 )
                 slowdown_guards[job.allocation["stream"]].admit(
@@ -1362,7 +1370,7 @@ def run(
         "w12_sanity_checked": sanity_checked,
         "w12_sanity_w6_baseline": sanity_baseline,
         "worker_hour_rates": "descriptive only; split by width; never compared with the F0 floor",
-        "nice": 10,
+        "nice": 15 if is_d4096 else 10,
         "thread_env": THREAD_ENV,
         "completed_parents": completed,
         "pending_parents": [job.allocation["allocation_id"] for job in pending],
