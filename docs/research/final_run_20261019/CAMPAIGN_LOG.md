@@ -203,6 +203,9 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 2026-10-23 19:35 PT | A1-PROF canary INCOMPLETE: the strict profiler-correlation check aborted at 17,843/17,910 kernels attributed (99.6%); the CUDA flood self-check passed on A100-SXM4-40GB. Sol a100prof2 fix running. Interim concurrency ruling ALLOW_NICE15_INTERIM (JUDGMENT_FACTORY_CONCURRENCY_INTERIM_20261023.md); Sol pin 4b46454d (191 tests, Codex-V light PASS); a focused Codex-V (condition 3) is running before the D256 dispatch. run_round.sh and all agent launches now go through ~/.claude/bin/agent_nice.sh. |
 | 2026-10-23 19:40 PT | Round 29 (open-ended, 4 Astras) raised five directions: (1) converting search to policy, using existing labels first; (2) hindsight leaking privileged future randomness; (3) rehearsing the full decision path plus separating 'beats B8' from 'data caused it' and adaptive Mac episode allocation; (4) ops throughput and never-idle; (5) remote verification capacity. Specialist rounds 30 (search→policy), 31 (privileged-randomness leakage), 32 (rehearsal plus sequential/adaptive gates), 33 (ops throughput) launched with 3 experts each. |
 | 2026-10-23 19:50 PT | A1-PROF canary-02 (fix 2edf7ed6: tolerant profiler correlation plus an explicit unattributed share) DISPATCHED to A100. Focused Codex-V of interim pin 4b46454d = FAIL: recovery receipts lack interim ruling/pin identity, and the test lane has no serialization or 120 s deadline. Sol interimfix running; D256 still HOLD. Rounds 30–33 complete (3 memos each); four Astra judges are ruling. |
+| 2026-10-23 19:58 PT | P1 Claude line checks (canary): manifest canary-manifest.json sha fa398a8e…9c726e; Codex-V _13 FINAL sha f6b9b17b…3245a, READY_FOR_CLAUDE_CHECK, 0 unresolved, ruling fe058459…ebfc, commit 03e0af75. Both the _12 FAIL receipt and the Astra A3.3 RATIFY are on record. Live gates: broker = P1 pin = qualified research/colab_cli tree d0d92bdb; Colab 0 assignments / 0 sessions; rate 1.54 u/h; balance 1,099.64 u. Admission and dispatch of p1-repair10-04-canary follow (2.00 u + 0.40 reserve, 30 min, zero retries). Rounds 30–33 Astra judges adopted cheap checks; Sol builders r30–r33 running. A1-PROF canary-02 aborted again: 68 unattributed kernels = 77% of kernel time (the finding itself); Sol a100prof3 now reports per kernel name. |
+| 2026-10-23 20:02 PT | P1 canary ADMITTED (canary-admission/manifest.json via p1_repair_admission canary, Codex-V _13 + Claude line check) and DISPATCHED: p1-repair10-04-canary (2.00 u + 0.40, 30 min, zero retries). Repair (6.16 u) follows only after every canary bar passes, debit is reconciled and the live gates are run fresh. |
+| 2026-10-23 20:06 PT | OWNER: "have astras look at this" (the A1-PROF finding: 68 unattributed kernels = 1.14 s of 1.48 s, 77% of kernel time, ~17 ms per launch). Round-34 Astra panel launched (CUDA perf, PyTorch extension internals, GPU graph algorithms, red team), asking what the kernels are, why correlation fails, the exact next-run profiling setup, and the first fix with a kill rule. |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -454,3 +457,48 @@ operational closure SHA256
 Operator commands are future protocol only in
 `research/bl_labels/FACTORY_CONCURRENCY_HANDOFF_20261023.md`; do not dispatch
 `bl-f0-d256-guard-w12-03` under this candidate while the fence is HOLD.
+
+R33 bounded ops repair (2026-10-23, Sol preparation): adopted judgment
+`big-lever/round-33/JUDGMENT.md`, SHA256
+`7db57b262f1bfa4ae70597772d79e2904f8d6a885ea530c54178d869911cf07a`.
+Ownership recorded before implementation in `research/r33_ops/OWNERSHIP.md`:
+Sol-O owns watcher/journal/proof dependencies; Sol-P owns package/CI adapters;
+independent Codex-V owns adversarial verification. Existing A1-PROF owner retains
+row 4 exclusively (`research/r33_ops/A1_OWNER_HANDOFF.md`). Claude owns three
+separate next actions: D256-successor evidence/admission, A100 Q1 repair/canary,
+and P1 current-package canary admission. Unknown evidence remains a typed blocker;
+no unrelated scientific dependency or READY is inferred. Engineering timebox is
+3 Sol builder-days + 1 Codex-V day, scope frozen after three calendar days.
+CPU pilot forecast 2 h / 0.16 u; base 2.4 h / 0.192 u; effective shared-series
+4.8 h / 0.384 u (included reserve 0.8 h / 0.064 u), no dispatch by Sol.
+R28 row-4 1.2 h / 12 u is only a sub-envelope of its remaining Q1 authority,
+not new funding. No live balance/capacity, native qualification, operational
+handoff sample, serving or science conclusion is asserted by this preparation.
+
+F0 nice interim mechanical repair / independent Codex-V 02 (2026-10-23):
+**PASS** conditions 1–3 of `ALLOW_NICE15_INTERIM`, ruling SHA256
+`ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd`, at exact
+published operational pin `387b1dde8241c9c24ea352eb92de802b66fc798f`.
+Truthful recovery v2 receipts bind ruling/policy/clean operational HEAD and refuse
+legacy-unbound or foreign authority. Individual relevant descendants must meet
+nice >=15. The real agent launcher now requires light/reviewed-test routes;
+CPU/all six thread limits/Torch intra/inter one are enforced, the canonical
+shared test slot serializes checks, and a <=120 s elapsed deadline covers
+admission, execution, owned cleanup and Mac-lease release. Tests conservatively
+refuse every active factory lease, protecting baseline/rearming/W12 sanity.
+Independent exact-pin product-route review: **99 passed, 0 failed, 0 skipped**,
+pytest 8.19 s, full elapsed 9.699733915971592 s, nice 15; actual numerical nice-15
+and nice-19 probes ran. Initial reviewer-only fixture/harness errors are retained
+and documented; corrected review changed no product bytes. Create-only verdict
+`big-lever/exp/CODEX_V_FACTORY_INTERIM_02_20261023.json`, SHA256
+`d9a0313377cbc617777062df8ce172fdfef2f3d104662e9c093deff0be89cf75`, plus immutable
+sidecar/completion and identical repo triplet. Exact future `-03` dispatch command
+and full ruling/pin/results are in
+`research/bl_labels/NICE_INTERIM_02_OPERATOR_20261023.md`; this record permits the
+normal operator-requested ledger continuation at the reviewed pin, launches
+nothing, and does not qualify the full supervisor. Science stays clean/detached
+at `61900af28932e47e22e332840fc4406559adb062`; accounting and eight applicable
+slowdown/determinism evidence source hashes are unchanged. No actual production
+host check, factory, calibration, outcome look or long job was run. Owner notice:
+the narrow interim is now independently qualified; all real timing/health/
+slowdown/accounting stops remain binding.

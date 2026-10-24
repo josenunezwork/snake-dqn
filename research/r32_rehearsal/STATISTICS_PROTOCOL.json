@@ -1,0 +1,95 @@
+{
+  "schema": "r32-r5-prospective-statistics/v1",
+  "status": "FROZEN_BEFORE_COMPUTATION",
+  "purpose": "Prospective engineering comparison only. It is not a registration, a conversion of F4, a strict-gate sizing decision, or release evidence.",
+  "comparator": "bare B8 s3",
+  "evidence_inventory": {
+    "policy": "Use only checked-in, published external development evidence that jointly identifies candidate-minus-B8 paired-delta variance by mix, full-pair cost by mix, and complete-session/whole-path cost components. Do not inspect protected outcome-artifact roots.",
+    "eligible_checked_in_inputs": [
+      {
+        "path": "docs/research/q0_mass_mac_timing_20261018.json",
+        "scope": "Three B8-only timing episodes (4.13-14.59 seconds); illustrative timing sensitivity only.",
+        "usable_for_adoption": false,
+        "reason": "No candidate-minus-B8 paired deltas, mix variance/covariance, complete-pair costs, Watch session costs, or full-path cost accounting."
+      },
+      {
+        "path": "docs/research/final_run_20261019/CAMPAIGN_LOG.md",
+        "scope": "Documents approximately seven-hour operator wait and operational history.",
+        "usable_for_adoption": false,
+        "reason": "It is not a joint paired-delta/cost calibration and cannot establish expected future complete-path savings."
+      }
+    ],
+    "adequate_for_adoption": false,
+    "frozen_consequence": "Sensitivity only. The selection result is RETAIN_FIXED_DESIGN until a separately reviewed eligible evidence manifest changes this field before any scientific data."
+  },
+  "candidate_designs": {
+    "equal_fixed": {"per_mix_pairs": 128, "mixes": ["scripted", "frozen", "mixed"]},
+    "cost_aware_fixed": {
+      "estimator": "G = sum(mean_delta_m)/3; Var(G) = sum(sigma_m^2/n_m)/9 for disjoint mix banks.",
+      "starting_rule": "n_m proportional to sigma_m / sqrt(cost_m)",
+      "minimum_pairs_per_mix": 16,
+      "selection": "Externally frozen only; never use interim winners, arrival order, or simulation outcomes."
+    },
+    "futility_64_128": {
+      "interim_complete_pairs_per_mix": 64,
+      "final_complete_pairs_per_mix": 128,
+      "efficacy_looks": [128],
+      "interim_action": "FUTILE only when conditional probability is below 0.05; efficacy, alpha recycling, and a 32-world look are prohibited."
+    }
+  },
+  "mass_requirements": {
+    "mean_gain_at_least": 40.0,
+    "one_sided_lb90_strictly_above": 0.0,
+    "weights": {"scripted": 0.3333333333333333, "frozen": 0.3333333333333333, "mixed": 0.3333333333333333}
+  },
+  "futility_model": {
+    "remaining_effect": 40.0,
+    "remaining_mix_profile": {"scripted": 40.0, "frozen": 40.0, "mixed": 40.0},
+    "distribution": "Exact analytic Gaussian conditional-predictive model with independent disjoint mix banks, centered at the frozen remaining profile and using frozen marginal paired-delta SDs. Heavy-tailed Student-t outcomes are a separately reported outer operating-characteristic sensitivity, not an input to the conditional-probability calculation.",
+    "nuisance": "Frozen externally supplied mix SDs; no interim re-estimation. Disjoint mix banks are assumed for the mass statistic.",
+    "conditional_probability": "Condition on the observed 64-world mix means. The final equal-weight mean is Gaussian with mean one half observed equal-weight mean plus one half frozen remaining-profile mean and variance sum(sigma_m^2/64)/36. It passes iff it exceeds max(+40, t_0.90,nu times sqrt(sum(sigma_m^2/128)/9)), where nu is the frozen Welch-Satterthwaite df for the final 128/mix design.",
+    "complete_blocks_only": true,
+    "missing_units_action": "INCOMPLETE"
+  },
+  "synthetic_sensitivity_model": {
+    "status": "NOT_EMPIRICALLY_CALIBRATED",
+    "paired_delta_sd_by_mix": {"scripted": 120.0, "frozen": 120.0, "mixed": 120.0},
+    "heavy_tail_df": 5,
+    "description": "A standardized sensitivity scale used only to exercise frozen paired design comparisons while empirical calibration is absent. Homogeneous, heterogeneous, guard-boundary, partial-null, heavy-tail, and correlated scenarios have separately frozen generators. Fixed and futility paths share each simulated complete 128-world paired block, so the futility path is pathwise a subset of its fixed reference. It cannot support allocation or adoption."
+  },
+  "scenarios": {
+    "effects": [-20, 0, 20, 40, 60, 80],
+    "families": ["homogeneous", "heterogeneous_mix", "heavy_tail", "guard_boundary", "partial_null", "correlated_mass_survival_watch"],
+    "critical": ["effect_minus20_homogeneous", "effect_0_homogeneous", "effect_20_homogeneous", "effect_40_homogeneous", "effect_60_homogeneous", "effect_80_homogeneous"],
+    "sensitivity_only": ["effect_40_heterogeneous_mix", "effect_40_heavy_tail", "effect_40_guard_boundary", "effect_0_partial_null", "effect_40_correlated_mass_survival_watch"]
+  },
+  "complete_contract": {
+    "mass": "mean >= +40 and one-sided LB90 > 0",
+    "survival_guard_a": "survival band v2 against B8 s3: pooled margin -0.05 and single-mix margin -0.075",
+    "survival_guard_b": "scripted no-death gain >= +0.03",
+    "product": "final complete paired Watch sessions with paired 95% product intervals; no interim product look",
+    "operational": "strict gate and serving qualification remain separately registered Mac work"
+  },
+  "decision": {
+    "minimum_expected_whole_path_saving_at_effect_40": 0.2,
+    "maximum_complete_contract_power_loss_at_effect_40_and_60": 0.02,
+    "monte_carlo": "Report binomial 95% uncertainty for every probability and refuse adoption if either threshold remains unresolved.",
+    "conservative_default": "RETAIN_FIXED_DESIGN",
+    "adoption_guard": "No sensitivity result may return ADOPT_FOR_FUTURE_REGISTRATION. Only adequate empirical calibration, all frozen scenario results, valid error/guard argument, and a later Astra-judged registration can support an adoption recommendation."
+  },
+  "compute": {
+    "platform": "Colab CPU only; do not use A100 or L4",
+    "forecast_cpu_hours": 2.0,
+    "forecast_units": 0.16,
+    "base_with_reserve_cpu_hours": 2.4,
+    "base_with_reserve_units": 0.192,
+    "owner_2x_effective_ceiling_cpu_hours": 4.8,
+    "owner_2x_effective_ceiling_units": 0.384,
+    "critical_trials_per_scenario": 100000,
+    "sensitivity_trials_per_scenario": 10000,
+    "tiny_preflight_trials": 200,
+    "resume_namespace": "r32-r5-statistics/20261023/v1",
+    "unit_kind": "scenario",
+    "allocation_indices": "Frozen lexicographic scenario IDs; deterministic one scenario per allocation index."
+  }
+}

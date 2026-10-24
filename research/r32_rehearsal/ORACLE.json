@@ -1,0 +1,122 @@
+{
+  "schema": "r32-codex-v-oracle/v1",
+  "synthetic": true,
+  "source": "tests/test_bl_residual_f4_analyzer.py",
+  "r9_labels": {
+    "r9_invalid": "INVALID",
+    "r9_incomplete": "INCOMPLETE",
+    "r9_insufficient": "INSUFFICIENT",
+    "r9_kill_fit": "KILL_FIT",
+    "r9_stop_funding": "STOP_FUNDING",
+    "r9_stop_admission": "STOP_ADMISSION",
+    "r9_kill_dose_closed": "KILL_DOSE_CLOSED",
+    "r9_kill_dose_futile": "KILL_DOSE_FUTILE",
+    "r9_go_top_dose_dev": "GO_TOP_DOSE_DEV",
+    "r9_inconclusive": "INCONCLUSIVE"
+  },
+  "lifecycle_positive": {
+    "clean": {"status": "COMPLETE", "verified": [0, 1, 2, 3], "missing": [], "not_run_by_rule": []},
+    "interrupted_resumed": {"status": "COMPLETE", "verified": [0, 1, 2, 3], "missing": [], "not_run_by_rule": []},
+    "scientific_stop": {"status": "COMPLETE", "verified": [0, 1], "missing": [], "not_run_by_rule": [2, 3]}
+  },
+  "lifecycle_faults": {
+    "wrong_sha_sidecar_basename": "REFUSE",
+    "truncated_payload": "REFUSE",
+    "marker_before_payload": "REFUSE",
+    "stale_source_proof": "REFUSE",
+    "wrong_checkpoint_bytes": "REFUSE",
+    "foreign_namespace_allocation": "REFUSE",
+    "duplicate_immutable_unit": "REFUSE",
+    "ancestor_split_leakage": "REFUSE",
+    "missing_required_snapshot": "REFUSE",
+    "unknown_runtime_stop": "STOP_UNVERIFIED",
+    "timeout_after_successful_export": "STOP_UNVERIFIED",
+    "changed_output_filename_second_look": "REFUSE"
+  },
+  "delivery_truth_table": [
+    {
+      "artifact": "worker_receipt",
+      "path": "pack/main-output/exports/receipt.json",
+      "authority": "portable_worker",
+      "release_claim": "forbidden",
+      "required_fields": [
+        "namespace",
+        "allocation",
+        "spec_sha256",
+        "ledger_sha256",
+        "completed",
+        "skipped",
+        "done",
+        "expected"
+      ],
+      "stop_verified": "absent_or_false",
+      "admission": "diagnostic_only",
+      "false_ready_if": "worker_receipt_is_used_as_qualified_supervisor_receipt"
+    },
+    {
+      "artifact": "supervisor_receipt",
+      "path": "pack/main-output/receipt.json",
+      "authority": "qualified_supervisor",
+      "release_claim": "required_for_reduction",
+      "required_fields": [
+        "saved_manifest_sha256",
+        "source_sha256",
+        "spec_sha256",
+        "exported_units",
+        "positive_accounting",
+        "stop_verified"
+      ],
+      "stop_verified": "true",
+      "admission": "qualified_receipt_only",
+      "false_ready_if": "receipt_is_not_bound_to_saved_manifest_source_spec_and_export_hashes"
+    },
+    {
+      "artifact": "exported_units",
+      "path": "pack/main-output/exports/unit-NNNN.json",
+      "authority": "portable_worker_plus_supervisor_binding",
+      "release_claim": "forbidden",
+      "required_fields": ["immutable_sha256", "path", "size", "complete_marker_last"],
+      "stop_verified": "not_applicable",
+      "admission": "ledger_hash_and_path_inventory",
+      "false_ready_if": "payload_marker_or_path_hash_is_unverified_or_reused"
+    },
+    {
+      "artifact": "terminal_claim",
+      "path": "pack/main-output/terminal-look.json",
+      "authority": "registered_mac_aggregator",
+      "release_claim": "required_for_final_reduction",
+      "required_fields": ["ledger_sha256", "verified_units", "disposition", "scientific_result"],
+      "stop_verified": "must_match_supervisor_receipt",
+      "admission": "create_only_terminal_look",
+      "false_ready_if": "terminal_claim_replaces_missing_or_stop_unverified_evidence"
+    },
+    {
+      "artifact": "unknown_or_stop_unverified",
+      "path": "any_receipt_or_stop_record",
+      "authority": "none_until_verified",
+      "release_claim": "forbidden",
+      "required_fields": ["stop_reason", "verified_units"],
+      "stop_verified": "false",
+      "admission": "refuse_replacement_and_reduction",
+      "false_ready_if": "unknown_stop_is_treated_as_clean_completion"
+    }
+  ],
+  "cases": {
+    "r9_invalid": {"expected_label": "INVALID", "mutation": "identity.sealed=false"},
+    "r9_incomplete": {"expected_label": "INCOMPLETE", "mutation": "remove gameplay"},
+    "r9_insufficient": {"expected_label": "INSUFFICIENT", "mutation": "D4096.selected_support=false"},
+    "r9_kill_fit": {"expected_label": "KILL_FIT", "mutation": "D256.unconditional_fault=true"},
+    "r9_stop_funding": {"expected_label": "STOP_FUNDING", "mutation": "funding.verdict=STOP_FUNDING"},
+    "r9_stop_admission": {"expected_label": "STOP_ADMISSION", "mutation": "admission.harm_screen_pass=false"},
+    "r9_kill_dose_closed": {"expected_label": "KILL_DOSE_CLOSED", "mutation": "top=60,dose=-1"},
+    "r9_kill_dose_futile": {"expected_label": "KILL_DOSE_FUTILE", "mutation": "top=60,dose=10"},
+    "r9_go_top_dose_dev": {"expected_label": "GO_TOP_DOSE_DEV", "mutation": "baseline payload"},
+    "r9_inconclusive": {"expected_label": "INCONCLUSIVE", "mutation": "top=30,dose=30"},
+    "equality_bars": {"expected_label": "GO_TOP_DOSE_DEV", "mutation": "top=40,dose=20", "equality": true},
+    "not_run_by_rule": {"expected_label": "INCONCLUSIVE", "expected_watch6": "NOT_RUN_BY_RULE", "mutation": "top=30,dose=30; remove watch6"},
+    "missing_required_watch": {"expected_label": "INCOMPLETE", "mutation": "remove required watch6"},
+    "top_passed_dose_failed": {"expected_label": "INCONCLUSIVE", "expected_flag": "TOP_PASSED_DOSE_FAILED", "mutation": "top=60,dose=19; sparse D1024 penalty"},
+    "mass_pass_survival_fail": {"expected_label": "INCONCLUSIVE", "expected_watch6": "NOT_RUN_BY_RULE", "mutation": "D4096 survival=0.80"},
+    "mass_pass_watch_fail": {"expected_label": "INCONCLUSIVE", "expected_reason": "Watch6_product_bars_failed", "mutation": "product=false"}
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "schema": "bl-r31-a0-codex-v-review/v1",
+  "reviewer": "independent Codex-V",
+  "status": "ACCEPT_A0_LIGHT_VERIFICATION",
+  "scope": "A0 metadata-only census fixtures and the no-clearance STOP_AT_A0 path",
+  "source_commit": "487ffc2b540a192bc24e57d415b85e37c3f0cf98",
+  "authority": {
+    "ruling_sha256": "f17130be17b446c4eb0ee6abcbc668068c684b41f194fcc769580d3280cbb84e",
+    "question_sha256": "d1c80981f11d38ba7a1b8201230a022a6044a1a56be82dda9aee3247fb1b4247"
+  },
+  "reviewed_files": {
+    "research/bl_future_noise/census.py": "b1b4fc89445bf37d9eb6383321afbba86146b94e6c1120dc61fd89427bbda04f",
+    "research/bl_future_noise/test_census.py": "8adb29707aa7e9983559baa24917c3d7364140766ef6afb0f9fc5167796a5b6b",
+    "research/bl_future_noise/INTENT.md": "77488efdc2c29119dacb3e0e18be5717f45df4ab168b0036276e40f3ae181ceb",
+    "research/bl_future_noise/README.md": "f686a1f1da2cbb9f09417ae8db1bc9e5ba9246bf6584d0e032ebdcb99ff16e7a"
+  },
+  "independent_fixtures": {
+    "status": "READY",
+    "coverage": [
+      "missing clearance and zero dispatch/rollout budget",
+      "exact 64-parent census and 16-parent pair allocation",
+      "fewer-than-64 insufficient support",
+      "parent-order hash-selection invariance",
+      "invalid unselected census member",
+      "missing protected ancestry class",
+      "protected collision, lexical path, casefolded path, and resolved alias",
+      "omitted and false reconstruction evidence",
+      "unknown selected rescue cannot count as survivor",
+      "immutable CLI receipt and duplicate-write refusal"
+    ]
+  },
+  "verification": {
+    "pytest": {
+      "command": "tools/ops/agent_nice.sh --class test --review-manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-31/light-checks-01/test-manifest.txt --review-sha256 6c1f8b23069c03ae093ee96dbd3eebc3382788ef27e0532f3e99d72b8ffad920 -- /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -o addopts= -p no:xdist -p research.compute.factory_companion_pytest research/bl_future_noise/test_census.py",
+      "exit_code": 0,
+      "passed": 16,
+      "failed": 0,
+      "launcher_wall_seconds": 1.796933,
+      "child_cpu_seconds": 1.579962,
+      "numerical_threads": 1,
+      "priority": "nice 19",
+      "lease": "common test slot and exclusive Mac lease held"
+    },
+    "style": {
+      "black": "PASS",
+      "isort": "PASS",
+      "flake8": "PASS",
+      "scope": "research/bl_future_noise package"
+    },
+    "a0_smoke": {
+      "command": "env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_future_noise.census --out /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-31/a0-preflight-03/receipt.json",
+      "exit_code": 2,
+      "expected_status": "BLOCKED_MISSING_CLEARANCE",
+      "wall_seconds": 0.047986,
+      "receipt_size": 606,
+      "receipt_sha256": "fb9d5c76b5d12a3d65efeb8b5759167da405f6a71710d28caa527a2cc8e121cc",
+      "colab_units": 0,
+      "rollout_decisions": 0
+    },
+    "immutable_test_manifest": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-31/light-checks-01/test-manifest.txt",
+      "sha256": "6c1f8b23069c03ae093ee96dbd3eebc3382788ef27e0532f3e99d72b8ffad920"
+    }
+  },
+  "decision": {
+    "a0": "ACCEPTED_FOR_LIGHT_VERIFICATION",
+    "next_stage": "STOP_AT_A0",
+    "dispatch_allowed": false,
+    "scientific_admission": false,
+    "clearance_supplied": false
+  },
+  "limitations": [
+    "No separately cleared archive was supplied.",
+    "No scientific census, reconstruction payload, protected bank, model, rollout, or outcome was opened or analyzed.",
+    "Metadata hashes and reconstruction-input bindings remain declarations requiring future independent clearance and payload verification.",
+    "A1 adapter acceptance and A2 frozen rescue assessment were not implemented, qualified, or dispatched."
+  ],
+  "findings": []
+}
