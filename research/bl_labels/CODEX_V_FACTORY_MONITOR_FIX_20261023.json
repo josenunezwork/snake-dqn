@@ -1,0 +1,88 @@
+{
+  "schema": "bl-labels-f0-codex-v-factory-monitor-fix/v1",
+  "verdict": "PASS",
+  "reviewer": "independent focused Codex-V /root/codex_v",
+  "reviewed_pin": "3b216ed6a2efad8f05e190e89d92f2e898144a81",
+  "reviewed_pin_clean": true,
+  "origin_main_contains_reviewed_pin_at_receipt": false,
+  "origin_main_observation": {
+    "checked_after_fetch": true,
+    "observed_tip": "84fd225fdc12362082f656b02513fd4e034df315",
+    "direct_push_result": "REJECTED_NON_FAST_FORWARD",
+    "required_follow_up": "Integrate the reviewed commit onto the latest origin/main and push without force; recheck containment before activation."
+  },
+  "operational_scope": {
+    "operational_baseline": "caafdf5d079bd73bcfbde6f9356dc0f60de42e0f",
+    "science_pin": "61900af28932e47e22e332840fc4406559adb062",
+    "policy_id": "factory-nice15-persistence30/v1",
+    "ruling_sha256": "35295b5b4669bec32a61736c1d5dbb5d9c70015208d6f06db06e5f064bca7c32",
+    "interim_ruling_sha256": "ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd",
+    "d256_incident": {
+      "attempt_id": "3cc0134838a94e12810f297348c71286",
+      "telemetry_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/mac-pack-02/d256-state-mac-01/attempt-3cc0134838a94e12810f297348c71286.factory-process.jsonl",
+      "telemetry_sha256": "191713135572b9e487cc144015154113c06f4843b60a161733fef39c22347a08",
+      "fault": {
+        "decision": "monitor_fault",
+        "reason": "failed or malformed full process observation",
+        "pid": 18774,
+        "ppid": 18737,
+        "nice": 20,
+        "sample_sequence": 206
+      },
+      "historical_cause": "UNKNOWN_FROM_SUPPLIED_TELEMETRY; nice=20 was already within the pre-fix [-20,20] range and the record contains no native failure detail."
+    }
+  },
+  "behavior_reviewed": [
+    "Darwin nice values -20 through 20 are accepted at parser and tracker validation layers; nice >=15 remains the binding priority exemption.",
+    "Empty args, very long args, Unicode and surrogateescaped args, Unicode separators inside args, and cross-user/system rows are valid observations.",
+    "Full ps output uses -ww and literal ASCII newline row splitting.",
+    "Known zombie/native lookup failures are cleared only after bounded ps stat confirms Z*; confirmed disappearance is accepted; live, denied, malformed, timed-out, and genuine ps failures still latch monitor_fault.",
+    "Recovery top-consumer ps decoding preserves Unicode process names and literal ASCII newline row boundaries.",
+    "No accounting, science, persistence state machine, or release/serving rule changed."
+  ],
+  "independent_verification": {
+    "harness": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/factory-persistence-verification/run_focused.py",
+    "constraints": "Serial canonical host lock, effective nice 15, CPU-only single-thread environment, bounded harness timeout, no factory lease or production actions.",
+    "at_pin_2058971e": [
+      {"command": "... run_focused.py codex-v-monitor-fix-2058971e research/bl_labels/test_factory_monitor_fix.py", "passed": 72, "pytest_seconds": 0.14, "harness_seconds": 0.5523781669908203, "log_sha256": "bc06b320457267bf2073efdfa5a50ac0c039170155756e12f51c025a34fc7dd7"},
+      {"command": "... run_focused.py codex-v-persistence-2058971e research/bl_labels/test_factory_persistence.py", "passed": 60, "pytest_seconds": 0.43, "harness_seconds": 0.8212599589605816, "log_sha256": "f852cbf3f0137296a452aa3c0c418c6bfdb7de9488d745bfa13c6b245cd77c7a"},
+      {"command": "... run_focused.py codex-v-coordinator-2058971e research/bl_labels/test_factory_persistence_driver.py", "passed": 6, "pytest_seconds": 0.27, "harness_seconds": 0.6601244999910705, "log_sha256": "98208c77eba32bbaffe8c34a85adf840097b3393a9e5de36a9e558b3827e79cd"},
+      {"command": "... run_focused.py codex-v-recovery-2058971e research/bl_labels/test_slowdown_resume.py", "passed": 171, "pytest_seconds": 1.96, "harness_seconds": 2.55499754199991, "log_sha256": "19795ba0392fe464a689d78606a6d7919e10833a06cf821b2499041305c75dc8"},
+      {"command": "... run_focused.py codex-v-interim-2058971e research/bl_labels/test_factory_interim_independent.py", "passed": 68, "pytest_seconds": 2.20, "harness_seconds": 2.5924298329628073, "log_sha256": "e10b4b1bd78c22002f5b73a4f55272393eb8d336fd158f8d0da5d6926ab3bb08"},
+      {"command": "... run_focused.py codex-v-w12-guard-2058971e research/bl_labels/test_w12_driver_guards.py", "passed": 14, "pytest_seconds": 10.13, "harness_seconds": 10.874222999962512, "log_sha256": "00be5c3b6841944585c2e42aa8631119a0abc93ea46761eb61f0d2078f12acd8"}
+    ],
+    "final_pin_follow_up": [
+      {"command": "... run_focused.py codex-v-recovery-3b216ed6 research/bl_labels/test_slowdown_resume.py", "passed": 171, "pytest_seconds": 1.96, "harness_seconds": 2.5077767499999997, "log_sha256": "19795ba0392fe464a689d78606a6d7919e10833a06cf821b2499041305c75dc8"},
+      {"command": "... run_focused.py codex-v-closure-3b216ed6 research/bl_labels/test_factory_interim_independent.py::test_source_accounting_and_frozen_science_closure research/bl_labels/test_companion_identity.py::test_science_reference_remains_detached_clean_and_exactly_frozen", "passed": 2, "pytest_seconds": 0.56, "harness_seconds": 0.9886688750120811, "log_sha256": "3c1b3ddb1c26b4a16e6447d6efcbafcf5bb0234000f64c5817f1a9b32bdac0bd"}
+    ],
+    "total_passed": 564,
+    "failures": 0,
+    "timeouts": 0,
+    "git_diff_check": "PASS"
+  },
+  "source_sha256_at_review": {
+    "research/bl_labels/factory_persistence.py": "646139488e0bc9e6a90b206ddb9af28be2b88f5d4f1a225db9e68db6b113f43a",
+    "research/bl_labels/mac_driver.py": "dd7018717170bc914ea6d3d3ecb2b611f0d9f2b33d55ab15624f8e4aeeef1277",
+    "research/bl_labels/slowdown_resume.py": "7c9f986cf7cc782c90ae3a6bc961e4d6bf5600403120f8998c2ed02d95ca4601",
+    "research/bl_labels/test_factory_monitor_fix.py": "711b178c0a7d32ceb549136bfb398fc13fc968c4ffdf680ea15490f31bbcad23"
+  },
+  "science_closure": {
+    "accounting_and_frozen_science_tests": "PASS",
+    "frozen_science_pin": "61900af28932e47e22e332840fc4406559adb062",
+    "production_actions": false,
+    "label_outcomes_read": false,
+    "ledger_or_immutable_exports_modified": false,
+    "serving_or_release_changed": false
+  },
+  "activation": {
+    "status": "PENDING_REMOTE_CONTAINMENT_AND_OPERATOR_CONTINUATION",
+    "next_unused_dispatch_name_at_review": "bl-f0-d256-guard-w12-11",
+    "command_template": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/dispatch.sh --mac bl-f0-d256-guard-w12-11 <FINAL_PUSHED_PIN> -- /bin/bash research/bl_labels/RUN_D256_RESUME.sh --host-check",
+    "guard": "Use the lawful fresh-attempt verified-ledger continuation only; no hot patch, retry entitlement, charge refund, recomputation, or production launch was performed by this review."
+  },
+  "residual_risks": [
+    "The supplied D256 telemetry does not identify whether pid 18774 failed native lookup because it vanished, was a zombie, was inaccessible, or encountered another native sensor error.",
+    "A zombie whose native metadata succeeds is retained as a valid observation; only native lookup failure invokes the bounded Z* fallback. No fault is claimed for that valid observation path.",
+    "This review covers the ordinary-production persistence monitor, not the full concurrency supervisor."
+  ]
+}

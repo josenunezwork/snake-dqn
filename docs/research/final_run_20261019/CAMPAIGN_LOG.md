@@ -608,3 +608,22 @@ were never spent or added to existing P1/F4/R28 liabilities. No native/release
 qualification or SLA improvement is claimed. Failed/refused checks and superseded
 receipts remain immutable historical evidence. Complete limits, source assembly,
 artifact paths and exact metadata-only Claude commands: `research/r33_ops/HANDOFF.md`.
+
+## Factory monitor mechanical acceptance — 2026-10-23
+
+Independent focused Codex-V **PASS** at operational pin
+`3b216ed6a2efad8f05e190e89d92f2e898144a81`, published through main
+`2dd2896f70cf9cde901dd27388ba571fffb996a1` with identical reviewed source.
+Create-only `big-lever/exp/CODEX_V_FACTORY_MONITOR_FIX_20261023.json`, SHA256
+`c0c71c586a3d3531fc0abac89b8ea6ab84ce4b9211d30dbffeb52a722cbc0687`.
+All 391 focused cases passed, plus final caller/closure checks; canonical serial
+lock, nice 15, CPU/thread caps and bounded commands. Legitimate empty, long,
+Unicode, cross-user/system and confirmed zombie/disappearance observations are
+accepted; genuine sensor faults still stop. Nice [-20,20] was already inclusive
+at caafdf5d; the supplied nice-20 incident's native cause remains unknown.
+Science stays clean/detached at 61900af2; accounting, caps, drains, ledgers,
+slowdown baselines and retry rights are unchanged. No production dispatch,
+foreign process control, label look or serving action occurred. Owner notice and
+exact fresh verified-ledger continuation after verified stop are in
+`research/bl_labels/FACTORY_MONITOR_FIX_OPERATOR_20261023.md`; -10 was consumed
+externally, and -11 was the next unused dispatch reservation at publication.
