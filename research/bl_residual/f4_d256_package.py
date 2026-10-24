@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import io
 import json
 import shutil
@@ -648,6 +649,7 @@ def stage_d1024(pack: Path, publication: Path, output: Path) -> dict[str, Any]:
     if published != publication.read_bytes():
         raise ValueError("fit-phase ledger must match origin/main before metadata consumption")
     inputs = pack / "inputs"
+    verify_export(inputs / "control.json")
     prior = json.loads((inputs / "control.json").read_text())
     from research.bl_residual.protocol import read_ledger
 
@@ -655,9 +657,19 @@ def stage_d1024(pack: Path, publication: Path, output: Path) -> dict[str, Any]:
     checkpoint = pack / "d256-output-l4-01/exports/fit/fit-0000.pth"
     if set(units) != {0} or verify_export(checkpoint) != units[0]["sha256"]:
         raise ValueError("published D256 fit differs from verified checkpoint")
+    names = ("b8.pth", "F4_REGISTRATION.md", "judgment.json", "life-allocation.json")
+    payloads = {}
+    for name in names:
+        source = inputs / name
+        if source.is_symlink() or digest(source) != prior.get("input_hashes", {}).get(name):
+            raise ValueError(f"D256 staging source differs from sealed control: {name}")
+        payload = source.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != prior["input_hashes"][name]:
+            raise ValueError(f"D256 staging source changed while reading: {name}")
+        payloads[name] = payload
     output.mkdir(parents=True, exist_ok=False)
-    for name in ("b8.pth", "F4_REGISTRATION.md", "judgment.json", "life-allocation.json"):
-        _copy(inputs / name, output / name)
+    for name, payload in payloads.items():
+        export_bytes(output / name, payload)
     export_json(output / "d256-control.json", prior)
     write_stage_fit_receipt(inputs, checkpoint.parent, 256, output / "d256-fit.json")
     control = {

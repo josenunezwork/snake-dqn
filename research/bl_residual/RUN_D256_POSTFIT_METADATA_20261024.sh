@@ -8,7 +8,7 @@ Q=/Users/josenunez/Projects/ml/snake-dqn-f4-metadata-qualified-02.noindex
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 ART=/Users/josenunez/Projects/ml/snake-dqn-artifacts
 PACK="$ART/big-lever/exp/f4/d256-metadata-pack-02"
-F4_INPUTS="$ART/big-lever/exp/f4/d1024-metadata-staging-02/inputs"
+F4_INPUTS="$ART/big-lever/exp/f4/d1024-metadata-staging-03/inputs"
 FIT_PIN=6313fe8fce990915ef1c3702ff1687169513b624
 FIT_PHASE=research/bl_residual/ledger/F4_D256_FIT_PHASE_20261023.json
 FIT_BINDING=research/bl_residual/ledger/F4_D256_METADATA_FIT_BINDING_20261024.json
@@ -162,6 +162,8 @@ PY
   stage-d1024)
     # Recheck the live remote before any checkpoint metadata is consumed.
     verify_publication
+    # Use the repaired staging exporter; the completed fit stays pinned at Q.
+    cd "$SOURCE"
     "$PY" -m research.bl_residual.f4_d256_package --stage-d1024 "$PACK" \
       --fit-publication "$SOURCE/$FIT_PHASE" --out "$F4_INPUTS"
     ;;
