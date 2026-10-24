@@ -54,8 +54,21 @@ SOURCE_FILES = (
 )
 
 
+def _git_environment() -> dict[str, str]:
+    """Use raw repository objects, independent of caller Git interpretation."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull, GIT_TERMINAL_PROMPT="0")
+    return env
+
+
 def _git(root: Path, *args: str) -> bytes:
-    return subprocess.check_output(["git", *args], cwd=root, timeout=30, stderr=subprocess.DEVNULL)
+    return subprocess.check_output(
+        ["git", "--no-replace-objects", "-c", "core.useReplaceRefs=false", *args],
+        cwd=root,
+        env=_git_environment(),
+        timeout=30,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def _published(path: Path, relative: str, root: Path) -> str:

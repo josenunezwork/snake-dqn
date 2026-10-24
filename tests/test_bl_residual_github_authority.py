@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -53,10 +56,54 @@ def _event(commit: str, before: str, timestamp: str, *, event_id: str = "event-1
     }
 
 
+def _server_objects(root: Path, endpoint: str):
+    """Model server-owned raw objects, independently of the client's Git helpers."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull)
+
+    def raw(*args: str) -> bytes:
+        return subprocess.run(
+            ["git", "--no-replace-objects", *args],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            check=True,
+        ).stdout
+
+    if "/compare/" in endpoint:
+        base, tip = endpoint.split("/compare/", 1)[1].split("...")
+        merge = raw("merge-base", base, tip).decode().strip()
+        status = "identical" if base == tip else "ahead" if merge == base else "diverged"
+        if merge == tip and base != tip:
+            status = "behind"
+        return {"base_commit": {"sha": base}, "merge_base_commit": {"sha": merge}, "status": status}
+    if "/contents/" in endpoint:
+        parsed = urlparse(endpoint)
+        name = parsed.path.split("/contents/", 1)[1]
+        commit = parse_qs(parsed.query)["ref"][0]
+        try:
+            payload = raw("show", f"{commit}:{name}")
+        except subprocess.CalledProcessError as exc:
+            raise authority.AuthorityUnavailable("server file absent") from exc
+        return {
+            "type": "file",
+            "path": name,
+            "encoding": "base64",
+            "content": base64.b64encode(payload).decode(),
+            "size": len(payload),
+            "sha": hashlib.sha1(
+                b"blob " + str(len(payload)).encode() + b"\0" + payload
+            ).hexdigest(),
+        }
+    raise AssertionError(endpoint)
+
+
 def _stub_activity(
     monkeypatch: pytest.MonkeyPatch, head: str, rows: list[dict], *, epoch: float
 ) -> None:
     def request(endpoint: str):
+        if "/compare/" in endpoint or "/contents/" in endpoint:
+            return _server_objects(authority.f2.ROOT, endpoint), {}, {"epoch": epoch}
         if endpoint.endswith("git/ref/heads/main"):
             return (
                 {"ref": authority.REF, "object": {"type": "commit", "sha": head}},
@@ -356,6 +403,8 @@ def test_activity_pagination_cycle_is_unverifiable(
     endpoint = f"https://api.github.com/{authority.API}/activity?ref={authority.REF}&page=2"
 
     def request(value: str):
+        if "/compare/" in value:
+            return _server_objects(synthetic_git, value), {}, {"epoch": 100}
         if value.endswith("git/ref/heads/main"):
             return (
                 {"ref": authority.REF, "object": {"type": "commit", "sha": commit}},
@@ -377,6 +426,8 @@ def test_foreign_activity_pagination_is_unverifiable(
     monkeypatch.setattr(authority.f2, "ROOT", synthetic_git)
 
     def request(endpoint: str):
+        if "/compare/" in endpoint:
+            return _server_objects(synthetic_git, endpoint), {}, {"epoch": 100}
         if endpoint.endswith("git/ref/heads/main"):
             return (
                 {"ref": authority.REF, "object": {"type": "commit", "sha": commit}},
@@ -446,3 +497,283 @@ def test_request_accepts_fresh_https_date_and_refuses_clock_or_transport_failure
     monkeypatch.setattr(authority.time, "monotonic", lambda: 50.0)
     with pytest.raises(authority.AuthorityUnavailable):
         authority._request(f"{authority.API}/git/ref/heads/main")
+
+
+def _result_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from tests.test_bl_residual_f2 import git_fixture, seal_fixture
+
+    root, receipt = git_fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(authority.f2, "ROOT", root)
+    before = _git(root, "rev-parse", "HEAD")
+    seal_fixture(root, receipt)
+    authority.f2.stage_publication(root=root)
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "synthetic result")
+    commit = _git(root, "rev-parse", "HEAD")
+    _git(root, "update-ref", "refs/remotes/origin/main", commit)
+    binding = authority.published_receipt_binding(receipt, root=root)
+    return root, before, commit, binding
+
+
+def _strikes_verdict(monkeypatch, tmp_path, evidence) -> str:
+    """Exercise only the pure funding statistic, never R-A or its entrypoint."""
+    from research.bl_residual import funding, ra_guard
+    from research.bl_residual.protocol import canonical_sha
+    from tests.test_bl_residual_f4_fit import _look
+
+    monkeypatch.setattr(ra_guard, "D4096_CONTROL", tmp_path / "absent-control.json")
+    timing = ra_guard.timing_identity(None, evidence)
+    eligible = ra_guard.timing_eligible(timing, at=ra_guard.CUTOFF + 120)
+    left, right = _look(256, "2" * 64, 0.5), _look(1024, "1" * 64, 0.5)
+    result = funding.evaluate(
+        left,
+        right,
+        {
+            "schema": authority.f2.SCHEMA,
+            "volume_struck": False,
+            "published": True,
+            "source_sha256": "a" * 64,
+            "published_ref": "b" * 40,
+        },
+        reserve_identity={
+            "series_id": left["namespace"],
+            "reserve_ancestry_sha256": "z" * 64,
+            "reserve_life_ids": left["reserve_life_ids"],
+            "reserve_allocation_sha256": canonical_sha(left["reserve_life_ids"]),
+        },
+        f2_timing_eligible=eligible,
+    )
+    assert not eligible
+    return result["verdict"]
+
+
+@pytest.mark.parametrize("attack", ["replacement", "graft"])
+def test_false_early_ancestry_cannot_backdate_exact_result_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attack: str
+) -> None:
+    """Review probe 1: B->A early, C first published by a later force-push."""
+    from research.bl_residual import ra_guard
+
+    root, before, commit, binding = _result_fixture(tmp_path, monkeypatch)
+    tree = _git(root, "rev-parse", before + "^{tree}")
+    early = _git(root, "commit-tree", tree, "-p", before, "-m", "genuine early A")
+    if attack == "replacement":
+        fake = _git(root, "commit-tree", tree, "-p", commit, "-m", "forged A parent C")
+        _git(root, "replace", early, fake)
+    else:
+        (root / ".git/info/grafts").write_text(f"{early} {commit}\n")
+    # Establish the original exploit without using the hardened client helper.
+    _git(root, "merge-base", "--is-ancestor", commit, early)
+    assert _git(root, "status", "--porcelain") == ""
+    with pytest.raises(subprocess.CalledProcessError):
+        authority.f2._git(root, "merge-base", "--is-ancestor", commit, early)
+    stamp = (
+        lambda epoch: datetime.fromtimestamp(epoch, timezone.utc).isoformat().replace("+00:00", "Z")
+    )
+    late = {
+        **_event(commit, early, stamp(ra_guard.CUTOFF + 60), event_id="late"),
+        "activity_type": "force_push",
+    }
+    _stub_activity(
+        monkeypatch,
+        commit,
+        [_event(early, before, stamp(ra_guard.CUTOFF - 60), event_id="early"), late],
+        epoch=ra_guard.CUTOFF + 120,
+    )
+    authority.capture_publication(binding)
+    evidence = authority.publication_evidence(binding)
+    assert evidence["activity"]["id"] == "late"
+    assert evidence["published_epoch"] == ra_guard.CUTOFF + 60
+    assert _strikes_verdict(monkeypatch, tmp_path, evidence) == "STOP_FUNDING"
+
+
+@pytest.mark.parametrize("compromised_local_helper", [False, True])
+def test_replacement_ledger_tree_cannot_bind_absent_server_ledger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, compromised_local_helper: bool
+) -> None:
+    """Review probe 2: real early A has no result ledger; replacement supplies it."""
+    from research.bl_ppo.exports import digest
+    from research.bl_residual import ra_guard
+
+    root, before, result, binding = _result_fixture(tmp_path, monkeypatch)
+    tree = _git(root, "rev-parse", before + "^{tree}")
+    early = _git(root, "commit-tree", tree, "-p", before, "-m", "early with no result")
+    result_tree = _git(root, "rev-parse", result + "^{tree}")
+    fake = _git(root, "commit-tree", result_tree, "-p", before, "-m", "fake ledger tree")
+    _git(root, "replace", early, fake)
+    _git(root, "update-ref", "HEAD", early)
+    _git(root, "update-ref", "refs/remotes/origin/main", early)
+    binding["publication_ref"] = early
+    assert _git(root, "status", "--porcelain") == ""
+    assert _git(root, "show", f"{early}:{authority.f2.RESULT_LEDGER}")
+    with pytest.raises(subprocess.CalledProcessError):
+        authority.f2._git(root, "show", f"{early}:{authority.f2.RESULT_LEDGER}")
+    # Actual preparer/consumer binding path must also yield strikes when raw
+    # Git exposes the missing ledger, before publication_evidence is called.
+    assert ra_guard.receipt_binding(Path(binding["path"])) is None
+    if compromised_local_helper:
+        # Independently prove the server layer rejects even the old unsafe Git
+        # interpretation, rather than succeeding only because local Git refuses.
+        monkeypatch.setattr(
+            authority.f2,
+            "_git",
+            lambda root, *args: subprocess.check_output(["git", *args], cwd=root),
+        )
+    stamp = (
+        datetime.fromtimestamp(ra_guard.CUTOFF - 60, timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    event = _event(early, before, stamp)
+    _stub_activity(monkeypatch, early, [event], epoch=ra_guard.CUTOFF + 120)
+    # Model an evidence receipt accepted by the old vulnerable capture path.
+    export_json(
+        authority.evidence_path(binding),
+        {
+            "schema": authority.TIME_POLICY["publication_schema"],
+            "repository": authority.REPOSITORY,
+            "ref": authority.REF,
+            "commit": early,
+            "ledger": authority.f2.RESULT_LEDGER,
+            "ledger_sha256": digest(root / authority.f2.RESULT_LEDGER),
+            "receipt_sha256": binding["sha256"],
+            "activity": {**event, "epoch": ra_guard.CUTOFF - 60},
+        },
+    )
+    with pytest.raises((authority.AuthorityUnavailable, subprocess.CalledProcessError)):
+        authority.capture_publication(binding)
+    assert authority.publication_evidence(binding) is None
+    assert _strikes_verdict(monkeypatch, tmp_path, None) == "STOP_FUNDING"
+
+
+@pytest.mark.parametrize("endpoint_kind", ["compare", "contents"])
+def test_server_binding_unavailable_never_falls_back_to_valid_local_objects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, endpoint_kind: str
+) -> None:
+    root, before, commit, binding = _result_fixture(tmp_path, monkeypatch)
+    _stub_activity(monkeypatch, commit, [_event(commit, before, "1970-01-01T00:01:00Z")], epoch=100)
+    authority.capture_publication(binding)
+    request = authority._request
+
+    def unavailable(endpoint):
+        if f"/{endpoint_kind}/" in endpoint:
+            raise authority.AuthorityUnavailable("synthetic API unavailable")
+        return request(endpoint)
+
+    monkeypatch.setattr(authority, "_request", unavailable)
+    assert authority.publication_evidence(binding) is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        {},
+        {
+            "base_commit": {"sha": "b" * 40},
+            "merge_base_commit": {"sha": "a" * 40},
+            "status": "ahead",
+        },
+        {
+            "base_commit": {"sha": "a" * 40},
+            "merge_base_commit": {"sha": "a" * 40},
+            "status": "behind",
+        },
+        {
+            "base_commit": {"sha": "a" * 40},
+            "merge_base_commit": {"sha": "invalid"},
+            "status": "diverged",
+        },
+    ],
+)
+def test_unverifiable_server_comparison_refuses(monkeypatch, value) -> None:
+    monkeypatch.setattr(authority, "_request", lambda _: (value, {}, {}))
+    with pytest.raises(authority.AuthorityUnavailable):
+        authority._contains("a" * 40, "b" * 40)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("type", "symlink"),
+        ("path", "foreign"),
+        ("encoding", "none"),
+        ("content", "%%%"),
+        ("size", True),
+        ("size", 2_000_001),
+        ("sha", "0" * 40),
+        ("content", ""),
+    ],
+)
+def test_unverifiable_server_blob_refuses(tmp_path, monkeypatch, field, value) -> None:
+    path = tmp_path / authority.f2.INPUT_LEDGER
+    export_json(path, {"synthetic": True})
+    payload = path.read_bytes()
+    response = {
+        "type": "file",
+        "path": authority.f2.INPUT_LEDGER,
+        "encoding": "base64",
+        "content": base64.b64encode(payload).decode(),
+        "size": len(payload),
+        "sha": hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload).hexdigest(),
+        field: value,
+    }
+    monkeypatch.setattr(authority, "_request", lambda _: (response, {}, {}))
+    with pytest.raises(authority.AuthorityUnavailable):
+        authority._server_export("a" * 40, authority.f2.INPUT_LEDGER, tmp_path)
+
+
+@pytest.mark.parametrize("relative", [authority.f2.RESULT_LEDGER, authority.f2.INPUT_LEDGER])
+@pytest.mark.parametrize("suffix", ["", ".sha256", ".complete"])
+def test_server_bytes_rechecked_for_each_ledger_and_sidecar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str, suffix: str
+) -> None:
+    root, before, commit, binding = _result_fixture(tmp_path, monkeypatch)
+    _stub_activity(monkeypatch, commit, [_event(commit, before, "1970-01-01T00:01:00Z")], epoch=100)
+    authority.capture_publication(binding)
+    assert authority.publication_evidence(binding) is not None
+    request = authority._request
+
+    def substituted(endpoint):
+        value, headers, observation = request(endpoint)
+        if f"/contents/{relative}{suffix}?" in endpoint:
+            payload = b"foreign server bytes\n"
+            value = {
+                **value,
+                "content": base64.b64encode(payload).decode(),
+                "size": len(payload),
+                "sha": hashlib.sha1(
+                    b"blob " + str(len(payload)).encode() + b"\0" + payload
+                ).hexdigest(),
+            }
+        return value, headers, observation
+
+    monkeypatch.setattr(authority, "_request", substituted)
+    assert authority.publication_evidence(binding) is None
+
+
+def test_local_identity_git_strips_environment_overrides(tmp_path, monkeypatch) -> None:
+    root, before, commit, _ = _result_fixture(tmp_path, monkeypatch)
+    fake = _git(root, "commit-tree", _git(root, "rev-parse", before + "^{tree}"), "-m", "foreign")
+    _git(root, "replace", commit, fake)
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    _git(foreign, "init", "-q")
+    grafts = tmp_path / "caller-grafts"
+    grafts.write_text(f"{commit}\n")
+    for key, value in {
+        "GIT_DIR": str(foreign / ".git"),
+        "GIT_WORK_TREE": str(foreign),
+        "GIT_OBJECT_DIRECTORY": str(foreign / ".git/objects"),
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(foreign / ".git/objects"),
+        "GIT_NO_REPLACE_OBJECTS": "0",
+        "GIT_GRAFT_FILE": str(grafts),
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "core.useReplaceRefs",
+        "GIT_CONFIG_VALUE_0": "true",
+        "GIT_REPLACE_REF_BASE": "refs/replace/",
+    }.items():
+        monkeypatch.setenv(key, value)
+    assert authority.f2._git(root, "rev-parse", "HEAD").decode().strip() == commit
+    assert authority.f2._git(root, "merge-base", before, commit).decode().strip() == before
+    assert authority.f2._git(root, "show", f"{commit}:{authority.f2.RESULT_LEDGER}")

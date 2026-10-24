@@ -805,6 +805,41 @@ def test_wait_boundary_uses_server_epoch_and_seals_fresh_observation(
     assert claim["f2_timing_eligible"] is False
 
 
+@pytest.mark.parametrize("failure_kind", ["raw-git", "metadata"])
+def test_unavailable_local_binding_prepares_strikes_before_semantic_read(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path, failure_kind: str
+) -> None:
+    import subprocess
+
+    from research.bl_residual import github_authority
+
+    def unavailable(_receipt):
+        if failure_kind == "raw-git":
+            raise subprocess.CalledProcessError(128, ["git", "show", "missing-ledger"])
+        raise ValueError("unverifiable publication metadata")
+
+    monkeypatch.setattr(github_authority, "published_receipt_binding", unavailable)
+    monkeypatch.setattr(
+        funding.f2, "verify_published_receipt", lambda _: pytest.fail("sealed result parsed")
+    )
+    receipt = tmp_path / "unverifiable-receipt.json"
+    export_json(receipt, {"synthetic": "opaque receipt; publication unverifiable"})
+    result = ra.prepare(
+        d256_pack=ra_world["d256"],
+        d1024_pack=ra_world["d1024"],
+        census_dir=ra_world["census"],
+        funding_out=tmp_path / "strikes/funding.json",
+        packet_out=tmp_path / "strikes/packet.json",
+        pin="e" * 40,
+        f2_receipt=receipt,
+    )
+    packet = json.loads(Path(result["packet"]).read_text())
+    assert packet["f2_branch"] == "UNPUBLISHED_APPLY_STRIKES_BRANCH"
+    assert packet["f2_receipt"] is None
+    assert packet["timing"]["f2_publication"] is None
+    assert not Path(packet["lock_path"]).exists()
+
+
 def test_missing_publication_authority_takes_strikes_without_semantic_f2_read(
     monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
 ) -> None:

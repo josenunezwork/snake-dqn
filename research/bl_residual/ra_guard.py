@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -139,11 +140,18 @@ def source_identity(pin: str) -> dict[str, str]:
     return result
 
 
-def receipt_binding(receipt: Path) -> dict[str, str]:
-    """Verify F2 metadata without changing or reading the frozen statistic."""
+def receipt_binding(receipt: Path) -> dict[str, str] | None:
+    """Unavailable metadata cannot authorize F2; prepare the strikes branch.
+
+    An already prepared packet still refuses if its prior binding disappears.
+    No sealed statistic is parsed in either case.
+    """
     from research.bl_residual.github_authority import published_receipt_binding
 
-    return published_receipt_binding(receipt)
+    try:
+        return published_receipt_binding(receipt)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        return None
 
 
 def publication_evidence(binding: dict | None) -> dict | None:

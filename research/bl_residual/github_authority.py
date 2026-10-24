@@ -7,9 +7,10 @@ GET, no gh cache, and bounded execution. Credentials never enter receipts/logs.
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import math
-import os
 import subprocess
 import time
 from datetime import datetime
@@ -39,7 +40,7 @@ class AuthorityUnavailable(ValueError):
 
 
 def _gh_environment() -> dict[str, str]:
-    env = dict(os.environ)
+    env = f2._git_environment()
     # gh is not separately logged in on the operator's Mac. Reuse only the
     # existing HTTPS Git credential in memory, without changing auth config.
     if not (env.get("GH_TOKEN") or env.get("GITHUB_TOKEN")):
@@ -142,33 +143,71 @@ def trusted_time() -> dict[str, Any]:
     return observation
 
 
+def _valid_commit(sha: Any) -> bool:
+    return isinstance(sha, str) and len(sha) == 40 and all(c in "0123456789abcdef" for c in sha)
+
+
 def _contains(commit: str, tip: str) -> bool:
-    """GitHub event SHAs bind immutable Git objects, never their dates."""
-    if any(
-        not isinstance(sha, str) or len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha)
-        for sha in (commit, tip)
-    ):
+    """Ask the server for ancestry, even when both objects exist locally."""
+    if not _valid_commit(commit) or commit == "0" * 40 or not _valid_commit(tip):
         raise AuthorityUnavailable("invalid activity commit")
     if tip == "0" * 40:
         return False
-    result = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", commit, tip],
-        cwd=f2.ROOT,
-        capture_output=True,
-        timeout=30,
-    )
-    if result.returncode in (0, 1):
-        return result.returncode == 0
-    # An event's objects may not be in this clone (e.g. after a rebase).
     value, _, _ = _request(f"{API}/compare/{commit}...{tip}")
     if (
         not isinstance(value, dict)
         or not isinstance(value.get("base_commit"), dict)
         or not isinstance(value.get("merge_base_commit"), dict)
         or value["base_commit"].get("sha") != commit
+        or not _valid_commit(value["merge_base_commit"].get("sha"))
+        or value.get("status") not in ("ahead", "identical", "behind", "diverged")
     ):
-        raise AuthorityUnavailable("GitHub comparison has a foreign base")
-    return value.get("merge_base_commit", {}).get("sha") == commit
+        raise AuthorityUnavailable("unverifiable GitHub comparison")
+    contains = value["merge_base_commit"]["sha"] == commit
+    if contains != (value["status"] in ("ahead", "identical")):
+        raise AuthorityUnavailable("inconsistent GitHub comparison")
+    return contains
+
+
+def _server_export(commit: str, relative: str, root: Path) -> bytes:
+    """Bind the ledger and BOTH sidecars to server bytes at an exact commit.
+
+    Contents requests use an immutable full SHA, never a branch name. Validate
+    the returned Git blob ID as well as SHA256 equality with each local file.
+    A missing file, truncated response or API error is unavailable evidence.
+    """
+    if not _valid_commit(commit) or relative not in (f2.INPUT_LEDGER, f2.RESULT_LEDGER):
+        raise AuthorityUnavailable("invalid committed export identity")
+    ledger = b""
+    for suffix in ("", ".sha256", ".complete"):
+        name = relative + suffix
+        value, _, _ = _request(f"{API}/contents/{name}?ref={commit}")
+        if (
+            not isinstance(value, dict)
+            or value.get("type") != "file"
+            or value.get("path") != name
+            or value.get("encoding") != "base64"
+            or not isinstance(value.get("content"), str)
+            or type(value.get("size")) is not int
+            or not 0 <= value["size"] <= 2_000_000
+            or not _valid_commit(value.get("sha"))
+        ):
+            raise AuthorityUnavailable("unverifiable GitHub ledger blob")
+        try:
+            payload = base64.b64decode("".join(value["content"].splitlines()), validate=True)
+        except ValueError as exc:
+            raise AuthorityUnavailable("invalid GitHub blob encoding") from exc
+        blob = b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload
+        if (
+            len(payload) != value["size"]
+            or hashlib.sha1(blob).hexdigest() != value["sha"]
+            or hashlib.sha256(payload).digest()
+            != hashlib.sha256((root / name).read_bytes()).digest()
+        ):
+            raise AuthorityUnavailable("GitHub committed ledger/sidecar bytes differ")
+        if not suffix:
+            ledger = payload
+    return ledger
 
 
 def first_publication(commit: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -179,13 +218,23 @@ def first_publication(commit: str) -> tuple[dict[str, Any], dict[str, Any]]:
     An older unobservable introduction can only make this conservative (later),
     never grant eligibility from a preserved author/committer timestamp.
     """
+    # Cache only within this fresh scan; every revalidation contacts the server.
+    ancestry: dict[str, bool] = {}
+
+    def contains(tip: str) -> bool:
+        if not _valid_commit(tip):
+            raise AuthorityUnavailable("invalid activity commit")
+        if tip not in ancestry:
+            ancestry[tip] = _contains(commit, tip)
+        return ancestry[tip]
+
     head, _, observation = _request(f"{API}/git/ref/heads/main")
     if (
         not isinstance(head, dict)
         or head.get("ref") != REF
         or not isinstance(head.get("object"), dict)
         or head["object"].get("type") != "commit"
-        or not _contains(commit, head["object"].get("sha"))
+        or not contains(head["object"].get("sha"))
     ):
         raise AuthorityUnavailable("result commit is not on authoritative GitHub main")
     endpoint = f"{API}/activity?ref={REF}&per_page=100"
@@ -201,7 +250,7 @@ def first_publication(commit: str) -> tuple[dict[str, Any], dict[str, Any]]:
             if row.get("ref") != REF or row.get("activity_type") not in ("push", "force_push"):
                 continue
             before, after = row.get("before"), row.get("after")
-            if _contains(commit, after) and not _contains(commit, before):
+            if contains(after) and not contains(before):
                 timestamp = row.get("timestamp")
                 try:
                     if not isinstance(timestamp, str) or not timestamp.endswith("Z"):
@@ -265,7 +314,10 @@ def published_receipt_binding(receipt: Path, *, root: Path | None = None) -> dic
     if receipt != f2.RECEIPT.resolve():
         raise ValueError("F2 requires the canonical one-look receipt")
     f2._published(root / f2.INPUT_LEDGER, f2.INPUT_LEDGER, root)
-    f2._validate_plan(json.loads((root / f2.INPUT_LEDGER).read_text()), root)
+    plan = json.loads((root / f2.INPUT_LEDGER).read_text())
+    if not isinstance(plan, dict) or not isinstance(plan.get("sources", {}), dict):
+        raise ValueError("F2 input ledger must contain a metadata object")
+    f2._validate_plan(plan, root)
     publication_ref = f2._published(root / f2.RESULT_LEDGER, f2.RESULT_LEDGER, root)
     publication = json.loads((root / f2.RESULT_LEDGER).read_text())
     if (
@@ -304,13 +356,28 @@ def _identity(binding: dict[str, Any]) -> dict[str, Any]:
     if f2._published(ledger, f2.RESULT_LEDGER, f2.ROOT) != commit:
         raise AuthorityUnavailable("F2 publication commit changed after verification")
     f2._commit_contains(f2.ROOT, commit, f2.RESULT_LEDGER, ledger.read_bytes())
+    payload = _server_export(commit, f2.RESULT_LEDGER, f2.ROOT)
+    # Also bind the input ledger/sidecars used by F2's identity checks. Only
+    # publication metadata is parsed here; the sealed statistic stays closed.
+    publication = json.loads(payload)
+    if not isinstance(publication, dict):
+        raise AuthorityUnavailable("invalid GitHub publication metadata")
+    input_commit = publication["input_published_ref"]
+    if not _contains(input_commit, commit):
+        raise AuthorityUnavailable("input publication is not an ancestor of the result")
+    inputs = _server_export(input_commit, f2.INPUT_LEDGER, f2.ROOT)
+    if (
+        publication.get("receipt_sha256") != binding["sha256"]
+        or publication.get("source_sha256") != hashlib.sha256(inputs).hexdigest()
+    ):
+        raise AuthorityUnavailable("GitHub publication metadata differs from the F2 binding")
     return {
         "schema": TIME_POLICY["publication_schema"],
         "repository": REPOSITORY,
         "ref": REF,
         "commit": commit,
         "ledger": f2.RESULT_LEDGER,
-        "ledger_sha256": digest(ledger),
+        "ledger_sha256": hashlib.sha256(payload).hexdigest(),
         "receipt_sha256": binding["sha256"],
     }
 

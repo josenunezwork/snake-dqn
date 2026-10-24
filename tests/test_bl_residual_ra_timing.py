@@ -14,6 +14,7 @@ from research.bl_ppo.exports import digest, export_json
 from research.bl_residual import f2, github_authority, ra_guard
 from research.bl_residual.protocol import canonical_sha
 from tests.test_bl_residual_f2 import git_fixture, seal_fixture
+from tests.test_bl_residual_github_authority import _server_objects
 
 
 def _commit(
@@ -65,6 +66,8 @@ def _published_binding(
     timestamp = datetime.fromtimestamp(epoch, timezone.utc).isoformat().replace("+00:00", "Z")
 
     def request(endpoint):
+        if "/compare/" in endpoint or "/contents/" in endpoint:
+            return _server_objects(root, endpoint), {}, {"epoch": epoch + 1000}
         if endpoint.endswith("git/ref/heads/main"):
             tip = f2._git(root, "rev-parse", "origin/main").decode().strip()
             return (
