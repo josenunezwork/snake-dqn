@@ -13,6 +13,16 @@ from research.bl_round30.protocol import B8_SHA, CAPS, JUDGMENT_SHA, NAMESPACE, 
 from tools.ops.qualification import OPS, check
 
 ROOT = Path(__file__).resolve().parents[2]
+RESUME_POLICY = {
+    "unit_kind": "complete-matched-fit-packet",
+    "ledger_path": "inputs/verified-ledger.json",
+    "skip_verified": True,
+    "max_outcome_blind_retries": 2,
+}
+CANARY_EXEMPTION = {
+    "kind": "short-canary",
+    "reason": "Bounded consumer proof; canary units cannot enter scientific resume ledgers",
+}
 SOURCE_PATHS = [
     "src",
     "research/bl_round30",
@@ -190,12 +200,7 @@ def make_pack(
             "reserve_units": cap_units / 6,
             "other_assignments": {},
         },
-        "resume": {
-            "unit_kind": "complete-matched-fit-packet",
-            "ledger_path": "inputs/verified-ledger.json",
-            "skip_verified": True,
-            "max_outcome_blind_retries": 2,
-        },
+        "resume": dict(RESUME_POLICY),
         "max_export_bytes": 128 * 1024**2,
         "r30": {
             "ruling_sha256": JUDGMENT_SHA,
@@ -216,6 +221,8 @@ def make_pack(
             "source_commit": commit,
         }
     if synthetic:
+        manifest.pop("resume")
+        manifest["resume_exemption"] = dict(CANARY_EXEMPTION)
         manifest["canary"] = {
             "schema": "colab-family-canary/v1",
             "mode": "probe",
@@ -252,6 +259,8 @@ def make_pack(
                 "SNAKE_COLAB_CANARY_PACKAGE": "research/bl_round30",
             },
         }
+        native_canary.pop("resume")
+        native_canary["resume_exemption"] = dict(CANARY_EXEMPTION)
         native_canary.pop("scientific_admission", None)
         native_canary.pop("blocked_reason", None)
         native_canary["requirements"] = {**manifest["requirements"], "est_minutes": 5}
@@ -270,6 +279,8 @@ def make_pack(
             "scientific_admission": False,
             "blocked_reason": "HOLD: Claude corpus reuse/account reservation and Codex-V admission",
         }
+        template.pop("resume_exemption")
+        template["resume"] = dict(RESUME_POLICY)
         template["timeout_minutes"] = CAPS[stage]["hours"] * 60
         template["budget"] = {
             **manifest["budget"],

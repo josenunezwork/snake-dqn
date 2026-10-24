@@ -47,6 +47,9 @@ def test_native_canary_covers_exact_main_inventory_and_reserves_liability(tmp_pa
     )
     manifest = make_pack(tmp_path / "pack", "a" * 40, b8, inputs=inputs, series=series)
     probe = json.loads((tmp_path / "pack/canary-job.json").read_text())
+    assert "resume" not in probe
+    assert probe["resume_exemption"]["kind"] == "short-canary"
+    assert manifest["resume"]["skip_verified"] is True
     assert probe["inputs"] == manifest["inputs"]
     assert probe["source_paths"] == manifest["source_paths"]
     assert manifest["scientific_admission"] is False
@@ -63,3 +66,26 @@ def test_qualified_device_resolver_understands_real_shell_contract(monkeypatch):
     assert (
         canary.job_device({"device": "cuda", "env": {"R30_DEVICE": "cuda"}}, Path.cwd()) == "cuda"
     )
+
+
+def test_synthetic_canary_declares_short_exemption_and_main_keeps_resume(tmp_path, monkeypatch):
+    from research.bl_round30 import pack
+
+    b8 = tmp_path / "b8.pth"
+    b8.write_bytes(b"synthetic packaging fixture")
+    monkeypatch.setattr(pack, "B8_SHA", digest(b8))
+    monkeypatch.setattr(
+        pack.subprocess,
+        "check_output",
+        lambda *a, **k: b"" if ("diff" in a[0] or "ls-files" in a[0]) else "a" * 40,
+    )
+    monkeypatch.setattr(pack.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(pack, "check", lambda *a, **k: "qualified fixture tree")
+    manifest = make_pack(tmp_path / "synthetic", "a" * 40, b8)
+    assert "resume" not in manifest
+    assert manifest["resume_exemption"]["kind"] == "short-canary"
+    assert manifest["timeout_minutes"] == 20
+    template = json.loads((tmp_path / "synthetic/main-template.json").read_text())
+    assert "resume_exemption" not in template
+    assert template["resume"]["skip_verified"] is True
+    assert template["resume"]["max_outcome_blind_retries"] == 2
