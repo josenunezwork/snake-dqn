@@ -1281,3 +1281,5 @@ On the unchanged attempt-1 manifest, config `-03` (`af2dc6bb…`) and `OFFLINE_P
 (`9e7f43f1…`) give canary.check and supervisor.validate ACCEPT and `PASS_DRY_RUN … allocations=0`.
 Addendum `HANDOFF_I0S_02.md` (`861c7628…`). Not re-reviewed, admitted or dispatched; 0 register
 rows.
+
+I0S admission attempt 1 `gpu-integration-i0s-main-968f02765f7c-a1`: ruling `ed679b6ebeee861e75900763c535cc6a68ea541ef92a9b06b8537be6bbfa2969`, reservation `i0s-968f0276-attempt-1` (42 u / 250 min), register revision 4 SHA256 `7b96b56768f8eefd472692411384641a7dea67c48ffb77f6e65c3f05e718f197`, admission `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0s-20261024/attempt-01/admissions/fd8446d3b47342e38596c47ef98f8366/OPERATOR_ADMISSION.json` SHA256 `aaa217db66ce4d1e890530325e9a93b70eca3cb49829096fbf1ef6267477160c`. Dispatch not implied.
