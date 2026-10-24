@@ -270,10 +270,11 @@ def main() -> None:
         from research.colab_cli.supervisor import validate
         from tools.ops.dispatch import require_resume_policy
 
-        validate(canary, repo=ROOT)
         require_resume_policy(science)
         if args.canary_receipt:
             validate(science, repo=ROOT)
+        else:
+            validate(canary, repo=ROOT)
     for name, value in (
         ("v8-canary.json", canary),
         ("v8-main.json" if args.canary_receipt else "v8-main-template.json", science),
