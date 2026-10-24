@@ -1,0 +1,1136 @@
+{
+  "accounting": {
+    "canary": {
+      "conservative_rounded_units": 0.23,
+      "gross_units": 0.15000000000009095,
+      "own_units": 0.22378450203809125
+    },
+    "charged_with_this_canary_and_failed_repair": 10.51,
+    "envelope_units": 34.5,
+    "failed_repair": {
+      "conservative_rounded_units": 0.17,
+      "gross_units": 0.09999999999990905,
+      "own_units": 0.16454261128133707
+    },
+    "legacy_units": 10.11,
+    "note": "This is local receipt arithmetic, not a fresh account inventory or new funding authorization.",
+    "policy": "Conservative max(own,gross), rounded up to cents, never refund; carry WARNING_UNEXPLAINED_DEBIT."
+  },
+  "authority": {
+    "amendment": {
+      "lines": [
+        71,
+        79
+      ],
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_Y3_SOURCE_REPAIR_AMENDMENT_06.md",
+      "specific_exclusion_quote": "Timeout/cap means INCOMPLETE/judge without retry."
+    },
+    "interpretation": "The internal 300-second upload cap is not the 200-minute study cap, but the rule contains no exemption for internal transfer caps. The specific cap exclusion governs the broad transport predicate. Do not relabel UPLOAD_CAP as generic SUPERVISOR to bypass it.",
+    "judgment": {
+      "mechanical_predicate_lines": [
+        70,
+        72
+      ],
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_FINALISATION.md",
+      "specific_exclusion_quote": "Timeout or cap hit means INCOMPLETE, evidence retained, and back to a judge. It is not an automatic retry."
+    },
+    "preservation": [
+      "JUDGMENT_P1_REPAIR_TRANSPORT.md:132-135 preserves deadlines and retry rules; Drive addendum:234 retains caps and retries.",
+      "JUDGMENT_P1_A3_3_SQLITE_20261023.md:33 retains repair prerequisites, prices and retry rules."
+    ]
+  },
+  "canary": {
+    "cleanup_error": null,
+    "commit": "03e0af75c64538f53a6971e6fec5d9a173bc921b",
+    "elapsed_seconds": 523.1326021669665,
+    "failed_exec_calls": [],
+    "failure_class": null,
+    "first_two_verified_uploads": [
+      {
+        "bytes_per_second": 921.7743036881986,
+        "call_site": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/supervisor.py:1498",
+        "direction": "upload",
+        "elapsed_seconds": 3.51929966697935,
+        "remote": "/content/snake-cli/5059d58fe83c417b8916eaab919d68c7/bootstrap.sh",
+        "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+        "size_bytes": 3244,
+        "status": "verified"
+      },
+      {
+        "bytes_per_second": 4043.03323334248,
+        "call_site": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/supervisor.py:1498",
+        "direction": "upload",
+        "elapsed_seconds": 3.5891369579476304,
+        "remote": "/content/snake-cli/5059d58fe83c417b8916eaab919d68c7/source.py",
+        "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+        "size_bytes": 14511,
+        "status": "verified"
+      }
+    ],
+    "manifest_sha256": "95246e36f4110cf2b38f0ab2681a94d3ddac8af6e0eaf61bb748332514cc0063",
+    "measurement": {
+      "elapsed_seconds": 208.6527724590269,
+      "source_delivery_seconds": 11.197313499986194,
+      "transfer_seconds": 113.76288220990682
+    },
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/receipt.json",
+    "source_delivery": {
+      "commit": "03e0af75c64538f53a6971e6fec5d9a173bc921b",
+      "transport": "github",
+      "tree": "a7c7261c7fc2ddb7b3015ef75f9b575b4df6d78a"
+    },
+    "status": "PASS",
+    "stop_verified": true,
+    "warmup_seconds": 4.044605833012611
+  },
+  "conditions_for_any_newly_judged_attempt": [
+    "First obtain a create-only independent judge ruling explicitly addressing UPLOAD_CAP versus the cap exclusion, authorizing a bounded factory maintenance pause and nice-0 staging if selected. Record it and debit reconciliation in the campaign log. This report supplies no admission.",
+    "Wait for a naturally idle fully released factory, or use only the explicitly authorized canonical ops/mac-timing-armed cooperative preemption route. Wait for terminal runtime-result/stop evidence, all worker cleanup and lease release; the flag alone is not drain proof. P1 upload is not automatically a registered timing job. Do not kill workers or tmux.",
+    "Have the operator exclude the new supervisor/CLI process tree from the every-second renicer for the authorized window; use a fresh process tree that starts at verified absolute nice 0 and retain it through staging. Changing the parent alone leaves already-reniced children at nice15. No such exemption or process change was performed here.",
+    "Verify no F0 workers or new admissions, no other heavy research/test work, AC/lid guards, applicable X5/K-1/M1 exclusions, and record host samples across staging. Ensure the factory cannot restart during the quiet window.",
+    "Create a genuinely new attempt pack, namespace suffix, job_id, output, broker state and receipt; same frozen allocation source_latebody_06_e8_04_pack04; empty bound ledger. Preserve critic PASS, origin bytes, refit counters and no-second-look discipline. Never reuse -04 outputs or only rename the admission file.",
+    "Keep original 6.16u/200min/reserve1.03, rate1.54/tolerance0, 34.50u envelope and qualified deadlines unless a new ruling explicitly changes them. Do not double caps again. Reconcile failed-attempt charge and reserve future replacement liabilities.",
+    "Changing attempt namespace also changes the bundled control/ledger bytes and public bundle SHA/URL. Its new publication/fetch validation must follow the authorized immutable input transport procedure; no blind host/URL switch and no overwriting the selected -04 assets.",
+    "Require proof == actual broker tree == manifest pin, independent exact-manifest review, fresh Claude line check, publication and immediate operator account inventory (zero other assignments and rate <=1.54). Same transport may reuse canary only if exact family/input bindings permit it; changed input digest can invalidate canary proof. An extra canary is funded only on the registered changed-transport condition or a new explicit ruling.",
+    "Only Claude/operator dispatches once via tools/ops/dispatch.sh; no auto-retry on another failure. Preserve all evidence and release verification. Do not start replacement without COMPLETE_SOURCE_CONTINUATION and prefix MATCH."
+  ],
+  "created_at_utc": "2026-10-24T03:23:55.220080+00:00",
+  "dispatch_ready": false,
+  "evidence": [
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-output/receipt.json",
+      "sha256": "b675b84e98d155251f43d1b44d00640240dbf2769cde2f37465edf6dc08b66b1",
+      "size_bytes": 14201
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/receipt.json",
+      "sha256": "22c55fb5bf193f39b144882f5c3eaa998c4c95c3477f9df032fd43708aa31990",
+      "size_bytes": 75829
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-output/manifest.json",
+      "sha256": "6546012678fbb2f2a4d2f60aa0393e99348a9598894a64a49aa0adcadec8b567",
+      "size_bytes": 2661193
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/manifest.json",
+      "sha256": "95246e36f4110cf2b38f0ab2681a94d3ddac8af6e0eaf61bb748332514cc0063",
+      "size_bytes": 2661332
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-output/rate-calibration.json",
+      "sha256": "fc37dd868e2af3a9b465665e13d867209dc9ce9c436a4a47805f1259e281a087",
+      "size_bytes": 1101
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/upload-measurement.json",
+      "sha256": "43059038fd506201d40052ec37a10f4e3dd87744ac8f72c628f1136372fd72ec",
+      "size_bytes": 134
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/source-delivery.json",
+      "sha256": "883fd2391a356f9df8dd512249edf3cda4d2c79a78ae5e5c98338eee9abb51d3",
+      "size_bytes": 138
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/input-hashes.json",
+      "sha256": "270d7e60757450c6bbf44124522058ad60090c99d86735ac476ba5a8150dd738",
+      "size_bytes": 3390
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-output/staging/source-plan.json",
+      "sha256": "32ce5662eb7057945e0d8b845fa3a4827d8bfe35724b596c519522e516357c3c",
+      "size_bytes": 107506
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/staging/source-plan.json",
+      "sha256": "cdf62396014bfa5e69c3b656f10ceef1b648999f56f0c15cd429ee4eef60ff9d",
+      "size_bytes": 107506
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-manifest.json",
+      "sha256": "233a77e0e3305fbfd946f3f7aeda9c44f7e40f7f4957112196d245cd38c81f61",
+      "size_bytes": 1597433
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-manifest.json",
+      "sha256": "fa398a8eb52009da34c8c05cc69a913c71eeaa2b38dd4a0573cf37d0b79c726e",
+      "size_bytes": 1597804
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_CANARY_VERIFICATION_CODEX_V_20261023.json",
+      "sha256": "e753b6da2bc33da6b46b43e75349e72b6bf2cfe5291c21f5b1ad4ad999ebe1e5",
+      "size_bytes": 46638
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_E8_04_SOURCE_REPAIR_CODEX_V_13_FINAL.json",
+      "sha256": "f6b9b17bac04fda55b6f9b60db6b5f845904219b7422556b1c40a0668d33245a",
+      "size_bytes": 38196
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/claude-repair-line-check.json",
+      "sha256": "4d5889ca2bc1c488a4696bd81676bbc2a3dd1ec443dfa68876b0a2609be2f145",
+      "size_bytes": 1575
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_FINALISATION.md",
+      "sha256": "fe0584595cca6f6fcb28071692e52e4fe8460f3ab90fc29429c027203ff9ebfc",
+      "size_bytes": 21320
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_REPAIR_TRANSPORT.md",
+      "sha256": "2fb9e3914a5eb86e9cd5c42495a1d8213fa1475aa6cf0c72d14c83350de5bc5e",
+      "size_bytes": 24878
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_P1_A3_3_SQLITE_20261023.md",
+      "sha256": "f1bd0dca5499c1766addb2145e35dc3e6291c6d9d97f175425c68d7f0d9f3ee9",
+      "size_bytes": 12305
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_FACTORY_CONCURRENCY_INTERIM_20261023.md",
+      "sha256": "ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd",
+      "size_bytes": 7635
+    },
+    {
+      "binding": "captured_prefix",
+      "mutable": true,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/p1-repair10-04-repair.log",
+      "sha256": "e0914aec2eed98073db50f6899fb333b0f464bc57f3ea03ea0620b3b618db3a7",
+      "size_bytes": 613
+    },
+    {
+      "binding": "captured_prefix",
+      "mutable": true,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/p1-repair10-04-canary.log",
+      "sha256": "0bdc7aff248aaa30f2726026df2ad5561f7af387c65213cb90bec763e961e386",
+      "size_bytes": 14396
+    },
+    {
+      "binding": "captured_prefix",
+      "mutable": true,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/mac-bl-f0-d256-guard-w12-06-387b1dde8241.log",
+      "sha256": "02ce80b8bdfef9d10a608078fb22bdfc32f4a0133df9bc7f345f453d2705c38c",
+      "size_bytes": 2262
+    },
+    {
+      "binding": "captured_prefix",
+      "mutable": true,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/mac-bl-f0-d256-guard-w12-07-387b1dde8241.log",
+      "sha256": "0d7921d7d1e374aa9ee184a2d17c2a0fe7304e14751ad62d02ea3ec9fcad6242",
+      "size_bytes": 1749
+    },
+    {
+      "binding": "captured_prefix",
+      "mutable": true,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/mac-bl-f0-d256-guard-w12-08-caafdf5d079b.log",
+      "sha256": "4096531635f05f329d89c60499862539fbffbeae14be89a2c7db8e04df7cfc5a",
+      "size_bytes": 999
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/renicer.sh",
+      "sha256": "a8cdd607285a79f33d84328f01aca9d71ba2d89b80b90e7e349a1c85f91fffef",
+      "size_bytes": 576
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json",
+      "sha256": "4983cab57b26d9df9879ada094a84471eedbbb6c85599b1cdea26d86013f70f0",
+      "size_bytes": 498
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/dispatch/p1-repair10-04-repair/p1-repair10-04-repair.accounting.json",
+      "sha256": "2dbfd377e38b27148e2edba1f2684b41b0069bf452e4542370f47e078e0f9419",
+      "size_bytes": 755
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_Y3_SOURCE_REPAIR_AMENDMENT_06.md",
+      "sha256": "9a6c01de68227e5906a82f16609450628e413fa63e7b797b988fdd26d6996756",
+      "size_bytes": 7898
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/p1_repair_admission.py",
+      "sha256": "375e14a9a036dc50788ecd1072e827d03956c281e1df6db04c159de7d0a7662b",
+      "size_bytes": 7910
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/p1_repair_transport.py",
+      "sha256": "e68b36e05b586233482c6977aace5d027716e96381f27c01f9b48b3ba7c71f7c",
+      "size_bytes": 23517
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_labels/MAC_HANDOFF_20261023.md",
+      "sha256": "7837d3b6447cc7b0aa16742f06e35c083cc0063692ee6443de6a6f37f6e768cd",
+      "size_bytes": 8670
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/mac-pack-02/d256-output-mac-04/runtime-result.json",
+      "sha256": "5156a77df137106b5e1201db7a28dd1e9ba8383a79fd775805d2c73e8e29b0e1",
+      "size_bytes": 56858
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/bootstrap.sh",
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "size_bytes": 3244
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/source.py",
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "size_bytes": 14511
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/supervisor.py",
+      "sha256": "263eeecc556ae02057d87c351e7c83b9fb3175f55f8b1d823982bf53c564e853",
+      "size_bytes": 92976
+    },
+    {
+      "binding": "whole_file",
+      "mutable": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/transfers.py",
+      "sha256": "a8fd12c425d7dff168e300a6bf0a6bec38230d75520c6251e86a59b0df83d95c",
+      "size_bytes": 21052
+    }
+  ],
+  "failure": {
+    "bootstrap_contents_put": {
+      "bytes_per_second": 5771.564624936398,
+      "direction": "upload",
+      "elapsed_seconds": 0.5620659579872154,
+      "remote": "/content/snake-cli/39668a357a0a4e2aac59f3cf98f0b963/bootstrap.sh",
+      "size_bytes": 3244,
+      "status": "completed"
+    },
+    "cleanup_error": null,
+    "commit": "03e0af75c64538f53a6971e6fec5d9a173bc921b",
+    "elapsed_seconds": 384.6450653329957,
+    "endpoint": "gpu-l4-s-ass1a0-1jguae81v5efw",
+    "error": "TransferError('upload /content/snake-cli/39668a357a0a4e2aac59f3cf98f0b963/source.py called at /Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/supervisor.py:1498: total upload time cap reached at upload /content/snake-cli/39668a357a0a4e2aac59f3cf98f0b963/source.py')",
+    "exports": [],
+    "failed_exec_calls": [
+      {
+        "attempt": 1,
+        "command": "exec",
+        "elapsed_seconds": 120.00989987503272,
+        "status": "failed",
+        "timeout_seconds": 119.99999958398985
+      },
+      {
+        "attempt": 1,
+        "command": "exec",
+        "elapsed_seconds": 120.00631012499798,
+        "status": "failed",
+        "timeout_seconds": 119.99999949999619
+      }
+    ],
+    "failure_class": "UPLOAD_CAP",
+    "generation": "39668a357a0a4e2aac59f3cf98f0b963",
+    "job_id": "bl-p1-source-repair-10-85751d389192",
+    "manifest_sha256": "6546012678fbb2f2a4d2f60aa0393e99348a9598894a64a49aa0adcadec8b567",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-output/receipt.json",
+    "session": "snake-bl-p1-source-repair-10-85751d389192-39668a357a0a",
+    "status": "INCOMPLETE",
+    "stop_verified": true,
+    "supervisor_sha256": "263eeecc556ae02057d87c351e7c83b9fb3175f55f8b1d823982bf53c564e853",
+    "terminal": null,
+    "transfer_records": [
+      {
+        "bytes_per_second": 23.288293135488125,
+        "call_site": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/supervisor.py:1498",
+        "direction": "upload",
+        "elapsed_seconds": 139.29745650000405,
+        "remote": "/content/snake-cli/39668a357a0a4e2aac59f3cf98f0b963/bootstrap.sh",
+        "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+        "size_bytes": 3244,
+        "status": "verified"
+      },
+      {
+        "bytes_per_second": null,
+        "call_site": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/supervisor.py:1498",
+        "direction": "upload",
+        "elapsed_seconds": 0.0002080000122077763,
+        "remote": "/content/snake-cli/39668a357a0a4e2aac59f3cf98f0b963/source.py",
+        "size_bytes": 14511,
+        "status": "failed"
+      }
+    ],
+    "warmup_seconds": 26.6292472910136
+  },
+  "host_chronology": {
+    "basis": "Receipt write timestamps minus elapsed bound approximate supervisor start; launcher birth times bound factory submission, not exact worker execution. Operational logs corroborate active/draining counts. Times below are PT on 2026-10-23; raw metadata are UTC on 2026-10-24.",
+    "canary_approximate": "19:38:44 to 19:47:27; operator reports mostly idle host and nice0 supervisor.",
+    "factory_prior_terminal_operational_fields_only": {
+      "elapsed_seconds": 952.3809689159971,
+      "nice": 10,
+      "status": "PREEMPTED",
+      "stop_reason": "operational guard: exclusive factory window: concurrent compute pid 85370",
+      "workers": 12
+    },
+    "factory_sequence": [
+      "W12-06 launcher created19:55:51.921; log shows12 workers, then preempting11 at elapsed789.836 and4 at900.229; PREEMPTED at952.381s. Factory drain overlaps repair start.",
+      "W12-07 launcher created20:12:16.560; admission HOLD on foreign compute PID85370. This does not prove twelve active factory workers throughout staging.",
+      "W12-08 launcher created20:15:16.994; log shows12 active workers at elapsed164.709s. Submission overlaps late repair; exact worker-start instant is not timestamped in that log."
+    ],
+    "file_metadata": [
+      {
+        "birth_utc": "2026-10-24T02:38:31.963580+00:00",
+        "mtime_utc": "2026-10-24T02:38:31.988301+00:00",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/manifest.json"
+      },
+      {
+        "birth_utc": "2026-10-24T02:47:27.035910+00:00",
+        "mtime_utc": "2026-10-24T02:47:27.037412+00:00",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/receipt.json"
+      },
+      {
+        "birth_utc": "2026-10-24T03:09:59.263918+00:00",
+        "mtime_utc": "2026-10-24T03:09:59.296931+00:00",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-output/manifest.json"
+      },
+      {
+        "birth_utc": "2026-10-24T03:11:24.811251+00:00",
+        "mtime_utc": "2026-10-24T03:11:24.811389+00:00",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-output/rate-calibration.json"
+      },
+      {
+        "birth_utc": "2026-10-24T03:16:45.407113+00:00",
+        "mtime_utc": "2026-10-24T03:16:45.407560+00:00",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/repair-output/receipt.json"
+      },
+      {
+        "birth_utc": "2026-10-24T02:55:51.920935+00:00",
+        "mtime_utc": "2026-10-24T02:55:51.924981+00:00",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/mac-run-bl-f0-d256-guard-w12-06-387b1dde8241.sh"
+      },
+      {
+        "birth_utc": "2026-10-24T03:12:16.559796+00:00",
+        "mtime_utc": "2026-10-24T03:12:16.564322+00:00",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/mac-run-bl-f0-d256-guard-w12-07-387b1dde8241.sh"
+      },
+      {
+        "birth_utc": "2026-10-24T03:15:16.994365+00:00",
+        "mtime_utc": "2026-10-24T03:15:16.997512+00:00",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/mac-run-bl-f0-d256-guard-w12-08-caafdf5d079b.sh"
+      }
+    ],
+    "limits": "Metadata can be copied or rewritten; they support approximate chronology, not CPU scheduler causality. No scientific F0 outcomes were inspected or reported.",
+    "repair_approximate": "20:10:21 to 20:16:45; rate calibration written20:11:24.811."
+  },
+  "mechanism": {
+    "code_references": [
+      "research/colab_cli/supervisor.py@03e0af75:1488-1523: one monotonic deadline, renew and parent-directory RPC before every stage_upload.",
+      "research/colab_cli/transfers.py@03e0af75:130-135: reject before PUT when deadline already expired.",
+      "research/colab_cli/transfers.py@03e0af75:329-348: tiny-file PUT plus renewals then remote SHA verification; per-file verification has its own/session bound.",
+      "research/colab_cli/transfers.py@03e0af75:267-285: VERIFY_FILE uses poll_rpc.",
+      "research/colab_cli/supervisor.py@03e0af75:662-708: bounded poll_rpc recovers only after independent kernel-idle proof.",
+      "research/colab_cli/failures.py@03e0af75:69-75: total upload time cap maps to UPLOAD_CAP."
+    ],
+    "deadline_seconds": 300,
+    "inference": "Control/verification/renewal and parent-directory RPC work consumed the shared staging wall clock. The roughly 120-second gaps dominate, not file size or sustained upload bandwidth. Mapping each unlabelled exec call to an exact operation is inferred from code order, not recorded RPC payload evidence.",
+    "observed": "bootstrap PUT completed in 0.562066 s, but whole verified bootstrap upload took 139.297457 s. Two exec calls failed at 120.009900 and 120.006310 s. source.py failed after 0.000208 s, with no source.py ContentsClient PUT in the receipt.",
+    "pinned_code_matches_broker": [
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/bootstrap.sh",
+        "pin": "03e0af75c64538f53a6971e6fec5d9a173bc921b",
+        "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+        "size_bytes": 3244
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/source.py",
+        "pin": "03e0af75c64538f53a6971e6fec5d9a173bc921b",
+        "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+        "size_bytes": 14511
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/supervisor.py",
+        "pin": "03e0af75c64538f53a6971e6fec5d9a173bc921b",
+        "sha256": "263eeecc556ae02057d87c351e7c83b9fb3175f55f8b1d823982bf53c564e853",
+        "size_bytes": 92976
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/transfers.py",
+        "pin": "03e0af75c64538f53a6971e6fec5d9a173bc921b",
+        "sha256": "a8fd12c425d7dff168e300a6bf0a6bec38230d75520c6251e86a59b0df83d95c",
+        "size_bytes": 21052
+      }
+    ],
+    "qualified_cli_tree": "d0d92bdb572b770284a1fea6152417ffa5f06bea",
+    "structural_risk": "The shared clock continues through renewals, directory RPCs and verification; some RPC recovery can continue under its own bound after the shared staging deadline. A later PUT is where the exhausted cap surfaces. Increasing the job timeout would not extend the fixed 300-second staging ceiling."
+  },
+  "not_done": [
+    "No Colab CLI calls, account query, job, canary, dispatch, retry, upload/download, external asset publication or supervisor modification.",
+    "No worker/process renicing, timing arm creation/removal, lease mutation, tmux kill, serving/release/pin/checkpoint edit.",
+    "No new critic fit, gate look, training continuation, model or outcome evaluation.",
+    "No retry pack or admission created; no guarantee that a future quiet-host launch will succeed."
+  ],
+  "operator_commands": {
+    "authorized_retry_launch_commands_now": [],
+    "command_limitations": "These exact argv examples choose fresh -05 sibling names; they are not a prepared runnable retry. The future files do not exist and this NO_RETRY receipt cannot pass reviewed(). Existing admission does not implement retry cloning or reconcile failed-repair debit; prepare and independently verify those first. p1_repair_transport._attempt_payloads refuses a source whose output_dir already exists, so invoking prepare-drive directly on consumed -04 is not a valid retry generator. No current valid one-command retry-preparation path is claimed.",
+    "conditional_command_examples_not_authorized_or_executed": [
+      {
+        "argv": [
+          "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+          "-m",
+          "research.bl_ppo.p1_repair_admission",
+          "repair",
+          "--manifest",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/repair-manifest.json",
+          "--output",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/repair-admission/manifest.json",
+          "--codex-v",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/P1_REPAIR_RETRY_CODEX_V_20261023.json",
+          "--claude",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/claude-repair-line-check.json",
+          "--repo",
+          "/Users/josenunez/Projects/ml/snake-dqn-p1snap",
+          "--canary",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/receipt.json"
+        ],
+        "cwd": "/Users/josenunez/Projects/ml/snake-dqn-p1snap",
+        "shell": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.bl_ppo.p1_repair_admission repair --manifest /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/repair-manifest.json --output /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/repair-admission/manifest.json --codex-v /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/P1_REPAIR_RETRY_CODEX_V_20261023.json --claude /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/claude-repair-line-check.json --repo /Users/josenunez/Projects/ml/snake-dqn-p1snap --canary /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/canary-output/receipt.json",
+        "stage": "admission only after a new judge ruling and newly prepared/reviewed held manifest"
+      },
+      {
+        "argv": [
+          "/Users/josenunez/Projects/ml/snake-dqn-acctfix/tools/ops/dispatch.sh",
+          "p1-repair10-05-repair",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/repair-admission/manifest.json",
+          "--broker",
+          "/Users/josenunez/Projects/ml/snake-dqn-acctfix",
+          "--cwd",
+          "/Users/josenunez/Projects/ml/snake-dqn-p1snap",
+          "--dispatch-txt",
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/repair-admission/DISPATCH.txt"
+        ],
+        "cwd": "/Users/josenunez/Projects/ml/snake-dqn-p1snap",
+        "shell": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/tools/ops/dispatch.sh p1-repair10-05-repair /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/repair-admission/manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-acctfix --cwd /Users/josenunez/Projects/ml/snake-dqn-p1snap --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/repair-admission/DISPATCH.txt",
+        "stage": "operator dispatch only after all admission, factory-drain, priority and live-account conditions pass"
+      }
+    ],
+    "factory_arm_command": "No arm/renicer mutation command issued: a transport upload is not automatically within the registered timing/strict/serving scope; the new judge must authorize the bounded use and operator ownership first.",
+    "future_name_reservation_only": {
+      "admission_output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05/repair-admission/manifest.json",
+      "can_be_used_only_if_fresh": true,
+      "created": false,
+      "dispatch_name": "p1-repair10-05-repair",
+      "root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-05",
+      "supervisor_state": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/state/p1-repair10-05-repair"
+    },
+    "reason": "NO_RETRY. A new judge ruling and freshly prepared/reviewed immutable package are prerequisites. Running the old admission/dispatch again would reuse consumed identities.",
+    "safe_local_inspection_commands": [
+      "shasum -a 256 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_REPAIR_FAILURE_CODEX_V_20261023.json",
+      "/bin/ps -axo pid=,ppid=,nice=,%cpu=,args=",
+      "git -C /Users/josenunez/Projects/ml/snake-dqn-acctfix rev-parse HEAD:research/colab_cli"
+    ]
+  },
+  "retry_consumption": {
+    "implication": "The reserved mechanical retry appears unspent, but reservation does not override the explicit cap exclusion.",
+    "prior_registered_repair_retry_found": false,
+    "scope": "Local source-repair-10-* family inspection found only -04 canary-output and repair-output runtime receipts; earlier packs are held/preparation and copied origin receipts."
+  },
+  "retry_predicates": [
+    {
+      "evidence": "TransferError at initial upload staging; receipt UPLOAD_CAP.",
+      "predicate": "SUPERVISOR or transport mechanical failure",
+      "satisfied": true
+    },
+    {
+      "evidence": true,
+      "predicate": "stop_verified true",
+      "satisfied": true
+    },
+    {
+      "evidence": null,
+      "predicate": "cleanup_error null",
+      "satisfied": true
+    },
+    {
+      "evidence": "terminal null; exports []; source.py PUT not attempted after deadline; no source runtime child start.",
+      "predicate": "missing work and precedes COMPLETE_SOURCE_CONTINUATION",
+      "satisfied": true
+    },
+    {
+      "evidence": "total upload time cap reached; UPLOAD_CAP.",
+      "predicate": "not excluded by timeout/cap rule",
+      "satisfied": false
+    }
+  ],
+  "root_cause_assessment": {
+    "guarantee": "No launch conditions can guarantee absence of future transport failures. The proposed controls remove the identified scheduling hazard without claiming a causal proof.",
+    "larger_residual_set": {
+      "assessment": "REFUTED",
+      "byte_delta": 0
+    },
+    "local_cpu_contention_low_priority": {
+      "assessment": "PLAUSIBLE_CONTRIBUTOR_NOT_PROVEN",
+      "evidence": [
+        "User reports repair supervisor changed nice 0 to 15 seconds after launch; canary supervisor nice 0 on mostly idle Mac.",
+        "ops/renicer.sh:3-11 explicitly lowers colab_cli and colab processes below nice 15 every second, excluding factory matching commands.",
+        "W12 logs -06 show twelve active workers and later drain; -07 refuses foreign compute PID85370; -08 resumes twelve workers. These establish changing host contention around this period."
+      ],
+      "limits": "No per-process CPU/runnable-delay trace, historical nice samples or labelled RPC transport trace was saved in the receipt. Renicer script corroborates policy, not exact past process-state samples. The entire upload window was not continuously under W12 load."
+    },
+    "network": {
+      "assessment": "BULK_BANDWIDTH_EXPLANATION_UNSUPPORTED_CONTROL_PLANE_DELAY_NOT_EXCLUDED",
+      "evidence": "Tiny bootstrap PUT and heartbeat PUTs complete near one second; source.py PUT was not attempted. Long exec acknowledgements can involve local scheduler, network/control plane or remote kernel.",
+      "limits": "No packet trace, provider telemetry, matched-priority rerun or controlled isolation exists; cannot attribute the 120-second gaps solely to local CPU or solely to network."
+    },
+    "proximate_cause": "Initial staging wall-clock cap exhausted by control-path latency before source.py upload."
+  },
+  "schema": "bl-p1-repair-failure-independent-codex-v/v1",
+  "scope": "Independent local verification and diagnosis only; no Colab access, allocation, dispatch, process-control or renicing performed.",
+  "status": "VERIFIED_NO_RETRY_UNDER_CURRENT_RULES",
+  "study_date_pt": "2026-10-23",
+  "summary": "An initial-staging transport time cap expired, with safe cleanup and no continuation. It meets the positive mechanical predicates, but the explicit timeout/cap exclusion requires a new judge ruling. Residual uploads are identical to the passing canary. Control RPC delay is proved; local CPU starvation is plausible but not isolated from network/control-plane or remote-kernel delay.",
+  "upload_comparison": {
+    "actual_canary_verified_upload_bytes": 74138,
+    "actual_canary_verified_upload_count": 28,
+    "actual_repair_verified_payload_bytes": 3244,
+    "bootstrap_and_source_helpers_identical_for_both": [
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/bootstrap.sh",
+        "pin": "03e0af75c64538f53a6971e6fec5d9a173bc921b",
+        "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+        "size_bytes": 3244
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-acctfix/research/colab_cli/source.py",
+        "pin": "03e0af75c64538f53a6971e6fec5d9a173bc921b",
+        "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+        "size_bytes": 14511
+      }
+    ],
+    "conclusion": "Larger repair residual upload set is refuted. It failed on the second helper before the identical residual or public inputs were reached.",
+    "contents_byte_delta_repair_minus_canary": 0,
+    "each_all_manifest_input_bytes": 595304652,
+    "each_helper_bytes": 17755,
+    "each_local_input_bytes": 56383,
+    "each_local_input_count": 26,
+    "each_manifest_input_count": 35,
+    "each_planned_contents_bytes": 74138,
+    "each_planned_contents_file_count": 28,
+    "each_public_fetch_bytes": 595248269,
+    "each_public_fetch_count": 9,
+    "input_lists_equal": true,
+    "local_uploads_identical_for_both": [
+      {
+        "dest": "public-inputs.json",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-wp3/research/t34_exit_b8/PUBLIC_INPUTS.json",
+        "sha256": "736f7b4e7730f760b8b81db00772d14abcf84c74b261a8dc7630732fdd383a10",
+        "size_bytes": 2409
+      },
+      {
+        "dest": "failed-supervisor-receipt.json.complete",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/failed-supervisor-receipt.json.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size_bytes": 9
+      },
+      {
+        "dest": "failed-supervisor-receipt.json.sha256",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/failed-supervisor-receipt.json.sha256",
+        "sha256": "19aa6cf6a224b605a5d0f8b6a2004a407e96da99f57ce260d2ddc49a5dccd631",
+        "size_bytes": 97
+      },
+      {
+        "dest": "immutable-fixture_late_body_bank-64031cc19f35a73a.pt.complete",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/immutable-fixture_late_body_bank-64031cc19f35a73a.pt.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size_bytes": 9
+      },
+      {
+        "dest": "immutable-fixture_late_body_bank-64031cc19f35a73a.pt.sha256",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/immutable-fixture_late_body_bank-64031cc19f35a73a.pt.sha256",
+        "sha256": "c0cdaf04ffa5c7e637ff895ff4dbd75ce53da03f2e2ca772244b5420b9b3b57f",
+        "size_bytes": 119
+      },
+      {
+        "dest": "immutable-ordinary_bank-e63802f2e97cbb5d.pt.complete",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/immutable-ordinary_bank-e63802f2e97cbb5d.pt.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size_bytes": 9
+      },
+      {
+        "dest": "immutable-ordinary_bank-e63802f2e97cbb5d.pt.sha256",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/immutable-ordinary_bank-e63802f2e97cbb5d.pt.sha256",
+        "sha256": "3d4be58d0a2bca6d5da7c97d462d4829c70edad40b272e5541fa78dff77c93e1",
+        "size_bytes": 110
+      },
+      {
+        "dest": "immutable-refit_bank-f7fd77c1276d8df6.pt.complete",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/immutable-refit_bank-f7fd77c1276d8df6.pt.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size_bytes": 9
+      },
+      {
+        "dest": "immutable-refit_bank-f7fd77c1276d8df6.pt.sha256",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/immutable-refit_bank-f7fd77c1276d8df6.pt.sha256",
+        "sha256": "da077bcc2467cab76ec27165bd790ed86ccd75c2ab62bccca2240a61b7002b90",
+        "size_bytes": 107
+      },
+      {
+        "dest": "late-body-rows-0000.npz.complete",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/late-body-rows-0000.npz.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size_bytes": 9
+      },
+      {
+        "dest": "late-body-rows-0000.npz.sha256",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/late-body-rows-0000.npz.sha256",
+        "sha256": "4566b5467707c8f349b4766eaadef95ae76041d4eb0b5be519e79f2334f5e6c1",
+        "size_bytes": 90
+      },
+      {
+        "dest": "late-body-rows-0001.npz.complete",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/late-body-rows-0001.npz.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size_bytes": 9
+      },
+      {
+        "dest": "late-body-rows-0001.npz.sha256",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/late-body-rows-0001.npz.sha256",
+        "sha256": "efdf10d7b58cdb19a48c77bf6e8f13432f8c5113afc70479ea691aea65f198c6",
+        "size_bytes": 90
+      },
+      {
+        "dest": "late-body-rows-0002.npz.complete",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/late-body-rows-0002.npz.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size_bytes": 9
+      },
+      {
+        "dest": "late-body-rows-0002.npz.sha256",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/late-body-rows-0002.npz.sha256",
+        "sha256": "93043f86cc5996e4a68a76ee48f5bf0852a7a3c220fc834bd2ab5a40320d1c85",
+        "size_bytes": 90
+      },
+      {
+        "dest": "late-body-rows-index.json",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/late-body-rows-index.json",
+        "sha256": "f6982a6b64d805e5ced2229527845f2209cd99080e81ea1318b3f4165a1e4d11",
+        "size_bytes": 591
+      },
+      {
+        "dest": "late-body-rows-index.json.complete",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/late-body-rows-index.json.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size_bytes": 9
+      },
+      {
+        "dest": "late-body-rows-index.json.sha256",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/late-body-rows-index.json.sha256",
+        "sha256": "3e8e388e200a15c43fed4aaed1df346db43ad1eedf88a00adc5ed98228f4e4e5",
+        "size_bytes": 92
+      },
+      {
+        "dest": "offline-audit.json",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/offline-audit.json",
+        "sha256": "738c4a5b959b81acfcbb2ea9cd0ebc881c1b090d70a9404454a53924a5427a33",
+        "size_bytes": 10618
+      },
+      {
+        "dest": "offline-audit.json.complete",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/offline-audit.json.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size_bytes": 9
+      },
+      {
+        "dest": "offline-audit.json.sha256",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/offline-audit.json.sha256",
+        "sha256": "2df13932d5973081704072be3aabbee53d221ab3bce56a7f4a6a4ad695bbd296",
+        "size_bytes": 85
+      },
+      {
+        "dest": "origin-training-status.json",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/origin-training-status.json",
+        "sha256": "9b1f309a6264a23f150faff875d0b60ab7071bab3d0b2559e673bdad362feab7",
+        "size_bytes": 41589
+      },
+      {
+        "dest": "origin-training-status.json.complete",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/origin-training-status.json.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size_bytes": 9
+      },
+      {
+        "dest": "origin-training-status.json.sha256",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/origin-training-status.json.sha256",
+        "sha256": "5d22cbbcc455deb88642bfc2bed6ece58bf848fff14dd8f3dfe5afc6ab686596",
+        "size_bytes": 94
+      },
+      {
+        "dest": "p1-y3-origin-pause-snapshot-00000.pt.complete",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/p1-y3-origin-pause-snapshot-00000.pt.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size_bytes": 9
+      },
+      {
+        "dest": "p1-y3-origin-pause-snapshot-00000.pt.sha256",
+        "mechanism": "ContentsClient upload",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-03/origin-inputs/p1-y3-origin-pause-snapshot-00000.pt.sha256",
+        "sha256": "7fc474c49304a50244cc1fa864c874f5814906867a2753aba796a9051e915d09",
+        "size_bytes": 103
+      }
+    ],
+    "protocol_exclusions": "Counts are payload bytes, not base64/JSON overhead, heartbeat/release credentials or runtime code embedded in RPCs. Public rows are runtime HTTPS fetches, not Mac residual uploads. Source archive fallback exists but was not reached; canary source transport was github.",
+    "public_rows_identical_for_both": [
+      {
+        "dest": "p1-inputs.tar.gz",
+        "mechanism": "runtime HTTPS fetch",
+        "sha256": "6a520e7c9d07909e4852368242ec8157719f3dd4392eefaea08ca4394edc5908",
+        "size_bytes": 2517009,
+        "urls_equal_between_manifests": true
+      },
+      {
+        "dest": "failed-supervisor-receipt.json",
+        "mechanism": "runtime HTTPS fetch",
+        "sha256": "aaa9f106c029b0235a174adbb38d617dad7c631af9dda49ce6fb01033f1db6eb",
+        "size_bytes": 384986,
+        "urls_equal_between_manifests": true
+      },
+      {
+        "dest": "immutable-fixture_late_body_bank-64031cc19f35a73a.pt",
+        "mechanism": "runtime HTTPS fetch",
+        "sha256": "64031cc19f35a73a0c72ddcf71d7ae3fd2a71aec96c50bec5ebccac4ea3b6522",
+        "size_bytes": 262637,
+        "urls_equal_between_manifests": true
+      },
+      {
+        "dest": "immutable-ordinary_bank-e63802f2e97cbb5d.pt",
+        "mechanism": "runtime HTTPS fetch",
+        "sha256": "a581990666ea5c17f3ee51cf354eb9213043f2f1899cf6b4f81b4a5a688f0136",
+        "size_bytes": 144091565,
+        "urls_equal_between_manifests": true
+      },
+      {
+        "dest": "immutable-refit_bank-f7fd77c1276d8df6.pt",
+        "mechanism": "runtime HTTPS fetch",
+        "sha256": "7b9325445ad7fab12de58d119cc5c9300dceaa9419b0bf9526d779fa83655ed0",
+        "size_bytes": 15110573,
+        "urls_equal_between_manifests": true
+      },
+      {
+        "dest": "late-body-rows-0000.npz",
+        "mechanism": "runtime HTTPS fetch",
+        "sha256": "e5794210e7b236fba8ab191a47379f309af522241bf9bc4aed8f7b71fd7a12be",
+        "size_bytes": 2433946,
+        "urls_equal_between_manifests": true
+      },
+      {
+        "dest": "late-body-rows-0001.npz",
+        "mechanism": "runtime HTTPS fetch",
+        "sha256": "a92bbb5b49e6f966e1cfa77e239be02d8e0f94268c2f95dc77c2eab185c72731",
+        "size_bytes": 1442768,
+        "urls_equal_between_manifests": true
+      },
+      {
+        "dest": "late-body-rows-0002.npz",
+        "mechanism": "runtime HTTPS fetch",
+        "sha256": "c40429054110c5fc61c4c6655efff53f7f4413279d056738b2c4d24e94e8d124",
+        "size_bytes": 1093629,
+        "urls_equal_between_manifests": true
+      },
+      {
+        "dest": "p1-y3-origin-pause-snapshot-00000.pt",
+        "mechanism": "runtime HTTPS fetch",
+        "sha256": "dbdc10c61914cccd156e4a73de67b8004cacce133ae334686d393153fe4109ce",
+        "size_bytes": 427911156,
+        "urls_equal_between_manifests": true
+      }
+    ],
+    "repair_failed_source_py_bytes": 14511,
+    "source_closure_equal": true
+  },
+  "verdict": "NO_RETRY",
+  "verification": {
+    "check_count": 48,
+    "checks": [
+      {
+        "check": "same executable pin in both receipts and manifests",
+        "status": "PASS"
+      },
+      {
+        "check": "all 35 input rows byte-equivalent as parsed values, including URLs and hashes",
+        "status": "PASS"
+      },
+      {
+        "check": "same source closure",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: public-inputs.json",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: failed-supervisor-receipt.json.complete",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: failed-supervisor-receipt.json.sha256",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: immutable-fixture_late_body_bank-64031cc19f35a73a.pt.complete",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: immutable-fixture_late_body_bank-64031cc19f35a73a.pt.sha256",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: immutable-ordinary_bank-e63802f2e97cbb5d.pt.complete",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: immutable-ordinary_bank-e63802f2e97cbb5d.pt.sha256",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: immutable-refit_bank-f7fd77c1276d8df6.pt.complete",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: immutable-refit_bank-f7fd77c1276d8df6.pt.sha256",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: late-body-rows-0000.npz.complete",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: late-body-rows-0000.npz.sha256",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: late-body-rows-0001.npz.complete",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: late-body-rows-0001.npz.sha256",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: late-body-rows-0002.npz.complete",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: late-body-rows-0002.npz.sha256",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: late-body-rows-index.json",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: late-body-rows-index.json.complete",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: late-body-rows-index.json.sha256",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: offline-audit.json",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: offline-audit.json.complete",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: offline-audit.json.sha256",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: origin-training-status.json",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: origin-training-status.json.complete",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: origin-training-status.json.sha256",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: p1-y3-origin-pause-snapshot-00000.pt.complete",
+        "status": "PASS"
+      },
+      {
+        "check": "local input digest: p1-y3-origin-pause-snapshot-00000.pt.sha256",
+        "status": "PASS"
+      },
+      {
+        "check": "broker code equals executable pin: bootstrap.sh",
+        "status": "PASS"
+      },
+      {
+        "check": "broker code equals executable pin: source.py",
+        "status": "PASS"
+      },
+      {
+        "check": "broker code equals executable pin: supervisor.py",
+        "status": "PASS"
+      },
+      {
+        "check": "broker code equals executable pin: transfers.py",
+        "status": "PASS"
+      },
+      {
+        "check": "broker qualified CLI tree matches frozen pin",
+        "status": "PASS"
+      },
+      {
+        "check": "receipt supervisor digest matches independently hashed pinned code",
+        "status": "PASS"
+      },
+      {
+        "check": "failed repair receipt manifest digest matches actual manifest",
+        "status": "PASS"
+      },
+      {
+        "check": "canary receipt manifest digest matches actual manifest",
+        "status": "PASS"
+      },
+      {
+        "check": "failure terminal facts",
+        "status": "PASS"
+      },
+      {
+        "check": "canary PASS and verified release",
+        "status": "PASS"
+      },
+      {
+        "check": "repair cap and timeout unchanged",
+        "status": "PASS"
+      },
+      {
+        "check": "local 26 input payloads total 56383 bytes",
+        "status": "PASS"
+      },
+      {
+        "check": "nine public rows total 595248269 bytes",
+        "status": "PASS"
+      },
+      {
+        "check": "canary actual uploads equal helper plus entire local set",
+        "status": "PASS"
+      },
+      {
+        "check": "repair failed before local inputs",
+        "status": "PASS"
+      },
+      {
+        "check": "judgment explicitly excludes cap-hit retry",
+        "status": "PASS"
+      },
+      {
+        "check": "amendment repeats cap-hit exclusion",
+        "status": "PASS"
+      },
+      {
+        "check": "target fresh: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-p1/y3/source-repair-10-20261023-04/P1_REPAIR_FAILURE_CODEX_V_20261023.json",
+        "status": "PASS"
+      },
+      {
+        "check": "target fresh: /Users/josenunez/Projects/ml/snake-dqn-p1snap/research/bl_ppo/P1_REPAIR_FAILURE_CODEX_V_20261023.json",
+        "status": "PASS"
+      }
+    ],
+    "method": "Local stdlib JSON parsing, SHA256 and file-size comparison, pinned Git blob comparison, rule/code/log inspection and receipt arithmetic. No new simulation or broad tests needed for a report-only change.",
+    "published_sidecars": "SHA256 sidecar; complete marker last; identical external/repo bytes; create-only atomic hard-link publication.",
+    "subagents": "Independent read-only rule reviewer and independent read-only transport/contention verifier; no child edits or dispatch."
+  },
+  "workspace": {
+    "branch": "p1-snapbound-20261022",
+    "broker_head_observed": "2e5d5af446dbfa29a6666240b1801cac9ae2d5d3",
+    "dirty_baseline": "Only unrelated untracked exp/p1-y3-06-canary-kernelambiguity04-20261022 files; preserved.",
+    "head_before_report_commit": "cd26df509b124dc6ea2d1c84844ff3728436a760",
+    "initial_head": "616d7bd624b36cd59af5791b99da4d8386520c0f",
+    "integration": "Fast-forwarded this worktree to origin/main before adding only this report and its sidecars. No executable edits authored.",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-p1snap"
+  }
+}
