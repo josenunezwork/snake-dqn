@@ -178,6 +178,18 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-23 08:10 PT | Factory speed ruling (round 27) | JUDGMENT.md sha f3d4e62547718306... (Opus stand-in): measured canary profile = play 47 %, doom alternatives 34 %, ordinary roots 11 %, audits 7 %, restore 1 %. Build from D1024: W12 (>=1.54x; width-change resume), fold 1-4 parent filter (1.25x usable), prepared-decision packet (1 obs + 1 B8 forward per decision; 1.08-1.16x), bare-audit mass check; 4 gated items behind pre-set profile thresholds. Byte-identity vs 61900af2 on a 12-parent bank + 1/64 production recheck. D256 left untouched (ETA ~15:00 PT at W6). Rejected: pruning, warm-start, batched/GPU inference, >12 workers. |
 
+| 2026-10-23 08:45 PT | D256 W6 PREEMPTED (operational, not scientific): driver slowdown_guard tripped (life wall 208.9 s vs first-hour baseline 147.9 s) at 36/858 parents, 4,463 s charged of the 57,600 s cap, 0 thermal trips, verified terminal receipt. Likely cause: concurrent Sol f0speed load. No D256 continuation tool exists (mac_gates ledger is Canary-only; d256_w12 refuses prior attempts). Mac idle → W12 calibration --check PASS (2a0821a9), full calibration queued; then Sol builds an accounting-preserving D256 resume (same state dir, fresh output, union ledger, W12 only on sealed PASS). Lesson: no Codex/Sol on the Mac during factory runs either. |
+| 2026-10-23 09:31 PT | W12 calibration (runner 2a0821a9, receipt w12-calibration-01) FAIL by registered rule: worker-wall ratio 1.470 > 1.30, 1,811 s measured, 0 thermal / 0 slowdown trips. Wall throughput W12 = 1.36x W6 (16.3 vs 22.1 s per 192 roots). Default W6. Independent judge asked whether wall throughput should govern (JUDGMENT_W12_THROUGHPUT_20261023.md pending). Sol d256resume launched by chain. |
+| 2026-10-23 09:40 PT | Judge ADOPT_W12 (snake-dqn-artifacts/big-lever/exp/JUDGMENT_W12_THROUGHPUT_20261023.md, sha 03a7afd1…815ef): the 1.30 per-worker bar is replaced by a wall-throughput bar W12 ≥ 1.20× W6 (measured 1.36×). This is a post-data change to an operational bar only; labels are byte-identical and no F4 statistic uses width. Tighter W12 guards: RSS > 34 GiB or any thermal warning → W6. Sol w12admit queued after d256resume. Owner notice only. |
+| 2026-10-23 10:03 PT | Sol implements the binding W12 throughput ruling, full SHA256 `03a7afd1a1ab48dfbb4a2a4fd760ea00d2fe5c8bf6132bfc3660f3077b8815ef`. Create-only `bl-labels-f0/w12-admission-01/receipt.json` PASS, SHA256 `65ea988e086ea1c26fc13dba505f4aae7ba524d443095def77ba10c1b80fa4fe`; recomputed wall throughput 1.360454595884024 >= 1.20, measured duration 1811.1803524983115 s, zero thermal/slowdown. Calibration-01 stays FAIL at unchanged SHA256 `082304bc3e94ce48f82313ed285fc7388c099ef4b8d5c1bcc47545cb6fb3cdbc`. Admission use rechecks exact ruling/calibration/host hashes and measured cells. D256 continuation preserves original control, namespace, allocation, state and 57,600 s cap; W12 RSS >34 GiB / first thermal warning / failed first-three-hour parent wall-throughput >=1.15x matched-source W6 trigger life-boundary drain and sealed W6 continuation. Thermal return requires verified 24 h clean across dose states. Canary-B W12 baseline is x1.36; width charges and slowdown baselines remain separate. Future launchers use a separate frozen science tree and operational pin; D4096 remains R6 HOLD. Integrated bounded suite 114 PASS; final admission subset 9 PASS; independent Codex-V light review recorded in `research/bl_labels/CODEX_V_W12_ADMISSION_20261023.json`. An external operator started original-pin W6 D256 at 09:59:53 during verification; Sol did not start, stop, or modify it, and deferred additional multi-second verification after detection. Exact next-resume dispatch commands are in `W12_ADMISSION_HANDOFF_20261023.md`; no factory/calibration/long job started by this implementation. Owner notice: W12 calibration measured 1.36× wall throughput with 0 thermal; the 1.30 per-worker bar measured E-core speed, not heat, so the judge replaced it with ≥ 1.20× throughput plus unchanged thermal guards; any thermal warning returns the factory to W6. |
+
+| 2026-10-23 10:10 PT | D256 resume-02 (6498f992, W6, Codex-V PASS) started and then PREEMPTED at 402 s (0 of 822 remaining parents done). Root cause is a guard defect, not load: the slowdown guard compares single-life wall time against the first-hour mean (life length varies naturally; attempt-1 15-min medians held at 129–152 s), and it is armed immediately on resume, so the first life on each partial parent includes replay of the already-done prefix and trips it by construction. Judge ruling requested (JUDGMENT_SLOWDOWN_GUARD_20261023.md); no further resumes until repaired. |
+| 2026-10-23 10:12 PT | Judge REPAIR_GUARD (JUDGMENT_SLOWDOWN_GUARD_20261023.md, sha e50a573e…09551): a mechanical fix plus an operational clarification; labels untouched. The single-life trip is replaced by: median of the last 4×W eligible lives (this attempt and width) > 1.30× the frozen per-width first-hour median (≥60 lives; W6 = 136 existing lives). Excluded: replayed first lives, lives spanning a width change or a stop. Re-arms only after K fresh lives. Two trips in 6 h → W12 drops to W6 for 24 h. Replay of attempt 1: the rolling median ran 0.88–1.04× baseline throughout (no real slowdown). Sol guardfix launched; resume D256 at W12 after Codex-V. Owner notice only. |
+| 2026-10-23 10:26 PT | Sol implements REPAIR_GUARD, full ruling SHA256 `e50a573e69e6aeea1de7ddde590bac36e62a28a46c3399f5bce0182ae4109551`, composed with W12 throughput ruling `03a7afd1a1ab48dfbb4a2a4fd760ea00d2fe5c8bf6132bfc3660f3077b8815ef`. Window median of last 4x admission-width fresh eligible lives, immutable per-stream/per-width first-hour median (>=60), replay/width/stop exclusions, W12 baseline sanity <=1.911x B6, same-pin new-stream sanity and two-trip escalation. Actual D256 timestamp regressions: attempt1 no trip (max evaluated ratio0.995391<=1.04); attempt2 four replay first boundaries excluded, five eligible<K24; 1.35x slowdown trips after20<=24 boundaries,1.20x no trip. Codex-V light suite81 PASS; review receipt `research/bl_labels/CODEX_V_SLOWDOWN_GUARD_20261023.json`. Frozen science remains clean at `61900af28932e47e22e332840fc4406559adb062`; original namespace/control/allocation/state/cap and summed accounting retained. Existing W12 admission `65ea988e...0fa4fe` verified and reused; calibration stays FAIL. Existing pack/calibration/admission inventory2110 files unchanged. No factory/calibration/host check/dispatch/long job launched. Next explicit operator W12 dispatch includes --host-check because the two sealed legacy W6 preemptions require a logged check first. Owner notice: D256 slowdown guard compared single lives (10 % exceed 1.30x by chance) and self-armed on every resume; judge replaced it with a 1.30x test on the median of the last 4xW fresh lives vs a per-width first-hour median; thresholds unchanged; attempt-1 data never exceeded 1.04x. |
+
+| 2026-10-23 13:35 PT | OWNER: "work with astra not fable on research". From now on, research advice and independent judge rulings go to Astra personas (Codex gpt-6-astra), not Fable or Opus stand-ins. Code stays with Sol. The two rulings issued earlier today (W12 throughput, slowdown guard) stand as issued. |
+| 2026-10-23 17:45 PT | P1 Drive route (owner yes ~13:10 PT): 9 assets staged and hash-verified in My Drive/snake-dqn-p1-y3-origin-20261023 (id 1yr71…); the owner set Anyone-with-link Viewer. Deviations, disclosed to Codex-V: the owner switched Drive to Mirror mode mid-staging, so the copy was rerun into ~/My Drive; a duplicate nested folder from the migration was moved to Trash; IDs were read from the DriveFS mirror DB instead of xattrs, with the same refusal checks. build-drive ran; preflight PASS: 9/9 exact SHA, 595 MB in 24.3 s. Codex-V _12 FINAL is running (sol-p1codexv). |
+| 2026-10-23 17:47 PT | Sol guardfix done at 10:28 PT (0d187a2f, Codex-V PASS, 81 tests), but the operator missed it, so the Mac sat idle about 7 h. D256 W12 resume (bl-f0-d256-guard-w12-01, with --host-check and the w12-admission-01 record) is queued to start 2 min after the P1 Codex-V run exits. |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -354,3 +366,48 @@ Final package/family-canary suite: 158 PASS in 8.82 seconds; reviewer independen
 ran 132 F1/canary checks and 24 final analyzer checks. Artifact inventory is
 `research/bl_labels/F1_A1_PACK_20261023.json`, SHA256
 `f537b69a3a097d88f2ea661ec76d16d29fac5404de0561f7789ac914cf6f82fe`.
+
+Round-27 F0 speed package prepared (2026-10-23, Sol): authority SHA256
+`f3d4e6254771830625ec25938f9eb6dd5a9750e383cb12b34a7a04b687b8518c`,
+base `2a0821a9f5c6cd5f7b45ba6b22352e48e349b451`. WP-3 W6↔W12 continuation,
+summed worker-seconds and per-width baselines; WP-4 fold-1--4 prospective
+D1024/D4096 banks with frozen OLD D256/cross-tranche seed audits; WP-2 immutable
+prepared decisions, forced-step inference skip, sparse production Q/action
+recheck and bare mass audit; WP-1 isolated OLD/NEW W1/W6/F1 identity runner,
+origin/main-published metadata before comparison, and profile-only threshold
+instrumentation. Registered 40 h / 130 h future caps retained. Parent reserves
+2160 / 7020 use the documented D256 cap/floor method, are prospective operational
+windows rather than selected-life doses, and cannot be refilled after outcomes.
+D4096 admission stays HOLD pending its R6 funding/projection route. D1024 requires
+immutable fault-free D256 F4 predecessor-fit metadata, actual T-EQ PASS and the
+sealed calibration; measured calibration FAIL gives W6, unknown/HOLD refuses.
+T-EQ FAIL has an explicit W6 entire-frozen-OLD-closure contingency.
+
+Two independent personas (science identity and operations) report no remaining
+concrete blocker. Codex-V's integrated single-process/capped verification:
+94 passed, 1 intentionally skipped; final runner checks: 5 passed. Real
+three-parent width proof, W12 calibration, B-EQ/F1 identity, interleaved timing,
+profile and production are NOT RUN by Sol. The running D256 worktree, outputs,
+lease, tmux, and frozen `61900af2` pin are untouched. Ranks 5--8 remain unbuilt;
+profile thresholds stay 20%/8%/5%/4%, at most one builder day, each needing T-EQ.
+Implementation evidence: `research/bl_labels/CODEX_V_ROUND27_FINAL_20261023.json`;
+operator commands and explicit pending phase publication:
+`research/bl_labels/ROUND27_HANDOFF_20261023.md`. Actual qualification receipt
+paths/pins/hashes must be logged after Claude's post-D256 runs and before adoption.
+No release, serving, F4 registration or strict-gate change.
+Final round-27 implementation Codex-V: `PASS_IMPLEMENTATION_LIGHT_VERIFICATION`,
+receipt SHA256 `19713e3929a00c601042405903dc34a3bcd92d728898d8155aebcf473ebe4f07`.
+The initial style-blocked receipt is retained unchanged; its import-order finding
+is corrected and the final receipt supersedes it. Heavy qualification is pending.
+Round-27 published implementation/bank pin:
+`bf8ac97dc66d1b4515e4c5510db3ad5886fa695d` (origin/main fast-forward verified).
+Create-only preparation completed, no factory execution: D1024 2160 parents,
+D4096 7020 parents, all fold 1--4, preserved stream/roster ratios, nonoverlapping
+append-only indices, sealed seed audits/empty ledgers; excluded B-EQ 12 parents
+with materialized plans. Packages:
+`bl-labels-f0-speed/{d1024-d4096-pack-01,equiv-pack-01}`. Prepared inventory:
+`bl-labels-f0-speed/build-01/prepared-inventory.json`, SHA256
+`5930e7a64dda67ddfbf5b8571af2c23363ebac19f0d3baf86a534d3c7f862928`.
+Use that immutable implementation SHA for every NEW-run command, including after
+later metadata publication commits; the handoff now spells it out literally.
+Actual T-EQ and calibration receipts do not yet exist from this task.

@@ -15,6 +15,7 @@ import math
 import multiprocessing as mp
 import os
 import platform
+import re
 import shutil
 import signal
 import subprocess
@@ -46,8 +47,12 @@ THREAD_ENV = {
 }
 MAX_WORKERS = 12
 DEFAULT_WORKERS = 6
+RESUME_WIDTH_STAGES = frozenset({"d1024", "d4096"})
+RESUME_WIDTHS = frozenset({DEFAULT_WORKERS, MAX_WORKERS})
 MAX_WORKER_RSS_BYTES = 4 * 1024**3
 MAX_TOTAL_RSS_BYTES = 40 * 1024**3
+W12_SOFT_RSS_BYTES = 34 * 1024**3
+W12_SANITY_SECONDS = 3 * 3600
 MIN_FREE_DISK_BYTES = 50 * 1024**3
 # The coordinator is single-instance under the Mac lease.  This registry lets
 # main's outer finally reap owned children even if Process.start/IPC raises.
@@ -132,6 +137,33 @@ def _rss_many(pids: list[int]) -> dict[int, int]:
         if len(fields) == 2 and all(field.isdigit() for field in fields):
             values[int(fields[0])] = int(fields[1]) * 1024
     return values
+
+
+def _exclusive_factory_guard(owned_pids: set[int]) -> None:
+    """Refuse concurrent local agents or research compute; never kill them."""
+    table = _command_output(["/bin/ps", "-A", "-o", "pid=,ppid=,args="])
+    rows = []
+    for line in table.splitlines():
+        fields = line.strip().split(None, 2)
+        if len(fields) != 3 or not all(x.isdigit() for x in fields[:2]):
+            raise MacGuardError("cannot parse exclusive factory process observation")
+        rows.append((int(fields[0]), int(fields[1]), fields[2]))
+    owned = {os.getpid(), *owned_pids}
+    while True:
+        descendants = {pid for pid, parent, _ in rows if parent in owned}
+        if descendants <= owned:
+            break
+        owned.update(descendants)
+    for pid, _, command in rows:
+        if pid in owned:
+            continue
+        executable = Path(command.split()[0]).name.lower()
+        agent = executable == "codex"
+        research = executable.startswith(("python", "pytest")) and re.search(
+            r"(?:-m\s+(?:pytest|research\.)|(?:research|src/scripts)/|train_)", command
+        )
+        if agent or research:
+            raise MacGuardError(f"exclusive factory window: concurrent compute pid {pid}")
 
 
 def _stop_workers(active: dict[int, mp.Process]) -> None:
@@ -250,6 +282,8 @@ def _worker(
     frp3: Path,
     output: Path,
     timing_armed: Path,
+    collector_root: Path | None,
+    collector_source_commit: str | None,
     stop_event: Any,
     queue: Any,
 ) -> None:
@@ -262,7 +296,19 @@ def _worker(
     except OSError as error:
         queue.put({"kind": "error", "error": f"setting nice 10 failed: {error}"})
         return
-    from .factory import FactoryInvalid, FactoryPreempted, collect_unit
+    if collector_root is None:
+        from .factory import FactoryInvalid, FactoryPreempted, collect_unit
+    else:
+        # Admitted frozen science: load the frozen worker closure after spawn,
+        # never into the candidate coordinator or another worker's imports.
+        from . import frozen_factory
+
+        os.environ["F0_COMMIT"] = collector_source_commit or ""
+        os.environ["BL_FROZEN_FACTORY_WORKER"] = "1"
+        frozen = frozen_factory.activate(collector_root, collector_source_commit or "")
+        FactoryInvalid = frozen.FactoryInvalid
+        FactoryPreempted = frozen.FactoryPreempted
+        collect_unit = frozen.collect_unit
 
     def publish(value: dict[str, Any]) -> None:
         if value.get("schema") == "bl-labels-f0-session/v1":
@@ -334,16 +380,23 @@ def _validate_workers(workers: int, owner_w12_ok: bool, calibration_passed: bool
         )
 
 
-def _verify_w12_calibration(path: Path) -> None:
+def _verify_w12_calibration(path: Path, *, expected_code_sha: str | None = None) -> str:
     """Require a sealed calibration receipt before W12 admission."""
     from .exports import _verify
 
     _verify(path)
     value = json.loads(path.read_text())
+    if value.get("schema") == "bl-labels-f0-w12-admission/v1":
+        from . import w12_admission
+
+        return w12_admission.verify(path, expected_code_sha=expected_code_sha)
     duration, ratio = value.get("duration_seconds"), value.get("w12_w6_wall_ratio")
-    code_sha = os.environ.get("F0_COMMIT", "")
+    code_sha = (
+        expected_code_sha if expected_code_sha is not None else os.environ.get("F0_COMMIT", "")
+    )
     if not (
         value.get("schema") == "bl-labels-f0-w12-calibration/v1"
+        and value.get("status") == "PASS"
         and isinstance(duration, (int, float))
         and not isinstance(duration, bool)
         and math.isfinite(duration)
@@ -355,11 +408,86 @@ def _verify_w12_calibration(path: Path) -> None:
         and value.get("thermal_not_ok") == 0
         and value.get("slowdown_trips") == 0
         and value.get("platform") == "darwin-arm64"
-        and value.get("code_sha") == os.environ.get("F0_COMMIT")
+        and value.get("code_sha") == code_sha
         and len(code_sha) == 40
         and all(c in "0123456789abcdef" for c in code_sha)
     ):
         raise ValueError("W12 calibration receipt does not satisfy the frozen Mac admission rule")
+    return _verify(path)
+
+
+def _w12_calibration_source(control: dict[str, Any]) -> str | None:
+    """Read the separately pinned calibration source from a future-stage admission."""
+    gate = control.get("mac_gate")
+    if not isinstance(gate, dict):
+        return None
+    value = gate.get("w12_calibration_source_commit")
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) != 40:
+        raise ValueError("admitted W12 calibration source pin is malformed")
+    return value
+
+
+def _require_w12_authorization(
+    control: dict[str, Any], owner_w12_ok: bool, receipt: Path | None
+) -> str:
+    """Return the sealed receipt digest; booleans alone never authorize W12."""
+    if not owner_w12_ok or receipt is None:
+        raise ValueError("W12 requires explicit owner approval and a sealed calibration receipt")
+    return _verify_w12_calibration(receipt, expected_code_sha=_w12_calibration_source(control))
+
+
+def _width_change_allowed(control: dict[str, Any], prior_workers: int, workers: int) -> bool:
+    """Allow only the D1024/D4096 W6<->W12 operational transition."""
+    if prior_workers == workers:
+        return True
+    gate = control.get("mac_gate")
+    return (
+        isinstance(gate, dict)
+        and gate.get("stage") in RESUME_WIDTH_STAGES
+        and {prior_workers, workers} <= RESUME_WIDTHS
+    )
+
+
+def _collector_fallback(control: dict[str, Any], workers: int) -> tuple[Path | None, str | None]:
+    """Validate the admitted OLD-factory fallback without loading it in the parent."""
+    gate = control.get("mac_gate")
+    if not isinstance(gate, dict):
+        return None, None
+    operational_pin = os.environ.get("F0_OPERATIONAL_COMMIT")
+    if operational_pin is not None:
+        from . import frozen_factory
+
+        pin = control.get("source_commit")
+        root_value = os.environ.get("F0_SCIENCE_ROOT")
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        if (
+            gate.get("stage") not in RESUME_WIDTH_STAGES
+            or workers not in RESUME_WIDTHS
+            or operational_pin != head
+            or not isinstance(root_value, str)
+            or not root_value
+            or not isinstance(pin, str)
+        ):
+            raise ValueError("future operational wrapper lacks a bound frozen science tree")
+        root = frozen_factory._validate(Path(root_value), pin)
+        # A rejected speed candidate still uses the historical W6-only route below.
+        if gate.get("collector_source_commit") is None:
+            return root, pin
+    root, source = gate.get("collector_root"), gate.get("collector_source_commit")
+    if root is None and source is None:
+        return None, None
+    if (
+        gate.get("stage") not in RESUME_WIDTH_STAGES
+        or workers != DEFAULT_WORKERS
+        or not isinstance(root, str)
+        or not root
+        or not isinstance(source, str)
+        or len(source) != 40
+    ):
+        raise ValueError("frozen collector fallback requires admitted future-stage W6 bindings")
+    return Path(root), source
 
 
 def run(
@@ -374,20 +502,49 @@ def run(
     deadline_seconds: float | None = None,
     owner_w12_ok: bool = False,
     calibration_passed: bool = False,
+    w12_calibration_receipt: Path | None = None,
     state_dir: Path | None = None,
     started_monotonic: float | None = None,
+    d256_frozen_root: Path | None = None,
 ) -> dict[str, Any]:
     """Run admitted parents until complete, guard stop, or cooperative preemption."""
     started = time.monotonic() if started_monotonic is None else started_monotonic
-    _validate_workers(workers, owner_w12_ok, calibration_passed)
+    if state_dir is not None and workers in RESUME_WIDTHS:
+        from .w12_runtime import resolve_resume_workers
+
+        allowed, reasons = resolve_resume_workers(workers, state_dir)
+        if allowed != workers:
+            raise MacGuardError(f"W12 resume requires W6: {','.join(reasons)}")
+    _validate_workers(
+        workers, owner_w12_ok, calibration_passed or w12_calibration_receipt is not None
+    )
+    w12_receipt_sha256: str | None = None
+    if workers == MAX_WORKERS:
+        w12_receipt_sha256 = _require_w12_authorization(
+            control, owner_w12_ok, w12_calibration_receipt
+        )
+    collector_root, collector_source_commit = _collector_fallback(control, workers)
+    if d256_frozen_root is not None:
+        from .d256_resume import OLD_PIN, verify_resume_request
+
+        verify_resume_request(
+            control, d256_frozen_root, ledger, output, state_dir, deadline_seconds
+        )
+        if workers == MAX_WORKERS:
+            from .d256_resume import require_w12
+
+            require_w12(w12_calibration_receipt, b8, frp3)
+        if workers not in RESUME_WIDTHS:
+            raise ValueError("original D256 continuation requires W6 or W12")
+        collector_root, collector_source_commit = d256_frozen_root, OLD_PIN
     output = output.resolve()
     if output.exists() and any(output.iterdir()):
         raise ValueError("F0 Mac output directory must be fresh and empty")
-    output.mkdir(parents=True, exist_ok=True)
     if "mac_gate" in control:
         from .mac_gates import require_admission
 
-        require_admission(control)
+        if d256_frozen_root is None:
+            require_admission(control)
         source_commit = control.get("source_commit")
         if not isinstance(source_commit, str) or len(source_commit) != 40:
             raise ValueError("admitted Mac control needs a full source_commit")
@@ -399,6 +556,18 @@ def run(
         expected_state = pack / (
             "canary-state-mac-01" if stage == "canary-b" else "d256-state-mac-01"
         )
+        # New post-D256 stages bind their own immutable path and cap into the
+        # admitted control.  D256 retains its historical hard-coded contract.
+        if stage in RESUME_WIDTH_STAGES:
+            if workers not in RESUME_WIDTHS:
+                raise ValueError("future Mac production stages require W6 or W12")
+            expected_cap = control["mac_gate"].get("deadline_seconds")
+            expected_state_value = control["mac_gate"].get("state_dir")
+            if not isinstance(expected_cap, (int, float)) or isinstance(expected_cap, bool):
+                raise ValueError("future Mac admission needs a fixed deadline_seconds")
+            if not isinstance(expected_state_value, str) or not expected_state_value:
+                raise ValueError("future Mac admission needs a fixed state_dir")
+            expected_state = Path(expected_state_value)
         if (
             deadline_seconds != expected_cap
             or state_dir is None
@@ -410,13 +579,34 @@ def run(
     if _timing_armed(timing_armed):
         raise MacGuardError("refusing F0 admission while Mac timing is armed")
     namespace, allocation, jobs = _prepare_jobs(control, ledger)
+    if control.get("mac_gate", {}).get("stage") in {"d256", "d1024", "d4096"}:
+        _exclusive_factory_guard(set())
+    sanity_baseline: dict[str, Any] | None = None
+    if workers == MAX_WORKERS and control.get("mac_gate", {}).get("stage") in {
+        "d256",
+        "d1024",
+        "d4096",
+    }:
+        from .w12_runtime import resolve_w6_parent_rates
+
+        sanity_baseline = resolve_w6_parent_rates(control)
     attempt_id: str | None = None
     prior_elapsed = 0.0
+    prior_worker_seconds = 0.0
     prior_attempts: list[str] = []
     prior_thermal: list[float] = []
     prior_admission_workers = workers
-    prior_baseline: list[float] = []
-    prior_rate_events: list[tuple[float, bool]] = []
+    prior_workers: int | None = None
+    prior_baseline_segment_elapsed = 0.0
+    prior_baselines: dict[int, list[float]] = {}
+    prior_rate_events: list[tuple[float, bool, int]] = []
+    prior_sanity_elapsed = 0.0
+    prior_sanity_counts: dict[str, int] = {}
+    prior_sanity_checked = False
+    prior_terminals: list[dict[str, Any]] = []
+    from .slowdown_state import RULING_SHA256, build_guards, persist_baselines
+
+    slowdown_guards = None
     expected_control = hashlib.sha256(
         json.dumps(control, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -442,7 +632,6 @@ def run(
             start_value = json.loads(start_receipt.read_text())
             if (
                 start_value.get("namespace") != namespace
-                or start_value.get("workers") != workers
                 or start_value.get("control_sha256") != expected_control
                 or start_value.get("output") == str(output)
                 or start_value.get("deadline_seconds") != deadline_seconds
@@ -450,6 +639,20 @@ def run(
                 or start_value.get("state_dir") != str(state_dir.resolve())
             ):
                 raise MacGuardError("prior Mac factory start identity differs; HOLD")
+            start_workers = start_value.get("workers")
+            if type(start_workers) is not int or not 1 <= start_workers <= MAX_WORKERS:
+                raise MacGuardError("prior Mac factory worker width is invalid; HOLD")
+            if not _width_change_allowed(control, start_workers, workers) and not (
+                d256_frozen_root is not None and {start_workers, workers} <= RESUME_WIDTHS
+            ):
+                raise MacGuardError("prior Mac factory worker width differs; HOLD")
+            if start_workers == MAX_WORKERS and not (
+                start_value.get("owner_w12_ok") is True
+                and isinstance(start_value.get("w12_calibration_receipt_sha256"), str)
+            ):
+                raise MacGuardError(
+                    "prior W12 attempt lacks sealed owner/receipt authorization; HOLD"
+                )
             terminal = start_receipt.with_name(
                 start_receipt.name.replace(".start.json", ".terminal.json")
             )
@@ -461,7 +664,7 @@ def run(
             terminal_value = json.loads(terminal.read_text())
             if (
                 terminal_value.get("namespace") != namespace
-                or terminal_value.get("workers") != workers
+                or terminal_value.get("workers") != start_workers
                 or terminal_value.get("output") != start_value.get("output")
                 or terminal_value.get("start_sha256") != _verify(start_receipt)
             ):
@@ -474,20 +677,75 @@ def run(
                 or elapsed <= 0
             ):
                 raise MacGuardError("invalid prior Mac wall charge; HOLD")
+            expected_worker_seconds = start_workers * elapsed
+            if d256_frozen_root is not None:
+                from .d256_resume import verify_worker_charge
+
+                verify_worker_charge(start_value, terminal_value, elapsed)
+            elif terminal_value.get("worker_seconds_denominator") != expected_worker_seconds:
+                raise MacGuardError("prior Mac worker-second accounting differs; HOLD")
+            if start_workers == MAX_WORKERS and (
+                terminal_value.get("w12_calibration_receipt_sha256")
+                != start_value.get("w12_calibration_receipt_sha256")
+                or terminal_value.get("w12_calibration_source_commit")
+                != start_value.get("w12_calibration_source_commit")
+            ):
+                raise MacGuardError("prior W12 terminal authorization differs; HOLD")
             prior_elapsed += elapsed
+            prior_worker_seconds += start_workers * elapsed
             prior_thermal.extend(terminal_value.get("thermal_trip_epochs", []))
+            if start_workers == MAX_WORKERS:
+                prior_sanity_elapsed = terminal_value.get("w12_sanity_elapsed_seconds", 0.0)
+                prior_sanity_counts = dict(terminal_value.get("w12_sanity_completed_parents", {}))
+                prior_sanity_checked = terminal_value.get("w12_sanity_checked", False)
+                frozen_baseline = terminal_value.get("w12_sanity_w6_baseline")
+                if frozen_baseline is not None:
+                    for evidence in frozen_baseline.get("provenance", []):
+                        if _verify(Path(evidence["path"])) != evidence["sha256"]:
+                            raise MacGuardError("W12 sanity W6 baseline changed; HOLD")
+                    sanity_baseline = frozen_baseline
             prior_admission_workers = terminal_value.get("admission_workers_final", workers)
-            prior_baseline = terminal_value.get("first_hour_life_seconds", [])
+            if prior_workers != start_workers:
+                prior_baseline_segment_elapsed = 0.0
+            prior_baseline_segment_elapsed += elapsed
+            prior_workers = start_workers
+            raw_baselines = terminal_value.get("first_hour_life_seconds_by_workers")
+            if raw_baselines is None:
+                raw_baselines = {
+                    str(start_workers): terminal_value.get("first_hour_life_seconds", [])
+                }
+            if not isinstance(raw_baselines, dict):
+                raise MacGuardError("prior Mac factory baseline is malformed; HOLD")
+            for raw_width, samples in raw_baselines.items():
+                try:
+                    width = int(raw_width)
+                except (TypeError, ValueError) as error:
+                    raise MacGuardError(
+                        "prior Mac factory baseline width is malformed; HOLD"
+                    ) from error
+                if type(samples) is not list or any(
+                    isinstance(sample, bool)
+                    or not isinstance(sample, (int, float))
+                    or not math.isfinite(sample)
+                    or sample <= 0
+                    for sample in samples
+                ):
+                    raise MacGuardError("prior Mac factory baseline is malformed; HOLD")
+                prior_baselines[width] = list(samples)
             sealed_path = terminal_value.get("rate_sealed_path")
             if sealed_path:
                 _verify(Path(sealed_path))
                 prior_rate_events = [
-                    tuple(x) for x in json.loads(Path(sealed_path).read_text())["events"]
+                    (x[0], x[1], x[2] if len(x) == 3 else start_workers)
+                    for x in json.loads(Path(sealed_path).read_text())["events"]
                 ]
+            prior_terminals.append(terminal_value)
             prior_attempts.append(terminal.name)
         if deadline_seconds is not None and prior_elapsed >= deadline_seconds:
             raise MacGuardError("prior Mac factory attempts exhausted the frozen wall cap; HOLD")
+        slowdown_guards = build_guards(control, workers, started, prior_terminals, state_dir)
         attempt_id = uuid.uuid4().hex
+        output.mkdir(parents=True, exist_ok=True)
         publish_json(
             state_dir / f"attempt-{attempt_id}.start.json",
             {
@@ -497,18 +755,27 @@ def run(
                     json.dumps(allocation, sort_keys=True, separators=(",", ":")).encode()
                 ).hexdigest(),
                 "workers": workers,
+                "owner_w12_ok": owner_w12_ok,
+                "w12_calibration_receipt_sha256": w12_receipt_sha256,
+                "w12_calibration_source_commit": _w12_calibration_source(control),
                 "deadline_seconds": deadline_seconds,
                 "original_wall_cap_seconds": deadline_seconds,
                 "started_epoch": time.time(),
                 "output": str(output.resolve()),
                 "state_dir": str(state_dir.resolve()),
                 "source_commit": control.get("source_commit"),
+                "operational_source_commit": (
+                    subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+                    if d256_frozen_root is not None or os.environ.get("F0_OPERATIONAL_COMMIT")
+                    else None
+                ),
                 "control_sha256": hashlib.sha256(
                     json.dumps(control, sort_keys=True, separators=(",", ":")).encode()
                 ).hexdigest(),
                 "platform_attestation": platform_attestation(),
             },
         )
+    output.mkdir(parents=True, exist_ok=True)
     deadline = None
     if deadline_seconds is not None:
         if deadline_seconds <= 0:
@@ -529,14 +796,60 @@ def run(
     telemetry: list[dict[str, Any]] = []
     invalid: str | None = None
     stop_reason: str | None = None
+    registered_stop_reason: str | None = None
+    operational_width_fallback: str | None = None
     preempt_started: float | None = None
-    life_started: dict[str, float] = {}
-    baseline_lives: list[float] = prior_baseline
-    sealed_lives: list[tuple[float, bool]] = prior_rate_events
+    if slowdown_guards is None:
+        slowdown_guards = build_guards(control, workers, started, prior_terminals, state_dir)
+    slowdown_trip_records: list[dict[str, Any]] = []
+    slowdown_trips = 0
+    slowdown_stop_reason: str | None = None
+    # Retain the old receipt fields for compatibility. The immutable
+    # per-stream baselines above alone govern the repaired slowdown guard.
+    width_changed = prior_workers is not None and prior_workers != workers
+    width_elapsed_before = 0.0 if width_changed else prior_baseline_segment_elapsed
+    baseline_lives = [] if width_changed else prior_baselines.setdefault(workers, [])
+    prior_baselines[workers] = baseline_lives
+    sealed_lives = prior_rate_events
     thermal_trips = sorted({at for at in prior_thermal if time.time() - at <= 86400})
     admission_workers = prior_admission_workers
+    if width_changed:
+        # A width change begins admissions at the requested width.  A recent
+        # thermal event is the sole registered exception.
+        admission_workers = min(DEFAULT_WORKERS, workers) if thermal_trips else workers
+    # Thermal stepdowns preserve the historical accounting width but the
+    # slowdown guard measures the actual admission width of each life.
+    for guard in slowdown_guards.values():
+        guard.switch(admission_workers, time.monotonic())
     thermal_epoch_seen = False
     next_report = time.monotonic() + 110
+    next_soft_rss_sample = time.monotonic()  # Include a startup sample, then every five minutes.
+    next_exclusive_sample = time.monotonic() + 5
+    thermal_clean_intervals: list[list[float]] = []
+    last_clean_sample: float | None = None
+    sanity_counts = dict(prior_sanity_counts)
+    sanity_checked = prior_sanity_checked
+
+    def note_clean_sample() -> None:
+        nonlocal last_clean_sample
+        now = time.time()
+        if last_clean_sample is not None and 0 <= now - last_clean_sample <= 30:
+            if thermal_clean_intervals and thermal_clean_intervals[-1][1] == last_clean_sample:
+                thermal_clean_intervals[-1][1] = now
+            else:
+                thermal_clean_intervals.append([last_clean_sample, now])
+        last_clean_sample = now
+
+    def fall_back_to_w6(reason: str) -> None:
+        nonlocal admission_workers, preempted, operational_width_fallback, stop_reason
+        # A width is constant within a charged attempt. Drain at life boundaries;
+        # the continuation uses W6, preserving sum(width * elapsed) exactly.
+        admission_workers = DEFAULT_WORKERS
+        operational_width_fallback = reason
+        stop_reason = f"W12 fallback to W6 at life boundaries: {reason}"
+        telemetry.append({"event": "w12_fallback", "reason": reason, "workers_next": 6})
+        preempted = True
+        stop_event.set()
 
     def note_thermal() -> None:
         nonlocal admission_workers, thermal_epoch_seen
@@ -544,12 +857,54 @@ def run(
             return
         thermal_epoch_seen = True
         thermal_trips.append(time.time())
-        if len(thermal_trips) % 3 == 0 and control.get("mac_gate", {}).get("stage") != "canary-b":
+        if workers == MAX_WORKERS:
+            fall_back_to_w6("thermal")
+        elif len(thermal_trips) % 3 == 0 and control.get("mac_gate", {}).get("stage") != "canary-b":
             admission_workers = max(1, admission_workers - 3)
         telemetry.append({"event": "thermal_pause", "workers_next": admission_workers})
 
+    def note_slowdown(stream: str, event: dict[str, Any], now: float) -> None:
+        nonlocal stop_reason, preempted, slowdown_trips, slowdown_stop_reason
+        stop_reason = event.get("stop_reason", "slowdown guard: window median > 1.30 x baseline")
+        slowdown_stop_reason = stop_reason
+        telemetry.append({**event, "stream": stream})
+        if event["event"] == "slowdown_guard":
+            slowdown_trips += 1
+            slowdown_trip_records.append(
+                {
+                    "stream": stream,
+                    "width": event["width"],
+                    "wall_seconds": sum(
+                        slowdown_guards[stream].snapshot(now)["width_wall_seconds"].values()
+                    ),
+                    "epoch": time.time(),
+                }
+            )
+        if stop_reason == "slowdown baseline sanity" and workers == MAX_WORKERS:
+            fall_back_to_w6("slowdown baseline sanity")
+            stop_reason = "slowdown baseline sanity"
+        preempted = True
+        stop_event.set()
+
     try:
         while pending or active or not queue.empty():
+            if not preempted and not stop_event.is_set():
+                now = time.monotonic()
+                for stream, guard in slowdown_guards.items():
+                    event = guard.tick(now)
+                    persist_baselines(slowdown_guards, state_dir, control, now)
+                    if event is not None:
+                        note_slowdown(stream, event, now)
+                        break
+            if time.monotonic() >= next_exclusive_sample:
+                next_exclusive_sample = time.monotonic() + 5
+                try:
+                    if control.get("mac_gate", {}).get("stage") in {"d256", "d1024", "d4096"}:
+                        _exclusive_factory_guard(set(active))
+                except (MacGuardError, subprocess.SubprocessError, OSError) as error:
+                    stop_reason = f"operational guard: {error}"
+                    preempted = True
+                    stop_event.set()
             if time.monotonic() >= next_report:
                 print(
                     json.dumps(
@@ -583,7 +938,9 @@ def run(
                 try:
                     if admission_guard is None:
                         admission_guard = _guard_snapshot(output)
+                        note_clean_sample()
                 except (MacGuardError, subprocess.SubprocessError, OSError) as error:
+                    last_clean_sample = None
                     if "thermal" in str(error).lower():
                         note_thermal()
                     stop_reason = f"operational admission guard: {error}"
@@ -608,13 +965,23 @@ def run(
                         frp3,
                         output,
                         timing_armed,
+                        collector_root,
+                        collector_source_commit,
                         stop_event,
                         queue,
                     ),
                 )
+                slowdown_guards[job.allocation["stream"]].admit(
+                    job.allocation["allocation_id"],
+                    has_prior=bool(job.skip_lives)
+                    or any(
+                        job.allocation.get(key) is not None
+                        for key in ("partial_life", "prefix_state")
+                    ),
+                    now=time.monotonic(),
+                )
                 process.start()
                 active[process.pid] = process
-                life_started[job.allocation["allocation_id"]] = time.monotonic()
             try:
                 messages = [queue.get(timeout=1.0)]
                 while True:
@@ -626,35 +993,58 @@ def run(
                     kind = message.pop("kind")
                     rescue_bearing = bool(message.pop("_rescue_bearing", False))
                     telemetry.append({"event": kind, "at_monotonic": time.monotonic(), **message})
+                    if kind in {"complete", "preempted"}:
+                        stream = next(
+                            a["stream"]
+                            for a in allocation
+                            if a["allocation_id"] == str(message["allocation_id"])
+                        )
+                        slowdown_guards[stream].complete(
+                            str(message["allocation_id"]), time.monotonic()
+                        )
                     if kind == "complete":
                         completed.append(str(message["allocation_id"]))
+                        stream = next(
+                            a["stream"]
+                            for a in allocation
+                            if a["allocation_id"] == str(message["allocation_id"])
+                        )
+                        if (
+                            workers == MAX_WORKERS
+                            and prior_sanity_elapsed + time.monotonic() - started
+                            <= W12_SANITY_SECONDS
+                        ):
+                            sanity_counts[stream] = sanity_counts.get(stream, 0) + 1
+                            sanity_counts["all"] = sanity_counts.get("all", 0) + 1
                     elif kind == "life_boundary":
                         allocation_id = str(message["allocation_id"])
-                        sealed_lives.append((time.time(), rescue_bearing))
-                        elapsed = time.monotonic() - life_started.get(allocation_id, started)
-                        if prior_elapsed + time.monotonic() - started <= 3600:
-                            baseline_lives.append(elapsed)
-                        life_started[allocation_id] = time.monotonic()
-                        # First-hour observations are the factory's local baseline.
-                        if prior_elapsed + time.monotonic() - started > 3600 and baseline_lives:
-                            baseline = sum(baseline_lives) / len(baseline_lives)
-                            if elapsed > baseline * 1.30:
-                                preempted = True
-                                telemetry.append(
-                                    {
-                                        "event": "slowdown_guard",
-                                        "elapsed": elapsed,
-                                        "baseline": baseline,
-                                    }
-                                )
-                        if prior_elapsed + time.monotonic() - started >= 6 * 3600 and not any(
+                        sealed_lives.append((time.time(), rescue_bearing, workers))
+                        stream = next(
+                            a["stream"] for a in allocation if a["allocation_id"] == allocation_id
+                        )
+                        guard = slowdown_guards[stream]
+                        now = time.monotonic()
+                        event = guard.boundary(
+                            allocation_id, now, stopped=preempted or stop_event.is_set()
+                        )
+                        persist_baselines(slowdown_guards, state_dir, control, now)
+                        width_elapsed = width_elapsed_before + now - started
+                        if event is not None:
+                            note_slowdown(stream, event, now)
+                        if width_elapsed >= 6 * 3600 and not any(
                             time.time() - at <= 6 * 3600 for at in thermal_trips
                         ):
                             recent = [
-                                item for at, item in sealed_lives if time.time() - at <= 6 * 3600
+                                item
+                                for at, item, width in sealed_lives
+                                if time.time() - at <= 6 * 3600 and width == workers
                             ]
                             rate = sum(recent) / 6
                             baseline_rate = control.get("operational_canary_rate")
+                            if isinstance(baseline_rate, (int, float)) and workers == MAX_WORKERS:
+                                from .w12_runtime import rate_drift_baseline
+
+                                baseline_rate = rate_drift_baseline(float(baseline_rate))
                             if (
                                 isinstance(baseline_rate, (int, float))
                                 and rate < float(baseline_rate) * 0.5
@@ -663,6 +1053,9 @@ def run(
                                     "sealed rolling six-hour rescue rate below "
                                     "50 percent Canary-B baseline"
                                 )
+                                # A later host/IPC/drain failure can replace the
+                                # operational reason, but cannot undo this stop.
+                                registered_stop_reason = stop_reason
                                 preempted = True
                                 stop_event.set()
                     elif kind == "preempted":
@@ -676,6 +1069,33 @@ def run(
                         stop_event.set()
             except Empty:
                 pass
+            if (
+                workers == MAX_WORKERS
+                and sanity_baseline is not None
+                and not sanity_checked
+                and prior_sanity_elapsed + time.monotonic() - started >= W12_SANITY_SECONDS
+            ):
+                sanity_checked = True
+                from .w12_runtime import w12_sanity_decision
+
+                rates = sanity_baseline["rates_per_wall_hour"]
+                passed, _actual = w12_sanity_decision(
+                    {stream: sanity_counts.get(stream, 0) for stream in rates},
+                    W12_SANITY_SECONDS,
+                    rates,
+                )
+                if not passed:
+                    fall_back_to_w6("sanity")
+                telemetry.append(
+                    {
+                        "event": "w12_parent_throughput_sanity",
+                        "passed": passed,
+                        "completed_parents_by_stream": sanity_counts,
+                        "wall_hours": 3,
+                        "w6_baseline": sanity_baseline,
+                        "required_ratio": 1.15,
+                    }
+                )
             # Reap completed processes before sampling the remaining RSS table.
             for pid, process in list(active.items()):
                 if not process.is_alive():
@@ -687,12 +1107,18 @@ def run(
                         stop_event.set()
             try:
                 _guard_snapshot(output)
+                note_clean_sample()
                 rss_values = _rss_many(list(active))
                 if any(
                     pid not in rss_values and process.is_alive() for pid, process in active.items()
                 ):
                     raise MacGuardError("cannot read RSS for a live owned worker")
+                if workers == MAX_WORKERS and time.monotonic() >= next_soft_rss_sample:
+                    next_soft_rss_sample = time.monotonic() + 300
+                    if sum(rss_values.values()) > W12_SOFT_RSS_BYTES:
+                        fall_back_to_w6("rss")
             except (MacGuardError, subprocess.SubprocessError, OSError) as error:
+                last_clean_sample = None
                 if "thermal" in str(error).lower():
                     note_thermal()
                 stop_reason = f"operational guard: {error}"
@@ -728,27 +1154,70 @@ def run(
         _stop_workers(active)
         active.clear()
     status = "INVALID" if invalid else ("PREEMPTED" if preempted else "COMPLETE")
+    attempt_elapsed = time.monotonic() - started
     result = {
         "schema": "bl-labels-f0-mac-driver/v1",
         "status": status,
         "namespace": namespace,
         "workers": workers,
+        "owner_w12_ok": owner_w12_ok,
+        "w12_calibration_receipt_sha256": w12_receipt_sha256,
+        "w12_calibration_source_commit": _w12_calibration_source(control),
+        "collector_source_commit": collector_source_commit,
+        "operational_source_commit": (
+            subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+            if d256_frozen_root is not None or os.environ.get("F0_OPERATIONAL_COMMIT")
+            else None
+        ),
         "admission_workers_final": admission_workers,
+        "operational_width_fallback": operational_width_fallback,
+        "w12_sanity_elapsed_seconds": prior_sanity_elapsed
+        + (attempt_elapsed if workers == 12 else 0),
+        "w12_sanity_completed_parents": sanity_counts,
+        "w12_sanity_checked": sanity_checked,
+        "w12_sanity_w6_baseline": sanity_baseline,
+        "worker_hour_rates": "descriptive only; split by width; never compared with the F0 floor",
         "nice": 10,
         "thread_env": THREAD_ENV,
         "completed_parents": completed,
         "pending_parents": [job.allocation["allocation_id"] for job in pending],
         "invalid_reason": invalid,
-        "stop_reason": stop_reason,
+        "stop_reason": slowdown_stop_reason or stop_reason,
+        "post_slowdown_stop_reason": (
+            stop_reason
+            if slowdown_stop_reason is not None and stop_reason != slowdown_stop_reason
+            else None
+        ),
+        "registered_stop_reason": registered_stop_reason,
         "thermal_trip_count_24h": len(thermal_trips),
         "thermal_trip_epochs": thermal_trips,
+        "thermal_clean_intervals": thermal_clean_intervals,
+        "slowdown_guard_ruling_sha256": RULING_SHA256,
+        "slowdown_trips": slowdown_trips,
+        "slowdown_trip_records": slowdown_trip_records,
+        "slowdown_state_by_stream": {
+            stream: guard.snapshot(time.monotonic()) for stream, guard in slowdown_guards.items()
+        },
         "first_hour_life_seconds": baseline_lives,
-        "elapsed_seconds": time.monotonic() - started,
+        "first_hour_life_seconds_by_workers": {
+            str(width): samples for width, samples in sorted(prior_baselines.items())
+        },
+        "elapsed_seconds": attempt_elapsed,
         "prior_elapsed_seconds": prior_elapsed,
-        "cumulative_elapsed_seconds": prior_elapsed + (time.monotonic() - started),
-        "worker_seconds_denominator": workers * (time.monotonic() - started),
-        "cumulative_worker_seconds_denominator": workers
-        * (prior_elapsed + (time.monotonic() - started)),
+        "prior_worker_seconds_denominator": prior_worker_seconds,
+        "baseline_segment_workers": workers,
+        "baseline_segment_elapsed_seconds": width_elapsed_before + attempt_elapsed,
+        "cumulative_elapsed_seconds": prior_elapsed + attempt_elapsed,
+        "worker_seconds_denominator": workers * attempt_elapsed,
+        "cumulative_worker_seconds_denominator": prior_worker_seconds + workers * attempt_elapsed,
+        "prior_recorded_worker_seconds_denominator": (
+            sum(
+                json.loads(p.read_text())["worker_seconds_denominator"]
+                for p in (state_dir / name for name in prior_attempts)
+            )
+            if d256_frozen_root is not None and state_dir is not None
+            else prior_worker_seconds
+        ),
         "platform_attestation": platform_attestation(),
         "telemetry_sealed_no_outcomes": telemetry,
     }
@@ -789,15 +1258,34 @@ def main() -> None:
     parser.add_argument("--lease-owner", default="bl-labels-f0-mac-factory")
     parser.add_argument("--owner-w12-ok", action="store_true")
     parser.add_argument("--w12-calibration-receipt", type=Path)
+    parser.add_argument("--d256-frozen-root", type=Path)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     control = json.loads(args.control.read_text())
     if args.check:
         from .mac_gates import require_admission
 
-        require_admission(control)
+        if args.d256_frozen_root is not None:
+            from .d256_resume import verify_resume_request
+
+            verify_resume_request(
+                control,
+                args.d256_frozen_root,
+                args.ledger,
+                args.output,
+                args.state_dir,
+                args.deadline_seconds,
+            )
+            if args.workers == MAX_WORKERS:
+                from .d256_resume import require_w12
+
+                require_w12(args.w12_calibration_receipt, args.b8, args.frp3)
+        else:
+            require_admission(control)
         _prepare_jobs(control, args.ledger)
         _validate_workers(args.workers, args.owner_w12_ok, args.w12_calibration_receipt is not None)
+        if args.workers == MAX_WORKERS:
+            _require_w12_authorization(control, args.owner_w12_ok, args.w12_calibration_receipt)
         _guard_snapshot(args.output.parent)
         print(
             json.dumps({"status": "CHECKED", "workers": args.workers, "output": str(args.output)})
@@ -806,7 +1294,7 @@ def main() -> None:
     if args.workers > DEFAULT_WORKERS:
         if args.w12_calibration_receipt is None:
             parser.error("W12 requires --w12-calibration-receipt")
-        _verify_w12_calibration(args.w12_calibration_receipt)
+        _require_w12_authorization(control, args.owner_w12_ok, args.w12_calibration_receipt)
     lease_seconds = args.deadline_seconds or 16 * 3600
     with held(
         args.lease_owner,
@@ -826,8 +1314,10 @@ def main() -> None:
                 deadline_seconds=args.deadline_seconds,
                 owner_w12_ok=args.owner_w12_ok,
                 calibration_passed=args.w12_calibration_receipt is not None,
+                w12_calibration_receipt=args.w12_calibration_receipt,
                 state_dir=args.state_dir,
                 started_monotonic=entry_started,
+                d256_frozen_root=args.d256_frozen_root,
             )
             result["mac_lease"] = lease.receipt
             publish_json(args.output / "runtime-result.json", result)

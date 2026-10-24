@@ -1,0 +1,69 @@
+{
+  "authority": {
+    "judgment_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-27/JUDGMENT.md",
+    "judgment_sha256": "f3d4e6254771830625ec25938f9eb6dd5a9750e383cb12b34a7a04b687b8518c",
+    "ruler_sha256": "f3d4e6254771830625ec25938f9eb6dd5a9750e383cb12b34a7a04b687b8518c"
+  },
+  "scope": "Independent Codex-V light verification of Round-27 Sol work package; no production execution",
+  "review_base_commit": "2a0821a9f5c6cd5f7b45ba6b22352e48e349b451",
+  "frozen_pin": "61900af28932e47e22e332840fc4406559adb062",
+  "test_command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu PYTHONDONTWRITEBYTECODE=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist -p no:cacheprovider research/bl_labels/test_prepared_packet.py research/bl_labels/test_factory.py research/bl_labels/test_mac_driver.py -k 'not timing_preemption_stops_owned_child' research/bl_labels/test_mac_package.py research/bl_labels/test_mac_gates.py research/bl_labels/test_w12_calibration.py research/bl_labels/test_speed_equiv.py research/bl_labels/test_speed_run.py research/bl_labels/test_frozen_factory.py research/bl_labels/test_width_resume_real.py research/bl_served_search/test_b2_engine.py tests/test_ops_dispatch_mac.py",
+  "test_result": {
+    "collected": 95,
+    "passed": 94,
+    "skipped": 1,
+    "seconds": 6.26,
+    "skip": "operator-only real W1->W2 resume proof",
+    "single_process": true,
+    "xdist": false,
+    "cacheprovider": false
+  },
+  "final_speed_run_recheck": {
+    "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu PYTHONDONTWRITEBYTECODE=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist -p no:cacheprovider research/bl_labels/test_speed_run.py",
+    "passed": 5,
+    "seconds": 0.17
+  },
+  "style_checks": {
+    "black": "PASS: 21 files would be left unchanged",
+    "flake8": "PASS: 21 changed Python files",
+    "bash_n": "PASS: RUN_D1024.sh RUN_SPEED_EQUIV.sh tools/ops/dispatch.sh",
+    "isort": "FAIL: research/bl_labels/test_width_resume_real.py imports json after os; reorder json before os"
+  },
+  "wp_checklist": {
+    "WP-1_equivalence_profile_preparation": "PREPARED_AND_UNIT_CHECKED; actual T-EQ/profile deferred to Claude after D256",
+    "WP-2_prepared_packet_bare_mass": "LIGHT_TESTS_PASS",
+    "WP-3_width_resume": "FAKE_POOL_AND_ACCOUNTING_TESTS_PASS; real W1->W2 proof SKIPPED_OPERATOR_ONLY",
+    "WP-4_fold_prefilter_manifests": "LIGHT_TESTS_PASS; D1024/D4096 world_fold is 1..4",
+    "WP-5_w12_calibration": "CHECKS_PASS; sustained calibration not run",
+    "WP-6_gated_items": "THRESHOLDS_PRESERVED; no gated profile item built or run"
+  },
+  "deferred_gates": [
+    "12-parent OLD/NEW byte-identity T-EQ and frozen 64-root F1 comparison",
+    "1-in-64 D1024 production shadow recheck",
+    "real W1->W2 three-parent payload proof",
+    "sustained W12 calibration producing bl-labels-f0-w12-calibration/v1",
+    "D1024/D4096 production execution and all outcome reads"
+  ],
+  "safety": {
+    "d256_worktree_touched": false,
+    "d256_files_or_outputs_touched": false,
+    "tmux_or_lease_changed": false,
+    "heavy_mac_work_run": false,
+    "source_files_changed_by_reviewer": false
+  },
+  "reviewed_source_sha256": {
+    "research/bl_labels/d1024_w12.py": "d08287841e676a46206ea05112a0ab97677160aa32ffa00925969ba868ea09b8",
+    "research/bl_labels/factory.py": "06712668c6cadf292763d5f88d499dab5df6d03aaf7db85c9bae06ae1de2d45c",
+    "research/bl_labels/frozen_factory.py": "b226aaf5abc9e23e106e39216f417c25f40b4d7bd424c1ebc2d49ee94e3f5e68",
+    "research/bl_labels/mac_driver.py": "3d343c64d67f42c7da2acdf6efb37e5e2d96083458b154bd39e2e8b02cf7c9cf",
+    "research/bl_labels/mac_gates.py": "bd64840743289aa05aa7f795901c369ce09ae7fff6bc5bb2473c27cd81a78871",
+    "research/bl_labels/mac_package.py": "6c719ef1219feef6ef8a3dda02063ad515663d2a1e9ae1e0cd5cbc39054b3ee0",
+    "research/bl_labels/speed_equiv.py": "7a21f54957d1f0b8904c78ee61c7418023d5d637781da8b079d234cfdec47499",
+    "research/bl_labels/speed_run.py": "69ff850a9f8e82c9e61dd9e3b28c81b92b34ac64f6b5a78728f44ba05b991c1a",
+    "research/bl_labels/speed_worker.py": "5c7a1ffa216620642628ce2fc4eb8c88407904db0c7338c6ab4f5f708ffe3839",
+    "research/bl_served_search/b2_engine.py": "1baaaca7694bc7f03795c817b262dabc764bb65ff8803ac54e9fd46f5dc63323"
+  },
+  "recorded_by": "Independent Codex-V verifier",
+  "schema": "bl-labels-f0-round27-codex-v/v1",
+  "verdict": "BLOCKED_SOURCE_ISORT"
+}

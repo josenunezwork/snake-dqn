@@ -11,6 +11,7 @@ import copy
 import hashlib
 import json
 import math
+import os
 import subprocess
 import uuid
 from pathlib import Path
@@ -26,7 +27,12 @@ from .exports import (
     publish_json,
 )
 from .f1_ruler import bank_digest, compare_mac_configs, load_bank
-from .mac_package import CANARY_WALL_SECONDS, CANARY_WORKERS, F1_BANK_SHA256
+from .mac_package import (
+    CALIBRATION_RUNNER_COMMIT,
+    CANARY_WALL_SECONDS,
+    CANARY_WORKERS,
+    F1_BANK_SHA256,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 GLOBAL_LOOK_ROOT = ROOT.parent / "snake-dqn-artifacts/bl-labels-f0/canary-b-single-look"
@@ -143,6 +149,9 @@ def require_admission(control: dict) -> None:
     if not isinstance(gate, dict) or gate.get("status") != "APPROVED":
         raise ValueError("Mac factory HOLD: required placement/F4 gates have not cleared")
     pack, stage = Path(gate["package_root"]), gate["stage"]
+    if stage in {"d1024", "d4096"}:
+        _require_future_admission(control)
+        return
     if stage not in {"canary-b", "d256"}:
         raise ValueError("foreign Mac admission stage")
     pin = _source_pin(pack)
@@ -171,13 +180,411 @@ def require_admission(control: dict) -> None:
         raise ValueError("Mac admitted control differs from its frozen template")
 
 
-def publish_ledger(pack: Path, attempts: list[Path], out: Path) -> dict:
-    """Publish only verified wrappers/path/size/hash; do not calculate any outcome."""
-    from .mac_driver import _verify_resume_metadata
+def _future_source_pin(control: dict) -> str:
+    """Bind science to its sealed pin and an operational wrapper to its descendant."""
+    pin = control.get("source_commit")
+    if not isinstance(pin, str) or len(pin) != 40 or any(c not in "0123456789abcdef" for c in pin):
+        raise ValueError("future Mac control lacks a full source pin")
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    dirty = subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True)
+    if dirty.strip():
+        raise ValueError("future Mac executable worktree is dirty")
+    if head == pin:
+        return pin
+    operational = os.environ.get("F0_OPERATIONAL_COMMIT")
+    science_root = os.environ.get("F0_SCIENCE_ROOT")
+    if operational != head or not science_root:
+        raise ValueError("future Mac executable is not the clean sealed speed pin")
+    if (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", pin, head], cwd=ROOT, check=False
+        ).returncode
+        != 0
+    ):
+        raise ValueError("future operational wrapper is not descended from sealed science pin")
+    from . import frozen_factory
 
-    control = _read(pack / "control.json")
-    namespace, allocation = control["namespace"], control["allocation"]
-    value = empty_ledger(namespace, allocation)
+    root = Path(science_root)
+    if root.resolve() == ROOT.resolve():
+        raise ValueError("future science root must be separate from the operational worktree")
+    frozen_factory._validate(root, pin)
+    return pin
+
+
+def _future_calibration(receipt: Path, legacy_pin: str, runner_pin: str) -> str:
+    """Accept legacy PASS, ruled admission, or measured W6 fallback evidence."""
+    from . import mac_driver
+
+    value = _read(receipt)
+    if value.get("schema") == "bl-labels-f0-w12-admission/v1":
+        # The ruling's admission record deliberately binds the original FAIL
+        # calibration rather than changing its status.  Its verifier replays
+        # the cells, source identity, duration and clean host fields.
+        from . import w12_admission
+
+        w12_admission.verify(receipt, expected_code_sha=legacy_pin)
+        return "PASS"
+    expected_runner_sha = hashlib.sha256(
+        subprocess.check_output(
+            ["git", "show", f"{runner_pin}:research/bl_labels/w12_calibration.py"], cwd=ROOT
+        )
+    ).hexdigest()
+    if (
+        value.get("schema") != "bl-labels-f0-w12-calibration/v1"
+        or value.get("code_sha") != legacy_pin
+        or value.get("bank_sha256") != F1_BANK_SHA256
+        or value.get("platform") != "darwin-arm64"
+        or value.get("runner_sha256") != expected_runner_sha
+        or value.get("owner_approval_sha256")
+        != "32255309812d4df71aa4f6e0635cf0307e3356708262f3cbc99948ebf49569e3"
+        or value.get("thermal_not_ok") != 0
+        or any(
+            not isinstance(value.get(key), str)
+            or len(value[key]) != 64
+            or any(c not in "0123456789abcdef" for c in value[key])
+            for key in ("b8_sha256", "frp3_sha256")
+        )
+    ):
+        raise ValueError("future calibration provenance differs; HOLD")
+    samples = receipt.parent / "host-samples.jsonl"
+    if (
+        not samples.is_file()
+        or samples.stat().st_size != value.get("host_samples_bytes")
+        or _sha(samples) != value.get("host_samples_sha256")
+    ):
+        raise ValueError("future calibration host samples differ; HOLD")
+    if value.get("status") == "PASS":
+        from . import w12_calibration
+
+        cells = value.get("cells")
+        if not isinstance(cells, list) or w12_calibration.wall_ratio(cells) != value.get(
+            "w12_w6_wall_ratio"
+        ):
+            raise ValueError("future calibration measured cells differ; HOLD")
+        mac_driver._verify_w12_calibration(receipt, expected_code_sha=legacy_pin)
+        return "PASS"
+    duration, ratio = value.get("duration_seconds"), value.get("w12_w6_wall_ratio")
+    ratio_fail = (
+        isinstance(duration, (int, float))
+        and not isinstance(duration, bool)
+        and math.isfinite(duration)
+        and duration >= 1800
+        and isinstance(ratio, (int, float))
+        and not isinstance(ratio, bool)
+        and math.isfinite(ratio)
+        and ratio > 1.30
+        and value.get("slowdown_trips") == 0
+    )
+    slowdown_fail = value.get("slowdown_trips") == 1
+    if value.get("status") == "FAIL" and (ratio_fail or slowdown_fail):
+        from . import w12_calibration
+
+        cells = value.get("cells")
+        if not isinstance(cells, list):
+            raise ValueError("future measured-failure cells differ; HOLD")
+        if ratio_fail and w12_calibration.wall_ratio(cells) != ratio:
+            raise ValueError("future measured-failure cells differ; HOLD")
+        return "FAIL"
+    raise ValueError("future calibration is HOLD, incomplete or mechanically unsafe; HOLD")
+
+
+def _f4_d1024_header(control: dict, input_dir: Path) -> tuple[str, set[int]]:
+    """Validate main-dispatch identity without requiring future D1024 labels.
+
+    ``preflight_main_dispatch`` also demands the requested dose's life
+    allocation be ready, which is circular before D1024 collection.  This is
+    its metadata-only prefix, followed by the registered predecessor staging
+    validator in ``_future_readiness``.
+    """
+    import dataclasses
+
+    from research.bl_ppo.exports import digest
+    from research.bl_residual.fit import FitRecipe
+    from research.bl_residual.protocol import (
+        B8_SHA,
+        DOSES,
+        allocation_hash,
+        canonical_sha,
+        read_ledger,
+        require_judgment,
+    )
+
+    if control.get("schema") != "bl-residual-control/v1" or control.get("synthetic") is not False:
+        raise ValueError("D1024 requires a non-synthetic registered F4 control")
+    if not isinstance(control.get("namespace"), str) or not control["namespace"]:
+        raise ValueError("D1024 F4 control lacks a namespace")
+    inputs = control.get("input_hashes")
+    if not isinstance(inputs, dict):
+        raise ValueError("D1024 F4 control lacks immutable input hashes")
+    for name, expected in inputs.items():
+        if name.startswith("train-") and name.endswith(".npz"):
+            continue
+        if (
+            Path(name).name != name
+            or not isinstance(expected, str)
+            or digest(input_dir / name) != expected
+        ):
+            raise ValueError("D1024 F4 input hash mismatch")
+    if digest(input_dir / "b8.pth") != B8_SHA:
+        raise ValueError("D1024 F4 B8 identity mismatch")
+    recipe_sha = canonical_sha(dataclasses.asdict(FitRecipe()))
+    if control.get("recipe_sha256") != recipe_sha:
+        raise ValueError("D1024 F4 recipe binding mismatch")
+    require_judgment(input_dir / "judgment.json", input_dir / "F4_REGISTRATION.md", recipe_sha)
+    requested = control.get("doses")
+    if (
+        requested != [1024]
+        or any(type(dose) is not int or dose not in DOSES for dose in requested)
+        or allocation_hash(control) != control.get("allocation")
+    ):
+        raise ValueError("D1024 requires a frozen standalone D1024 allocation")
+    skip = read_ledger(
+        input_dir / "verified-ledger.json", control["namespace"], control["allocation"]
+    )
+    if not set(skip) <= {DOSES.index(1024)}:
+        raise ValueError("D1024 F4 ledger is outside its allocation")
+    if digest(input_dir / "verified-ledger.json") != control.get("ledger_sha256"):
+        raise ValueError("D1024 F4 ledger binding mismatch")
+    return recipe_sha, set(skip)
+
+
+def _future_readiness(stage: str, f4_control: Path, f4_inputs: Path) -> dict[str, str]:
+    """Use the registered F4 staging validator for the D1024 predecessor.
+
+    This deliberately delegates the substantive checks to ``job`` rather than
+    accepting an ad-hoc PASS marker: its immutable input-hash table binds the
+    D256 fit receipt and source control, then verifies the fault-free fit and
+    frozen recipe/allocation identity before this collection can start.
+    """
+    if stage != "d1024":
+        raise ValueError("future stage readiness has no D4096 admission route")
+    if not f4_control.is_file() or not f4_inputs.is_dir():
+        raise ValueError("D1024 requires its sealed F4 control and input directory")
+    canonical_control = f4_inputs / "control.json"
+    if f4_control.resolve() != canonical_control.resolve():
+        raise ValueError("D1024 F4 control must be the immutable input directory control.json")
+    try:
+        control = json.loads(f4_control.read_text())
+    except json.JSONDecodeError as error:
+        raise ValueError("D1024 F4 control is not JSON") from error
+    if not isinstance(control, dict):
+        raise ValueError("D1024 requires a non-synthetic registered F4 control")
+    from research.bl_residual import job
+
+    recipe_sha, skip = _f4_d1024_header(control, f4_inputs)
+    # The registered staging validator supplies the D256 source-control and
+    # fault-free predecessor checks. It runs only after the production header.
+    job._validate_staging(f4_inputs, control, [1024], recipe_sha, skip)
+    return {
+        "control_path": str(f4_control.resolve()),
+        "control_sha256": _sha(f4_control),
+        "inputs_path": str(f4_inputs.resolve()),
+        "recipe_sha256": recipe_sha,
+    }
+
+
+def admit_future(
+    control_path: Path,
+    *,
+    speed_equivalence: Path,
+    calibration: Path,
+    out: Path,
+    f4_control: Path,
+    f4_inputs: Path,
+    old_factory_root: Path | None = None,
+) -> dict:
+    """Bind a future stage to the new pin, T-EQ and frozen calibration receipt."""
+    original = _read(control_path)
+    gate = original.get("mac_gate")
+    if (
+        not isinstance(gate, dict)
+        or gate.get("status") != "HOLD"
+        or gate.get("stage")
+        not in {
+            "d1024",
+            "d4096",
+        }
+    ):
+        raise ValueError("future control is not a sealed D1024/D4096 HOLD")
+    if gate["stage"] == "d4096":
+        raise ValueError(
+            "D4096 remains HOLD pending its registered R6 funding/projection admission"
+        )
+    pin = _future_source_pin(original)
+    legacy_pin = gate.get("w12_calibration_source_commit")
+    runner_pin = gate.get("w12_calibration_runner_commit")
+    if (
+        not isinstance(legacy_pin, str)
+        or len(legacy_pin) != 40
+        or runner_pin != CALIBRATION_RUNNER_COMMIT
+    ):
+        raise ValueError("future control lacks frozen calibration pin")
+    from . import speed_equiv
+    from .mac_package import d256_allocation, future_seed_audit
+
+    if old_factory_root is None:
+        speed_equiv.verify_receipt(
+            speed_equivalence, legacy_pin, pin, expected_bank_sha=F1_BANK_SHA256
+        )
+        equiv_status = "PASS"
+    else:
+        failed = _read(speed_equivalence)
+        if (
+            failed.get("schema") != "bl-labels-f0-speed-equiv/v1"
+            or failed.get("status") != "FAIL"
+            or failed.get("old", {}).get("commit") != legacy_pin
+            or failed.get("new", {}).get("commit") != pin
+            or failed.get("f1_bank_sha256") != F1_BANK_SHA256
+            or not old_factory_root.is_dir()
+        ):
+            raise ValueError("T-EQ failure is not a sealed OLD fallback authority; HOLD")
+        equiv_status = "FAIL_OLD_FALLBACK"
+    calibration_status = _future_calibration(calibration, legacy_pin, runner_pin)
+    audit_path = control_path.with_name(f"{gate['stage']}-seed-audit.json")
+    prior = d256_allocation(f"f0-hindsight-labels-{legacy_pin}-mac-d256")
+    if gate["stage"] == "d4096":
+        prior_control = _read(control_path.with_name("d1024-control.json"))
+        prior = [*prior, *prior_control["allocation"]]
+    expected_audit = future_seed_audit(original["allocation"], prior_allocation_rows=prior)
+    if _read(audit_path) != expected_audit:
+        raise ValueError("future seed audit differs from sealed allocation; HOLD")
+    readiness = _future_readiness(gate["stage"], f4_control, f4_inputs)
+    value = copy.deepcopy(original)
+    value["mac_gate"] = {
+        **gate,
+        "status": "APPROVED",
+        "original_control_path": str(control_path.resolve()),
+        "original_control_sha256": _verify(control_path),
+        "package_root": str(control_path.parent.resolve()),
+        "state_dir": str((control_path.parent / gate["state_dir_name"]).resolve()),
+        "bindings": {
+            "speed_equivalence": {
+                "path": str(speed_equivalence.resolve()),
+                "sha256": _verify(speed_equivalence),
+                "status": equiv_status,
+            },
+            "calibration": {
+                "path": str(calibration.resolve()),
+                "sha256": _verify(calibration),
+                "status": calibration_status,
+            },
+            "seed_audit": {"path": str(audit_path.resolve()), "sha256": _verify(audit_path)},
+            "f4_readiness": readiness,
+        },
+    }
+    if old_factory_root is not None:
+        value["mac_gate"].update(
+            collector_source_commit=legacy_pin,
+            collector_root=str(old_factory_root.resolve()),
+        )
+    publish_json(out, value)
+    return value
+
+
+def _require_future_admission(control: dict) -> None:
+    """Recheck every future-stage admission dependency before worker start."""
+    gate = control["mac_gate"]
+    original_path = Path(gate.get("original_control_path", ""))
+    if not original_path.is_file() or _verify(original_path) != gate.get("original_control_sha256"):
+        raise ValueError("future original control changed after admission")
+    original = _read(original_path)
+    pin = _future_source_pin(original)
+    if control.get("source_commit") != pin:
+        raise ValueError("future admitted source pin differs")
+    bindings = gate.get("bindings")
+    if not isinstance(bindings, dict):
+        raise ValueError("future admission bindings missing")
+    speed = bindings.get("speed_equivalence", {})
+    calibration = bindings.get("calibration", {})
+    audit = bindings.get("seed_audit", {})
+    readiness = bindings.get("f4_readiness", {})
+    if (
+        not isinstance(speed, dict)
+        or not isinstance(calibration, dict)
+        or not isinstance(audit, dict)
+        or not isinstance(readiness, dict)
+    ):
+        raise ValueError("future admission bindings malformed")
+    if _verify(Path(speed.get("path", ""))) != speed.get("sha256"):
+        raise ValueError("future T-EQ receipt changed after admission")
+    if _verify(Path(calibration.get("path", ""))) != calibration.get("sha256"):
+        raise ValueError("future calibration receipt changed after admission")
+    if _verify(Path(audit.get("path", ""))) != audit.get("sha256"):
+        raise ValueError("future seed audit changed after admission")
+    from . import speed_equiv
+
+    legacy_pin = original["mac_gate"]["w12_calibration_source_commit"]
+    runner_pin = original["mac_gate"]["w12_calibration_runner_commit"]
+    if speed.get("status") == "PASS":
+        speed_equiv.verify_receipt(
+            Path(speed["path"]), legacy_pin, pin, expected_bank_sha=F1_BANK_SHA256
+        )
+        collector = {}
+    elif speed.get("status") == "FAIL_OLD_FALLBACK":
+        failed = _read(Path(speed["path"]))
+        root = gate.get("collector_root")
+        if (
+            failed.get("schema") != "bl-labels-f0-speed-equiv/v1"
+            or failed.get("status") != "FAIL"
+            or failed.get("old", {}).get("commit") != legacy_pin
+            or failed.get("new", {}).get("commit") != pin
+            or failed.get("f1_bank_sha256") != F1_BANK_SHA256
+            or gate.get("collector_source_commit") != legacy_pin
+            or not isinstance(root, str)
+            or not Path(root).is_dir()
+        ):
+            raise ValueError("future OLD fallback differs from its sealed T-EQ failure")
+        collector = {
+            "collector_source_commit": legacy_pin,
+            "collector_root": str(Path(root).resolve()),
+        }
+    else:
+        raise ValueError("future T-EQ status is malformed")
+    status = _future_calibration(Path(calibration["path"]), legacy_pin, runner_pin)
+    if status != calibration.get("status"):
+        raise ValueError("future calibration status changed after admission")
+    from .mac_package import d256_allocation, future_seed_audit
+
+    prior = d256_allocation(f"f0-hindsight-labels-{legacy_pin}-mac-d256")
+    if original["mac_gate"]["stage"] == "d4096":
+        prior_control = _read(original_path.with_name("d1024-control.json"))
+        prior = [*prior, *prior_control["allocation"]]
+    if _read(Path(audit["path"])) != future_seed_audit(
+        original["allocation"], prior_allocation_rows=prior
+    ):
+        raise ValueError("future seed audit differs after admission")
+    readiness_now = _future_readiness(
+        original["mac_gate"]["stage"],
+        Path(readiness.get("control_path", "")),
+        Path(readiness.get("inputs_path", "")),
+    )
+    if readiness != readiness_now:
+        raise ValueError("D1024 registered predecessor readiness changed after admission")
+    original_gate = original["mac_gate"]
+    expected_gate = {
+        **original_gate,
+        "status": "APPROVED",
+        "original_control_path": str(original_path.resolve()),
+        "original_control_sha256": _verify(original_path),
+        "package_root": str(original_path.parent.resolve()),
+        "state_dir": str((original_path.parent / original_gate["state_dir_name"]).resolve()),
+        "bindings": {
+            "speed_equivalence": speed,
+            "calibration": calibration,
+            "seed_audit": audit,
+            "f4_readiness": readiness,
+        },
+        **collector,
+    }
+    expected = copy.deepcopy(original)
+    expected["mac_gate"] = expected_gate
+    if control != expected:
+        raise ValueError("future admitted control differs from sealed admission")
+
+
+def ledger_units(attempts: list[Path]) -> list[dict]:
+    """Inventory completed immutable triplets without inspecting outcomes."""
+    units = []
     seen = set()
     for attempt in attempts:
         if list(attempt.glob("INVALID*.json")):
@@ -192,8 +599,7 @@ def publish_ledger(pack: Path, attempts: list[Path], out: Path) -> dict:
                 raise ValueError("duplicate Mac completed unit across attempts")
             seen.add(name)
             digest = _verify(path)
-            _materialize_triplet(path, out.parent / "lives" / path.name)
-            value["units"].append(
+            units.append(
                 {
                     "unit_id": name,
                     "path": "lives/" + path.name,
@@ -201,6 +607,27 @@ def publish_ledger(pack: Path, attempts: list[Path], out: Path) -> dict:
                     "size": path.stat().st_size,
                 }
             )
+    return units
+
+
+def publish_ledger(
+    pack: Path, attempts: list[Path], out: Path, *, control: dict | None = None
+) -> dict:
+    """Publish only verified wrappers/path/size/hash; do not calculate any outcome.
+
+    D256 callers must first validate their complete durable attempt chain.
+    The default remains the historical Canary-B namespace and allocation.
+    """
+    from .mac_driver import _verify_resume_metadata
+
+    control = _read(pack / "control.json") if control is None else control
+    namespace, allocation = control["namespace"], control["allocation"]
+    value = empty_ledger(namespace, allocation)
+    value["units"] = ledger_units(attempts)
+    for attempt in attempts:
+        for path in sorted((attempt / "lives").glob("*.json")):
+            if Path(str(path) + ".complete").is_file():
+                _materialize_triplet(path, out.parent / "lives" / path.name)
     # Validate before the ledger itself becomes visible as completed evidence.
     temporary = out.parent / (".validation-" + uuid.uuid4().hex + ".json")
     publish_json(temporary, value)

@@ -177,20 +177,34 @@ def test_collect_refuses_stock_or_fallback_native_rows(counters: dict[str, int])
 
 @pytest.mark.parametrize("safe", [True, False])
 def test_labels_all_domain_legal_actions_not_only_advisory(monkeypatch, safe: bool) -> None:
-    from src.simd_env import ego2s_policy
+    from src.simd_env import ego2s_policy, ego_raster
 
     driver = engine.WatchDriver.__new__(engine.WatchDriver)
     driver.hero = SimpleNamespace(net=object())
     driver.sim = SimpleNamespace(
+        _policy_phase_prepared=True,
+        alive=np.array([[True]]),
         get_advisory_action_mask=lambda: np.array([[[False, safe, False, False, False, False]]]),
         get_legal_action_mask=lambda: np.ones((1, 1, 6), dtype=bool),
     )
+    driver.decision = 0
+    driver._prepare_generation = 0
     monkeypatch.setattr(
         ego2s_policy,
-        "student_q",
+        "forward_q",
         lambda *args: SimpleNamespace(
             numpy=lambda: np.array([[0.0, 2.0, 0.0, 0.0, 0.0, 0.0]], dtype=np.float32)
         ),
+    )
+    monkeypatch.setattr(ego2s_policy, "ego_config_for", lambda _net: object())
+    monkeypatch.setattr(
+        ego_raster,
+        "build_ego_raster",
+        lambda *_args, **_kwargs: {
+            "local": np.zeros((1, 1), dtype=np.uint8),
+            "global": np.zeros((1, 1), dtype=np.uint8),
+            "scalars": np.zeros((1, 1), dtype=np.float32),
+        },
     )
     legal, bare = driver.legal_and_bare()
     assert legal == list(range(6))

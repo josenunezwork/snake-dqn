@@ -380,7 +380,7 @@ def test_restore_root_replays_bare_tape_and_fails_closed_on_digest() -> None:
         monkeypatch.undo()
 
 
-def test_collect_unit_selected_bare_final_length_mismatch_is_invalid(
+def test_collect_unit_selected_bare_mass_integral_mismatch_is_invalid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A selected natural-tape reroll mismatch must invalidate the whole unit."""
@@ -410,10 +410,24 @@ def test_collect_unit_selected_bare_final_length_mismatch_is_invalid(
         def legal_and_bare(self) -> tuple[tuple[int, ...], int]:
             return (0, 1), 0
 
+        def prepared_decision(self):
+            from research.bl_served_search.b2_engine import PreparedDecision
+
+            return PreparedDecision(
+                self.sim,
+                self.decision,
+                0,
+                {},
+                self.last_root_q.tobytes(),
+                (0, 1),
+                0,
+            )
+
         def snapshot(self) -> bytes:
             return b"fake-snapshot"
 
-        def step(self, _forced: int | None = None) -> dict[str, object]:
+        def step(self, _forced: int | None = None, packet=None) -> dict[str, object]:
+            del packet
             self.sim.alive[0, 0] = False
             self.decision = 1
             return {
@@ -429,8 +443,8 @@ def test_collect_unit_selected_bare_final_length_mismatch_is_invalid(
                 "survives": False,
                 "frames_executed": 1,
                 "death_decision": 0,
-                "final_length": 10,  # differs from the natural tape's final length 9
-                "mass_integral": 9 / factory.HORIZON,
+                "final_length": 9,
+                "mass_integral": 10 / factory.HORIZON,  # differs only in F4's mass field
                 "extended": {"survives": False},
             }
         return {

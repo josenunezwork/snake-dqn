@@ -120,10 +120,18 @@ class _InlineContext:
 
 
 def _patch_inline_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    from research.bl_labels import w12_runtime
+
+    monkeypatch.setattr(
+        w12_runtime,
+        "resolve_w6_parent_rates",
+        lambda _control: {"rates_per_wall_hour": {"watch6": 1.0}, "synthetic": True},
+    )
     monkeypatch.setattr(mac_driver.os, "setpriority", lambda *_args: None)
     monkeypatch.setattr(mac_driver.os, "getpriority", lambda *_args: 10)
     monkeypatch.setattr(mac_driver.mp, "get_context", lambda _name: _InlineContext())
     monkeypatch.setattr(mac_driver, "_guard_snapshot", lambda _output: {"fixture": True})
+    monkeypatch.setattr(mac_driver, "_exclusive_factory_guard", lambda _owned: None)
     monkeypatch.setattr(mac_driver, "_rss_many", lambda _pids: {pid: 0 for pid in _pids})
 
 
@@ -193,10 +201,24 @@ def _install_real_factory_fake_driver(monkeypatch: pytest.MonkeyPatch) -> None:
         def legal_and_bare(self) -> tuple[tuple[int, ...], int]:
             return (0, 1), 0
 
+        def prepared_decision(self):
+            from research.bl_served_search.b2_engine import PreparedDecision
+
+            return PreparedDecision(
+                self.sim,
+                self.decision,
+                0,
+                {},
+                self.last_root_q.tobytes(),
+                (0, 1),
+                0,
+            )
+
         def snapshot(self) -> bytes:
             return b"real-collect-unit-fake-snapshot"
 
-        def step(self, _forced: int | None = None) -> dict[str, object]:
+        def step(self, _forced: int | None = None, packet=None) -> dict[str, object]:
+            del packet
             self.sim.alive[0, 0] = False
             self.decision = 1
             return {
@@ -244,6 +266,8 @@ def _run_fixture(
     timing,
     state,
     workers=1,
+    owner_w12_ok=False,
+    w12_calibration_receipt=None,
 ):
     return mac_driver.run(
         control,
@@ -254,6 +278,8 @@ def _run_fixture(
         workers=workers,
         timing_armed=timing,
         deadline_seconds=1200,
+        owner_w12_ok=owner_w12_ok,
+        w12_calibration_receipt=w12_calibration_receipt,
         state_dir=state,
     )
 
@@ -345,6 +371,106 @@ def test_preempted_life_is_immutable_and_resume_skips_verified_unit(
             "semantic_label_sha256"
         ]
     )
+    for unit in load_ledger(ledger_after_resume, control["namespace"], control["allocation"]):
+        assert (ledger_after_root / "lives" / f"{unit}.json").read_bytes() == (
+            baseline / "lives" / f"{unit}.json"
+        ).read_bytes()
+
+
+def test_future_width_resume_preserves_prefix_and_sums_worker_seconds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Fake-pool W6 -> W12 -> W6 keeps the ledger prefix and exact charges."""
+    _patch_inline_runtime(monkeypatch)
+    from research.bl_labels import mac_gates
+
+    monkeypatch.setattr(mac_gates, "require_admission", lambda _control: None)
+    monkeypatch.setattr(mac_driver, "_require_w12_authorization", lambda *_args: "a" * 64)
+    pin = "a" * 40
+    monkeypatch.setenv("F0_COMMIT", pin)
+    timing = tmp_path / "mac-timing-armed"
+    state = tmp_path / "state"
+    control = {
+        "namespace": "f0-width-fixture",
+        "allocation": _allocations(3),
+        "source_commit": pin,
+        "mac_gate": {
+            "stage": "d1024",
+            "package_root": str(tmp_path),
+            "deadline_seconds": 1200,
+            "state_dir": str(state),
+            "w12_calibration_source_commit": "b" * 40,
+        },
+    }
+    b8, frp3 = tmp_path / "b8", tmp_path / "frp3"
+    b8.write_bytes(b"b8")
+    frp3.write_bytes(b"frp3")
+    empty = tmp_path / "empty-ledger.json"
+    publish_json(empty, empty_ledger(control["namespace"], control["allocation"]))
+
+    _install_fake_factory(monkeypatch, timing)
+    first_output = tmp_path / "w6-first"
+    first = _run_fixture(
+        monkeypatch, control, empty, b8, frp3, first_output, timing=timing, state=state, workers=6
+    )
+    assert first["status"] == "PREEMPTED"
+    first_ledger = tmp_path / "first-ledger.json"
+    aggregate_attempts([first_output], first_ledger, control["namespace"], control["allocation"])
+    prefix = load_ledger(first_ledger, control["namespace"], control["allocation"])
+    assert prefix
+
+    timing.unlink()
+    _install_fake_factory(monkeypatch, timing)
+    second_output = tmp_path / "w12-second"
+    second = _run_fixture(
+        monkeypatch,
+        control,
+        first_ledger,
+        b8,
+        frp3,
+        second_output,
+        timing=timing,
+        state=state,
+        workers=12,
+        owner_w12_ok=True,
+        w12_calibration_receipt=tmp_path / "sealed-calibration.json",
+    )
+    assert second["status"] in {"PREEMPTED", "COMPLETE"}
+    second_ledger = tmp_path / "second-ledger.json"
+    aggregate_attempts(
+        [first_output, second_output], second_ledger, control["namespace"], control["allocation"]
+    )
+    assert prefix <= load_ledger(second_ledger, control["namespace"], control["allocation"])
+
+    if timing.exists():
+        timing.unlink()
+    _install_fake_factory(monkeypatch)
+    third_output = tmp_path / "w6-third"
+    third = _run_fixture(
+        monkeypatch,
+        control,
+        second_ledger,
+        b8,
+        frp3,
+        third_output,
+        timing=timing,
+        state=state,
+        workers=6,
+    )
+    assert third["status"] == "COMPLETE"
+    final_ledger = tmp_path / "final-ledger.json"
+    aggregate_attempts(
+        [first_output, second_output, third_output],
+        final_ledger,
+        control["namespace"],
+        control["allocation"],
+    )
+    units = load_ledger(final_ledger, control["namespace"], control["allocation"])
+    assert len(units) == 9  # two lives plus one terminal unit for each parent
+    assert third["cumulative_worker_seconds_denominator"] == pytest.approx(
+        sum(result["workers"] * result["elapsed_seconds"] for result in (first, second, third))
+    )
+    assert third["admission_workers_final"] == 6
 
 
 def _mac_cells() -> tuple[list[dict[str, object]], list[str]]:

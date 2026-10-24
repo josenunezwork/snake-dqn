@@ -1,0 +1,66 @@
+{
+  "additional_review": [
+    "Eight selected accounting/result expressions AST-identical to base; 57600-second cap, drain reserve and sum nominal-width times wall seconds retained.",
+    "No task diff in src, factory.py, frozen_factory.py, exports.py, mac_gates.py or mac_package.py; D256 frozen science loader retained.",
+    "W6 host-check prerequisite applies before either requested width; sub-W6 thermal admissions retain actual-width grouping; W12 cooldown propagates across canonical dose states.",
+    "All source operational fixture timestamps and parent identities independently compared with source receipts; source SHA256 matches."
+  ],
+  "existing_artifact_inventory": {
+    "files": 2110,
+    "metadata_sha256": "8921c11673b42e96f09996d6b9adbcccf52bf0847bd48ee3c948aa67ef9b5c23"
+  },
+  "existing_calibration_sha256": "082304bc3e94ce48f82313ed285fc7388c099ef4b8d5c1bcc47545cb6fb3cdbc",
+  "existing_w12_admission_sha256": "65ea988e086ea1c26fc13dba505f4aae7ba524d443095def77ba10c1b80fa4fe",
+  "final_delta": {
+    "change": "Reuse immutable file or saved terminal B6 before initial median calculation; monkeypatch-to-raise proves no recomputation on resume. Driver delta is comment-only.",
+    "command": "env SNAKE_DQN_DEVICE=cpu PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist research/bl_labels/test_slowdown_state.py",
+    "elapsed_seconds": 2.55,
+    "overlaps_full_suite": true,
+    "passed": 6,
+    "status": "PASS"
+  },
+  "not_run": [
+    "production factory",
+    "calibration",
+    "operator host check",
+    "dispatch",
+    "strict gate",
+    "serving qualification",
+    "long job"
+  ],
+  "required_obligations": {
+    "attempt1": "Actual 253 timestamp events,136 original baseline samples; no trip; max armed window/B 0.995391 <=1.04.",
+    "attempt2": "Actual 23 timestamp events; four replay first boundaries excluded; five eligible fresh lives<K24; no trip.",
+    "determinism": "Existing opaque preempt/resume test rerun and strengthened to compare all life/session JSON bytes with uninterrupted collection.",
+    "persistence": "Create-only baseline triplets, verified reuse, no extension/recomputation, same-pin reference propagation, namespace/tamper refusal, validation before start.",
+    "scaled": "Actual attempt1 durations, onset144:1.35x trips after20 eligible boundaries<=K24;1.20x no trip.",
+    "widths": "W6->W12->W6 clears windows and excludes straddling lives; frozen baselines stay separate; above1.911x W12 sanity refuses freeze."
+  },
+  "review_base": "3e746e5f1b1ca9519e679ca525d35fa2c149242a",
+  "reviewed_files_sha256": {
+    "research/bl_labels/d256_resume.py": "6414b52b94c2bfd62fb2b537663b58c8e822115531865220efdaac6f58ab96c6",
+    "research/bl_labels/fixtures/d256_slowdown_timestamps.json": "fc5513f8379d3185912c240d1c05895d91ddc4e51a5b4e73b3b05dee43d21838",
+    "research/bl_labels/mac_driver.py": "186141a02ff8c1c35c9c38e7dca06e460f9010a4411c318be392979e767168a1",
+    "research/bl_labels/slowdown_guard.py": "e92cdc8c75366c16d37452553cf57b4206cc77ab587bc0ffa73387b9ee4c0791",
+    "research/bl_labels/slowdown_resume.py": "f9a8dd7df13b246c88259de9bffb32ed26b6ff631690fe07b682f2c0926befab",
+    "research/bl_labels/slowdown_state.py": "234c78e638880e54aead5c606f1e225719600d94b982cf83867eb5973340936a",
+    "research/bl_labels/test_mac_integration.py": "d60cc1ca7b7ec2915683dcc46567cef3b305566e3608bf64f89b3f2df26252bd",
+    "research/bl_labels/test_slowdown_guard.py": "a6fc011569bb2f52761d57cecd4e75d1d54b32a495ba38ee6f78cb7f79967afa",
+    "research/bl_labels/test_slowdown_resume.py": "bb2b9d1503c8ffd7012200c53ef48044f6f8f2438b643e44f18ab376bcc5e705",
+    "research/bl_labels/test_slowdown_state.py": "e8c264efc8a01a01fe8e380498d3ab4a875180d45a914d82945ddd1743ab1678",
+    "research/bl_labels/w12_runtime.py": "89c2de0f0d3a741f4962005d65e98fee6629037ae745a40b26f631f71ff85772"
+  },
+  "reviewer": "Independent Codex-V /root/codex_v (reviewer role)",
+  "reviewer_files_changed": [],
+  "ruling_sha256": "e50a573e69e6aeea1de7ddde590bac36e62a28a46c3399f5bce0182ae4109551",
+  "schema": "bl-labels-f0-slowdown-codex-v/v1",
+  "science_pin": "61900af28932e47e22e332840fc4406559adb062",
+  "scope": "Light operational verification with recorded timestamps and opaque synthetic collectors; no outcome fields inspected.",
+  "status": "PASS_IMPLEMENTATION_LIGHT_VERIFICATION",
+  "tests": {
+    "command": "env SNAKE_DQN_DEVICE=cpu PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist research/bl_labels/test_slowdown_guard.py research/bl_labels/test_slowdown_state.py research/bl_labels/test_slowdown_resume.py research/bl_labels/test_w12_runtime.py research/bl_labels/test_w12_driver_guards.py research/bl_labels/test_w12_admission.py research/bl_labels/test_mac_driver.py research/bl_labels/test_d256_resume.py research/bl_labels/test_frozen_factory.py research/bl_labels/test_mac_integration.py::test_preempted_life_is_immutable_and_resume_skips_verified_unit research/bl_labels/test_mac_integration.py::test_future_width_resume_preserves_prefix_and_sums_worker_seconds",
+    "elapsed_seconds": 21.56,
+    "passed": 81
+  },
+  "w12_ruling_sha256": "03a7afd1a1ab48dfbb4a2a4fd760ea00d2fe5c8bf6132bfc3660f3077b8815ef"
+}
