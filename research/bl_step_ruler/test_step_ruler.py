@@ -468,3 +468,14 @@ def test_stream_parse_and_unit_schema_constants():
     with pytest.raises(ValueError):
         analyze.stream_of("weird")
     assert set(job.SEALED_COUNTERS).isdisjoint(job.WORK_COUNTERS)
+
+
+def test_prepare_attempt_rules_refuse_before_any_side_effect(tmp_path):
+    args = (COMMIT, tmp_path / "pack", tmp_path / "out", tmp_path / "b8", tmp_path / "frp3")
+    with pytest.raises(ValueError):
+        pack.prepare(*args, attempt=2)
+    with pytest.raises(ValueError):
+        pack.prepare(*args, ledger=tmp_path / "ledger.json", attempt=1)
+    with pytest.raises(ValueError):
+        pack.prepare(*args, ledger=tmp_path / "ledger.json", attempt=4)
+    assert not (tmp_path / "pack").exists()

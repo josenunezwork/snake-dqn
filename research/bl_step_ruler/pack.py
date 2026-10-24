@@ -321,7 +321,7 @@ def make_main(
 
 def make_probe(main: dict[str, Any], output_dir: Path, ns: str) -> dict[str, Any]:
     probe = json.loads(json.dumps(main))
-    probe["job_id"] = f"bl-step-ruler-probe-{main['commit'][:8]}"
+    probe["job_id"] = main["job_id"].replace("bl-step-ruler-main-", "bl-step-ruler-probe-")
     probe["output_dir"] = str(output_dir)
     apply_stage(probe, "transport_probe")
     probe["env"].update(
@@ -342,9 +342,23 @@ def make_probe(main: dict[str, Any], output_dir: Path, ns: str) -> dict[str, Any
 
 
 def prepare(
-    commit: str, artifact_dir: Path, output_dir: Path, b8: Path, frp3: Path
+    commit: str,
+    artifact_dir: Path,
+    output_dir: Path,
+    b8: Path,
+    frp3: Path,
+    *,
+    ledger: Path | None = None,
+    attempt: int = 1,
 ) -> dict[str, Path]:
-    """Create-only pack. Never dispatches, allocates or touches the Mac factory."""
+    """Create-only pack. Never dispatches, allocates or touches the Mac factory.
+
+    ``attempt`` 1 ships an empty ledger. A completion attempt (2 or 3, i.e. at
+    most two outcome-blind completions) ships the Mac-verified ledger union so
+    verified parents are skipped, never recomputed.
+    """
+    if attempt not in (1, 2, 3) or (attempt == 1) != (ledger is None):
+        raise ValueError("attempt 1 uses an empty ledger; attempts 2-3 need a verified ledger")
     require_source_pin(commit)
     if _sha(JUDGMENT) != JUDGMENT_SHA256:
         raise ValueError("authority judgment bytes differ")
@@ -364,7 +378,18 @@ def prepare(
     publish_json(source / "SEED_AUDIT.json", audit)
     control = {"schema": job.CONTROL_SCHEMA, "namespace": ns, "allocation": rows}
     publish_json(source / "control.json", control)
-    publish_json(source / "verified-ledger.json", job.empty_ledger(ns, rows))
+    if ledger is None:
+        publish_json(source / "verified-ledger.json", job.empty_ledger(ns, rows))
+    else:
+        job.verify_unit(ledger)
+        done = job.load_ledger(ledger, ns, rows)
+        if not done or len(done) == len(rows):
+            raise ValueError("a completion attempt needs some, but not all, parents verified")
+        for suffix in ("", ".sha256", ".complete"):
+            target = source / ("verified-ledger.json" + suffix)
+            with target.open("xb") as stream:
+                stream.write(Path(str(ledger) + suffix).read_bytes())
+        job.verify_unit(source / "verified-ledger.json")
     preflight_record = artifact_dir / "clean-import-preflight.json"
     from tools.ops.import_preflight import check as import_check
 
@@ -397,6 +422,8 @@ def prepare(
     inputs = bundle_inputs(converted["inputs"], artifact_dir / "metadata.tar")
     archive_sha = next(row["sha256"] for row in inputs if row["dest"] == "metadata.tar")
     main = make_main(commit, output_dir, inputs, archive_sha, ns)
+    main["job_id"] += f"-a{attempt}"
+    main["step_ruler"]["attempt"] = attempt
     main["env"].update(
         BL_PUBLIC_INPUTS="1", BL_PUBLIC_INPUT_ALIASES=converted["env"]["BL_PUBLIC_INPUT_ALIASES"]
     )
@@ -440,6 +467,8 @@ def main() -> None:
     p.add_argument("--output-dir", type=Path, required=True)
     p.add_argument("--b8", type=Path, required=True)
     p.add_argument("--frp3", type=Path, required=True)
+    p.add_argument("--ledger", type=Path, help="Mac-verified ledger (completion attempts only)")
+    p.add_argument("--attempt", type=int, default=1)
     b = sub.add_parser("bind")
     b.add_argument("--template", type=Path, required=True)
     b.add_argument("--receipt", type=Path, required=True)
@@ -456,7 +485,15 @@ def main() -> None:
     g.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "prepare":
-        paths = prepare(args.commit, args.artifact_dir, args.output_dir, args.b8, args.frp3)
+        paths = prepare(
+            args.commit,
+            args.artifact_dir,
+            args.output_dir,
+            args.b8,
+            args.frp3,
+            ledger=args.ledger,
+            attempt=args.attempt,
+        )
         print(json.dumps({key: str(value) for key, value in paths.items()}, indent=2))
     elif args.command == "bind":
         bind(args.template, args.receipt, args.out)
