@@ -563,3 +563,42 @@ at `387b1dde` during this implementation (worktree/runner/log observed at
 20:12 PT); this task preserved those artifacts and performed no dispatch.
 The new pin cannot reuse that differently pinned worktree. `-08` was verified
 without a worktree, runner or log reservation at closeout.
+
+## R33 implementation closeout — 2026-10-23
+
+Delivered the adopted durable task journal/watcher consumer protocol, thin immutable
+package/ledger and real-entrypoint preflight adapters, explicit 15-node Linux CI
+inventory, common actual startup/runtime/recovery process fixtures, and narrow
+future opt-in proof-dependency charter. A1-PROF remains with its existing owner;
+no factory, F4, P1, GPU spike or serving implementation was authored in this lane.
+Other-owner main commits were integrated without reverting their changes.
+
+Frozen qualified source `d53eaef784fc06996e4d77e3d39889ecd804d66a`, closure
+`52d4ad55f8f07ee544ed726e4b595298283626e87ea25163a2aec2e91114ec6c`, is published
+through an explicit history merge preserving main's newer transport wrapper.
+Both source-pin and broker-HEAD CLI trees match the existing qualification record;
+no registry or live transport was changed. Exact-pin serial check: 64 passed in
+1.06 s (complete wrapper 1.318319 s), nice 15, one process, six thread caps 1.
+Actual scrubbed/native Mac preflight: 15 required checks / three immutable shards,
+3.582715 s, runtime nice 15. Codex-V `codex-v-02/receipt.json` SHA256
+`5997b23f8dc50f4181c51ecf1edfec52f75aa965e23577cb09adc5edfe905d86` independently
+accepts this implementation. Focused style/shell/diff/import checks pass. Hosted
+Research contracts run 40057728587 at `9bfd99ea` passed the complete frozen Linux
+packet. Native ownership, A100 attribution, timing/strict/serving and actual
+handoff-latency/review-time performance remain unproven by this evidence.
+
+**CANCEL_CPU_PILOT_NO_REMAINING_DEMAND**, applying the R33 section-6 kill rule:
+the actual Linux packet already passed CI and no finite unverified Linux backlog
+remains to move off the factory Mac. Independent Codex-V confirmed cancellation.
+The historical `cpu-pilot-01` preparation was refused by the qualified supervisor
+for a missing target-platform family canary receipt; it is not dispatch-qualified.
+No new canary, second pack, allocation or retry was created to repeat the work.
+Immutable cancellation SHA256
+`6c79fb57edab867fc75a415ed731cefb84309d7cc934bd0928c67683971a4591` binds the rejected
+manifest, ruling, accepted source and actual CI evidence. Actual R33 cloud charges
+and active remote liability: **0 units / 0 allocated minutes / 0 assignments**.
+The registered forecast 120 min / 0.16 u and owner-2x ceiling 288 min / 0.384 u
+were never spent or added to existing P1/F4/R28 liabilities. No native/release
+qualification or SLA improvement is claimed. Failed/refused checks and superseded
+receipts remain immutable historical evidence. Complete limits, source assembly,
+artifact paths and exact metadata-only Claude commands: `research/r33_ops/HANDOFF.md`.
