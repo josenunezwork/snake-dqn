@@ -39,6 +39,38 @@ def test_frozen_layouts_have_four_unique_positions(worlds: int) -> None:
     )
 
 
+@pytest.mark.parametrize("layout", fixtures.LAYOUTS)
+@pytest.mark.parametrize("worlds", (4, 64, 1024))
+def test_row_map_proof_keeps_independent_logical_order(layout: str, worlds: int) -> None:
+    proof = fixtures.row_map_proof(worlds, layout)
+    exported = proof.exported()
+    assert proof.logical_ids == (0, 1, 2, 3)
+    assert proof.history_offsets == fixtures.HISTORY_OFFSETS
+    assert proof.insertion_rows == proof.expected_rows == proof.extraction_rows
+    assert exported["placement_valid"] is True
+    assert exported["extraction_valid"] is True
+
+
+@pytest.mark.parametrize("layout", ("reversed", "interspersed"))
+def test_canonical_insertion_substitution_refuses_declared_permutation(
+    monkeypatch: pytest.MonkeyPatch, layout: str
+) -> None:
+    monkeypatch.setattr(fixtures, "layout_rows", lambda _worlds, _layout: (0, 1, 2, 3))
+    with pytest.raises(fixtures.T4ANotReady, match="physical placement"):
+        fixtures.row_map_proof(64, layout)
+
+
+def test_controls_use_extraction_and_real_tape_comparator_path() -> None:
+    from research.gpu_sim_spike import t4a_bench
+
+    statuses, witnesses = t4a_bench._controls()
+    assert statuses == {"q": True, "state": True, "cursor": True, "row_map": True}
+    assert witnesses["q"]["field"] == "output.q.0"
+    assert witnesses["state"]["field"] == "sim.bodies"
+    assert witnesses["cursor"]["field"] == "sim.rng_counter"
+    assert witnesses["row_map"]["field"] == "output.q.0"
+
+
 def test_comparator_detects_one_bit_and_scalar_counter_faults() -> None:
     base = torch.zeros(4, dtype=torch.long)
     changed = base.clone()

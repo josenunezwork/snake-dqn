@@ -25,7 +25,7 @@ def test_t4a_allocation_is_one_atomic_replay_matrix_per_roster() -> None:
 def test_effective_timeout_is_the_only_unit_cap_derivation() -> None:
     canary = t4a_pack._wall_compatibility(t4a_pack.CANARY)
     main = t4a_pack._wall_compatibility(t4a_pack.MAIN)
-    assert canary["unit_cap"] == 5.0
+    assert canary["unit_cap"] == pytest.approx(10 / 3)
     assert main["unit_cap"] == 35.0
     assert (
         canary["classification"]
@@ -39,9 +39,12 @@ def test_effective_timeout_is_the_only_unit_cap_derivation() -> None:
 
 
 def test_ruling_envelope_and_entrypoint_are_fixed() -> None:
-    assert t4a_pack.CANARY == {"est_minutes": 15, "timeout_minutes": 30}
+    assert t4a_pack.CANARY == {"est_minutes": 10, "timeout_minutes": 20}
     assert t4a_pack.MAIN == {"est_minutes": 105, "timeout_minutes": 210}
-    assert t4a_pack.CANARY["timeout_minutes"] + t4a_pack.MAIN["timeout_minutes"] == 240
+    assert (
+        sum(e["timeout_minutes"] for e in (t4a_pack.COMPILER, t4a_pack.CANARY, t4a_pack.MAIN))
+        == 240
+    )
     script = (Path(__file__).parent / "t4a_bench.sh").read_text()
     assert "T4A_BENCH_DEVICE" in script
     assert "nice -n 15 python -m research.gpu_sim_spike.t4a_bench" in script
@@ -162,45 +165,33 @@ def test_recover_completion_refuses_behavioral_prior(tmp_path) -> None:
         )
 
 
-def _approved_amendment() -> dict:
-    return {
-        "schema": t4a_pack.AMENDMENT_SCHEMA,
-        "version": 1,
-        "study": "T4A-DEV-01",
-        "verdict": "APPROVE_PRE_DATA_OPERATIONAL_AMENDMENT",
-        "judge": "Fable",
-        "pre_data": True,
-        "science_unchanged": True,
-        "base_minutes": {"compile": 5, "canary": 10, "main": 105},
-        "effective_minutes": {"compile": 10, "canary": 20, "main": 210},
-        "authority_sha256": t4a_pack.BINDINGS[0][1],
-    }
-
-
-def test_compile_template_is_explicitly_unadmitted_and_wall_bounded(tmp_path) -> None:
+def test_compile_template_adopts_a100_amendment_and_wall_envelope(tmp_path, monkeypatch) -> None:
+    inventory = t4a_pack.native_compile.inventory(t4a_pack.ROOT)
+    monkeypatch.setattr(t4a_pack.native_compile, "inventory", lambda *args: inventory)
     value = t4a_pack.native_compile_template(COMMIT, tmp_path)
-    assert value["scientific_admission"] is False
-    assert value["admission_reason"] == "REQUIRES_FABLE_PRE_DATA_OPERATIONAL_AMENDMENT"
+    assert value["scientific_admission"]["amendment_sha256"] == t4a_pack.COMPILE_AMENDMENT_SHA256
+    assert value["requirements"] == {
+        "gpu": "A100",
+        "allowed_gpus": ["A100"],
+        "min_vcpu": 12,
+        "est_minutes": 5,
+    }
     assert value["timeout_minutes"] == 10
-    assert value["budget"]["rate_units_per_hour"] == 3.0
+    assert value["budget"]["rate_units_per_hour"] == 10.0
+    assert value["env"]["T4A_NATIVE_BINARIES"] == "1"
     assert value["env"]["NUMBA_NUM_THREADS"] == value["env"]["VECLIB_MAXIMUM_THREADS"] == "1"
+    t4a_pack.native_compile.require_for_a100_canary(value)
 
 
 def test_amendment_refuses_missing_or_foreign_bytes(tmp_path) -> None:
-    missing = tmp_path / "missing.json"
     with pytest.raises(FileNotFoundError):
-        t4a_pack._amendment(missing)
-    foreign = tmp_path / "foreign.json"
-    body = _approved_amendment()
-    body["judge"] = "Not Fable"
-    foreign.write_text(json.dumps(body))
+        t4a_pack._amendment(tmp_path / "missing.md")
+    foreign = tmp_path / "foreign.md"
+    foreign.write_text("Synthetic approvals cannot replace the adopted bytes")
     with pytest.raises(ManifestRefused):
         t4a_pack._amendment(foreign)
-    approved = tmp_path / "approved.json"
-    approved.write_text(json.dumps(_approved_amendment()))
-    assert (
-        t4a_pack._amendment(approved)["sha256"] == hashlib.sha256(approved.read_bytes()).hexdigest()
-    )
+    approved = t4a_pack._amendment(t4a_pack.COMPILE_AMENDMENT)
+    assert approved["sha256"] == t4a_pack.COMPILE_AMENDMENT_SHA256
 
 
 def test_compile_binding_preserves_original_metadata_and_draft(tmp_path, monkeypatch) -> None:
@@ -223,8 +214,8 @@ def test_compile_binding_preserves_original_metadata_and_draft(tmp_path, monkeyp
     original = tmp_path / "t4a-canary-attempt-02.json"
     original.write_text(json.dumps(draft))
     before = original.read_bytes()
-    amendment = tmp_path / "amendment.json"
-    amendment.write_text(json.dumps(_approved_amendment()))
+    amendment = t4a_pack.COMPILE_AMENDMENT
+    monkeypatch.setattr(t4a_pack, "_bind_native_inputs", lambda *a: None)
     monkeypatch.setattr(
         t4a_pack.native_compile, "binding", lambda *a: {"path": "receipt", "sha256": "a" * 64}
     )
@@ -235,3 +226,34 @@ def test_compile_binding_preserves_original_metadata_and_draft(tmp_path, monkeyp
     assert body["env"] == draft["env"]
     assert body["timeout_minutes"] == 20
     assert body["inputs"][1]["sha256"] == hashlib.sha256(amendment.read_bytes()).hexdigest()
+
+
+def test_actual_native_input_adapter_binds_report_binaries_and_runtime_env(tmp_path, monkeypatch):
+    """Keep the upload adapter real so API/env drift cannot hide behind a mock binder."""
+    from research.gpu_sim_spike import native_compile, t4a_native
+    from research.gpu_sim_spike.test_t4a_native import _report
+
+    staging = tmp_path / "staging"
+    report_path, body = _report(COMMIT, staging, monkeypatch)
+    receipt = tmp_path / "compile/receipt.json"
+    exports = receipt.parent / "exports"
+    exports.mkdir(parents=True)
+    (exports / "native-compile.json").write_bytes(report_path.read_bytes())
+    for row in body["binaries"]:
+        target = exports / row["path"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((staging / "inputs/native" / row["path"]).read_bytes())
+    proof = {"path": str(receipt), "sha256": "a" * 64}
+    monkeypatch.setattr(native_compile, "binding", lambda *args: proof)
+    value = {"commit": COMMIT, "inputs": [], "env": {}}
+    t4a_pack._bind_native_inputs(value, proof)
+    assert value["env"] == t4a_native.runtime_environment(
+        hashlib.sha256(report_path.read_bytes()).hexdigest()
+    )
+    assert len(value["inputs"]) == 1 + len(body["binaries"])
+    assert {row["dest"] for row in value["inputs"]} == {
+        t4a_native.REPORT_DEST,
+        *("inputs/native/" + row["path"] for row in body["binaries"]),
+    }
+    for row in value["inputs"]:
+        assert hashlib.sha256(Path(row["path"]).read_bytes()).hexdigest() == row["sha256"]

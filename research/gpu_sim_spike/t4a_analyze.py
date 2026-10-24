@@ -71,6 +71,426 @@ def _json(path: Path) -> dict[str, Any]:
     return value
 
 
+def _is_digest(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(char in "0123456789abcdef" for char in value)
+    )
+
+
+def _is_bool_hex(value: Any, byte_count: int) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 2 * byte_count
+        and all(value[index : index + 2] in {"00", "01"} for index in range(0, len(value), 2))
+    )
+
+
+def _valid_descriptor(field: str, descriptor: Any) -> bool:
+    """Validate the exported descriptor rather than merely its field name.
+
+    ``sim.bodies`` deliberately uses a compact device-side fingerprint.  Every
+    other field remains a raw-byte SHA-256 commitment, which is required for
+    the action/Q binding below.
+    """
+    valid_dtypes = {
+        "torch.bool",
+        "torch.float16",
+        "torch.float32",
+        "torch.float64",
+        "torch.int8",
+        "torch.int16",
+        "torch.int32",
+        "torch.int64",
+        "torch.uint8",
+    }
+    if (
+        not isinstance(descriptor, dict)
+        or not isinstance(descriptor.get("shape"), list)
+        or descriptor.get("dtype") not in valid_dtypes
+        or any(
+            not isinstance(dimension, int) or isinstance(dimension, bool) or dimension < 0
+            for dimension in descriptor["shape"]
+        )
+    ):
+        return False
+    shape, dtype = descriptor["shape"], descriptor["dtype"]
+    if field in {"lifecycle.sim_prepared", "lifecycle.vector_prepared"}:
+        return (
+            dtype == "torch.bool"
+            and shape == []
+            and set(descriptor) == {"dtype", "shape", "sha256"}
+            and _is_digest(descriptor.get("sha256"))
+        )
+    if field == "configuration.sha256":
+        return dtype == "torch.uint8" and shape == [32] and _is_digest(descriptor.get("sha256"))
+    if not shape or shape[0] != 4 or any(dimension == 0 for dimension in shape):
+        return False
+    if field != "sim.bodies" and set(descriptor) != {"dtype", "shape", "sha256"}:
+        return False
+    if field == "sim.bodies":
+        return (
+            len(descriptor["shape"]) == 4
+            and descriptor["shape"][1] == 6
+            and descriptor["shape"][2] > 0
+            and descriptor["shape"][3] == 2
+            and descriptor.get("dtype") in {"torch.int32", "torch.int64"}
+            and descriptor.get("digest_algorithm") == "t4a-device-mix64x4-v1"
+            and _is_digest(descriptor.get("digest"))
+            and set(descriptor) == {"dtype", "shape", "digest_algorithm", "digest"}
+        )
+    sim_int_slots = {
+        "head_ptr",
+        "seg_count",
+        "length",
+        "direction",
+        "boost_frames",
+        "frames_since_food",
+        "respawn_timer",
+        "_reward_prev_length",
+        "_last_death_cause",
+        "_last_kills",
+    }
+    sim_bool_slots = {
+        "alive",
+        "terminal_slots",
+        "capacity_overflow",
+        "_last_done",
+        "_last_food_ate",
+        "_last_ambient_food_ate",
+        "_last_corpse_food_ate",
+        "_last_transition_valid",
+        "_boosted_this_step",
+    }
+    if field.startswith("sim."):
+        name = field.removeprefix("sim.")
+        if name in sim_int_slots:
+            return (
+                dtype == "torch.int64" and shape == [4, 6] and _is_digest(descriptor.get("sha256"))
+            )
+        if name in sim_bool_slots:
+            return (
+                dtype == "torch.bool" and shape == [4, 6] and _is_digest(descriptor.get("sha256"))
+            )
+        if name in {"frame", "rng_counter", "rng_key", "food_count"}:
+            return dtype == "torch.int64" and shape == [4] and _is_digest(descriptor.get("sha256"))
+        if name == "_last_reward":
+            return (
+                dtype == "torch.float32"
+                and shape == [4, 6]
+                and _is_digest(descriptor.get("sha256"))
+            )
+        if name == "food_cells":
+            return (
+                dtype == "torch.int64"
+                and len(shape) == 3
+                and shape[2] == 2
+                and _is_digest(descriptor.get("sha256"))
+            )
+        if name in {"food_present", "corpse_food"}:
+            return (
+                dtype == "torch.bool" and len(shape) == 2 and _is_digest(descriptor.get("sha256"))
+            )
+        return False
+    if field.startswith("runtime."):
+        name = field.removeprefix("runtime.")
+        if name in {"controlled", "_carry_valid", "_alive_post", "sel_ready", "sel_fresh"}:
+            return (
+                dtype == "torch.bool" and shape == [4, 6] and _is_digest(descriptor.get("sha256"))
+            )
+        if name == "prev_dist":
+            return (
+                dtype == "torch.float64"
+                and shape == [4, 6]
+                and _is_digest(descriptor.get("sha256"))
+            )
+        if name == "prev_id":
+            return (
+                dtype == "torch.int64" and shape == [4, 6] and _is_digest(descriptor.get("sha256"))
+            )
+        if name in {"_carry_state", "sel_state"}:
+            return (
+                dtype == "torch.float32"
+                and len(shape) == 3
+                and shape[1] == 6
+                and _is_digest(descriptor.get("sha256"))
+            )
+        if name in {"_carry_mask", "sel_mask"}:
+            return (
+                dtype == "torch.bool"
+                and shape == [4, 6, 6]
+                and _is_digest(descriptor.get("sha256"))
+            )
+        return False
+    if field.startswith("collector."):
+        return {
+            "collector.length": ("torch.int64", [4]),
+            "collector.alive": ("torch.bool", [4]),
+            "collector.action": ("torch.int64", [4]),
+            "collector.qmax": ("torch.float32", [4]),
+        }.get(field) == (dtype, shape) and _is_digest(descriptor.get("sha256"))
+    if field == "output.actions" or field == "event.supplied_actions":
+        return dtype == "torch.int64" and shape == [4, 6] and _is_digest(descriptor.get("sha256"))
+    if field.startswith("output.q."):
+        return dtype == "torch.float32" and shape == [4, 6] and _is_digest(descriptor.get("sha256"))
+    if field.startswith("output.obs."):
+        _output, _obs, slot, index = field.split(".")
+        expected = {
+            ("0", "0"): ("torch.uint8", [4, 7, 31, 31]),
+            ("0", "1"): ("torch.uint8", [4, 4, 37, 37]),
+            ("0", "2"): ("torch.float32", [4, 60]),
+        }.get((slot, index))
+        if expected is not None:
+            return (dtype, shape) == expected and _is_digest(descriptor.get("sha256"))
+        return (dtype, shape) == ("torch.float32", [4, 61]) and _is_digest(descriptor.get("sha256"))
+    if field.startswith("output.advisory."):
+        return (dtype, shape) == ("torch.bool", [4, 6, 6]) and _is_digest(descriptor.get("sha256"))
+    if field.startswith("output.v8."):
+        name = field.rsplit(".", 1)[-1]
+        v8_schema = {
+            "mask": ("torch.bool", [4, 6]),
+            "action": ("torch.int64", [4]),
+            "base": ("torch.int64", [4]),
+            "v5_action": ("torch.int64", [4]),
+            "v7_action": ("torch.int64", [4]),
+            "outcome": ("torch.int64", [4]),
+            "v5_reason": ("torch.int64", [4]),
+            "counts": ("torch.int64", [4, 3]),
+            "cap": ("torch.int64", [4]),
+            "need": ("torch.int64", [4]),
+            "area_cap": ("torch.int64", [4]),
+            "area": ("torch.int64", [4, 6]),
+            "landing": ("torch.int64", [4, 3]),
+            "head_risky": ("torch.bool", [4, 6]),
+            "head_waived": ("torch.bool", [4, 6]),
+            "v5_eligible": ("torch.bool", [4, 6]),
+        }
+        return (dtype, shape) == v8_schema.get(name) and _is_digest(descriptor.get("sha256"))
+    return _is_digest(descriptor.get("sha256")) and set(descriptor) == {
+        "dtype",
+        "shape",
+        "sha256",
+    }
+
+
+def _learned_slots(mix: str) -> set[str]:
+    return {
+        "scripted": {"0"},
+        "mixed": {"0", "1", "3", "5"},
+        "frozen": {str(slot) for slot in range(6)},
+    }[mix]
+
+
+def _expected_rows(worlds: int, layout: str) -> list[int]:
+    if layout == "canonical":
+        return [0, 1, 2, 3]
+    if layout == "reversed":
+        return [worlds - 1, worlds - 2, worlds - 3, worlds - 4]
+    if layout == "interspersed":
+        return [0, (worlds - 1) // 3, 2 * (worlds - 1) // 3, worlds - 1]
+    raise ValueError("unknown frozen layout")
+
+
+def _valid_map_proof(proof: Any, worlds: int, layout: str) -> bool:
+    """Validate producer placement and extraction maps against an independent oracle."""
+    expected = _expected_rows(worlds, layout)
+    return (
+        isinstance(proof, dict)
+        and proof.get("layout") == layout
+        and proof.get("worlds") == worlds
+        and proof.get("logical_ids") == [0, 1, 2, 3]
+        and proof.get("history_offsets") == [0, 3, 11, 23]
+        and proof.get("insertion_rows") == expected
+        and proof.get("expected_rows") == expected
+        and proof.get("extraction_rows") == expected
+        and proof.get("placement_valid") is True
+        and proof.get("extraction_valid") is True
+        and proof.get("placement_checks") == [True, True, True, True]
+    )
+
+
+def _event_predicate_error(event: str, witness: dict[str, Any], worlds: int) -> str | None:
+    """Recompute the frozen fixture predicate from its exported values.
+
+    Fixture code may report ``PASS`` only after these witnessed values prove the
+    event.  This reducer intentionally does not trust a producer boolean.
+    """
+    values = witness
+    if event == "ring_wrap":
+        before, after = values.get("before"), values.get("after")
+        expected_head, expected_tail = values.get("expected_head"), values.get("expected_tail")
+        prefix = values.get("logical_prefix")
+        if not (
+            isinstance(before, list)
+            and len(before) == worlds
+            and all(isinstance(value, int) and value >= 1 for value in before)
+            and len(set(before)) == 1
+            and isinstance(after, list)
+            and after == [0] * worlds
+            and isinstance(expected_head, list)
+            and len(expected_head) == 2
+            and isinstance(expected_tail, list)
+            and len(expected_tail) == 2
+            and all(isinstance(value, int) for value in expected_head + expected_tail)
+            and isinstance(prefix, list)
+            and len(prefix) == worlds
+            and all(item == [expected_head, expected_tail] for item in prefix)
+            and values.get("wrapped") is True
+            and values.get("ordered") is True
+        ):
+            return "ring_wrap witnessed values do not prove wrap/order"
+    elif event == "simultaneous_death_respawn":
+        if not all(
+            isinstance(values.get(name), list)
+            and len(values[name]) == worlds
+            and all(value is True for value in values[name])
+            for name in ("died", "respawned", "corpse")
+        ):
+            return "death/respawn witnessed values do not prove event"
+    elif event == "contested_food_refill":
+        first, second = values.get("slot_1_ate"), values.get("slot_2_ate")
+        refilled, rng_before, rng_after = (
+            values.get("food_after_first"),
+            values.get("rng_before"),
+            values.get("rng_after"),
+        )
+        if not (
+            isinstance(first, list)
+            and len(first) == worlds
+            and all(value is True for value in first)
+            and isinstance(second, list)
+            and len(second) == worlds
+            and all(value is False for value in second)
+            and isinstance(refilled, list)
+            and len(refilled) == worlds
+            and all(isinstance(value, int) and value > 0 for value in refilled)
+            and isinstance(rng_before, list)
+            and isinstance(rng_after, list)
+            and len(rng_before) == worlds == len(rng_after)
+            and all(
+                isinstance(left, int) and isinstance(right, int) and right > left
+                for left, right in zip(rng_before, rng_after)
+            )
+        ):
+            return "contested-food witnessed values do not prove ordered refill"
+    elif event == "clone_restore":
+        if not (
+            values.get("restored_exact") is True
+            and values.get("mismatch") is None
+            and _is_digest(values.get("saved_digest"))
+            and values.get("saved_digest") == values.get("restored_digest")
+            and _is_digest(values.get("branch_digest"))
+            and values.get("branch_digest") == values.get("replay_digest")
+            and _is_digest(values.get("before_restore_digest"))
+            and values["before_restore_digest"] != values["saved_digest"]
+        ):
+            return "clone/restore witnessed values do not prove exact restore"
+    elif event == "stale_cache":
+        stats = (values.get("warm_stats"), values.get("clone_stats"), values.get("fresh_stats"))
+        digests = (
+            "warm_digest",
+            "restored_digest",
+            "restore_branch_digest",
+            "restore_replay_digest",
+            "remap_source_digest",
+            "remap_restored_digest",
+            "remap_branch_digest",
+            "remap_replay_digest",
+        )
+        mask_shape = values.get("mask_shape")
+        stale_mask, repaired_mask = values.get("stale_mask_hex"), values.get("repaired_mask_hex")
+        if not (
+            all(
+                isinstance(stats_map, dict)
+                and bool(stats_map)
+                and all(
+                    isinstance(key, str) and isinstance(value, int) and value >= 0
+                    for key, value in stats_map.items()
+                )
+                for stats_map in stats
+            )
+            and values.get("warm_vector_prepared") is True
+            and values.get("clone_vector_prepared") is True
+            and values.get("fresh_vector_prepared") is True
+            and values.get("restore_exact") is True
+            and values.get("restore_replay_exact") is True
+            and values.get("remap_exact") is True
+            and values.get("remap_replay_exact") is True
+            and values.get("lifecycle") is True
+            and values.get("broken_invalidation_control") is True
+            and values.get("mismatch") is None
+            and values["warm_stats"].get("misses", 0) > 0
+            and values["clone_stats"].get("bumps", 0) > 0
+            and values["fresh_stats"].get("misses", 0) > 0
+            and all(
+                isinstance(values.get(name), int) and values[name] >= 0
+                for name in ("warm_generation", "clone_generation", "fresh_generation")
+            )
+            and all(_is_digest(values.get(name)) for name in digests)
+            and values["restored_digest"] == values["warm_digest"]
+            and values["restore_branch_digest"] == values["restore_replay_digest"]
+            and values["remap_source_digest"]
+            == values["remap_restored_digest"]
+            == values["warm_digest"]
+            and values["remap_branch_digest"] == values["remap_replay_digest"]
+            and values.get("mask_dtype") == "torch.bool"
+            and mask_shape == [worlds, 6, 6]
+            and _is_bool_hex(stale_mask, worlds * 6 * 6)
+            and _is_bool_hex(repaired_mask, worlds * 6 * 6)
+            and stale_mask != repaired_mask
+        ):
+            return "stale-cache witnessed values do not prove lifecycle/invalidation"
+    else:  # Defensive: EVENTS is frozen, so a new event needs a reducer schema.
+        return "unknown event predicate schema"
+    return None
+
+
+def _event_tick_error(tick: Any, descriptors: Any, mix: str, event_fields: set[str]) -> str | None:
+    if not isinstance(tick, dict) or not isinstance(descriptors, dict):
+        return "raw tick or descriptor map malformed"
+    if set(descriptors) != event_fields or any(
+        not _valid_descriptor(name, descriptor) for name, descriptor in descriptors.items()
+    ):
+        return "typed event descriptor map malformed"
+    try:
+        supplied = bytes.fromhex(tick["actions_hex"])
+        policy = bytes.fromhex(tick["policy_actions_hex"])
+        if len(supplied) != 4 * 6 * 8 or len(policy) != 4 * 6 * 8:
+            raise ValueError("action bytes have wrong length")
+        if any(action not in range(6) for action in struct.unpack("<24q", supplied)):
+            raise ValueError("supplied action outside action space")
+        if any(action not in range(6) for action in struct.unpack("<24q", policy)):
+            raise ValueError("policy action outside action space")
+        for field, raw in (("event.supplied_actions", supplied), ("output.actions", policy)):
+            descriptor = descriptors[field]
+            if (
+                descriptor.get("shape") != [4, 6]
+                or descriptor.get("dtype") != "torch.int64"
+                or descriptor.get("sha256") != hashlib.sha256(raw).hexdigest()
+            ):
+                raise ValueError(f"{field} raw bytes are not bound")
+        q_hex = tick["q_hex"]
+        if not isinstance(q_hex, dict) or set(q_hex) != _learned_slots(mix):
+            raise ValueError("learned-seat Q inventory differs")
+        for slot, encoded in q_hex.items():
+            raw = bytes.fromhex(encoded)
+            if len(raw) != 4 * 6 * 4 or not all(
+                math.isfinite(value) for value in struct.unpack("<24f", raw)
+            ):
+                raise ValueError("Q bytes are malformed or nonfinite")
+            descriptor = descriptors[f"output.q.{slot}"]
+            if (
+                descriptor.get("shape") != [4, 6]
+                or descriptor.get("dtype") != "torch.float32"
+                or descriptor.get("sha256") != hashlib.sha256(raw).hexdigest()
+            ):
+                raise ValueError("Q bytes are not bound")
+    except (KeyError, TypeError, ValueError, struct.error) as exc:
+        return str(exc)
+    return None
+
+
 def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list[str], list[Any]]:
     invalid: list[str] = []
     missing: list[str] = []
@@ -94,8 +514,9 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
         "row_map": "output.q.0",
     }.items():
         witness = witnesses.get(key, {}) if isinstance(witnesses, dict) else {}
+        allowed_fields = required_fields(mix) if key == "row_map" else {field}
         if (
-            witness.get("field") != field
+            witness.get("field") not in allowed_fields
             or not isinstance(witness.get("byte_offset"), int)
             or witness["byte_offset"] < 0
             or witness.get("expected") == witness.get("actual")
@@ -149,6 +570,10 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
             or row.get("field_inventory_sha256") != content.get("field_inventory_sha256")
         ):
             invalid.append(f"{mix}: comparison/forward/inventory omitted in {key}")
+        if not _valid_map_proof(row.get("map_proof"), row["worlds"], row["layout"]):
+            invalid.append(f"{mix}: independent insertion/extraction map proof invalid in {key}")
+        elif row.get("extracted_rows") != _expected_rows(row["worlds"], row["layout"]):
+            invalid.append(f"{mix}: actual extracted row order differs from frozen layout in {key}")
         shapes = row.get("forward_shapes")
         if not isinstance(shapes, list) or len(shapes) != expected_calls:
             invalid.append(f"{mix}: missing physical forward shape proof in {key}")
@@ -176,15 +601,10 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
                 if not isinstance(tick_fields, dict) or set(tick_fields) != set(fields or []):
                     invalid.append(f"{mix}: per-tick field inventory differs in {key}")
                     break
-                for descriptor in tick_fields.values():
-                    if (
-                        not isinstance(descriptor, dict)
-                        or not isinstance(descriptor.get("shape"), list)
-                        or not isinstance(descriptor.get("dtype"), str)
-                        or not isinstance(descriptor.get("sha256"), str)
-                        or len(descriptor["sha256"]) != 64
-                        or any(c not in "0123456789abcdef" for c in descriptor["sha256"])
-                    ):
+                for field, descriptor in tick_fields.items():
+                    # Matrix descriptors are raw-byte commitments except for
+                    # the explicitly compacted body-ring fingerprint.
+                    if not _valid_descriptor(field, descriptor):
                         invalid.append(f"{mix}: malformed typed field digest in {key}")
                         break
         if not isinstance(tape, list) or len(tape) != horizon:
@@ -266,14 +686,15 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
                 invalid.append(f"{mix}: foreign/duplicate event record")
                 continue
             seen_events.add(key)
-            if row.get("status") != "PASS" or row.get("ticks") != 2:
+            status = row.get("status")
+            if status in {"INCOMPLETE", "timeout"} or row.get("ticks") != 2:
                 missing.append(f"{mix}: unexercised event {key}")
+            elif status not in {"PASS", "INVALID_SELF_CONSISTENCY"}:
+                invalid.append(f"{mix}: invalid event status {key}")
             witness = row.get("witness")
             if not isinstance(witness, dict) or not witness:
                 missing.append(f"{mix}: absent event predicate witness {key}")
             else:
-                if row.get("status") == "INVALID_SELF_CONSISTENCY":
-                    mismatches.append(witness.get("first_witness", {"event": key}))
                 digest = hashlib.sha256(
                     json.dumps(witness, sort_keys=True, default=str).encode()
                 ).hexdigest()
@@ -289,12 +710,34 @@ def _content_errors(content: dict, mix: str, lane: str) -> tuple[list[str], list
                     witness.get("ticks") != 2
                     or not isinstance(mapped, list)
                     or len(mapped) != 2
-                    or any(not isinstance(t, dict) or not event_fields.issubset(t) for t in mapped)
                     or not isinstance(raw, list)
                     or len(raw) != 2
                 ):
                     missing.append(f"{mix}: event policy/state/tick proof omitted {key}")
                 else:
+                    # An incomplete producer may preserve a partial witness;
+                    # it is absence of execution evidence, not contradictory
+                    # evidence.  Only completed/mismatch rows are certified.
+                    if status in {"INCOMPLETE", "timeout"}:
+                        continue
+                    predicate_error = _event_predicate_error(key[0], witness, key[1])
+                    errors = [
+                        _event_tick_error(raw_tick, descriptor_tick, mix, event_fields)
+                        for raw_tick, descriptor_tick in zip(raw, mapped)
+                    ]
+                    if any(errors):
+                        invalid.append(
+                            f"{mix}: invalid event policy/state/tick proof {key}: "
+                            f"{next(error for error in errors if error)}"
+                        )
+                    if predicate_error is not None:
+                        invalid.append(f"{mix}: {predicate_error} {key}")
+                    if row.get("status") == "INVALID_SELF_CONSISTENCY":
+                        first = witness.get("first_witness")
+                        if not isinstance(first, dict) or not first.get("field"):
+                            invalid.append(f"{mix}: event mismatch witness absent {key}")
+                        else:
+                            mismatches.append(first)
                     data = {"mapped_tape": mapped, "action_q_tape": raw}
                     if key[0] in event_tapes and event_tapes[key[0]] != data:
                         mismatches.append(f"{mix}: event {key[0]} mapped tape differs across E")

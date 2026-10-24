@@ -8,7 +8,7 @@ wraps existing policy modules without changing their real-row semantics.
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +44,42 @@ class ForwardCall:
     input_shapes: tuple[tuple[int, ...], ...]
     padded_shapes: tuple[tuple[int, ...], ...]
     output_shape: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class RowMapProof:
+    """Independent insertion/extraction maps for the four frozen seams.
+
+    ``insertion_rows`` is the map used while building the physical batch.
+    ``expected_rows`` and ``extraction_rows`` are derived independently from
+    the frozen layout declaration.  Keeping all three in the sealed payload
+    makes a shared-map implementation error visible to the reducer/audit.
+    """
+
+    layout: str
+    worlds: int
+    logical_ids: tuple[int, int, int, int]
+    history_offsets: tuple[int, int, int, int]
+    insertion_rows: tuple[int, int, int, int]
+    expected_rows: tuple[int, int, int, int]
+    extraction_rows: tuple[int, int, int, int]
+    placement_checks: tuple[bool, ...] = ()
+
+    def exported(self) -> dict[str, Any]:
+        """Return only JSON primitives for the immutable producer payload."""
+        return {
+            "layout": self.layout,
+            "worlds": self.worlds,
+            "logical_ids": list(self.logical_ids),
+            "history_offsets": list(self.history_offsets),
+            "insertion_rows": list(self.insertion_rows),
+            "expected_rows": list(self.expected_rows),
+            "extraction_rows": list(self.extraction_rows),
+            "placement_valid": self.insertion_rows == self.expected_rows
+            and (not self.placement_checks or all(self.placement_checks)),
+            "extraction_valid": self.extraction_rows == self.expected_rows,
+            "placement_checks": list(self.placement_checks),
+        }
 
 
 class Fixed1024Forward(nn.Module):
@@ -118,6 +154,45 @@ def layout_rows(worlds: int, layout: str) -> tuple[int, int, int, int]:
     if len(set(rows)) != 4:
         raise T4ANotReady("layout failed to retain four unique target rows")
     return rows  # type: ignore[return-value]
+
+
+def _frozen_expected_rows(worlds: int, layout: str) -> tuple[int, int, int, int]:
+    """Return the protocol-declared positions without consulting insertion code.
+
+    This deliberately duplicates the small frozen table calculation.  It is
+    an audit oracle, so sharing ``layout_rows`` here would remove the check it
+    is intended to provide.
+    """
+    if worlds < 4 or layout not in LAYOUTS:
+        raise ValueError("invalid T4A layout")
+    if layout == "canonical":
+        return (0, 1, 2, 3)
+    if layout == "reversed":
+        return (worlds - 1, worlds - 2, worlds - 3, worlds - 4)
+    return (0, (worlds - 1) // 3, 2 * (worlds - 1) // 3, worlds - 1)
+
+
+def row_map_proof(worlds: int, layout: str) -> RowMapProof:
+    """Build separately checked row maps for insertion and logical extraction."""
+    insertion_rows = layout_rows(worlds, layout)
+    expected_rows = _frozen_expected_rows(worlds, layout)
+    # Do not use insertion_rows as an extraction source: this independent map
+    # preserves the declared logical order even if insertion is defective.
+    extraction_rows = _frozen_expected_rows(worlds, layout)
+    proof = RowMapProof(
+        layout=layout,
+        worlds=worlds,
+        logical_ids=(0, 1, 2, 3),
+        history_offsets=HISTORY_OFFSETS,
+        insertion_rows=insertion_rows,
+        expected_rows=expected_rows,
+        extraction_rows=extraction_rows,
+    )
+    if proof.insertion_rows != proof.expected_rows:
+        raise T4ANotReady("declared physical placement differs from frozen layout")
+    if proof.extraction_rows != proof.expected_rows:
+        raise T4ANotReady("logical extraction map differs from frozen layout")
+    return proof
 
 
 def pin_fixed_forwards(policy: Any) -> list[Fixed1024Forward]:
@@ -231,7 +306,7 @@ def build_mapped_case(
     *,
     smoke: bool,
     canary: bool,
-) -> tuple[tuple, list[Fixed1024Forward], tuple[int, int, int, int]]:
+) -> tuple[tuple, list[Fixed1024Forward], RowMapProof]:
     """Build a physical batch and place four independently progressed seams.
 
     The transfer is a device-to-device copy of every world-indexed simulator
@@ -242,7 +317,8 @@ def build_mapped_case(
     destination, wrappers = build_case(
         checkpoint, roster, worlds, device, smoke=smoke, canary=canary
     )
-    rows = layout_rows(worlds, layout)
+    row_proof = row_map_proof(worlds, layout)
+    rows = row_proof.insertion_rows
     dest_sim, dest_policy = destination[:2]
     bank_key = (str(checkpoint.resolve()), roster, device, smoke, canary)
     if bank_key not in _SEAM_BANK:
@@ -259,7 +335,9 @@ def build_mapped_case(
             previous = offset
             seams.append((source[0].clone(), copy.deepcopy(source[1])))
         _SEAM_BANK[bank_key] = tuple(seams)
+    placement_checks: list[bool] = []
     for target_row, (src_sim, src_policy) in zip(rows, _SEAM_BANK[bank_key]):
+        placement_ok = True
         for owner_dst, owner_src in (
             (dest_sim, src_sim),
             (dest_policy.vector_runtime, src_policy.vector_runtime),
@@ -275,17 +353,25 @@ def build_mapped_case(
                     and int(source_value.shape[0]) == 1
                 ):
                     value[target_row].copy_(source_value[0])
+                    placement_ok = placement_ok and torch.equal(value[target_row], source_value[0])
         # ``vector_prepared`` is a scalar lifecycle flag and all four frozen
         # seams are explicitly post-step/unprepared.
         dest_policy.vector_prepared = False
         dest_sim._prepared = False
+        placement_checks.append(placement_ok)
     _fill_sacrificial(
         dest_sim,
         dest_policy.vector_runtime,
         set(rows),
         seed_for(roster, smoke=smoke, canary=canary),
     )
-    return destination, wrappers, rows
+    # This is intentionally checked after the real device copies.  A correct
+    # declaration is insufficient if a future insertion loop changes its row
+    # selection after the maps were constructed.
+    row_proof = replace(row_proof, placement_checks=tuple(placement_checks))
+    if rows != row_proof.expected_rows or not all(row_proof.placement_checks):
+        raise T4ANotReady("physical seam insertion diverged from frozen layout")
+    return destination, wrappers, row_proof
 
 
 def _fill_sacrificial(sim: Any, runtime: Any, targets: set[int], root_seed: int) -> None:

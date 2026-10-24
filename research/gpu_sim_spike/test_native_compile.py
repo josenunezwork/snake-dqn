@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -48,6 +49,34 @@ def test_compile_builds_all_extensions_without_kernel_calls(tmp_path, monkeypatc
     sparse_units._verify(tmp_path / "output/native-compile.json")
     with pytest.raises(ValueError, match="fresh"):
         native.run(tmp_path / "output/native-compile.json", PIN)
+
+
+def test_t4a_opt_in_exports_every_loaded_binary_with_immutable_sidecars(tmp_path, monkeypatch):
+    import torch
+    from torch.utils import cpp_extension
+
+    compiled = tmp_path / "compiler-cache"
+    compiled.mkdir()
+    calls = []
+    monkeypatch.setattr(torch.version, "cuda", "12.6")
+    monkeypatch.setattr(native.subprocess, "check_output", lambda *a, **kw: "nvcc test")
+
+    def fake_load(**kwargs):
+        path = compiled / f"{kwargs['name']}.so"
+        path.write_bytes(kwargs["name"].encode())
+        calls.append(kwargs["name"])
+        return SimpleNamespace(__file__=str(path))
+
+    monkeypatch.setattr(cpp_extension, "load", fake_load)
+    monkeypatch.setenv(native.T4A_BINARY_ENV, "1")
+    output = tmp_path / "output/native-compile.json"
+    report = native.run(output, PIN)
+    assert {row["name"] for row in report["binaries"]} == set(calls)
+    for row in report["binaries"]:
+        payload = output.parent / row["path"]
+        assert payload.is_file()
+        assert payload.with_name(payload.name + ".sha256").is_file()
+        assert payload.with_name(payload.name + ".complete").is_file()
 
 
 def test_failed_compile_never_publishes_pass(tmp_path, monkeypatch):
@@ -120,9 +149,106 @@ def _proof(tmp_path, monkeypatch):
     return path, receipt, manifest
 
 
+def _binary_proof(tmp_path, monkeypatch):
+    path, receipt, manifest = _proof(tmp_path, monkeypatch)
+    report_path = path.parent / "exports/native-compile.json"
+    report = json.loads(report_path.read_text())
+    rows = []
+    for spec in report["extensions"]:
+        name = spec["name"]
+        payload = path.parent / "exports/native-binaries" / f"{name}.so"
+        payload.parent.mkdir(exist_ok=True)
+        payload.write_bytes(name.encode())
+        payload.with_name(payload.name + ".sha256").write_text(
+            f"{native.digest(payload)}  {payload.name}\n"
+        )
+        payload.with_name(payload.name + ".complete").write_text("complete\n")
+        row = {
+            "name": name,
+            "path": f"native-binaries/{name}.so",
+            "sha256": native.digest(payload),
+            "size": payload.stat().st_size,
+        }
+        rows.append(row)
+        receipt["exports"].append(
+            {"path": row["path"], "sha256": row["sha256"], "size": row["size"]}
+        )
+    report["binaries"] = rows
+    report_path.write_text(json.dumps(report))
+    report_path.with_name(report_path.name + ".sha256").write_text(
+        f"{native.digest(report_path)}  {report_path.name}\n"
+    )
+    receipt["exports"][0] = {
+        "path": "native-compile.json",
+        "sha256": native.digest(report_path),
+        "size": report_path.stat().st_size,
+    }
+    receipt["terminal"]["exports"] = receipt["exports"]
+    path.write_text(json.dumps(receipt))
+    manifest["native_cuda_compile"] = {
+        "receipt": {"path": str(path), "sha256": native.digest(path)}
+    }
+    return path, receipt, manifest
+
+
 def test_a100_compile_gate_accepts_verified_same_pin_proof(tmp_path, monkeypatch):
     _, _, manifest = _proof(tmp_path, monkeypatch)
     native.require_for_a100_canary(manifest)
+
+
+def test_t4a_compiler_exemption_requires_the_exact_adopted_amendment(tmp_path, monkeypatch):
+    _path, _receipt, manifest = _proof(tmp_path, monkeypatch)
+    names = [f"native-binaries/{spec['name']}.so" for spec in native.inventory(native.ROOT)[1]]
+    manifest.update(
+        {
+            "script": f"{native.PACKAGE}/native_compile.sh",
+            "device": "cpu",
+            "env": {native.T4A_BINARY_ENV: "1"},
+            "requirements": {"gpu": "A100", "allowed_gpus": ["A100"], "est_minutes": 5},
+            "timeout_minutes": 10,
+            "scientific_admission": {"amendment_sha256": native.T4A_COMPILE_AMENDMENT_SHA256},
+            "inputs": [
+                {
+                    "sha256": native.T4A_COMPILE_AMENDMENT_SHA256,
+                    "dest": "inputs/authority/t4a-compile-amendment.md",
+                }
+            ],
+            "required_exports": ["native-compile.json", *names],
+        }
+    )
+    manifest.pop("native_cuda_compile")
+    native.require_for_a100_canary(manifest)
+    manifest["scientific_admission"]["amendment_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="requires native CUDA compile PASS"):
+        native.require_for_a100_canary(manifest)
+
+
+def test_binding_accepts_complete_opt_in_binary_receipt_and_refuses_tamper(tmp_path, monkeypatch):
+    path, receipt, _manifest = _binary_proof(tmp_path, monkeypatch)
+    proof = {"path": str(path), "sha256": native.digest(path)}
+    assert native.binding(path, PIN) == proof
+    first = receipt["exports"][1]["path"]
+    (path.parent / "exports" / first).write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="export inventory"):
+        native.binding(path, PIN)
+
+
+def test_binding_refuses_tampered_binary_sidecar(tmp_path, monkeypatch):
+    path, receipt, _manifest = _binary_proof(tmp_path, monkeypatch)
+    first = receipt["exports"][1]["path"]
+    payload = path.parent / "exports" / first
+    payload.with_name(payload.name + ".sha256").write_text("0" * 64 + "  wrong.so\n")
+    with pytest.raises(ValueError, match="binary sidecars"):
+        native.binding(path, PIN)
+
+
+def test_binding_refuses_duplicate_binary_export_rows(tmp_path, monkeypatch):
+    path, receipt, _manifest = _binary_proof(tmp_path, monkeypatch)
+    receipt["exports"].append(dict(receipt["exports"][1]))
+    receipt["terminal"]["exports"] = receipt["exports"]
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="malformed"):
+        native.binding(path, PIN)
 
 
 @pytest.mark.parametrize(

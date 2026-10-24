@@ -153,6 +153,28 @@ def digest(tensor: torch.Tensor) -> str:
     return hashlib.sha256(raw.cpu().numpy().tobytes()).hexdigest()
 
 
+BODY_DIGEST_ALGORITHM = "t4a-device-mix64x4-v1"
+
+
+def body_digest(tensor: torch.Tensor) -> str:
+    """Fingerprint ring bytes on device, transferring exactly 32 bytes.
+
+    Four position-sensitive integer reductions are diagnostic fingerprints,
+    not cryptographic hashes or the equality oracle. Raw byte comparison stays
+    on device in ``compare``. Signed int64 overflow is intentional modulo 2**64;
+    no floating arithmetic or host body-ring serialization is involved.
+    """
+    raw = tensor.detach().contiguous().reshape(-1).view(torch.uint8).to(torch.int64)
+    positions = torch.arange(raw.numel(), dtype=torch.int64, device=tensor.device)
+    lanes = []
+    for salt in (17, 257, 65537, 16777259):
+        value = (positions + salt) * 6364136223846793005 + raw
+        value = (value ^ (value >> 29)) * 2862933555777941757
+        value = (value ^ (value >> 31)) * 3202034522624059733
+        lanes.append((value ^ (value >> 27)).sum())
+    return torch.stack(lanes).view(torch.uint8).cpu().numpy().tobytes().hex()
+
+
 def compare(left: torch.Tensor, right: torch.Tensor, field: str) -> Mismatch | None:
     if left.dtype != right.dtype or tuple(left.shape) != tuple(right.shape):
         return Mismatch(field + ".shape_or_dtype", 0, 0, 0)
@@ -180,6 +202,14 @@ def compare_inventory(
 
 def compact_inventory(values: dict[str, torch.Tensor]) -> dict[str, dict[str, Any]]:
     return {
-        name: {"dtype": str(value.dtype), "shape": list(value.shape), "sha256": digest(value)}
+        name: {
+            "dtype": str(value.dtype),
+            "shape": list(value.shape),
+            **(
+                {"digest_algorithm": BODY_DIGEST_ALGORITHM, "digest": body_digest(value)}
+                if name == "sim.bodies"
+                else {"sha256": digest(value)}
+            ),
+        }
         for name, value in sorted(values.items())
     }

@@ -1,7 +1,7 @@
 """Prepare T4A-DEV-01 A100 canary and main packets; never dispatches a runtime.
 
 T4A is a pre-registered, outcome-free batch-invariance premise test.  Its
-canary performs the fixed-pin native compile proof and its main is only written
+canary loads the separately compiled fixed-pin binaries and its main is only written
 after the exact canary export inventory has been released and independently
 reduced on the Mac.
 """
@@ -21,6 +21,7 @@ from research.gpu_sim_spike import (
     native_compile,
     native_compile_pack,
     r2_pack,
+    t4a_native,
     t4a_units,
 )
 from research.gpu_sim_spike.make_manifests import (
@@ -63,12 +64,22 @@ BINDINGS = (
         "ef488af238e1f60818dc5baea9fbc17001ea9fe09c1590867f3ce00cc08f4c00",
     ),
 )
+COMPILE_AMENDMENT = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_COMPILE_AMENDMENT.md"
+COMPILE_AMENDMENT_SHA256 = "1eac049440eaad214400493037c88b7098abbde530be0125ea15b30363c1a57f"
+DISPATCH_RULING = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_DISPATCH.md"
+DISPATCH_RULING_SHA256 = "d333e186c53d9be8de5f73aebeb21bb788361be9e8fd64d6f7cac7ab8a4afd34"
+BINDINGS += (
+    (COMPILE_AMENDMENT, COMPILE_AMENDMENT_SHA256),
+    (DISPATCH_RULING, DISPATCH_RULING_SHA256),
+)
 PROTOCOL = ROOT / PACKAGE / "T4A_PROTOCOL_20261024.md"
+PROTOCOL_SHA256 = "b2e55b1f640a4de8872c3feefdc51d74311d19e87cc58bdba9f8510e17db71bf"
 LEDGER_DEST = "inputs/verified-ledger.json"
 CANARY_LEDGER_DEST = "canary-inputs/verified-ledger.json"
 # The ruling freezes a 120 minute base series and owner 2x effective timeout:
-# canary 15/30 minutes, main 105/210 minutes, inclusive of fixed-pin compile.
-CANARY = {"est_minutes": 15, "timeout_minutes": 30}
+# compiler 5/10, canary 10/20, main 105/210, per adopted sibling amendment.
+COMPILER = {"est_minutes": 5, "timeout_minutes": 10}
+CANARY = {"est_minutes": 10, "timeout_minutes": 20}
 MAIN = {"est_minutes": 105, "timeout_minutes": 210}
 PRODUCER_SECONDS = {"canary": 12 * 60, "main": 100 * 60}
 RATE_UNITS_PER_HOUR = 10.0
@@ -115,8 +126,8 @@ def require_source_pin(commit: str) -> None:
     for path, digest in BINDINGS:
         if not path.is_file() or sha256_file(path) != digest:
             raise ManifestRefused(f"T4A authority input differs: {path}")
-    if not PROTOCOL.is_file():
-        raise ManifestRefused("T4A pre-data protocol is absent")
+    if not PROTOCOL.is_file() or sha256_file(PROTOCOL) != PROTOCOL_SHA256:
+        raise ManifestRefused("T4A frozen protocol bytes differ")
 
 
 def _bindings() -> list[dict[str, str]]:
@@ -134,59 +145,69 @@ def _bindings() -> list[dict[str, str]]:
     return rows
 
 
+def scientific_admission() -> dict[str, Any]:
+    """Cite the adopted pre-data authority, without implying review-02 ACCEPT."""
+    return {
+        "study": "T4A-DEV-01",
+        "ruling_sha256": DISPATCH_RULING_SHA256,
+        "amendment_sha256": COMPILE_AMENDMENT_SHA256,
+        "scope": "separate same-pin A100 compile; Astra review-02 ACCEPT required before dispatch",
+    }
+
+
 def native_compile_template(commit: str, packet: Path) -> dict[str, Any]:
-    """Write an unadmitted proposed L4 compiler packet; never dispatch it."""
+    """Prepare the adopted bounded A100 compile-only prerequisite."""
     value = native_compile_pack.manifest(commit, packet / "native-compile-output")
-    value["job_id"] = f"t4a-native-compile-l4-{commit[:12]}-proposed"
-    value["requirements"] = {"gpu": "L4", "allowed_gpus": ["L4"], "min_vcpu": 2, "est_minutes": 5}
+    value["job_id"] = f"t4a-native-compile-a100-{commit[:12]}-01"
+    value["requirements"] = {
+        "gpu": "A100",
+        "allowed_gpus": ["A100"],
+        "min_vcpu": 12,
+        "est_minutes": 5,
+    }
     value["timeout_minutes"] = 10
     value["compile_envelope"] = {
         "base": {"timeout_minutes": 5},
         "effective": {"timeout_minutes": 10},
-        "estimate_basis": "proposed compiler prerequisite, not adopted or measured on this pin",
+        "series_base_minutes": 120,
+        "series_effective_minutes": 240,
+        "estimate_basis": "adopted Fable pre-data compile split; not measured on this pin",
     }
-    value["budget"] = {
-        "unit_cap": 0.5,
-        "rate_units_per_hour": 3.0,
-        "reserve_units": CLEANUP_RESERVE_UNITS,
-        "other_assignments": {},
-        "classification": "wall-derived compatibility field; not a science budget or unit ceiling",
-    }
-    value["env"].update(NUMBA_NUM_THREADS="1", VECLIB_MAXIMUM_THREADS="1")
+    value["budget"] = _wall_compatibility(COMPILER)
+    value["env"].update(
+        NUMBA_NUM_THREADS="1",
+        VECLIB_MAXIMUM_THREADS="1",
+        T4A_NATIVE_BINARIES="1",
+        CUBLAS_WORKSPACE_CONFIG=":4096:8",
+    )
+    value["required_exports"] += [
+        f"native-binaries/{spec['name']}.so" for spec in native_compile.inventory(ROOT)[1]
+    ]
+    value["max_export_bytes"] = 256 * 1024**2
     value["resume_exemption"] = {
         "kind": "short-canary",
-        "reason": "Proposed compiler prerequisite pending a Fable pre-data amendment",
+        "reason": "Adopted Fable same-pin compile only; no kernels, matrix or outcomes",
         "timeout_minutes": 10,
     }
-    value["scientific_admission"] = False
-    value["admission_reason"] = "REQUIRES_FABLE_PRE_DATA_OPERATIONAL_AMENDMENT"
-    value["t4a_operational_split"] = {
-        "proposed": True,
-        "compile_base_minutes": 5,
-        "compile_effective_minutes": 10,
-        "requires_amendment": True,
-    }
+    value["scientific_admission"] = scientific_admission()
+    value["t4a_operational_split"] = {"proposed": False, "amendment": _amendment(COMPILE_AMENDMENT)}
+    value["inputs"] += _bindings()
+    value["inputs"].append(
+        {
+            "path": str(COMPILE_AMENDMENT),
+            "sha256": COMPILE_AMENDMENT_SHA256,
+            "dest": "inputs/authority/t4a-compile-amendment.md",
+        }
+    )
     return value
 
 
 def _amendment(path: Path) -> dict[str, Any]:
+    """Accept the actual immutable adopted Markdown, never a synthetic approval."""
     path = path.resolve(strict=True)
-    body = json.loads(path.read_text())
-    expected = {
-        "schema": AMENDMENT_SCHEMA,
-        "version": 1,
-        "study": "T4A-DEV-01",
-        "verdict": "APPROVE_PRE_DATA_OPERATIONAL_AMENDMENT",
-        "judge": "Fable",
-        "pre_data": True,
-        "science_unchanged": True,
-        "base_minutes": {"compile": 5, "canary": 10, "main": 105},
-        "effective_minutes": {"compile": 10, "canary": 20, "main": 210},
-        "authority_sha256": BINDINGS[0][1],
-    }
-    if body != expected:
-        raise ManifestRefused("T4A operational amendment is not the exact approved Fable schema")
-    return {"path": str(path), "sha256": sha256_file(path), "body": body}
+    if sha256_file(path) != COMPILE_AMENDMENT_SHA256:
+        raise ManifestRefused("T4A amendment bytes differ from the adopted Fable ruling")
+    return {"path": str(path), "sha256": COMPILE_AMENDMENT_SHA256}
 
 
 def preflight_binding(path: Path, commit: str) -> dict[str, Any]:
@@ -292,6 +313,7 @@ def canary_binding(receipt: Path, commit: str, preflight: dict[str, Any]) -> dic
         "analysis": reduced,
         "main_projection": projection,
         "operational_amendment": saved.get("t4a_envelope", {}).get("operational_amendment"),
+        "native_cuda_compile": _verified_compile(saved, commit),
     }
 
 
@@ -505,7 +527,9 @@ def manifest(
                 "horizon": 2 if canary else 256,
                 "padded_forward_rows": 1024,
             },
-            "compile_proof": "fixed-pin native CUDA proof is required inside the canary",
+            "compiler": COMPILER,
+            "operational_amendment": _amendment(COMPILE_AMENDMENT),
+            "compile_proof": "same-pin separate A100 compile receipt and exact binaries required",
             "attempt": attempt,
             "manual_completion_attempts": MAX_MANUAL_ATTEMPTS,
             "retry_rule": "manual outcome-blind completion after verified mechanical failure, "
@@ -518,9 +542,12 @@ def manifest(
             else {"required": "same-pin native T4A canary receipt and Mac PASS_CANARY reduction"}
         ),
         "native_cuda_compile": {"required": "same-pin released native compile receipt"},
-        "scientific_admission": not template,
+        "scientific_admission": False if template else scientific_admission(),
+        "scientific_admission_basis": scientific_admission(),
     }
     if binding is not None:
+        compile_proof = binding["native_cuda_compile"]
+        result["native_cuda_compile"] = {"receipt": compile_proof}
         result["canary"] = {"receipt": binding}
         if binding.get("operational_amendment"):
             result["t4a_envelope"]["canary"] = {"est_minutes": 10, "timeout_minutes": 20}
@@ -539,6 +566,25 @@ def manifest(
     result["env"]["METADATA_ARCHIVE_SHA256"] = next(
         row["sha256"] for row in result["inputs"] if row["dest"] == "metadata.tar"
     )
+    if binding is not None:
+        _bind_native_inputs(result, compile_proof)
+        approved = _amendment(COMPILE_AMENDMENT)
+        result["inputs"].append(
+            {
+                "path": approved["path"],
+                "sha256": approved["sha256"],
+                "dest": "inputs/authority/t4a-operational-amendment.md",
+            }
+        )
+        # Both ledgers are already in the same deterministic metadata archive.
+        # A main must ship exactly the upload inventory proved by its canary.
+        saved = json.loads((canary_receipt.parent / "manifest.json").read_text())
+
+        def identity(rows: list[dict[str, Any]]) -> list[tuple[str, str]]:
+            return sorted((r["dest"], r["sha256"]) for r in rows)
+
+        if identity(result["inputs"]) != identity(saved["inputs"]):
+            raise ManifestRefused("main input bytes differ from the compiled canary")
     assert_upload_budget(result, repo=ROOT)
     return result
 
@@ -549,6 +595,22 @@ def _write(path: Path, value: dict[str, Any]) -> None:
         raise ManifestRefused(f"immutable packet differs: {path}")
     if not path.exists():
         write_once(path, text)
+
+
+def _verified_compile(value: dict[str, Any], commit: str) -> dict[str, Any]:
+    proof = value.get("native_cuda_compile", {}).get("receipt", {})
+    if not isinstance(proof, dict) or not proof.get("path"):
+        raise ManifestRefused("same-pin compile receipt absent from canary")
+    if native_compile.binding(Path(proof["path"]), commit, ROOT) != proof:
+        raise ManifestRefused("same-pin compile receipt binding differs")
+    return proof
+
+
+def _bind_native_inputs(value: dict[str, Any], proof: dict[str, Any]) -> None:
+    rows = t4a_native.private_upload_inputs(proof, value["commit"])
+    value["inputs"].extend(rows)
+    report = next(row for row in rows if row["dest"].endswith("native-compile.json"))
+    value["env"].update(t4a_native.runtime_environment(report["sha256"]))
 
 
 def bind_compile(packet: Path, receipt: Path, amendment: Path, *, attempt: int = 1) -> Path:
@@ -569,6 +631,7 @@ def bind_compile(packet: Path, receipt: Path, amendment: Path, *, attempt: int =
     approved = _amendment(amendment)
     compiled = json.loads(json.dumps(draft))
     compiled["native_cuda_compile"] = {"receipt": proof}
+    _bind_native_inputs(compiled, proof)
     compiled["requirements"]["est_minutes"] = 10
     compiled["timeout_minutes"] = 20
     compiled["budget"] = _wall_compatibility({"timeout_minutes": 20})
@@ -578,12 +641,12 @@ def bind_compile(packet: Path, receipt: Path, amendment: Path, *, attempt: int =
         {
             "path": approved["path"],
             "sha256": approved["sha256"],
-            "dest": "inputs/authority/t4a-operational-amendment.json",
+            "dest": "inputs/authority/t4a-operational-amendment.md",
         }
     )
     # Keep the original bound metadata archive: it contains the verified
     # ledgers, protocol and rulings. The amendment is one extra private input.
-    compiled["scientific_admission"] = True
+    compiled["scientific_admission"] = scientific_admission()
     compiled.pop("admission_reason", None)
     output = packet / f"t4a-canary-compiled-attempt-{attempt:02d}.json"
     _write(output, compiled)
@@ -594,17 +657,11 @@ def admit_compiler(packet: Path, amendment: Path) -> Path:
     """Create the proposed compiler packet only after the exact judge amendment."""
     approved = _amendment(amendment)
     value = json.loads((packet / "native-compile-template.json").read_text())
-    value["scientific_admission"] = True
+    value["scientific_admission"] = scientific_admission()
     value.pop("admission_reason", None)
     value["t4a_operational_split"]["proposed"] = False
     value["t4a_operational_split"]["amendment"] = approved
-    value["inputs"].append(
-        {
-            "path": approved["path"],
-            "sha256": approved["sha256"],
-            "dest": "t4a-operational-amendment.json",
-        }
-    )
+
     output = packet / "native-compile-admitted.json"
     _write(output, value)
     return output

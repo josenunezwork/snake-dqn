@@ -16,6 +16,7 @@ import json
 import time
 from pathlib import Path
 from typing import Any, Callable
+from unittest.mock import patch
 
 import torch
 
@@ -66,6 +67,11 @@ def _mapped_snapshot(case: tuple) -> dict[str, torch.Tensor]:
 def _state_digest(case: tuple) -> str:
     compact = compare.compact_inventory(_snapshot(case))
     return hashlib.sha256(json.dumps(compact, sort_keys=True).encode()).hexdigest()
+
+
+def _tensor_hex(value: torch.Tensor) -> str:
+    """Serialize bounded negative-control evidence with its type recorded separately."""
+    return value.detach().contiguous().cpu().numpy().tobytes().hex()
 
 
 def _actions(sim: Any) -> torch.Tensor:
@@ -135,11 +141,24 @@ def _event_ring_wrap(case: tuple) -> tuple[bool, dict[str, Any]]:
     _tick(case)
     after = sim.head_ptr[:, 0]
     wrapped = bool(torch.all(before == sim.cap - 1).item() and torch.all(after == 0).item())
-    ordered = bool(torch.all(sim.seg_count[:, 0] >= 2).item())
+    # ``seg_count >= 2`` proves only occupancy.  Read the live circular prefix
+    # in logical order so this witness establishes that the moved head precedes
+    # the retained tail across the physical wrap.
+    offsets = torch.arange(2, device=sim.device)
+    ring = (after[:, None] - offsets[None, :]) % sim.cap
+    logical_prefix = sim.bodies[:, 0].gather(1, ring[..., None].expand(-1, -1, 2)).contiguous()
+    expected_head = torch.tensor([5, 4], device=sim.device)
+    expected_tail = torch.tensor([4, 4], device=sim.device)
+    expected = torch.stack((expected_head, expected_tail)).expand_as(logical_prefix)
+    ordered = bool(torch.equal(logical_prefix, expected))
     _tick(case)
     return wrapped and ordered, {
         "before": before.tolist(),
         "after": after.tolist(),
+        "expected_head": expected_head.tolist(),
+        "expected_tail": expected_tail.tolist(),
+        "logical_prefix": logical_prefix.tolist(),
+        "wrapped": wrapped,
         "ordered": ordered,
     }
 
@@ -180,18 +199,20 @@ def _event_contested_food(case: tuple) -> tuple[bool, dict[str, Any]]:
     _set_head(sim, 1, 16, 5, 1)
     _set_head(sim, 2, 18, 5, 3)
 
-    def install_contested_food() -> None:
-        sim.food_present.zero_()
-        sim.corpse_food.zero_()
-        sim.food_count.zero_()
-        sim.food_cells.zero_()
-        sim.food_cells[:, 0] = torch.tensor([17, 5], device=sim.device)
-        sim.food_present[:, 0] = True
-        sim.corpse_food[:, 0] = False
-        sim.food_count[:] = 1
+    # This is fixture setup, before the ordinary prepare/policy/step lifecycle.
+    # ``prepare`` retains this valid ambient-food entry; mutating it after
+    # prepare would evade the protocol's setup-only constraint.
+    sim.food_present.zero_()
+    sim.corpse_food.zero_()
+    sim.food_count.zero_()
+    sim.food_cells.zero_()
+    sim.food_cells[:, 0] = torch.tensor([17, 5], device=sim.device)
+    sim.food_present[:, 0] = True
+    sim.corpse_food[:, 0] = False
+    sim.food_count[:] = 1
 
     rng_before = sim.rng_counter.clone()
-    _tick(case, after_prepare=install_contested_food)
+    _tick(case)
     ate_1, ate_2 = sim._last_ambient_food_ate[:, 1], sim._last_ambient_food_ate[:, 2]
     # Train-mode step refills after consumption; a second ordinary lifecycle
     # witnesses the ordered food state and additional counter progression.
@@ -225,6 +246,17 @@ def _clone_policy(policy: Any) -> Any:
     return copy.deepcopy(policy)
 
 
+def _remap_world_tensors(case: tuple, rows: torch.Tensor) -> None:
+    """Apply a physical world-row remap to the simulator and vector runtime."""
+    sim, policy = case[:2]
+    for owner, names in ((sim, compare.SIM_WORLD), (policy.vector_runtime, compare.RUNTIME_WORLD)):
+        for name in names:
+            value = getattr(owner, name)
+            if isinstance(value, torch.Tensor) and value.ndim and value.shape[0] == sim.E:
+                value.copy_(value.index_select(0, rows))
+    r2_cache.bump(sim)
+
+
 def _event_clone_restore(case: tuple) -> tuple[bool, dict[str, Any]]:
     sim, policy = case[:2]
     _tick(case)
@@ -242,6 +274,7 @@ def _event_clone_restore(case: tuple) -> tuple[bool, dict[str, Any]]:
     before_restore = _state_digest(branch_b)
     ruler._reset(branch_b[0], branch_b[1], saved[0], saved[1])
     restored = compare.compare_inventory(_snapshot(branch_b), _snapshot((saved[0], saved[1])))
+    restored_digest = _state_digest(branch_b)
     _tick(branch_a)
     _tick(branch_b)
     mismatch = restored or compare.compare_inventory(_snapshot(branch_a), _snapshot(branch_b))
@@ -249,58 +282,193 @@ def _event_clone_restore(case: tuple) -> tuple[bool, dict[str, Any]]:
         _TAPES[id(branch_a[0])][-1], _TAPES[id(branch_b[0])][-1]
     )
     _TAPES.pop(id(branch_b[0]), None)
+    replay_digest = _state_digest(branch_b)
     return mismatch is None and restored is None, {
         "before_restore_digest": before_restore,
         "restored_exact": restored is None,
         "saved_digest": _state_digest((saved[0], saved[1], *case[2:])),
+        "restored_digest": restored_digest,
         "branch_digest": _state_digest(branch_a),
+        "replay_digest": replay_digest,
         "mismatch": None if mismatch is None else mismatch.__dict__,
     }
 
 
+@torch.inference_mode()
 def _event_stale_cache(
     case: tuple, checkpoint: Path, roster: str, device: str, lane: str
 ) -> tuple[bool, dict[str, Any]]:
     smoke, canary = _mode_flags(lane)
     sim, policy = case[:2]
-    # Prime the warm branch through real prepare/geometry reads, then clone it.
+    # Materialize the ordinary post-step tensor dtypes before creating a
+    # warmed restore source.  Resetting a progressed target from the initial
+    # pre-step template can otherwise be a dtype mismatch rather than a cache
+    # boundary test.  Setup ticks are not event evidence.
+    _tick(case)
+    _TAPES[id(sim)] = []
+    # Prime the actual vector/policy path before the clone/remap/restore seam.
+    # Calling only ``prepare``/``advisory_mask`` leaves vector-runtime cache and
+    # carry state unexercised, which is the boundary this fixture certifies.
     sim.prepare()
     sim.advisory_mask()
+    _hero_q, _legal, hero = policy.evaluate(sim)
+    policy.actions(sim, hero)
+    if not policy.vector_prepared:
+        raise RuntimeError("stale-cache warmup did not prepare vector runtime")
     warm_stats = r2_cache.stats(sim)
+    warm_generation = r2_cache.generation(sim)
+    warm_digest = _state_digest(case)
     clone = (sim.clone(), _clone_policy(policy), *case[2:])
-    fresh, _wrappers = fixtures.build_case(
+    clone_vector_prepared = bool(clone[1].vector_prepared)
+    clone_generation = r2_cache.generation(clone[0])
+    # Exercise a real device-to-device remap and inverse remap of every
+    # E-indexed simulator/runtime field, then compare its ordinary replay with
+    # the unremapped source.  The reverse is its own inverse, so the second
+    # application restores the logical row order without regenerating RNG or
+    # vector carry state.
+    remapped = (sim.clone(), _clone_policy(policy), *case[2:])
+    reverse_rows = torch.arange(sim.E - 1, -1, -1, device=sim.device)
+    _remap_world_tensors(remapped, reverse_rows)
+    _remap_world_tensors(remapped, reverse_rows)
+    remap_exact = compare.compare_inventory(_snapshot(remapped), _snapshot(case)) is None
+    remap_restored_digest = _state_digest(remapped)
+    remap_replay = (sim.clone(), _clone_policy(policy), *case[2:])
+    _tick(remapped)
+    _tick(remap_replay)
+    remap_replay_exact = (
+        compare.compare_inventory(_snapshot(remapped), _snapshot(remap_replay)) is None
+    )
+    remap_branch_digest = _state_digest(remapped)
+    remap_replay_digest = _state_digest(remap_replay)
+    _TAPES.pop(id(remapped[0]), None)
+    _TAPES.pop(id(remap_replay[0]), None)
+    # Restore the warmed snapshot into a separately warmed resident target
+    # using the production reset path, then replay one ordinary tick on both
+    # branches.  This makes the restore boundary a positive witness rather
+    # than leaving it only to the deliberately broken control below.
+    restored, _wrappers = fixtures.build_case(
         checkpoint, roster, sim.E, device, smoke=smoke, canary=canary
     )
-    fresh_sim, fresh_policy = fresh[:2]
-    fresh_sim.prepare()
-    fresh_sim.advisory_mask()
+    _tick(restored)
+    restored_sim, restored_policy = restored[:2]
+    restored_sim.prepare()
+    _restored_q, _restored_legal, restored_hero = restored_policy.evaluate(restored_sim)
+    restored_policy.actions(restored_sim, restored_hero)
+    ruler._reset(restored_sim, restored_policy, sim, policy)
+    restore_exact = compare.compare_inventory(_snapshot(restored), _snapshot(case)) is None
+    restored_digest = _state_digest(restored)
+    replay = (sim.clone(), _clone_policy(policy), *case[2:])
+    _tick(restored)
+    _tick(replay)
+    restore_replay_exact = compare.compare_inventory(_snapshot(restored), _snapshot(replay)) is None
+    restore_branch_digest = _state_digest(restored)
+    restore_replay_digest = _state_digest(replay)
+    _TAPES.pop(id(restored_sim), None)
+    _TAPES.pop(id(replay[0]), None)
+    equivalent, _wrappers = fixtures.build_case(
+        checkpoint, roster, sim.E, device, smoke=smoke, canary=canary
+    )
+    equivalent_sim, equivalent_policy = equivalent[:2]
+    _tick(equivalent)
+    _TAPES[id(equivalent_sim)] = []
+    equivalent_sim.prepare()
+    equivalent_sim.advisory_mask()
+    _fresh_q, _fresh_legal, fresh_hero = equivalent_policy.evaluate(equivalent_sim)
+    equivalent_policy.actions(equivalent_sim, fresh_hero)
+    if not equivalent_policy.vector_prepared:
+        raise RuntimeError("stale-cache fresh warmup did not prepare vector runtime")
+    fresh_vector_prepared = bool(equivalent_policy.vector_prepared)
+    fresh_generation = r2_cache.generation(equivalent_sim)
+    # A disposable, already-warmed target crosses the same resident restore
+    # seam with invalidation deliberately suppressed.  Compare its stale
+    # cached advisory result with the result after restoring normal invalidation
+    # to prove this fixture would detect the broken-cache control.
+    control, _wrappers = fixtures.build_case(
+        checkpoint, roster, sim.E, device, smoke=smoke, canary=canary
+    )
+    control_sim, control_policy = control[:2]
+    _tick(control)
+    # Force a deterministic geometry distinction before caching.  The source
+    # will restore its original body to this warmed target; without the reset
+    # invalidation its advisory occupancy remains the deliberately displaced
+    # body, making the broken-control result observable on every platform.
+    _set_head(control_sim, 0, 0, 0, 0)
+    r2_cache.bump(control_sim)
+    control_sim.prepare()
+    _control_q, _control_legal, control_hero = control_policy.evaluate(control_sim)
+    control_policy.actions(control_sim, control_hero)
+    control_cache_warm = bool(getattr(r2_cache, "_entry")(control_sim).cache)
+    with patch.object(r2_cache, "bump", lambda _target: None):
+        ruler._reset(control_sim, control_policy, sim, policy)
+    stale_mask = control_sim.advisory_mask().clone()
+    r2_cache.bump(control_sim)
+    repaired_mask = control_sim.advisory_mask()
+    broken_invalidation_control = bool(
+        control_cache_warm and not torch.equal(stale_mask, repaired_mask)
+    )
     # The warm original, cold clone, and independently fresh equivalent all
     # progress twice through ordinary lifecycle invalidation.
     _tick(case)
     _tick(clone)
-    _tick(fresh)
+    _tick(equivalent)
     _tick(case)
     _tick(clone)
-    _tick(fresh)
+    _tick(equivalent)
     mismatch = compare.compare_inventory(_snapshot(case), _snapshot(clone))
-    mismatch = mismatch or compare.compare_inventory(_snapshot(clone), _snapshot(fresh))
+    mismatch = mismatch or compare.compare_inventory(_snapshot(clone), _snapshot(equivalent))
     for index in range(2):
         mismatch = mismatch or compare.compare_inventory(
             _TAPES[id(sim)][index], _TAPES[id(clone[0])][index]
         )
         mismatch = mismatch or compare.compare_inventory(
-            _TAPES[id(sim)][index], _TAPES[id(fresh[0])][index]
+            _TAPES[id(sim)][index], _TAPES[id(equivalent[0])][index]
         )
     _TAPES.pop(id(clone[0]), None)
-    _TAPES.pop(id(fresh[0]), None)
-    clone_stats, fresh_stats = r2_cache.stats(clone[0]), r2_cache.stats(fresh_sim)
-    lifecycle = warm_stats.get("misses", 0) > 0 and clone_stats.get("bumps", 0) > 0
-    return mismatch is None and lifecycle, {
+    _TAPES.pop(id(equivalent[0]), None)
+    _TAPES.pop(id(control_sim), None)
+    clone_stats, fresh_stats = r2_cache.stats(clone[0]), r2_cache.stats(equivalent_sim)
+    lifecycle = (
+        warm_stats.get("misses", 0) > 0
+        and clone_stats.get("bumps", 0) > 0
+        and fresh_stats.get("misses", 0) > 0
+    )
+    return (
+        mismatch is None
+        and lifecycle
+        and restore_exact
+        and restore_replay_exact
+        and remap_exact
+        and remap_replay_exact
+        and broken_invalidation_control
+    ), {
         "warm_stats": warm_stats,
         "clone_stats": clone_stats,
         "fresh_stats": fresh_stats,
+        "warm_generation": warm_generation,
+        "clone_generation": clone_generation,
+        "fresh_generation": fresh_generation,
+        "warm_digest": warm_digest,
+        "warm_vector_prepared": True,
+        "clone_vector_prepared": clone_vector_prepared,
+        "fresh_vector_prepared": fresh_vector_prepared,
+        "restore_exact": restore_exact,
+        "restore_replay_exact": restore_replay_exact,
+        "restored_digest": restored_digest,
+        "restore_branch_digest": restore_branch_digest,
+        "restore_replay_digest": restore_replay_digest,
+        "remap_exact": remap_exact,
+        "remap_replay_exact": remap_replay_exact,
+        "remap_source_digest": warm_digest,
+        "remap_restored_digest": remap_restored_digest,
+        "remap_branch_digest": remap_branch_digest,
+        "remap_replay_digest": remap_replay_digest,
         "mismatch": None if mismatch is None else mismatch.__dict__,
         "lifecycle": lifecycle,
+        "broken_invalidation_control": broken_invalidation_control,
+        "mask_shape": list(stale_mask.shape),
+        "mask_dtype": str(stale_mask.dtype),
+        "stale_mask_hex": _tensor_hex(stale_mask),
+        "repaired_mask_hex": _tensor_hex(repaired_mask),
     }
 
 
@@ -343,6 +511,65 @@ def _run_one(
     return passed, witness
 
 
+def _valid_tensor_tape(value: Any) -> bool:
+    """Return whether a capture tape is usable for a byte comparison.
+
+    An absent E4 reference is an execution/evidence failure, not an engine
+    mismatch.  Do not hand an empty or placeholder tape to the comparator:
+    only two nonempty dictionaries of actual tensors can establish a
+    self-consistency byte difference.
+    """
+    return (
+        isinstance(value, list)
+        and len(value) == 2
+        and all(
+            isinstance(tick, dict)
+            and bool(tick)
+            and all(isinstance(tensor, torch.Tensor) for tensor in tick.values())
+            for tick in value
+        )
+    )
+
+
+def _valid_tensor_prefix(value: Any) -> list[dict[str, torch.Tensor]]:
+    """Return a nonempty valid tensor prefix, or no executable evidence."""
+    if not isinstance(value, list):
+        return []
+    prefix: list[dict[str, torch.Tensor]] = []
+    for tick in value:
+        if (
+            not isinstance(tick, dict)
+            or not tick
+            or not all(isinstance(tensor, torch.Tensor) for tensor in tick.values())
+        ):
+            break
+        prefix.append(tick)
+    return prefix
+
+
+def _byte_comparable_tapes(
+    left: list[dict[str, torch.Tensor]], right: list[dict[str, torch.Tensor]]
+) -> bool:
+    """Require identical tensor inventory before interpreting a byte delta."""
+    return all(
+        set(expected) == set(observed)
+        and all(
+            expected[name].dtype == observed[name].dtype
+            and tuple(expected[name].shape) == tuple(observed[name].shape)
+            for name in expected
+        )
+        for expected, observed in zip(left, right)
+    )
+
+
+def _reference_incomplete(
+    witness: dict[str, Any], raw_tape: Any, reason: str
+) -> tuple[bool, dict[str, Any] | None, str | None]:
+    """Mark a cell incomplete without manufacturing a mismatch witness."""
+    witness["reference_status"] = reason
+    return False, None, "INCOMPLETE"
+
+
 def run_events(
     checkpoint: Path, roster: str, device: str, lane: str, deadline: float
 ) -> dict[str, Any]:
@@ -365,22 +592,56 @@ def run_events(
                 passed, witness = _run_one(event, checkpoint, roster, worlds, device, lane)
                 raw_tape = witness.pop("_raw_mapped_tape", [])
                 mismatch: dict[str, Any] | None = witness.get("mismatch")
+                forced_status: str | None = None
                 if worlds == 4:
-                    references[event] = raw_tape
-                else:
-                    reference = references.get(event, [])
-                    if len(reference) != len(raw_tape):
-                        mismatch = {
-                            "field": "event_ticks",
-                            "expected": len(reference),
-                            "actual": len(raw_tape),
-                        }
+                    # E4 is the canonical reference.  An incomplete capture
+                    # is retained as evidence but cannot become an empty
+                    # reference that later falsely accuses E64/E1024.
+                    reference_prefix = _valid_tensor_prefix(raw_tape)
+                    if reference_prefix:
+                        references[event] = reference_prefix
+                    if _valid_tensor_tape(raw_tape):
+                        pass
                     else:
-                        for tick, (left, right) in enumerate(zip(reference, raw_tape)):
-                            found = compare.compare_inventory(left, right)
-                            if found is not None:
-                                mismatch = {"tick": tick, **found.__dict__}
-                                break
+                        passed, mismatch, forced_status = _reference_incomplete(
+                            witness, raw_tape, "canonical E4 tape absent or incomplete"
+                        )
+                else:
+                    reference = references.get(event)
+                    reference_prefix = _valid_tensor_prefix(reference)
+                    observed_prefix = _valid_tensor_prefix(raw_tape)
+                    if not reference_prefix:
+                        passed, mismatch, forced_status = _reference_incomplete(
+                            witness, raw_tape, "canonical E4 reference absent or incomplete"
+                        )
+                    elif not observed_prefix:
+                        passed, mismatch, forced_status = _reference_incomplete(
+                            witness, raw_tape, "event tape absent or incomplete"
+                        )
+                    else:
+                        prefix_len = min(len(reference_prefix), len(observed_prefix))
+                        left_prefix, right_prefix = (
+                            reference_prefix[:prefix_len],
+                            observed_prefix[:prefix_len],
+                        )
+                        if not _byte_comparable_tapes(left_prefix, right_prefix):
+                            passed, mismatch, forced_status = _reference_incomplete(
+                                witness,
+                                raw_tape,
+                                "event tape inventory/dtype/shape differs from E4",
+                            )
+                        else:
+                            for tick, (left, right) in enumerate(zip(left_prefix, right_prefix)):
+                                found = compare.compare_inventory(left, right)
+                                if found is not None:
+                                    mismatch = {"tick": tick, **found.__dict__}
+                                    break
+                        if mismatch is None and (
+                            not _valid_tensor_tape(reference) or not _valid_tensor_tape(raw_tape)
+                        ):
+                            passed, mismatch, forced_status = _reference_incomplete(
+                                witness, raw_tape, "event tape absent or incomplete"
+                            )
                 if mismatch is not None:
                     passed = False
                     witness["first_witness"] = mismatch
@@ -391,10 +652,15 @@ def run_events(
                         "worlds": worlds,
                         "ticks": 2,
                         "status": (
-                            "PASS"
-                            if passed
-                            else (
-                                "INVALID_SELF_CONSISTENCY" if mismatch is not None else "INCOMPLETE"
+                            forced_status
+                            or (
+                                "PASS"
+                                if passed
+                                else (
+                                    "INVALID_SELF_CONSISTENCY"
+                                    if mismatch is not None
+                                    else "INCOMPLETE"
+                                )
                             )
                         ),
                         "witness_sha256": hashlib.sha256(encoded).hexdigest(),
@@ -402,7 +668,11 @@ def run_events(
                     }
                 )
                 result[event] = bool(result[event] or passed)
-                if mismatch is not None:
+                # Only a byte comparison between two valid tensor tapes may
+                # terminate the event block as an engine mismatch.  Fixture
+                # exceptions and incomplete E4 references remain coverage
+                # failures and E64/E1024 still run to completion.
+                if mismatch is not None and forced_status is None:
                     result["evidence"] = evidence
                     return result
             except ValueError:

@@ -77,14 +77,47 @@ def _target_inventory(case: tuple, rows: tuple[int, int, int, int]) -> dict[str,
 
 
 def _permutation(worlds: int, layout: str) -> tuple[int, int, int, int]:
-    return fixtures.layout_rows(worlds, layout)
+    """Compatibility accessor for the separately checked extraction order."""
+    return fixtures.row_map_proof(worlds, layout).extraction_rows
+
+
+def _extract_capture(
+    physical_fields: dict[str, torch.Tensor], extraction_rows: tuple[int, int, int, int]
+) -> dict[str, torch.Tensor]:
+    """Extract captured physical rows into frozen logical-ID order.
+
+    Matrix records and disposable controls both traverse this helper before
+    reaching ``_compare_tapes``.  That prevents controls from validating only
+    the leaf comparator while bypassing the real row-map boundary.
+    """
+    if len(extraction_rows) != 4 or len(set(extraction_rows)) != 4:
+        raise T4AError("invalid extraction row map")
+    indices: torch.Tensor | None = None
+    extracted: dict[str, torch.Tensor] = {}
+    for name, value in sorted(physical_fields.items()):
+        if value.ndim < 1:
+            raise T4AError(f"captured field lacks physical row axis: {name}")
+        if indices is None:
+            indices = torch.tensor(extraction_rows, dtype=torch.long, device=value.device)
+        if int(value.shape[0]) <= max(extraction_rows):
+            raise T4AError(f"captured field cannot satisfy extraction map: {name}")
+        extracted[name] = value.index_select(0, indices).contiguous()
+    return extracted
 
 
 def _run_record(
-    args: argparse.Namespace, roster: str, worlds: int, layout: str, replay: int, horizon: int
+    args: argparse.Namespace,
+    roster: str,
+    worlds: int,
+    layout: str,
+    replay: int,
+    horizon: int,
+    *,
+    extraction_rows: tuple[int, int, int, int] | None = None,
+    control_fault: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, torch.Tensor]], list[Any]]:
     built_at = time.monotonic()
-    case, wrappers, target_rows = fixtures.build_mapped_case(
+    case, wrappers, row_proof = fixtures.build_mapped_case(
         args.checkpoint,
         roster,
         worlds,
@@ -93,6 +126,9 @@ def _run_record(
         smoke=args.smoke,
         canary=args.canary,
     )
+    selected_rows = extraction_rows or row_proof.extraction_rows
+    if len(selected_rows) != 4 or len(set(selected_rows)) != 4:
+        raise T4AError("invalid control extraction map")
     # Four independent lifecycle offsets are exercised sequentially; a real
     # R2 construction occurs for every matrix replay, preventing aliasing.
     snapshots: list[dict[str, torch.Tensor]] = []
@@ -113,10 +149,26 @@ def _run_record(
                 collection = ruler._collection(1, worlds, sim.device)
                 capture.begin_tick()
                 ruler._full_tick(sim, policy, collection, 0)
-                state = _target_inventory((*case[:4], collection, case[5]), target_rows)
-                state.update(capture.fields(target_rows))
+                if control_fault is not None:
+                    fields = {
+                        "q": capture.values.get("output.q.0"),
+                        "state": sim.bodies,
+                        "cursor": sim.rng_counter,
+                    }
+                    value = fields.get(control_fault)
+                    if not isinstance(value, torch.Tensor):
+                        raise T4AError("unknown actual-capture control fault")
+                    # Mutate the captured physical row before normal
+                    # extraction, never an already logical-order snapshot.
+                    raw = value[selected_rows[0]].reshape(-1).view(torch.uint8)
+                    raw[0] ^= 1
+                # Both inventories select physical rows using the independent
+                # extraction map; their resulting leading axis is logical-ID
+                # order 0..3 for comparison.
+                state = _target_inventory((*case[:4], collection, case[5]), selected_rows)
+                state.update(capture.fields(selected_rows))
                 actions = capture.values["output.actions"]
-                action_q_tape.append(capture.q_tape(actions, target_rows))
+                action_q_tape.append(capture.q_tape(actions, selected_rows))
                 snapshots.append(state)
                 tapes.append(compare.compact_inventory(state))
                 matched_ticks += 1
@@ -130,6 +182,8 @@ def _run_record(
         {
             "worlds": worlds,
             "layout": layout,
+            "map_proof": row_proof.exported(),
+            "extracted_rows": list(selected_rows),
             "replay": replay,
             "ticks": horizon,
             "build_seconds": tick_seconds[0] * 0
@@ -207,16 +261,25 @@ def _compare_action_q(
 
 
 def _controls(device: str = "cpu") -> tuple[dict[str, bool], dict[str, dict[str, Any]]]:
-    """Disposable comparator controls; these do not inspect a matrix prefix."""
+    """Inject faults through captured physical rows and normal extraction."""
+    physical_rows = 8
+    extraction_rows = (7, 5, 3, 1)
     base = {
-        "output.q.0": torch.arange(24, dtype=torch.float32, device=device).reshape(4, 6),
-        "sim.bodies": torch.arange(32, dtype=torch.long, device=device).reshape(4, 2, 2, 2),
-        "sim.rng_counter": torch.arange(4, dtype=torch.long, device=device),
+        "output.q.0": torch.arange(physical_rows * 6, dtype=torch.float32, device=device).reshape(
+            physical_rows, 6
+        ),
+        "sim.bodies": torch.arange(physical_rows * 8, dtype=torch.long, device=device).reshape(
+            physical_rows, 2, 2, 2
+        ),
+        "sim.rng_counter": torch.arange(physical_rows, dtype=torch.long, device=device),
     }
+    reference = [_extract_capture(base, extraction_rows)]
 
     def fault(field: str) -> dict[str, torch.Tensor]:
         copied = {name: value.clone() for name, value in base.items()}
-        raw = copied[field].reshape(-1).view(torch.uint8)
+        # Mutate a physical row selected by the same extraction map, rather
+        # than a convenient but unobserved row zero.
+        raw = copied[field][extraction_rows[0]].reshape(-1).view(torch.uint8)
         raw[0] ^= 1
         return copied
 
@@ -227,16 +290,74 @@ def _controls(device: str = "cpu") -> tuple[dict[str, bool], dict[str, dict[str,
         ("state", "sim.bodies"),
         ("cursor", "sim.rng_counter"),
     ):
-        mismatch = compare.compare_inventory(base, fault(field))
-        statuses[label] = mismatch is not None and mismatch.field == field
-        witnesses[label] = {} if mismatch is None else mismatch.__dict__
-    # This is an actual inverse-map fault: logical targets 0/1 are swapped.
-    # It changes which captured physical-row bytes are compared.
-    row_map = torch.tensor((3, 2, 1, 0), dtype=torch.long, device=device)
-    wrong = {name: value.index_select(0, row_map) for name, value in base.items()}
-    mismatch = compare.compare_inventory(base, wrong)
-    statuses["row_map"] = mismatch is not None and mismatch.field == "output.q.0"
-    witnesses["row_map"] = {} if mismatch is None else mismatch.__dict__
+        _count, mismatch = _compare_tapes(
+            reference,
+            [_extract_capture(fault(field), extraction_rows)],
+            roster="control",
+            worlds=physical_rows,
+            layout="reversed",
+            replay=0,
+        )
+        statuses[label] = mismatch is not None and mismatch.get("field") == field
+        witnesses[label] = {} if mismatch is None else mismatch
+    # A wrong extraction map is applied to the same captured physical rows.
+    # It cannot pass by only reordering a handmade already-extracted tape.
+    _count, mismatch = _compare_tapes(
+        reference,
+        [_extract_capture(base, tuple(reversed(extraction_rows)))],
+        roster="control",
+        worlds=physical_rows,
+        layout="reversed",
+        replay=0,
+    )
+    statuses["row_map"] = mismatch is not None and mismatch.get("field") == "output.q.0"
+    witnesses["row_map"] = {} if mismatch is None else mismatch
+    return statuses, witnesses
+
+
+def _actual_capture_controls(
+    args: argparse.Namespace,
+) -> tuple[dict[str, bool], dict[str, dict[str, Any]]]:
+    """Run disposable faults through a real Capture -> extraction -> comparison.
+
+    These records are never added to the registered matrix or evidence units.
+    They validate only that the capture and row-map boundary cannot conceal a
+    deliberately injected Q/state/cursor/extraction defect.
+    """
+    _record, reference, _digests = _run_record(args, "frozen", 4, "canonical", -1, 1)
+    statuses: dict[str, bool] = {}
+    witnesses: dict[str, dict[str, Any]] = {}
+    for label, expected_field in (
+        ("q", "output.q.0"),
+        ("state", "sim.bodies"),
+        ("cursor", "sim.rng_counter"),
+    ):
+        _record, candidate, _digests = _run_record(
+            args, "frozen", 4, "canonical", -1, 1, control_fault=label
+        )
+        _count, mismatch = _compare_tapes(
+            reference,
+            candidate,
+            roster="control",
+            worlds=4,
+            layout="canonical",
+            replay=-1,
+        )
+        statuses[label] = mismatch is not None and mismatch.get("field") == expected_field
+        witnesses[label] = {} if mismatch is None else mismatch
+    _record, candidate, _digests = _run_record(
+        args, "frozen", 4, "canonical", -1, 1, extraction_rows=(3, 2, 1, 0)
+    )
+    _count, mismatch = _compare_tapes(
+        reference,
+        candidate,
+        roster="control",
+        worlds=4,
+        layout="canonical",
+        replay=-1,
+    )
+    statuses["row_map"] = mismatch is not None
+    witnesses["row_map"] = {} if mismatch is None else mismatch
     return statuses, witnesses
 
 
@@ -269,15 +390,21 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         not torch.cuda.is_available() or "A100" not in torch.cuda.get_device_name()
     ):
         raise ValueError("T4A CUDA requires an A100")
-    controls, control_witnesses = _controls(args.device)
+    commit = source_commit()
+    if args.device == "cuda":
+        # Preload before disposable controls: controls exercise the same real
+        # policy path and must not trigger an unreceipted lazy native build.
+        from research.gpu_sim_spike.t4a_native import preload_from_environment
+
+        preload_from_environment(commit)
+    started = time.monotonic()
+    args.deadline = started + args.seconds
+    controls, control_witnesses = _actual_capture_controls(args)
     if not all(controls.values()):
         raise T4AError("injected comparison control did not fail in the expected field")
-    commit = source_commit()
     namespace = t4a_units.namespace(commit, smoke=args.smoke, canary=args.canary)
     allocation = t4a_units.allocation(smoke=args.smoke, canary=args.canary)
     completed = t4a_units.load_ledger(args.ledger, namespace, allocation)
-    started = time.monotonic()
-    args.deadline = started + args.seconds
     horizon = 1 if args.smoke else 2 if args.canary else 256
     sizes = (4,) if args.smoke else WORLD_SIZES
     output: dict[str, Any] = {

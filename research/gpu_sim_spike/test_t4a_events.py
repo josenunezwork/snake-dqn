@@ -14,7 +14,12 @@ from src.simd_env.batch_sim import BatchSimConfig
 
 def test_event_result_has_only_frozen_coverage_keys_and_evidence(monkeypatch) -> None:
     def fake(event, checkpoint, roster, worlds, device, lane):
-        return event != "stale_cache", {"event": event, "worlds": worlds}
+        raw = [{"sim.frame": torch.tensor([0])}, {"sim.frame": torch.tensor([1])}]
+        return event != "stale_cache", {
+            "event": event,
+            "worlds": worlds,
+            "_raw_mapped_tape": raw,
+        }
 
     monkeypatch.setattr(t4a_events, "_run_one", fake)
     result = t4a_events.run_events(Path("checkpoint.pth"), "frozen", "cpu", "smoke", float("inf"))
@@ -47,7 +52,12 @@ def test_event_timeout_is_not_coverage(monkeypatch) -> None:
 
 def test_internal_restore_mismatch_is_terminal_self_consistency(monkeypatch) -> None:
     witness = {"field": "sim.rng_counter", "byte_offset": 0, "expected": 0, "actual": 1}
-    monkeypatch.setattr(t4a_events, "_run_one", lambda *args: (False, {"mismatch": witness}))
+    raw = [{"sim.frame": torch.tensor([0])}, {"sim.frame": torch.tensor([1])}]
+    monkeypatch.setattr(
+        t4a_events,
+        "_run_one",
+        lambda *args: (False, {"mismatch": witness, "_raw_mapped_tape": raw}),
+    )
     result = t4a_events.run_events(Path("checkpoint"), "frozen", "cpu", "smoke", float("inf"))
     assert len(result["evidence"]) == 1
     assert result["evidence"][0]["status"] == "INVALID_SELF_CONSISTENCY"
@@ -61,6 +71,67 @@ def test_invalid_capture_is_not_a_mechanical_completion(monkeypatch) -> None:
     monkeypatch.setattr(t4a_events, "_run_one", invalid)
     with pytest.raises(ValueError, match="nonfinite Q"):
         t4a_events.run_events(Path("checkpoint"), "frozen", "cpu", "smoke", float("inf"))
+
+
+def test_missing_e4_reference_is_incomplete_and_later_sizes_continue(monkeypatch) -> None:
+    """A mechanical E4 failure cannot manufacture an E64/E1024 mismatch."""
+
+    raw = [{"sim.frame": torch.tensor([0])}, {"sim.frame": torch.tensor([1])}]
+
+    def fake(event, checkpoint, roster, worlds, device, lane):
+        if event == "ring_wrap" and worlds == 4:
+            raise RuntimeError("E4 mechanical exception")
+        return True, {"_raw_mapped_tape": raw}
+
+    monkeypatch.setattr(t4a_events, "_run_one", fake)
+    result = t4a_events.run_events(Path("checkpoint"), "frozen", "cpu", "main", float("inf"))
+    ring = [row for row in result["evidence"] if row["event"] == "ring_wrap"]
+    assert [row["worlds"] for row in ring] == [4, 64, 1024]
+    assert [row["status"] for row in ring] == ["INCOMPLETE", "INCOMPLETE", "INCOMPLETE"]
+    assert len(result["evidence"]) == len(t4a_events.EVENTS) * len(t4a_events.WORLD_SIZES)
+    assert not any(row["status"] == "INVALID_SELF_CONSISTENCY" for row in ring)
+
+
+def test_only_valid_tensor_tapes_can_establish_event_mismatch(monkeypatch) -> None:
+    """None placeholders fail closed as incomplete rather than a byte mismatch."""
+
+    def fake(event, checkpoint, roster, worlds, device, lane):
+        if worlds == 4:
+            return True, {"_raw_mapped_tape": [{"sim.frame": None}, {"sim.frame": None}]}
+        return True, {"_raw_mapped_tape": [{"sim.frame": torch.tensor([0])}] * 2}
+
+    monkeypatch.setattr(t4a_events, "_run_one", fake)
+    result = t4a_events.run_events(Path("checkpoint"), "frozen", "cpu", "main", float("inf"))
+    assert all(row["status"] == "INCOMPLETE" for row in result["evidence"])
+
+
+def test_short_e4_prefix_still_reports_a_valid_byte_mismatch(monkeypatch) -> None:
+    def fake(event, checkpoint, roster, worlds, device, lane):
+        if worlds == 4:
+            return True, {"_raw_mapped_tape": [{"sim.frame": torch.tensor([0])}]}
+        return True, {
+            "_raw_mapped_tape": [
+                {"sim.frame": torch.tensor([1])},
+                {"sim.frame": torch.tensor([0])},
+            ]
+        }
+
+    monkeypatch.setattr(t4a_events, "_run_one", fake)
+    result = t4a_events.run_events(Path("checkpoint"), "frozen", "cpu", "main", float("inf"))
+    assert result["evidence"][0]["status"] == "INCOMPLETE"
+    assert result["evidence"][len(t4a_events.EVENTS)]["status"] == "INVALID_SELF_CONSISTENCY"
+
+
+def test_short_matching_prefix_is_incomplete_not_a_mismatch(monkeypatch) -> None:
+    def fake(event, checkpoint, roster, worlds, device, lane):
+        tape = [{"sim.frame": torch.tensor([0])}]
+        if worlds != 4:
+            tape.append({"sim.frame": torch.tensor([1])})
+        return True, {"_raw_mapped_tape": tape}
+
+    monkeypatch.setattr(t4a_events, "_run_one", fake)
+    result = t4a_events.run_events(Path("checkpoint"), "frozen", "cpu", "main", float("inf"))
+    assert all(row["status"] == "INCOMPLETE" for row in result["evidence"])
 
 
 def test_restore_uses_snapshot_dtypes_instead_of_initial_template(monkeypatch) -> None:
