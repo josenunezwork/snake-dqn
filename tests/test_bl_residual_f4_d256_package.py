@@ -179,9 +179,13 @@ def test_canary_covers_main_transport_and_caps_leave_series_headroom(
 
     entrypoint = (package.ROOT / "research/bl_residual/f4_d256_colab.sh").read_text()
     monkeypatch.setattr("research.colab_cli.canary._entrypoint", lambda *_: entrypoint)
-    inventory = [{"path": "/fixture", "dest": "b8.pth", "sha256": "a" * 64}]
+    inventory = [
+        {"path": "/fixture/b8.pth", "dest": "b8.pth", "sha256": "a" * 64},
+        {"path": "/fixture/metadata.tar", "dest": "metadata.tar", "sha256": "b" * 64},
+    ]
     main, canary = package.manifests(tmp_path, "b" * 40, inventory)
     assert canary["inputs"] == main["inputs"] == inventory
+    assert canary["env"]["METADATA_ARCHIVE_SHA256"] == "b" * 64
     assert canary["script"] == main["script"] == canary["canary"]["family"]
     assert canary["required_exports"] == main["required_exports"]
     assert main["output_dir"] != canary["output_dir"]

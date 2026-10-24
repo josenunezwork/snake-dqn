@@ -4,8 +4,12 @@ set -euo pipefail
 : "${COLAB_INPUT_DIR:?requires bound uploaded inputs}"
 : "${F4_MODE:?requires manifest mode}"
 : "${F4_DEVICE:?requires explicit manifest device}"
+: "${METADATA_ARCHIVE_SHA256:?requires bound metadata archive digest}"
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1 CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONUNBUFFERED=1
+python -m research.metadata_archive unpack \
+  --archive "$COLAB_INPUT_DIR/metadata.tar" --root "$COLAB_INPUT_DIR" \
+  --sha256 "$METADATA_ARCHIVE_SHA256"
 if [ "$F4_MODE" = canary ]; then
   python -m research.bl_residual.f4_canary
 else
