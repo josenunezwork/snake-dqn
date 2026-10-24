@@ -559,7 +559,7 @@ def main() -> None:
     parser.add_argument("--input-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--mode", choices=("smoke", "canary", "main"))
-    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--device", choices=("cpu", "cuda", "cuda:0"), default="cpu")
     parser.add_argument("--preflight-main", action="store_true")
     args = parser.parse_args()
     if args.preflight_main:

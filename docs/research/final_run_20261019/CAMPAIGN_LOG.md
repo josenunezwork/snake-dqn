@@ -229,6 +229,9 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 2026-10-23 22:09 PT | OWNER: "i think we can make even more use of the a100 ask astra advisors i saw speedup and think it can get even faster". Round-36 Astra panel launched (CUDA architect, large-batch sim engineer, Colab ops, ML research lead, red team). It asks for the next order of magnitude after V8's 3×, fuller A100 utilization (larger E, CUDA graphs, warm runtimes, multi-lane allocations) and other high-value parallel A100 work. |
 | 2026-10-23 22:56 PT | Rounds 36–37 (11 Astras) all returned. Consensus: integrate FLOOD+MOVE+selected V8 and measure first (never measured; V8's 3× already uses fast flood); the scripted tick 1.18 s still needs 2.3×; next realistic gain is 2–4× from removing repeated board/body work (incremental counted occupancy, bitboards, warp-packed geometry, LUTs, Triton fusion), then CUDA graphs; E4096 is a test, E16384/persistent kernels premature; bundle experiments per allocation; the supervisor chain (runtime retention) API is H100-only; spare slots go to verification and approved fits, not more timing. Astra judge r3637 is ruling. DISPATCHED: MOVE2 main fresh-move2-02 (A100), V8 split canary (A100), L4 native compile check (gates the sparse canary). Owner rule recorded: Codex stop at 98% weekly used, with no auto account switch (launcher enforces; memory codex-quota-stop). |
 | 2026-10-23 23:02 PT | Round-36/37 Astra JUDGMENT: finish the MOVE/FLOOD/V8-SPLIT decisions, then the combined all-roster integration benchmark. Residual order: warp-packed geometry, counted occupancy, exact LUTs, bounded Triton fusion, CUDA graphs, E4096. Bundle experiments per allocation. **Fund A100 runtime-retention qualification (4.8 h / 48 u)**. Slot 2 is L4 verification, slot 3 admitted work. First wave ≤88.8 u; conditional ≤235.2 u. Sol a100retain is building it. MOVE2 main fresh-move2-02 INCOMPLETE: UPLOAD_CAP, the same control-path starvation as the P1 repair, because supervisors are reniced to 15 under a saturated 12-worker factory. Astra ruling on supervisor priority requested (JUDGMENT_COLAB_SUPERVISOR_PRIORITY_20261023.md). The L4 compile check failed on a missing PyYAML (Sol compilefix). D256 -13: 493 parents this attempt, 147 pending. |
+| 2026-10-23 23:44 PT | **D256 COMPLETE** at 23:18 PT. Final attempt -13: 652 parents, 0 pending, cumulative factory 4.54 h, 0 thermal trips. **Union ledger published** sha 30919209…eb809: 8 attempts, 1,566 sealed units, 864 parents; local = portable = origin (Sol d256post 325ff48d). No fits or looks yet. The post-P1 runbook research/bl_residual/RUN_D256_NEXT.sh is staged: F4 D256 fit on L4 (~6 u) → stage D1024 → round-27 speed equivalence (bf8ac97d) → D1024 at W12 via 3c5fc403, or the OLD W6 fallback if T-EQ FAILs. **P1 final window opened:** renicer stopped; timing arm (owner bl-p1-source-repair-10-canary-6f31cd3de308); drain verified (factory COMPLETE, no live drivers); trees d0d92bdb; 0 assignments; reconciliation additional debit 0.0 (measured: no P1 job since -04); cumulative written; Claude canary line check written; admitted; **p1-repair10-05-canary DISPATCHED at nice 0** (allocation success; staging sample host load 3.3). Disclosed: Sol a100retain running at nice 15. |
+| 2026-10-23 23:50 PT | **P1 FINAL CANARY FAILED: INCOMPLETE / UPLOAD_CAP** (p1-repair10-05-canary, 438 s, stop_verified true, cleanup null). The total upload time cap was reached on a small .sha256 sidecar, even though the supervisor ran at nice 0 with the factory drained and host load ~3. **Correction:** CPU starvation does NOT explain the -04 repair failure; the Colab upload/control path is intermittently too slow (the -04 canary passed in 113.8 s). Per Astra JUDGMENT_P1_REPAIR_ATTEMPT2, any canary failure closes the authorization: **P1 route STOPPED, P1 NOT_READY operationally; the critic PASS stands; no repair dispatched.** Window disarmed with the owner token (release verified; 0 assignments; balance 1,092.60 → 1,092.43). Canary debit to be recorded conservatively in the P1 ledger. Next: the D256 runbook (F4 fit on L4 etc.) now that the Mac and Colab are free. |
+| 2026-10-24 00:00 PT | F4 D256: the 'prepare' step first failed (Colab manifest lacked an explicit device). Sol f4prepfix fixed it at frozen source pin c2c82ff2 (cuda:0; FitRecipe and registration unchanged; 101 + 63 tests; Codex-V light). Runbook copy pinned at ops/RUN_D256_NEXT.c2c82ff2.sh. prepare-02 PASS (pack big-lever/exp/f4/d256-pack-02); **F4 canary bl-f4-d256-canary-02 DISPATCHED** (L4). Watchd COLAB_CLI_UNQUALIFIED: origin/main research/colab_cli = 78691a86 ≠ qualified d0d92bdb, from Sol a100retain's retention candidate (3fd14d26) and the persistence change (76b627dc). Dispatches stay on frozen qualified pins; the new tree needs its acceptance run. V8 split canary-02 running. L4 compile check was refused pre-allocation (upload too large; Sol compilesize). |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -706,3 +709,89 @@ refusals; it is not a full-suite qualification. No transport/test fixture was
 changed to hide that identity difference. Only the owned pytest child received
 one interrupt; no worker, daemon, tmux or provider action occurred. The independent
 HOLD receipt and all earlier artifacts remain immutable.
+
+
+## D256 final union publication — 2026-10-23, outcome-blind
+
+D256 is operationally COMPLETE across all eight original Mac attempts
+`mac-pack-02/d256-output-mac-01` through `-08`, retaining
+`d256-state-mac-01`. The existing `d256_resume.attempt_chain` verified every
+start/terminal/export, cumulative wall/worker charges and sealed rate-file hash;
+`d256_resume.publish_ledger` verified complete immutable triplets and wrapper
+lineage without invoking a scientific aggregator. Cumulative factory time is
+16,333.69747612602 seconds (4.537138187812783 h); no registered-rate stop fired.
+The final attempt completed the remaining 652 parents; all 864 allocated parent
+session records are present in the union's 1,566 immutable units. These are
+operational inventory counts, not label yields or fit/held-out outcomes.
+
+Portable local ledger:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/d256-union-final-01/verified-ledger.json`.
+Published identical ledger triplet:
+`research/bl_labels/ledger/D256_UNION_FINAL_20261023.json`.
+Payload SHA256:
+`30919209b62307f8d4392b4e5925a7c4b0c4a21a2abd55a5e647428453eeb809`.
+Original attempt payloads, receipts and sealed rates remain immutable. The
+portable ledger's `lives/` directory is local artifact storage, not Git content.
+
+This phase is published before any F4 partition preparation or analysis. The
+next preparer must verify local ledger bytes equal this path in `origin/main`
+and revalidate payload hashes before consuming labels. No fit, reserve look,
+funding analysis, gameplay analysis or speed-equivalence comparison was run.
+F4's recipe remains `49d12f486bffa455adcedbc318e88f1524f5c502894d0c1ace47daa84b9d3a5a`
+and registration `66388c795b3bec5bd014fa03d700994527b67763479143f7c3e5f35d1bb2fd65`.
+All actual fit/speed/D1024 jobs wait for the exclusive P1 window to close;
+preparation confers no dispatch, scientific-look or serving authority.
+
+
+## F4 D256 post-P1 preparation — 2026-10-23, no fit or outcome look
+
+The outcome-blind D256 union was pushed in `483c8f56`, then local, portable and
+`origin/main` ledger bytes were confirmed identical at SHA256
+`30919209b62307f8d4392b4e5925a7c4b0c4a21a2abd55a5e647428453eeb809`.
+F4 implementation `6549f84d` prepares a strict mechanical partition, exact
+registered D256-only L4 fit, same-input/source synthetic family canary, fit-phase
+publication gate and fault-free D1024 collection staging. No factory payload
+outcome, fit, held-out/reserve statistic, funding or gameplay result was examined.
+
+Qualified F4 source pin `e01f3a96c9fa861b16c0708c500ca29c67b48bd5`, clean detached
+`/Users/josenunez/Projects/ml/snake-dqn-f4-d256-qualified-01.noindex`, uses exactly
+qualified CLI tree `d0d92bdb572b770284a1fea6152417ffa5f06bea`. Actual registry check
+passed. Relative to `6549f84d`, only the CLI launcher's bytes return to the
+qualified version; explicit ours merge `e23451f0` publishes this source while
+preserving main's existing `7d4f2df30382c7808d5c96d1787e84b50bee9f5a` transport.
+This follows the existing round-33 source-snapshot pattern and changes no registry.
+
+Light independent Codex-V static review has no remaining static blockers;
+create-only review receipt SHA256
+`bf64e7eca74bf30d1890eca6201e1053716f584ebc7677b3a7fe3aa4ac556cae` at
+`research/bl_residual/CODEX_V_D256_PREP_STATIC_20261023.json`.
+Python AST/heredoc syntax, Black/isort/flake8, shell syntax and diff checks passed.
+The P1 quiet-window arm already existed; both prepared entrypoints refused it
+before numerical execution. Therefore no numerical tests, import preflight,
+training NPZ conversion, live canary or finalized production manifest is claimed.
+The operator's first post-P1 phase must pass the bounded serial no-fit inverse,
+package and current executable-relevance tests; preparation enforces that receipt
+before opening label payloads. Full qualified CLI/main input/live canary validation
+are subsequent mandatory gates, not waived by this static review.
+
+Prospective D256 reservations, doubled once: canary base/effective 0.5/1 u,
+reserve 0.1/0.2 u, timeout 10/20 min; main 2/4 u, reserve 0.4/0.8 u,
+timeout 60/120 min. Total 6 u within the registered whole-fit-series 10/20 u;
+14 u remains uncommitted. L4 ceiling 1.54 u/h is rechecked at live admission.
+The main 30-minute estimate is a conservative envelope, not measured fit speed.
+No attempt, cap, dose, threshold, seed or scientific look is extended.
+
+Exact phased commands are in `research/bl_residual/RUN_D256_NEXT.sh` and
+`D256_NEXT_HANDOFF_20261023.md`. All wait for the entire P1 exclusive window
+and verified release. Fit and Colab release finish before round-27 timing, then
+D1024: speed pin `bf8ac97dc66d1b4515e4c5510db3ad5886fa695d`, operational wrapper
+`3c5fc403e5167a47ebb8b2fd090fd1e024da8e76`, existing W12 ruled admission SHA
+`65ea988e086ea1c26fc13dba505f4aae7ba524d443095def77ba10c1b80fa4fe`.
+The prospective ALLOW_COLAB_CONTROL_NICE0 ruling is not activated by this lane;
+paid overlap remains behind its own qualification. No calibration rerun, W11,
+unqualified companion monitor or baseline reset is introduced. R-A remains the
+single joint D256/D1024 reserve look after both immutable fits; it is unprepared
+and unrun here. Serving, released checkpoints, existing receipts, tmux and live
+process priorities were untouched.
+
+Final independent static command/snapshot review: `research/bl_residual/CODEX_V_D256_COMMANDS_STATIC_20261023.json`, SHA256 `b6becbee73779912c9bc6b911505a7f16576d58e0718046de61de3dfd85b5ccf`; no remaining static blockers, mandatory post-P1 runtime gates retained.

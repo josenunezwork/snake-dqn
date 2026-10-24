@@ -207,6 +207,211 @@ def start(
         raise
 
 
+def _chain_values(manifests: list[dict[str, Any]], minutes: float, units: float) -> None:
+    """Fence the narrow A100 retained-main route before it reaches the broker."""
+    if len(manifests) < 2:
+        raise Refused("retained dispatch requires two or more packets")
+    if not all(
+        item.get("requirements", {}).get("gpu") == "A100"
+        and item.get("requirements", {}).get("allowed_gpus") == ["A100"]
+        for item in manifests
+    ):
+        raise Refused("retained dispatch accepts explicit A100-only packets")
+    if any(item.get("canary", {}).get("mode") == "probe" for item in manifests):
+        raise Refused("retained canaries cannot promote or enter an A100 main chain")
+    if len({item.get("job_id") for item in manifests}) != len(manifests):
+        raise Refused("retained dispatch has duplicate job identifiers")
+    if len({item.get("output_dir") for item in manifests}) != len(manifests):
+        raise Refused("retained dispatch requires separate output roots")
+    if not all(math.isfinite(value) and value > 0 for value in (minutes, units)):
+        raise Refused("retention minutes and units must be finite positive values")
+    if minutes > 240 or units > 40:
+        raise Refused("retained ready-work chain exceeds the ruled 4 h / 40 u ceiling")
+    if any(
+        item.get("resume_exemption", {}).get("kind") == "acceptance"
+        and item.get("timeout_minutes", math.inf) > 60
+        for item in manifests
+    ):
+        raise Refused("retained chain packets require individually bounded <=60 minute manifests")
+    # Validate ordinary native-canary evidence independently for every main
+    # packet.  The existing canary checker enforces release proof and all
+    # source/input/transport pins; retained jobs never supply their own proof.
+    sys.path.insert(0, str(HERE.parents[1]))
+    from research.colab_cli import canary, retention
+
+    broker = Path(manifests[0]["_broker"]).resolve()
+    if broker != HERE.parents[1]:
+        raise Refused("use the retained-chain dispatch wrapper from the selected broker checkout")
+    try:
+        retention.validate_a100_chain(manifests, minutes, units)
+        for item in manifests:
+            retention.runtime_cache(item, broker)
+            retention.require_native_qualification(item["retention_chain"]["qualification"], broker)
+    except (retention.RetentionError, KeyError, OSError, ValueError) as exc:
+        raise Refused(f"retained chain lacks source-bound A100 qualification: {exc}") from exc
+
+    for item in manifests:
+        try:
+            canary.check(item, Path(item["_broker"]))
+        except (canary.CanaryError, KeyError, OSError, ValueError) as exc:
+            raise Refused(f"retained chain requires accepted native main canary: {exc}") from exc
+
+
+def start_chain(
+    broker: Path,
+    cwd: Path,
+    state: Path,
+    manifests: list[Path],
+    log: Path,
+    name: str,
+    minutes: float,
+    units: float,
+    deadline: float,
+) -> None:
+    """Submit one qualified serial chain; the broker retains/release-checks it."""
+    log.touch(exist_ok=False)
+    register(log.parent.parent, log, name)
+    launcher = [
+        str(broker / "research/colab_cli/launch.sh"),
+        "--state-dir",
+        str(state),
+        "--colab",
+        str(Path.home() / ".local/bin/colab"),
+        "chain",
+        *[str(path) for path in manifests],
+        "--retention-minutes",
+        str(minutes),
+        "--retention-units",
+        str(units),
+    ]
+    environment = shlex.join(["env", f"HOME={Path.home()}", f'PATH={os.environ["PATH"]}'])
+    body = (
+        f"{{ cd {shlex.quote(str(cwd))} && {environment} {shlex.join(launcher)}; }} "
+        f">> {shlex.quote(str(log))} 2>&1; rc=$?; "
+        f'printf "EXIT=%s\\n" "$rc" >> {shlex.quote(str(log))}; exit "$rc"'
+    )
+    command(
+        ["tmux", "new-session", "-d", "-s", f"job-{name}", persistent_shell(body)],
+        deadline=deadline,
+    )
+
+
+def dispatch_chain(args: argparse.Namespace) -> str:
+    """Validate and submit a bounded retained A100 chain exactly once.
+
+    This wrapper intentionally has no allocation retry.  A chain handoff is a
+    mutating operation whose ambiguity must be resolved from broker evidence,
+    never submitted again by the local wrapper.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.name):
+        raise Refused("NAME must contain only letters, digits, dot, underscore, hyphen")
+    ops = Path(os.environ.get("OPS_DIR", OPS)).resolve()
+    broker, cwd = args.broker.resolve(), args.cwd.resolve()
+    state = (args.state_dir or ops / "state" / args.name).resolve()
+    paths = [args.manifest.resolve(), *[path.resolve() for path in args.chain_manifest]]
+    values = [read_json(path) for path in paths]
+    for value in values:
+        value["_broker"] = str(broker)
+    _chain_values(values, args.retention_minutes, args.retention_units)
+    for value in values:
+        value.pop("_broker")
+        require_resume_policy(value)
+        if value.get("scientific_admission") is False:
+            raise Refused("manifest scientific_admission=false")
+        if not isinstance(value.get("budget", {}).get("other_assignments", {}), dict):
+            raise Refused("budget.other_assignments must be a map")
+        commit = value.get("commit")
+        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise Refused("manifest commit must be a full published SHA")
+    for subdir in ("logs", "state", "manifests", "dispatch"):
+        (ops / subdir).mkdir(parents=True, exist_ok=True)
+    qualified(broker, ops)
+    for value in values:
+        qualified(broker, ops, ref=value["commit"])
+    reservation = ops / "dispatch" / args.name
+    reservation.mkdir()
+    copied: list[Path] = []
+    for index, (path, value) in enumerate(zip(paths, values)):
+        copied_path = ops / "manifests" / f"{args.name}-{index}.json"
+        with copied_path.open("x") as stream:
+            json.dump(value, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+        copied.append(copied_path)
+    for index, path in enumerate(copied):
+        validate(
+            broker,
+            cwd,
+            state / f"packet-{index}",
+            path,
+            ops / "logs" / f"{args.name}-{index}.validate",
+        )
+    seconds = float(os.environ.get("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600"))
+    if not math.isfinite(seconds) or not 0 < seconds <= 600:
+        raise Refused("allocation timeout must be positive and at most 600 seconds")
+    with allocation_lock(ops / "alloc.lock", seconds) as deadline:
+        qualified(broker, ops, deadline)
+        for value in values:
+            qualified(broker, ops, deadline, ref=value["commit"])
+        # The supervisor itself snapshots/charges one continuous assignment.
+        # Refreshing each packet here would create divergent other-assignment
+        # evidence and undermine that single accounting boundary.
+        log = ops / "logs" / f"{args.name}.log"
+        start_chain(
+            broker,
+            cwd,
+            state,
+            copied,
+            log,
+            args.name,
+            args.retention_minutes,
+            args.retention_units,
+            deadline,
+        )
+    ensure_watcher(ops, broker)
+    return f"DISPATCHED_CHAIN {args.name} packets={len(copied)} log={log}"
+
+
+def dispatch_retention_acceptance(args: argparse.Namespace) -> str:
+    """Start only the separately reviewed A100 retention acceptance boundary."""
+    if args.name is not None or args.manifest is not None:
+        raise Refused("retention acceptance does not accept ordinary NAME/MANIFEST arguments")
+    broker, cwd = args.broker.resolve(), args.cwd.resolve()
+    plan, admission = args.retention_acceptance.resolve(), args.boundary_admission.resolve()
+    if not plan.is_file() or not admission.is_file():
+        raise Refused("retention acceptance requires existing plan and boundary admission")
+    if args.review_token != "A100_RETENTION_ACCEPTANCE_REVIEWED":
+        raise Refused("retention acceptance requires the exact independent review token")
+    log_root = Path(os.environ.get("OPS_DIR", OPS)).resolve() / "logs"
+    log_root.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(plan.read_bytes()).hexdigest()[:12]
+    log = log_root / f"a100-retention-acceptance-{digest}.log"
+    if log.exists():
+        raise Refused(f"retention acceptance log already exists: {log}")
+    launcher = HERE / "retention_acceptance.sh"
+    arguments = [
+        str(launcher),
+        str(broker),
+        "--plan",
+        str(plan),
+        "--boundary-admission",
+        str(admission),
+        "--review-token",
+        args.review_token,
+    ]
+    body = (
+        f"{{ cd {shlex.quote(str(cwd))} && {shlex.join(arguments)}; }} "
+        f">> {shlex.quote(str(log))} 2>&1; rc=$?; "
+        f'printf "EXIT=%s\\n" "$rc" >> {shlex.quote(str(log))}; exit "$rc"'
+    )
+    # This is intentionally outside `qualified()`: it is the candidate's
+    # independent requalification itself.  The execute command validates the
+    # committed inventory and final-only regression before native allocation.
+    command(
+        ["tmux", "new-session", "-d", "-s", f"job-a100-retain-{digest}", persistent_shell(body)]
+    )
+    return f"DISPATCHED_RETENTION_ACCEPTANCE plan={plan} log={log}"
+
+
 def read_json(path: Path) -> dict:
     """Require an object; malformed local evidence never authorizes a retry."""
     value = json.loads(path.read_text())
@@ -590,18 +795,43 @@ def dispatch(args: argparse.Namespace) -> str:
 def main() -> int:
     """Keep CLI compatible with dispatch.sh's existing interface."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("name")
-    parser.add_argument("manifest", type=Path)
+    parser.add_argument("name", nargs="?")
+    parser.add_argument("manifest", type=Path, nargs="?")
     parser.add_argument("--dispatch-txt", type=Path)
     parser.add_argument(
         "--broker", type=Path, default=Path("/Users/josenunez/Projects/ml/snake-dqn")
     )
     parser.add_argument("--cwd", type=Path, default=Path("/Users/josenunez/Projects/ml/snake-dqn"))
     parser.add_argument("--state-dir", type=Path)
+    parser.add_argument(
+        "--chain-manifest",
+        type=Path,
+        action="append",
+        default=[],
+        help="additional already-qualified A100 main packet for one retained chain",
+    )
+    parser.add_argument("--retention-minutes", type=float)
+    parser.add_argument("--retention-units", type=float)
+    parser.add_argument("--retention-acceptance", type=Path)
+    parser.add_argument("--boundary-admission", type=Path)
+    parser.add_argument("--review-token")
     args = parser.parse_args()
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(143))
     try:
-        print(dispatch(args))
+        if args.retention_acceptance is not None:
+            if args.boundary_admission is None or args.review_token is None:
+                raise Refused("retention acceptance requires boundary admission and review token")
+            print(dispatch_retention_acceptance(args))
+        elif args.name is None or args.manifest is None:
+            raise Refused("ordinary dispatch requires NAME and MANIFEST")
+        elif args.chain_manifest:
+            if args.retention_minutes is None or args.retention_units is None:
+                raise Refused("retained chain requires --retention-minutes and --retention-units")
+            print(dispatch_chain(args))
+        elif args.retention_minutes is not None or args.retention_units is not None:
+            raise Refused("retention arguments require --chain-manifest")
+        else:
+            print(dispatch(args))
     except (OSError, ValueError, TypeError, TimeoutError, subprocess.SubprocessError) as exc:
         print(f"REFUSE: {exc}", file=sys.stderr)
         return 1
