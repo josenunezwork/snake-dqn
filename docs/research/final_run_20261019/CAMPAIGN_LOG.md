@@ -827,8 +827,19 @@ is unchanged. Failure retains evidence and stops new overlap admission without
 changing deadlines, width, baselines, retry authority or existing cleanup duties.
 
 The real `ops/renicer.sh` is now a source-pinned wrapper for the shared classifier
-(SHA256 `5f5a4a9d9ec66897deff4fd3f3d35e5973ac54f24fe09c555fe5f3d804115090`),
+(SHA256 `22a12be5395fe87fe010f421d6b1595be5b3f806e8a87d34782e47ce6c38a64a`),
 with its former bytes preserved create-only. No old loop was restarted; native
 operator activation is a mandatory canary precondition. Focused serial checks
 and any inert local actual-priority fixture are indexed in the independent
 receipt; neither is provider qualification or the authorized overlap canary.
+
+Independent inert local priority proof passed at code revision `a6114e24`:
+actual native pane/bootstrap/launch-shell/supervisor/caffeinate/CLI/mint identities
+were observed at nice 0, the shared renicer agreed, the owned fixture exited 0
+and its processes/session were gone. Durable evidence is under
+`big-lever/exp/colab-control-nice0-20261023/codex-v-native-pass-a6114e24/`;
+result SHA256 `2a19da839b3d7794100bd8bdcc9bedef1f28e6ac66e84bf9ac854e5b9555e944`.
+The first failed fixture exposed and fixed Darwin caffeinate's same-PID utility
+exec; its evidence remains alongside the passing fixture. All fixture payloads
+were inert local stubs with a synthetic qualification witness: zero provider
+calls, no factory, no scientific payload, and no transport/overlap qualification.

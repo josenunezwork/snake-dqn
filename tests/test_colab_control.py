@@ -350,3 +350,38 @@ def test_readable_witness_mismatch_is_ordinary_but_unreadable_live_witness_fault
             cwd_reader=lambda _: str(tmp_path),
             source_checker=lambda *_: True,
         )
+
+
+def test_darwin_caffeinate_execs_supervisor_in_root_and_keeps_exact_assertion_child(tmp_path):
+    original = _record(tmp_path)
+    raw = json.loads(original.path.read_text())
+    supervisor_argv = tuple(raw["argv"])
+    raw["argv"] = ["/usr/bin/caffeinate", "-is", *supervisor_argv]
+    raw["executable"] = "/usr/bin/caffeinate"
+    pending_path = Path(original.admission_path)
+    pending = json.loads(pending_path.read_text())
+    pending.update(argv=raw["argv"], executable=raw["executable"])
+    pending_path.write_text(json.dumps(pending))
+    raw["admission_sha256"] = hashlib.sha256(pending_path.read_bytes()).hexdigest()
+    original.path.write_text(json.dumps(raw))
+    record = control._record(original.path, raw)
+    rows = _rows(record)
+    rows[0].update(executable=record.interpreter, argv_vector=supervisor_argv)
+    rows[1].update(executable="/usr/bin/caffeinate", argv_vector=record.argv)
+    found = control.annotate(
+        rows,
+        {(record.pid, record.birth): record},
+        cwd_reader=lambda _: str(tmp_path),
+        source_checker=lambda *_: True,
+    )
+    assert found[10].role == "supervisor"
+    assert found[11].role == "wrapper"
+    assert 12 not in found
+    rows[1]["argv_vector"] = (*record.argv, "--unapproved")
+    found = control.annotate(
+        rows,
+        {(record.pid, record.birth): record},
+        cwd_reader=lambda _: str(tmp_path),
+        source_checker=lambda *_: True,
+    )
+    assert found[10].role == "supervisor" and 11 not in found
